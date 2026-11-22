@@ -1107,6 +1107,237 @@ describe("asking the User's own AI to check a Note, with no model set up in Inca
   });
 });
 
+const SELECTED = "Fuel cost doubled over the year.";
+const PROPOSE =
+  "Change only these words: read the note with read_mind and named, then call propose_changes on each paragraph that holds them, with the rest of that paragraph word for word as it is. Change nothing else in the note.";
+const selectedRequest = (mindId: string, task: string, selection = SELECTED) =>
+  `My message is about my note “${TITLE}” in IncarnaMind (mindId: ${mindId}). These are the words I selected in it, a line for each paragraph:\n\n${selection}\n\n${task}`;
+
+describe("handing the User's own AI the words they selected (#3612)", () => {
+  /** An agent that may change the User's Notes, as one does once they allow it. */
+  async function proposing() {
+    const base = await started({ openLink: false });
+    const made = await base.core.connectAgent({
+      name: "Claude Code",
+      folderIds: [base.ferries.id],
+      client: "claude-code",
+      propose: true,
+    });
+    return { ...base, pairing: made.pairing, agent: await connectLegacyAgent(made.launch) };
+  }
+
+  // protects=each of the selection menu's five actions hands the Note's selected words over: the line names the Note and quotes the words, in the User's words, with no id; the request holds them whole with the task and the Note's id, an edit asked as propose_changes on the paragraph that holds them and nothing else, Explain as a reply that changes nothing; fails_when=the line carries the id, the words or the task are lost, an edit reaches past the words, or Explain is told to change the Note
+  it.each([
+    [
+      "explain",
+      {},
+      `About my note “${TITLE}” in IncarnaMind: explain “Fuel cost doubled over the year”.`,
+      "Explain them to me here in chat, using my Documents where they help. Change nothing in the note.",
+    ],
+    [
+      "improve",
+      {},
+      `About my note “${TITLE}” in IncarnaMind: improve the writing of “Fuel cost doubled over the year”, as a change in the note for me to review.`,
+      `Improve their writing: clearer and easier to read, saying the same thing. ${PROPOSE}`,
+    ],
+    [
+      "shorten",
+      {},
+      `About my note “${TITLE}” in IncarnaMind: shorten “Fuel cost doubled over the year”, as a change in the note for me to review.`,
+      `Make them shorter, keeping what they say. ${PROPOSE}`,
+    ],
+    [
+      "translate",
+      { language: "French (Français)" },
+      `About my note “${TITLE}” in IncarnaMind: translate “Fuel cost doubled over the year” into French (Français), as a change in the note for me to review.`,
+      `Translate them into French (Français). ${PROPOSE}`,
+    ],
+    [
+      "translate",
+      {},
+      `About my note “${TITLE}” in IncarnaMind: translate “Fuel cost doubled over the year”, as a change in the note for me to review.`,
+      `Translate them into the language my message names; if it names none, ask me which. ${PROPOSE}`,
+    ],
+    [
+      "edit",
+      { instruction: "Say it as the board would." },
+      `About my note “${TITLE}” in IncarnaMind, the words “Fuel cost doubled over the year”:\n\nSay it as the board would.`,
+      `Do with them what my message asks. ${PROPOSE} If my message asks about them instead, answer here in chat and change nothing in the note.`,
+    ],
+    [
+      "edit",
+      {},
+      `About my note “${TITLE}” in IncarnaMind, the words “Fuel cost doubled over the year”:`,
+      `Do with them what my message asks. ${PROPOSE} If my message asks about them instead, answer here in chat and change nothing in the note.`,
+    ],
+  ] as const)("%s %o", async (action, extra, line, task) => {
+    const { core, mind, pairing, agent } = await proposing();
+    const asked = await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: { kind: "selection", action, text: SELECTED, ...extra },
+    });
+    expect(asked).toEqual({ kind: "copy", text: line });
+    expect(JSON.stringify(asked)).not.toContain(mind.id);
+    expect(await requestRead(agent, TITLE)).toEqual({
+      mindId: mind.id,
+      title: TITLE,
+      request: selectedRequest(mind.id, task),
+    });
+    expect(await requestRead(agent, TITLE)).toEqual(NONE);
+  });
+
+  // protects=a selection across paragraphs reaches the agent whole, a line each, while the line quotes only its start; fails_when=a paragraph is lost, or the whole selection goes in the line
+  it("keeps every paragraph of a long selection, and quotes only its start in the line", async () => {
+    const { core, mind, pairing, agent } = await proposing();
+    const text = `Tallow Sound Ferries ran 2,816 crossings in 2025, more than in any year before.\n${OTHER}`;
+    const asked = await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: { kind: "selection", action: "shorten", text },
+    });
+    expect(asked).toEqual({
+      kind: "copy",
+      text: `About my note “${TITLE}” in IncarnaMind: shorten “Tallow Sound Ferries ran 2,816 crossings in 202…”, as a change in the note for me to review.`,
+    });
+    expect(await requestRead(agent, TITLE)).toMatchObject({
+      request: selectedRequest(
+        mind.id,
+        `Make them shorter, keeping what they say. ${PROPOSE}`,
+        text,
+      ),
+    });
+  });
+
+  // protects=an agent the User let read but not change their Notes is asked for the new words in its reply, so no call of its is refused; fails_when=it is told to call propose_changes
+  it("asks an agent that may not change the Note for the new words in its reply", async () => {
+    const { core, mind, connect } = await started({ openLink: false });
+    const pairing = await connect("VS Code", "vscode");
+    await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: { kind: "selection", action: "improve", text: SELECTED },
+    });
+    const agent = await connectLegacyAgent(pairing.launch);
+    const { request } = (await requestRead(agent)) as { request: string };
+    expect(request).toBe(
+      selectedRequest(
+        mind.id,
+        "Improve their writing: clearer and easier to read, saying the same thing. You may not change this note, so write the new words here in chat for me to paste.",
+      ),
+    );
+    expect(request).not.toContain("propose_changes");
+  });
+
+  // protects=the line and the request read in the interface language; fails_when=Chinese gets English words
+  it("asks in Chinese when the interface is", async () => {
+    const { core, mind, pairing, agent } = await proposing();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const asked = await core.askAgent({
+      pairingId: pairing.id,
+      mindId: mind.id,
+      ask: {
+        kind: "selection",
+        action: "translate",
+        text: "燃油成本全年翻了一番。",
+        language: "English",
+      },
+    });
+    expect(asked).toEqual({
+      kind: "copy",
+      text: `关于我在 IncarnaMind 中的笔记“${TITLE}”：把“燃油成本全年翻了一番”翻译为 English，作为修改写进笔记，由我确认。`,
+    });
+    expect(await requestRead(agent)).toMatchObject({
+      request: `我这条消息说的是我在 IncarnaMind 中的笔记“${TITLE}”（mindId：${mind.id}）。下面是我在笔记里选中的文字，每段一行：\n\n燃油成本全年翻了一番。\n\n请把这段文字翻译为 English。只改这段文字：先用 read_mind（named）读取笔记，再对包含这段文字的每个段落调用 propose_changes，段落其余部分一字不改。笔记的其他内容不要改动。`,
+    });
+  });
+
+  // protects=words selected in a Document go with that Document and where they are in it, named only once the agent reads it, and the User asks their question there; a Document the agent can't read is refused; fails_when=the Document's id is in the line, the words or their page are lost, or an unshared Document is handed over
+  it("hands over words selected in a Document, with the Document and their page", async () => {
+    const { core, tariffs, diary, pairing, agent } = await withDocuments();
+    const words = "A return fare costs 14 pounds.";
+    const asked = await core.askAgent({
+      pairingId: pairing.id,
+      mindId: null,
+      ask: {
+        kind: "selection",
+        action: "ask",
+        text: words,
+        documentId: tariffs.id,
+        pageFrom: 2,
+        pageTo: 2,
+        location: null,
+      },
+    });
+    expect(asked).toEqual({
+      kind: "copy",
+      text: "About my document “Tariffs” in IncarnaMind, the words “A return fare costs 14 pounds”:",
+    });
+    expect(JSON.stringify(asked)).not.toContain(tariffs.id);
+    expect(await requestRead(agent, "Tariffs")).toEqual({
+      mindId: null,
+      title: "Tariffs",
+      request: `My message is about these words I selected in IncarnaMind (p. 2):\n\n${words}\n\nAnswer what my message asks about them, from the document they are in and my other Documents where they help.\n\nMy message is about the document I have open in IncarnaMind: “Tariffs” (documentId: ${tariffs.id}).`,
+    });
+    await expect(
+      core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "selection", action: "ask", text: "private", documentId: diary.id },
+      }),
+    ).rejects.toThrow("That agent can’t read this Document now.");
+  });
+
+  // protects=Ask about this Document or Folder with nothing typed yet names what it is about and ends where the User types their question; fails_when=the line carries an empty question, or the Folder or Document is lost from the request
+  it("asks about a Document or a Folder with the question left to the User", async () => {
+    const { core, ferries, summary, pairing, agent } = await withDocuments();
+    expect(
+      await core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "question", text: "" },
+        onScreen: [summary.id],
+      }),
+    ).toEqual({ kind: "copy", text: "About my document “Annual summary 2025” in IncarnaMind:" });
+    expect(await requestRead(agent)).toMatchObject({
+      request: `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${summary.id}).`,
+    });
+    expect(
+      await core.askAgent({
+        pairingId: pairing.id,
+        mindId: null,
+        ask: { kind: "question", text: "" },
+        onScreen: [],
+        scope: { folderIds: [ferries.id], tagIds: [], documentIds: [] },
+      }),
+    ).toEqual({ kind: "copy", text: "From the Documents in my search scope in IncarnaMind:" });
+    expect(await requestRead(agent)).toMatchObject({
+      request: `I limited this question to these folders and documents in IncarnaMind: “Tallow Sound Ferries” (folderId: ${ferries.id}). Look only there.`,
+    });
+  });
+
+  // protects=the core takes only a selection it can hand over whole and to the right place: words of a Note to explain or change, words of a Document to ask about, never more than a request carries; fails_when=an edit names a Document, an ask names a Note, or an overlong selection is kept
+  it("refuses a selection it can't hand over as asked", async () => {
+    const { core, mind, summary, pairing } = await withDocuments();
+    const ask = (mindId: string | null, selection: Record<string, unknown>) =>
+      core.askAgent({
+        pairingId: pairing.id,
+        mindId,
+        ask: { kind: "selection", ...selection } as AgentAsk,
+      });
+    const invalid = "That isn’t a request IncarnaMind can hand to your AI.";
+    await expect(
+      ask(null, { action: "improve", text: SELECTED, documentId: summary.id }),
+    ).rejects.toThrow(invalid);
+    await expect(ask(mind.id, { action: "ask", text: SELECTED })).rejects.toThrow(invalid);
+    await expect(ask(mind.id, { action: "rewrite", text: SELECTED })).rejects.toThrow(invalid);
+    await expect(ask(mind.id, { action: "improve", text: "  " })).rejects.toThrow(invalid);
+    await expect(ask(mind.id, { action: "improve", text: "word ".repeat(4_001) })).rejects.toThrow(
+      "That’s more than your AI can be handed at once. Select fewer words and ask again.",
+    );
+  });
+});
+
 describe("read_request with nothing waiting (#3533)", () => {
   // protects=an agent that looks for a request when none waits gets an answer, not a failed call, and its activity says it looked; fails_when=the call comes back as an error or is recorded as refused
   it("answers that none is waiting, and is no refusal", async () => {

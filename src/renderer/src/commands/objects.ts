@@ -1,6 +1,7 @@
 import type { LinkedFolder, TabItem } from "../../../core/api";
 import { WALL_SWITCH } from "../../../shared/commands";
 import { displayName } from "../../../shared/documentNames";
+import { askOwnAiAbout } from "../askYourAi";
 import { core, files } from "../core";
 import { useDocumentPasswords } from "../documentPasswords";
 import { showFileLabelKey, userFile } from "../fileInfo";
@@ -10,6 +11,7 @@ import { currentTabOf } from "../layoutSlice";
 import { bridgeFrom, type LibraryBridge } from "../libraryBridges";
 import { fileStatusLabel, folderName } from "../linkedFolders";
 import { organizeFolder } from "../organizeDocuments";
+import { hiddenForOwnAiNow } from "../ownAiPanel";
 import { useRequests } from "../requests";
 import { hasRowsOfTheirOwn, useAppStore } from "../store";
 import { findTab } from "../tabs";
@@ -234,7 +236,9 @@ export const documentCommands: readonly Command[] = [
     reversible: true,
     run(ctx) {
       const bridge = bridgeOf(ctx);
-      if (bridge) return store().askAbout(bridge);
+      if (!bridge) return;
+      // With only their own AI, the line names what it is about and they ask there (#3612).
+      return hiddenForOwnAiNow() ? askOwnAiAbout(bridge.scope) : store().askAbout(bridge);
     },
   },
   {
@@ -476,7 +480,9 @@ export const folderCommands: readonly Command[] = [
     reversible: true,
     run(ctx) {
       const bridge = folderBridge(ctx);
-      if (bridge) return store().askAbout(bridge);
+      if (!bridge) return;
+      // With only their own AI, the line names what it is about and they ask there (#3612).
+      return hiddenForOwnAiNow() ? askOwnAiAbout(bridge.scope) : store().askAbout(bridge);
     },
   },
   {

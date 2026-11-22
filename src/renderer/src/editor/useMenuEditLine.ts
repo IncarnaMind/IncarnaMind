@@ -1,11 +1,13 @@
 import type { Editor } from "@tiptap/core";
 import { useEffect } from "react";
+import { forgetAsked, useAskedAgent } from "../askedAgent";
 import { estimateLine } from "../cost";
 import { answerEditAsk, dismissEditProblem, stopEdit, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { useAppStore } from "../store";
 import { appliedLineIn, setAppliedLine } from "./appliedEditLine";
 import { editProblemParts } from "./EditStatus";
+import { continueInOpenChat, handedSelectionIn } from "./selectionToOwnAi";
 
 const SHOWN_AFTER_MS = 300;
 
@@ -22,6 +24,10 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
   const pending = useEdits((state) => state.pending[mindId]);
   const problem = useEdits((state) => state.problems[mindId]);
   const menuShown = useEdits((state) => state.menuShows[mindId] === true);
+  // Words handed to the User's own AI: what became of them, until the change or the reply (#3612).
+  const handed = useAskedAgent({ kind: "change", mindId });
+  const asked = handed?.asked ?? null;
+  const askedWords = handed?.words ?? "";
 
   useEffect(() => {
     if (readOnly || editor.isDestroyed) return;
@@ -112,8 +118,34 @@ export function useMenuEditLine(editor: Editor, mindId: string, readOnly: boolea
       });
       return;
     }
+    if (!pending && asked) {
+      setAppliedLine(editor, {
+        kind: "failed",
+        asked: true,
+        blockId: handedSelectionIn(mindId)?.blockId ?? null,
+        text: askedWords,
+        action: {
+          label: t("agents.ask.continue"),
+          run: () => continueInOpenChat(mindId, asked.agent),
+        },
+        close: () => forgetAsked(asked.for),
+      });
+      return;
+    }
     clear();
-  }, [editor, mindId, readOnly, pending, problem, menuShown, t, language, openSettings]);
+  }, [
+    editor,
+    mindId,
+    readOnly,
+    pending,
+    problem,
+    menuShown,
+    t,
+    language,
+    openSettings,
+    asked,
+    askedWords,
+  ]);
 
   useEffect(() => {
     if (readOnly) return;

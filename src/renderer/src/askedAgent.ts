@@ -5,8 +5,10 @@
  * about the Note or the Document, which the core tells the windows as it records each call, so
  * nothing polls the agent. Quiet: nothing from it for a while, and the words say how to ask again;
  * a later call makes it working again. It ends when what was asked for lands: the check's report,
- * or the Note the agent wrote; a check's ends too once a model is set up. An Organize's Suggestions
- * land instead (#3610): the Library's top says what came until the User opens the Review.
+ * the Note the agent wrote, or the change to words the User selected (#3612); a check's ends too
+ * once a model is set up. Words to explain land nothing in the Note: that ends at the connection's
+ * first call about it, which has the words, as its answer comes in its own app. An Organize's
+ * Suggestions land instead (#3610): the Library's top says what came until the User opens the Review.
  */
 import { create } from "zustand";
 import type { AgentActivity, AgentPairing, ChatReadiness, OrganizeTarget } from "../../core/api";
@@ -18,7 +20,8 @@ import { useAppStore } from "./store";
 export type AskedFor =
   | { kind: "check"; mindId: string }
   | { kind: "summary"; documentId: string }
-  | { kind: "organize"; target: OrganizeTarget };
+  | { kind: "organize"; target: OrganizeTarget }
+  | { kind: "change" | "explain"; mindId: string };
 
 export type AskedState = "asked" | "working" | "quiet" | "landed";
 
@@ -50,7 +53,9 @@ const keyOf = (asked: AskedFor) =>
     ? `mind:${asked.mindId}`
     : asked.kind === "summary"
       ? `document:${asked.documentId}`
-      : ORGANIZE;
+      : asked.kind === "organize"
+        ? ORGANIZE
+        : `selection:${asked.mindId}`;
 
 export const useAgentAsked = create<{ byKey: Readonly<Record<string, AgentAsked>> }>()(() => ({
   byKey: {},
@@ -80,12 +85,13 @@ function put(key: string, asked: AgentAsked | null): void {
 
 const about = (activity: AgentActivity, asked: AgentAsked): boolean => {
   const what = asked.for;
-  if (what.kind === "check")
-    return activity.effects.some(
-      ({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId,
-    );
   if (what.kind === "summary") return activity.documentIds.includes(what.documentId);
-  return activity.tool === "list_sorting" || activity.tool === "propose_sorting";
+  if (what.kind === "organize") {
+    return activity.tool === "list_sorting" || activity.tool === "propose_sorting";
+  }
+  return activity.effects.some(
+    ({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId,
+  );
 };
 
 /** For an Organize, its Suggestions came, or the list it read had nothing waiting in it. */
@@ -93,6 +99,9 @@ const landed = (activity: AgentActivity, asked: AgentAsked): boolean => {
   if (activity.outcome !== "done") return false;
   if (asked.for.kind === "check") return activity.tool === "report_check" && about(activity, asked);
   if (asked.for.kind === "summary") return activity.tool === "create_mind";
+  if (asked.for.kind === "change")
+    return activity.tool === "propose_changes" && about(activity, asked);
+  if (asked.for.kind === "explain") return about(activity, asked);
   return (
     activity.tool === "propose_sorting" ||
     (activity.tool === "list_sorting" && activity.documentIds.length === 0)
@@ -200,6 +209,8 @@ const WORKING = {
   check: "agents.asked.checking",
   summary: "agents.asked.writing",
   organize: "agents.asked.organizing",
+  change: "agents.asked.changing",
+  explain: "agents.asked.changing",
 } as const;
 
 /**

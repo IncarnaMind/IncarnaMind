@@ -20,6 +20,7 @@ import {
   useMeetingHelp,
 } from "../meetingHelp";
 import { canRecordMeetings } from "../meetings";
+import { hiddenForOwnAiNow } from "../ownAiPanel";
 import { useAppStore } from "../store";
 import type { Command } from "./registry";
 
@@ -120,7 +121,8 @@ export const meetingHelpCommands: readonly Command[] = [
     group: "main",
     // It shows the call's conversation in the assistant and changes nothing.
     reversible: true,
-    when: meetingsOn,
+    // With only their own AI, the help stays in the floating panel (#3612).
+    when: () => meetingsOn() && !hiddenForOwnAiNow(),
     enabled: () => (liveMeetingNow()?.help ? true : { reason: "meetings.help.none" }),
     async run() {
       const help = liveMeetingNow()?.help;

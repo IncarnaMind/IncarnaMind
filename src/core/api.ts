@@ -13099,10 +13099,43 @@ export interface AskedSentence {
 export const MAX_ASKED_SENTENCES = 30;
 
 /**
+ * What the User asks their own AI to do with words they selected (#3612): a Note's selection menu
+ * explains or changes them ("edit": as their message says); a Document's, "ask", leaves the
+ * question to their message.
+ */
+export const SELECTION_ACTIONS = [
+  "explain",
+  "improve",
+  "shorten",
+  "translate",
+  "edit",
+  "ask",
+] as const;
+export type SelectionAction = (typeof SELECTION_ACTIONS)[number];
+
+/** Words selected in a Note, or in a Document (`documentId`, with where they are in it). */
+export interface AskedSelection {
+  kind: "selection";
+  action: SelectionAction;
+  /** As the selection holds them, a line per paragraph. */
+  text: string;
+  /** For "translate": the language, as Translate… names it; absent from ⌘K, where the User says it. */
+  language?: string;
+  /** For "edit": what the User typed in Edit with AI…; absent when they say it in their own AI. */
+  instruction?: string;
+  documentId?: string;
+  pageFrom?: number | null;
+  pageTo?: number | null;
+  location?: CitationLocation | null;
+}
+
+/**
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
  * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
- * (#3533); or, from Get started, to write a short summary of one Document as a new Note (#3572).
+ * (#3533); or, from Get started, to write a short summary of one Document as a new Note (#3572); or
+ * to do something with the words they selected (#3612). A question's words may be none, for one
+ * the User types in their AI about the Documents named (#3612).
  */
 export type AgentAsk =
   | { kind: "organize"; target: OrganizeTarget }
@@ -13111,7 +13144,8 @@ export type AgentAsk =
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
   | { kind: "note" }
-  | { kind: "check" };
+  | { kind: "check" }
+  | AskedSelection;
 
 export interface AskAgentInput {
   pairingId: string;

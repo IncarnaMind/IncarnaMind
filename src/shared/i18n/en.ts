@@ -6526,6 +6526,8 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.agent.selectionTooLong":
+    "That’s more than your AI can be handed at once. Select fewer words and ask again.",
   "error.agent.nameEmpty": "Give the agent a name.",
   "error.firstRun.work": "Those aren’t kinds of work the setup asks about.",
   "error.firstRun.noPicks": "There are no picks to send.",
@@ -9077,6 +9079,7 @@ export const en = {
   "agents.asked.copied": "Copied for {agent}: paste the request there and send it.",
   "agents.asked.checking": "Checking this note in {agent}.",
   "agents.asked.writing": "Writing the note in {agent}.",
+  "agents.asked.changing": "Changing the words you selected in {agent}.",
   "agents.asked.organizing": "Organizing your Documents in {agent}.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
   "agents.asked.again": "Ask again",
@@ -9247,6 +9250,40 @@ export const en = {
   "agents.ask.request.item": "{name} ({idName}: {id})",
   "agents.ask.request.check":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. Then tell me which sentences need a look.",
+  // A selection handed to the User's own AI (#3612): the line names the Note or Document, the rest waits.
+  // A change says where it goes, for an agent that skips read_request.
+  "agents.ask.line.selection.explain": "About my note {title} in IncarnaMind: explain {quote}.",
+  "agents.ask.line.selection.improve":
+    "About my note {title} in IncarnaMind: improve the writing of {quote}, as a change in the note for me to review.",
+  "agents.ask.line.selection.shorten":
+    "About my note {title} in IncarnaMind: shorten {quote}, as a change in the note for me to review.",
+  "agents.ask.line.selection.translate":
+    "About my note {title} in IncarnaMind: translate {quote} into {language}, as a change in the note for me to review.",
+  "agents.ask.line.selection.translateAny":
+    "About my note {title} in IncarnaMind: translate {quote}, as a change in the note for me to review.",
+  "agents.ask.line.selection.edit":
+    "About my note {title} in IncarnaMind, the words {quote}:\n\n{instruction}",
+  "agents.ask.line.selection.ask":
+    "About my document {document} in IncarnaMind, the words {quote}:",
+  "agents.ask.request.selection":
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). These are the words I selected in it, a line for each paragraph:\n\n{selection}\n\n{task}",
+  "agents.ask.request.selectionDocument":
+    "My message is about these words I selected in IncarnaMind{where}:\n\n{selection}\n\nAnswer what my message asks about them, from the document they are in and my other Documents where they help.",
+  "agents.ask.request.selection.where": " ({where})",
+  "agents.ask.selection.explain":
+    "Explain them to me here in chat, using my Documents where they help. Change nothing in the note.",
+  "agents.ask.selection.improve":
+    "Improve their writing: clearer and easier to read, saying the same thing. {how}",
+  "agents.ask.selection.shorten": "Make them shorter, keeping what they say. {how}",
+  "agents.ask.selection.translate": "Translate them into {language}. {how}",
+  "agents.ask.selection.translateAny":
+    "Translate them into the language my message names; if it names none, ask me which. {how}",
+  "agents.ask.selection.edit":
+    "Do with them what my message asks. {how} If my message asks about them instead, answer here in chat and change nothing in the note.",
+  "agents.ask.selection.propose":
+    "Change only these words: read the note with read_mind and named, then call propose_changes on each paragraph that holds them, with the rest of that paragraph word for word as it is. Change nothing else in the note.",
+  "agents.ask.selection.reply":
+    "You may not change this note, so write the new words here in chat for me to paste.",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

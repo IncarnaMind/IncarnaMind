@@ -10,6 +10,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import type { AgentAsk, AgentPairing, AgentRequest, SearchScope } from "../../core/api";
+import { TranslatableError } from "../../core/errors";
 import { type AskedFor, rememberAsked } from "./askedAgent";
 import { core } from "./core";
 import { documentsOnScreen } from "./documentsOnScreen";
@@ -27,11 +28,14 @@ const useAskable = create<{ byMind: Readonly<Record<string, readonly AgentPairin
 }));
 
 /** The agents the User can ask about `mindId` now, as last read, the one connected or used last first. */
-export const agentsToAsk = (mindId: string | null): readonly AgentPairing[] =>
-  useAskable.getState().byMind[keyOf(mindId)] ?? NONE;
+export const agentsToAsk = (mindId: string | null, documentId?: string): readonly AgentPairing[] =>
+  useAskable.getState().byMind[keyOf(mindId, documentId)] ?? NONE;
 
-export const useAgentsToAsk = (mindId: string | null): readonly AgentPairing[] =>
-  useAskable((state) => state.byMind[keyOf(mindId)] ?? NONE);
+export const useAgentsToAsk = (
+  mindId: string | null,
+  documentId?: string,
+): readonly AgentPairing[] =>
+  useAskable((state) => state.byMind[keyOf(mindId, documentId)] ?? NONE);
 
 /** As `useAgentsToAsk`, and null until they are first read, so nothing shows that would change. */
 export const useAgentsToAskRead = (
@@ -146,16 +150,16 @@ export const useNoModel = (): boolean => useAppStore(noModelIn);
 
 /**
  * Hands `ask` to `agent`. A question goes with what the User is looking at, as the assistant is
- * told it: the Documents open on screen and the chat box's Search scope (#3533). `openChat`: for
- * the chat the User has open there, the line copied and no new chat opened (#3588). Resolves to
- * whether it went: a failure is a notice.
+ * told it: the Documents open on screen and the chat box's Search scope (#3533), or the Documents
+ * a Library ask names (`onScreen`, #3612). `openChat`: for the chat the User has open there, the
+ * line copied and no new chat opened (#3588). Resolves to whether it went: a failure is a notice.
  */
 export async function askAgent(
   agent: AgentPairing,
   mindId: string | null,
   ask: AgentAsk,
   scope?: SearchScope,
-  { openChat = false }: { openChat?: boolean } = {},
+  { openChat = false, onScreen }: { openChat?: boolean; onScreen?: readonly string[] } = {},
 ): Promise<boolean> {
   try {
     const at = new Date().toISOString();
@@ -163,7 +167,10 @@ export async function askAgent(
       pairingId: agent.id,
       mindId,
       ask,
-      ...(ask.kind === "question" && { onScreen: documentsOnScreen(), scope: scope ?? null }),
+      ...(ask.kind === "question" && {
+        onScreen: onScreen ? [...onScreen] : documentsOnScreen(),
+        scope: scope ?? null,
+      }),
       ...(openChat && { openChat: true }),
     });
     if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
@@ -176,7 +183,9 @@ export async function askAgent(
           ? { kind: "summary", documentId: ask.documentId }
           : ask.kind === "organize"
             ? { kind: "organize", target: ask.target }
-            : null;
+            : ask.kind === "selection" && mindId !== null
+              ? { kind: ask.action === "explain" ? "explain" : "change", mindId }
+              : null;
     if (about) rememberAsked(agent, about, { copied: result.kind === "copy", at });
     useNotices
       .getState()
@@ -198,15 +207,65 @@ export async function askAgent(
 }
 
 /**
- * A Check with no model set up asks the User's own AI at once (#3587): the one the Ask pill asks,
- * connected or used last. Resolves to whether one was asked; with none that reads the Note, none is.
+ * Hands `ask` to the User's own AI the Ask pill asks, connected or used last, among those that can
+ * read the Note, or the Document (`documentId`). "none": no AI of theirs reads it; "failed": the
+ * notice says why.
  */
-export async function askToCheck(mindId: string): Promise<boolean> {
+export async function askFirstAgent(
+  mindId: string | null,
+  ask: AgentAsk,
+  {
+    documentId,
+    scope,
+    onScreen,
+  }: { documentId?: string; scope?: SearchScope; onScreen?: readonly string[] } = {},
+): Promise<"asked" | "failed" | "none"> {
   try {
-    const [agent] = await core.listAgentsToAsk(mindId);
-    return agent ? await askAgent(agent, mindId, { kind: "check" }) : false;
+    const [agent] = await core.listAgentsToAsk(mindId, ...(documentId ? [documentId] : []));
+    if (!agent) return "none";
+    return (await askAgent(agent, mindId, ask, scope, { onScreen })) ? "asked" : "failed";
   } catch (error) {
     useAppStore.getState().reportError(error);
-    return false;
+    return "failed";
+  }
+}
+
+/** A Check with no model set up asks the User's own AI at once (#3587): whether one was asked. */
+export const askToCheck = async (mindId: string): Promise<boolean> =>
+  (await askFirstAgent(mindId, { kind: "check" })) === "asked";
+
+/**
+ * What the Ask pill and ⌘J hand over (#3612): the Note the User is in, or else the Document in
+ * front, with no question yet: the User types it in their own AI.
+ */
+export const askOnPill = (
+  agent: AgentPairing,
+  on: { mindId: string | null; documentId: string | null },
+  openChat = false,
+): Promise<boolean> =>
+  on.mindId !== null || on.documentId === null
+    ? askAgent(agent, on.mindId, { kind: "note" }, undefined, { openChat })
+    : askAgent(agent, null, { kind: "question", text: "" }, undefined, {
+        openChat,
+        onScreen: [on.documentId],
+      });
+
+/**
+ * Ask about these Documents or this Folder, for a User with only their own AI (#3612): the line
+ * names them, one Document as the one in front, and the User types their question there. With no
+ * AI of theirs that reads the one Document, a notice says so.
+ */
+export async function askOwnAiAbout(scope: SearchScope): Promise<void> {
+  const [only, ...more] = scope.documentIds;
+  const one = only !== undefined && more.length === 0 && scope.folderIds.length === 0;
+  const went = await askFirstAgent(
+    null,
+    { kind: "question", text: "" },
+    one ? { documentId: only, onScreen: [only] } : { scope, onScreen: [] },
+  );
+  if (went === "none" && one) {
+    useAppStore
+      .getState()
+      .reportError(new TranslatableError({ key: "error.agent.cantAskDocument" }));
   }
 }
