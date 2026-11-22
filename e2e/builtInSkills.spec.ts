@@ -46,6 +46,24 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
+test("Meeting templates can be created from Meetings with no built-in model", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await openSettings(window, "meetings");
+  await expect(window.getByTestId("settings-nav-skills")).toHaveCount(0);
+  await window.getByTestId("meeting-templates-disclosure").click();
+  const section = window.getByTestId("skills-meetings");
+  await expect(section.getByTestId("skill-item")).toHaveCount(MEETING_TEMPLATES.length);
+  await section.getByTestId("meeting-template-new").click();
+  const editor = section.getByTestId("meeting-template-editor");
+  await editor.getByTestId("meeting-template-editor-name").fill("Outside call");
+  await editor.getByTestId("meeting-template-editor-when").fill("Customer handovers");
+  await editor.getByTestId("meeting-template-editor-steps").fill("Record handover actions.");
+  await editor.getByTestId("meeting-template-editor-save").click();
+  await expect(section.locator('[data-skill-name="outside-call"]')).toBeVisible();
+  await app.close();
+});
+
 test("a fresh data folder has the built-in Skills: labelled in Settings, and offered in a Question's slash menu", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

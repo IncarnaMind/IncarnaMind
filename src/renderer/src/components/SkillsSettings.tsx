@@ -70,7 +70,7 @@ const NEW_SKILL: SkillDraft = { name: "", description: "", steps: "" };
  * one from a folder or a zip, shown first for the User to check. Built-in
  * Skills can be duplicated as the User's own and, once removed, restored.
  */
-export function SkillsSettings() {
+export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolean } = {}) {
   const t = useT();
   const language = useLanguage();
   const skills = useAppStore((state) => state.skills);
@@ -195,6 +195,58 @@ export function SkillsSettings() {
       />
     );
 
+  const meetingRows = (
+    <>
+      {meetings.length > 0 && <SettingsGroup>{meetings.map(row)}</SettingsGroup>}
+      {editing?.kind === "new-meeting" ? (
+        <SkillEditor
+          testId="meeting-template-editor"
+          initial={NEW_SKILL}
+          title={t("skills.settings.newMeeting")}
+          save={(draft) => core.createSkill({ ...draft, meetingTemplate: true })}
+          onSaved={() => close(editing)}
+          onCancel={() => close(editing)}
+        />
+      ) : (
+        <button
+          type="button"
+          data-testid="meeting-template-new"
+          className={buttonStyle("secondary", "sm")}
+          onClick={() => {
+            editorAsked();
+            setEditing({ kind: "new-meeting" });
+          }}
+        >
+          {t("skills.settings.newMeeting")}
+        </button>
+      )}
+    </>
+  );
+  const restore = removedBuiltIns.length > 0 && (
+    <div className="mt-3">
+      <button
+        type="button"
+        data-testid="skill-restore-built-ins"
+        title={removedBuiltInsLine(removedBuiltIns, t, language)}
+        disabled={busy !== null}
+        onClick={() => void restoreBuiltInSkills()}
+        className={buttonStyle("secondary", "sm")}
+      >
+        {t("skills.settings.restoreBuiltIns")}
+      </button>
+    </div>
+  );
+  if (meetingsOnly) {
+    return (
+      <div data-testid="skills-meetings" className="mt-3 flex flex-col items-stretch gap-3">
+        {meetingRows}
+        {error && <ImportError error={error} />}
+        {exported && <ExportStatus exported={exported} onExport={exportZip} />}
+        {removedBuiltIns.some((name) => name.startsWith("meeting-")) && restore}
+      </div>
+    );
+  }
+
   return (
     <section data-testid="skills-settings" className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
@@ -297,48 +349,13 @@ export function SkillsSettings() {
       </SettingsSection>
 
       <SettingsSection testId="skills-meetings" title={t("skills.settings.meetings")}>
-        {meetings.length > 0 && <SettingsGroup>{meetings.map(row)}</SettingsGroup>}
-        {editing?.kind === "new-meeting" ? (
-          <SkillEditor
-            testId="meeting-template-editor"
-            initial={NEW_SKILL}
-            title={t("skills.settings.newMeeting")}
-            save={(draft) => core.createSkill({ ...draft, meetingTemplate: true })}
-            onSaved={() => close(editing)}
-            onCancel={() => close(editing)}
-          />
-        ) : (
-          <button
-            type="button"
-            data-testid="meeting-template-new"
-            className={buttonStyle("secondary", "sm")}
-            onClick={() => {
-              editorAsked();
-              setEditing({ kind: "new-meeting" });
-            }}
-          >
-            {t("skills.settings.newMeeting")}
-          </button>
-        )}
+        {meetingRows}
       </SettingsSection>
 
       <SettingsSection testId="skills-built-in" title={t("skills.settings.builtIn")}>
         {builtIn.length > 0 && <SettingsGroup>{builtIn.map(row)}</SettingsGroup>}
         <SettingsHelp>{t("skills.settings.builtIn.hint")}</SettingsHelp>
-        {removedBuiltIns.length > 0 && (
-          <div className="mt-3">
-            <button
-              type="button"
-              data-testid="skill-restore-built-ins"
-              title={removedBuiltInsLine(removedBuiltIns, t, language)}
-              disabled={busy !== null}
-              onClick={() => void restoreBuiltInSkills()}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("skills.settings.restoreBuiltIns")}
-            </button>
-          </div>
-        )}
+        {restore}
       </SettingsSection>
     </section>
   );

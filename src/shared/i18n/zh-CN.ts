@@ -4818,6 +4818,7 @@ export const zhCN = {
   "skills.builtIn.meeting-team.short": "各项工作的进展、决定、阻碍和下一步。",
   "skills.builtIn.meeting-team":
     "进展按事项归纳。把阻碍与已经作出的决定分开。待办只写会上明确的负责人和时间。",
+  "meetings.settings.templates": "会议模板",
   "skills.settings.meetings": "会议",
   "skills.settings.newMeeting": "新建会议模板…",
   "skills.settings.builtIn": "内置",
