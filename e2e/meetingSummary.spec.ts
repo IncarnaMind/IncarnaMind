@@ -405,6 +405,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("ControlOrMeta+a");
       await window.keyboard.press("ArrowRight");
       await window.keyboard.press("Enter");
+      await expect(overview.locator(":scope > p")).toHaveText([words.overview, ""]);
       await window.keyboard.press("ControlOrMeta+b");
       if (language === "zh-CN") {
         const cdp = await window.context().newCDPSession(window);

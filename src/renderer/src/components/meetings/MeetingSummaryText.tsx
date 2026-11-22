@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import { useCallback, useLayoutEffect, useRef } from "react";
 import type { MeetingSummary } from "../../../../core/api";
 import { meetingSummaryExtensions } from "../../../../shared/meetingSummaryContent";
+import { PageCaret } from "../../editor/pageCaret";
 import { useT } from "../../i18n";
 import {
   changeMeetingSummaryDraft,
@@ -64,7 +65,7 @@ export function MeetingSummaryText({
   const editor = useEditor(
     {
       content: draft?.content ?? contentOf(summary),
-      extensions: meetingSummaryExtensions(),
+      extensions: [...meetingSummaryExtensions(), PageCaret],
       shouldRerenderOnTransaction: false,
       editorProps: {
         attributes: {
@@ -88,7 +89,7 @@ export function MeetingSummaryText({
       base.current = draft.base;
       discardMeetingSummaryDraft(meetingId);
     } else if (draft) {
-      show(editor, draft.content);
+      if (!editor.isFocused && !editor.view.composing) show(editor, draft.content);
     } else {
       follow(editor);
     }
