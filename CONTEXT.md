@@ -86,7 +86,7 @@ A page of a PDF that is a picture of text, such as a scan, with little or no tex
 _Avoid_: image page, OCR page
 
 **Linked folder**:
-A folder on the User's computer that IncarnaMind reads where it is: every supported file in it, at any depth, is a Document, and new and changed files are read as they come; a file removed from it keeps what was read of it, as a Missing Document does. Nothing is copied to a cloud; IncarnaMind keeps the text it read from each file, and the picture of a Cited page, as it does for any Document. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. The User links no folder inside IncarnaMind's own data folder, which is the app's; the examples it copies there and links itself are the one exception. Files a cloud drive keeps online only are read when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents.
+A folder on the User's computer that IncarnaMind reads where it is: every supported file in it, at any depth, is a Document, and new and changed files are read as they come; a file removed from it keeps what was read of it, as a Missing Document does. Nothing is copied to a cloud; IncarnaMind keeps the text it read from each file, and the picture of a Cited page, as it does for any Document. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. The User links no folder inside IncarnaMind's own data folder, which is the app's; the examples it copies there and links itself are the one exception. Files a cloud drive keeps online only are read when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents. Linking one makes its Folder, a Project.
 _Avoid_: workspace, vault, source, sync folder
 
 **Other Documents**:
@@ -162,8 +162,8 @@ A named place inside IncarnaMind for Documents and Notes, with a description of 
 _Avoid_: project for a Folder that isn't a **Project**, group (a Folder's former name; a Group is now a column of tabs), collection, category
 
 **Project**:
-A Folder bound to a folder on disk: a Linked folder, or a folder inside one (ADR-0030). Each file in that folder is a Document filed in the Project as it arrives, unless the User filed it somewhere else; the Project keeps its work inside it by default; and an agent given the Project reaches the files in the folder it works in. Made from a Linked folder's menu; it shows wherever a Folder shows, as a Folder.
-_Avoid_: workspace, bound Folder (in the interface)
+A Folder bound to a folder on disk: a Linked folder, or a folder inside one (ADR-0030). Linking a folder makes one at once, named after it; each file in that folder, at any depth, is a Document filed in the Project as it arrives, unless the User filed it somewhere else; it is open to work outside it unless the User walls it; and an agent given the Project reaches the files in the folder it works in. The User can turn its filing off from its menu (File as one Folder), and on again. The word is the code's and the agents'; the interface says Folder, with a mark that says where it is on disk.
+_Avoid_: workspace, project and bound Folder (in the interface)
 
 **Work wall**:
 What a Folder has while **Keep this Folder's work inside it** is on. Its own Notes search only what is filed in it and its sub-Folders, and cannot widen past it. Work outside it never searches its Documents or Notes, an All Documents search included, though the Library, Search and ⌘K still show and open them. What the assistant makes behind a wall is filed behind it.
@@ -178,7 +178,7 @@ What Organize and tagging propose that the User hasn't confirmed yet (建议 in 
 _Avoid_: Suggested Folder and To review (the earlier names), Review as a noun (Review changes is a Note's), automatic Folder, inbox, queue, pending
 
 **Source location**:
-The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind; the sidebar lists them as Folders on disk.
+The original file or Linked folder from which IncarnaMind reads Documents. Its folders mirror the disk and are independent of the Folders used to organise Documents inside IncarnaMind; the sidebar lists a Linked folder as its Folder (a Project), or, its filing as one Folder turned off, as a row of its own among the Folders.
 
 **Tag**:
 A label with a short description that a Document can carry. A Document can have many Tags. IncarnaMind proposes Tags, which wait in Suggestions until the User confirms them, and the User can add or remove them.

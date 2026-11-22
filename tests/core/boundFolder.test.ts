@@ -9,7 +9,12 @@
 import { access, mkdir, rename, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type AddedLinkedFolder, type Core, DATABASE_FILE } from "../../src/core";
+import {
+  type AddedLinkedFolder,
+  type Core,
+  DATABASE_FILE,
+  NOT_IN_A_FOLDER_ID,
+} from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
@@ -439,6 +444,19 @@ describe("a folder linked before (#3613)", () => {
     expect(where("Harbour fees")).toEqual({ groupId: set.coast.id, source: "user" });
     await arrives(core, set.files, "Late");
     expect((await filed(core))("Late").groupId).toBe(bound[0]?.id);
+  });
+
+  // protects=an agent that read Not in a Folder, where a folder linked before kept its files, reads them in their new Folder after the migration, and one that didn't is given nothing more (#3613); fails_when=the agent loses the folder's files, or a share widens
+  it("an agent that read Not in a Folder keeps reaching the folder's files", async () => {
+    const set = await unsorted();
+    await set.core.updateAgent(set.writer.pairing.id, { folderIds: [NOT_IN_A_FOLDER_ID] });
+    const core = await migratedAgain(set);
+    const [bound] = (await core.getLibrary()).groups.filter((each) => each.boundFolderId);
+    const shares = new Map(
+      (await core.getAgents()).pairings.map((each) => [each.id, each.folderIds]),
+    );
+    expect(shares.get(set.writer.pairing.id)).toEqual([NOT_IN_A_FOLDER_ID, bound?.id]);
+    expect(shares.get(set.reader.pairing.id)).toEqual([set.coast.id]);
   });
 
   // protects=a folder whose files the User had all filed already gets no Folder, so no empty one appears and its new files keep going to Not in a Folder; a folder bound already is left as it is (#3613); fails_when=an empty Folder appears, or a second Folder is bound to the same folder

@@ -3447,6 +3447,17 @@ export const migrations: readonly Migration[] = [
           bind_migration m
         WHERE d.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM document_groups a
           WHERE a.document_id = d.id AND a.deleted_at IS NULL);
+      -- An agent that read Not in a Folder read those files there: it reads them in their new
+      -- Folders, so what it reaches stays as it was, no more and no less.
+      UPDATE agent_pairings SET
+        folder_ids = (SELECT json_group_array(value) FROM (
+          SELECT value FROM json_each(agent_pairings.folder_ids)
+          UNION ALL SELECT group_id FROM bind_folders)),
+        updated_at = (SELECT at FROM bind_migration)
+        WHERE deleted_at IS NULL AND json_valid(folder_ids)
+          AND EXISTS (SELECT 1 FROM json_each(agent_pairings.folder_ids)
+            WHERE value = 'not-in-a-folder')
+          AND EXISTS (SELECT 1 FROM bind_folders);
       DROP TABLE temp.bind_names;
       DROP TABLE temp.bind_folders;
       DROP TABLE temp.bind_migration;

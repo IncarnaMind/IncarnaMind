@@ -6,7 +6,7 @@ The spec first copied every added file into the data folder, "so that moving or 
 
 ## Decision
 
-Documents stay where the User keeps them: IncarnaMind indexes each file at its own path and never copies it. Linked folders (a papers folder, Zotero's storage folder) are kept in sync: new files become Documents, changed files are indexed again, removed files are marked missing. A file added on its own is indexed at its path too, in "Other Documents" below the Linked folders. In-app Folders and Tags (back since 2026-10-08, at the User's request) only change index metadata, and the sidebar shows them apart from Source locations, so no tree mixes two kinds of folder.
+Documents stay where the User keeps them: IncarnaMind indexes each file at its own path and never copies it. Linked folders (a papers folder, Zotero's storage folder) are kept in sync: new files become Documents, changed files are indexed again, removed files are marked missing. A file added on its own is indexed at its path too, in "Other Documents" below the Linked folders. In-app Folders and Tags (back since 2026-10-08, at the User's request) only change index metadata. Linking a folder makes a Folder bound to it (ADR-0030, amended 2026-11-22, #3613), so the sidebar lists one kind of folder, Folders, the folder's Folder among them with a mark that says where it is on disk; the folder on disk is never shown as a tree beside them.
 
 **The index keeps enough for Citations without the file.**
 
@@ -53,7 +53,7 @@ A check result's evidence, a saved page, an unfinished Task and a Checkpoint rec
 
 - **Copy every added file** (the previous design): independent of the User's files, but duplicated, stale and never in sync.
 - **Copy single files, index Linked folders in place:** two storage models are harder to explain and to build.
-- **In-app Folders and Linked folders in one tree:** two kinds of folder in one tree confuse.
+- **In-app Folders and Linked folders in one tree:** two kinds of folder in one tree confuse. So a Linked folder is shown as a Folder bound to it (ADR-0030, #3613), one kind, never as a second tree of folders on disk.
 - **Overwrite the original, with a backup:** fights cloud-drive sync clients and risks losing the User's file.
 - **Never write inside a Linked folder:** every Word round trip would land away from its original.
 - **Ask before every save into a Linked folder:** repeated asks teach clicking through, and adding a file isn't destructive.
