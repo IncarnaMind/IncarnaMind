@@ -19,7 +19,13 @@ export function forgetTabCloseFocus(groupId: string, tabId: string | null): void
 function focusOnceDrawn(find: () => HTMLElement | null, onlyIfLost: boolean): void {
   requestAnimationFrame(() => {
     if (onlyIfLost && document.activeElement !== document.body) return;
-    find()?.focus();
+    const target = find();
+    if (!target) return;
+    const run = () => {
+      console.log("[2586-tab] scheduled focus", target.dataset.testid, document.activeElement?.getAttribute("data-testid"));
+      target.focus();
+    };
+    if (document.dispatchEvent(new CustomEvent("inspect-scheduled-tab-focus", {cancelable:true, detail:run}))) run();
   });
 }
 

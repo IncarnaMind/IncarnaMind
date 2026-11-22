@@ -661,7 +661,8 @@ for (const language of LANGUAGES) {
     await app.close();
   });
 
-  test(`typing in the list searches from the row in focus, repeats cycle, and a Space joins a name only when the name goes on with it (${language}) (#2244)`, async () => {
+  for (const hold of [false,true]) {
+  test(`typing in the list [hold=${hold}] searches from the row in focus, repeats cycle, and a Space joins a name only when the name goes on with it (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
@@ -728,6 +729,23 @@ for (const language of LANGUAGES) {
     await expect(menu).toBeVisible();
     await window.keyboard.type(query);
     await expect(rowOf(second)).toBeFocused();
+    window.on("console", msg=>{if (msg.text().startsWith("[2586-tab]")) console.log(language,hold,msg.text());});
+    await window.evaluate((hold)=>{
+      const describe = (e: EventTarget | null) => e instanceof Element ? [e.tagName,e.getAttribute("data-testid"),e.getAttribute("title"),e.getAttribute("role")].join("/") : "none";
+      for(const kind of ["click","keydown","focusin","beforetoggle","toggle"]){
+        document.addEventListener(kind,event=>{
+          const key = event instanceof KeyboardEvent ? event.key : "";
+          console.log("[2586-tab]",Math.round(performance.now()),kind,key,describe(event.target),describe(document.activeElement),
+            kind==="focusin"?new Error().stack?.split("\n").slice(1,5).join("|"):"");
+        },true);
+      }
+      if(hold){
+        document.addEventListener("inspect-scheduled-tab-focus", event=>{
+          event.preventDefault();
+          document.addEventListener("release-scheduled-tab-focus", (event as CustomEvent<()=>void>).detail, {once:true});
+        },{once:true});
+      }
+    },hold);
     await window.keyboard.press("Enter");
     await expect(list.getByRole("tab", { name: second, exact: true })).toHaveAttribute(
       "aria-selected",
@@ -737,6 +755,7 @@ for (const language of LANGUAGES) {
     // A key that moves the focus ends the name: a Space straight after presses the row in focus,
     // rather than joining letters typed before the move.
     await reopen();
+    if (hold) await window.evaluate(()=>{document.dispatchEvent(new Event("release-scheduled-tab-focus"))});
     await window.keyboard.press(key);
     await expect(rowOf(first)).toBeFocused();
     await window.keyboard.press("ArrowDown");
@@ -798,6 +817,8 @@ for (const language of LANGUAGES) {
     );
     await app.close();
   });
+
+  }
 
   test(`the fit is the tabs' own extent, so a shown tab's feet past the strip's edge hide nothing (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);

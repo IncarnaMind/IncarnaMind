@@ -127,6 +127,17 @@ async function pressReview(
     const held = window as unknown as { __reviewPress?: Press };
     const record: Press = { clicked: null, shown: null, selected: null };
     held.__reviewPress = record;
+    const frames:number[]=[];
+    const longTasks:number[][]=[];
+    const observer=new PerformanceObserver(list=>{
+      for(const task of list.getEntries())longTasks.push([Math.round(task.startTime),Math.round(task.duration)]);
+    });
+    observer.observe({type:"longtask"});
+    let selectedDom:number|null=null;
+    const selected = () => document.querySelector(`[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`);
+    const mutations = new MutationObserver(()=>{if(record.clicked!==null&&selectedDom===null&&selected())selectedDom=performance.now();});
+    mutations.observe(document.body,{subtree:true,attributes:true,attributeFilter:["aria-selected"],childList:true});
+    Object.assign(record,{measure:()=>({frames,longTasks,selectedDom,clicked:record.clicked,shown:record.shown})});
     document.addEventListener(
       "click",
       (event) => {
@@ -137,6 +148,7 @@ async function pressReview(
       true,
     );
     const look = () => {
+      if(record.clicked!==null) frames.push(Math.round(performance.now()));
       if (record.clicked !== null && record.shown === null) {
         const row = document.querySelector<HTMLElement>(
           `[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`,
@@ -149,6 +161,7 @@ async function pressReview(
             ?.getBoundingClientRect();
           if (!view || (box.bottom > view.top && box.top < view.bottom)) {
             record.shown = performance.now();
+            observer.disconnect();mutations.disconnect();
             record.selected = wanted;
           }
         }
@@ -167,6 +180,7 @@ async function pressReview(
       { timeout: 5_000 },
     )
     .not.toBeNull();
+  console.log("[2586-review]", await window.evaluate(() => (window as unknown as { __reviewPress: {measure:()=>unknown} }).__reviewPress.measure()));
   return window.evaluate(() => {
     const record = (window as unknown as { __reviewPress?: Press }).__reviewPress;
     return {
