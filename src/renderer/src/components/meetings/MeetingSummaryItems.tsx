@@ -60,14 +60,17 @@ function SummaryItemControls({
 
   const open = async (
     documentId: string,
-    { startMs, endMs, text, parentCue, part }: ItemSources["sources"][number],
+    { startMs, endMs, text, parentCue, part, excerpt }: ItemSources["sources"][number],
   ) => {
     const attempt = request.current;
     setOpeningFailed(false);
     try {
       await openTranscriptOfNote(meeting.mindId, documentId, {
         quote: text,
-        transcriptCue: parentCue ?? { startMs, endMs, ...(part && { part }) },
+        transcriptCue: {
+          ...(parentCue ?? { startMs, endMs, ...(part && { part }) }),
+          ...(excerpt && { excerpt }),
+        },
       });
     } catch (error) {
       if (request.current !== attempt) return;

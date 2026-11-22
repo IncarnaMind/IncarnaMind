@@ -95,6 +95,35 @@ export function MeetingsSettings() {
           <MeetingNotesAgentSetting />
           <MeetingSummarySetting />
           <SettingsSwitchRow
+            label={t("meetings.settings.screen")}
+            detail={t("meetings.settings.screenBody")}
+            checked={device.meetingScreenAsk}
+            onChange={(meetingScreenAsk) => void updateSettings({ device: { meetingScreenAsk } })}
+            switchTestId="meetings-screen-ask"
+          />
+          <SettingsRow
+            label={t("meetings.settings.pictureLimit")}
+            htmlFor={`${whatId}-pictures`}
+            detail={t("meetings.settings.pictureLimitBody")}
+            control={
+              <input
+                id={`${whatId}-pictures`}
+                className="w-20 rounded border border-rule px-2 py-1"
+                type="number"
+                min="0"
+                step="1"
+                key={device.meetingScreenPictureLimit}
+                defaultValue={device.meetingScreenPictureLimit}
+                onBlur={(event) => {
+                  const limit = event.currentTarget.valueAsNumber;
+                  if (Number.isSafeInteger(limit) && limit >= 0)
+                    void updateSettings({ device: { meetingScreenPictureLimit: limit } });
+                  else event.currentTarget.value = String(device.meetingScreenPictureLimit);
+                }}
+              />
+            }
+          />
+          <SettingsSwitchRow
             label={t("meetings.settings.keepAudio")}
             detail={t(
               device.keepMeetingAudio

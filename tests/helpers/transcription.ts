@@ -206,6 +206,7 @@ export async function transcribingCore(
     linkedFolders,
     paceTimers,
     notifications,
+    adapters,
   }: {
     engine?: FakeTranscriberOptions;
     /** The cloud's connections, to watch them; the pretend service as `engine.cloud` says by default. */
@@ -230,6 +231,8 @@ export async function transcribingCore(
     /** The engine starts once this resolves, as a model loading slowly does. */
     loads?: Promise<void>;
     log?: Logger;
+    /** More adapters, such as a shared window's (./screens). */
+    adapters?: Partial<CoreAdapters>;
     keychain?: CoreAdapters["keychain"];
     /** Tells speakers apart after the call (#138); absent, the labels stay where lines came from. */
     roomSpeakerReviewer?: CoreAdapters["roomSpeakerReviewer"];
@@ -281,6 +284,7 @@ export async function transcribingCore(
     ...(createChatModel && { createChatModel }),
     ...(ollamaModels && { ollamaModels }),
     ...(log && { log }),
+    ...adapters,
     ...(keychain && { keychain }),
     ...(roomSpeakerReviewer && { roomSpeakerReviewer }),
     ...(speakerSeparator && { speakerSeparator, speakerModelSource }),

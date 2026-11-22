@@ -138,7 +138,11 @@ export function foldedWords(t: Translate, line: FoldedLine, words: FoldedWords):
     case "searched-web":
       return t("steps.searchedWeb", { sources: sourcesText(t, line.sources) });
     case "listened":
-      return t("steps.listened", { sources: sourcesText(t, line.sources) });
+      if (line.screenUse && line.screenUse !== "text")
+        return t(`meetings.screen.use.${line.screenUse}`);
+      return t(line.screen ? "steps.listened.screen" : "steps.listened", {
+        sources: sourcesText(t, line.sources),
+      });
     case "read-documents":
       return documentsReadText(
         t,

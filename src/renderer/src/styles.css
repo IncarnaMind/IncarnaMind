@@ -2858,6 +2858,92 @@
   .meeting-line {
     padding: 0 4px 2px;
   }
+  /* The shared screen's line (ADR-0031): quieter than a problem, as the meeting bar's own lines. */
+  .meeting-screen-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 0 4px 2px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
+  }
+  .meeting-screen-icon {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    margin-top: 2px;
+    color: var(--color-ink-meta);
+  }
+  .meeting-screen-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .meeting-screen-action {
+    padding: 0 2px;
+    border-radius: 4px;
+    font-weight: 600;
+    color: var(--color-ink);
+    text-underline-offset: 2px;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+  .meeting-screen-action--primary {
+    color: var(--color-accent);
+  }
+  /* IncarnaMind's window picker for the shared screen: a grid of windows, each a picture and its name. */
+  .screen-picker-windows {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 2px;
+  }
+  .screen-picker-window {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding: 6px;
+    border: 1px solid var(--color-rule);
+    border-radius: 8px;
+    cursor: default;
+    &:hover {
+      background: var(--color-frame);
+    }
+    &[data-chosen] {
+      border-color: var(--color-accent);
+      box-shadow: inset 0 0 0 1px var(--color-accent);
+    }
+    &:has(input:focus-visible) {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+  }
+  .screen-picker-thumbnail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    border-radius: 4px;
+    background: var(--color-frame);
+    & img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+  }
+  .screen-picker-name {
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   /* A Meeting's recording details (#161): meta lines, each after its time in the Meeting. */
   .capture-details {
     display: flex;
@@ -6988,6 +7074,45 @@
     &:empty {
       display: none;
     }
+  }
+  /* A shared screen's Citation (ADR-0031): where it was read, and the screen as it was. */
+  .citation-screen-where {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    white-space: nowrap;
+    color: var(--color-ink-meta);
+  }
+  .citation-screen-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  /* As large as the picture, so the quote's boxes, in fractions of it, sit on its lines. */
+  .citation-screen-picture {
+    position: relative;
+    align-self: center;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-rule);
+    border-radius: 6px;
+
+    img {
+      display: block;
+      width: auto;
+      max-width: 100%;
+      height: auto;
+      max-height: 240px;
+    }
+  }
+  .citation-screen-box {
+    position: absolute;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--check-wash) 45%, transparent);
+    box-shadow: 0 0 0 1.5px var(--check-ink);
   }
   .citation-card-actions {
     display: flex;

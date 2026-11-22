@@ -4,6 +4,10 @@
  * Placeholders look like `{name}`.
  */
 export const en = {
+  "meetings.start.noticeText.screen":
+    "If I share a window with my AI during the call, it can receive text or a picture from that window when I ask a question. IncarnaMind deletes the captured frames and screen text when the meeting ends.",
+  "consent.data.chat.passages":
+    "Matching document passages, the live transcript, and text from your selected meeting window",
   "library.title": "Library",
   "library.open.keywords": "documents all files",
   "library.open": "Open the Library",
@@ -30,9 +34,9 @@ export const en = {
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "agents.ask.line.organize": "Organize my Documents in IncarnaMind. Read my request there first.",
   "agents.ask.request.organize":
-    "{scope} From list_sorting, copy the selected Document’s id and version together. Use only matching Folder and Tag IDs from that list in propose_sorting. Leave the Suggestions for me to review.",
+    "{scope} Read every page of list_sorting first, and copy each Document’s id and version together. In propose_sorting, use a listed Folder or Tag where one fits; where none does, name a new one in English that 3 or more of these Documents share. A Folder is an area of work, never a kind of Document. Leave the Suggestions for me to review.",
   "agents.ask.organize.folder":
-    "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}. Otherwise leave the Document in place.",
+    "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}, or into a new one by name, which is made inside it. Otherwise leave the Document in place.",
   "agents.ask.organize.loose":
     "Only organize Documents that are not in a Folder (folderId is null).",
   "agents.ask.organize.selected": "Only organize these Document IDs: {ids}.",
@@ -95,6 +99,9 @@ export const en = {
   "organizeReview.section.leftOut": "Left out",
   "organizeReview.notNow": "Not Now",
   "organizeReview.confirm": "Confirm",
+  "organizeReview.confirmAll": "Confirm all",
+  "organizeReview.suggestedBy": "Suggested by {agent}: {what}",
+  "organizeReview.nothingFrom": "{agent} had no Folder or Tag to suggest.",
   "organizeReview.menu": "More",
   "organizeReview.fewer": "Fewer Folders",
   "organizeReview.fewer.fewest": "{count} Folders is the fewest Organize proposes",
@@ -253,6 +260,7 @@ export const en = {
   "library.drop.formats": "PDF, Word, PowerPoint, Excel, Markdown, text",
   "library.drop.stay": "Your files stay where they are.",
   "library.review": "Review",
+  "library.row.suggested": "Suggested: “{folder}”",
   "library.sources": "Folders on disk",
   "library.collapse": "Collapse {name}",
   "library.expand": "Expand {name}",
@@ -2531,6 +2539,7 @@ export const en = {
   "location.lines.one": "line {range}",
   "location.lines.other": "lines {range}",
 
+  "location.screen": "Shared screen {time}",
   "documents.add": "Add Documents",
   "documents.add.files": "Files…",
   "documents.add.filesOrFolder": "Add files or a folder…",
@@ -3796,7 +3805,8 @@ export const en = {
   "consent.flow.scan-images": "Page images of scans",
   "consent.flow.scan-images.purpose": "read a scan that has no text, so it can be sorted",
   "consent.data.page-images": "Up to 3 page images of a scan with no text",
-  "consent.data.pictures": "A picture you select in a note to ask about",
+  "consent.data.pictures":
+    "Pictures you select in a note and, for a visual question during a meeting, one frame of the window you choose to share",
   "consent.flow.embeddings": "Document search",
   "consent.flow.embeddings.purpose": "search your Documents by their meaning",
   "consent.data.document-text":
@@ -4039,6 +4049,11 @@ export const en = {
   "privacy.skills.title": "Skill scripts",
   "privacy.skills.body":
     "Skill scripts run here and can send what they read. Each asks before it runs, unless you set it to Always allow.",
+  "privacy.screen.title": "Shared screen",
+  "privacy.screen.sendsText": "Questions can send screen text to your selected model.",
+  "privacy.screen.sendsPicture": "A visual question can also send one picture.",
+  "privacy.screen.stop": "Stopping the meeting deletes captured frames and screen text.",
+  "privacy.screen.body": "Only your chosen window is read, on this computer.",
   "privacy.aiUse.title": "AI use record",
   "privacy.aiUse.body": "Records what AI wrote and checked.",
   "privacy.aiUse.private":
@@ -4427,6 +4442,7 @@ export const en = {
   "mind.writing": "Writing…",
   "mind.opening": "Opening a new note…",
   "answer.phase.waiting-for-consent": "Waiting for your permission to send",
+  "answer.phase.listening": "Listening…",
   "answer.phase.loading": "Loading the model…",
   "answer.phase.searching": "Searching your Documents…",
   "answer.phase.writing": "Writing…",
@@ -4910,6 +4926,13 @@ export const en = {
   "citation.badge.notFound.document": "Quote not found in {document}",
   "citation.badge.found.transcript": "Quote found in the transcript at {location}",
   "citation.badge.notFound.transcript": "Quote not found in the transcript at {location}",
+  "citation.badge.found.screen": "Read from the shared screen",
+  "citation.badge.notFound.screen": "Quote not found on the shared screen",
+  "citation.screen.deleted": "Deleted after the meeting",
+  "citation.screen.window": "{window} window",
+  "citation.screen.kept":
+    "Read on this computer. Nothing from the screen is kept after the meeting.",
+  "citation.screen.picture": "The shared screen at {time}",
   "citation.badge.cantCheck": "Can’t check",
   "citation.badge.pictureNotChecked": "Picture, not checked",
   "citation.badge.checkPage": "Check the page",
@@ -4924,6 +4947,8 @@ export const en = {
   "citation.reason.no-text": "The cited place has no text, e.g. a scan.",
   "citation.reason.picture": "The Citation points at a picture, which has no text to check.",
   "citation.reason.document-removed": "The Document has been deleted.",
+  "citation.reason.screen-deleted":
+    "Nothing from the shared screen is kept after the meeting, so there is nothing to open.",
   "citation.reason.source-removed": "The source was removed.",
   "citation.yourNote": "Your note: {title}, {date}",
   "citation.ownRecord": "Your own record",
@@ -6529,6 +6554,9 @@ export const en = {
     "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
   "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
+  "error.meeting.noSharedScreen": "This copy of IncarnaMind can’t read a shared screen.",
+  "error.meeting.noWindow": "Choose the window to read.",
+  "error.meeting.screenNotKept": "That screen from the meeting isn’t kept any more.",
   "error.meeting.cantDiscard": "Only a Meeting that hasn’t started can be discarded.",
   "error.meeting.alreadyStarted": "That Meeting has started already.",
   "error.meeting.notRecording": "That Meeting isn’t recording.",
@@ -7012,12 +7040,20 @@ export const en = {
   "approvals.card.alwaysAllowHint":
     "Run {tool} without asking from now on · Reset in Settings › Approvals",
   "approvals.card.deny": "Deny",
+  "approvals.thirdParty.read.sharedScreen":
+    "This Answer read a shared screen, so it asks you first.",
+  "approvals.thirdParty.read.transcript":
+    "This Answer read what was said in a meeting, so it asks you first.",
   "approvals.thirdParty.read.imported": "Asks first: this Answer read a note with imported text.",
   "approvals.thirdParty.read.webPage": "Asks first: this Answer read a web page.",
   "approvals.thirdParty.read.checkedDocument": "Asks first: this Answer read the checked document.",
   "approvals.thirdParty.task.imported": "Asks first: this Task read a note with imported text.",
   "approvals.thirdParty.task.webPage": "Asks first: this Task read web pages.",
   "approvals.thirdParty.task.checkedDocument": "Asks first: this Task read the checked document.",
+  "approvals.thirdParty.mind.sharedScreen":
+    "This note has text from a shared screen, so IncarnaMind asks you first.",
+  "approvals.thirdParty.mind.transcript":
+    "This note has text from a meeting transcript, so IncarnaMind asks you first.",
   "approvals.thirdParty.mind.imported": "Asks first: this note has imported text.",
   "approvals.thirdParty.mind.webPage": "Asks first: this note has text from a web page.",
   "approvals.thirdParty.mind.checkedDocument":
@@ -7035,6 +7071,10 @@ export const en = {
     "Asks first: this note has text from a connected agent.",
   "approvals.thirdParty.conversation.outsideAgent":
     "Asks first: this conversation has text from a connected agent.",
+  "approvals.thirdParty.conversation.transcript":
+    "This conversation contains text from a meeting transcript, so it asks you first.",
+  "approvals.thirdParty.conversation.sharedScreen":
+    "This conversation contains text from a shared screen, so it asks you first.",
   "approvals.call.waiting": "Waiting for your approval: {connector}: {tool}",
   "approvals.call.denied": "Not allowed: {connector}: {tool}",
   "approvals.call.allowed": "Asked {connector} with your approval: {tool}",
@@ -7387,6 +7427,51 @@ export const en = {
     "Transcript saved, but its speakers couldn’t be told apart.",
   "meetings.transcript.retry": "Try again",
   "meetings.transcript.save": "Save it",
+  "meetings.settings.pictureLimit": "Pictures per meeting",
+  "meetings.settings.pictureLimitBody": "Set to zero to send only text.",
+  "meetings.screen.use.text": "Read the text on the shared screen",
+  "meetings.screen.use.picture": "Looked at the shared screen",
+  "meetings.screen.use.no-vision": "Used the screen text. Your model cannot read pictures.",
+  "meetings.screen.use.limit": "Used the screen text. This meeting reached its picture limit.",
+  "meetings.screen.use.budget":
+    "Used the screen text. Sending a picture would exceed the spending cap.",
+  "meetings.screen.look": "Look at the screen",
+  "citation.screen.fromPicture":
+    "Read from the picture of the shared screen at {time}. This value cannot be checked against text.",
+  "meetings.screen.ask": "Will someone share their screen?",
+  "meetings.screen.askProvider":
+    "When you ask, {provider} can receive its text and a picture if needed.",
+  "meetings.screen.askModel":
+    "When you ask, your selected model can receive its text and a picture if needed.",
+  "meetings.screen.askExternal": "Your connected AI uses the transcript in Call Help.",
+  "meetings.screen.choose": "Choose window…",
+  "meetings.screen.decline": "Not this time",
+  "meetings.screen.explain":
+    "To read the shared screen, macOS asks to let IncarnaMind record the screen. Only the window you choose is read, and nothing is kept.",
+  "meetings.screen.continue": "Continue",
+  "meetings.screen.offer": "Read the shared screen…",
+  "meetings.screen.choosing": "Starting to read the window…",
+  "meetings.screen.reading": "Reading the “{window}” window",
+  "meetings.screen.readingShared": "Reading the shared window",
+  "meetings.screen.downloading":
+    "Reading the “{window}” window · getting text recognition ready, {percent}% of {size}",
+  "meetings.screen.downloadingShared":
+    "Reading the shared window · getting text recognition ready, {percent}% of {size}",
+  "meetings.screen.stop": "Stop",
+  "meetings.screen.wholeScreen":
+    "Only one window is read, never a whole screen. Choose the meeting app’s window or the call’s browser window.",
+  "meetings.screen.denied":
+    "IncarnaMind isn’t allowed to record the screen, so the shared screen isn’t read.",
+  "meetings.screen.closed": "The shared window was closed.",
+  "meetings.screen.failed": "The shared screen couldn’t be read.",
+  "meetings.screen.retry": "Try again",
+  "meetings.screen.picker.title": "Choose the window to read",
+  "meetings.screen.picker.body":
+    "Choose the meeting app or browser window. When you ask, its text and, for a visual question, one picture can go to your selected model. IncarnaMind discards the frames and screen text at Stop.",
+  "meetings.screen.picker.loading": "Finding windows…",
+  "meetings.screen.picker.none": "No windows to read. Open the meeting, then try again.",
+  "meetings.screen.picker.read": "Read this window",
+  "meetings.screen.picker.cancel": "Cancel",
   "meetings.fill.section.summary": "Summary",
   "meetings.fill.section.decisions": "Decisions",
   "meetings.fill.section.actions": "Action items",
@@ -7599,6 +7684,8 @@ export const en = {
   "meetings.settings.routeChange": "Change in Settings › AI",
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
+  "meetings.settings.screen": "Ask to read the shared screen when a meeting starts",
+  "meetings.settings.screenBody": "Choose a window to read during each meeting.",
   "meetings.settings.keepAudio": "Keep a meeting’s audio",
   "meetings.settings.keepAudioOff": "A meeting’s audio is deleted a day after it ends.",
   "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",
@@ -7827,6 +7914,7 @@ export const en = {
   "meetings.command.audioWhileRecording": "Pause or stop the recording to delete its audio",
   "transcript.action.menu": "Line actions",
   "transcript.action.menu.line": "Line actions for {time}, {text}",
+  "transcript.action.selection": "Add selected words to action items",
   "transcript.action.add": "Add to action items",
   "transcript.action.already": "Already in action items",
   "transcript.addToNote": "Add to note",
@@ -8141,6 +8229,7 @@ export const en = {
   "steps.searched": "Searched {scope} · {sources}",
   "steps.searchedWeb": "Searched the web · {sources}",
   "steps.listened": "Listened to the live transcript · {sources}",
+  "steps.listened.screen": "Read the shared screen and the live transcript · {sources}",
   "steps.sources": "{count} sources",
   "steps.sources.one": "1 source",
   "steps.sources.none": "no sources",
@@ -8978,6 +9067,7 @@ export const en = {
   "agents.asked.copied": "Copied for {agent}: paste the request there and send it.",
   "agents.asked.checking": "Checking this note in {agent}.",
   "agents.asked.writing": "Writing the note in {agent}.",
+  "agents.asked.organizing": "Organizing your Documents in {agent}.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
   "agents.asked.again": "Ask again",
   "agents.asked.short.asked": "Asked your AI",
