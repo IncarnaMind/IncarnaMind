@@ -1,6 +1,8 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { readVtt, writeVtt } from "../src/core/documents/formats/vtt";
 import { meetingSummaryModelRoute } from "../src/shared/meetingSummary";
 import {
   acceptPlainTextKeys,
@@ -20,6 +22,7 @@ import {
   useLocalChatModel as selectLocalChatModel,
   setLanguage,
   setWindowSize,
+  slideSelect,
   startRecording,
   transcriptSaved,
   turnOf,
@@ -888,27 +891,41 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, inline.getByTestId("meeting-stop"));
       await transcriptSaved(window);
       await settleFirstFill(window);
-      const line = inline.getByTestId("transcript-line").filter({ hasText: text }).first();
+      const bridge = await coreOf(window);
+      const decoy = `${text} Extra words from another speaker.`;
+      if (language === "en") {
+        const id = await bridge.evaluate(async (core) => (await core.listMeetings())[0]?.id);
+        if (!id) throw new Error("Missing saved meeting.");
+        const file = join(dir, "Transcripts", `${id}.vtt`);
+        const recorded = readVtt(await readFile(file, "utf8"));
+        const cue = recorded.cues.find((row) => row.text === text);
+        if (!cue) throw new Error("Missing original cue.");
+        await writeFile(
+          file,
+          writeVtt({
+            ...recorded,
+            cues: [
+              { ...cue, speaker: "Morgan", text: decoy },
+              { ...cue, speaker: "Riley" },
+            ],
+          }),
+        );
+        await expect(
+          inline.getByTestId("transcript-line").filter({ hasText: decoy }),
+        ).toBeVisible();
+      }
+      const line = inline
+        .getByTestId("transcript-line")
+        .filter({ hasText: text, hasNotText: "Extra words from another speaker" })
+        .first();
       const addWords = async (quote: string) => {
-        await line.evaluate((element, quote) => {
-          const index = element.textContent?.indexOf(quote) ?? -1;
-          if (index < 0) throw new Error("The selected original words are missing.");
-          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-          const range = document.createRange();
-          let at = 0;
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            const end = at + (node.textContent?.length ?? 0);
-            if (at <= index && index < end) range.setStart(node, index - at);
-            if (at < index + quote.length && index + quote.length <= end) {
-              range.setEnd(node, index + quote.length - at);
-              break;
-            }
-            at = end;
-          }
-          const selection = document.getSelection();
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-        }, quote);
+        const ends = quote === first ? ["as the", "it"] : ["for user", "functions"];
+        if (language === "en")
+          await slideSelect(window, line, ends[0] ?? quote, { line, words: ends[1] ?? quote });
+        else await slideSelect(window, line, quote);
+        await expect
+          .poll(() => window.evaluate(() => document.getSelection()?.toString()))
+          .toBe(quote);
         await pointAndClick(
           window,
           inline.getByRole("button", {
@@ -916,7 +933,6 @@ for (const language of ["en", "zh-CN"] as const) {
           }),
         );
       };
-      const bridge = await coreOf(window);
       const read = () =>
         bridge.evaluate(async (core) => {
           const [meeting] = await core.listMeetings();
@@ -952,6 +968,15 @@ for (const language of ["en", "zh-CN"] as const) {
         `[data-testid="viewer-transcript"] [data-start="${bounds.startMs}"][data-end="${bounds.endMs}"] [data-quote-highlight]`,
       );
       await expect.poll(async () => (await highlight.allTextContents()).join("")).toBe(second);
+      if (language === "en")
+        await expect(
+          window
+            .getByTestId("viewer-transcript")
+            .getByTestId("transcript-line")
+            .filter({ hasText: decoy })
+            .locator("[data-quote-highlight]"),
+        ).toHaveCount(0);
+
       await pointAndClick(window, window.getByTestId("undo-action"));
       await expect.poll(async () => (await read()).map((row) => row.text)).toEqual([first]);
     } finally {

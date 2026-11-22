@@ -1,3 +1,4 @@
+import { targetHash } from "../../shared/proposals";
 import { findQuote } from "../../shared/quoteMatch";
 import { partsOf } from "../../shared/speakers";
 import { transcriptCueLines, type UnitText } from "../../shared/units";
@@ -93,14 +94,8 @@ export function transcriptActionSources(
   const source = {
     ...line.transcriptCue,
     text: actionWords(line),
-    ...(line.excerpt && { excerpt: line.excerpt }),
+    ...(line.excerpt && { excerpt: { ...line.excerpt, cueHash: targetHash(parent.text) } }),
   };
-  if (line.excerpt) {
-    const atOriginalTime = cues.filter(
-      (cue) => cue.startMs === parent.startMs && cue.endMs === parent.endMs,
-    );
-    if (atOriginalTime.length !== 1) return [];
-  }
   if (!line.parentCue) return [source];
   const current = transcriptActionLine(cues, speakers, line.transcriptCue);
   if (current?.parentCue && sameLine(current.parentCue, parent))
@@ -111,6 +106,7 @@ export function transcriptActionSources(
     return [];
   const offset = parent.text.indexOf(text);
   const excerpt = line.excerpt && {
+    cueHash: targetHash(parent.text),
     start: offset + line.excerpt.start,
     end: offset + line.excerpt.end,
   };

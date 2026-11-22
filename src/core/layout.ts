@@ -214,6 +214,27 @@ function parsePlace(value: unknown): DocumentPlace {
       endMs: cue.endMs,
       ...(cue.part && { part: cue.part }),
     };
+    if (cue.excerpt !== undefined) {
+      const excerpt = cue.excerpt;
+      if (
+        !isRecord(excerpt) ||
+        typeof excerpt.start !== "number" ||
+        typeof excerpt.end !== "number" ||
+        !Number.isSafeInteger(excerpt.start) ||
+        !Number.isSafeInteger(excerpt.end) ||
+        excerpt.start < 0 ||
+        excerpt.end <= excerpt.start ||
+        excerpt.end - excerpt.start !== place.quote?.length ||
+        typeof excerpt.cueHash !== "string" ||
+        !/^[a-z0-9]{1,11}$/u.test(excerpt.cueHash)
+      )
+        throw new InvalidInputError({ key: "error.layout.transcriptCue" });
+      place.transcriptCue.excerpt = {
+        start: excerpt.start,
+        end: excerpt.end,
+        cueHash: excerpt.cueHash,
+      };
+    }
   }
   if (value.wordPlace !== undefined) {
     if (typeof value.wordPlace !== "string" || !WORD_PLACE.test(value.wordPlace)) {

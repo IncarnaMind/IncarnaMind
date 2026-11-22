@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useState } from "react";
 import type { TextRange } from "../../../core/api";
+import { targetHash } from "../../../shared/proposals";
 import { paletteOpen } from "../commands/handles";
 import { markQuote, textNodes } from "./domQuote";
 import { selectionEnd } from "./selectedText";
@@ -68,21 +69,28 @@ export function markTranscriptExcerpt(
   lines: HTMLElement[],
   parts: readonly PartRow[],
   bounds: { startMs: number; endMs: number; part?: true },
-  excerpt: TextRange,
+  excerpt: TextRange & { cueHash: string },
   words: string,
 ) {
   const rows = parts.filter((row) => {
     const at = bounds.part ? row.part : row.cue;
-    return at.startMs === bounds.startMs && at.endMs === bounds.endMs;
+    return (
+      at.startMs === bounds.startMs &&
+      at.endMs === bounds.endMs &&
+      targetHash(row.cue.text) === excerpt.cueHash
+    );
   });
   const first = rows[0];
-  if (!first || rows.length !== lines.length || rows.some((row) => row.cue !== first.cue))
-    return null;
+  if (!first || rows.some((row) => row.cue !== first.cue)) return null;
   const original = bounds.part ? first.part.text : first.cue.text;
   if (original.slice(excerpt.start, excerpt.end) !== words) return null;
-  return lines.flatMap((line, index) => {
-    const row = rows[index];
-    if (!row || row.id !== line.dataset.line || line.textContent !== row.part.text) return [];
+  const matching = rows.map((row) =>
+    lines.filter((line) => line.dataset.line === row.id && line.textContent === row.part.text),
+  );
+  if (matching.some((group) => group.length !== 1)) return null;
+  return rows.flatMap((row, index) => {
+    const line = matching[index]?.[0];
+    if (!line) return [];
     const offset = bounds.part ? 0 : original.indexOf(row.part.text, row.part.at);
     if (offset < 0) return [];
     const start = Math.max(0, excerpt.start - offset);

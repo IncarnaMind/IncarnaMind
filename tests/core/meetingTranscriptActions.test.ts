@@ -1,12 +1,15 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { expect, test } from "vitest";
 import type { MeetingSummarySource } from "../../src/core/api";
+import { readVtt, writeVtt } from "../../src/core/documents/formats/vtt";
+import { targetHash } from "../../src/shared/proposals";
 import { withLineSplit } from "../../src/shared/speakers";
 import {
   recordedMeeting,
   savedCues,
   stoppedMeeting,
   transcribingCore,
+  transcriptRead,
 } from "../helpers/transcription";
 
 const unavailable = { wording: { key: "error.meeting.summaryCandidateUnavailable" } };
@@ -144,7 +147,12 @@ test("a split transcript line keeps only the selected speaker's words and time w
       excerpt,
     );
     expect((await core.getMeetingSummaryItemSources(meeting.id, cropped.itemId))?.sources).toEqual([
-      { ...selected, text: "酒店", part: true, excerpt },
+      {
+        ...selected,
+        text: "酒店",
+        part: true,
+        excerpt: { ...excerpt, cueHash: targetHash(cue.text) },
+      },
     ]);
 
     await core.setTranscriptSpeakers({
@@ -156,7 +164,11 @@ test("a split transcript line keeps only the selected speaker's words and time w
       {
         ...selected,
         text: "酒店",
-        excerpt: { start: first.length + excerpt.start, end: first.length + excerpt.end },
+        excerpt: {
+          start: first.length + excerpt.start,
+          end: first.length + excerpt.end,
+          cueHash: targetHash(cue.text),
+        },
         parentCue: { startMs: cue.startMs, endMs: cue.endMs },
       },
     ]);
@@ -258,5 +270,45 @@ test("two occurrences of the same words on one line survive reopening with disti
       ).toEqual([]);
   } finally {
     reopened.close();
+  }
+});
+
+test("an excerpt in simultaneous speakers' different lines opens only its original cue", async () => {
+  const words = "Send the report";
+  const spoken = `${words} to Finance.`;
+  const other = `${words} to Legal.`;
+  const { core, meeting, dataDir } = await recordedMeeting("en", { lines: [spoken] });
+  try {
+    const { document } = await stoppedMeeting(core, dataDir, meeting.id);
+    if (!document.path) throw new Error("Missing temporary transcript.");
+    const transcript = readVtt(await readFile(document.path, "utf8"));
+    const first = transcript.cues.find((row) => row.text === spoken);
+    if (!first) throw new Error("Missing original test cue.");
+    const left = { ...first, text: other, speaker: "Morgan" };
+    const right = { ...first, speaker: "Riley" };
+    await writeFile(document.path, writeVtt({ ...transcript, cues: [left, right] }));
+    await core.reconcileDocuments();
+    await transcriptRead(core, dataDir, meeting.id, document.id);
+    const excerpt = { start: 0, end: words.length };
+    const add = () => core.addMeetingTranscriptAction(meeting.id, document.id, right, excerpt);
+    const { itemId } = await add();
+    expect((await core.getMeetingSummaryItemSources(meeting.id, itemId))?.sources).toEqual([
+      {
+        startMs: right.startMs,
+        endMs: right.endMs,
+        text: words,
+        excerpt: { ...excerpt, cueHash: targetHash(right.text) },
+      },
+    ]);
+    await writeFile(
+      document.path,
+      writeVtt({ ...transcript, cues: [{ ...left, text: spoken }, right] }),
+    );
+    await core.reconcileDocuments();
+    await transcriptRead(core, dataDir, meeting.id, document.id);
+    expect((await core.getMeetingSummaryItemSources(meeting.id, itemId))?.sources).toEqual([]);
+    await expect(add()).rejects.toMatchObject(unavailable);
+  } finally {
+    core.close();
   }
 });

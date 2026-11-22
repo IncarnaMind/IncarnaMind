@@ -4257,7 +4257,12 @@ export interface DocumentPlace {
    */
   wordPlace?: string;
   /** The original Transcript cue, or an exact displayed speaker part within it. */
-  transcriptCue?: { startMs: number; endMs: number; part?: true; excerpt?: TextRange };
+  transcriptCue?: {
+    startMs: number;
+    endMs: number;
+    part?: true;
+    excerpt?: TextRange & { cueHash: string };
+  };
 }
 
 export interface LayoutTab {
@@ -15468,7 +15473,7 @@ export interface CoreApi {
   ): Promise<{
     documentId: string;
     sources: (MeetingSummarySource & {
-      excerpt?: TextRange;
+      excerpt?: TextRange & { cueHash: string };
       part?: true;
       parentCue?: { startMs: number; endMs: number };
     })[];

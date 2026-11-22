@@ -244,12 +244,8 @@ function quoteLinesAt(
     ? `[data-start="${startMs}"][data-end="${endMs}"]`
     : `[data-cue-start="${startMs}"][data-cue-end="${endMs}"]`;
   const lines = Array.from(body.querySelectorAll<HTMLElement>(selector));
-  if (!part) return lines;
-  const exact = lines.filter((line) =>
-    excerpt
-      ? line.textContent?.slice(excerpt.start, excerpt.end) === quote
-      : line.textContent === quote,
-  );
+  if (!part || excerpt) return lines;
+  const exact = lines.filter((line) => line.textContent === quote);
   return exact.length === 1 ? exact : [];
 }
 
@@ -722,8 +718,8 @@ function TranscriptContent({
           : target.pageFrom === undefined
             ? markQuote(textNodes(body), target.quote)
             : range && markQuote(textNodes(body, range), target.quote);
-    setHighlighted((count) => (marks ? count + 1 : 0));
-    const anchor = marks?.[0] ?? first ?? null;
+    setHighlighted((count) => (marks?.length ? count + 1 : 0));
+    const anchor = marks?.[0] ?? (cue?.excerpt ? null : first);
     if (anchor) {
       following.current = false;
       const top =
