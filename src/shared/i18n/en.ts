@@ -433,7 +433,7 @@ export const en = {
   "error.meeting.briefChanged":
     "This meeting or its sources changed. Open the meeting brief again to use the current information.",
   "error.meeting.briefTooLong":
-    "The meeting sources are too long for this model. Choose a model with a larger context window for this Note.",
+    "The meeting sources are too long for this model. Choose a model with a larger context window for this note.",
   "error.meeting.briefIncomplete":
     "The model could not prepare three questions. Try preparing the brief again.",
   "meetings.brief.keepQuestions": "Keep questions in notes",
@@ -444,13 +444,13 @@ export const en = {
   "meetings.brief.readInvite": "Find meeting sources",
   "meetings.brief.sending": "Preparing meeting brief…",
   "meetings.brief.clientDisclosure":
-    "Sends the meeting title and permitted excerpts from earlier meetings and authorized Documents linked to this Note, in its Folder, or in its selected Search scope to {service}. Your connected AI account manages its own billing.",
+    "Sends the meeting title and permitted excerpts from earlier meetings and authorized documents linked to this note, in its folder, or in its selected search scope to {service}. Your connected AI account manages its own billing.",
   "meetings.brief.disclosure":
-    "Sends the meeting title and excerpts from earlier meetings with the same people and from Documents linked to this Note, in its Folder, or in its selected Search scope to {service}.",
+    "Sends the meeting title and excerpts from earlier meetings with the same people and from documents linked to this note, in its folder, or in its selected search scope to {service}.",
   "meetings.brief.localDisclosure":
-    "Uses the meeting title, earlier meetings with the same people and related Documents on this computer.",
+    "Uses the meeting title, earlier meetings with the same people and related documents on this computer.",
   "meetings.brief.chooseModel":
-    "To prepare questions, choose a model for this Note or connect your AI with access to the meeting sources.",
+    "To prepare questions, choose a model for this note or connect your AI with access to the meeting sources.",
   "meetings.brief.nothing": "No meeting sources to prepare from.",
   "meetings.brief.lastTime": "Last time with these people",
   "meetings.brief.keep": "Keep in notes",
