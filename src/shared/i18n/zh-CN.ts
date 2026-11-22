@@ -8371,6 +8371,10 @@ export const zhCN = {
   "ai.jobs.organize.agent": "你可以让已连接的 AI 推荐文件夹和标签。",
   "agents.sorting.tagConsent": "允许将这些文档的标签名称发送给 {agent} 使用的 AI 模型吗？",
   "agents.sorting.shareTags": "允许共享标签名称",
+  "agents.sorting.left.one":
+    "为免调用过长，你的 {total} 条建议中最后 1 条没有收下：请在下一次调用中重新发送。",
+  "agents.sorting.left.other":
+    "为免调用过长，你的 {total} 条建议中最后 {count} 条没有收下：请在下一次调用中重新发送这 {count} 条。",
   "agents.sorting.invalid":
     "文档或可选项已更改。请重新列出待整理的文档，再使用当前可选的文件夹和标签。",
   "agents.activity.list_sorting": "读取了待整理的文档",
