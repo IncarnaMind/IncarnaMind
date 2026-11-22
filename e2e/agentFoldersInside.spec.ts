@@ -20,7 +20,7 @@ import {
   showSettingsPage,
 } from "./app";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A Folder shared with an agent shares the Folders inside it (#3394): in a connected agent's

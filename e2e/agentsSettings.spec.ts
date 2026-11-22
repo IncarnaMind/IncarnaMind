@@ -23,7 +23,7 @@ import {
   showSettingsPage,
 } from "./app";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * Settings → AI (#351): turned on, an agent is connected after one plain

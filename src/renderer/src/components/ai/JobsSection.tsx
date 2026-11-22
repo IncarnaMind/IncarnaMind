@@ -63,7 +63,7 @@ export function JobsSection({
   const roles = useModelRoles(groups);
   const health = useModelHealthFailure();
   const reached = useSettingsTarget<HTMLElement>(MODEL, !noModel, () =>
-    document.getElementById(`${id}-answers`)?.focus({ preventScroll: true }),
+    queueMicrotask(() => document.getElementById(`${id}-answers`)?.focus({ preventScroll: true })),
   );
   return (
     <SettingsSection ref={reached} title={t("ai.jobs.title")} testId="ai-jobs">

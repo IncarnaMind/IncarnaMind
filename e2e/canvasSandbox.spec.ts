@@ -19,7 +19,7 @@ import {
 } from "./app";
 import { connectCanvasAgent, inCanvas, publishCanvas, showCanvasTab } from "./canvases";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A Canvas an outside agent publishes (#3406) is the first content the app draws live that it didn't

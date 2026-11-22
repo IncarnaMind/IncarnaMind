@@ -27,7 +27,7 @@ import {
   writeNote,
 } from "./app";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * Ask your AI (#3373, #3419): a User who connected their own AI and set up no model finds the page
@@ -278,6 +278,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(useModel).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
+    // It lands on the model's own quiet row, under Your AI (#3645).
+    await expect(window.getByTestId("ai-use-model-open")).toBeFocused();
     await closeSettings(window);
     await expect(assistant).toBeHidden();
     await expect(window.getByTestId("model-setup")).toHaveCount(0);

@@ -25,7 +25,7 @@ import {
 } from "./app";
 import { callTool } from "./canvases";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * A new User's first walk with a Project (#3507, ADR-0030): a Linked folder made a Project from its

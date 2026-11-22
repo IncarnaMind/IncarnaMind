@@ -18,7 +18,7 @@ import {
   showSettingsPage,
 } from "./app";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * What a new agent reads (#507, #3364, #3487, #3544): all of the User's Documents and notes, those

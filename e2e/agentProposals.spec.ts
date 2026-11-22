@@ -33,7 +33,7 @@ import {
   setWindowSize,
 } from "./app";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * An outside agent proposes changes to a Note (#352): the User lets it where they connect it,

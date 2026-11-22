@@ -20,7 +20,7 @@ import {
 } from "./app";
 import { callTool } from "./canvases";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * An outside agent replaces a picture and a chart in the User's Note by their names (#3429): the

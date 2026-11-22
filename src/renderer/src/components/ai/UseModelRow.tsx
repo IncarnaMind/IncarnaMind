@@ -22,8 +22,11 @@ export function UseModelRow() {
   const t = useT();
   const openSetup = useAppStore((state) => state.openSetup);
   const capShown = useSpendingCapShown();
+  // Showing the dialog moves the focus after the target is reached, as for Local mode's switch.
   const reached = useSettingsTarget<HTMLElement>(capShown ? WITH_A_MODEL : WITH_THE_CAP, true, () =>
-    document.querySelector<HTMLElement>('[data-testid="ai-use-model-open"]')?.focus(),
+    queueMicrotask(() =>
+      document.querySelector<HTMLElement>('[data-testid="ai-use-model-open"]')?.focus(),
+    ),
   );
   return (
     <SettingsSection ref={reached} testId="ai-use-model">

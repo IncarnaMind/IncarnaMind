@@ -23,7 +23,7 @@ import {
   writeNote,
 } from "./app";
 
-test.skip(!SHOW_AGENT_CONNECTION, "Settings › AI is hidden while SHOW_AGENT_CONNECTION is false.");
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * An outside agent adds a tab to the User's Note (#3414): the tab waits with the first Block it

@@ -7,6 +7,7 @@ import type {
   RerankSettings,
   TranscriptionServiceStatus,
 } from "../../../../core/api";
+import { SHOW_AGENT_CONNECTION } from "../../../../shared/agentConnection";
 import { useAnswers } from "../../answers";
 import { useCheckDecision } from "../../checkDecision";
 import { core } from "../../core";
@@ -300,7 +301,7 @@ export function AiSettings() {
       <UndoLineAt place={MODELS_UNDO_PLACE} className="-mb-6 has-[*]:mb-0" />
       {body ?? (
         <>
-          <YourAiSection {...agents} />
+          {SHOW_AGENT_CONNECTION && <YourAiSection {...agents} />}
           {noModel && <UseModelRow />}
           <ReadinessNote />
           {removed && <RemovedLine removed={removed} providers={providers} />}
