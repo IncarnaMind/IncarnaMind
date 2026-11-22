@@ -87,7 +87,9 @@ const about = (activity: AgentActivity, asked: AgentAsked): boolean => {
   if (what.kind === "organize") {
     return activity.tool === "list_sorting" || activity.tool === "propose_sorting";
   }
-  return activity.effects.some(({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId);
+  return activity.effects.some(
+    ({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId,
+  );
 };
 
 /** For an Organize, its Suggestions came, or the list it read had nothing waiting in it. */
@@ -95,7 +97,8 @@ const landed = (activity: AgentActivity, asked: AgentAsked): boolean => {
   if (activity.outcome !== "done") return false;
   if (asked.for.kind === "check") return activity.tool === "report_check" && about(activity, asked);
   if (asked.for.kind === "summary") return activity.tool === "create_mind";
-  if (asked.for.kind === "change") return activity.tool === "propose_changes" && about(activity, asked);
+  if (asked.for.kind === "change")
+    return activity.tool === "propose_changes" && about(activity, asked);
   if (asked.for.kind === "explain") return about(activity, asked);
   return (
     activity.tool === "propose_sorting" ||

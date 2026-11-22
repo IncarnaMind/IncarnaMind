@@ -232,6 +232,10 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
       `About my note ${note} in IncarnaMind: explain “The board will review the winter timetable in M…”.`,
     );
     await expect(assistant).toBeHidden();
+    // Its line says it was asked; ✕ takes the line away, and the words stay where they were.
+    await expect(asked).toContainText("Asked Claude Code: send the request there.");
+    await pointAndClick(window, asked.getByTestId("menu-edit-close"));
+    await expect(asked).toHaveCount(0);
 
     menu = await selectParagraph(window, THIRD);
     await pointAndClick(window, menu.getByTestId("selection-action-translate"));
@@ -243,6 +247,7 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
     expect(typedIn((await urlsOpened(app))[2])).toContain(
       "into French (Français), as a change in the note for me to review.",
     );
+    await expect(asked).toContainText("Asked Claude Code: send the request there.");
 
     menu = await selectParagraph(window, FIRST);
     await pointAndClick(window, menu.getByTestId("selection-edit-field"));
@@ -253,6 +258,7 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
       `About my note ${note} in IncarnaMind, the words “Harbourline Ferries carried 412,000 passengers …”:\n\nRound it to the nearest thousand`,
     );
     await expect(window.getByTestId("edit-handoff")).toHaveCount(0);
+    await expect(asked).toContainText("Asked Claude Code: send the request there.");
 
     // In Chinese, the same in Chinese words.
     await setLanguage(window, "zh-CN");
