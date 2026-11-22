@@ -6448,6 +6448,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
 
   const candidateReviews = createMeetingCandidateReview({
+    pendingSpeakers: (meetingId) => transcripts?.pendingSpeakers(meetingId) ?? null,
     meetings,
     documents,
     summaryRoute,

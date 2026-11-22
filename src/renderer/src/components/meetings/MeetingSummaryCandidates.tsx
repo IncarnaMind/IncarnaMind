@@ -265,7 +265,13 @@ export function MeetingSummaryCandidates({
         {open && (
           <div className="mt-2 space-y-2 ps-4 text-[13px] leading-5">
             {!reviewed && checking && (
-              <span role="status">{t("meetings.summary.candidates.checking")}</span>
+              <span role="status">
+                {t(
+                  meeting.transcript?.separating
+                    ? "meetings.transcript.separating"
+                    : "meetings.summary.candidates.checking",
+                )}
+              </span>
             )}
             {!reviewed && checkError && (
               <ProblemLine
