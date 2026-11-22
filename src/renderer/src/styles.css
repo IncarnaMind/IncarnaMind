@@ -10533,6 +10533,19 @@
       display: none;
     }
   }
+  /* A short Question leaves the first setup choices its spare room (#2270). */
+  .assistant-main:has(> .assistant-composer [data-setup-title]) {
+    > .assistant-thread {
+      flex: 1 0 0;
+      min-height: calc-size(max-content, min(size, 10rem, 40%));
+    }
+
+    > .assistant-composer {
+      flex: 0 1 auto;
+      max-height: none;
+    }
+  }
+
   /*
    * The title and a form's action row stay in view as the short setup card scrolls. Their
    * margins undo their padding, so nothing moves until the card does, and the padding covers
