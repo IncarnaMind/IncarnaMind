@@ -538,6 +538,104 @@ describe("A folder in IncarnaMind's own data folder", { timeout: 30_000 }, () =>
     expect(linked).toMatchObject({ path: beside });
     expect((await core.listLinkedFolders()).map((each) => each.path)).toEqual([beside]);
   });
+
+  // protects=a Linked folder that contains IncarnaMind's data folder previews, scans, watches, and unlinks without turning anything inside the data folder into a Document or unsupported file, and without stealing or disturbing Documents the app keeps in its data folder (#3566); fails_when=linking a parent of the data folder indexes or previews any file inside the data folder, adopts a data-folder Document, or drops it on unlink
+  test("a Linked folder around the data folder skips the data folder and everything in it (#3566)", async () => {
+    const parent = await createSourceFolder();
+    const dataDir = join(parent, "data");
+    const userFile = await writeSourceFile(parent, "User.md", `# User\n\n${TIDES}`);
+    await writeSourceFile(dataDir, "Notes/note-snapshot.md", "# Note\n\nInternal note copy.");
+    await writeSourceFile(
+      dataDir,
+      "Handed files/an-item/v1/Deck.md",
+      "# Deck\n\nHanded-over copy.",
+    );
+    await writeSourceFile(dataDir, "Web pages/saved.html", "<html><body>Saved page</body></html>");
+    await writeSourceFile(dataDir, "documents/old-copy.md", "# Old copy\n\nLegacy copy.");
+    await writeSourceFile(dataDir, "legacy.doc", "unsupported format inside data folder");
+
+    const core = startCore(dataDir);
+    const note = await core.createMind({ title: "Own note" });
+    const noteDoc = await core.saveMindAsSource(note.id);
+    await waitForDocuments(core, (documents) => {
+      expect(documents.find((doc) => doc.id === noteDoc.id)?.status).toBe("ready");
+    });
+
+    const preview = await core.previewLinkedFolder(parent);
+    expect(preview.files).toBe(1);
+
+    const linked = await core.addLinkedFolder(parent);
+    await waitForDocuments(core, (documents) => {
+      expect(documents.map((doc) => doc.path).sort()).toEqual([noteDoc.path, userFile].sort());
+      expect(documents.every((doc) => doc.status === "ready")).toBe(true);
+    });
+    expect(
+      (await core.listDocuments({ linkedFolderId: linked.id })).map((doc) => doc.path),
+    ).toEqual([userFile]);
+    expect((await core.listDocuments()).find((doc) => doc.id === noteDoc.id)).toMatchObject({
+      linkedFolderId: null,
+      fileStatus: "available",
+    });
+    expect(await core.listUnreadFiles()).toEqual([]);
+
+    // Files written inside the data folder afterwards are also ignored by the watcher and reconcile.
+    await writeSourceFile(dataDir, "Notes/written-later.md", "# Later\n\nWritten while watched.");
+    await core.reconcileDocuments();
+    expect(
+      (await core.listDocuments({ linkedFolderId: linked.id })).map((doc) => doc.path),
+    ).toEqual([userFile]);
+    expect((await core.listDocuments()).map((doc) => doc.path).sort()).toEqual(
+      [noteDoc.path, userFile].sort(),
+    );
+    expect((await core.listDocuments()).find((doc) => doc.id === noteDoc.id)?.fileStatus).toBe(
+      "available",
+    );
+    expect(await core.listUnreadFiles()).toEqual([]);
+
+    // Unlinking the parent folder leaves the app's own data-folder Document intact.
+    await core.removeLinkedFolder(linked.id);
+    expect((await core.listDocuments()).map((doc) => doc.id)).toEqual([noteDoc.id]);
+  });
+
+  // protects=a Linked folder around the data folder still skips the data folder when the data folder or the Linked folder is reached through a symbolic link (#3566); fails_when=a symlinked data folder path or symlinked parent lets files inside the data folder become Documents
+  test("a Linked folder skips the data folder when reached through a link (#3566)", async () => {
+    // 1. Data folder itself passed to the core through a symbolic link pointing inside the Linked folder.
+    const parent1 = await createSourceFolder();
+    const realData1 = join(parent1, "real-data");
+    const userFile1 = await writeSourceFile(parent1, "User.md", `# User\n\n${TIDES}`);
+    await writeSourceFile(realData1, "Notes/internal.md", "# Internal\n\nMust stay skipped.");
+    const aliasHolder1 = await createSourceFolder();
+    const dataLink1 = join(aliasHolder1, "data-link");
+    await symlink(realData1, dataLink1, "dir");
+
+    const core1 = startCore(dataLink1);
+    expect((await core1.previewLinkedFolder(parent1)).files).toBe(1);
+    await core1.addLinkedFolder(parent1);
+    await waitForDocuments(core1, (documents) => {
+      expect(documents.map((doc) => doc.path)).toEqual([userFile1]);
+      expect(documents[0]?.status).toBe("ready");
+    });
+    core1.close();
+
+    // 2. Parent folder holding the data folder is linked through a symbolic link, and also holds a symlink to another folder in the data folder.
+    const parent2 = await createSourceFolder();
+    const dataDir2 = join(parent2, "data");
+    const userFile2 = await writeSourceFile(parent2, "User.md", `# User\n\n${RIVERS}`);
+    await writeSourceFile(dataDir2, "Notes/internal.md", "# Internal\n\nMust stay skipped.");
+    await symlink(dataDir2, join(parent2, "data-alias"), "dir");
+    const aliasHolder2 = await createSourceFolder();
+    const parentLink2 = join(aliasHolder2, "parent-link");
+    await symlink(parent2, parentLink2, "dir");
+
+    const core2 = startCore(dataDir2);
+    expect((await core2.previewLinkedFolder(parentLink2)).files).toBe(1);
+    await core2.addLinkedFolder(parentLink2);
+    await waitForDocuments(core2, (documents) => {
+      expect(documents.map((doc) => doc.path)).toEqual([userFile2]);
+      expect(documents[0]?.status).toBe("ready");
+    });
+    core2.close();
+  });
 });
 
 describe("While the app runs, a Linked folder is watched", { timeout: 30_000 }, () => {

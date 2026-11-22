@@ -326,6 +326,10 @@ export function createLibrary(options: LibraryOptions) {
   const dataFolders = [...new Set([options.dataDir, realpathSync(options.dataDir)])];
   const realDataFolder = dataFolders.at(-1) ?? options.dataDir;
 
+  /** Whether `path` is the data folder itself or somewhere inside it (#3505, #3566). */
+  const inDataFolder = (path: string): boolean =>
+    dataFolders.some((folder) => isInside(folder, path));
+
   /** A path's place inside the data folder ("/" between names), or null if it isn't in it. */
   const insideDataFolder = (path: string): string | null => {
     const folder = dataFolders.find((each) => path !== each && isInside(each, path));
@@ -417,9 +421,13 @@ export function createLibrary(options: LibraryOptions) {
     );
   };
 
+  /** Whether `row` covers `path`: a User Linked folder outside the data folder skips it (#3566). */
+  const ownsPath = (row: LinkedFolderRow, path: string): boolean =>
+    isInside(row.path, path) && (inDataFolder(row.path) || !inDataFolder(path));
+
   /** The live Linked folder a path is in (the innermost, though they never nest), or undefined. */
   const ownerOf = (path: string, rows = liveFolders()) =>
-    rows.filter((row) => isInside(row.path, path)).sort((a, b) => b.path.length - a.path.length)[0];
+    rows.filter((row) => ownsPath(row, path)).sort((a, b) => b.path.length - a.path.length)[0];
 
   const statusOf = (row: LinkedFolderRow): LinkedFolderStatus =>
     row.paused ? "paused" : (statuses.get(row.id) ?? "scanning");
@@ -553,7 +561,7 @@ export function createLibrary(options: LibraryOptions) {
         const current = folderRow(row.id);
         if (!current || current.paused) return;
         const relevant = paths.filter((path) => {
-          if (!isInside(row.path, path) || options.readsTimedByWriter(path)) return false;
+          if (!ownsPath(row, path) || options.readsTimedByWriter(path)) return false;
           if (iCloudStubTarget(basename(path))) return true;
           return !ignore(relativePath(row.path, path));
         });
@@ -1290,14 +1298,18 @@ export function createLibrary(options: LibraryOptions) {
       onlineOnly.set(row.id, placeholders);
       const notRead = unsupported.get(row.id) ?? new Set<string>();
       unsupported.set(row.id, notRead);
+      const skip = inDataFolder(row.path) ? undefined : inDataFolder;
       for (const part of parts) {
-        for (const document of documentsUnder(part)) known.set(document.path, document);
+        for (const document of documentsUnder(part)) {
+          if (!skip?.(document.path)) known.set(document.path, document);
+        }
         let files: FoundFile[] = [];
         let unread: string[] = [];
         try {
           ({ files, unsupported: unread } = await walk(part, {
             root: row.path,
             ignore,
+            ...(skip && { skip }),
             detectDataless: options.detectDataless,
           }));
         } catch {
@@ -1492,7 +1504,7 @@ export function createLibrary(options: LibraryOptions) {
     if (!(await isFolder(real))) throw new InvalidInputError({ key: "error.path.notFolder" });
     // The data folder is the app's: what it keeps there it rewrites and removes. The User links
     // no folder in it (#3505); the app links its own examples there.
-    if (!appsOwn && dataFolders.some((folder) => isInside(folder, real))) {
+    if (!appsOwn && inDataFolder(real)) {
       throw new InvalidInputError({ key: "error.linkedFolder.inData" });
     }
     return real;
@@ -1600,6 +1612,7 @@ export function createLibrary(options: LibraryOptions) {
       const { files } = await walk(path, {
         root: path,
         ignore: createIgnore(),
+        skip: inDataFolder,
         detectDataless: options.detectDataless,
       });
       const local = files.filter((file) => !file.onlineOnly);
@@ -1617,7 +1630,7 @@ export function createLibrary(options: LibraryOptions) {
         layout: suggestLayout(local.map((file) => relativePath(path, file.path))),
         insideLinkedFolderId: outer?.id ?? null,
         containsLinkedFolderIds: linked
-          .filter((row) => row.path !== path && isInside(path, row.path))
+          .filter((row) => row.path !== path && isInside(path, row.path) && !inDataFolder(row.path))
           .map((row) => row.id),
       };
     },
@@ -1643,7 +1656,9 @@ export function createLibrary(options: LibraryOptions) {
            VALUES (?, ?, ?, ?, ?)`,
           [id, path, arrivalPlace(db, at, options.localOnly()), at, at],
         );
-        for (const inner of linked.filter((row) => isInside(path, row.path))) {
+        for (const inner of linked.filter(
+          (row) => isInside(path, row.path) && (appsOwn || !inDataFolder(row.path)),
+        )) {
           stopWatcher(inner.id);
           statuses.delete(inner.id);
           onlineOnly.delete(inner.id);
@@ -1659,6 +1674,7 @@ export function createLibrary(options: LibraryOptions) {
         if (!owner) return;
         // Taken now rather than at its first scan, so unlinking it straight away takes them too.
         for (const document of documentsUnder(path)) {
+          if (!appsOwn && inDataFolder(document.path)) continue;
           db.run(`UPDATE documents SET ${PLACE_COLUMNS}, updated_at = ? WHERE id = ?`, [
             ...placeValues(placeOf(document.path, owner)),
             at,
@@ -1719,7 +1735,7 @@ export function createLibrary(options: LibraryOptions) {
       onlineOnly.delete(row.id);
       unsupported.delete(row.id);
       downloading.delete(row.id);
-      for (const path of unreadable) if (isInside(row.path, path)) unreadable.delete(path);
+      for (const path of unreadable) if (ownsPath(row, path)) unreadable.delete(path);
       watchSingles(); // a file added on its own inside it is watched by itself now
       if (foldersChanged) hooks.foldersChanged();
       announceFolders();
@@ -1769,7 +1785,9 @@ export function createLibrary(options: LibraryOptions) {
       const path = await resolveFolder(input);
       const name = basename(row.path) || row.path;
       if (path !== row.path) {
-        const others = liveFolders().filter((each) => each.id !== row.id);
+        const others = liveFolders().filter(
+          (each) => each.id !== row.id && (inDataFolder(row.path) || !inDataFolder(each.path)),
+        );
         if (others.some((each) => isInside(each.path, path) || isInside(path, each.path))) {
           throw new InvalidInputError({ key: "error.linkedFolder.overlaps", values: { name } });
         }
@@ -1814,7 +1832,7 @@ export function createLibrary(options: LibraryOptions) {
         stopWatcher(row.id);
         onlineOnly.delete(row.id);
         unsupported.delete(row.id);
-        for (const file of unreadable) if (isInside(row.path, file)) unreadable.delete(file);
+        for (const file of unreadable) if (ownsPath(row, file)) unreadable.delete(file);
       }
       statuses.set(row.id, "scanning");
       request({ folders: [row.id] });
