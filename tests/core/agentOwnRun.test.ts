@@ -100,7 +100,9 @@ async function checks(agent: Agent, request: RunRequest): Promise<RunEnd> {
 const untilStopped = (_agent: Agent, request: RunRequest) =>
   new Promise<RunEnd>((resolve) => {
     if (request.signal.aborted) resolve({ kind: "finished", reply: "" });
-    request.signal.addEventListener("abort", () => resolve({ kind: "finished", reply: "" }), { once: true });
+    request.signal.addEventListener("abort", () => resolve({ kind: "finished", reply: "" }), {
+      once: true,
+    });
   });
 
 /** A runner whose command line is `act`, or `status` without one; `installed`: whether `claude` is found at all. */

@@ -235,6 +235,38 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended()).toMatchObject({ state: "landed", reply: "Rewrote the fares." });
   });
 
+  // protects=the spacing next to the selected words may change with them, as it does when a figure in a Chinese sentence is written out in characters; fails_when=that change waits as if it changed words outside the selection
+  it("keeps a change inside the selection when only the spacing next to it changes", async () => {
+    const SHIPS = "去年渡轮共运送乘客 212,000 人次。";
+    const run = runner(async (agent, request) => {
+      const done = await rewrite(agent, mindIdOf(request), [
+        [SHIPS, "去年渡轮共运送乘客二十一万二千人次。"],
+      ]);
+      expect(done.status).toBe("applied");
+      return { kind: "finished", reply: "" };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    const folderId = (await core.listMinds()).find((mind) => mind.id === mindId)?.folderId ?? null;
+    const ferry = await core.createMind({ title: "渡轮", folderId });
+    const client = await connectToMind(core, ferry.id);
+    writeMind(client, [note(SHIPS)]);
+    await client.settled();
+
+    await core.askInNote({
+      mindId: ferry.id,
+      words: "写成汉字",
+      quote: "212,000",
+      selection: [
+        {
+          blockId: String(readMind(client).child(0).attrs.id),
+          before: "去年渡轮共运送乘客 ",
+          after: " 人次。",
+        },
+      ],
+    });
+    expect((await ended())?.applied).toHaveLength(1);
+  });
+
   // protects=with words selected, a call that changes more of the Note asked from waits for the User, and says why; a change to another Note always waits; fails_when=a change beyond what the User pointed at applies without them
   it("lets a change beyond the selection, or in another Note, wait", async () => {
     let why = "";

@@ -88,6 +88,7 @@ import {
 } from "../api";
 import { citedTokens } from "../canvases/markers";
 import type { CheckRecord } from "../checkRecord";
+import { plainText } from "../conversations/search";
 import type { CitationSource } from "../documents";
 import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
@@ -101,7 +102,6 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
-import { plainText } from "../conversations/search";
 import type { AskedChecks, RunGrant, SelectedInBlock } from "./askedChecks";
 import {
   type AgentCanvasListed,
@@ -1155,8 +1155,10 @@ const plainWords = (markdown: string) =>
 /**
  * Whether every change stays inside the words the User selected (ADR-0034): each one rewrites a
  * paragraph the selection is in and leaves its words outside the selection as they were, as plain
- * text, so bold or shorter is inside. A new paragraph, a removed one not selected whole, or words
- * read differently from the window's (`before` and `after` not found where they were) is not.
+ * text, so bold or shorter is inside. The spacing right next to the selection may change with it:
+ * a figure written out in Chinese characters drops the spaces around it. A new paragraph, a
+ * removed one not selected whole, or words read differently from the window's (`before` and
+ * `after` not found where they were) is not.
  */
 function insideSelection(
   placed: readonly NamedChange[],
@@ -1175,8 +1177,11 @@ function insideSelection(
     if (!was.startsWith(before) || !was.endsWith(after)) return false;
     if (change.kind === "remove") return before === "" && after === "";
     const now = plainWords(change.text);
+    const words = { before: before.trimEnd(), after: after.trimStart() };
     return (
-      now.length >= before.length + after.length && now.startsWith(before) && now.endsWith(after)
+      now.length >= words.before.length + words.after.length &&
+      now.startsWith(words.before) &&
+      now.endsWith(words.after)
     );
   });
 }
