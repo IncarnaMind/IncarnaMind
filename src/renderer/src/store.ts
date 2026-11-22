@@ -101,6 +101,7 @@ import { useNotices } from "./notices";
 import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
+import { useSelection } from "./selection";
 import {
   pagesOffered,
   resolveSettingsPage,
@@ -1219,6 +1220,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       );
       const next = order.find((id) => !state.reviewedAttention.has(id));
       if (next === undefined) return;
+      useSelection.getState().choose("library", { kind: "document", id: next });
       set({ reviewTarget: next, reviewedAttention: new Set([...state.reviewedAttention, next]) });
       get().openLibrary();
     },
