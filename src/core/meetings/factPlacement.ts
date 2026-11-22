@@ -2,6 +2,7 @@ import { asGenerated } from "../../shared/aiText";
 import type { NodeJSON } from "../../shared/blockJson";
 import type { MeetingFact, MeetingOverview } from "./factProtocol";
 import { FILL_SECTIONS, type FillSection } from "./fillPrompt";
+import type { WriteupPlan } from "./writeupTemplates";
 
 export interface FactLine {
   marker: string;
@@ -22,6 +23,7 @@ export interface FactPlacementInput {
   /** The ordinary lines the model said the call doesn't answer, and the sentence written under one. */
   unanswered: ReadonlySet<string>;
   notMentioned: string;
+  template?: WriteupPlan;
 }
 
 /** A topic of the call and its facts, in the order the call took it up. */
@@ -92,7 +94,77 @@ function factReference(
   ]);
 }
 
+function placeTemplateFacts(input: FactPlacementInput, template: WriteupPlan): FactPlacement {
+  const lines = new Map<string, NodeJSON[]>();
+  const sections = new Map<FillSection, NodeJSON[]>();
+  const positions = new Map(
+    input.lines.flatMap((line, index) => (line.heading ? [] : [[line.marker, index] as const])),
+  );
+  const claimPlace = sectionPlace(input, "claims");
+  const hosts = new Map(input.topicHeadings.map((heading) => [topicKey(heading.text), heading]));
+  const titles = new Map(template.sections.map((title) => [topicKey(title), title]));
+  const topics = new Map<string, PlacedTopic>();
+  for (const fact of input.facts) {
+    const related = [...new Set(fact.lines)].filter((marker) => positions.has(marker));
+    if (input.claims.has(fact.id)) {
+      append(sections, "claims", [fact.body]);
+      for (const marker of related) {
+        const direction = claimPlace.position < (positions.get(marker) ?? 0) ? "above" : "below";
+        append(lines, marker, factReference(fact, input, direction));
+      }
+      continue;
+    }
+    const first = related[0];
+    if (first !== undefined) {
+      append(lines, first, [fact.body]);
+      for (const marker of related.slice(1)) {
+        const direction =
+          (positions.get(first) ?? 0) < (positions.get(marker) ?? 0) ? "above" : "below";
+        append(lines, marker, factReference(fact, input, direction));
+      }
+      continue;
+    }
+    const key = topicKey(fact.heading);
+    const host = hosts.get(key);
+    if (!host && (!template.fillUncovered || (titles.size > 0 && !titles.has(key)))) continue;
+    const topic = topics.get(key) ?? {
+      title: host?.text ?? titles.get(key) ?? fact.heading,
+      heading: host?.marker ?? null,
+      nodes: [],
+    };
+    topic.nodes.push(fact.body);
+    topics.set(key, topic);
+  }
+  fillUnanswered(input, positions.keys(), lines);
+  const written = [...topics];
+  const topicsByTemplate = [
+    ...written.filter(([, topic]) => topic.heading !== null).map(([, topic]) => topic),
+    ...(titles.size > 0
+      ? [...titles.keys()].flatMap((key) => {
+          const topic = topics.get(key);
+          return topic && topic.heading === null ? [topic] : [];
+        })
+      : written.filter(([, topic]) => topic.heading === null).map(([, topic]) => topic)),
+  ];
+  return { lines, sections, topics: topicsByTemplate, unplaced: 0 };
+}
+
+function fillUnanswered(
+  input: FactPlacementInput,
+  ordinary: Iterable<string>,
+  lines: Map<string, NodeJSON[]>,
+): void {
+  for (const marker of ordinary) {
+    if (!input.unanswered.has(marker) || lines.has(marker)) continue;
+    lines.set(
+      marker,
+      asGenerated([{ type: "paragraph", content: [{ type: "text", text: input.notMentioned }] }]),
+    );
+  }
+}
+
 export function placeFacts(input: FactPlacementInput): FactPlacement {
+  if (input.template) return placeTemplateFacts(input, input.template);
   const placed: FactPlacement = {
     lines: new Map(),
     sections: new Map(),
@@ -189,14 +261,7 @@ export function placeFacts(input: FactPlacementInput): FactPlacement {
       );
     }
   }
-  // A fact under the line outweighs the model's word that the call doesn't answer it.
-  for (const marker of ordinary.keys()) {
-    if (!input.unanswered.has(marker) || placed.lines.has(marker)) continue;
-    placed.lines.set(
-      marker,
-      asGenerated([{ type: "paragraph", content: [{ type: "text", text: input.notMentioned }] }]),
-    );
-  }
+  fillUnanswered(input, ordinary.keys(), placed.lines);
   placed.topics = [...topics.values()];
   return placed;
 }
