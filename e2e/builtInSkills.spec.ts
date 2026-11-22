@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
@@ -5,6 +6,7 @@ import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
+  interceptSkillPicker,
   launchApp,
   newMind,
   openSettings,
@@ -12,6 +14,7 @@ import {
   removeDataFolder,
   setWindowSize,
   useLocalChatModel,
+  useOutputLocation,
 } from "./app";
 
 /** The Skills the app ships (resources/skills/), in name order. */
@@ -49,6 +52,9 @@ test.afterEach(async () => {
 test("Meeting templates can be created from Meetings with no built-in model", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
+  const outputs = test.info().outputPath("templates");
+  await mkdir(outputs, { recursive: true });
+  await useOutputLocation(window, outputs);
   await openSettings(window, "meetings");
   await expect(window.getByTestId("settings-nav-skills")).toHaveCount(0);
   await window.getByTestId("meeting-templates-disclosure").click();
@@ -60,7 +66,19 @@ test("Meeting templates can be created from Meetings with no built-in model", as
   await editor.getByTestId("meeting-template-editor-when").fill("Customer handovers");
   await editor.getByTestId("meeting-template-editor-steps").fill("Record handover actions.");
   await editor.getByTestId("meeting-template-editor-save").click();
-  await expect(section.locator('[data-skill-name="outside-call"]')).toBeVisible();
+  const saved = section.locator('[data-skill-name="outside-call"]');
+  await expect(saved).toBeVisible();
+  await saved.getByTestId("skill-menu").click();
+  await saved.getByTestId("skill-export").click();
+  await expect(section.getByTestId("skill-export-done")).toBeVisible();
+  await interceptSkillPicker(window, join(outputs, "outside-call.zip"));
+  await section.getByTestId("skill-import").click();
+  await section.getByTestId("skill-import-zip").click();
+  const preview = section.getByTestId("skill-preview");
+  await expect(preview.getByTestId("skill-preview-name")).toHaveText("outside-call");
+  await preview.getByTestId("skill-import-confirm").click();
+  await expect(preview).toBeHidden();
+  await expect(saved).toHaveCount(1);
   await app.close();
 });
 

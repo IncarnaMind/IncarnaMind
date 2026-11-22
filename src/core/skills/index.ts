@@ -663,6 +663,7 @@ export function createSkills(options: SkillsOptions) {
         pending.delete(old);
       }
       const preview: SkillImportPreview = {
+        meetingTemplate: isMeetingTemplate(parsed.frontmatter),
         importId,
         source: path,
         name,

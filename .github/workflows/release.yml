@@ -190,6 +190,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx electron-builder --win --x64 --publish never
 
+      - name: Check that the unsigned package omits the call watcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verifyWindowsCallWatcher.ps1 -AppRoot dist/win-unpacked
+
+      - name: Stage the Windows call watcher for signing
+        if: steps.signpath.outputs.sign == 'true' && vars.WINDOWS_CALL_WATCHER_SIGNPATH_READY == 'true'
+        run: npm run call-watcher -- dist/win-unpacked/resources/call-watcher.exe
+
       # The app as the unsigned build ships it: electron-builder writes its update settings
       # (resources/app-update.yml) only when it builds the installer too, never with --dir.
       - name: Upload the Windows app for signing
@@ -220,6 +229,16 @@ jobs:
             windowsVersion: ${{ toJSON(steps.signpath.outputs.windows-version) }}
           wait-for-completion-timeout-in-seconds: 7200
           output-artifact-directory: ${{ runner.temp }}/signed-app
+
+      - name: Check the signed call watcher before rebuilding the installer
+        if: steps.signpath.outputs.sign == 'true'
+        shell: pwsh
+        env:
+          CALL_WATCHER_READY: ${{ vars.WINDOWS_CALL_WATCHER_SIGNPATH_READY }}
+          WINDOWS_VERSION: ${{ steps.signpath.outputs.windows-version }}
+        run: |
+          ./scripts/verifyWindowsCallWatcher.ps1 -AppRoot "$env:RUNNER_TEMP/signed-app" `
+            -Expected:($env:CALL_WATCHER_READY -eq "true") -Version $env:WINDOWS_VERSION
 
       - name: Package the Windows installer again, from the signed app
         if: steps.signpath.outputs.sign == 'true'

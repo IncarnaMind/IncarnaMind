@@ -151,7 +151,7 @@ export async function startMeetingAgentsCore(
       startedAt: stopped.meeting.startedAt ?? "",
     };
   };
-  return { core, dataDir, recordMeeting };
+  return { core, dataDir, hear, recordMeeting };
 }
 
 /** An agent on the protocol before 2026-07-28 (with `initialize`), as most clients still are. */

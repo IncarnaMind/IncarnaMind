@@ -5050,6 +5050,7 @@ export const en = {
   "skills.builtIn.meeting-team.short": "Progress, decisions, blockers and agreed work.",
   "skills.builtIn.meeting-team":
     "Use when writing up a team sync or project check-in. Record progress, decisions and blockers separately and keep owners and deadlines only when the meeting establishes them.",
+  "meetings.template.importOther": "Choose a meeting template folder or zip.",
   "meetings.settings.templates": "Meeting templates",
   "skills.settings.meetings": "Meetings",
   "skills.settings.newMeeting": "New meeting template…",
@@ -7245,12 +7246,13 @@ export const en = {
   "settings.calendarOffers.detail":
     "One minute before an event with two or more people: “Take notes”.",
   "settings.callOffers": "Calls not on your calendar",
+  "settings.callOffers.detailWindows":
+    "Get an offer when a meeting app uses the microphone. Stop recording when you leave.",
   "settings.callOffers.detail": "When a meeting app starts using the microphone.",
   "settings.callOffers.perApp": "Per app…",
   "settings.callOffers.apps": "Ask when these apps use the microphone",
   "settings.callOffers.noPactl": "Needs PulseAudio’s pactl, which isn’t on this computer.",
-  "settings.callOffers.notOnWindows":
-    "Calls can’t be noticed on Windows yet. They will be in an update.",
+  "settings.callOffers.notOnWindows": "Call detection is unavailable in this Windows build.",
   "offers.turnOn.line":
     "IncarnaMind can now stay in the menu bar, open at login and offer to take notes when a call starts.",
   "offers.turnOn.line.other":
