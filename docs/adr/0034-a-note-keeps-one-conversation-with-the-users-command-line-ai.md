@@ -40,7 +40,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 - **A change to any other Note waits for the User,** as any agent's change does (#352): a Proposal, shown in the text, accepted or rejected with the one key for each.
 - **With words selected,** a change applies at once only if it stays inside them.
   - Code confirms it, call by call: every change of one `propose_changes` call must be to a paragraph that holds the selection.
-  - Each such paragraph's words outside the selection must read the same after the change as before (as plain text, so making the words bold or shorter is inside).
+  - Each such paragraph's words outside the selection must read the same after the change as before (as plain text, so making the words bold or shorter is inside). The spacing right next to the selection may change with it: a figure written out in Chinese characters drops the spaces around it.
   - A call that changes anything else in the Note waits for the User, whole, and its result says why, so the agent can send the change outside the selection as its own call.
   - The User pointed at those words; a change elsewhere is theirs to accept.
 - **The label says what is happening.** Working, then what it is doing in plain words, then one line on what it did. Send becomes Stop while it runs, and Stop ends it. A failure says what went wrong in one line, with what to do.
