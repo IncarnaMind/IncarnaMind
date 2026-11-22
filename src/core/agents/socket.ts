@@ -122,7 +122,9 @@ export async function listenForAgents(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (windows || code !== "EADDRINUSE" || (await answers(path))) throw error;
-    await unlink(path);
+    await unlink(path).catch((unlinkError: NodeJS.ErrnoException) => {
+      if (unlinkError.code !== "ENOENT") throw unlinkError;
+    });
     await listenOn(server, path);
   }
   if (!windows) await chmod(path, 0o600);
