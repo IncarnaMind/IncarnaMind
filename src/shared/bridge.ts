@@ -39,7 +39,11 @@ export type UnexpectedEnd =
   | { kind: "session"; unsaved: number; minds: UnsavedAtEnd["minds"] }
   | { kind: "window" };
 
+export type SummarySaveState = "clear" | "saving" | "problem";
+
 export interface FilesBridge {
+  reportSummarySaveState(state: SummarySaveState): void;
+  onDiscardSummaryDrafts(listener: () => void): () => void;
   /** The absolute path of a dropped or picked file, or "" for a file that isn't on disk. */
   pathForFile(file: File): string;
   /**
@@ -286,6 +290,8 @@ export const FILES_CHANNELS = {
   pictureViewer: "app:pictureViewer",
   /** From the page: where the Edit menu's Undo and Redo go now (`EditMenuState`). */
   editMenu: "app:editMenu",
+  summarySaveState: "app:summarySaveState",
+  discardSummaryDrafts: "app:discardSummaryDrafts",
   /** From the page: paste where the focus is (`paste`). */
   paste: "app:paste",
   exportMenu: "app:exportMenu",

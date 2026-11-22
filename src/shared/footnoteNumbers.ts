@@ -7,6 +7,7 @@
  */
 import type { FootnoteSubject } from "./citations";
 import { footnoteSubjectKey } from "./citations";
+import { MOST_QUOTES_AT_ONCE } from "./documentViewer";
 
 /** Where a Citation's footnote is in the numbering. */
 export interface FootnoteNumber {
@@ -40,25 +41,44 @@ export class FootnoteNumbering {
   }
 }
 
+/** What a run of Citations side by side holds, for `sharedMarkOf`. */
+export interface MarkRun<T> {
+  /** A Citation's note (`footnoteSubjectKey`); null for one that has a note of its own. */
+  noteOf: (inline: T) => string | null;
+  isCitation: (inline: T) => boolean;
+  /** What may stand between two Citations of a run. */
+  isSpace: (inline: T) => boolean;
+}
+
 /**
- * Whether the inline at `index` is a Citation side by side with the one before it (nothing but
- * spaces between) whose note it shares: the text shows one mark for both, as the Note shows one
- * chip (#3654). `noteOf` is a Citation's note (`footnoteSubjectKey`), null for anything else or a
- * Citation that has a note of its own; `isSpace` says what may stand between them.
+ * The Citation (its index) whose mark the one at `index` shares, or null when it writes its own:
+ * the first of its note in their run of Citations side by side, as the Note shows each number
+ * once in such a run (#3654), for as many quotes as one opening marks.
  */
-export function sharesMarkBefore<T>(
+export function sharedMarkOf<T>(
   inlines: readonly T[],
   index: number,
-  noteOf: (inline: T) => string | null,
-  isSpace: (inline: T) => boolean,
-): boolean {
+  run: MarkRun<T>,
+): number | null {
   const own = inlines[index];
-  const note = own === undefined ? null : noteOf(own);
-  if (note === null) return false;
+  if (own === undefined || !run.isCitation(own) || run.noteOf(own) === null) return null;
+  let start = index;
   for (let at = index - 1; at >= 0; at--) {
     const before = inlines[at] as T;
-    if (isSpace(before)) continue;
-    return noteOf(before) === note;
+    if (run.isSpace(before)) continue;
+    if (!run.isCitation(before)) break;
+    start = at;
   }
-  return false;
+  const leads = new Map<string, { at: number; count: number }>();
+  for (let at = start; at <= index; at++) {
+    const each = inlines[at] as T;
+    const note = run.isCitation(each) ? run.noteOf(each) : null;
+    if (note === null) continue;
+    const lead = leads.get(note);
+    const joins = lead !== undefined && lead.count < MOST_QUOTES_AT_ONCE;
+    if (at === index) return joins ? lead.at : null;
+    if (joins) lead.count += 1;
+    else leads.set(note, { at, count: 1 });
+  }
+  return null;
 }

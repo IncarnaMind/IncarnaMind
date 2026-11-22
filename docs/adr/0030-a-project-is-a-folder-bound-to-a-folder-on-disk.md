@@ -17,7 +17,7 @@ An in-app Folder may be **bound** to one folder on disk: a Linked folder, or a f
 - **Unlinked or paused:** while paused, nothing arrives. Unlinked, the folder's Documents leave the Library as any Linked folder's do, and the Folder keeps its Notes and is no longer bound; a Folder left holding nothing goes with the folder (#3613). Unlink… stands in Delete's place on its menu.
 - **Linked around another:** a folder linked around a Linked folder merges it, and that folder's Folder stays bound to the same folder inside the new one, inside the new Folder when it was at the top level (#3613). A folder inside a Linked folder makes no Folder: its files are in that one's already.
 - **Flat:** every file of the folder, at any depth, is filed in its one Folder; a sub-folder is not a sub-Folder. Its folder shows beside a file's name where names repeat.
-- **A folder linked before** is bound by a migration (161, #3613) as linking binds one now, keeping every filing the User made; one whose Documents the User had all filed elsewhere is left with filing as one Folder off, so no empty Folder appears.
+- **A folder linked before** is bound by a migration (162, #3613) as linking binds one now, keeping every filing the User made; one whose Documents the User had all filed elsewhere is left with filing as one Folder off, so no empty Folder appears.
 - **One binding a folder.** Notes stay in the database.
 - Stored as `library_groups.bound_folder_id`, the id of the Linked folder's own Folder or one inside it. No foreign key, as everywhere (ADR-0003).
 

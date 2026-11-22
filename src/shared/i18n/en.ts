@@ -9254,6 +9254,17 @@ export const en = {
     "Set up IncarnaMind AI or choose Codex or Claude Code for meeting notes.",
   "meetings.summary.agentUnavailable": "Selected AI unavailable",
   "meetings.summary.title": "Quick AI summary",
+  "error.meeting.summaryContentChanged": "The summary changed elsewhere. Your draft is still here.",
+  "error.meeting.summaryContentUnavailable": "This summary is no longer available to edit.",
+  "error.meeting.summaryContentInvalid":
+    "This edit could not be saved. Try a shorter or simpler summary.",
+  "meetings.summary.content.saveFailed": "Couldn’t save your changes. Your draft is still here.",
+  "meetings.summary.content.closeMessage": "Close without saving your meeting summary changes?",
+  "meetings.summary.content.discard": "Discard changes",
+  "meetings.summary.content.keepMine": "Save my version",
+  "meetings.summary.content.useSaved": "Use saved version",
+  "meetings.summary.content.savedVersion": "View saved version",
+  "meetings.summary.content.updatingItems": "Finishing decisions and action items…",
   "meetings.summary.items": "Decisions and action items ({count})",
   "meetings.summary.items.decision": "Decisions",
   "meetings.summary.items.action": "Action items",
@@ -9322,6 +9333,8 @@ export const en = {
   "meetings.summary.share":
     "Your AI needs access to the meeting note and transcript to prepare a summary.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
+  "meetings.summary.restoreAgent":
+    "Choose {agent} in “AI for meeting notes” and “Automatic meeting summary,” then try again.",
   "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
   "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",

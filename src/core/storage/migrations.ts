@@ -3413,6 +3413,11 @@ export const migrations: readonly Migration[] = [
   },
   {
     version: 161,
+    description: "Keep the User’s edited meeting summary separately from generated text",
+    sql: "ALTER TABLE meetings ADD COLUMN edited_summary_content TEXT;",
+  },
+  {
+    version: 162,
     description: "A folder linked before is a Folder bound to it, as linking one makes now (#3613)",
     sql: `
       -- A Folder its filing as one Folder took away holding nothing (#3613) is deleted as any

@@ -104,3 +104,11 @@ test("words the page shows selected stay selected", () => {
   press(editor, "k");
   expect(editor.state.selection.eq(before)).toBe(true);
 });
+
+test("after Select All collapses at the end, the next key uses the page's caret", () => {
+  const editor = clickedInto(LINE.length);
+  editor.commands.selectAll();
+  press(editor, "k");
+  expect(editor.state.selection.empty).toBe(true);
+  expect(editor.state.selection.from).toBe(1 + LINE.length);
+});

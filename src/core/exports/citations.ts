@@ -6,6 +6,7 @@
  */
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
 import { citedLocation, footnoteSubjectKey } from "../../shared/citations";
+import type { MarkRun } from "../../shared/footnoteNumbers";
 import { translate } from "../../shared/i18n";
 import type { Translate } from "../../shared/locations";
 import { type SourceContext, sourceEntry, sourceKeyOf, sourcesOf } from "../../shared/sources";
@@ -74,6 +75,13 @@ export function sharedNoteOf(inline: Inline, pending = false): string | null {
     link: inline.footnote.link ?? null,
   });
 }
+
+/** A run of Citations side by side in an export's text, each Citation's mark shared as `sharedMarkOf` says. */
+export const markRun = (pending = false): MarkRun<Inline> => ({
+  noteOf: (each) => sharedNoteOf(each, pending),
+  isCitation: (each) => each.kind === "citation",
+  isSpace: isBlank,
+});
 
 /** What changes still waiting do to an inline, as one key: a cluster is all one or all another (#107). */
 export const changeKey = (inline: Pendings | undefined): string =>

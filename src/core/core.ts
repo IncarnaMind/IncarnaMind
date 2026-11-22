@@ -707,7 +707,7 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
   return { documentId: parseDocumentId(input.documentId), password };
 }
 
-/** Where migration 161 lists the Linked folders the first start binds (#3613). */
+/** Where migration 162 lists the Linked folders the first start binds (#3613). */
 const LINKED_FOLDERS_TO_BIND = "linkedFoldersToBind";
 /** Starts that try to bind one of them before it is left with its filing as one Folder off. */
 const BIND_TRIES = 3;
@@ -4354,7 +4354,7 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   };
   /**
-   * Binds the folders linked before that migration 161 chose, as linking binds one now, so each
+   * Binds the folders linked before that migration 162 chose, as linking binds one now, so each
    * Document is filed as the bind files it (#3613). A connection that read Not in a Folder, where
    * their files were, is given their new Folders, so it reads them still. Tidying up after an
    * upgrade never stops a start: a folder that fails is logged and tried again at the next start,
@@ -9413,6 +9413,8 @@ export function createCore(adapters: CoreAdapters): Core {
       meetings.undoAddTranscriptAction(meetingId, itemId),
     addMeetingSummaryCandidate: candidateReviews.add,
     undoAddMeetingSummaryCandidate: candidateReviews.undo,
+    updateMeetingSummaryContent: async (meetingId, expected, content) =>
+      meetings.updateSummaryContent(meetingId, expected, content),
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
       meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {

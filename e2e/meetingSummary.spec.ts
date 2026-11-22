@@ -47,6 +47,7 @@ const meetingWords = {
     ],
     closing: "Thanks, that is everything for today.",
     overview: "The partner briefing stays on schedule. The launch and payment review have moved.",
+    addition: "I will confirm the revised dates.",
     corrected: "Keep the preview invitations on hold until the next review.",
     discarded: "Send the preview invitations today.",
     disclosure: "Decisions and action items (5)",
@@ -70,6 +71,7 @@ const meetingWords = {
     ],
     closing: "谢谢，今天就到这里。",
     overview: "合作伙伴说明会如期举行。上线和审核日期已调整。",
+    addition: "我会确认调整后的日期。",
     corrected: "预览邀请暂缓发送，等下次审核后再决定。",
     discarded: "今天发送预览邀请。",
     disclosure: "决定和待办事项（5 项）",
@@ -189,7 +191,9 @@ for (const language of ["en", "zh-CN"] as const) {
           | "original"
           | "source"
           | "editing"
-          | "corrected",
+          | "corrected"
+          | "overview-before"
+          | "overview-after",
       ) => {
         if (!screenshots) return;
         await settleFirstFill(window);
@@ -274,6 +278,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, transcript.getByTestId("meeting-stop"));
 
       const summary = transcript.getByTestId("meeting-summary");
+
       await expect(summary).toBeVisible();
       const items = summary.getByTestId("meeting-summary-items");
       const disclosure = items.locator("summary");
@@ -389,6 +394,46 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(preservedQuote).not.toContainText(words.corrected);
       if (screenshots) await preservedQuote.scrollIntoViewIfNeeded();
       await afterShot("corrected");
+      const overview = window.getByTestId("meeting-summary-text");
+      if (screenshots) {
+        await noteItems.locator("summary").click();
+        await window.getByTestId("meeting-summary").scrollIntoViewIfNeeded();
+        await afterShot("overview-before");
+      }
+      await pointAndClick(window, overview);
+      await expect(overview).toBeFocused();
+      await window.keyboard.press("ControlOrMeta+a");
+      await window.keyboard.press("ArrowRight");
+      await window.keyboard.press("Enter");
+      await expect(overview.locator(":scope > p")).toHaveText([words.overview, ""]);
+      await window.keyboard.press("ControlOrMeta+b");
+      if (language === "zh-CN") {
+        const cdp = await window.context().newCDPSession(window);
+        await cdp.send("Input.imeSetComposition", {
+          text: "我会",
+          selectionStart: 2,
+          selectionEnd: 2,
+        });
+        await cdp.send("Input.insertText", { text: words.addition });
+        await cdp.detach();
+      } else {
+        await window.keyboard.insertText(words.addition);
+      }
+      await expect(overview.locator(":scope > p")).toHaveText([words.overview, words.addition]);
+      await expect(overview.locator("p strong")).toHaveText(words.addition);
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect(overview).not.toContainText(words.addition);
+      await window.keyboard.press("ControlOrMeta+Shift+z");
+      await expect(overview.locator("p strong")).toHaveText(words.addition);
+      await expect
+        .poll(async () => ({
+          saved: await bridge.evaluate(
+            async (core) => (await core.listMeetings())[0]?.summary?.text,
+          ),
+          problem: await window.getByTestId("meeting-summary-edit-problem").allTextContents(),
+        }))
+        .toMatchObject({ saved: expect.stringContaining(words.addition), problem: [] });
+      if (screenshots) await afterShot("overview-after");
       await showMeetingView(window, window, "mine");
       await expect(window.getByTestId("meeting-summary")).toHaveCount(0);
       await expect(editor).toContainText(myText);
@@ -401,11 +446,15 @@ for (const language of ["en", "zh-CN"] as const) {
         const original = panes.nth(0);
         const copy = panes.nth(1);
         await expect(copy).toHaveAttribute("data-focused", "true");
-        await expect(copy.getByTestId("meeting-summary-text")).toHaveText(words.overview);
+        await expect(copy.getByTestId("meeting-summary-text").locator("strong")).toHaveText(
+          words.addition,
+        );
         await expect(original.getByTestId("meeting-summary")).toHaveCount(0);
         await showMeetingView(window, copy, "mine");
         await expect(copy.getByTestId("meeting-summary")).toHaveCount(0);
-        await expect(original.getByTestId("meeting-summary-text")).toHaveText(words.overview);
+        await expect(original.getByTestId("meeting-summary-text").locator("strong")).toHaveText(
+          words.addition,
+        );
       }
 
       await app.close();
@@ -427,6 +476,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(reopened.window, reopened.window.getByTestId("mind-tab").first());
       const focused = reopened.window.locator('[data-testid="tab-group"][data-focused="true"]');
       await showMeetingView(reopened.window, focused, "notes");
+      await expect(focused.getByTestId("meeting-summary-text").locator("p strong")).toHaveText(
+        words.addition,
+      );
       const restartedItems = focused.getByTestId("meeting-summary-items");
       await expect(restartedItems).toBeVisible();
       if ((await restartedItems.getAttribute("open")) === null)
@@ -434,6 +486,23 @@ for (const language of ["en", "zh-CN"] as const) {
       const savedRow = summaryItem(restartedItems, itemId);
       await expectItem(savedRow, words.corrected, words.status.current);
       await expect(await showSpeech(reopened.window, savedRow, invitationsQuote)).toBeVisible();
+      const savedOverview = focused.getByTestId("meeting-summary-text");
+      const quoteReview = focused.getByTestId("meeting-summary-candidates");
+      await expect(quoteReview).toBeVisible();
+      await pointAndClick(reopened.window, savedOverview);
+      await reopened.window.keyboard.press("ControlOrMeta+a");
+      await reopened.window.keyboard.press("Backspace");
+      await expect(savedOverview).toHaveText("");
+      await expect
+        .poll(async () =>
+          (await coreOf(reopened.window)).evaluate(
+            async (core) => (await core.listMeetings())[0]?.summary?.text,
+          ),
+        )
+        .toBe("");
+      await expect(quoteReview).toBeVisible();
+      await reopened.window.keyboard.insertText(words.addition);
+      await expect(savedOverview).toHaveText(words.addition);
     } finally {
       await running?.app.close();
       await removeDataFolder(dir);
