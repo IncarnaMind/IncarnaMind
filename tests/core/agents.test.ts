@@ -7,7 +7,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type Core, DATABASE_FILE } from "../../src/core";
-import { agentSocketPath } from "../../src/core/agents";
+import { agentSocketPath, isSocketPathUsable, MAX_SOCKET_PATH_BYTES } from "../../src/core/agents";
 import { READ_PART_TOKENS } from "../../src/core/agents/access";
 import { SORTING_MOST, type SortingBatch } from "../../src/core/agents/sorting";
 import { estimateTokens } from "../../src/core/answers/context";
@@ -15,6 +15,7 @@ import { ALL_SHARED_ID } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
 import { translate } from "../../src/shared/i18n";
 import {
+  agentsAdapter,
   buildAgentShim,
   connectLegacyAgent,
   connectModernAgent,
@@ -22,6 +23,7 @@ import {
   startAgentsCore,
 } from "../helpers/agents";
 import { citingModel } from "../helpers/citations";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -1198,5 +1200,87 @@ describe("the agents' socket", () => {
     expect(agentSocketPath("C:\\Users\\ada\\AppData\\Roaming\\IncarnaMind", "win32")).toMatch(
       /^\\\\\.\\pipe\\incarnamind-agents-[0-9a-f]{16}$/,
     );
+  });
+
+  // protects=when both the data folder and the temporary folder exceed the Unix socket path limit, agentSocketPath falls back to a short writable folder so agents still connect; and when no usable socket can open, setup and enable refuse in plain words without writing an unreachable address or reporting connected (#3598); fails_when=a 100+ byte socket path is written to agent settings or reported as connected
+  it("falls back to a short folder when both data and temp paths exceed the limit, and refuses to connect when no socket can open (#3598)", async () => {
+    const deepData = `/Users/ada/${"Very long data folder/".repeat(5)}IncarnaMind`;
+    const deepTemp = `/Users/ada/${"Very long temp folder/".repeat(6)}tmp`;
+    const shortFallback = agentSocketPath(deepData, "darwin", {
+      tempDir: deepTemp,
+      shortDir: "/tmp",
+      canUseDir: () => true,
+    });
+    expect(shortFallback).toMatch(/^\/tmp\/incarnamind-[0-9a-f]{16}\.sock$/);
+    expect(Buffer.byteLength(shortFallback)).toBeLessThanOrEqual(MAX_SOCKET_PATH_BYTES);
+    expect(isSocketPathUsable(shortFallback)).toBe(true);
+
+    const unusable = agentSocketPath(deepData, "darwin", {
+      tempDir: deepTemp,
+      shortDir: "/tmp",
+      canUseDir: () => false,
+    });
+    expect(Buffer.byteLength(unusable)).toBeGreaterThan(MAX_SOCKET_PATH_BYTES);
+    expect(isSocketPathUsable(unusable)).toBe(false);
+
+    // When the socket path is too long to open, enabling or setting up refuses in plain words,
+    // writes no settings file, and leaves no agent connected.
+    const dataDir = await createTempDataFolder();
+    const fakeHome = await createTempDataFolder();
+    const base = await agentsAdapter(dataDir);
+    if (!base) throw new Error("No agent adapter.");
+    const core = startCore(dataDir, {
+      paths: { home: fakeHome },
+      agents: { ...base, socketPath: unusable },
+    });
+    const folder = await core.createLibraryGroup({ name: "Coast", description: "Tides" });
+    await expect(core.setAgentsEnabled(true)).rejects.toThrow(/path is too long/i);
+    expect((await core.getAgents()).enabled).toBe(false);
+    await expect(
+      core.setUpAgent({ client: "claude-code", folderIds: [folder.id] }),
+    ).rejects.toThrow(/path is too long/i);
+    await expect(
+      core.connectAgent({ name: "Claude Code", folderIds: [folder.id] }),
+    ).rejects.toThrow(/path is too long/i);
+    expect((await core.getAgents()).pairings).toEqual([]);
+    expect(await readdir(fakeHome)).toEqual([]);
+    core.close();
+
+    // When the socket path fits in length but its parent folder can't be opened, enabling and connecting refuse cleanly.
+    const missingSocket = join(dataDir, "no-such-folder", "a.sock");
+    const core2 = startCore(dataDir, {
+      agents: { ...base, socketPath: missingSocket },
+    });
+    const folder2 = await core2.createLibraryGroup({ name: "Harbour", description: "Tides" });
+    await expect(core2.setAgentsEnabled(true)).rejects.toThrow(
+      /couldn’t open its local connection/i,
+    );
+    expect((await core2.getAgents()).enabled).toBe(false);
+    await expect(
+      core2.connectAgent({ name: "Claude Code", folderIds: [folder2.id] }),
+    ).rejects.toThrow(/couldn’t open its local connection/i);
+    expect((await core2.getAgents()).pairings).toEqual([]);
+    core2.close();
+
+    // End-to-end with both a long data folder and a long redirected temp folder:
+    // the fallback socket in /tmp opens and accepts a real agent handshake.
+    const longRoot = await createTempDataFolder();
+    const longData = join(longRoot, "a".repeat(45), "b".repeat(45), "data");
+    const longTemp = join(longRoot, "t".repeat(45), "u".repeat(45), "tmp");
+    const fallbackPath = agentSocketPath(longData, process.platform, { tempDir: longTemp });
+    expect(isSocketPathUsable(fallbackPath)).toBe(true);
+    const liveCore = startCore(longData, {
+      agents: { ...base, socketPath: fallbackPath },
+    });
+    const liveFolder = await liveCore.createLibraryGroup({ name: "Coast", description: "Tides" });
+    await liveCore.setAgentsEnabled(true);
+    const liveConnected = await liveCore.connectAgent({
+      name: "Claude Code",
+      folderIds: [liveFolder.id],
+    });
+    const liveAgent = await connectLegacyAgent(liveConnected.launch);
+    expect((await liveAgent.listTools()).tools.length).toBeGreaterThan(0);
+    await liveAgent.close();
+    liveCore.close();
   });
 });
