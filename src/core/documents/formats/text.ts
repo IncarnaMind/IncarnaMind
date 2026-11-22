@@ -2,7 +2,8 @@
  * Markdown and plain text → Units (ADR-0011). Markdown is cited by the
  * section a quote sits under: the text from one heading to the next, with the
  * heading path as its label, a long section split into parts at blank lines.
- * Plain text is cited by lines: blocks of up to `LINES_PER_BLOCK` lines and
+ * A Markdown file with no headings is cited by its paragraphs, numbered from
+ * the top, as a Word file with none is (#3657). Plain text is cited by lines: blocks of up to `LINES_PER_BLOCK` lines and
  * about `TEXT_BLOCK_CHARACTERS` characters.
  *
  * Each Unit's text is a slice of the decoded file, and `start` and `end` say
@@ -10,7 +11,7 @@
  * find a Unit in what it shows. Headings are those the viewer's Markdown
  * reader renders: "#" headings outside fenced code. Pure.
  */
-import type { TextUnit } from "../../../shared/units";
+import type { Anchor, TextUnit } from "../../../shared/units";
 import { MAX_SECTION_CHARS } from "./docx";
 
 /** The most lines in a block of plain text. */
@@ -60,6 +61,64 @@ export function headingText(line: string): string {
     .replace(/(\*\*|__|\*|_|`|~~)(?=\S)([^*_`~]*?\S)\1/g, "$2")
     .replace(/\\([!-/:-@[-`{-~])/g, "$1")
     .trim();
+}
+
+/** A list item's first line, which starts a paragraph of its own as a Word list's items are. */
+const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+
+/**
+ * The paragraphs of a Markdown file with no headings, as runs of its lines: text between blank
+ * lines, each list item and each fenced block its own. `literal`: a converted file's, whose
+ * paragraphs are only ever apart by blank lines.
+ */
+function paragraphLines(
+  lines: readonly Line[],
+  literal: boolean,
+): { first: number; last: number }[] {
+  const paragraphs: { first: number; last: number }[] = [];
+  let open: { first: number; last: number } | null = null;
+  let fence: string | null = null;
+  const close = () => {
+    if (open) paragraphs.push(open);
+    open = null;
+  };
+  lines.forEach((line, index) => {
+    const marker = literal ? null : FENCE.exec(line.text);
+    if (fence !== null) {
+      if (open) open.last = index;
+      if (marker && line.text.trim().startsWith(fence) && /^[`~]+$/.test(line.text.trim())) {
+        fence = null;
+        close();
+      }
+      return;
+    }
+    if (BLANK.test(line.text)) {
+      close();
+      return;
+    }
+    if (marker || (!literal && LIST_ITEM.test(line.text))) close();
+    if (marker) fence = (marker[1] as string)[0] === "`" ? "```" : "~~~";
+    if (open) open.last = index;
+    else open = { first: index, last: index };
+  });
+  close();
+  return paragraphs;
+}
+
+/** The anchors ("p1", "p2"…) of the paragraphs in a Unit's slice of the file, offsets in its text. */
+function paragraphAnchors(
+  lines: readonly Line[],
+  paragraphs: readonly { first: number; last: number }[],
+  start: number,
+  end: number,
+): Anchor[] {
+  const anchors: Anchor[] = [];
+  paragraphs.forEach(({ first, last }, index) => {
+    const from = Math.max((lines[first] as Line).start, start);
+    const to = Math.min((lines[last] as Line).end, end);
+    if (from < to) anchors.push({ start: from - start, end: to - start, target: `p${index + 1}` });
+  });
+  return anchors;
 }
 
 /** Lines `first` to `last` of the source, without blank lines at either end (as offsets and line indexes); null if blank. */
@@ -115,6 +174,7 @@ export function markdownUnits(source: string, options: { literal?: boolean } = {
   });
   sections.push(current);
   const headed = sections.length > 1;
+  const paragraphs = headed ? [] : paragraphLines(lines, options.literal === true);
 
   for (const section of sections) {
     // Split a long section at blank lines (or, without any, at a line) into parts.
@@ -143,7 +203,7 @@ export function markdownUnits(source: string, options: { literal?: boolean } = {
             ...(headed && section.path.length === 0 ? { beforeHeading: true } : {}),
           },
           text: source.slice(slice.start, slice.end),
-          anchors: [],
+          anchors: paragraphAnchors(lines, paragraphs, slice.start, slice.end),
           start: slice.start,
           end: slice.end,
         });
