@@ -98,9 +98,12 @@ describe("A Citation's quote, read as words", () => {
       "您试用了哪几款帐篷？陈思琪 00:18:56我试了山脊帐",
       "您试用了哪几款帐篷？\n\n陈思琪 00:18:56\n我试了山脊帐",
     ],
-  ])("a quote across two turns keeps them apart (%s)", async (_language, transcript, quote, shown) => {
-    const { core, document } = await setUp(transcript);
+  ])(
+    "a quote across two turns keeps them apart (%s)",
+    async (_language, transcript, quote, shown) => {
+      const { core, document } = await setUp(transcript);
 
-    expect(await read(core, document, quote)).toBe(shown);
-  });
+      expect(await read(core, document, quote)).toBe(shown);
+    },
+  );
 });

@@ -633,7 +633,6 @@ const withTitle = (name: string, title: string | null) => {
   return heading && shown && !same(name).includes(same(shown)) ? `${name} (“${shown}”)` : name;
 };
 
-
 /**
  * The kinds whose viewer shows their own line breaks, which a quote shown on a card keeps: a text
  * file's lines, a Word file's paragraphs, a slide's lines, a transcript's turns. A PDF's or a
