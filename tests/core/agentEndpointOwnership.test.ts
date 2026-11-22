@@ -29,8 +29,11 @@ const isUnix = process.platform !== "win32";
 async function startDecoyUnixServer(path: string, mode?: number) {
   let connections = 0;
   const received: string[] = [];
+  const accepted = new Set<Socket>();
   const server = createServer((socket) => {
     connections += 1;
+    accepted.add(socket);
+    socket.once("close", () => accepted.delete(socket));
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => received.push(chunk));
   });
@@ -48,6 +51,7 @@ async function startDecoyUnixServer(path: string, mode?: number) {
     },
     close: () =>
       new Promise<void>((done) => {
+        for (const socket of accepted) socket.destroy();
         server.close(() => done());
       }),
   };
@@ -106,8 +110,8 @@ describe("outside-agent endpoint ownership (#2049)", () => {
   describe("Windows named pipe DACL and ownership rules", () => {
     // protects=only a protected DACL granting Allow ACEs solely to the current user SID passes ownership validation; fails_when=default DACLs, Everyone/Users ACEs, unprotected DACLs, or foreign SIDs are accepted
     it("accepts only owner-only protected DACLs and rejects permissive or foreign ones", () => {
-      const me = "S-1-5-21-3623811015-3361044348-30300820-1013";
-      const other = "S-1-5-21-3623811015-3361044348-30300820-1014";
+      const me = "S-1-5-21-100-200-300-1001";
+      const other = "S-1-5-21-100-200-300-1002";
 
       expect(isOwnerOnlyWindowsDacl(`D:P(A;;FA;;;${me})`, me)).toBe(true);
       expect(isOwnerOnlyWindowsDacl(`D:P(A;;GA;;;${me})`, me)).toBe(true);
@@ -155,9 +159,11 @@ describe("outside-agent endpoint ownership (#2049)", () => {
       const env = sanitizedWindowsPipeEnv(pipe, {
         PATH: "C:\\Windows\\System32",
         [AGENT_TOKEN_ENV]: "im_super_secret_token_do_not_pass",
+        incarnamind_agent_token: "im_lowercase_secret_do_not_pass",
       });
       expect(env.INCARNAMIND_PIPE_PATH).toBe(pipe);
       expect(env[AGENT_TOKEN_ENV]).toBeUndefined();
+      expect(env.incarnamind_agent_token).toBeUndefined();
 
       const lockScript = buildWindowsPipeLockScript();
       expect(lockScript).toContain("SetNamedSecurityInfoW");
@@ -309,7 +315,28 @@ describe("outside-agent endpoint ownership (#2049)", () => {
       const result = await client.callTool({ name: "list_minds", arguments: {} });
       expect(result.isError).not.toBe(true);
       await client.close();
+
+      // Pre-#2049 client config carrying the legacy flat `/tmp/incarnamind-<id>.sock` path still
+      // connects transparently to the migrated `/tmp/im-<uid>/incarnamind-<id>.sock` listener.
+      const legacyFlatPath = join("/tmp", fallbackPath.split("/").at(-1) ?? "");
+      const upgradedClient = await legacyAgentClient({
+        ...connected.launch,
+        env: { ...connected.launch.env, INCARNAMIND_AGENT_SOCKET: legacyFlatPath },
+      });
+      const upgradedResult = await upgradedClient.callTool({ name: "list_minds", arguments: {} });
+      expect(upgradedResult.isError).not.toBe(true);
+      await upgradedClient.close();
+
       core.close();
+
+      // An ordinary data folder coincidentally named `im-<otherUid>` holding `agents.sock` is not
+      // misclassified as a fallback directory.
+      const ordinaryParent = await createTempDataFolder();
+      const ordinaryData = join(ordinaryParent, `im-${(uid ?? 1000) + 1}`);
+      await mkdir(ordinaryData, { mode: 0o700 });
+      const ordinaryCore = startCore(ordinaryData, { agents: await agentsAdapter(ordinaryData) });
+      await ordinaryCore.setAgentsEnabled(true);
+      ordinaryCore.close();
     });
 
     // protects=when a pre-created endpoint is permissive (0666), a symlink to a decoy socket, or inside a world-writable/symlink directory, the shim refuses BEFORE connecting so zero pairing credentials leave the shim; fails_when=the decoy server receives any connection or token bytes
@@ -321,39 +348,45 @@ describe("outside-agent endpoint ownership (#2049)", () => {
       // Case 1: Pre-created listening socket with group/world-accessible permissions (0o666).
       const permissiveSock = join(dir, "permissive.sock");
       const decoy1 = await startDecoyUnixServer(permissiveSock, 0o666);
-      await expect(
-        legacyAgentClient({
-          command: process.execPath,
-          args: [shim],
-          env: {
-            INCARNAMIND_AGENT_SOCKET: permissiveSock,
-            INCARNAMIND_AGENT_TOKEN: secretToken,
-          },
-        }),
-      ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
-      expect(decoy1.connections).toBe(0);
-      expect(decoy1.received).not.toContain(secretToken);
-      expect(decoy1.received).toBe("");
-      await decoy1.close();
+      try {
+        await expect(
+          legacyAgentClient({
+            command: process.execPath,
+            args: [shim],
+            env: {
+              INCARNAMIND_AGENT_SOCKET: permissiveSock,
+              INCARNAMIND_AGENT_TOKEN: secretToken,
+            },
+          }),
+        ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
+        expect(decoy1.connections).toBe(0);
+        expect(decoy1.received).not.toContain(secretToken);
+        expect(decoy1.received).toBe("");
+      } finally {
+        await decoy1.close();
+      }
 
       // Case 2: Symlink at socket path pointing to a decoy listening socket (even if target is 0o600).
       const realDecoySock = join(dir, "real-decoy.sock");
       const symlinkSock = join(dir, "symlink.sock");
       const decoy2 = await startDecoyUnixServer(realDecoySock, 0o600);
-      await symlink(realDecoySock, symlinkSock);
-      await expect(
-        legacyAgentClient({
-          command: process.execPath,
-          args: [shim],
-          env: {
-            INCARNAMIND_AGENT_SOCKET: symlinkSock,
-            INCARNAMIND_AGENT_TOKEN: secretToken,
-          },
-        }),
-      ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
-      expect(decoy2.connections).toBe(0);
-      expect(decoy2.received).toBe("");
-      await decoy2.close();
+      try {
+        await symlink(realDecoySock, symlinkSock);
+        await expect(
+          legacyAgentClient({
+            command: process.execPath,
+            args: [shim],
+            env: {
+              INCARNAMIND_AGENT_SOCKET: symlinkSock,
+              INCARNAMIND_AGENT_TOKEN: secretToken,
+            },
+          }),
+        ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
+        expect(decoy2.connections).toBe(0);
+        expect(decoy2.received).toBe("");
+      } finally {
+        await decoy2.close();
+      }
 
       // Case 3: World-writable parent directory without sticky bit (0o777).
       const openDir = join(dir, "world-open");
@@ -361,39 +394,70 @@ describe("outside-agent endpoint ownership (#2049)", () => {
       await chmod(openDir, 0o777);
       const sockInOpenDir = join(openDir, "agents.sock");
       const decoy3 = await startDecoyUnixServer(sockInOpenDir, 0o600);
-      await expect(
-        legacyAgentClient({
-          command: process.execPath,
-          args: [shim],
-          env: {
-            INCARNAMIND_AGENT_SOCKET: sockInOpenDir,
-            INCARNAMIND_AGENT_TOKEN: secretToken,
-          },
-        }),
-      ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
-      expect(decoy3.connections).toBe(0);
-      expect(decoy3.received).toBe("");
-      await decoy3.close();
+      try {
+        await expect(
+          legacyAgentClient({
+            command: process.execPath,
+            args: [shim],
+            env: {
+              INCARNAMIND_AGENT_SOCKET: sockInOpenDir,
+              INCARNAMIND_AGENT_TOKEN: secretToken,
+            },
+          }),
+        ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
+        expect(decoy3.connections).toBe(0);
+        expect(decoy3.received).toBe("");
+      } finally {
+        await decoy3.close();
+      }
 
-      // Case 4: Another user's per-user fallback directory name (im-999999).
+      // Case 4: Another user's per-user fallback directory name (im-<otherUid>).
       const wrongUid = (process.getuid?.() ?? 1000) + 1;
       const foreignFallbackDir = join(dir, `im-${wrongUid}`);
       await mkdir(foreignFallbackDir, { mode: 0o700 });
       const foreignFallbackSock = join(foreignFallbackDir, "incarnamind-0123456789abcdef.sock");
       const decoy4 = await startDecoyUnixServer(foreignFallbackSock, 0o600);
-      await expect(
-        legacyAgentClient({
-          command: process.execPath,
-          args: [shim],
-          env: {
-            INCARNAMIND_AGENT_SOCKET: foreignFallbackSock,
-            INCARNAMIND_AGENT_TOKEN: secretToken,
-          },
-        }),
-      ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
-      expect(decoy4.connections).toBe(0);
-      expect(decoy4.received).toBe("");
-      await decoy4.close();
+      try {
+        await expect(
+          legacyAgentClient({
+            command: process.execPath,
+            args: [shim],
+            env: {
+              INCARNAMIND_AGENT_SOCKET: foreignFallbackSock,
+              INCARNAMIND_AGENT_TOKEN: secretToken,
+            },
+          }),
+        ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
+        expect(decoy4.connections).toBe(0);
+        expect(decoy4.received).toBe("");
+      } finally {
+        await decoy4.close();
+      }
+
+      // Case 5: World-writable ancestor above a 0700 child directory.
+      const openAncestor = join(dir, "open-ancestor");
+      await mkdir(openAncestor, { mode: 0o777 });
+      await chmod(openAncestor, 0o777);
+      const nestedChild = join(openAncestor, "private");
+      await mkdir(nestedChild, { mode: 0o700 });
+      const sockUnderOpenAncestor = join(nestedChild, "agents.sock");
+      const decoy5 = await startDecoyUnixServer(sockUnderOpenAncestor, 0o600);
+      try {
+        await expect(
+          legacyAgentClient({
+            command: process.execPath,
+            args: [shim],
+            env: {
+              INCARNAMIND_AGENT_SOCKET: sockUnderOpenAncestor,
+              INCARNAMIND_AGENT_TOKEN: secretToken,
+            },
+          }),
+        ).rejects.toThrow(/another account|isn't private|未发送配对密钥/i);
+        expect(decoy5.connections).toBe(0);
+        expect(decoy5.received).toBe("");
+      } finally {
+        await decoy5.close();
+      }
     });
 
     // protects=the server refuses to bind over symlinks, regular files, world-writable parent dirs, or foreign-owned directories/sockets, surfacing a clear untrusted error without logging secrets; fails_when=server unlinks or binds over an untrusted path
@@ -426,8 +490,9 @@ describe("outside-agent endpoint ownership (#2049)", () => {
       // Simulated second OS account owning the fallback /tmp/im-<uid> directory or socket.
       const uid = process.getuid?.() ?? 1000;
       const otherUid = uid + 1;
+      const foreignFallback = `/tmp/im-${uid}/incarnamind-0123456789abcdef.sock`;
       await expect(
-        listenForAgents(`/tmp/im-${uid}/incarnamind-0123456789abcdef.sock`, () => {}, {
+        listenForAgents(foreignFallback, () => {}, {
           unix: {
             uid,
             mkdir: async () => {},
@@ -442,35 +507,32 @@ describe("outside-agent endpoint ownership (#2049)", () => {
                   mode: 0o40700,
                 };
               }
-              throw Object.assign(new Error("missing"), { code: "ENOENT" });
+              if (target === foreignFallback) {
+                throw Object.assign(new Error("missing"), { code: "ENOENT" });
+              }
+              return lstat(target);
             },
           },
         }),
       ).rejects.toThrow(AgentEndpointError);
 
+      const foreignSock = join(dir, "foreign.sock");
       await expect(
-        listenForAgents(join(dir, "foreign.sock"), () => {}, {
+        listenForAgents(foreignSock, () => {}, {
           unix: {
             uid,
             lstat: async (target) => {
-              if (target === dir) {
+              if (target === foreignSock) {
                 return {
-                  isDirectory: () => true,
-                  isSocket: () => false,
+                  isDirectory: () => false,
+                  isSocket: () => true,
                   isSymbolicLink: () => false,
-                  uid,
-                  gid: process.getgid?.() ?? uid,
-                  mode: 0o40700,
+                  uid: otherUid,
+                  gid: otherUid,
+                  mode: 0o140600,
                 };
               }
-              return {
-                isDirectory: () => false,
-                isSocket: () => true,
-                isSymbolicLink: () => false,
-                uid: otherUid,
-                gid: otherUid,
-                mode: 0o140600,
-              };
+              return lstat(target);
             },
           },
         }),
@@ -519,7 +581,7 @@ describe("outside-agent endpoint ownership (#2049)", () => {
       );
       expect((await lstat(sock)).isSocket()).toBe(true);
 
-      const restarted = startCore(dataDir, { agents: await agentsAdapter(dataDir) });
+      const restarted = startCore(dataDir, { log, agents: await agentsAdapter(dataDir) });
       await restarted.setAgentsEnabled(true);
       const reconnected = await restarted.connectAgent({
         name: "Claude Code",

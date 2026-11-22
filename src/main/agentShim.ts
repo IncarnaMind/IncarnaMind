@@ -22,11 +22,12 @@
 import { execFileSync } from "node:child_process";
 import { lstatSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const AGENT_TOKEN_ENV = "INCARNAMIND_AGENT_TOKEN";
 const AGENT_SOCKET_ENV = "INCARNAMIND_AGENT_SOCKET";
 const PER_USER_DIR_RE = /^im-(\d+)$/;
+const FALLBACK_SOCKET_RE = /^incarnamind-[0-9a-f]{16}\.sock$/;
 const WINDOWS_PIPE_RE = /^\\\\\.\\pipe\\[A-Za-z0-9._-]+$/;
 const SID_RE = /^S-1-\d+(?:-\d+)+$/i;
 const DACL_SDDL_RE = /^D:([A-Z]*)((?:\([^)]*\))*)$/;
@@ -164,7 +165,9 @@ function verifyWindowsPipeEndpoint(pipePath: string): EndpointVerdict {
     ? join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
     : "powershell.exe";
   const env: NodeJS.ProcessEnv = { ...process.env, INCARNAMIND_PIPE_PATH: pipePath };
-  delete env[AGENT_TOKEN_ENV];
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === AGENT_TOKEN_ENV) delete env[key];
+  }
   try {
     const encoded = Buffer.from(WINDOWS_VERIFY_SCRIPT, "utf16le").toString("base64");
     const stdout = execFileSync(
@@ -196,16 +199,60 @@ function verifyWindowsPipeEndpoint(pipePath: string): EndpointVerdict {
   }
 }
 
+function verifyUnixAncestors(
+  dir: string,
+  currentUid: number | undefined,
+): { ok: true; underPrivateOwnerDir: boolean } | { ok: false } {
+  if (currentUid === undefined) return { ok: true, underPrivateOwnerDir: false };
+  let underPrivateOwnerDir = false;
+  let current = dirname(resolve(dir));
+  for (;;) {
+    let info: ReturnType<typeof lstatSync>;
+    try {
+      info = lstatSync(current);
+    } catch {
+      return { ok: false };
+    }
+    let dirStat: { isDirectory(): boolean; uid: number; mode: number } = info;
+    if (!info.isDirectory()) {
+      if (info.isSymbolicLink() && info.uid === 0) {
+        try {
+          dirStat = statSync(current);
+        } catch {
+          return { ok: false };
+        }
+        if (!dirStat.isDirectory() || dirStat.uid !== 0) return { ok: false };
+      } else {
+        return { ok: false };
+      }
+    }
+    if (dirStat.uid !== 0 && dirStat.uid !== currentUid) return { ok: false };
+    const sticky = (dirStat.mode & 0o1000) !== 0;
+    if ((dirStat.mode & 0o022) !== 0 && !(dirStat.uid === 0 && sticky)) return { ok: false };
+    if (dirStat.uid === currentUid && (dirStat.mode & 0o077) === 0) {
+      underPrivateOwnerDir = true;
+    }
+    const next = dirname(current);
+    if (next === current) break;
+    current = next;
+  }
+  return { ok: true, underPrivateOwnerDir };
+}
+
 function verifyUnixEndpoint(socketPath: string): EndpointVerdict {
   const currentUid = process.getuid?.();
-  const currentGid = process.getgid?.();
   const parentDir = dirname(socketPath);
   const parentName = basename(parentDir);
-  const perUserMatch = PER_USER_DIR_RE.exec(parentName);
+  const socketName = basename(socketPath);
+  const perUserMatch = FALLBACK_SOCKET_RE.test(socketName)
+    ? PER_USER_DIR_RE.exec(parentName)
+    : null;
   const isPerUserDir = perUserMatch !== null;
   if (isPerUserDir && currentUid !== undefined && Number(perUserMatch[1]) !== currentUid) {
     return "untrusted";
   }
+  const ancestors = verifyUnixAncestors(parentDir, currentUid);
+  if (!ancestors.ok) return "untrusted";
   let parentStat: ReturnType<typeof lstatSync>;
   try {
     parentStat = lstatSync(parentDir);
@@ -234,11 +281,7 @@ function verifyUnixEndpoint(socketPath: string): EndpointVerdict {
       if ((parentStat.mode & 0o077) !== 0) return "untrusted";
     } else {
       if ((parentStat.mode & 0o002) !== 0) return "untrusted";
-      if (
-        (parentStat.mode & 0o020) !== 0 &&
-        currentGid !== undefined &&
-        parentStat.gid !== currentGid
-      ) {
+      if ((parentStat.mode & 0o020) !== 0 && !ancestors.underPrivateOwnerDir) {
         return "untrusted";
       }
     }
@@ -257,10 +300,31 @@ function verifyUnixEndpoint(socketPath: string): EndpointVerdict {
   return "ok";
 }
 
-function verifyEndpoint(socketPath: string): EndpointVerdict {
-  return isWindowsPipe(socketPath)
-    ? verifyWindowsPipeEndpoint(socketPath)
-    : verifyUnixEndpoint(socketPath);
+/**
+ * Resolves and verifies the target endpoint. For pre-#2049 long-path Unix
+ * client configs that still name a flat `incarnamind-<id>.sock`, transparently
+ * follows the migrated `im-<uid>/incarnamind-<id>.sock` path when the legacy
+ * flat path is absent (`not-open`), never when it is occupied or untrusted.
+ */
+function resolveVerifiedEndpoint(socketPath: string): { verdict: EndpointVerdict; target: string } {
+  if (isWindowsPipe(socketPath)) {
+    return { verdict: verifyWindowsPipeEndpoint(socketPath), target: socketPath };
+  }
+  const direct = verifyUnixEndpoint(socketPath);
+  if (direct !== "not-open") return { verdict: direct, target: socketPath };
+  const uid = process.getuid?.();
+  const name = basename(socketPath);
+  const parent = dirname(socketPath);
+  if (
+    uid !== undefined &&
+    FALLBACK_SOCKET_RE.test(name) &&
+    !PER_USER_DIR_RE.test(basename(parent))
+  ) {
+    const migrated = join(parent, `im-${uid}`, name);
+    const migratedVerdict = verifyUnixEndpoint(migrated);
+    if (migratedVerdict !== "not-open") return { verdict: migratedVerdict, target: migrated };
+  }
+  return { verdict: "not-open", target: socketPath };
 }
 
 /** Answers every request on stdin with an error saying `message`, until stdin ends. */
@@ -293,13 +357,13 @@ const socketPath = process.env[AGENT_SOCKET_ENV];
 if (!token || !socketPath) {
   refuseEverything(NOT_SET_UP);
 } else {
-  const verdict = verifyEndpoint(socketPath);
+  const { verdict, target } = resolveVerifiedEndpoint(socketPath);
   if (verdict === "not-open") {
     refuseEverything(NOT_OPEN);
   } else if (verdict === "untrusted") {
     refuseEverything(UNTRUSTED_ENDPOINT);
   } else {
-    const socket = createConnection(socketPath);
+    const socket = createConnection(target);
     let connected = false;
     socket.once("connect", () => {
       connected = true;

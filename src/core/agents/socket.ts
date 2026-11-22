@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { accessSync, constants, type Stats } from "node:fs";
 import { chmod, lstat, mkdir, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
+import { type as osType, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { AGENT_TOKEN_ENV } from "../../shared/agentSocket";
@@ -25,6 +25,7 @@ const execFileAsync = promisify(execFile);
 export const MAX_SOCKET_PATH_BYTES = 100;
 
 const PER_USER_DIR_RE = /^im-(\d+)$/;
+const FALLBACK_SOCKET_RE = /^incarnamind-[0-9a-f]{16}\.sock$/;
 const WINDOWS_PIPE_RE = /^\\\\\.\\pipe\\[A-Za-z0-9._-]+$/;
 const SID_RE = /^S-1-\d+(?:-\d+)+$/i;
 const DACL_SDDL_RE = /^D:([A-Z]*)((?:\([^)]*\))*)$/;
@@ -308,7 +309,9 @@ export function sanitizedWindowsPipeEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...baseEnv, INCARNAMIND_PIPE_PATH: pipePath };
-  delete env[AGENT_TOKEN_ENV];
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === AGENT_TOKEN_ENV) delete env[key];
+  }
   return env;
 }
 
@@ -412,6 +415,63 @@ function closeServer(server: Server, sockets: ReadonlySet<Socket>): Promise<void
   });
 }
 
+/**
+ * Walks ancestors above `dir` up to `/` to verify no intermediate directory can
+ * be modified by another OS account (unless protected by root + sticky bit, as
+ * `/tmp` is). Returns whether an ancestor is already strictly private (0700) to
+ * the current user.
+ */
+async function verifyUnixAncestors(
+  dir: string,
+  ops: Required<Pick<UnixEndpointOps, "lstat" | "stat">> & { uid: number | undefined },
+): Promise<{ underPrivateOwnerDir: boolean }> {
+  if (ops.uid === undefined) return { underPrivateOwnerDir: false };
+  let underPrivateOwnerDir = false;
+  let current = dirname(resolve(dir));
+  for (;;) {
+    let info: Pick<Stats, "isDirectory" | "isSocket" | "isSymbolicLink" | "uid" | "gid" | "mode">;
+    try {
+      info = await ops.lstat(current);
+    } catch {
+      throw new AgentEndpointError("untrusted", "Agent socket ancestor directory is unreadable.");
+    }
+    let dirStat: Pick<Stats, "isDirectory" | "uid" | "mode"> = info;
+    if (!info.isDirectory()) {
+      if (info.isSymbolicLink() && info.uid === 0) {
+        dirStat = await ops.stat(current);
+        if (!dirStat.isDirectory() || dirStat.uid !== 0) {
+          throw new AgentEndpointError("untrusted", "Agent socket ancestor symlink is untrusted.");
+        }
+      } else {
+        throw new AgentEndpointError(
+          "untrusted",
+          "Agent socket ancestor is not a trusted directory.",
+        );
+      }
+    }
+    if (dirStat.uid !== 0 && dirStat.uid !== ops.uid) {
+      throw new AgentEndpointError(
+        "untrusted",
+        "An ancestor of the agent socket directory is owned by another account.",
+      );
+    }
+    const sticky = (dirStat.mode & 0o1000) !== 0;
+    if ((dirStat.mode & 0o022) !== 0 && !(dirStat.uid === 0 && sticky)) {
+      throw new AgentEndpointError(
+        "untrusted",
+        "An ancestor of the agent socket directory is writable by other accounts.",
+      );
+    }
+    if (dirStat.uid === ops.uid && (dirStat.mode & 0o077) === 0) {
+      underPrivateOwnerDir = true;
+    }
+    const next = dirname(current);
+    if (next === current) break;
+    current = next;
+  }
+  return { underPrivateOwnerDir };
+}
+
 async function prepareAndVerifyUnixParent(
   socketPath: string,
   ops: Required<Pick<UnixEndpointOps, "lstat" | "stat" | "mkdir" | "chmod">> & {
@@ -421,7 +481,10 @@ async function prepareAndVerifyUnixParent(
 ): Promise<void> {
   const parentDir = dirname(socketPath);
   const parentName = basename(parentDir);
-  const perUserMatch = PER_USER_DIR_RE.exec(parentName);
+  const socketName = basename(socketPath);
+  const perUserMatch = FALLBACK_SOCKET_RE.test(socketName)
+    ? PER_USER_DIR_RE.exec(parentName)
+    : null;
   const isPerUserDir = perUserMatch !== null;
   if (isPerUserDir && ops.uid !== undefined && Number(perUserMatch[1]) !== ops.uid) {
     throw new AgentEndpointError(
@@ -429,6 +492,7 @@ async function prepareAndVerifyUnixParent(
       "Agent socket directory belongs to a different account.",
     );
   }
+  const { underPrivateOwnerDir } = await verifyUnixAncestors(parentDir, ops);
   if (isPerUserDir) {
     try {
       await ops.mkdir(parentDir, 0o700);
@@ -470,10 +534,10 @@ async function prepareAndVerifyUnixParent(
   if ((parentStat.mode & 0o002) !== 0) {
     throw new AgentEndpointError("untrusted", "Agent socket parent directory is world-writable.");
   }
-  if ((parentStat.mode & 0o020) !== 0 && ops.gid !== undefined && parentStat.gid !== ops.gid) {
+  if ((parentStat.mode & 0o020) !== 0 && !underPrivateOwnerDir) {
     throw new AgentEndpointError(
       "untrusted",
-      "Agent socket parent directory is writable by another group.",
+      "Agent socket parent directory is group-writable outside a private owner directory.",
     );
   }
 }
@@ -512,6 +576,9 @@ export async function listenForAgents(
   options?: ListenForAgentsOptions,
 ): Promise<AgentListener> {
   const windows = isWindowsPipe(path);
+  // Tests on Unix sometimes override `process.platform = "win32"` to verify Windows settings quoting;
+  // only invoke Win32 named-pipe DACL hardening on actual Windows or when a test injects `options.windows`.
+  const windowsDacl = windows && (options?.windows !== undefined || osType() === "Windows_NT");
   if (!isSocketPathUsable(path)) {
     throw new AgentEndpointError(
       windows ? "untrusted" : "too-long",
@@ -559,7 +626,7 @@ export async function listenForAgents(
       await listenOn(server, path);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EADDRINUSE" || code === "EACCES") {
+      if (windowsDacl && (code === "EADDRINUSE" || code === "EACCES")) {
         let verdict: "ok" | "not-open" | "untrusted" = "untrusted";
         try {
           verdict = evaluateWindowsPipeProbe(await winOps.verify(path));
@@ -576,21 +643,23 @@ export async function listenForAgents(
       }
       throw error;
     }
-    try {
-      const probe = await winOps.lock(path);
-      if (evaluateWindowsPipeProbe(probe) !== "ok") {
+    if (windowsDacl) {
+      try {
+        const probe = await winOps.lock(path);
+        if (evaluateWindowsPipeProbe(probe) !== "ok") {
+          throw new AgentEndpointError(
+            "untrusted",
+            "Couldn't restrict the Windows named pipe to the current account.",
+          );
+        }
+      } catch (error) {
+        await closeServer(server, sockets);
+        if (error instanceof AgentEndpointError) throw error;
         throw new AgentEndpointError(
-          "untrusted",
-          "Couldn't restrict the Windows named pipe to the current account.",
+          "unavailable",
+          "Couldn't apply owner-only access to the Windows named pipe.",
         );
       }
-    } catch (error) {
-      await closeServer(server, sockets);
-      if (error instanceof AgentEndpointError) throw error;
-      throw new AgentEndpointError(
-        "unavailable",
-        "Couldn't apply owner-only access to the Windows named pipe.",
-      );
     }
     ready = true;
     return {
