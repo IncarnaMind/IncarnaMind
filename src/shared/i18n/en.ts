@@ -8677,7 +8677,7 @@ export const en = {
   "agents.problem.checkRunPath":
     "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
   "agents.problem.runNoPath":
-    "This run of the User’s AI has no files of its own, so IncarnaMind opens no file by its path here. Use the Documents and Notes shared with this agent.",
+    "This run of the User’s AI has no files of its own, so IncarnaMind opens no file by its path here. Use the Documents and notes shared with this agent.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":

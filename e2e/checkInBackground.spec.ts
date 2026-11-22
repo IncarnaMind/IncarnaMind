@@ -236,10 +236,12 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await press(window);
 
     await expect(dialog).toContainText(
-      "To start your own AI on this computer to check a note when you press Check",
+      "To start your own AI on this computer when you press Check or ask at the bottom of a note",
     );
     await both(app, window, "background-consent", async () => {
-      await expect(dialog).toContainText("在这台电脑上启动你自己的 AI 核对笔记");
+      await expect(dialog).toContainText(
+        "在你点“核对”或在笔记底部提问时，在这台电脑上启动你自己的 AI",
+      );
     });
     await pointAndClick(window, dialog.getByTestId("consent-decline"));
     await expect.poll(() => urlsOpened(app)).toHaveLength(2);
@@ -257,11 +259,11 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
       .click();
     const sheet = window.getByTestId("connect-agent-dialog");
     await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-      "With no AI model set up here, pressing Check starts your Claude Code in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
+      "With no AI model set up here, Check and the box at the bottom of a note run your Claude Code in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key.",
     );
     await both(app, window, "background-connect-sheet", async () => {
       await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-        "没设置 AI 模型时，点“核对”会在后台启动你的 Claude Code 来核对笔记，不打开窗口，也不新增对话。它只读 IncarnaMind 交给它的内容，用的是你自己的 Claude 订阅或 API 密钥。",
+        "没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 Claude Code，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 Claude 订阅或 API 密钥。",
       );
     });
   } finally {

@@ -155,7 +155,7 @@ describe("a check run on the User's own Claude Code", () => {
   // protects=the run starts Claude Code with none of its own tools, hooks, connectors, CLAUDE.md files, memory or saved session, IncarnaMind's server alone and its six Tools allowed, the grant only in a settings file only the User's account reads, the instructions in a file of their own, so no shell reads a line break of theirs (Windows' cmd.exe cuts a command at one), both going with the run's folder; fails_when=a flag that holds the agent to IncarnaMind's Tools is missing, safe mode drops the server, the grant or the instructions are on the command line, or either is left behind
   it("starts Claude Code held to IncarnaMind's Tools, the grant and instructions in private files that go with the run", async () => {
     useClaude({ run: session([init(), call("mcp__incarnamind__check_mind_yourself"), done]) });
-    await expect(run()).resolves.toEqual({ kind: "finished" });
+    await expect(run()).resolves.toEqual({ kind: "finished", reply: "Checked." });
     const [command, args, options] = launch.mock.calls[0] ?? [];
     expect(command).toBe("claude");
     expect(args).toEqual(
@@ -227,7 +227,7 @@ describe("a check run on the User's own Claude Code", () => {
 
   it("goes on past a call to another of IncarnaMind's Tools, which is denied", async () => {
     useClaude({ run: session([init(), call("mcp__incarnamind__read_request"), done]) });
-    await expect(run()).resolves.toEqual({ kind: "finished" });
+    await expect(run()).resolves.toEqual({ kind: "finished", reply: "Checked." });
   });
 
   // protects=a hook or plugin an organization set, which could receive what is sent, stops the run before the prompt goes, and says so; fails_when=the prompt goes beside a managed plugin

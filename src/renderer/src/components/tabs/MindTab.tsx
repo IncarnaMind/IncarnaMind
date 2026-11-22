@@ -86,79 +86,82 @@ export function MindTab({ mindId }: { mindId: string }) {
         <div ref={setOutlineButton} className="note-outline-button-slot" />
         <div ref={setOutline} className="contents" />
         <div className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col">
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}
-          <div
-            data-testid="mind-scroller"
-            data-drop-target={wordDrop.over ? "true" : undefined}
-            onDragEnterCapture={wordDrop.props.onDragEnter}
-            onDragOverCapture={wordDrop.props.onDragOver}
-            onDragLeave={wordDrop.props.onDragLeave}
-            onDropCapture={wordDrop.props.onDrop}
-            style={{
-              ...(band > 0 && { marginBottom: band }),
-              // Hidden in place, not taken out of the layout: the notes keep their scroll and
-              // their cursor for when the User comes back to them (#138).
-              ...(transcriptShown && { visibility: "hidden", position: "absolute", inset: 0 }),
-            }}
-            className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
-          >
-            {/* Every text in it starts at one edge (styles.css, `.mind-column`). */}
-            <article
-              data-testid="mind-pane"
-              data-mind-id={mind.id}
-              className="mind-column"
-              style={writing}
+          {/* The page's own corners and foot stand above the input at its foot (#3627). */}
+          <div className="relative flex min-h-0 flex-grow flex-col">
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}
+            <div
+              data-testid="mind-scroller"
+              data-drop-target={wordDrop.over ? "true" : undefined}
+              onDragEnterCapture={wordDrop.props.onDragEnter}
+              onDragOverCapture={wordDrop.props.onDragOver}
+              onDragLeave={wordDrop.props.onDragLeave}
+              onDropCapture={wordDrop.props.onDrop}
+              style={{
+                ...(band > 0 && { marginBottom: band }),
+                // Hidden in place, not taken out of the layout: the notes keep their scroll and
+                // their cursor for when the User comes back to them (#138).
+                ...(transcriptShown && { visibility: "hidden", position: "absolute", inset: 0 }),
+              }}
+              className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
             >
-              <div className="mind-measure">
-                {isExample && <ExampleIntro mindId={mindId} />}
-                <div ref={setTop} data-testid="mind-top-slot" />
-                <EventBar mindId={mind.id} />
-                <MeetingInMind mindId={mind.id} />
-                {/* The example works without a chat model: it says so in its Answer instead. */}
-                {!isExample && <ChatReadinessNotice mindId={mind.id} />}
-                <ComposerDockContext.Provider value={read ? assistantSlot : null}>
-                  <PageSlotsContext.Provider
-                    value={{
-                      top,
-                      menu,
-                      count,
-                      badge,
-                      review: review.slot,
-                      reviewShown,
-                      outlineButton,
-                      outline,
-                      ask,
-                    }}
-                  >
-                    <CompareSheetSlotContext.Provider value={sheetSlot}>
-                      <MindEditor mindId={mind.id} />
-                    </CompareSheetSlotContext.Provider>
-                  </PageSlotsContext.Provider>
-                </ComposerDockContext.Provider>
-                <MakeSkillCard mindId={mind.id} />
-              </div>
-            </article>
-            {pill && (
-              <div aria-hidden="true" data-testid="ask-pill-fade" className="ask-pill-fade" />
-            )}
+              {/* Every text in it starts at one edge (styles.css, `.mind-column`). */}
+              <article
+                data-testid="mind-pane"
+                data-mind-id={mind.id}
+                className="mind-column"
+                style={writing}
+              >
+                <div className="mind-measure">
+                  {isExample && <ExampleIntro mindId={mindId} />}
+                  <div ref={setTop} data-testid="mind-top-slot" />
+                  <EventBar mindId={mind.id} />
+                  <MeetingInMind mindId={mind.id} />
+                  {/* The example works without a chat model: it says so in its Answer instead. */}
+                  {!isExample && <ChatReadinessNotice mindId={mind.id} />}
+                  <ComposerDockContext.Provider value={read ? assistantSlot : null}>
+                    <PageSlotsContext.Provider
+                      value={{
+                        top,
+                        menu,
+                        count,
+                        badge,
+                        review: review.slot,
+                        reviewShown,
+                        outlineButton,
+                        outline,
+                        ask,
+                      }}
+                    >
+                      <CompareSheetSlotContext.Provider value={sheetSlot}>
+                        <MindEditor mindId={mind.id} />
+                      </CompareSheetSlotContext.Provider>
+                    </PageSlotsContext.Provider>
+                  </ComposerDockContext.Provider>
+                  <MakeSkillCard mindId={mind.id} />
+                </div>
+              </article>
+              {pill && (
+                <div aria-hidden="true" data-testid="ask-pill-fade" className="ask-pill-fade" />
+              )}
+            </div>
+            {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
+            <div className="mind-menu-slot">
+              {hasViews && tabId && meeting.status === "stopped" && (
+                <MeetingViewChip meeting={meeting} tabId={tabId} />
+              )}
+              <div ref={setMenu} className="flex items-center gap-1" />
+            </div>
+            <div
+              className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}
+              style={transcriptShown ? { display: "none" } : undefined}
+            >
+              <div ref={setCount} className="mind-foot-count" />
+              <div ref={setBadge} className="mind-foot-badge" />
+            </div>
           </div>
           {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
           <div className="note-ask-foot" style={transcriptShown ? { display: "none" } : undefined}>
             <div ref={setAsk} className="mind-measure" />
-          </div>
-          {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
-          <div className="mind-menu-slot">
-            {hasViews && tabId && meeting.status === "stopped" && (
-              <MeetingViewChip meeting={meeting} tabId={tabId} />
-            )}
-            <div ref={setMenu} className="flex items-center gap-1" />
-          </div>
-          <div
-            className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}
-            style={transcriptShown ? { display: "none" } : undefined}
-          >
-            <div ref={setCount} className="mind-foot-count" />
-            <div ref={setBadge} className="mind-foot-badge" />
           </div>
         </div>
         <div ref={review.setSlot} data-shown={reviewShown} className="review-slot" />
