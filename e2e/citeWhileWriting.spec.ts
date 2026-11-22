@@ -526,9 +526,22 @@ test("an input method's Esc or Enter in the field leaves the search open, and ci
   }
 });
 
-test("⌘K reaches Cite… and Link a Document", async () => {
+for (const hold of [false, true]) {
+test(`⌘K reaches Cite… and Link a Document [hold=${hold}]`, async () => {
   const { app, window, editor } = await started();
   try {
+    window.on("console",event=>{if(event.text().startsWith("[2586-key]"))console.log(event.text());});
+    await window.evaluate(() => {
+      const name = (e:EventTarget|null) => e instanceof HTMLElement ? [e.tagName,e.getAttribute("data-testid"),e.getAttribute("contenteditable")] : null;
+      const state = () => ({active:name(document.activeElement),editor:!!document.activeElement?.closest(".ProseMirror"),picker:!!document.querySelector('[data-testid="scope-picker"]'),palette:!!document.querySelector('[data-testid="palette"]')});
+      for(const type of ["keydown","focusin","focusout"]){
+        document.addEventListener(type,e=>{
+          if(e instanceof KeyboardEvent && !["Escape","Enter","k"].includes(e.key))return;
+          console.log("[2586-key]",JSON.stringify({phase:"capture",type,time:performance.now(),key:e instanceof KeyboardEvent?e.key:null,target:name(e.target),state:state()}));
+          if(e instanceof KeyboardEvent&&e.key==="Escape")requestAnimationFrame(()=>console.log("[2586-key]",JSON.stringify({phase:"next-frame",time:performance.now(),prevented:e.defaultPrevented,state:state()})));
+        },true);
+      }
+    });
     await window.keyboard.type("Spring tides flood.");
     const palette = window.getByTestId("palette");
 
@@ -541,6 +554,15 @@ test("⌘K reaches Cite… and Link a Document", async () => {
     await expect(search).toBeVisible();
     await expect(search.getByTestId("cite-query")).toHaveValue("Spring tides flood.");
     await expect(search.getByTestId("cite-query")).toBeFocused();
+    if (hold) await editor.evaluate((node) => {
+      const view = (node as unknown as { editor: { view: { focus(): void } } }).editor.view;
+      const focus = view.focus;
+      view.focus = function () {
+        console.log("[2586-key] held editor focus", document.activeElement?.tagName);
+        document.addEventListener("deliver-editor-focus", () => focus.call(view), { once: true });
+      };
+      document.addEventListener("finish-editor-focus-probe", () => { view.focus = focus; }, {once:true});
+    });
     // No "/" was typed, so Esc leaves the Note as it was.
     await window.keyboard.press("Escape");
     await expect(search).toHaveCount(0);
@@ -553,10 +575,15 @@ test("⌘K reaches Cite… and Link a Document", async () => {
       .filter({ hasText: "Link a Document…" })
       .first();
     await expect(link).toBeVisible();
+    if (hold) await window.evaluate(() => document.dispatchEvent(new Event("deliver-editor-focus")));
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("scope-picker")).toBeVisible();
     // The "@" the command typed for the User goes with the picker when it closes unchoosing.
     await window.keyboard.press("Escape");
+    if (hold) await window.evaluate(() => {
+      document.dispatchEvent(new Event("finish-editor-focus-probe"));
+      document.dispatchEvent(new Event("deliver-editor-focus"));
+    });
     await expect(window.getByTestId("scope-picker")).toHaveCount(0);
     await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood.");
 
@@ -613,6 +640,8 @@ test("⌘K reaches Cite… and Link a Document", async () => {
     await app.close();
   }
 });
+
+}
 
 test("a second ⌘K Cite… at another place is a fresh panel with that place's sentence", async () => {
   const { app, window, editor } = await started();
