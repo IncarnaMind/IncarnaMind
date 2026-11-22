@@ -196,6 +196,15 @@ describe("linking a folder makes a Folder bound to it (#3613)", () => {
     expect((await filed(core))("Harbour log")).toEqual({ groupId: bound.id, source: "user" });
   });
 
+  // protects=a folder dropped on a Folder that is deleted while it links gets its Folder at the top level, so the link is never left without its Folder and Undo (#3613); fails_when=linking fails after the folder is linked
+  it("dropped on a Folder deleted while it links, its Folder is made at the top level", async () => {
+    const { core, coast, files } = await started();
+    const linking = core.addLinkedFolder(files, { groupId: coast.id });
+    await core.deleteLibraryGroup(coast.id);
+    const linked = await linking;
+    expect(boundOf(linked).folder.parentId).toBeNull();
+  });
+
   // protects=linking is never refused for the limit on Folders, and a folder name with a space at its end takes a free name: the link and its Folder are made together (#3613); fails_when=the folder is linked with no Folder and no Undo
   it("links past the limit on Folders, and under a free name when its name ends in a space", async () => {
     const { core, files } = await started();
@@ -444,6 +453,29 @@ describe("filing as one Folder, turned off and on (#3613)", () => {
     expect((await filed(core))("Brief")).toEqual({ groupId: work.id, source: "user" });
   });
 
+  // protects=Undo of turning off a Folder inside a bound one leaves a file the User filed again since, even back into the Folder around it, where they filed it, and takes the others back (#3613); fails_when=Undo takes back a filing the User made since
+  it("Undo of off leaves a file the User filed again since where they filed it", async () => {
+    const { core, coast, files } = await started();
+    await mkdir(join(files, "work"));
+    await writeFile(join(files, "work", "Brief.md"), "# Brief\n\nThe quay opens in May.\n");
+    await writeFile(join(files, "work", "Crew.md"), "# Crew\n\nSix people.\n");
+    const work = boundOf(await core.addLinkedFolder(join(files, "work"))).folder;
+    await processed(core);
+    const outer = boundOf(await core.addLinkedFolder(files)).folder;
+    await processed(core);
+
+    const off = await core.unbindFolder(work.id, []);
+    expect((await filed(core))("Crew").groupId).toBe(outer.id);
+    // A later filing has a later time than the one turning it off made.
+    await new Promise((settle) => setTimeout(settle, 5));
+    const crew = (await core.listDocuments()).find((each) => each.name === "Crew");
+    await core.assignDocumentGroup(crew?.id ?? "", coast.id);
+    await core.assignDocumentGroup(crew?.id ?? "", outer.id);
+    await core.rebindFolder(off);
+    expect((await filed(core))("Brief")).toEqual({ groupId: work.id, source: "user" });
+    expect((await filed(core))("Crew")).toEqual({ groupId: outer.id, source: "user" });
+  });
+
   // protects=Undo of turning it on leaves a file of its folder the User had filed in another Folder where they filed it (#3507); fails_when=Undo moves or unfiles a filing binding never made
   it("Undo of on leaves a file the User filed in another Folder where they filed it", async () => {
     const { core, coast, linked } = await unsorted();
@@ -658,6 +690,26 @@ describe("a folder linked before (#3613)", () => {
     expect(new Set(names).size).toBe(names.length);
     expect(top.filter((each) => each.boundFolderId).map((each) => each.name)).toHaveLength(3);
     expect(top.map((each) => each.name)).toContain("Ärger 2");
+  });
+
+  // protects=a folder linked before with a Folder bound to a folder inside it gets its own Folder for its other files, and the Folder inside keeps its files (#3613); fails_when=the folder's other files stay in Not in a Folder
+  it("one with a Folder bound to a folder inside it gets its own; that one keeps its files", async () => {
+    const set = await unsorted();
+    await mkdir(join(set.files, "archive"));
+    await writeFile(
+      join(set.files, "archive", "Old plan.md"),
+      "# Old plan\n\nThe quay was smaller.\n",
+    );
+    await processed(set.core);
+    const archive = await set.core.createBoundFolder((await diskFolder(set.core, "archive")).id);
+    const core = await migratedAgain(set);
+    const own = (await core.getLibrary()).groups.find(
+      (each) => each.boundFolderId === set.linked.folderId,
+    );
+    const where = await filed(core);
+    expect(own).toBeDefined();
+    expect(where("Quay plan").groupId).toBe(own?.id);
+    expect(where("Old plan").groupId).toBe(archive.folder.id);
   });
 
   // protects=a folder linked before whose first scan never ended, so it has no record on disk yet, gets its Folder too (#3613); fails_when=it is left as if the User had turned filing off

@@ -320,12 +320,18 @@ function parseAssignmentState(input: unknown): AssignmentState {
 }
 
 /** Each Document's place before, from the changes that filed it. */
-function parseFiled(input: unknown): { documentId: string; before: AssignmentState }[] {
+function parseFiled(
+  input: unknown,
+): { documentId: string; before: AssignmentState; after: AssignmentState | null }[] {
   const invalid = new InvalidInputError({ key: "error.library.projectUndo" });
   if (!Array.isArray(input)) throw invalid;
   return input.map((each: unknown) => {
     if (!isRecord(each) || typeof each.documentId !== "string") throw invalid;
-    return { documentId: each.documentId, before: parseAssignmentState(each.before) };
+    return {
+      documentId: each.documentId,
+      before: parseAssignmentState(each.before),
+      after: each.after === undefined ? null : parseAssignmentState(each.after),
+    };
   });
 }
 
@@ -2402,12 +2408,18 @@ export function createLibrary(options: {
       filed: unknown,
       ofItsFolder: (documentId: string) => boolean,
     ): string[] {
-      const before = new Map(parseFiled(filed).map((each) => [each.documentId, each.before]));
+      const changes = new Map(parseFiled(filed).map((each) => [each.documentId, each]));
       const back = db.transaction(() =>
         everyFiledDocumentIdsOf(group(groupId).id).filter((id) => {
           const row = assignment(id);
           if (row?.group_id !== groupId || row.source !== "user" || !ofItsFolder(id)) return false;
-          const was = before.get(id);
+          const change = changes.get(id);
+          // A filing the User made since, even back into this Folder, is later work, and it wins
+          // (#1928); its tags read since are not, so only where and when it was filed are compared.
+          const made = change?.after?.assignment;
+          if (made && (assignmentFields(row).filedAt ?? null) !== (made.filedAt ?? null))
+            return false;
+          const was = change?.before;
           restoreAssignmentRow(document(id), was?.assignment ?? null);
           if (was?.tagging) restoreTaggingRow(id, was.tagging);
           return true;

@@ -3419,11 +3419,11 @@ export const migrations: readonly Migration[] = [
       -- Folder is, and marked so that Recently deleted doesn't list it: only Undo brings it back.
       ALTER TABLE library_groups ADD COLUMN deleted_quietly INTEGER NOT NULL DEFAULT 0;
       -- The Linked folders the first start binds as linking binds one now, through the same code:
-      -- each of the User's with no Folder bound to it (in Recently deleted included), not the
-      -- app's own examples folder, and not one whose Documents the User has all filed already,
-      -- whose new files keep going to Not in a Folder as they did until the User chooses File as
-      -- one Folder. A Document has a filing of its own when it is in a live Folder, or in no
-      -- Folder by the User's choice.
+      -- each of the User's with no Folder bound to it (in Recently deleted included; a Folder bound
+      -- to a folder inside it keeps that folder and its files), not the app's own examples folder,
+      -- and not one whose Documents the User has all filed already, whose new files keep going to
+      -- Not in a Folder as they did until the User chooses File as one Folder. A Document has a
+      -- filing of its own when it is in a live Folder, or in no Folder by the User's choice.
       INSERT INTO device_settings (id, key, value, created_at, updated_at)
         SELECT ${UUID_V4_SQL}, 'linkedFoldersToBind',
           json_object('linkedFolderIds', json(ids), 'tries', 0), at, at FROM (
@@ -3437,7 +3437,7 @@ export const migrations: readonly Migration[] = [
                 AND json_valid(s.value) AND json_extract(s.value, '$.linkedFolderId') IS NOT NULL)
             AND NOT EXISTS (
               SELECT 1 FROM library_groups g WHERE g.purged_at IS NULL AND g.bound_folder_id IN
-                (SELECT id FROM folders WHERE linked_folder_id = lf.id AND deleted_at IS NULL))
+                (SELECT id FROM folders WHERE linked_folder_id = lf.id AND relative_path = ''))
             AND (
               NOT EXISTS (SELECT 1 FROM documents d
                 WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL)

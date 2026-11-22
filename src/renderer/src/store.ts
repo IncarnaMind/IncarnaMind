@@ -111,7 +111,7 @@ import { sortOf, useSort } from "./sortChoices";
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
-import { wallLines } from "./walls";
+import { wallChange, wallLines } from "./walls";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
 
@@ -805,6 +805,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     name: string,
     state: { bound: BoundFolderChange | null; unbound: UnboundFolder | null },
     on: boolean,
+    wallsLeft: readonly string[] = [],
   ): Undoable => {
     const unbind = async () => {
       if (state.bound)
@@ -816,7 +817,11 @@ export const useAppStore = create<AppState>()((set, get) => {
       await get().refreshLibrary();
     };
     return {
-      said: (t) => t(on ? "undo.fileAsFolder.on" : "undo.fileAsFolder.off", { name }),
+      said: (t) => {
+        const message = t(on ? "undo.fileAsFolder.on" : "undo.fileAsFolder.off", { name });
+        const suffix = wallLines(t, null, wallsLeft);
+        return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
+      },
       name: (t) => t(on ? "undo.name.fileAsFolder.on" : "undo.name.fileAsFolder.off"),
       undo: on ? unbind : bind,
       redo: on ? bind : unbind,
@@ -864,27 +869,6 @@ export const useAppStore = create<AppState>()((set, get) => {
       minds.some((each) => each.folderId === folderId) ||
       conversations.some((each) => each.folderId === folderId)
     );
-  };
-
-  /**
-   * The walls a move crosses, by the paths Move to… shows: the wall it enters and those it leaves.
-   * An item already behind the wall it goes to crosses none.
-   */
-  const wallChange = (
-    groups: readonly LibraryGroup[],
-    fromFolders: readonly (string | null)[],
-    into: string | null,
-  ): { entered: string | null; left: string[] } => {
-    const after = into === null ? null : folderWallOf(groups, into);
-    const crossed = fromFolders.flatMap((from) => {
-      const before = from === null ? null : folderWallOf(groups, from);
-      return before === after ? [] : [{ before, after }];
-    });
-    const path = (id: string) => folderPathLabel(groups, id);
-    return {
-      entered: after !== null && crossed.length > 0 ? path(after) : null,
-      left: [...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)])))],
-    };
   };
 
   /**
@@ -2297,11 +2281,19 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     stopFilingAsFolder: (groupId) =>
       attempt(async () => {
-        const folder = get().library?.groups.find((each) => each.id === groupId);
-        if (!folder) return;
+        const before = get().library;
+        const folder = before?.groups.find((each) => each.id === groupId);
+        if (!before || !folder) return;
+        const held = before.assignments.filter((each) => each.groupId === groupId);
         const unbound = await core.unbindFolder(groupId, []);
         await get().refreshLibrary();
-        push(filingChange(folder.name, { bound: null, unbound }, false));
+        // Its files leave a wall it is behind, as a move out of it does (ADR-0012, #3613): the line says so.
+        const now = get().library?.assignments ?? [];
+        const left = held.flatMap(({ documentId }) => {
+          const to = now.find((each) => each.documentId === documentId)?.groupId ?? null;
+          return to === groupId ? [] : wallChange(before.groups, [groupId], to).left;
+        });
+        push(filingChange(folder.name, { bound: null, unbound }, false, [...new Set(left)]));
       }),
 
     downloadOnlineOnlyFiles: (linkedFolderId) =>

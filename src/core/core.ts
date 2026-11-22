@@ -7894,7 +7894,13 @@ export function createCore(adapters: CoreAdapters): Core {
                   folder: library.bind(rebind, linked.folderId),
                   filed: fileUnder([linked.folderId]),
                 }
-              : bindFolderOnDisk(linked.folderId, dropped);
+              : bindFolderOnDisk(
+                  linked.folderId,
+                  // The Folder it was dropped on, deleted while the folder was linked: at the top level.
+                  dropped !== null && library.folders().some((each) => each.id === dropped)
+                    ? dropped
+                    : null,
+                );
             nestMerged(regrouped, made.folder.id);
             return { bound: made, merged: regrouped };
           });

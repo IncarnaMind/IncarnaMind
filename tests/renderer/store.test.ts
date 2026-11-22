@@ -439,6 +439,36 @@ describe("changes the User can take back", () => {
     expect(said(top())).toContain("No longer kept inside “Research”.");
   });
 
+  // protects=turning off filing as one Folder for a Folder that keeps its work inside it says its files are no longer kept inside it, as a move out does, with Undo; one with no wall says only that filing stopped (#3613); fails_when=its files leave the wall with no word of it
+  test("turning off filing as one Folder for a walled Folder says its files leave the wall", async () => {
+    const group = { ...researchGroup(true), boundFolderId: "on-disk" };
+    const filed = { ...assignment("a", "classified", "g"), source: "user" as const };
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [group] } });
+    method("unbindFolder").mockResolvedValue({
+      groupId: "g",
+      boundFolderId: "on-disk",
+      removed: false,
+      refiled: [],
+    });
+    method("getLibrary").mockResolvedValue({
+      ...snapshot([assignment("a", "classified")]),
+      groups: [group],
+    });
+    await useAppStore.getState().stopFilingAsFolder("g");
+    expect(said(top())).toBe(
+      "Stopped filing “Research” as one Folder. No longer kept inside “Research”.",
+    );
+
+    const open = { ...group, keepInside: false };
+    useAppStore.setState({ library: { ...snapshot([filed]), groups: [open] } });
+    method("getLibrary").mockResolvedValue({
+      ...snapshot([assignment("a", "classified")]),
+      groups: [open],
+    });
+    await useAppStore.getState().stopFilingAsFolder("g");
+    expect(said(top())).toBe("Stopped filing “Research” as one Folder");
+  });
+
   test("a Document moved behind the same wall says nothing", async () => {
     const group = researchGroup(true);
     const inner = { ...researchGroup(), id: "inner", name: "Inner", parentId: "g" };
