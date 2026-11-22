@@ -554,6 +554,15 @@ test(`⌘K reaches Cite… and Link a Document [hold=${hold}]`, async () => {
     await expect(search).toBeVisible();
     await expect(search.getByTestId("cite-query")).toHaveValue("Spring tides flood.");
     await expect(search.getByTestId("cite-query")).toBeFocused();
+    if (hold) await editor.evaluate((node) => {
+      const view = (node as unknown as { editor: { view: { focus(): void } } }).editor.view;
+      const focus = view.focus;
+      view.focus = function () {
+        console.log("[2586-key] held editor focus", document.activeElement?.tagName);
+        document.addEventListener("deliver-editor-focus", () => focus.call(view), { once: true });
+      };
+      document.addEventListener("finish-editor-focus-probe", () => { view.focus = focus; }, {once:true});
+    });
     // No "/" was typed, so Esc leaves the Note as it was.
     await window.keyboard.press("Escape");
     await expect(search).toHaveCount(0);
@@ -566,20 +575,15 @@ test(`⌘K reaches Cite… and Link a Document [hold=${hold}]`, async () => {
       .filter({ hasText: "Link a Document…" })
       .first();
     await expect(link).toBeVisible();
-    if (hold) await editor.evaluate((node) => {
-      const view = (node as unknown as { editor: { view: { focus(): void } } }).editor.view;
-      const focus = view.focus;
-      view.focus = function () {
-        view.focus = focus;
-        console.log("[2586-key] held editor focus", new Error().stack);
-        document.addEventListener("deliver-editor-focus", () => focus.call(view), { once: true });
-      };
-    });
+    if (hold) await window.evaluate(() => document.dispatchEvent(new Event("deliver-editor-focus")));
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("scope-picker")).toBeVisible();
     // The "@" the command typed for the User goes with the picker when it closes unchoosing.
     await window.keyboard.press("Escape");
-    if (hold) await window.evaluate(() => document.dispatchEvent(new Event("deliver-editor-focus")));
+    if (hold) await window.evaluate(() => {
+      document.dispatchEvent(new Event("finish-editor-focus-probe"));
+      document.dispatchEvent(new Event("deliver-editor-focus"));
+    });
     await expect(window.getByTestId("scope-picker")).toHaveCount(0);
     await expect(editor.locator(":scope > p").first()).toHaveText("Spring tides flood.");
 
