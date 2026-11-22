@@ -150,7 +150,8 @@ export function readKinds(input: ReadInput): ReadKinds {
     }
   }
   for (const reason of input.reasons) {
-    // A web page read is named by its host; every other reason is text the list doesn't name.
+    if (reason.via === "read" && reason.source === "transcript" && transcript) continue;
+    // A web page read is named by its host.
     if (reason.via === "read" && reason.source === "web-page") {
       if (webPages.length === 0 && !webSearchResults) otherText = true;
     } else otherText = true;

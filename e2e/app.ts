@@ -271,6 +271,12 @@ export interface LaunchOptions {
     speech?: { model: EmbeddingModelSource; vad: EmbeddingModelSource };
   };
   /**
+   * An HTML file the app opens in a hidden window of its own and offers as the
+   * one window a Meeting can read (ADR-0031), captured as a tab is: no test
+   * captures a real window or screen. Without, a Meeting reads none.
+   */
+  sharedWindow?: string;
+  /**
    * The scripted Task that asks for approval and writes files (src/main/scriptedTask.ts),
    * started with `startScriptedTask`. Needs a test build.
    */
@@ -403,6 +409,7 @@ export async function launchApp(
     noAudioEngine = false,
     transcriber,
     scans,
+    sharedWindow,
     scansAtOnce,
     modelDownloads,
     web,
@@ -469,6 +476,7 @@ export async function launchApp(
     INCARNAMIND_TEST_SYSTEM_CALENDAR: systemCalendar && JSON.stringify(systemCalendar),
     INCARNAMIND_TEST_CALENDAR_SYNC_MS: calendarSyncMs ? String(calendarSyncMs) : undefined,
     INCARNAMIND_TEST_SCANS: scans,
+    INCARNAMIND_TEST_SHARED_WINDOW: sharedWindow,
     INCARNAMIND_TEST_SCANS_AT_ONCE: scansAtOnce ? String(scansAtOnce) : undefined,
     INCARNAMIND_TEST_MODEL_DOWNLOADS: modelDownloads && JSON.stringify(modelDownloads),
     INCARNAMIND_TEST_WEB: web ? String(web) : undefined,
@@ -3867,6 +3875,7 @@ export async function writeNote(
   window: Page,
   title: string,
   blocks: readonly NoteBlock[],
+  { folderId = null }: { folderId?: string | null } = {},
 ): Promise<string> {
   const doc = new Y.Doc();
   doc.getXmlFragment("blocks").push(
@@ -3883,14 +3892,14 @@ export async function writeNote(
   );
   const update = Array.from(Y.encodeStateAsUpdate(doc));
   return window.evaluate(
-    async ([name, change]) => {
+    async ([name, change, folder]) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      const mind = await core.createMind({ title: name });
+      const mind = await core.createMind({ title: name, folderId: folder });
       await core.applyMindUpdate(mind.id, new Uint8Array(change));
       await core.closeMind(mind.id);
       return mind.id;
     },
-    [title, update] as const,
+    [title, update, folderId] as const,
   );
 }
 

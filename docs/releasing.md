@@ -71,6 +71,10 @@ Then, in GitHub, under **Settings → Secrets and variables → Actions**:
 
 Then push a pre-release tag and read the Windows job's summary.
 
+### Windows call detection
+
+In the existing SignPath `windows-app` artifact configuration, paste the repository's [Windows app artifact configuration](../.signpath/artifact-configurations/windows-app.xml). Once it is saved, set the repository Actions variable `WINDOWS_CALL_WATCHER_SIGNPATH_READY` to `true`. The Windows release then builds the helper with the app's product version, sends it to SignPath with the app, and checks its timestamped signature before packaging the installer. Releases without SignPath or this variable omit the helper.
+
 ### The test certificate
 
 SignPath's test certificate is self-signed, so Windows doesn't trust it: SmartScreen still warns, as it does for an unsigned installer, and the signature check lets that one error pass with a warning. Auto-update still works: electron-builder signs nothing itself, so it writes no `publisherName` into the app's `app-update.yml`, and electron-updater installs an update without checking who signed it.

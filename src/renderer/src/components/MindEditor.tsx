@@ -219,6 +219,7 @@ import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
+import { meetingTemplateSlashItems } from "./meetings/MeetingTemplatePicker";
 import { useTabPlace } from "./tabs/tabItems";
 
 /** The Block at the top of the Note's view, and how far into it the view starts. */
@@ -727,7 +728,7 @@ function MindEditorView({
             const { skills: all, settings } = useAppStore.getState();
             const language = settings?.language ?? "en";
             const skills = skillSlashItems(
-              all,
+              all.filter((skill) => !skill.meetingTemplate),
               (skill) => skillDescription(skill, (key, params) => translate(language, key, params)),
               (skill) => {
                 // For the Question asked next, from the composer, which goes on this line.
@@ -743,9 +744,10 @@ function MindEditorView({
               translateNow("editor.slash.citeHint"),
               (current, range) => setCite({ editor: current, from: range.from, to: range.to }),
             );
-            return place === "question"
-              ? skills
-              : [...writing, ...noteSlashItems, compare, ...skills];
+            if (place === "question") return skills;
+            const meeting = useMeetings.getState().meetings.find((item) => item.mindId === mindId);
+            const templates = meetingTemplateSlashItems(meeting, all, language);
+            return [...writing, ...noteSlashItems, compare, ...templates, ...skills];
           },
         }),
         ScopePicker,

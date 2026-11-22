@@ -49,6 +49,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     foldersInside: (folderId) => [folderId],
     documentsIn: () => ["tides"],
     noteTranscripts: () => [],
+    refreshLiveTranscripts: () => undefined,
     search: async () => [],
     passage: () => null,
     passagesBetween: () => [],
@@ -110,6 +111,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       },
     },
     requests: { ofPairing: () => [], markRead: () => null },
+    askedChecks: { holds: () => false, end: () => undefined },
     record: () => undefined,
     say: (key, params) => translate("en", key, params),
     language: () => "en",
@@ -140,6 +142,37 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
   };
   return createAgentAccess(deps, "pairing");
 }
+
+describe("refreshing a shared live Transcript", () => {
+  // protects=a Folder withdrawn during indexing stays private; fails_when=the pending read returns words or the search consults the withdrawn Transcript
+  it.each(["search", "read"] as const)("checks the grant again before a %s", async (tool) => {
+    let shared = ["tides"];
+    const refresh = Promise.withResolvers<void>();
+    const search = vi.fn(async () => []);
+    const passagesBetween = vi.fn(() => []);
+    const refreshLiveTranscripts = vi.fn(() => refresh.promise);
+    const access = accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        documentsIn: () => shared,
+        refreshLiveTranscripts,
+        search,
+        passagesBetween,
+      },
+    );
+    const reading =
+      tool === "read"
+        ? access.readPassages({ documentId: "tides" })
+        : access.search({ query: "delivery" });
+    expect(refreshLiveTranscripts).toHaveBeenCalledWith(["tides"]);
+    shared = [];
+    refresh.resolve();
+    if (tool === "read") await expect(reading).rejects.toMatchObject({ problem: "outside-scope" });
+    else await expect(reading).resolves.toMatchObject({ passages: [] });
+    expect(search).not.toHaveBeenCalled();
+    expect(passagesBetween).not.toHaveBeenCalled();
+  });
+});
 
 describe("ask, when IncarnaMind's Answer isn't written", () => {
   it("is paused in Local mode, as every Tool is", async () => {

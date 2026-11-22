@@ -1,0 +1,35 @@
+name: Windows call watcher
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/windows-call-watcher.yml
+      - .github/workflows/release.yml
+      - .signpath/artifact-configurations/windows-app.xml
+      - native/callWatcher/windows/**
+      - scripts/callWatcher.mjs
+      - scripts/verifyWindowsCallWatcher.ps1
+      - tests/native/windowsCallWatcher.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-call-watcher:
+    name: Native Windows call watcher
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Build and exercise the watcher on Windows
+        shell: pwsh
+        run: |
+          $version = (node -p 'require("./package.json").version.split("-")[0]') + ".0"
+          $build = Join-Path $env:RUNNER_TEMP "incarnamind-call-watcher-fixture"
+          cmake -S native/callWatcher/windows -B $build -A x64 "-DVERSION_DOTTED=$version" -DBUILD_TESTING=ON
+          cmake --build $build --config Release
+          node tests/native/windowsCallWatcher.mjs $version $build

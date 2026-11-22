@@ -99,11 +99,7 @@ export const SETTINGS_PAGES = [
   "privacy",
 ] as const;
 
-/**
- * The built-in Skills, the only Skill names ever sent (resources/skills; a
- * test keeps them the same). A Skill of the User's own is sent as "own".
- */
-export const BUILT_IN_SKILL_NAMES = [
+const generalSkills = [
   "chronology",
   "cim-red-flags",
   "covenant-summary",
@@ -114,6 +110,20 @@ export const BUILT_IN_SKILL_NAMES = [
   "mind-to-report",
   "summarise-document",
 ] as const;
+const meetingTemplates = [
+  "meeting-board",
+  "meeting-client",
+  "meeting-interview",
+  "meeting-legal",
+  "meeting-one-on-one",
+  "meeting-sales",
+  "meeting-team",
+] as const;
+
+export const BUILT_IN_SKILL_NAMES = [...generalSkills, ...meetingTemplates].sort();
+export const builtInSkillUsage = (name: string) =>
+  generalSkills.find((skill) => skill === name) ??
+  (meetingTemplates.some((skill) => skill === name) ? "meeting-template" : "own");
 
 /** Where an error happened, for `error_occurred`. */
 const ERROR_AREAS = ["answer", "document", "connector"] as const;
@@ -296,10 +306,9 @@ export const USAGE_EVENTS = {
    */
   connector_used: { remote: flag },
   /**
-   * An Answer used a Skill, once per Skill and Answer: a built-in Skill's
-   * name, or "own" for one of the User's; and whether the Question forced it.
+   * The seven built-in meeting templates share a value so usage data does not identify the kind of call.
    */
-  skill_used: { skill: oneOf([...BUILT_IN_SKILL_NAMES, "own"]), forced: flag },
+  skill_used: { skill: oneOf([...generalSkills, "meeting-template", "own"]), forced: flag },
   /** Something failed: where, and the kind of error. Never its message. */
   error_occurred: {
     area: oneOf(ERROR_AREAS),

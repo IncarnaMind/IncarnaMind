@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.20)
+project(call-watcher LANGUAGES C RC)
+
+if(NOT VERSION_DOTTED MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
+  message(FATAL_ERROR "Supply the four-part Windows product version through VERSION_DOTTED")
+endif()
+string(REPLACE "." "," VERSION_NUMERIC "${VERSION_DOTTED}")
+configure_file(version.rc.in version.rc @ONLY)
+
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+add_compile_options("$<$<COMPILE_LANGUAGE:C>:/W4>" "$<$<COMPILE_LANGUAGE:C>:/WX>")
+add_executable(call-watcher watcher.c "${CMAKE_CURRENT_BINARY_DIR}/version.rc")
+target_link_libraries(call-watcher PRIVATE advapi32)
+
+option(BUILD_TESTING "Build a watcher that reads an isolated test registry subtree" OFF)
+if(BUILD_TESTING)
+  add_executable(call-watcher-fixture watcher.c fixture.c)
+  target_compile_definitions(call-watcher-fixture PRIVATE CALL_WATCHER_FIXTURE)
+  target_link_libraries(call-watcher-fixture PRIVATE advapi32)
+endif()

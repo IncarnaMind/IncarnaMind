@@ -3,14 +3,17 @@
  * as Claude Code or Codex would, with the MCP SDK's own client, and searches,
  * reads and cites only the Folders its pairing may read.
  */
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type Core, DATABASE_FILE } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
-import type { SortingBatch } from "../../src/core/agents/sorting";
+import { READ_PART_TOKENS } from "../../src/core/agents/access";
+import { SORTING_MOST, type SortingBatch } from "../../src/core/agents/sorting";
 import { estimateTokens } from "../../src/core/answers/context";
+import { ALL_SHARED_ID } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
+import { translate } from "../../src/shared/i18n";
 import {
   buildAgentShim,
   connectLegacyAgent,
@@ -19,7 +22,12 @@ import {
   startAgentsCore,
 } from "../helpers/agents";
 import { citingModel } from "../helpers/citations";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { writeMind } from "../helpers/minds";
 import { replyingModel } from "../helpers/models";
@@ -697,6 +705,231 @@ describe("outside agents", () => {
     expect((await useTag(hidden.id)).isError).toBe(true);
   });
 
+  // protects=with no Folder yet and no model set up, an agent suggests a Folder and a Tag by name; nothing is made, filed or tagged before Confirm; one name given in two calls is one Folder; a Document nothing fits gets nothing; a name the Library can't take is refused in its own form's words with nothing of the call kept; Confirm makes them and files and tags the Documents (#3610); fails_when=a new name is refused, something is made or filed before Confirm, one name gives two Folders, or a bad name fails as IncarnaMind's own error
+  it("suggest new Folders and Tags by name, which Confirm alone makes", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Quay repair.md",
+        "# Quay repair\n\nThe east quay is repaired.",
+      ),
+      await writeSourceFile(sources, "Dredging plan.md", "# Dredging plan\n\nDredge to 6 metres."),
+      await writeSourceFile(
+        sources,
+        "Pier survey.md",
+        "# Pier survey\n\nThe pier needs new piles.",
+      ),
+      await writeSourceFile(sources, "Holiday list.md", "# Holiday list\n\nSun cream and books."),
+    ]);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const agent = await connectLegacyAgent(launch);
+    const batch = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(batch.folders).toEqual([]);
+    expect(batch.total).toBe(4);
+    const of = (name: string) => {
+      const doc = batch.documents.find((each) => each.name === name);
+      if (!doc) throw new Error(`${name} isn't waiting to be organized.`);
+      return { documentId: doc.id, version: doc.version };
+    };
+    const submit = (proposals: object[]) =>
+      agent.callTool({ name: "propose_sorting", arguments: { proposals } });
+    const quay = { ...of("Quay repair"), newFolder: "Harbour works", newTags: ["Quays"] };
+
+    for (const [bad, words] of [
+      [{ newFolder: " " }, translate("en", "error.folder.lengths")],
+      [{ newFolder: "W".repeat(101) }, translate("en", "error.folder.lengths")],
+      [{ newTags: [" "] }, translate("en", "error.tag.nameEmpty")],
+      [{ folderId: "any" }, translate("en", "agents.sorting.invalid")],
+    ] as const) {
+      const refused = await submit([quay, { ...quay, ...of("Pier survey"), ...bad }]);
+      expect(refused.isError).toBe(true);
+      expect(resultText(refused)).toBe(words);
+    }
+    expect((await core.getOrganizeReview()).items).toEqual([]);
+
+    expect(
+      structured(
+        await submit([
+          quay,
+          { ...of("Dredging plan"), newFolder: "harbour works " },
+          of("Holiday list"),
+        ]),
+      ),
+    ).toEqual({ waiting: 2 });
+    const left = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(left.total).toBe(2);
+    expect(left.documents.map((doc) => doc.name).sort()).toEqual(["Holiday list", "Pier survey"]);
+    expect(
+      structured(
+        await submit([{ ...of("Pier survey"), newFolder: "Harbour works", newTags: ["Quays"] }]),
+      ),
+    ).toEqual({ waiting: 1 });
+
+    const review = await core.getOrganizeReview();
+    expect(review.folders).toMatchObject([{ name: "Harbour works", parentId: null }]);
+    const proposed = { kind: "newFolder", newFolderId: review.folders[0]?.id };
+    const items = new Map(review.items.map((item) => [item.documentId, item]));
+    expect(items.get(of("Quay repair").documentId)).toMatchObject({
+      origin: "agent",
+      agent: "Claude Code",
+      placement: proposed,
+      tags: [{ tagId: null, name: "Quays" }],
+    });
+    expect(items.get(of("Dredging plan").documentId)).toMatchObject({
+      placement: proposed,
+      tags: [],
+    });
+    expect(items.get(of("Pier survey").documentId)?.placement).toEqual(proposed);
+    expect(items.has(of("Holiday list").documentId)).toBe(false);
+    expect((await core.getLibrary()).groups).toEqual([]);
+    expect((await core.listTags()).map((tag) => tag.name)).not.toContain("Quays");
+    expect((await core.getLibrary()).assignments.every((each) => each.groupId === null)).toBe(true);
+
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+    const { groups, assignments } = await core.getLibrary();
+    expect(groups).toMatchObject([{ name: "Harbour works", parentId: null }]);
+    const filed = assignments.filter((each) => each.groupId === groups[0]?.id);
+    expect(filed.map((each) => each.documentId).sort()).toEqual(
+      [of("Quay repair"), of("Dredging plan"), of("Pier survey")]
+        .map((each) => each.documentId)
+        .sort(),
+    );
+    const tag = (await core.listTags()).find((each) => each.name === "Quays");
+    const tagged = (await core.listDocuments()).filter((doc) =>
+      doc.tags.some((each) => each.tagId === tag?.id),
+    );
+    expect(tagged.map((doc) => doc.name).sort()).toEqual(["Pier survey", "Quay repair"]);
+  });
+
+  // protects=a ten-Document Library comes whole in one list_sorting answer and one propose_sorting call takes a Suggestion for each, so no group is split across pages or calls by a count of eight and no call is refused for its size; nothing is made before Confirm (#3626); fails_when=the list pages at eight, a call for ten is refused, or a Folder is made before Confirm
+  it("list a small Library in one answer, and take a Suggestion for each Document in one call", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const areas = { "Harbour works": 4, "Family health": 3, "Tax return": 3 };
+    const files: string[] = [];
+    for (const [area, count] of Object.entries(areas))
+      for (let at = 1; at <= count; at++)
+        files.push(
+          await writeSourceFile(sources, `${area} ${at}.md`, `# ${area} ${at}\n\nAbout ${area}.`),
+        );
+    await addAndProcess(core, files);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const agent = await connectLegacyAgent(launch);
+    const batch = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(batch.documents).toHaveLength(10);
+    expect(batch).toMatchObject({ total: 10, next: null });
+    const proposals = batch.documents.map((doc) => ({
+      documentId: doc.id,
+      version: doc.version,
+      newFolder: doc.name.replace(/ \d+$/, ""),
+    }));
+    expect(
+      structured(await agent.callTool({ name: "propose_sorting", arguments: { proposals } })),
+    ).toEqual({ waiting: 10 });
+    const review = await core.getOrganizeReview();
+    expect(review.folders.map((folder) => folder.name).sort()).toEqual(Object.keys(areas).sort());
+    expect(review.items).toHaveLength(10);
+    expect((await core.getLibrary()).groups).toEqual([]);
+  });
+
+  // protects=a Library past one answer's room still pages, each answer within the size a client reads whole and saying how many wait in all, and a call past what one takes is not refused: it takes what it can and says how many to send again; nothing is made before Confirm (#3626); fails_when=an answer outgrows the bound, a page loses or repeats a Document, a large call is refused, or a Folder is made before Confirm
+  it("page a large Library by size, and take what one call can of a larger one", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const sources = await createSourceFolder();
+    const long = (at: number) =>
+      `# Survey ${at}\n\n${"The east quay survey records tide levels and wall cracks each week. ".repeat(40)}`;
+    const files: string[] = [];
+    for (let at = 1; at <= SORTING_MOST + 1; at++)
+      files.push(await writeSourceFile(sources, `Survey ${at}.md`, long(at)));
+    await addAndProcess(core, files, 60_000);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [ALL_SHARED_ID] });
+    const agent = await connectLegacyAgent(launch);
+    const pages: SortingBatch[] = [];
+    let after: string | null = "";
+    while (after !== null) {
+      const result = await agent.callTool({
+        name: "list_sorting",
+        arguments: after ? { after } : {},
+      });
+      expect(estimateTokens(resultText(result))).toBeLessThanOrEqual(READ_PART_TOKENS);
+      const page = structured<SortingBatch>(result);
+      pages.push(page);
+      after = page.next;
+    }
+    expect(pages.length).toBeGreaterThan(1);
+    expect(pages.every((page) => page.total === SORTING_MOST + 1)).toBe(true);
+    const read = pages.flatMap((page) => page.documents);
+    expect(new Set(read.map((doc) => doc.id)).size).toBe(SORTING_MOST + 1);
+    const proposals = read.map((doc) => ({
+      documentId: doc.id,
+      version: doc.version,
+      newFolder: "Quay surveys",
+    }));
+    const first = structured<{ waiting: number; left?: string }>(
+      await agent.callTool({ name: "propose_sorting", arguments: { proposals } }),
+    );
+    expect(first).toEqual({
+      waiting: SORTING_MOST,
+      left: translate("en", "agents.sorting.left.one", { total: SORTING_MOST + 1 }),
+    });
+    expect(
+      structured(
+        await agent.callTool({
+          name: "propose_sorting",
+          arguments: { proposals: proposals.slice(SORTING_MOST) },
+        }),
+      ),
+    ).toEqual({ waiting: 1 });
+    expect((await core.getOrganizeReview()).items).toHaveLength(SORTING_MOST + 1);
+    expect((await core.getLibrary()).groups).toEqual([]);
+  }, 120_000);
+
+  // protects=a new Folder an agent suggests for a Document in a Folder bound to a folder on disk is proposed inside that Folder, made there only at Confirm, and the Document filed in it, as the Library's own Organize of a Folder makes its subfolders (#3610); fails_when=the new Folder is proposed at the top level, which would take the Document out of its Project, or anything is made before Confirm
+  it("suggest a new Folder for a Document in a Project inside the Project", async () => {
+    const { core } = await startAgentsCore(replyingModel(), {}, { modelSetUp: false });
+    const files = await createSourceFolder();
+    await writeFile(join(files, "Quay plan.md"), "# Quay plan\n\nThe east quay holds 31 boats.\n");
+    const linked = await core.addLinkedFolder(files);
+    await core.reconcileDocuments();
+    await waitForProcessing(
+      core,
+      (await core.listDocuments()).map((each) => each.id),
+    );
+    const { folder: project } = await core.createBoundFolder(linked.folderId);
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({ name: "Claude Code", folderIds: [project.id] });
+    const agent = await connectLegacyAgent(launch);
+    const [doc] = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    ).documents;
+    if (!doc) throw new Error("The plan isn't waiting to be organized.");
+    expect(doc.folderId).toBe(project.id);
+    const proposals = [{ documentId: doc.id, version: doc.version, newFolder: "Quay works" }];
+    expect(
+      structured(await agent.callTool({ name: "propose_sorting", arguments: { proposals } })),
+    ).toEqual({ waiting: 1 });
+
+    const review = await core.getOrganizeReview();
+    expect(review.folders).toMatchObject([{ name: "Quay works", parentId: project.id }]);
+    expect((await core.getLibrary()).groups.map((each) => each.id)).toEqual([project.id]);
+    await core.confirmOrganizeReview(review.items.map((item) => item.id));
+    const { groups, assignments } = await core.getLibrary();
+    const made = groups.find((each) => each.name === "Quay works");
+    expect(made?.parentId).toBe(project.id);
+    expect(assignments.find((each) => each.documentId === doc.id)?.groupId).toBe(made?.id);
+  });
+
   it("answer the current protocol (2026-07-28) and the one before it", async () => {
     const { launch } = await pairedToCoast();
     const legacy = await connectLegacyAgent(launch);
@@ -755,8 +988,11 @@ describe("outside agents", () => {
     // read_passages read a whole Document, or a long one in parts (#3573); 3,383 before
     // check_mind_yourself and hand_over_file said a check waits for the User unless asked (#3576);
     // 3,391 before read_passages took any before and after, answering at most three, and said a
-    // part is sized to be read in full (#3586); 3,421 before cite took a list of any length (#3585).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_417);
+    // part is sized to be read in full (#3586); 3,421 before cite took a list of any length (#3585);
+    // 3,417 before propose_sorting took new Folders and Tags by name, and list_sorting asked for
+    // every page before a suggestion (#3610); 3,459 before propose_sorting took a Suggestion for
+    // every Document one list answer holds (#3626).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_455);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

@@ -488,6 +488,16 @@ export function CloudLineIcon(props: IconProps) {
   );
 }
 
+/** A shared screen (ADR-0031): a monitor on its stand. */
+export function ScreenLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <rect x="3" y="4.5" width="18" height="12" rx="1.5" />
+      <path d="M8.5 20h7M12 16.5V20" />
+    </LineIcon>
+  );
+}
+
 /** Recording a meeting, as an action ("Record a meeting", "Start recording"): a ring and a dot. */
 export function RecordingLineIcon(props: IconProps) {
   return (

@@ -3,41 +3,19 @@
  * language. Pure, with no bridge, so a unit test reads it without a window.
  */
 import type { Language } from "../../core/language";
+import { BUILT_IN_SKILL_NAMES } from "../../core/usageEvents";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
 import { unitsOf } from "../../shared/i18n/join";
 
-/** The Built-in Skills described in the interface's language (see `skillDescription`). */
-const BUILT_IN_DESCRIPTIONS: Readonly<Record<string, MessageKey>> = {
-  chronology: "skills.builtIn.chronology",
-  "cim-red-flags": "skills.builtIn.cim-red-flags",
-  "covenant-summary": "skills.builtIn.covenant-summary",
-  "credit-memo-outline": "skills.builtIn.credit-memo-outline",
-  "deposition-summary": "skills.builtIn.deposition-summary",
-  "earnings-review": "skills.builtIn.earnings-review",
-  "literature-review": "skills.builtIn.literature-review",
-  "mind-to-report": "skills.builtIn.mind-to-report",
-  "summarise-document": "skills.builtIn.summarise-document",
-};
-
-const BUILT_IN_TITLES: Readonly<Record<string, MessageKey>> = {
-  chronology: "skills.builtIn.chronology.title",
-  "cim-red-flags": "skills.builtIn.cim-red-flags.title",
-  "covenant-summary": "skills.builtIn.covenant-summary.title",
-  "credit-memo-outline": "skills.builtIn.credit-memo-outline.title",
-  "deposition-summary": "skills.builtIn.deposition-summary.title",
-  "earnings-review": "skills.builtIn.earnings-review.title",
-  "literature-review": "skills.builtIn.literature-review.title",
-  "mind-to-report": "skills.builtIn.mind-to-report.title",
-  "summarise-document": "skills.builtIn.summarise-document.title",
-};
+const builtInName = (name: string) => BUILT_IN_SKILL_NAMES.find((known) => known === name);
 
 /** A Built-in Skill is called by its title in the interface's language; any other by its name. */
 export function skillTitle(
   name: string,
   t: (key: MessageKey, params?: MessageParams) => string,
 ): string {
-  const key = BUILT_IN_TITLES[name];
-  return key ? t(key) : name;
+  const known = builtInName(name);
+  return known ? t(`skills.builtIn.${known}.title`) : name;
 }
 
 /** The Built-in Skills the User removed, by title, as the button that restores them lists them. */
@@ -53,24 +31,12 @@ export const removedBuiltInsLine = (
     ),
   });
 
-const BUILT_IN_SHORT_LINES: Readonly<Record<string, MessageKey>> = {
-  chronology: "skills.builtIn.chronology.short",
-  "cim-red-flags": "skills.builtIn.cim-red-flags.short",
-  "covenant-summary": "skills.builtIn.covenant-summary.short",
-  "credit-memo-outline": "skills.builtIn.credit-memo-outline.short",
-  "deposition-summary": "skills.builtIn.deposition-summary.short",
-  "earnings-review": "skills.builtIn.earnings-review.short",
-  "literature-review": "skills.builtIn.literature-review.short",
-  "mind-to-report": "skills.builtIn.mind-to-report.short",
-  "summarise-document": "skills.builtIn.summarise-document.short",
-};
-
 export function skillShortLine(
   skill: { name: string; builtIn: boolean },
   t: (key: MessageKey, params?: MessageParams) => string,
 ): string | null {
-  const key = skill.builtIn ? BUILT_IN_SHORT_LINES[skill.name] : undefined;
-  return key ? t(key) : null;
+  const known = skill.builtIn && builtInName(skill.name);
+  return known ? t(`skills.builtIn.${known}.short`) : null;
 }
 
 /**
@@ -81,8 +47,8 @@ export function skillDescription(
   skill: { name: string; description: string; builtIn: boolean },
   t: (key: MessageKey, params?: MessageParams) => string,
 ): string {
-  const key = skill.builtIn ? BUILT_IN_DESCRIPTIONS[skill.name] : undefined;
-  return key ? t(key) : skill.description;
+  const known = skill.builtIn && builtInName(skill.name);
+  return known ? t(`skills.builtIn.${known}`) : skill.description;
 }
 
 /** The User's own Skills first, then the built-in ones, as Settings lists them: the order "/" and the + menu offer them in. */

@@ -1,10 +1,13 @@
+import type { Meeting } from "../../../../core/api";
 import { menuKeysLabel } from "../../commands/keymap";
 import { type CommandContext, commands, isEnabled, labelOf } from "../../commands/registry";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { MoreLineIcon } from "../lineIcons";
-import { menuClass, menuItemClass, menuItemUnavailableClass } from "../ui";
+import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
+
+import { applyMeetingWriteupTemplate, MeetingTemplateRows } from "./MeetingTemplatePicker";
 
 const FOLDING = [
   { fold: "mark", id: "meeting.mark" },
@@ -19,7 +22,7 @@ const CONTEXT: CommandContext = { selection: [], focus: null, surface: "mind" };
  * container queries). Its menu holds the buttons that are hidden when it opens, each its
  * command, as ⌘K has it.
  */
-export function BarMore() {
+export function BarMore({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const menu = usePopoverMenu();
   const bar = menu.buttonProps.ref.current?.closest(".meeting-bar");
@@ -29,6 +32,7 @@ export function BarMore() {
         return button !== null && button !== undefined && button.offsetParent === null;
       })
     : [];
+  const template = menu.open && bar?.querySelector<HTMLElement>('[data-fold="template"]');
   const run = (id: (typeof FOLDING)[number]["id"]) => {
     menu.close();
     commands.run(id).catch(useAppStore.getState().reportError);
@@ -76,6 +80,18 @@ export function BarMore() {
             </button>
           );
         })}
+        {template && template.offsetParent === null && (
+          <>
+            <hr className={menuRuleClass} />
+            <MeetingTemplateRows
+              meeting={meeting}
+              onChoose={(id) => {
+                menu.close();
+                void applyMeetingWriteupTemplate(meeting.id, id);
+              }}
+            />
+          </>
+        )}
       </div>
     </>
   );

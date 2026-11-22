@@ -57,6 +57,7 @@
     "eval:word:fetch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON eval/word/fetch-extended.ts",
     "eval:dump": "vitest run --config eval/dumps/vitest.config.ts",
     "eval:references": "vitest run --config eval/references/vitest.config.ts",
+    "eval:screen": "vitest run --config eval/screen/vitest.config.ts",
     "eval:ocr": "vitest run --config eval/ocr/vitest.config.ts",
     "eval:transcription": "vitest run --config eval/transcription/vitest.config.ts",
     "eval:meetings": "vitest run --config eval/meetings/vitest.config.ts",

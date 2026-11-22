@@ -184,6 +184,8 @@ export interface WalkOptions {
   /** The Linked folder `start` is in: ignore rules apply to paths relative to it. */
   root: string;
   ignore: (relative: string) => boolean;
+  /** Absolute paths to leave out whole, never walked into (#3566). */
+  skip?: (path: string) => boolean;
   /** Check for dataless placeholders (macOS). */
   detectDataless: boolean;
 }
@@ -206,10 +208,12 @@ export interface WalkResult {
 export async function walk(start: string, options: WalkOptions): Promise<WalkResult> {
   const result: WalkResult = { files: [], unsupported: [], folders: [] };
   const consider = async (path: string, stats?: Stats): Promise<void> => {
+    if (options.skip?.(path)) return;
     const name = basename(path);
     const stubTarget = iCloudStubTarget(name);
     if (stubTarget) {
       const target = join(dirname(path), stubTarget);
+      if (options.skip?.(target)) return;
       const kind = kindOf(target);
       if (!kind || options.ignore(relativePath(options.root, target))) return;
       const info = stats ?? (await lstat(path));

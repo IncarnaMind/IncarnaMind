@@ -101,6 +101,7 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
+import type { AskedChecks } from "./askedChecks";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -133,7 +134,7 @@ import {
 } from "./proposals";
 import { AgentRefusedError, MAX_PATH_CHARS, NotReachedError, text, whole } from "./refusals";
 import type { AgentRequests, RequestNamed } from "./requests";
-import type { AgentSorting, SortingBatch, SortingProposal } from "./sorting";
+import type { AgentSorting, SortingBatch, SortingProposal, SortingTaken } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
 import {
@@ -572,7 +573,7 @@ export interface AgentAccess {
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
-  proposeSorting(proposals: SortingProposal[]): Promise<{ waiting: number }>;
+  proposeSorting(proposals: SortingProposal[]): Promise<SortingTaken>;
   listMinds(): Promise<AgentMindList>;
   readMind(input: AgentReadMindInput): Promise<AgentMindText>;
   ask(input: AgentAskInput, signal?: AbortSignal): Promise<AgentAnswer>;
@@ -705,6 +706,8 @@ export interface AgentAccessDeps {
   documentsIn(folderIds: readonly string[]): string[];
   /** Every live Transcript that belongs to a Note (#2528). */
   noteTranscripts(): readonly NoteTranscript[];
+  /** Indexes confirmed words in these live Meeting Transcripts; undefined when none are live. */
+  refreshLiveTranscripts(documentIds: readonly string[]): Promise<void> | undefined;
   /** The search Answers use, without reranking, over these Documents. */
   search(
     query: string,
@@ -829,6 +832,8 @@ export interface AgentAccessDeps {
   citations: AgentCitations;
   /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
   requests: Pick<AgentRequests, "ofPairing" | "markRead">;
+  /** The checks the User asked of an agent, for a Note it may not have written (./askedChecks). */
+  askedChecks: Pick<AskedChecks, "holds" | "end">;
   /** Keeps a call for the pairing's activity list, with the request it read. */
   record(activity: Omit<AgentActivity, "id" | "at" | "request">, requestId?: string): void;
   /** A message in the interface language. */
@@ -1637,9 +1642,17 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
   };
 
   /** The first part of a Document the pairing reaches. */
-  const readStart = (reach: ReadonlySet<string>, given: unknown): AgentReadResult => {
+  const readStart = async (
+    reach: ReadonlySet<string>,
+    given: unknown,
+  ): Promise<AgentReadResult> => {
     const documentId = text(given, "passageId or documentId", 200);
     if (!reach.has(documentId)) throw new NotReachedError(t("agents.problem.not-found"));
+    const refresh = deps.refreshLiveTranscripts([documentId]);
+    if (refresh) {
+      await refresh;
+      stillReaching([documentId]);
+    }
     return partOf(documentId, 0);
   };
 
@@ -1908,6 +1921,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     }
     return mind;
   };
+
+  /** The Note a check by the agent's own model takes: one it wrote, or one the User asked it to check. */
+  const noteToCheck = (pairing: AdmittedPairing, mindId: unknown): Mind =>
+    typeof mindId === "string" && deps.askedChecks.holds(pairing.id, mindId)
+      ? mindInScope(pairing, text(mindId, "mindId", 200))
+      : ownNote(pairing, mindId);
 
   const notJudged = (reason: NotJudgedReason, mind: Mind): AgentRefusedError => {
     switch (reason) {
@@ -2274,7 +2293,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       return call("search", query, [READ_DOCUMENTS], async (pairing) => {
         const words = text(input?.query, "query", MAX_QUERY_CHARS);
         const page = whole(input?.page, "page", 1, MAX_SEARCH_PAGE, 1);
-        const documentIds = scopeOf(pairing, input?.folderIds);
+        let documentIds = scopeOf(pairing, input?.folderIds);
+        const refresh = deps.refreshLiveTranscripts(documentIds);
+        if (refresh) {
+          await refresh;
+          const current = new Set(scopeOf(deps.admit(pairingId), input?.folderIds));
+          documentIds = documentIds.filter((id) => current.has(id));
+        }
         if (documentIds.length === 0) {
           const line = notShared();
           return {
@@ -2317,13 +2342,13 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
     },
 
     readPassages(input) {
-      return call("read_passages", "", [READ_DOCUMENTS], (pairing) => {
+      return call("read_passages", "", [READ_DOCUMENTS], async (pairing) => {
         const reach = new Set(scopeOf(pairing, undefined));
         if (input?.passageId === undefined) {
           const result =
             input?.from !== undefined
               ? readOn(reach, input.from)
-              : readStart(reach, input?.documentId);
+              : await readStart(reach, input?.documentId);
           return { result, count: result.passages.length, documentIds: [result.documentId] };
         }
         // More than it reads is no reason to refuse: `previous` and `next` say how to read on (#3586).
@@ -2612,12 +2637,12 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         "",
         [{ action: "write", scope: { kind: "library" } }],
         (pairing) => {
-          const waiting = deps.sorting.submit(sortingScope(pairing), pairing.name, proposals);
-          return {
-            result: { waiting },
-            count: waiting,
-            documentIds: proposals.map((p) => p.documentId),
-          };
+          const { taken, documentIds } = deps.sorting.submit(
+            sortingScope(pairing),
+            pairing.name,
+            proposals,
+          );
+          return { result: taken, count: taken.waiting, documentIds };
         },
       );
     },
@@ -3206,7 +3231,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
       const known = deps.minds().find((mind) => mind.id === mindId);
       const effects: Effect[] = [{ action: "read", scope: { kind: "mind", mindId } }];
       return call("check_mind_yourself", known ? mindName(known) : "", effects, async (pairing) => {
-        const mind = ownNote(pairing, input?.mindId);
+        const mind = noteToCheck(pairing, input?.mindId);
         const found = deps.checkTask(mind.id, checkReach(pairing), input?.again === true);
         if (!found.ok) throw notJudged(found.reason, mind);
         workOut.checks(pairing.id, mind.id);
@@ -3238,7 +3263,7 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       return call("report_check", known ? mindName(known) : "", effects, (pairing) => {
-        const mind = ownNote(pairing, input?.mindId);
+        const mind = noteToCheck(pairing, input?.mindId);
         const task = text(input?.task, "task", 200);
         if (!Array.isArray(input?.results) || input.results.length > MAX_REPORTED_SENTENCES) {
           throw new AgentRefusedError(
@@ -3297,8 +3322,14 @@ export function createAgentAccess(deps: AgentAccessDeps, pairingId: string): Age
           ];
         });
         const landed = deps.landJudged(mind.id, inScope, pairing.name, task, judged);
+        // A report on sentences that changed since is refused, and the ask stands, as the refusal
+        // tells the agent to take them again: the User may go on writing while their AI checks.
         if (!landed.ok) throw notJudged(landed.reason, mind);
         const { marked, unconfirmed, unreported } = landed.value;
+        // Told to report again what didn't land, the agent keeps the ask until nothing is left.
+        if (unconfirmed.length === 0 && unreported.length === 0) {
+          deps.askedChecks.end(pairing.id, mind.id);
+        }
         return {
           result: {
             mindId: mind.id,

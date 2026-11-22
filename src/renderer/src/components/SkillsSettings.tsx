@@ -16,6 +16,7 @@ import { showFileLabelKey } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { savedFolderLabel } from "../outputFiles";
 import { openCodeSandboxHelp } from "../sandbox";
+import { useSettingsTarget } from "../settingsTarget";
 import {
   formatSize,
   pickSkill,
@@ -54,7 +55,7 @@ import {
 import { usePopoverMenu } from "./usePopoverMenu";
 
 /** What the editor in Settings is for: a new Skill, or changing one of the User's. */
-type Editing = { kind: "new" } | { kind: "edit"; skill: Skill; draft: SkillDraft };
+type Editing = { kind: "new" | "new-meeting" } | { kind: "edit"; skill: Skill; draft: SkillDraft };
 
 /** How the last Export as zip went. */
 type Exported =
@@ -70,9 +71,10 @@ const NEW_SKILL: SkillDraft = { name: "", description: "", steps: "" };
  * one from a folder or a zip, shown first for the User to check. Built-in
  * Skills can be duplicated as the User's own and, once removed, restored.
  */
-export function SkillsSettings() {
+export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolean } = {}) {
   const t = useT();
   const language = useLanguage();
+  const templates = useSettingsTarget<HTMLElement>(["meeting-templates"], !meetingsOnly);
   const skills = useAppStore((state) => state.skills);
   const restoreBuiltInSkills = useAppStore((state) => state.restoreBuiltInSkills);
   const removedBuiltIns = useRemovedBuiltIns();
@@ -112,8 +114,11 @@ export function SkillsSettings() {
     setBusy("reading");
     try {
       const check = await core.previewSkillImport(path);
-      if (check.ok) setPreview(check.preview);
-      else setError(check.error);
+      if (!check.ok) setError(check.error);
+      else if (meetingsOnly && !check.preview.meetingTemplate) {
+        await core.cancelSkillImport(check.preview.importId);
+        setError(t("meetings.template.importOther"));
+      } else setPreview(check.preview);
     } catch (failure) {
       setError(errorMessage(failure, t));
     } finally {
@@ -171,8 +176,9 @@ export function SkillsSettings() {
     }
   };
 
-  const yours = skills.filter((skill) => !skill.builtIn);
-  const builtIn = skills.filter((skill) => skill.builtIn);
+  const yours = skills.filter((skill) => !skill.builtIn && !skill.meetingTemplate);
+  const builtIn = skills.filter((skill) => skill.builtIn && !skill.meetingTemplate);
+  const meetings = skills.filter((skill) => skill.meetingTemplate);
   const row = (skill: Skill) =>
     editing?.kind === "edit" && editing.skill.id === skill.id ? (
       <div key={skill.id} className="p-3">
@@ -194,6 +200,125 @@ export function SkillsSettings() {
       />
     );
 
+  const meetingRows = (
+    <>
+      {meetings.length > 0 && <SettingsGroup>{meetings.map(row)}</SettingsGroup>}
+      {editing?.kind === "new-meeting" ? (
+        <SkillEditor
+          testId="meeting-template-editor"
+          initial={NEW_SKILL}
+          title={t("skills.settings.newMeeting")}
+          save={(draft) => core.createSkill({ ...draft, meetingTemplate: true })}
+          onSaved={() => close(editing)}
+          onCancel={() => close(editing)}
+        />
+      ) : (
+        <button
+          type="button"
+          data-testid="meeting-template-new"
+          className={buttonStyle("secondary", "sm")}
+          onClick={() => {
+            editorAsked();
+            setEditing({ kind: "new-meeting" });
+          }}
+        >
+          {t("skills.settings.newMeeting")}
+        </button>
+      )}
+    </>
+  );
+  const restore = removedBuiltIns.length > 0 && (
+    <div className="mt-3">
+      <button
+        type="button"
+        data-testid="skill-restore-built-ins"
+        title={removedBuiltInsLine(removedBuiltIns, t, language)}
+        disabled={busy !== null}
+        onClick={() => void restoreBuiltInSkills()}
+        className={buttonStyle("secondary", "sm")}
+      >
+        {t("skills.settings.restoreBuiltIns")}
+      </button>
+    </div>
+  );
+  const importControls = (
+    <>
+      <button
+        {...importMenu.buttonProps}
+        type="button"
+        data-testid="skill-import"
+        disabled={busy !== null || preview !== null}
+        className={buttonStyle("secondary", "sm")}
+      >
+        <ExportLineIcon className="size-4" />
+        {t("skills.settings.import")}
+      </button>
+      <div
+        {...importMenu.menuProps}
+        role="menu"
+        aria-label={t("skills.settings.import")}
+        data-testid="skill-import-menu"
+        className={menuClass}
+      >
+        {importMenu.open && (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="skill-import-folder"
+              onClick={() => {
+                importMenu.close();
+                void choose("folder");
+              }}
+              className={`${menuItemClass} pl-2`}
+            >
+              {t("skills.import.folder")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="skill-import-zip"
+              onClick={() => {
+                importMenu.close();
+                void choose("zip");
+              }}
+              className={`${menuItemClass} pl-2`}
+            >
+              {t("skills.import.zip")}
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+  const importFeedback = (
+    <>
+      {busy === "reading" && (
+        <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
+      )}
+      {error && <ImportError error={error} />}
+      {exported && <ExportStatus exported={exported} onExport={exportZip} />}
+      {preview && (
+        <SkillPreview
+          preview={preview}
+          importing={busy === "importing"}
+          onImport={() => void confirm(preview.importId)}
+          onCancel={() => cancel(preview.importId)}
+        />
+      )}
+    </>
+  );
+  if (meetingsOnly) {
+    return (
+      <div data-testid="skills-meetings" className="mt-3 flex flex-col items-stretch gap-3">
+        {meetingRows}
+        <div className="flex flex-wrap gap-2">{importControls}</div>
+        {importFeedback}
+        {removedBuiltIns.some((name) => name.startsWith("meeting-")) && restore}
+      </div>
+    );
+  }
+
   return (
     <section data-testid="skills-settings" className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
@@ -213,66 +338,9 @@ export function SkillsSettings() {
             <PlusLineIcon className="size-4" />
             {t("skills.settings.new")}
           </button>
-          <button
-            {...importMenu.buttonProps}
-            type="button"
-            data-testid="skill-import"
-            disabled={busy !== null || preview !== null}
-            className={buttonStyle("secondary", "sm")}
-          >
-            <ExportLineIcon className="size-4" />
-            {t("skills.settings.import")}
-          </button>
-          <div
-            {...importMenu.menuProps}
-            role="menu"
-            aria-label={t("skills.settings.import")}
-            data-testid="skill-import-menu"
-            className={menuClass}
-          >
-            {importMenu.open && (
-              <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="skill-import-folder"
-                  onClick={() => {
-                    importMenu.close();
-                    void choose("folder");
-                  }}
-                  className={`${menuItemClass} pl-2`}
-                >
-                  {t("skills.import.folder")}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="skill-import-zip"
-                  onClick={() => {
-                    importMenu.close();
-                    void choose("zip");
-                  }}
-                  className={`${menuItemClass} pl-2`}
-                >
-                  {t("skills.import.zip")}
-                </button>
-              </>
-            )}
-          </div>
+          {importControls}
         </div>
-        {busy === "reading" && (
-          <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
-        )}
-        {error && <ImportError error={error} />}
-        {exported && <ExportStatus exported={exported} onExport={exportZip} />}
-        {preview && (
-          <SkillPreview
-            preview={preview}
-            importing={busy === "importing"}
-            onImport={() => void confirm(preview.importId)}
-            onCancel={() => cancel(preview.importId)}
-          />
-        )}
+        {importFeedback}
         {editing?.kind === "new" && (
           <SkillEditor
             testId="skill-editor"
@@ -295,23 +363,18 @@ export function SkillsSettings() {
         )}
       </SettingsSection>
 
+      <SettingsSection
+        ref={templates}
+        testId="skills-meetings"
+        title={t("skills.settings.meetings")}
+      >
+        {meetingRows}
+      </SettingsSection>
+
       <SettingsSection testId="skills-built-in" title={t("skills.settings.builtIn")}>
         {builtIn.length > 0 && <SettingsGroup>{builtIn.map(row)}</SettingsGroup>}
         <SettingsHelp>{t("skills.settings.builtIn.hint")}</SettingsHelp>
-        {removedBuiltIns.length > 0 && (
-          <div className="mt-3">
-            <button
-              type="button"
-              data-testid="skill-restore-built-ins"
-              title={removedBuiltInsLine(removedBuiltIns, t, language)}
-              disabled={busy !== null}
-              onClick={() => void restoreBuiltInSkills()}
-              className={buttonStyle("secondary", "sm")}
-            >
-              {t("skills.settings.restoreBuiltIns")}
-            </button>
-          </div>
-        )}
+        {restore}
       </SettingsSection>
     </section>
   );
@@ -593,6 +656,28 @@ function SkillRow({
               <>
                 {!skill.builtIn &&
                   item("skill-edit", t("skills.settings.edit"), () => onEdit(skill))}
+                {skill.meetingTemplate && (
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={skill.meetingFillUncovered !== false}
+                    data-testid="meeting-template-fill-uncovered"
+                    className={`${menuItemClass} pl-2`}
+                    onClick={choose(() => {
+                      void core
+                        .setMeetingTemplateFillUncovered(
+                          skill.id,
+                          skill.meetingFillUncovered === false,
+                        )
+                        .catch(useAppStore.getState().reportError);
+                    })}
+                  >
+                    <span aria-hidden="true" className="w-4 shrink-0">
+                      {skill.meetingFillUncovered !== false ? "✓" : ""}
+                    </span>
+                    {t("skills.settings.meetingFillUncovered")}
+                  </button>
+                )}
                 {item("skill-export", t("skills.settings.export"), () => onExport(skill))}
                 {skill.builtIn &&
                   item("skill-duplicate", t("skills.settings.duplicate"), () => {

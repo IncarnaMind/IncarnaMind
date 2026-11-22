@@ -21,8 +21,10 @@ import {
   pointAndClick,
   removeDataFolder,
   setLanguage,
+  sidebarFolder,
   urlsOpened,
   useLocalChatModel,
+  writeNote,
 } from "./app";
 
 test.skip(
@@ -651,6 +653,108 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     await setLanguage(window, "zh-CN");
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await shot(window, "check-with-model-zh-CN");
+  } finally {
+    await app.close();
+  }
+});
+
+test("with no model, a check the User asks of their own AI lands its marks on a Note the User wrote, its cards showing the quotes (#3622)", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    const folderId = await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const { groups } = await bridge.getLibrary();
+      return groups.find((each) => each.name === "Tallow Sound Ferries")?.id ?? null;
+    });
+    const OWN_TITLE = "My ferry notes";
+    const mindId = await writeNote(
+      window,
+      OWN_TITLE,
+      [{ text: `${CROSSINGS} ${OVERSTATED}` }, { text: BOOKING }],
+      { folderId },
+    );
+    const folderRow = sidebarFolder(window, "Tallow Sound Ferries").getByTestId("folder-row");
+    if ((await folderRow.getAttribute("aria-expanded")) !== "true") {
+      await pointAndClick(window, folderRow);
+    }
+    await pointAndClick(
+      window,
+      window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first(),
+    );
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+    if (!(await window.getByTestId("check-card").isVisible())) {
+      await pointAndClick(window, window.getByTestId("check-badge-open"));
+    }
+    await pointAndClick(window, window.getByTestId("badge-check-mind"));
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    expect(typedIn((await urlsOpened(app))[0])).toBe(
+      `Check my note “${OWN_TITLE}” in IncarnaMind against my Documents.`,
+    );
+    const asked = window.getByTestId("checks-asked");
+    await expect(asked).toHaveText("Asked Claude Code: send the request there.");
+
+    const agent = await claudeCode(launch);
+    try {
+      const { request } = (
+        await agent.callTool({ name: "read_request", arguments: { note: OWN_TITLE } })
+      ).structuredContent as { request: string };
+      expect(request).toContain("check_mind_yourself");
+      expect(request).not.toContain("read_mind");
+      const { task, sentences } = (
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
+      ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
+      await expect(asked).toHaveText("Checking this note in Claude Code.");
+      const found = (
+        await agent.callTool({ name: "search", arguments: { query: "crossings fuel cost 2025" } })
+      ).structuredContent as { passages: { passageId: string }[] };
+      const cite = async (quote: string) => {
+        const { citations } = (
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.passages.map(({ passageId }) => ({ passageId, quote })) },
+          })
+        ).structuredContent as { citations: { cite: string | null }[] };
+        const token = citations.find((each) => each.cite !== null)?.cite;
+        if (!token) throw new Error(`No Passage holds “${quote}”.`);
+        return token;
+      };
+      const RAN = "In 2025 the company ran 2,816 crossings.";
+      const FUEL = "Fuel cost £310,000 over the year, up from £284,000 in 2024.";
+      const numbered = (text: string) => sentences.find((each) => each.text === text)?.n;
+      const reported = await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task,
+          results: [
+            { n: numbered(CROSSINGS), verdict: "supported", cites: [await cite(RAN)] },
+            {
+              n: numbered(OVERSTATED),
+              verdict: "overstated",
+              cites: [await cite(FUEL)],
+              explanation: "£310,000 against £284,000 is not double.",
+            },
+            { n: numbered(BOOKING), verdict: "not found", explanation: "No Document mentions it." },
+          ],
+        },
+      });
+      expect(reported.isError ?? false).toBe(false);
+      await expect(asked).toHaveCount(0);
+      await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
+      await pointAndClick(
+        window,
+        window.locator('[data-testid="claim-mark"][data-check="unsupported"]').first(),
+      );
+      const card = window.getByTestId("claim-card").filter({ visible: true });
+      await expect(card.getByTestId("claim-part-citation")).toHaveText([FUEL]);
+      await shot(window, "check-own-note-card-en");
+    } finally {
+      await agent.close();
+    }
   } finally {
     await app.close();
   }

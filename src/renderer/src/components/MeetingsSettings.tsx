@@ -2,6 +2,8 @@ import { useId } from "react";
 import type { MessageKey } from "../../../shared/i18n";
 import { CHINESE_SCRIPTS, type ChineseScript } from "../../../shared/meetingWords";
 import { useT } from "../i18n";
+import { useSettingsPageOffered } from "../settingsOffered";
+import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
 import {
   ROUTE_LABELS,
@@ -14,6 +16,7 @@ import { MeetingNotesAgentSetting } from "./meetings/MeetingNotesAgentSetting";
 import { MeetingSummarySetting } from "./meetings/MeetingSummarySetting";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
 import { WordsToKnow } from "./meetings/WordsToKnow";
+import { SkillsSettings } from "./SkillsSettings";
 import { PopUpSelect } from "./settings/PopUpButton";
 import {
   SettingsGroup,
@@ -30,6 +33,14 @@ const SCRIPT_LABELS: Record<ChineseScript, MessageKey> = {
 
 export function MeetingsSettings() {
   const t = useT();
+  const skillsPage = useSettingsPageOffered("skills");
+  const templates = useSettingsTarget<HTMLDetailsElement>(
+    ["meeting-templates"],
+    !skillsPage,
+    () => {
+      if (templates.current) templates.current.open = true;
+    },
+  );
   const device = useAppStore((state) => state.settings?.device);
   const canRecord = useAppStore((state) => state.settings?.meetingAudio);
   const updateSettings = useAppStore((state) => state.updateSettings);
@@ -83,6 +94,35 @@ export function MeetingsSettings() {
           />
           <MeetingNotesAgentSetting />
           <MeetingSummarySetting />
+          <SettingsSwitchRow
+            label={t("meetings.settings.screen")}
+            detail={t("meetings.settings.screenBody")}
+            checked={device.meetingScreenAsk}
+            onChange={(meetingScreenAsk) => void updateSettings({ device: { meetingScreenAsk } })}
+            switchTestId="meetings-screen-ask"
+          />
+          <SettingsRow
+            label={t("meetings.settings.pictureLimit")}
+            htmlFor={`${whatId}-pictures`}
+            detail={t("meetings.settings.pictureLimitBody")}
+            control={
+              <input
+                id={`${whatId}-pictures`}
+                className="w-20 rounded border border-rule px-2 py-1"
+                type="number"
+                min="0"
+                step="1"
+                key={device.meetingScreenPictureLimit}
+                defaultValue={device.meetingScreenPictureLimit}
+                onBlur={(event) => {
+                  const limit = event.currentTarget.valueAsNumber;
+                  if (Number.isSafeInteger(limit) && limit >= 0)
+                    void updateSettings({ device: { meetingScreenPictureLimit: limit } });
+                  else event.currentTarget.value = String(device.meetingScreenPictureLimit);
+                }}
+              />
+            }
+          />
           <SettingsSwitchRow
             label={t("meetings.settings.keepAudio")}
             detail={t(
@@ -141,6 +181,17 @@ export function MeetingsSettings() {
       </SettingsSection>
       <WordsToKnow services={services} />
       <HelpSettings />
+      {!skillsPage && (
+        <details ref={templates}>
+          <summary
+            data-testid="meeting-templates-disclosure"
+            className="cursor-pointer text-[13px] font-semibold text-ink"
+          >
+            {t("meetings.settings.templates")}
+          </summary>
+          <SkillsSettings meetingsOnly />
+        </details>
+      )}
     </>
   );
 }

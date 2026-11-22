@@ -64,7 +64,11 @@ export function MeetingOfferSettings() {
         ref={row}
         data-testid="call-offers"
         label={t("settings.callOffers")}
-        detail={t("settings.callOffers.detail")}
+        detail={t(
+          /Win/.test(navigator.platform) && problem !== "not-on-windows"
+            ? "settings.callOffers.detailWindows"
+            : "settings.callOffers.detail",
+        )}
         control={
           <>
             <button

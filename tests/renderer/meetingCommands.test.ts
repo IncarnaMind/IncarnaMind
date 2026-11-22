@@ -114,6 +114,37 @@ test("a missing Meeting is not live", () => {
 });
 
 describe("the meeting commands", () => {
+  test("opening a meeting template keeps a second draft from starting on the same Note", async () => {
+    const notes = await import("../../src/renderer/src/editor/meetingNotes");
+    const mindId = "template-note";
+    const ctx = { ...IN_MIND, focus: { kind: "mind" as const, id: mindId } };
+    stores.useAppStore.setState({ settings: { language: "en" } as Settings });
+    stores.useMeetings.setState({
+      meetings: [{ ...meeting("stopped-call", mindId, "stopped"), kind: "meeting" }],
+    });
+    showing(mindId);
+    const pending = Promise.withResolvers<null>();
+    const note = vi.spyOn(notes, "noteOf").mockReturnValueOnce(pending.promise);
+    const open = vi.spyOn(stores.useAppStore.getState(), "openMind").mockImplementation(() => {});
+    try {
+      expect(offered(command("skill.fromMind"), ctx)).toBe(true);
+      const first = commands.run("meeting.saveTemplate", ctx);
+      const draftCommands = ["meeting.saveTemplate", "skill.fromMind"] as const;
+      const offeredWhileOpening = draftCommands.map((id) => offered(command(id), ctx));
+      await commands.run("skill.fromMind", ctx);
+      pending.resolve(null);
+      await expect(first).rejects.toThrow(en("meetings.mark.noNote"));
+      expect(offeredWhileOpening).toEqual([false, false]);
+      expect(offered(command("meeting.saveTemplate"), ctx)).toBe(true);
+      expect(offered(command("skill.fromMind"), ctx)).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(note).toHaveBeenCalledTimes(1);
+    } finally {
+      note.mockRestore();
+      open.mockRestore();
+    }
+  });
+
   test("are named in English and Chinese, and Pause/Resume says which it will do", () => {
     canRecord();
     expect(labelOf(command("meeting.record"), IN_MIND, en)).toBe("Record a meeting");

@@ -32,7 +32,6 @@ import {
   READ_PART_TOKENS,
 } from "./access";
 import { OWN_VERDICT_WORDS } from "./ownCheck";
-import { SORTING_BATCH } from "./sorting";
 
 /** How the server names itself to agents. */
 export const SERVER_NAME = "incarnamind";
@@ -44,11 +43,11 @@ export const SERVER_INSTRUCTIONS = [
   "In Notes, Canvases and check drafts, put the exact issued [cite:…] after each claim. Never invent one. A token verifies the quote at its Location, not the claim. In chat, name the checked Document and its Location if given.",
   "For an ordinary Library question, `search` first, never your memory. Use `read_passages` for neighbours if needed and `check_citations` on the draft before replying.",
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute).",
-  "For a handoff (“About my note … in IncarnaMind”, open Document, meeting, flagged sentence or search scope), `read_request` first. It holds the rest. Pass a named Note’s title.",
+  "For a handoff (“About my note … in IncarnaMind”, “Check my note …”, open Document, meeting, flagged sentence or search scope), `read_request` first. It holds the rest. Pass a named Note’s title.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
   "To hand the User a new document, `create_mind` writes it as a Note of its own; a page to look at, `publish_canvas`; a deck, workbook, Word file or PDF you make them, `hand_over_file`, unasked.",
-  "When the User asks whether a Note you wrote is right, or asks for a check, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
+  "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
   "A figure no Passage states: `run_analysis` for rows or lists (report its id), else your own working.",
   "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general.",
 ].join("\n");
@@ -332,7 +331,7 @@ export function createAgentServer(
     {
       title: "List Documents to organize",
       description:
-        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Use next as after for more.",
+        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Read every page (next as after) before suggesting.",
       inputSchema: z.object({ after: z.string().optional() }),
       outputSchema: z.object({
         documents: z.array(
@@ -343,6 +342,7 @@ export function createAgentServer(
             text: z.string(),
           }),
         ),
+        total: z.number(),
         folders: z.array(choice),
         tags: z.array(choice),
         next: z.string().nullable(),
@@ -356,7 +356,7 @@ export function createAgentServer(
     {
       title: "Suggest Folders and Tags",
       description:
-        "For Documents from list_sorting, suggest a fitting Folder and relevant Tags by id. The User confirms in Suggestions.",
+        "For Documents from list_sorting, suggest a Folder and Tags by id, or new ones by name where none fits; neither if nothing does. The User confirms in Suggestions.",
       inputSchema: z.object({
         proposals: z
           .array(
@@ -364,13 +364,14 @@ export function createAgentServer(
               documentId: z.string(),
               version: z.string(),
               folderId: z.string().optional(),
+              newFolder: z.string().optional(),
               tagIds: z.array(z.string()).max(20).optional(),
+              newTags: z.array(z.string()).max(20).optional(),
             }),
           )
-          .min(1)
-          .max(SORTING_BATCH),
+          .min(1),
       }),
-      outputSchema: z.object({ waiting: z.number() }),
+      outputSchema: z.object({ waiting: z.number(), left: z.string().optional() }),
       annotations: { ...READ_ONLY, readOnlyHint: false },
     },
     ({ proposals }) => answer(() => access.proposeSorting(proposals)),
@@ -574,9 +575,9 @@ export function createAgentServer(
   server.registerTool(
     tool("check_mind_yourself"),
     {
-      title: "Check a Note you wrote, with your own model",
+      title: "Check a Note with your own model",
       description:
-        "Check a Note list_minds marks yours (you wrote it, in any chat) when the User asks whether it's right or asks for a check, or when writing it says to: returns its sentences with no result yet and how to judge them. Hand your results to report_check.",
+        "Check a Note list_minds marks yours, or one the User asked you to check, when they ask if it's right or ask for a check, or when writing it says to: returns its sentences with no result yet and how to judge them. Hand your results to report_check.",
       inputSchema: z.object({
         mindId: z.string(),
         again: z.boolean().optional().describe("Every sentence, results or not, to judge again."),
