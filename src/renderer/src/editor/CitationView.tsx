@@ -41,6 +41,7 @@ import {
   quoteWashedOnOpen,
   withShownName,
 } from "../../../shared/citations";
+import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import {
   citationLocation,
   formatLocation,
@@ -83,6 +84,7 @@ import { recordUsage, useAppStore } from "../store";
 import { useKeptInside } from "../turnWall";
 import { pageDate } from "../webPages";
 import { CardKeyHint } from "./CardKeyHint";
+import { CitationGroupCard } from "./CitationGroupCard";
 import { CitationQuotedWords } from "./CitationQuotedWords";
 import { cameBack, enterCard, goingElsewhere, isSpaceKey, returnAtEnds } from "./cardFocus";
 import {
@@ -91,7 +93,8 @@ import {
   clusterPlaceOf,
   memberMarker,
 } from "./citationClusters";
-import { citationNumberOf } from "./citationNumbers";
+import { type CitationLook, showLook, useCitationLooks, worstLook } from "./citationLooks";
+import { citationGroupOf, citationNumberOf } from "./citationNumbers";
 import {
   QuoteWithUnsureWords,
   ScanLine,
@@ -128,6 +131,38 @@ import {
   usePersonId,
 } from "./signOffActions";
 import { runsText } from "./styledText";
+
+/** No other Citations: one that stands for none but itself. */
+const NO_MEMBERS: readonly string[] = [];
+
+/** Its found state line in the plural, for a chip that stands for several quotes all found. */
+const FOUND_FOR_SEVERAL: Partial<Record<MessageKey, MessageKey>> = {
+  "citation.badge.found.on": "citation.group.found.on",
+  "citation.badge.found.in": "citation.group.found.in",
+  "citation.badge.found.document": "citation.group.found.document",
+  "citation.badge.found.transcript": "citation.group.found.transcript",
+};
+
+/**
+ * The state line of a chip that stands for several Citations: "3 quotes found in ¶ 19" when
+ * all were, else the worst one's own line and how many share it: "Needs re-check · 1 of 3 quotes".
+ */
+function groupBadgeText(
+  members: readonly CitationLook[],
+  worst: CitationLook | null,
+  own: { key: MessageKey; params?: Record<string, string> },
+  t: (key: MessageKey, params?: MessageParams) => string,
+): string {
+  const count = members.length;
+  const plural = FOUND_FOR_SEVERAL[own.key];
+  if (!worst || (worst.check === "found" && !worst.recheck)) {
+    return plural ? t(plural, { ...own.params, count }) : t(own.key, own.params);
+  }
+  const some = members.filter(
+    (member) => member.check === worst.check && member.recheck === worst.recheck,
+  ).length;
+  return t("citation.group.some", { badge: worst.badge, some, count });
+}
 
 useAppStore.subscribe((state) => {
   const mindId = pinnedMind();
@@ -262,6 +297,14 @@ export function CitationView({
   // A scan's unsure word: the page is shown with the quote, so the User can check it (#535).
   const showsQuote = quoteWashedOnOpen(state);
   const number = citationNumberOf(decorations);
+  const group = citationGroupOf(decorations);
+  /** Shown by the chip of the first Citation of its source and place side by side with it. */
+  const hidden = group !== null && !group.shows;
+  const groupLooks = useCitationLooks(
+    editor.view,
+    group?.shows && group.members.length > 1 ? group.members : NO_MEMBERS,
+  );
+  const many = groupLooks.length > 1;
   // In a footnote's text it is part of the footnote: it shows where it points, not a number.
   const footnoteId = useContext(InFootnoteContext);
   const inFootnote = footnoteId !== null;
@@ -278,7 +321,7 @@ export function CitationView({
   const [inCard, setInCard] = useState(false);
   const open = pinned || peeking;
   /** Shown, and what ⌘K's "Open cited page" acts on: not while it waits in a folded assistant (#2270). */
-  const cardShown = open && !assistantFolded;
+  const cardShown = open && !assistantFolded && !hidden;
   // A card taken away with the focus in it sends no blur.
   useEffect(() => {
     if (!cardShown) {
@@ -356,6 +399,29 @@ export function CitationView({
   };
 
   /**
+   * Opens the cited place with the quotes of every Citation its chip stands for marked, at the
+   * first of them or at `at`, whose quote the viewer starts on.
+   */
+  const openGroup = (keep: boolean, at: CitationLook | null = null) => {
+    const documentId = state.documentId ?? attributes.documentId;
+    if (!documentId || onScreen) return;
+    recordUsage({ event: "citation_opened", fields: { check: shownCheck } });
+    openCitedPlace(
+      { ...attributes, documentId, quote: at?.quote ?? groupLooks[0]?.quote ?? attributes.quote },
+      {
+        origin,
+        check: shownCheck,
+        withQuote: true,
+        quotes: groupLooks.map((member) => member.quote),
+        number,
+        label: where,
+        from: place?.groupId,
+        keep,
+      },
+    );
+  };
+
+  /**
    * What every way of opening it records. A Citation whose check ran ticks step 3; one opened
    * while its sentence is still judged is remembered here, so its result ticks when it arrives,
    * whichever way opened it (#2375).
@@ -389,7 +455,8 @@ export function CitationView({
   const onClick = () => {
     setPinned(true);
     if (groupsMerged()) return;
-    if (showsQuote) openCited(true);
+    if (many) openGroup(false);
+    else if (showsQuote) openCited(true);
     // A deleted Document: the viewer shows the stored quote with "Document removed".
     else if (state.reason === "document-removed") openCited(true);
     else if (state.check !== "not-found") openCited(false);
@@ -398,7 +465,8 @@ export function CitationView({
   /** What the card's Open does: the cited place, the quote washed where the check found it. */
   const openFromCard = (withQuote = showsQuote) => {
     recordStep();
-    openCited(withQuote, true);
+    if (many) openGroup(true);
+    else openCited(withQuote, true);
     dismiss();
     if (!groupsMerged()) {
       editor.view.focus();
@@ -566,10 +634,53 @@ export function CitationView({
   const hereRef = useRef(here);
   hereRef.current = here;
 
+  // What the chip that stands for this Citation and its neighbours of one source and place draws.
+  const markerCheck =
+    state.check === "cant-check" && state.reason === "unsure-word" ? "not-found" : state.check;
+  const hasFix = choices.update !== null;
+  const lookKey = group?.key ?? null;
+  const changed =
+    recheckAsked && recheck !== null && recheck !== "failed" ? (recheck.changed ?? null) : null;
+  useEffect(() => {
+    if (lookKey === null) return;
+    return showLook(editor.view, {
+      key: lookKey,
+      check: markerCheck,
+      recheck: recheckAsked,
+      badge: badgeText,
+      quote: attributes.quote ?? "",
+      changed: changed?.parts ?? null,
+      here: () => hereRef.current,
+      fix: hasFix
+        ? { label: t("citation.update"), run: () => choicesRef.current.update?.() }
+        : null,
+    });
+  }, [editor, lookKey, markerCheck, recheckAsked, badgeText, attributes.quote, changed, hasFix, t]);
+  const worst = many ? worstLook(groupLooks) : null;
+  const shownCheck = worst?.check ?? state.check;
+  const shownRecheck = worst ? worst.recheck : recheckAsked;
+  const groupBadge = many ? groupBadgeText(groupLooks, worst, badge, t) : badgeText;
+  /** A quote of the group pressed in its card: its page at its words, the card kept beside it. */
+  const openMember = (member: CitationLook) => {
+    recordStep();
+    openGroup(true, member);
+    if (!groupsMerged()) return;
+    dismiss();
+    const at = placeOf();
+    if (mindId && at !== null) pinCitation(mindId, at);
+  };
+
   // The number, the Document, where it points and the check: the marker only shows the number.
   const label = inFootnote
     ? t("citation.inFootnote.label", { document: pointsTo, badge: badgeText })
-    : t("citation.label", { number, document: pointsTo, badge: badgeText });
+    : many
+      ? t("citation.group.label", {
+          number,
+          count: groupLooks.length,
+          document: pointsTo,
+          badge: groupBadge,
+        })
+      : t("citation.label", { number, document: pointsTo, badge: badgeText });
 
   // In the Mind's citation style (#289): the first Citation of a cluster draws it whole.
   const inCluster = clusterPlaceOf(decorations);
@@ -604,14 +715,17 @@ export function CitationView({
         ref={marker}
         type="button"
         data-testid="citation-chip"
-        data-check={state.check}
+        data-check={shownCheck}
         data-judging={judging || undefined}
-        data-recheck={recheckAsked || undefined}
+        data-recheck={shownRecheck || undefined}
         data-number={number || undefined}
+        data-quotes={many ? groupLooks.length : undefined}
+        tabIndex={hidden ? -1 : undefined}
+        aria-hidden={hidden || undefined}
         className={`citation-marker ${
           inFootnote
             ? "citation-marker--source"
-            : styled.kind === "joined"
+            : styled.kind === "joined" || hidden
               ? "citation-marker--joined"
               : styled.kind === "runs"
                 ? `citation-marker--styled ${styled.raised ? "citation-marker--raised" : ""}`
@@ -662,17 +776,13 @@ export function CitationView({
           else onClick();
         }}
       >
-        {recheckAsked ? (
+        {shownRecheck ? (
           <ClaimMarkIcon state="needs-recheck" className="citation-marker-icon" />
         ) : judging ? null : (
           <CheckMarkIcon
             ref={dot}
             // A scan's unsure word takes the grey "?" of a check that asks for a look (#535).
-            check={
-              state.check === "cant-check" && state.reason === "unsure-word"
-                ? "not-found"
-                : state.check
-            }
+            check={worst?.check ?? markerCheck}
             className="citation-marker-icon"
           />
         )}
@@ -744,7 +854,24 @@ export function CitationView({
               marker.current?.focus();
             }}
           >
-            {onScreen ? (
+            {many ? (
+              <CitationGroupCard
+                card={cardRef}
+                check={shownCheck}
+                recheck={shownRecheck}
+                badge={groupBadge}
+                source={
+                  started
+                    ? `${citedName(shown, t, language)} · ${started}`
+                    : citedName(shown, t, language)
+                }
+                looks={groupLooks}
+                openLabel={t(`citation.open.${openKind(location)}`)}
+                onOpenAll={() => openFromCard()}
+                onOpenOne={openMember}
+                hint={<CardKeyHint shown={byKeyboard && !pinned && !inCard} />}
+              />
+            ) : onScreen ? (
               <ScreenCitationCard
                 location={onScreen}
                 state={state}

@@ -613,6 +613,10 @@
     margin-inline: -2px;
     box-decoration-break: clone;
   }
+  /* Another quote of the same chip than the one the viewer is on (`QuoteStepper`): lightly washed. */
+  .quote-highlight--other {
+    background: color-mix(in srgb, var(--quote-wash) 30%, transparent);
+  }
   .quote-highlight--joins-before {
     padding-inline-start: 0;
     margin-inline-start: 0;

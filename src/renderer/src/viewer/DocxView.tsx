@@ -21,8 +21,9 @@ import { markQuote, quoteNodesIn, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
 import "./officeFonts.css";
 import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { mapOfficeFontNames } from "./officeFontNames";
+import { QuoteStepper } from "./QuoteStepper";
 import { CitationMark, quoteMarkOf, quoteTone } from "./quoteMark";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { useDocumentFile } from "./useDocumentFile";
@@ -152,7 +153,11 @@ function DocxPages({
   const [zoom, setZoom] = useState(1);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [current, setCurrent] = useState<number | null>(null);
-  const [marks, setMarks] = useState<HTMLElement[]>([]);
+  /** Each quote found, by its marked elements: one Citation's, or those of the Citations one chip stands for. */
+  const [groups, setGroups] = useState<HTMLElement[][]>([]);
+  /** The quote the viewer is on, among `groups`, when there are several. */
+  const [step, setStep] = useState(0);
+  const marks = useMemo(() => groups[step] ?? [], [groups, step]);
   const [place, setPlace] = useState<MarkPlace | null>(null);
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
   const comments = useRef<DocxComment[]>([]);
@@ -320,7 +325,6 @@ function DocxPages({
     if (!body || rendered !== "yes") return;
     unmarkQuote(body);
     for (const comment of comments.current) unmarkQuote(comment.note);
-    const quote = target.quote;
     const section = citedSection();
     const place = docx.units
       .filter(
@@ -331,8 +335,10 @@ function DocxPages({
       )
       .map((unit) => `section.${CLASS_NAME} > ${unit.label?.notes ? "ol" : "article"}`)
       .join(",");
-    let found: HTMLElement[] | null = null;
-    if (quote) {
+    const quotes = quotesOf(target);
+    const marked: HTMLElement[][] = [];
+    let start = 0;
+    for (const quote of quotes) {
       const inNotes = (list: readonly DocxComment[]) => {
         for (const comment of list) {
           const marked = markQuote(textNodes(comment.note), quote);
@@ -350,10 +356,14 @@ function DocxPages({
         target.pageFrom === undefined
           ? (markQuote(textNodes(body), quote) ?? inNotes(comments.current))
           : (markQuote(quoteNodesIn(body, section, place), quote) ?? inNotes(anchoredInSection));
-      found = find();
-      if (!found) found = withoutFootnoteNumbers(body, find);
+      const elements = find() ?? withoutFootnoteNumbers(body, find);
+      if (!elements) continue;
+      if (quote === target.quote) start = marked.length;
+      marked.push(elements);
     }
-    setMarks(found ?? []);
+    const found = marked[start] ?? null;
+    setGroups(marked);
+    setStep(start);
     if (section?.heading) setCurrent(headingElements().indexOf(section.heading));
     // Go to the quote, or else to the cited section, or the paragraph a Mind's caret is in
     // (#736), or the top.
@@ -372,7 +382,39 @@ function DocxPages({
       const above = found || anchor === at ? container.clientHeight / 3 : PADDING;
       container.scrollTop = Math.max(0, top - above);
     } else container.scrollTop = 0;
-  }, [rendered, citedSection, target.request, target.quote, target.wordPlace, placed]);
+  }, [
+    rendered,
+    citedSection,
+    target.request,
+    target.quote,
+    target.quotes,
+    target.wordPlace,
+    placed,
+  ]);
+
+  // The quote the viewer is on is washed in full and carries the mark; the others stay lightly washed.
+  useEffect(() => {
+    groups.forEach((elements, at) => {
+      for (const element of elements) {
+        element.classList.toggle("quote-highlight--other", groups.length > 1 && at !== step);
+      }
+    });
+  }, [groups, step]);
+  const stepQuotes = useCallback(
+    (by: 1 | -1) => {
+      const next = Math.min(Math.max(step + by, 0), groups.length - 1);
+      const first = groups[next]?.[0];
+      const container = scroller.current;
+      setStep(next);
+      if (!first || !container) return;
+      const top =
+        first.getBoundingClientRect().top -
+        container.getBoundingClientRect().top +
+        container.scrollTop;
+      container.scrollTop = Math.max(0, top - container.clientHeight / 3);
+    },
+    [groups, step],
+  );
 
   // The Document's highlights (#327), after the Citation's wash, so both read.
   const stored = useDocumentAnnotations(document.id);
@@ -475,7 +517,15 @@ function DocxPages({
         }
         placeGone={citedPlaceGone(target, docx.units.length)}
       />
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+        {groups.length > 1 && (
+          <QuoteStepper
+            number={target.citation?.number ?? 0}
+            at={step}
+            total={groups.length}
+            onStep={stepQuotes}
+          />
+        )}
         {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
         <div
           ref={scroller}

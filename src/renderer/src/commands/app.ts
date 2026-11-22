@@ -52,6 +52,7 @@ import {
   citedVersionInUse,
   findHandle,
   homeNextHandle,
+  quoteStepHandle,
   readMindHandle,
   sidebarHandle,
 } from "./handles";
@@ -552,8 +553,9 @@ const appCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+G" },
     group: "main",
     reversible: true,
-    when: () => findHandle.current !== null,
-    run: () => findHandle.current?.next(),
+    // With no find open, the same key steps through the quotes a chip stands for, as Preview's does.
+    when: () => findHandle.current !== null || quoteStepHandle.current !== null,
+    run: () => (findHandle.current ?? quoteStepHandle.current)?.next(),
   },
   {
     id: "mind.findPrevious",
@@ -561,8 +563,8 @@ const appCommands: readonly Command[] = [
     shortcut: { keys: "CmdOrCtrl+Shift+G" },
     group: "main",
     reversible: true,
-    when: () => findHandle.current !== null,
-    run: () => findHandle.current?.previous(),
+    when: () => findHandle.current !== null || quoteStepHandle.current !== null,
+    run: () => (findHandle.current ?? quoteStepHandle.current)?.previous(),
   },
   ...footnoteCommands,
   ...noteBasicsCommands,

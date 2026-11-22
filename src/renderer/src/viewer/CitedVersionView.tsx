@@ -11,6 +11,7 @@ import { core } from "../core";
 import { useLanguage, useT } from "../i18n";
 import { openCurrentVersionOf } from "../openCited";
 import { useAppStore, type ViewerTarget } from "../store";
+import { quotesOf } from "./citedPlace";
 import { DocumentView } from "./DocumentView";
 import { HighlightedText } from "./highlightedText";
 import { CitationMark, marginRoom, markTopFor, quoteMarkOf, quoteTone } from "./quoteMark";
@@ -238,15 +239,17 @@ function CitedVersionContent({
   const [markRoom, setMarkRoom] = useState(0);
   const mark = quoteMarkOf(target.citation);
 
-  const quote = target.quote ?? "";
+  const quotes = useMemo(
+    () => quotesOf({ quote: target.quote, quotes: target.quotes }),
+    [target.quote, target.quotes],
+  );
   const shown = useMemo(() => {
     const { starts } = joinUnits(units);
     // Matched as the Citation's check matches it: its own numbers, and a lost f-ligature forgiven.
-    const ranges = quote
-      ? (quoteInUnits(units, quote, {
-          lostLigatures: lostLigatures(units.map((unit) => unit.text).join("\n")),
-        }) ?? [])
-      : [];
+    const ligatures = lostLigatures(units.map((unit) => unit.text).join("\n"));
+    const ranges = quotes.flatMap(
+      (quote) => quoteInUnits(units, quote, { lostLigatures: ligatures }) ?? [],
+    );
     return units.map((unit, index) => {
       const start = starts[index] as number;
       const end = start + unit.text.length;
@@ -263,7 +266,7 @@ function CitedVersionContent({
         ranges: inside,
       };
     });
-  }, [units, quote, t]);
+  }, [units, quotes, t]);
   // One Unit: the Citation's own place names it more narrowly ("Revenue, rows 12–14", "§ History, ¶ 3").
   const place =
     units.length === 1 && target.citation?.location

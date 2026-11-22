@@ -36,6 +36,12 @@ export interface NumberedCitation {
    * note style, none in a style that cites in the text (#289).
    */
   footnote: boolean;
+  /**
+   * The place, among the Mind's Citations, of the one whose chip shows this one: the first of
+   * the Citations side by side with it that has its number, which may be itself. Citations of
+   * one source and place side by side read as one chip (see `CitationGroup`).
+   */
+  shownBy: number;
 }
 
 /**
@@ -120,6 +126,8 @@ export function numberFootnotes(
   const numbering = new FootnoteNumbering();
   let endnotes = 0;
   let cited = 0;
+  /** Where the Citations side by side with the last one start, among `citations`. */
+  let run = 0;
   doc.forEach((block, offset, index) => {
     const id = block.attrs[BLOCK_ID_ATTRIBUTE];
     const blockKey = typeof id === "string" ? id : `#${index}`;
@@ -169,7 +177,8 @@ export function numberFootnotes(
       const at = offset + 1 + pos;
       const attributes = node.attrs as CitationAttributes;
       const previous = citations.at(-1);
-      const joined = form === "note" && previous !== undefined && sideBySide(doc, previous.pos, at);
+      const beside = previous !== undefined && sideBySide(doc, previous.pos, at);
+      const joined = form === "note" && beside;
       let number: number;
       let footnote: boolean;
       if (form === "numbered") {
@@ -193,7 +202,16 @@ export function numberFootnotes(
         footnote = true;
       }
       inBlock += 1;
-      citations.push({ pos: at, number, key: `${blockKey}:${inBlock}`, attributes, footnote });
+      if (!beside) run = citations.length;
+      const same = citations.findIndex((each, place) => place >= run && each.number === number);
+      citations.push({
+        pos: at,
+        number,
+        key: `${blockKey}:${inBlock}`,
+        attributes,
+        footnote,
+        shownBy: same < 0 ? citations.length : same,
+      });
       return false;
     });
   });
@@ -257,6 +275,7 @@ export function textBlockEdited(tr: Transaction): number | null {
  * change and the node's view is updated.
  */
 const NUMBER_ATTRIBUTE = "data-citation-number";
+const GROUP_ATTRIBUTE = "data-citation-group";
 const FOOTNOTE_NUMBER_ATTRIBUTE = "data-footnote-number";
 const FIGURE_NUMBER_ATTRIBUTE = "data-figure-number";
 const TABLE_NUMBER_ATTRIBUTE = "data-table-number";
@@ -275,6 +294,28 @@ function decoratedNumber(
 /** A Citation's number, from the decorations its node view is given; 0 if it has none. */
 export function citationNumberOf(decorations: readonly Decoration[]): number {
   return decoratedNumber(decorations, "citationNumber");
+}
+
+/**
+ * Citations of one source and place side by side, which show as one chip: the first draws it
+ * for all of them, and the rest show nothing of their own (`NumberedCitation.shownBy`).
+ */
+export interface CitationGroup {
+  /** The Citation's own `NumberedCitation.key`. */
+  key: string;
+  /** Whether its chip shows: it is the first of its group. */
+  shows: boolean;
+  /** The group's Citations' keys, in reading order: given to the one that shows them. */
+  members: readonly string[];
+}
+
+/** The group a Citation's decorations give it; alone, a group of its own, without the plugin. */
+export function citationGroupOf(decorations: readonly Decoration[]): CitationGroup | null {
+  for (const decoration of decorations) {
+    const group: unknown = decoration.spec.citationGroup;
+    if (group) return group as CitationGroup;
+  }
+  return null;
 }
 
 /** A footnote's number, from the decorations its node view is given; 0 if it has none. */
@@ -321,9 +362,23 @@ function numbersOf(
   const node = (pos: number, attrs: Record<string, string>, spec: Record<string, number>) =>
     Decoration.node(pos, pos + (doc.nodeAt(pos)?.nodeSize ?? 1), attrs, spec);
   const decorations = DecorationSet.create(doc, [
-    ...citations.map(({ pos, number }) =>
-      node(pos, { [NUMBER_ATTRIBUTE]: String(number) }, { citationNumber: number }),
-    ),
+    ...citations.map(({ pos, number, key, shownBy }, place) => {
+      const shows = shownBy === place;
+      const members = shows
+        ? citations.filter((each) => each.shownBy === place).map((each) => each.key)
+        : [];
+      const citationGroup: CitationGroup = { key, shows, members };
+      return Decoration.node(
+        pos,
+        pos + (doc.nodeAt(pos)?.nodeSize ?? 1),
+        {
+          [NUMBER_ATTRIBUTE]: String(number),
+          // In the attributes, so a Citation that joins or leaves a group is drawn again.
+          [GROUP_ATTRIBUTE]: shows ? members.join(" ") : "",
+        },
+        { citationNumber: number, citationGroup },
+      );
+    }),
     ...footnotes.map(({ pos, number }) =>
       node(
         pos,
@@ -419,11 +474,8 @@ export function citationNumbersPlugin(
           return numbersOf(tr.doc, numbers.generation + 1, numbers.form, live());
         if (!tr.docChanged) return numbers;
         const typedIn = textBlockEdited(tr);
-        // In a note style, typing between two Citations can join or part their note.
-        if (
-          typedIn === null ||
-          (numbers.form === "note" && citationsIn(tr.doc.nodeAt(typedIn)) > 1)
-        ) {
+        // Typing between two Citations can join or part their chip, or a note style's note.
+        if (typedIn === null || citationsIn(tr.doc.nodeAt(typedIn)) > 1) {
           return numbersOf(tr.doc, numbers.generation, numbers.form, live());
         }
         // Typing: the Citations and footnotes move along, numbered as they were.

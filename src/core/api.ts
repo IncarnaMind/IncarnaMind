@@ -4254,6 +4254,11 @@ export interface DocumentPlace {
    * TXT or Markdown file.
    */
   quote?: string;
+  /**
+   * Every quote to highlight when several Citations of one source and place open together,
+   * from the one chip they show as: `quote` among them, which the viewer goes to.
+   */
+  quotes?: string[];
   /** A saved web page's picture the quote was read from, numbered in the page from 1: it is outlined. */
   figure?: number;
   /** The region a figure's Citation points at (#118): the viewer outlines it on its Unit. */

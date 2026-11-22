@@ -44,3 +44,7 @@ export function citedPlaceGoneLine(
   const byNumber = kind === "page" || kind === "slide";
   return t(byNumber ? "citation.placeGone" : "citation.placeGone.named", { location });
 }
+
+/** Every quote the page was opened to mark: one Citation's, or those of the Citations one chip stands for. */
+export const quotesOf = ({ quote, quotes }: Pick<DocumentPlace, "quote" | "quotes">): string[] =>
+  quotes && quotes.length > 0 ? quotes : quote ? [quote] : [];

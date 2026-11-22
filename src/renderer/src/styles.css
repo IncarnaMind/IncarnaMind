@@ -5017,6 +5017,12 @@
   :is(.node-citation, .node-citation + .ProseMirror-separator) + .node-citation .citation-marker {
     margin-left: 2px;
   }
+  /* A Citation another's chip draws takes no room, so nothing stands between that chip and the next. */
+  :is(.node-citation, .node-citation + .ProseMirror-separator)
+    + .node-citation
+    .citation-marker--joined {
+    margin-left: 0;
+  }
   /*
    * A marker follows its word with no space, and the browser may still break before any inline
    * box: a no-break space of no width, drawn only, keeps a Note's first marker on its word's line.
@@ -5763,7 +5769,7 @@
     padding: 0 4px;
   }
   /* A Citation whose Document changed where it quotes carries ↻, needs re-check (#99). */
-  .citation-marker[data-recheck] {
+  .citation-marker[data-recheck]:not(.citation-marker--joined) {
     padding: 0 5px 0 3px;
 
     .citation-marker-icon {
@@ -6451,6 +6457,88 @@
     background: var(--check-wash);
     box-decoration-break: clone;
     -webkit-box-decoration-break: clone;
+  }
+  /*
+   * The card of a chip that stands for several Citations of one source and place: each quote in
+   * reading order, in its own check's colours, a button that opens the page at its words. Its text
+   * starts where a single card's quote does, under the state line's words.
+   */
+  .citation-group-quotes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 18rem;
+    margin: 0;
+    padding: 0 0 0 16px;
+    overflow-y: auto;
+    list-style: none;
+  }
+  .citation-group-quote[data-recheck] {
+    --check-ink: var(--color-ink-secondary);
+    --check-wash: var(--color-chip);
+  }
+  .citation-group-quote-state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin: 4px 0 0;
+    padding-left: 6px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    font-weight: 600;
+    color: var(--check-ink);
+  }
+  .citation-group-quote-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .citation-group-quote-fix {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: 500;
+    color: var(--color-accent);
+    cursor: pointer;
+  }
+  .citation-group-quote-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .citation-group-quote-open {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    font-family: var(--font-serif);
+    font-size: 15px;
+    line-height: 24px;
+    color: var(--color-ink);
+    text-align: left;
+    overflow-wrap: break-word;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--color-hover);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 0;
+    }
+  }
+  /* A quote's own ⋯: there while the pointer or the focus is on its row. */
+  .citation-group-quote-menu {
+    flex-shrink: 0;
+    opacity: 0;
+  }
+  .citation-group-quote:is(:hover, :focus-within) .citation-group-quote-menu,
+  .citation-group-quote-menu[aria-expanded="true"] {
+    opacity: 1;
   }
   /* The Answer's quoted words and the Document's nearest, when the quoted words weren't found (#483). */
   .citation-card-words {
@@ -7690,6 +7778,26 @@
     padding: 8px;
   }
   /* The find bar over the Mind's top right corner; its matches are marked in the text. */
+  /* The quotes of one chip, one at a time, in the viewer: the find bar's look, at the pane's top right. */
+  .find-bar.quote-steps {
+    position: absolute;
+    top: 8px;
+    right: 24px;
+  }
+  .quote-steps-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 4px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
   .find-bar {
     position: fixed;
     z-index: 40;

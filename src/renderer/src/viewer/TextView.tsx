@@ -24,7 +24,7 @@ import type { ViewerTarget } from "../store";
 import { AnnotationNoteLayer } from "./AnnotationNoteLayer";
 import { type AnnotationRange, annotationRangesIn } from "./annotationMarks";
 import { type CitedArea, useCitedArea, useCitedAreaFailure } from "./citedArea";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
 import { MarkdownBlocks, MarkdownDocumentContext, Slice } from "./MarkdownBlocks";
 import { parseMarkdown } from "./markdown";
@@ -282,22 +282,22 @@ function TextContent({
     return first && last ? { start: first.start, end: last.end, first } : null;
   }, [units, target.pageFrom, target.pageTo]);
 
+  const quotes = useMemo(
+    () => quotesOf({ quote: target.quote, quotes: target.quotes }),
+    [target.quote, target.quotes],
+  );
   const highlight = useMemo(() => {
-    const quote = target.quote;
-    if (!quote) return NO_HIGHLIGHT;
-    if (target.pageFrom !== undefined) {
-      if (!cited) return NO_HIGHLIGHT;
-      const inside = findQuote(text.slice(cited.start, cited.end), quote);
-      if (inside) {
-        return inside.map((range) => ({
-          start: range.start + cited.start,
-          end: range.end + cited.start,
-        }));
-      }
-      return NO_HIGHLIGHT;
-    }
-    return findQuote(text, quote) ?? NO_HIGHLIGHT;
-  }, [text, target.quote, target.pageFrom, cited]);
+    const ranges = quotes.flatMap((quote) => {
+      if (target.pageFrom === undefined) return findQuote(text, quote) ?? [];
+      if (!cited) return [];
+      const inside = findQuote(text.slice(cited.start, cited.end), quote) ?? [];
+      return inside.map((range) => ({
+        start: range.start + cited.start,
+        end: range.end + cited.start,
+      }));
+    });
+    return ranges.length > 0 ? ranges.sort((a, b) => a.start - b.start) : NO_HIGHLIGHT;
+  }, [text, quotes, target.pageFrom, cited]);
   const blocks = useMemo(
     () => (markdown ? parseMarkdown(text, { literal }) : null),
     [text, markdown, literal],
