@@ -58,7 +58,7 @@ const WORDS = {
     footnotes: "2 个脚注",
     marked: "已标出 AI 生成的文字",
     unmarked: "未标出 AI 生成的文字",
-    notChecked: "2 句待核对",
+    notChecked: "2 句未核对",
     change: "更改",
     list: "2 个引用列在文末",
     undo: "Word 导出改为不标出 IncarnaMind 写的内容",

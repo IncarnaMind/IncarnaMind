@@ -109,7 +109,7 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Not found (a sentence's check) | 未找到 | The card of an unsupported sentence that nothing in the scope states: "未找到", "未在“{scope}”中找到". Never 未找到引文, which is a Citation's quote. |
 | Contradicted | 与文档矛盾 | |
 | Needs re-check | 需重新核对 | |
-| Not checked | 未核对 | A claim that wasn't checked: the model declined, its reply couldn't be read, or a limit stopped the run ("未核对：已达花费上限"). |
+| Not checked | 未核对 | A claim or sentence that hasn't been checked or whose check failed ("未核对", "1 句未核对", "未核对：已达花费上限"). Never 待核对. |
 | Part (of a sentence) | 处 | A fact or opinion piece of a sentence a check keeps on its own row. Counted with 处, for the rows and the opinions alike: "正在核对这一处…", "另外 3 处", "1 处观点未纳入核对". Not 条, which counts Claims (说法). |
 | Opinion left out | 视为观点，未纳入核对 | A row's result; the line under a check says "{count} 处观点未纳入核对 · 查看". Not 未核对, which is a claim whose check failed. |
 | Writer's own view | 作者的判断 | A sentence's result when it is wholly its writer's advice, view or forecast: "1 句作者的判断". Counted with 句, as a whole sentence. Not 观点, which is the part of a sentence a check leaves out, and never 无依据. |

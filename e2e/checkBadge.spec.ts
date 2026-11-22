@@ -233,8 +233,8 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   await expect(open).toHaveAccessibleName("Checks: 1 sentence not checked yet");
   await expect(words).toHaveText("1 sentence not checked yet");
   await setLanguage(window, "zh-CN");
-  await expect(open).toHaveAccessibleName("核对结果：1 句待核对");
-  await expect(words).toHaveText("1 句待核对");
+  await expect(open).toHaveAccessibleName("核对结果：1 句未核对");
+  await expect(words).toHaveText("1 句未核对");
   await expect(words).toBeVisible();
   await setWindowSize(app, window, 1100, 720);
   await expect(words).toBeVisible();

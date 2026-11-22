@@ -180,7 +180,7 @@ test("Export opens a short menu: Word and PDF, the last one used first with ⇧�
   await expect(items).toHaveText([
     /^Markdown（\.md）/,
     "Word（.docx）",
-    "1 句待核对 · 先核对",
+    "1 句未核对 · 先核对",
     "PDF",
     "更多格式",
     /^引用格式/,
