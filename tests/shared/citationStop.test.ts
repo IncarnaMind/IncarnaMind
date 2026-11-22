@@ -134,24 +134,11 @@ describe("Citations after a sentence's stop", () => {
     expect(next.dropped).toEqual([]);
   });
 
-  // protects=a Citation that repeats one already in its sentence, before or after the stop, is taken out and the first of two repeats stays; a Citation the Note already had is never taken out, even where a new one repeats it; fails_when=a Passage is cited twice in one sentence, a Citation of the Note is removed, or the words around a removed one are left with a gap.
-  test("a repeat anywhere in the sentence goes, the Note's own Citation never", () => {
+  // protects=a new Citation that repeats one the Note already had in its sentence is taken out wherever it stands, one after the stop that repeats any in its sentence too, and a Citation the agent wrote twice before the stop, or one the Note had, stays; fails_when=a Passage is cited twice in one sentence by an add, a Citation of the Note is removed, or the words around a removed one are left with a gap.
+  test("a repeat of the sentence's own Citation goes, the Note's Citations never", () => {
     const repeats = (a: NodeJSON, b: NodeJSON) => a.attrs?.id === b.attrs?.id;
     const added = (id: string): NodeJSON => ({ type: CITATION_NODE, attrs: { id, added: true } });
     const moves = (node: NodeJSON) => node.attrs?.added === true;
-    const placed = (content: NodeJSON[], placing = { repeats }) =>
-      citationsBeforeTheStop(content, placing);
-
-    const together = placed([text("Revenue rose "), cite("a"), cite("a"), text(".")]);
-    expect(read(together.content)).toBe("Revenue rose [a].");
-    expect(together.dropped).toHaveLength(1);
-
-    expect(
-      read(
-        placed([text("Revenue rose "), cite("a"), text(" and costs fell "), cite("a"), text(".")])
-          .content,
-      ),
-    ).toBe("Revenue rose [a] and costs fell.");
 
     // A new Citation that repeats the Note's own, before it, after it or past the stop, goes.
     for (const content of [
@@ -163,6 +150,23 @@ describe("Citations after a sentence's stop", () => {
       expect(result.dropped).toHaveLength(1);
       expect(result.content.filter((node) => node.type === CITATION_NODE)).toHaveLength(1);
     }
+    expect(
+      read(
+        citationsBeforeTheStop(
+          [text("Revenue rose "), cite("a"), text(" and costs fell "), added("a"), text(".")],
+          { repeats, moves },
+        ).content,
+      ),
+    ).toBe("Revenue rose [a] and costs fell.");
+
+    // Past the stop, a repeat of any Citation of the sentence goes, a new one too; before it, two new ones stay.
+    const afterStop = citationsBeforeTheStop(
+      [text("Revenue rose "), added("a"), text(". "), added("a")],
+      { repeats, moves },
+    );
+    expect(read(afterStop.content)).toBe("Revenue rose [a].");
+    const twice = [text("Revenue rose "), added("a"), added("a"), text(".")];
+    expect(citationsBeforeTheStop(twice, { repeats, moves }).content).toEqual(twice);
 
     // The Note's own Citations stand where they are, repeats or not.
     const own = [text("Revenue rose "), cite("a"), text(" and costs fell "), cite("a"), text(".")];

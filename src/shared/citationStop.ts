@@ -61,11 +61,13 @@ export interface CitationPlacing {
 
 /**
  * A Block's inline content with the Citations that stand after a sentence's stop put before it,
- * after those there, and each Citation that repeats one its sentence already holds taken out
- * (`dropped`): the sentence cites that Passage once, as the card's own adds count it. A Citation
- * right after the stop, with spaces between, is that sentence's, as `sentenceSpans` reads it. One
- * inside the next sentence is the next sentence's, and isn't touched; nor is a Citation `moves`
- * doesn't name, the words, or anything past a line break.
+ * after those there, and a Citation taken out (`dropped`) where it repeats one its sentence
+ * already holds: a Citation `moves` names that repeats one it doesn't (one the Note had) goes
+ * wherever it stands, and one after the stop goes where it repeats any in the sentence, so the
+ * sentence cites a Passage once, as the card's own adds count it. A Citation right after the
+ * stop, with spaces between, is that sentence's, as `sentenceSpans` reads it. One inside the next
+ * sentence is the next sentence's, and isn't touched; nor is a Citation `moves` doesn't name, the
+ * words, or anything past a line break.
  */
 export function citationsBeforeTheStop(
   content: readonly NodeJSON[],
@@ -98,13 +100,14 @@ export function citationsBeforeTheStop(
   for (const span of sentenceSpans(text).reverse()) {
     const found = stopOf(text.slice(span.from, span.to));
     const run = found ? span.from + found.after : span.to;
-    const held: NodeJSON[] = [];
+    // The Citations the Note already had in this sentence: a new one that repeats one doesn't join them.
+    const own: NodeJSON[] = [];
     const candidates: number[] = [];
     for (let at = span.from; at < span.to; at++) {
       const unit = units[at];
       if (!isCitation(unit)) continue;
       if (moves(unit.node)) candidates.push(at);
-      else held.push(unit.node);
+      else own.push(unit.node);
     }
     if (candidates.length === 0) continue;
 
@@ -118,16 +121,19 @@ export function citationsBeforeTheStop(
         gone.add(before);
       }
     };
+    const kept: NodeJSON[] = [];
     for (const at of candidates) {
       const unit = units[at];
       if (!isNode(unit)) continue;
-      if (held.some((each) => placing.repeats?.(unit.node, each))) {
+      const afterStop = found !== null && at >= run && !text.slice(run, at).includes("\n");
+      // After the stop, a Citation that repeats any in the sentence is the same Passage added again.
+      const repeated = (each: NodeJSON) => placing.repeats?.(unit.node, each) ?? false;
+      if (own.some(repeated) || (afterStop && kept.some(repeated))) {
         dropped.push(unit.node);
         takeOut(at);
         continue;
       }
-      held.push(unit.node);
-      const afterStop = found !== null && at >= run && !text.slice(run, at).includes("\n");
+      kept.push(unit.node);
       if (!afterStop) continue;
       put.push(unit.node);
       takeOut(at);
