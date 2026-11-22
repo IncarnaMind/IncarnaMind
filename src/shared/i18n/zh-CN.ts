@@ -28,7 +28,7 @@ export const zhCN = {
   "library.organize.explain": "为每个文档建议文件夹和标签，由你决定。",
   "agents.ask.line.organize": "帮我整理 IncarnaMind 里的文档。请先读取我在里面留的整理要求。",
   "agents.ask.request.organize":
-    "{scope} 从 list_sorting 的同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，列表里有合适的文件夹或标签就用它；都不合适时，用中文起一个新名称，但至少要有 3 个文档适合它。文件夹按工作领域或主题划分，不按文档类型划分。把建议留给我确认。",
+    "{scope} 先读完 list_sorting 的每一页，从同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，列表里有合适的文件夹或标签就用它；都不合适时，用中文起一个新名称，但至少要有 3 个文档适合它。文件夹按工作领域或主题划分，不按文档类型划分。把建议留给我确认。",
   "agents.ask.organize.folder":
     "只整理直接放在文件夹 {folder} 里的文档。如果建议移动，只能移入这些子文件夹：{folders}，或按名称新建的子文件夹（会建在这个文件夹里）。没有合适的就留在原处。",
   "agents.ask.organize.loose": "只整理还没放进文件夹的文档（folderId 为 null）。",

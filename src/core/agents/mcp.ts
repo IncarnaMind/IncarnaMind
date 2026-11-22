@@ -332,7 +332,7 @@ export function createAgentServer(
     {
       title: "List Documents to organize",
       description:
-        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Use next as after for more.",
+        "Only when asked to organize or tag Documents: read waiting Documents and allowed Folders and Tags. Read every page (next as after) before suggesting.",
       inputSchema: z.object({ after: z.string().optional() }),
       outputSchema: z.object({
         documents: z.array(
@@ -343,6 +343,7 @@ export function createAgentServer(
             text: z.string(),
           }),
         ),
+        total: z.number(),
         folders: z.array(choice),
         tags: z.array(choice),
         next: z.string().nullable(),

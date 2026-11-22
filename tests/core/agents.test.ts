@@ -729,6 +729,7 @@ describe("outside agents", () => {
       await agent.callTool({ name: "list_sorting", arguments: {} }),
     );
     expect(batch.folders).toEqual([]);
+    expect(batch.total).toBe(4);
     const of = (name: string) => {
       const doc = batch.documents.find((each) => each.name === name);
       if (!doc) throw new Error(`${name} isn't waiting to be organized.`);
@@ -759,6 +760,11 @@ describe("outside agents", () => {
         ]),
       ),
     ).toEqual({ waiting: 2 });
+    const left = structured<SortingBatch>(
+      await agent.callTool({ name: "list_sorting", arguments: {} }),
+    );
+    expect(left.total).toBe(2);
+    expect(left.documents.map((doc) => doc.name).sort()).toEqual(["Holiday list", "Pier survey"]);
     expect(
       structured(
         await submit([{ ...of("Pier survey"), newFolder: "Harbour works", newTags: ["Quays"] }]),
@@ -895,8 +901,9 @@ describe("outside agents", () => {
     // check_mind_yourself and hand_over_file said a check waits for the User unless asked (#3576);
     // 3,391 before read_passages took any before and after, answering at most three, and said a
     // part is sized to be read in full (#3586); 3,421 before cite took a list of any length (#3585);
-    // 3,417 before propose_sorting took new Folders and Tags by name (#3610).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_453);
+    // 3,417 before propose_sorting took new Folders and Tags by name, and list_sorting asked for
+    // every page before a suggestion (#3610).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_459);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

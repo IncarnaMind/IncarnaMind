@@ -19,6 +19,8 @@ type Scope = { documents: string[]; folders: Choice[]; shareTagNames: boolean };
 
 export interface SortingBatch {
   documents: (Waiting & { text: string })[];
+  /** How many wait in all, on every page (#3610). */
+  total: number;
   folders: Choice[];
   tags: Choice[];
   next: string | null;
@@ -45,18 +47,19 @@ export function createAgentSorting(
   say: (key: MessageKey, values?: MessageParams) => string,
 ) {
   const refuse = () => new AgentRefusedError("invalid", say("agents.sorting.invalid"));
-  function waiting(ids: string[], after: string) {
-    const rows = db.all<Waiting & { content_hash: string | null }>(
-      `SELECT d.id, d.name, d.kind, d.content_hash, g.group_id AS folderId,
-              coalesce(g.request_id, '') AS version
-       FROM documents d LEFT JOIN document_groups g ON g.document_id = d.id AND g.deleted_at IS NULL
-       WHERE d.id IN (SELECT value FROM json_each(?)) AND d.id > ? AND d.deleted_at IS NULL
+  const WAITING = `FROM documents d
+       LEFT JOIN document_groups g ON g.document_id = d.id AND g.deleted_at IS NULL
+       WHERE d.id IN (SELECT value FROM json_each(?)) AND d.deleted_at IS NULL
          AND d.meeting_mind_id IS NULL AND d.status IN ('ready', 'embedding', 'waiting-for-model')
          AND (g.id IS NULL OR g.status IN ('waiting','pending','failed')
               OR d.tagging_status IN ('pending','waiting-for-provider','off','failed'))
          AND NOT EXISTS (SELECT 1 FROM organize_review_items i WHERE i.document_id = d.id
-             AND i.deleted_at IS NULL AND (i.state = 'open' OR i.content_hash IS d.content_hash))
-       ORDER BY d.id LIMIT ?`,
+             AND i.deleted_at IS NULL AND (i.state = 'open' OR i.content_hash IS d.content_hash))`;
+  function waiting(ids: string[], after: string) {
+    const rows = db.all<Waiting & { content_hash: string | null }>(
+      `SELECT d.id, d.name, d.kind, d.content_hash, g.group_id AS folderId,
+              coalesce(g.request_id, '') AS version
+       ${WAITING} AND d.id > ? ORDER BY d.id LIMIT ?`,
       [JSON.stringify(ids), after, BigInt(SORTING_BATCH + 1)],
     );
     return rows.map((row) => ({
@@ -93,6 +96,10 @@ export function createAgentSorting(
       });
       return {
         documents,
+        total:
+          db.get<{ total: number }>(`SELECT count(*) AS total ${WAITING}`, [
+            JSON.stringify(scope.documents),
+          ])?.total ?? documents.length,
         folders: scope.folders,
         tags: choices(scope),
         next: rows.length > SORTING_BATCH ? (documents.at(-1)?.id ?? null) : null,

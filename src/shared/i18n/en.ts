@@ -30,7 +30,7 @@ export const en = {
   "library.organize.explain": "Suggests a Folder and Tags for each Document. You decide.",
   "agents.ask.line.organize": "Organize my Documents in IncarnaMind. Read my request there first.",
   "agents.ask.request.organize":
-    "{scope} From list_sorting, copy each Document’s id and version together. In propose_sorting, use a listed Folder or Tag where one fits; where none does, name a new one in English that 3 or more of these Documents share. A Folder is an area of work, never a kind of Document. Leave the Suggestions for me to review.",
+    "{scope} Read every page of list_sorting first, and copy each Document’s id and version together. In propose_sorting, use a listed Folder or Tag where one fits; where none does, name a new one in English that 3 or more of these Documents share. A Folder is an area of work, never a kind of Document. Leave the Suggestions for me to review.",
   "agents.ask.organize.folder":
     "Only organize Documents directly in Folder {folder}. Suggest moves only into these subfolders: {folders}, or into a new one by name, which is made inside it. Otherwise leave the Document in place.",
   "agents.ask.organize.loose":
