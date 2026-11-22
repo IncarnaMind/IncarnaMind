@@ -166,24 +166,26 @@ export async function askAgent(
       ...(ask.kind === "question" && { onScreen: documentsOnScreen(), scope: scope ?? null }),
       ...(openChat && { openChat: true }),
     });
-    if (result.kind !== "opened") await navigator.clipboard.writeText(result.text);
+    if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
+    // Only once it is copied: the app can take the focus the copy needs.
+    const fronted = openChat && (await core.frontAgent(agent.id));
     const about: AskedFor | null =
       ask.kind === "check" && mindId !== null
         ? { kind: "check", mindId }
         : ask.kind === "summary"
           ? { kind: "summary", documentId: ask.documentId }
           : null;
-    if (about) rememberAsked(agent, about, { copied: result.kind !== "opened", at });
+    if (about) rememberAsked(agent, about, { copied: result.kind === "copy", at });
     useNotices
       .getState()
       .confirm(
         result.kind === "opened"
           ? "agents.ask.opened"
-          : result.kind === "fronted"
-            ? "agents.ask.continued"
-            : openChat
-              ? "agents.ask.continueCopied"
-              : "agents.ask.copied",
+          : !openChat
+            ? "agents.ask.copied"
+            : fronted
+              ? "agents.ask.continued"
+              : "agents.ask.continueCopied",
         { agent: agent.name },
       );
     return true;

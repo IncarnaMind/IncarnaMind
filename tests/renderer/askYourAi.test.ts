@@ -40,12 +40,14 @@ const bridge = {
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
-    if (input.openChat) {
-      return bridge.fronts
-        ? { kind: "fronted", text: "The request" }
-        : { kind: "copy", text: "The request" };
-    }
+    if (input.openChat) return { kind: "copy", text: "The request" };
     return bridge.opens ? { kind: "opened" } : { kind: "copy", text: "The request" };
+  },
+  /** How many lines were copied as each app was brought forward: the copy must come first. */
+  frontedAfter: [] as number[],
+  frontAgent: async () => {
+    bridge.frontedAfter.push(copied.length);
+    return bridge.fronts;
   },
   // The core keeps the assistant's place as the window asks.
   layout: null as WindowLayout | null,
@@ -238,6 +240,7 @@ beforeEach(() => {
   bridge.asked = [];
   bridge.opens = false;
   bridge.fronts = false;
+  bridge.frontedAfter = [];
   useAgentAsked.setState({ byKey: {} });
   copied.length = 0;
   useNotices.setState({ confirmation: null });
@@ -511,6 +514,7 @@ describe("continuing in the chat the User has open (#3588)", () => {
       { pairingId: claude.id, mindId: MIND, ask: { kind: "note" }, openChat: true },
     ]);
     expect(copied).toEqual(["The request"]);
+    expect(bridge.frontedAfter).toEqual([1]);
     expect(useNotices.getState().confirmation).toMatchObject({
       message: "agents.ask.continued",
       params: { agent: "Claude" },

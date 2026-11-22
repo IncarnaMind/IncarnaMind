@@ -270,6 +270,8 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     // opens the assistant on model setup, with the cursor in its key field.
     await window.getByTestId("own-ai-pill-others").focus();
     await window.keyboard.press("Enter");
+    await expect(window.getByRole("menuitem", { name: "Continue in the open chat" })).toBeFocused();
+    await window.keyboard.press("ArrowDown");
     await expect(window.getByRole("menuitem", { name: "Ask VS Code" })).toBeFocused();
     await window.keyboard.press("ArrowDown");
     const useModel = window.getByTestId("own-ai-pill-use-model");
@@ -360,6 +362,13 @@ test("Continue in the open chat, from the Ask pill's menu: the line an Ask types
     // Claude Code, used last: its documentation gives no link that comes back to a session, so the
     // line is copied and nothing opens.
     await expect(window.getByTestId("own-ai-pill-ask")).toContainText("Ask Claude Code");
+    // By the keyboard: the menu opens on its first item, the new one, and Escape gives the ⌄ back.
+    await menu.focus();
+    await window.keyboard.press("Enter");
+    await expect(choice).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(choice).toBeHidden();
+    await expect(menu).toBeFocused();
     await pointAndClick(window, menu);
     await expect(choice).toHaveText("Continue in the open chat");
     await motionSettled(window);

@@ -420,26 +420,6 @@ function parseInput(input: unknown): ParsedInput {
 }
 
 export function createAgentAsk(options: AgentAskOptions) {
-  /**
-   * The line for the chat the User has open in the agent's app (#3588): copied, never typed into a
-   * new chat, and the app brought forward where its documentation gives a link for that.
-   */
-  async function continueInOpenChat(pairing: AgentPairing, line: string): Promise<AskAgentResult> {
-    const front = frontLinkFor(pairing.client);
-    if (front && options.openLink) {
-      try {
-        await options.openLink(front);
-        return { kind: "fronted", text: line };
-      } catch (error) {
-        options.log.warn("agents.askFrontUnopened", {
-          client: pairing.client ?? "other",
-          error: error instanceof Error ? error.name : "unknown",
-        });
-      }
-    }
-    return { kind: "copy", text: line };
-  }
-
   /** What the User looks at that this agent can read now, named as it is now. */
   const lookingAt = (
     pairingId: string,
@@ -572,7 +552,8 @@ export function createAgentAsk(options: AgentAskOptions) {
           named: named ?? null,
         });
       }
-      if (openChat) return continueInOpenChat(pairing, line);
+      // For the chat the User has open: copied, never typed into a new chat (#3588).
+      if (openChat) return { kind: "copy", text: line };
       const link = promptLinkFor(pairing.client, line);
       if (link && options.openLink) {
         try {
@@ -587,6 +568,22 @@ export function createAgentAsk(options: AgentAskOptions) {
         }
       }
       return { kind: "copy", text: line };
+    },
+    /** See `CoreApi.frontAgent`. */
+    async front(pairingId: unknown): Promise<boolean> {
+      const pairing = options.askable(null).find((each) => each.id === pairingId);
+      const link = pairing ? frontLinkFor(pairing.client) : null;
+      if (!pairing || !link || !options.openLink) return false;
+      try {
+        await options.openLink(link);
+        return true;
+      } catch (error) {
+        options.log.warn("agents.askFrontUnopened", {
+          client: pairing.client ?? "other",
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        return false;
+      }
     },
   };
 }

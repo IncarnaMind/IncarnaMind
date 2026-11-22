@@ -442,14 +442,14 @@ async function withDocuments() {
 }
 
 describe("continuing in the chat the User has open (#3588)", () => {
-  // protects=Continue in the open chat keeps the request exactly as an Ask does and gives back the very line an Ask types, and never opens a link that starts a new chat; Claude's app is brought forward with the one link its documentation gives for that, and every other agent opens nothing; fails_when=the line differs from an Ask's, the request isn't kept or is changed, a new-chat link opens, or an agent with no documented link has one opened
+  // protects=Continue in the open chat keeps the request exactly as an Ask does and gives back the very line an Ask types, to copy, opening nothing; brought forward after, Claude's app takes the one link its documentation gives for that, and every other agent opens nothing; fails_when=the line differs from an Ask's, the request isn't kept or is changed, a link opens before the line is copied or starts a new chat, or an agent with no documented link has one opened
   it.each([
-    ["Claude", "claude-desktop", ["claude://claude.ai/chat/"], "fronted"],
-    ["Claude Code", "claude-code", [], "copy"],
-    ["Codex", "codex", [], "copy"],
-    ["Cursor", "cursor", [], "copy"],
-    ["VS Code", "vscode", [], "copy"],
-  ] as const)("for %s", async (name, client, opened, kind) => {
+    ["Claude", "claude-desktop", ["claude://claude.ai/chat/"], true],
+    ["Claude Code", "claude-code", [], false],
+    ["Codex", "codex", [], false],
+    ["Cursor", "cursor", [], false],
+    ["VS Code", "vscode", [], false],
+  ] as const)("for %s", async (name, client, opened, fronted) => {
     const { core, links, mind, connect } = await started();
     const asked = await connect(name, client);
     const line = `Fix the sentence IncarnaMind flagged in “${TITLE}”.`;
@@ -459,7 +459,9 @@ describe("continuing in the chat the User has open (#3588)", () => {
       ask: fix,
       openChat: true,
     });
-    expect(continued).toEqual({ kind, text: line });
+    expect(continued).toEqual({ kind: "copy", text: line });
+    expect(links).toEqual([]);
+    expect(await core.frontAgent(asked.id)).toBe(fronted);
     expect(links).toEqual(opened);
 
     // The very line an Ask types in a new chat, or copies.
@@ -480,7 +482,7 @@ describe("continuing in the chat the User has open (#3588)", () => {
     expect(await requestRead(agent, TITLE)).toEqual(NONE);
   });
 
-  // protects=where the documented link isn't taken (Claude isn't installed), the line is still copied and nothing else opens; fails_when=the failure reaches the User or nothing comes back to copy
+  // protects=where the documented link isn't taken (Claude isn't installed), the line is still copied, the app is said not to have come forward, and nothing else opens; fails_when=the failure reaches the User, nothing comes back to copy, or it is said to be in front
   it("copies the line when Claude's app can't be brought forward", async () => {
     const dataDir = await createTempDataFolder();
     const tried: string[] = [];
@@ -504,6 +506,8 @@ describe("continuing in the chat the User has open (#3588)", () => {
     expect(
       await core.askAgent({ pairingId: pairing.id, mindId: mind.id, ask: fix, openChat: true }),
     ).toEqual({ kind: "copy", text: "Fix the sentence IncarnaMind flagged in “Ferry report”." });
+    expect(tried).toEqual([]);
+    expect(await core.frontAgent(pairing.id)).toBe(false);
     expect(tried).toEqual(["claude://claude.ai/chat/"]);
   });
 });
