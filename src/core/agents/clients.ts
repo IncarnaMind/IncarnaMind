@@ -21,6 +21,7 @@
 import { join } from "node:path";
 import { HIDDEN_KEY } from "../../shared/agentSocket";
 import type { AgentClientId, AgentLaunch, AgentSetupKind } from "../api";
+import { isRecord } from "../errors";
 import { SKILL_NAME } from "./skill";
 
 /** The name IncarnaMind has in every agent's settings. */
@@ -544,6 +545,39 @@ export function withoutCodexTable(text: string): string {
   let end = lines.findIndex((line, index) => index > start && /^\s*\[/.test(line));
   if (end === -1) end = lines.length;
   return [...lines.slice(0, start), ...lines.slice(end)].join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * The program IncarnaMind's entry in a settings file starts, as written there, where that entry
+ * holds `token` (the pairing's key); null otherwise, or where the file can't be read. Nothing else
+ * in the file is read.
+ */
+export function writtenCommand(format: SettingsFormat, text: string, token: string): string | null {
+  if (format === "codex-toml") {
+    const lines = text.split("\n");
+    const start = lines.findIndex((line) => line.trim() === `[mcp_servers.${SERVER_KEY}]`);
+    if (start === -1) return null;
+    const end = lines.findIndex((line, index) => index > start && /^\s*\[/.test(line));
+    const table = lines.slice(start + 1, end === -1 ? undefined : end);
+    if (!table.some((line) => line.includes(token))) return null;
+    for (const line of table) {
+      const command = /^\s*command\s*=\s*("(?:[^"\\]|\\.)*")\s*$/.exec(line)?.[1];
+      if (command) return JSON.parse(command) as string;
+    }
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const servers = isRecord(parsed) ? parsed.mcpServers : null;
+    const entry = isRecord(servers) ? servers[SERVER_KEY] : null;
+    return isRecord(entry) &&
+      typeof entry.command === "string" &&
+      JSON.stringify(entry).includes(token)
+      ? entry.command
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Whether a settings file holds nothing but the empty frame IncarnaMind's entry left. */

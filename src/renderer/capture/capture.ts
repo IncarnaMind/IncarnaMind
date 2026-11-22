@@ -17,7 +17,7 @@ import {
   toPcm16,
 } from "../../shared/capture";
 import { createFrames } from "./frames";
-import { createMicrophone, startMicrophone } from "./microphone";
+import { createMicrophone, isRecordingDefaultMicrophone, startMicrophone } from "./microphone";
 import { serveScreen } from "./screen";
 
 const found = (window as unknown as Partial<Record<string, CaptureBridge>>)[CAPTURE_BRIDGE_KEY];
@@ -129,8 +129,11 @@ async function close(source: AudioSource): Promise<void> {
   await entry.flushed;
 }
 
+let deviceChange = 0;
+
 async function openMicrophone(stillWanted: () => boolean): Promise<void> {
   if (!stillWanted()) return;
+  const atOpen = deviceChange;
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -154,7 +157,10 @@ async function openMicrophone(stillWanted: () => boolean): Promise<void> {
   }
   report("microphone", "recording");
   const [track] = stream.getAudioTracks();
-  if (track) track.onended = () => void microphone.reopen();
+  if (track) {
+    track.onended = () => void microphone.reopen(() => activeMicrophone() === track);
+    if (atOpen !== deviceChange) void checkMicrophone(track, deviceChange);
+  }
 }
 
 const microphone = createMicrophone({
@@ -202,8 +208,24 @@ async function stop(): Promise<void> {
   bridge.stopped();
 }
 
+function activeMicrophone(): MediaStreamTrack | undefined {
+  return open.get("microphone")?.stream.getAudioTracks()[0];
+}
+
+async function checkMicrophone(track: MediaStreamTrack, change: number): Promise<void> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    if (isRecordingDefaultMicrophone(track, devices)) return;
+  } catch (error) {
+    console.warn("Could not check the default microphone after a device change", error);
+  }
+  await microphone.reopen(() => change === deviceChange && activeMicrophone() === track);
+}
+
 navigator.mediaDevices.addEventListener("devicechange", () => {
-  void microphone.reopen();
+  deviceChange++;
+  const track = activeMicrophone();
+  if (track) void checkMicrophone(track, deviceChange);
 });
 
 bridge.onMicrophone((on) => {

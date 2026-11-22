@@ -55,6 +55,11 @@ async function openMeeting(window: Page, mindId: string) {
   return text;
 }
 
+async function closeMeetingWindow(app: ElectronApplication, window: Page) {
+  const target = await app.browserWindow(window);
+  await target.evaluate((win) => win.close());
+}
+
 async function holdWrite(app: ElectronApplication) {
   await app.evaluate(({ ipcMain }) => {
     const channel = "core:updateMeetingSummaryContent";
@@ -126,7 +131,7 @@ test("a conflict keeps my draft; an explicit discard closes the window without r
     const problem = window.getByTestId("meeting-summary-edit-problem");
     await expect(problem).toContainText("The summary changed elsewhere.");
     await answerClose(app, 0);
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.close());
+    await closeMeetingWindow(app, window);
     await expect
       .poll(() =>
         app?.evaluate(
@@ -144,7 +149,7 @@ test("a conflict keeps my draft; an explicit discard closes the window without r
       ).summaryCloseSheet.response = 1;
     });
     const closed = window.waitForEvent("close");
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.close());
+    await closeMeetingWindow(app, window);
     await closed;
     await app.close();
     app = undefined;
@@ -186,10 +191,8 @@ for (const operation of ["close", "quit"] as const)
       await expect(editor).toHaveText("First part and last word.");
       const closed =
         operation === "quit" ? app.waitForEvent("close") : window.waitForEvent("close");
-      await app.evaluate(({ app, BrowserWindow }, op) => {
-        if (op === "quit") app.quit();
-        else BrowserWindow.getFocusedWindow()?.close();
-      }, operation);
+      if (operation === "quit") await app.evaluate(({ app }) => app.quit());
+      else await closeMeetingWindow(app, window);
       await expect(editor).toHaveText("First part and last word.");
       await app.evaluate(() =>
         (globalThis as unknown as { heldSummary: { release(): void } }).heldSummary.release(),

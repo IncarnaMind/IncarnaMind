@@ -3222,12 +3222,21 @@
       max-width: 128px;
     }
   }
+  /* A folded template adds the 24px More button and its 2px gap before any command folds. */
   @container meeting-bar (width < 466px) {
     [data-fold="template"] {
       display: none;
     }
     .meeting-controls:has([data-fold="template"]) .meeting-more {
       display: inline-flex;
+    }
+    :root:not(:lang(zh)) .meeting-controls:has([data-fold="template"]) [data-fold="mark"] {
+      display: none;
+    }
+  }
+  @container meeting-bar (width < 422px) {
+    :root:lang(zh) .meeting-controls:has([data-fold="template"]) [data-fold="mark"] {
+      display: none;
     }
   }
   @container meeting-bar (width < 586px) {
@@ -10533,6 +10542,19 @@
       display: none;
     }
   }
+  /* A short Question leaves the first setup choices its spare room (#2270). */
+  .assistant-main:has(> .assistant-composer [data-setup-title]) {
+    > .assistant-thread {
+      flex: 1 0 0;
+      min-height: calc-size(max-content, min(size, 10rem, 40%));
+    }
+
+    > .assistant-composer {
+      flex: 0 1 auto;
+      max-height: none;
+    }
+  }
+
   /*
    * The title and a form's action row stay in view as the short setup card scrolls. Their
    * margins undo their padding, so nothing moves until the card does, and the padding covers

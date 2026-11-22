@@ -9646,6 +9646,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return left;
     },
     replaceAgentSkill: (pairingId) => agentSetup.replaceSkill(pairingId),
+    agentNeedsRepair: (pairingId) => agentSetup.needsRepair(pairingId),
+    repairAgent: (pairingId) => agentSetup.repair(pairingId),
     listAgentClients: async () => agentSetup.clients(),
     previewAgentSetup: async (client) => agentSetup.preview(client),
     setUpAgent: (input) => agentSetup.setUp(input),

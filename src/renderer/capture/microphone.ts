@@ -14,6 +14,38 @@ export interface MicrophoneDevice {
   close(): Promise<void>;
 }
 
+type InputInfo = Pick<MediaDeviceInfo, "kind" | "deviceId" | "groupId" | "label">;
+type InputTrack = Pick<MediaStreamTrack, "getSettings" | "label" | "readyState" | "muted">;
+
+function concreteId(id: string): boolean {
+  return id !== "default" && id !== "communications";
+}
+
+export function isRecordingDefaultMicrophone(
+  track: InputTrack,
+  devices: readonly InputInfo[],
+): boolean {
+  if (track.readyState !== "live" || track.muted) return false;
+  const input = devices.find((device) => device.kind === "audioinput");
+  const { deviceId, groupId } = track.getSettings();
+  if (!input?.deviceId || !deviceId) return false;
+  if (concreteId(deviceId) && concreteId(input.deviceId)) return deviceId === input.deviceId;
+
+  // Chromium's default alias can keep its ID when it moves to another microphone.
+  if (!groupId || groupId !== input.groupId) return false;
+  const physical = devices.filter(
+    (device) =>
+      device.kind === "audioinput" &&
+      device.groupId === groupId &&
+      device.deviceId &&
+      concreteId(device.deviceId),
+  );
+  if (physical.length !== 1) return false;
+  if (concreteId(deviceId)) return physical[0]?.deviceId === deviceId;
+  if (concreteId(input.deviceId)) return physical[0]?.deviceId === input.deviceId;
+  return deviceId === input.deviceId && !!track.label && track.label === input.label;
+}
+
 export function startMicrophone(
   microphone: { start(on: boolean): Promise<void> },
   request: CaptureStart,
@@ -53,9 +85,9 @@ export function createMicrophone(device: MicrophoneDevice) {
     },
 
     /** The default input changed, or the device went: closed and opened again, if it is open and wanted. */
-    reopen(): Promise<void> {
+    reopen(isCurrent: () => boolean): Promise<void> {
       return queue(async () => {
-        if (!running || !device.isOpen()) return;
+        if (!running || !device.isOpen() || !isCurrent()) return;
         await device.close();
         await settle();
       });
