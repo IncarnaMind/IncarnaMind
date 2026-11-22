@@ -5,18 +5,22 @@
  * about the Note or the Document, which the core tells the windows as it records each call, so
  * nothing polls the agent. Quiet: nothing from it for a while, and the words say how to ask again;
  * a later call makes it working again. It ends when what was asked for lands: the check's report,
- * or the Note the agent wrote; a check's ends too once a model is set up.
+ * or the Note the agent wrote; a check's ends too once a model is set up. An Organize's Suggestions
+ * land instead (#3610): the Library's top says what came until the User opens the Review.
  */
 import { create } from "zustand";
-import type { AgentActivity, AgentPairing, ChatReadiness } from "../../core/api";
+import type { AgentActivity, AgentPairing, ChatReadiness, OrganizeTarget } from "../../core/api";
 import { core } from "./core";
 import { useT } from "./i18n";
 import { noModelSetUp } from "./noModelSetUp";
 import { useAppStore } from "./store";
 
-export type AskedFor = { kind: "check"; mindId: string } | { kind: "summary"; documentId: string };
+export type AskedFor =
+  | { kind: "check"; mindId: string }
+  | { kind: "summary"; documentId: string }
+  | { kind: "organize"; target: OrganizeTarget };
 
-export type AskedState = "asked" | "working" | "quiet";
+export type AskedState = "asked" | "working" | "quiet" | "landed";
 
 export interface AgentAsked {
   agent: AgentPairing;
@@ -36,8 +40,15 @@ export interface AgentAsked {
  */
 export const QUIET_AFTER_MS = 3 * 60_000;
 
+/** One Organize at a time, said at the Library's top wherever it was asked from. */
+const ORGANIZE = "organize";
+
 const keyOf = (asked: AskedFor) =>
-  asked.kind === "check" ? `mind:${asked.mindId}` : `document:${asked.documentId}`;
+  asked.kind === "check"
+    ? `mind:${asked.mindId}`
+    : asked.kind === "summary"
+      ? `document:${asked.documentId}`
+      : ORGANIZE;
 
 export const useAgentAsked = create<{ byKey: Readonly<Record<string, AgentAsked>> }>()(() => ({
   byKey: {},
@@ -55,7 +66,7 @@ function put(key: string, asked: AgentAsked | null): void {
     else delete next[key];
     return { byKey: next };
   });
-  if (!asked || asked.state === "quiet") return;
+  if (!asked || asked.state === "quiet" || asked.state === "landed") return;
   timers.set(
     key,
     setTimeout(() => {
@@ -67,22 +78,31 @@ function put(key: string, asked: AgentAsked | null): void {
 
 const about = (activity: AgentActivity, asked: AgentAsked): boolean => {
   const what = asked.for;
-  return what.kind === "check"
-    ? activity.effects.some(({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId)
-    : activity.documentIds.includes(what.documentId);
+  if (what.kind === "check")
+    return activity.effects.some(
+      ({ scope }) => scope.kind === "mind" && scope.mindId === what.mindId,
+    );
+  if (what.kind === "summary") return activity.documentIds.includes(what.documentId);
+  return activity.tool === "list_sorting" || activity.tool === "propose_sorting";
 };
 
-const landed = (activity: AgentActivity, asked: AgentAsked): boolean =>
-  activity.outcome === "done" &&
-  (asked.for.kind === "check"
-    ? activity.tool === "report_check" && about(activity, asked)
-    : activity.tool === "create_mind");
+/** For an Organize, its Suggestions came, or the list it read had nothing waiting in it. */
+const landed = (activity: AgentActivity, asked: AgentAsked): boolean => {
+  if (activity.outcome !== "done") return false;
+  if (asked.for.kind === "check") return activity.tool === "report_check" && about(activity, asked);
+  if (asked.for.kind === "summary") return activity.tool === "create_mind";
+  return (
+    activity.tool === "propose_sorting" ||
+    (activity.tool === "list_sorting" && activity.documentIds.length === 0)
+  );
+};
 
 function heard(activity: AgentActivity): void {
   for (const [key, asked] of Object.entries(useAgentAsked.getState().byKey)) {
     if (activity.pairingId !== asked.agent.id || activity.at < asked.at) continue;
-    if (landed(activity, asked)) put(key, null);
-    else if (asked.seen || about(activity, asked))
+    if (landed(activity, asked))
+      put(key, asked.for.kind === "organize" ? { ...asked, seen: true, state: "landed" } : null);
+    else if (asked.state !== "landed" && (asked.seen || about(activity, asked)))
       put(key, { ...asked, seen: true, state: "working" });
   }
 }
@@ -126,9 +146,25 @@ export function forgetAsked(asked: AskedFor): void {
   if (useAgentAsked.getState().byKey[keyOf(asked)]) put(keyOf(asked), null);
 }
 
+/** The Organize asked of the User's own AI, while the Library's top says it. */
+export const useOrganizeAsked = (): AgentAsked | undefined =>
+  useAgentAsked((state) => state.byKey[ORGANIZE]);
+
+/** The User looked at what an Organize brought: from now on the Library's top counts it as any other. */
+export function organizeSeen(): void {
+  if (useAgentAsked.getState().byKey[ORGANIZE]?.state === "landed") put(ORGANIZE, null);
+}
+
+const WORKING = {
+  check: "agents.asked.checking",
+  summary: "agents.asked.writing",
+  organize: "agents.asked.organizing",
+} as const;
+
 /**
  * What was asked of the User's own AI about this Note or Document, and what it says now: `words`
- * for a line, `short` for the check badge, which shares its row with the Ask pill; null for nothing.
+ * for a line, `short` for the check badge, which shares its row with the Ask pill; null for nothing,
+ * and for an Organize whose Suggestions landed, which the Library's top says from them.
  */
 export function useAskedAgent(
   asked: AskedFor | null,
@@ -136,13 +172,13 @@ export function useAskedAgent(
   const t = useT();
   const key = asked ? keyOf(asked) : null;
   const now = useAgentAsked((state) => (key === null ? undefined : state.byKey[key]));
-  if (!now) return null;
+  if (!now || now.state === "landed") return null;
   const agent = now.agent.name;
   const words =
     now.state === "asked"
       ? t(now.copied ? "agents.asked.copied" : "agents.asked.opened", { agent })
       : now.state === "working"
-        ? t(now.for.kind === "check" ? "agents.asked.checking" : "agents.asked.writing", { agent })
+        ? t(WORKING[now.for.kind], { agent })
         : t("agents.asked.quiet", { agent });
   return { asked: now, words, short: t(`agents.asked.short.${now.state}`) };
 }

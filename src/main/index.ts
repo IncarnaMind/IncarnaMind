@@ -56,7 +56,7 @@ import {
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
 import { createFileLoginItem, createSystemLoginItem, openedAtLogin } from "./loginItem";
-import { isCaptureWindow } from "./meetings/capture";
+import { isCaptureWindow } from "./meetings/captureWindow";
 import { isGuideWindow, servePermissionGuide } from "./meetings/guide";
 import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
 import { installAppMenu } from "./menu";

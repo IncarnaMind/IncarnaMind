@@ -2,7 +2,7 @@ import { NOTES_MARK, passagesIn, UNIT_MARK } from "./passages";
 import type { GenerateOptions } from "./prompt";
 
 /** A text's words of four letters or more, and its pairs of Chinese characters: what a line shares with it. */
-function wordsAndPairs(text: string): string[] {
+export function wordsAndPairs(text: string): string[] {
   const lower = text.toLowerCase();
   const words = lower.split(/[^\p{L}\p{N}]+/u).filter((word) => /^[a-z0-9]{4,}$/.test(word));
   const pairs: string[] = [];

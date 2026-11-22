@@ -331,6 +331,7 @@ function Suggestion({
   holder?: RefObject<HTMLDivElement | null> | undefined;
 }) {
   const t = useT();
+  const usesExternalAI = useAppStore((state) => !!state.settings?.device.meetingCallHelpAgentId);
   const answer = useHelpAnswer(help);
   const [problem, setProblem] = useState<string | null>(null);
   const shown = useRef(true);
@@ -378,6 +379,24 @@ function Suggestion({
   return (
     <div ref={holder} className="panel-suggestion" data-pinned={pinned}>
       <HelpSuggestion help={help} answer={answer} onRetry={() => retry(meeting, help)} />
+      {typed &&
+        help.question &&
+        meeting.screen?.state === "reading" &&
+        answer.status === "done" &&
+        !usesExternalAI &&
+        !answer.steps?.meetingHelpAgent &&
+        (!answer.steps?.sent?.sharedScreen || answer.steps.sent.sharedScreen === "text") &&
+        !help.question.includes(t("meetings.screen.look")) && (
+          <button
+            className="panel-link"
+            type="button"
+            onClick={() =>
+              void askQuestion(meeting, `${help.question} ${t("meetings.screen.look")}.`)
+            }
+          >
+            {t("meetings.screen.look")}
+          </button>
+        )}
       {(keeps || pinned || typed) && answer.status !== "streaming" && (
         <div className="panel-actions">
           {(keeps || pinned) && (

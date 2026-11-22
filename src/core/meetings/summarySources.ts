@@ -1,7 +1,8 @@
+import { targetHash } from "../../shared/proposals";
 import { findQuote } from "../../shared/quoteMatch";
 import { partsOf } from "../../shared/speakers";
 import { transcriptCueLines, type UnitText } from "../../shared/units";
-import type { MeetingSummarySource, TranscriptSpeakers } from "../api";
+import type { MeetingSummarySource, TextRange, TranscriptSpeakers } from "../api";
 import {
   normalizeSummaryEvidence,
   originalSummaryCue,
@@ -22,6 +23,7 @@ function originalExcerpt(text: string, words: string): string {
 export interface TranscriptActionLine {
   transcriptCue: MeetingSummarySource;
   parentCue?: MeetingSummarySource;
+  excerpt?: TextRange;
 }
 
 type IndexedCues = ReturnType<typeof transcriptCueLines>;
@@ -38,7 +40,21 @@ export function transcriptActionLine(
   cues: IndexedCues,
   speakers: TranscriptSpeakers | null,
   selected: MeetingSummarySource,
+  excerpt?: TextRange,
 ): TranscriptActionLine | null {
+  if (
+    excerpt !== undefined &&
+    (!excerpt ||
+      typeof selected.text !== "string" ||
+      !Number.isSafeInteger(excerpt.start) ||
+      !Number.isSafeInteger(excerpt.end) ||
+      excerpt.start < 0 ||
+      excerpt.end > selected.text.length ||
+      excerpt.start >= excerpt.end ||
+      !selected.text.slice(excerpt.start, excerpt.end).trim())
+  )
+    return null;
+
   const matches = cues.flatMap((cue) => {
     if (cue.startMs > selected.startMs || cue.endMs < selected.endMs) return [];
     const part = partsOf(speakers, { ...cue, label: cue.label ?? "" }).find((line) =>
@@ -48,6 +64,10 @@ export function transcriptActionLine(
       ? [
           {
             transcriptCue: sourceOf(part),
+            ...(excerpt &&
+              (excerpt.start !== 0 || excerpt.end !== part.text.length) && {
+                excerpt: { start: excerpt.start, end: excerpt.end },
+              }),
             ...(!sameLine(part, cue) && { parentCue: sourceOf(cue) }),
           },
         ]
@@ -59,6 +79,11 @@ export function transcriptActionLine(
   return parent && cues.filter((cue) => sameLine(cue, parent)).length !== 1 ? null : line;
 }
 
+export function actionWords(line: TranscriptActionLine) {
+  const { text } = line.transcriptCue;
+  return line.excerpt ? text.slice(line.excerpt.start, line.excerpt.end) : text;
+}
+
 export function transcriptActionSources(
   cues: IndexedCues,
   speakers: TranscriptSpeakers | null,
@@ -66,15 +91,32 @@ export function transcriptActionSources(
 ) {
   const parent = line.parentCue ?? line.transcriptCue;
   if (cues.filter((cue) => sameLine(cue, parent)).length !== 1) return [];
-  if (!line.parentCue) return [line.transcriptCue];
+  const source = {
+    ...line.transcriptCue,
+    text: actionWords(line),
+    ...(line.excerpt && { excerpt: { ...line.excerpt, cueHash: targetHash(parent.text) } }),
+  };
+  if (!line.parentCue) return [source];
   const current = transcriptActionLine(cues, speakers, line.transcriptCue);
   if (current?.parentCue && sameLine(current.parentCue, parent))
-    return [{ ...line.transcriptCue, part: true as const }];
+    return [{ ...source, part: true as const }];
   // A later edit to the split can leave the original words intact in their file cue.
   const { text } = line.transcriptCue;
   if (parent.text.indexOf(text) < 0 || parent.text.indexOf(text) !== parent.text.lastIndexOf(text))
     return [];
-  return [{ ...line.transcriptCue, parentCue: { startMs: parent.startMs, endMs: parent.endMs } }];
+  const offset = parent.text.indexOf(text);
+  const excerpt = line.excerpt && {
+    cueHash: targetHash(parent.text),
+    start: offset + line.excerpt.start,
+    end: offset + line.excerpt.end,
+  };
+  return [
+    {
+      ...source,
+      ...(excerpt && { excerpt }),
+      parentCue: { startMs: parent.startMs, endMs: parent.endMs },
+    },
+  ];
 }
 
 export function meetingSummarySources(

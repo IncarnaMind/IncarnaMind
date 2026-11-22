@@ -105,8 +105,31 @@ export function CheckMarkIcon({ check, ...props }: IconProps & { check: Citation
   return <Mark {...props} />;
 }
 
-/** The same states in a circle, for the state line of the Citation card. */
-export function CheckStateIcon({ check, ...props }: IconProps & { check: CitationCheck }) {
+/**
+ * A Citation's mark: its check's, or a grey ring for a shared screen's whose
+ * screen was deleted with its Meeting (ADR-0031), with nothing left to check.
+ */
+export function CitationMarkIcon({
+  check,
+  gone,
+  ...props
+}: IconProps & { check: CitationCheck; gone: boolean }) {
+  return gone ? <Ring {...props} /> : <CheckMarkIcon check={check} {...props} />;
+}
+
+/** The same states in a circle, for the state line of the Citation card; `gone`: the ring alone. */
+export function CheckStateIcon({
+  check,
+  gone = false,
+  ...props
+}: IconProps & { check: CitationCheck; gone?: boolean }) {
+  if (gone) {
+    return (
+      <Stroke weight={2} {...props}>
+        <circle cx="12" cy="12" r="6.5" />
+      </Stroke>
+    );
+  }
   return (
     <Stroke weight={2} {...props}>
       <circle cx="12" cy="12" r="9" />

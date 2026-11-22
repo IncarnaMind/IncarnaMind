@@ -381,6 +381,23 @@ describe("an Answer's steps", () => {
     expect(foldedLine(steps)).toEqual({ kind: "listened", sources: 1 });
   });
 
+  // protects=an Answer that cites the shared screen folds to "Read the shared screen and the live transcript" (ADR-0031); fails_when=it says only Listened; no_claim=how the screen's Citation reads.
+  test("a meeting with a shared screen: it read the screen too", () => {
+    const screen: MarkedCitation = {
+      ...citation(2, "", "", 1),
+      documentName: "",
+      pageFrom: null,
+      pageTo: null,
+      location: { kind: "screen", at: "2026-10-14T13:05:00.000Z", screen: "m/1", from: 0, to: 8 },
+      quote: "",
+    };
+    const steps = input(
+      { citations: [citation(1, "a", "t1", 1), screen] },
+      { askedFrom: MIND, meeting: true },
+    );
+    expect(foldedLine(steps)).toEqual({ kind: "listened", sources: 2, screen: true });
+  });
+
   // protects=with no search the line says the Mind read, else the one it was asked from, or the model with no Mind; fails_when=it says Searched; no_claim=none beyond protects.
   test("no search: read the Mind in focus, asked from it, or answered by the model with none", () => {
     expect(foldedLine(input({ read: READ }, { askedFrom: MIND }))).toEqual({

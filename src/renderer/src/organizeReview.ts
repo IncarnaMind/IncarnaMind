@@ -10,6 +10,7 @@ import type {
   RunEstimate,
 } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
+import { organizeSeen } from "./askedAgent";
 import { core } from "./core";
 import { describeError } from "./errors";
 import { isShown } from "./layoutSlice";
@@ -167,6 +168,7 @@ export function openReview(): void {
   const app = useAppStore.getState();
   app.openLibrary();
   useOrganizeReview.setState({ open: true, stopped: null, apart: null });
+  organizeSeen();
   void refreshReview().catch(report);
   // The update's own words at the Library's top last until the Review is first opened (#1569).
   if ((app.library?.reviewMoved ?? 0) > 0) void core.reviewMovedSeen().catch(report);
