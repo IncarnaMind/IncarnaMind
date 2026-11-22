@@ -551,14 +551,24 @@ export function createAgents(options: AgentsOptions) {
     reportError: options.reportError,
   };
 
-  /** The grants of checks IncarnaMind started (`checkGrant`), by their token's digest. */
-  const grants = new Map<string, { pairingId: string; mindId: string }>();
+  /**
+   * The grants of checks IncarnaMind started (`checkGrant`), by their token's digest, each with the
+   * connections opened with it.
+   */
+  const grants = new Map<
+    string,
+    { pairingId: string; mindId: string; connections: Set<ServedConnection> }
+  >();
 
-  /** The core interface for a token's calls: refused at every call when the token is no pairing's. */
+  /**
+   * The core interface for a token's calls: refused at every call when the token is no pairing's.
+   * `grant`: the run grant's key, for a connection opened with one.
+   */
   const open = async (
     token: string,
-  ): Promise<{ pairingId: string | null; access: AgentAccess }> => {
-    const grant = grants.get(digest(token).toString("hex"));
+  ): Promise<{ pairingId: string | null; access: AgentAccess; grant?: string }> => {
+    const key = digest(token).toString("hex");
+    const grant = grants.get(key);
     if (grant) {
       return {
         pairingId: grant.pairingId,
@@ -566,6 +576,7 @@ export function createAgents(options: AgentsOptions) {
           mindId: grant.mindId,
           tools: CHECK_RUN_TOOLS,
         }),
+        grant: key,
       };
     }
     const pairingId = await pairingOfToken(token);
@@ -606,16 +617,20 @@ export function createAgents(options: AgentsOptions) {
           open,
           modelReady,
           version: options.version,
-          paired: (pairingId, connection) => {
-            if (closed) {
+          paired: (pairingId, connection, grant) => {
+            const granted = grant === undefined ? null : grants.get(grant);
+            // A grant that ended while its connection opened lets it do nothing.
+            if (closed || granted === undefined) {
               void connection.close();
               return;
             }
+            granted?.connections.add(connection);
             const list = connections.get(pairingId) ?? new Set<ServedConnection>();
             list.add(connection);
             connections.set(pairingId, list);
             socket.once("close", () => {
               list.delete(connection);
+              granted?.connections.delete(connection);
               if (pairingId !== null) connectionsChanged();
             });
             if (pairingId === null) return;
@@ -875,16 +890,24 @@ export function createAgents(options: AgentsOptions) {
     askedToCheck: askedChecks.asked,
 
     /**
-     * A check the User asked of this agent, for IncarnaMind to start it with (ADR-0032): the ask is
-     * recorded, and its server's launch carries a grant admitted as the pairing, for that Note and
-     * the check's Tools alone, held in memory only until `end`.
+     * A check the User pressed, for IncarnaMind to start this agent with (ADR-0032): its server's
+     * launch carries a grant admitted as the pairing, for that Note and the check's Tools alone,
+     * held in memory only until `end`, which closes every connection opened with it. An agent asked
+     * before to check the Note no longer may (./askedChecks).
      */
-    checkGrant(pairingId: string, mindId: string): { launch: AgentLaunch; end(): void } {
+    checkGrant(pairingId: string, mindId: string): { launch: AgentLaunch; end(): Promise<void> } {
       const token = `im_${randomBytes(32).toString("base64url")}`;
       const key = digest(token).toString("hex");
-      grants.set(key, { pairingId, mindId });
-      askedChecks.asked(pairingId, mindId);
-      return { launch: launchFor(token), end: () => grants.delete(key) };
+      const connections = new Set<ServedConnection>();
+      grants.set(key, { pairingId, mindId, connections });
+      askedChecks.withdraw(mindId);
+      return {
+        launch: launchFor(token),
+        end: async () => {
+          grants.delete(key);
+          await Promise.all([...connections].map((connection) => connection.close()));
+        },
+      };
     },
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */

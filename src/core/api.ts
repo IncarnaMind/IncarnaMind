@@ -13179,19 +13179,23 @@ export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string }
 
 /**
  * Why a check IncarnaMind started on the User's own command-line AI (ADR-0032) didn't land: not
- * signed in, older than IncarnaMind needs, the plan's limit or the account's billing as the agent
- * says, out of time, finished with no marks, a hook or plugin an organization set, the Note out of
- * its reach since, or anything else.
+ * signed in, older than IncarnaMind needs, no answer to whether it is signed in, the plan's or
+ * key's limit or the account's billing as the agent says, out of time, finished with no marks, a
+ * hook or plugin an organization set, the Note out of its reach since, Local mode turned on or the
+ * consent taken back since, or anything else.
  */
 export type OwnAiCheckProblem =
   | "signed-out"
   | "too-old"
+  | "no-answer"
   | "plan-limit"
   | "billing"
   | "timeout"
   | "no-marks"
   | "isolation"
   | "access"
+  | "local-mode"
+  | "taken-back"
   | "failed";
 
 /**

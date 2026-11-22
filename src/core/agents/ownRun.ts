@@ -1,9 +1,10 @@
 /**
  * A check the User pressed with no model set up, run on their own command-line AI in the background
  * (ADR-0032, #3606): one run of the agent, with no window opened and no chat kept in its app, given
- * IncarnaMind's server with a grant for that Note and the check's Tools alone (./askedChecks). Its
- * marks land as they do from the link route; the windows hear how it ended. An agent that can't run
- * it so, or no agent at all, leaves the check to the link.
+ * IncarnaMind's server with a grant for that Note and the check's Tools alone (./askedChecks), which
+ * goes when the run ends, however it ends. Its marks land as they do from the link route; the
+ * windows hear how it ended. An agent that can't run it so, or no agent at all, leaves the check to
+ * the link.
  */
 import type { Logger, OwnAiFailure, OwnAiRunner } from "../adapters";
 import type {
@@ -37,12 +38,15 @@ export interface OwnAiChecksOptions {
   runner: OwnAiRunner | undefined;
   /** The agents the User can ask about this Note now, the one connected or used last first. */
   askable(mindId: string): AgentPairing[];
-  checkGrant(pairingId: string, mindId: string): { launch: AgentLaunch; end(): void };
-  /** Asks once for a connection made before this existed; false: the User said no. */
+  checkGrant(pairingId: string, mindId: string): { launch: AgentLaunch; end(): Promise<void> };
+  /**
+   * Asks once for a connection made before this existed; false: the User said no, or took the
+   * consent back in Settings › Privacy, which never asks again.
+   */
   consented(pairing: AgentPairing): Promise<boolean>;
-  /** Whether the User still lets IncarnaMind start this agent. */
-  allowed(pairing: AgentPairing): boolean;
-  /** Calls `listener` at each change that can take the Note out of the agent's reach; returns its end. */
+  /** Why a run of the agent for the Note may no longer go on, or null while it may. */
+  heldBack(pairing: AgentPairing, mindId: string): "access" | "local-mode" | "taken-back" | null;
+  /** Calls `listener` at each change that can end what `heldBack` allows; returns its end. */
   onReachChange(listener: () => void): () => void;
   onActivity(listener: (activity: AgentActivity) => void): () => void;
   ended(end: OwnAiCheckEnd): void;
@@ -64,9 +68,12 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
       .askable(mindId)
       .find((each) => (pairingId === undefined || each.id === pairingId) && canRun(each));
     if (!runner || !pairing) return { kind: "link" };
+    // Nothing of the User's agent is started, its `--version` included, before the consent.
+    if (!(await options.consented(pairing))) return { kind: "link" };
     const status = await runner.status("claude-code");
     if (status.kind === "missing") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
+    if (status.kind === "unknown") return { kind: "problem", pairing, problem: "no-answer" };
     if (status.kind === "too-old") {
       return {
         kind: "problem",
@@ -75,7 +82,6 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
         versions: { found: status.found, lowest: status.lowest },
       };
     }
-    if (!(await options.consented(pairing))) return { kind: "link" };
     if (running.has(mindId)) return { kind: "started", pairing };
 
     const stop = new AbortController();
@@ -83,7 +89,7 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
     running.set(mindId, { pairing, stop });
     const grant = options.checkGrant(pairing.id, mindId);
     let landed = false;
-    let lost = false;
+    let lost: OwnAiCheckProblem | null = null;
     const offActivity = options.onActivity((activity) => {
       const aboutNote = activity.effects.some(
         ({ scope }) => scope.kind === "mind" && scope.mindId === mindId,
@@ -98,10 +104,8 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
       }
     });
     const offReach = options.onReachChange(() => {
-      const reaches = options.askable(mindId).some((each) => each.id === pairing.id);
-      if (reaches && options.allowed(pairing)) return;
-      lost = true;
-      stop.abort();
+      lost ??= options.heldBack(pairing, mindId);
+      if (lost) stop.abort();
     });
     void runner
       .run({
@@ -120,9 +124,9 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
         }
         return { kind: "failed" as const, reason: "other" as const };
       })
-      .then((end) => {
+      .then(async (end) => {
         const outcome: Pick<OwnAiCheckEnd, "outcome" | "problem"> = lost
-          ? { outcome: "failed", problem: "access" }
+          ? { outcome: "failed", problem: lost }
           : signal.aborted
             ? { outcome: "stopped", problem: null }
             : end.kind === "failed"
@@ -132,7 +136,7 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
                 : { outcome: "failed", problem: "no-marks" };
         offActivity();
         offReach();
-        grant.end();
+        await grant.end();
         running.delete(mindId);
         if (outcome.outcome === "failed") {
           options.log.warn("agents.ownCheckEnded", { problem: outcome.problem ?? "failed" });

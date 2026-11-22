@@ -2,6 +2,7 @@ import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { openDatabase } from "../src/core/storage";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
@@ -33,7 +34,8 @@ test.skip(process.platform === "win32", "The stand-in for Claude Code starts fro
  * A Node script stands in for `claude`: the app starts it as it would start Claude Code, and it
  * reaches IncarnaMind only through the settings it was given. Nothing opens: every link the app
  * would open is recorded. The Note's line says it is checking with Stop beside it, the marks land,
- * and a run that can't start or fails says why; a connection made before asks once.
+ * and a run that can't start or fails says why; a take-back in Settings › Privacy keeps the link
+ * with no dialog, and a connection made before asks once.
  */
 
 let dataDir: string;
@@ -125,7 +127,17 @@ async function both(
   await setWindowSize(app, window, 1440, 900);
 }
 
-test("with no model, one press checks a Note the User wrote on their own Claude Code in the background, with nothing opened; Stop stops it; a run that can't start or fails says why; a connection made before asks once", async () => {
+/** The data folder as a connection made before the background existed left it: no decision on it. */
+function madeBefore() {
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    db.run("DELETE FROM data_flow_consents WHERE flow = 'hosted-agents'");
+  } finally {
+    db.close();
+  }
+}
+
+test("with no model, one press checks a Note the User wrote on their own Claude Code in the background, with nothing opened; Stop stops it; a run that can't start or fails says why; a take-back keeps the link; a connection made before asks once", async () => {
   const { app, window } = await launchApp(dataDir, {
     home,
     ownAi: join(bin, "claude"),
@@ -192,22 +204,37 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await nextRun("limit");
     await pointAndClick(window, window.getByTestId("checks-asked-line-ask"));
     await expect(asked).toHaveText(
-      "Claude Code stopped: your Claude plan’s limit is reached. Try again later.",
+      "Claude Code stopped: your Claude plan or API key has reached its limit. Try again later.",
     );
     await both(app, window, "background-plan-limit", async () => {
       await expect(asked).toHaveText(
-        "Claude Code 已停止：你的 Claude 订阅已达用量上限。稍后再试。",
+        "Claude Code 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
       );
     });
 
-    // A connection made before this asks once, in the consent dialog; no keeps the link.
+    // Taken back in Settings › Privacy: Check goes by the link, with no dialog.
     await window.evaluate(async (id) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.revokeConsent("hosted-agents", `agent:${id}`);
     }, pairingId);
     await nextRun("check");
     await pointAndClick(window, window.getByTestId("checks-asked-line-ask"));
+    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    // The link opened only once the press was decided: a dialog would have come before it.
     const dialog = window.getByTestId("consent-dialog");
+    await expect(dialog).toBeHidden();
+
+    // A connection made before this asks once, in the consent dialog; no keeps the link.
+    const third = await writeNote(
+      window,
+      "Harbour notes, third draft",
+      [{ text: "The harbour master retired in 2024." }],
+      { folderId },
+    );
+    await open(window, third);
+    madeBefore();
+    await press(window);
+
     await expect(dialog).toContainText(
       "To start your own AI on this computer to check a note when you press Check",
     );
@@ -215,7 +242,7 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
       await expect(dialog).toContainText("在这台电脑上启动你自己的 AI 核对笔记");
     });
     await pointAndClick(window, dialog.getByTestId("consent-decline"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(1);
+    await expect.poll(() => urlsOpened(app)).toHaveLength(2);
 
     // Connecting Claude Code says so where the User allows it.
     await window.evaluate(async (id) => {
@@ -230,11 +257,11 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
       .click();
     const sheet = window.getByTestId("connect-agent-dialog");
     await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-      "With no AI model set up here, pressing Check starts Claude Code on this computer, signed in as you, to check the note in the background: nothing opens in Claude Code and no chat is added. It reads only what IncarnaMind gives it, as above, and uses your Claude plan or API key.",
+      "With no AI model set up here, pressing Check starts your Claude Code in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
     );
     await both(app, window, "background-connect-sheet", async () => {
-      await expect(sheet.getByTestId("connect-agent-background")).toContainText(
-        "使用你的 Claude 订阅或 API 密钥",
+      await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
+        "没设置 AI 模型时，点“核对”会在后台启动你的 Claude Code 来核对笔记，不打开窗口，也不新增对话。它只读 IncarnaMind 交给它的内容，用的是你自己的 Claude 订阅或 API 密钥。",
       );
     });
   } finally {

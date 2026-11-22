@@ -22,7 +22,11 @@ export const CHECK_RUN_TOOLS = [
   "report_check",
 ] as const satisfies readonly AgentToolName[];
 
-/** A connection IncarnaMind started for one asked check: its Note, and the Tools it may call. */
+/**
+ * A connection IncarnaMind started for one check the User pressed (./ownRun): its Note, and the
+ * Tools it may call. The grant is the run's only hold on the Note: the run records no ask, so the
+ * agent's own connections gain nothing from it, and nothing of it stands once the run ends.
+ */
 export interface CheckRun {
   mindId: string;
   tools: readonly AgentToolName[];
@@ -55,6 +59,10 @@ export function createAskedChecks(now: () => string) {
     /** The check landed whole: the ask is over. */
     end(pairingId: string, mindId: string): void {
       if (asked.get(mindId)?.pairingId === pairingId) asked.delete(mindId);
+    },
+    /** IncarnaMind started an agent for the Note's check (./ownRun): an agent asked before no longer may. */
+    withdraw(mindId: string): void {
+      asked.delete(mindId);
     },
   };
 }

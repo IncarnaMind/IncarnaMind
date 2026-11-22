@@ -823,13 +823,13 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     [
       "en",
       "Claude Code isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
-      "Claude Code stopped: your Claude plan’s limit is reached. Try again later.",
+      "Claude Code stopped: your Claude plan or API key has reached its limit. Try again later.",
       "Check again",
     ],
     [
       "zh-CN",
       "Claude Code 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
-      "Claude Code 已停止：你的 Claude 订阅已达用量上限。稍后再试。",
+      "Claude Code 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
       "再次核对",
     ],
   ] as const)(

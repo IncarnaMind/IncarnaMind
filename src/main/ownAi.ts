@@ -1,7 +1,8 @@
 /**
  * The User's own command-line AI, run once for a check they pressed (ADR-0032): Claude Code, the
- * `claude` the login shell finds, signed in as the User set it up. IncarnaMind reads only the exit
- * codes of `--version` and `auth status`, never the agent's settings or sign-in. A run gets
+ * `claude` the login shell finds, signed in as the User set it up. IncarnaMind reads only the
+ * version `--version` prints and the exit code of `auth status`, never the agent's settings or
+ * sign-in, and only once the User's consent is given. A run gets
  * IncarnaMind's server with a grant, in a settings file only the User's account can read, inside
  * a folder of its own that goes when the run ends; nothing of the run is kept.
  */
@@ -23,14 +24,24 @@ const MAX_RUN_BYTES = 8 * 1024 * 1024;
 const STATUS_MS = 15_000;
 const SERVER = "incarnamind";
 
-/** The CLI's own categories of a failed request, for words IncarnaMind says; others say nothing. */
+/**
+ * The CLI's own categories of a failed request, for words IncarnaMind says; others say nothing.
+ * A request it retries gives one in `system/api_retry`, one it doesn't on its assistant message's
+ * `error`, as a signed-out `claude -p` shows.
+ */
 const FAILURE_OF: Record<string, OwnAiFailure> = {
   authentication_failed: "signed-out",
   rate_limit: "plan-limit",
   billing_error: "billing",
 };
 
-/** The run showed a tool or a server that isn't IncarnaMind's: a flag didn't hold. */
+const failureOf = (category: unknown): OwnAiFailure | null =>
+  typeof category === "string" ? (FAILURE_OF[category] ?? null) : null;
+
+/**
+ * The run showed something no check run should: a flag didn't hold. The flags are what hold the
+ * run to IncarnaMind's Tools; this only notices when they didn't, so anything it can't read stops.
+ */
 class StrayRunError extends Error {
   constructor(what: string) {
     super(`A check run on Claude Code showed ${what}, so it was stopped.`);
@@ -48,36 +59,53 @@ const older = (found: string, lowest: string) => {
   return false;
 };
 
-/** A short command's exit code and what it printed, or null when it can't be started. */
-async function short(command: string, args: string[]) {
+type Short =
+  | { kind: "exited"; code: number | null; out: string }
+  /** The command isn't there. */
+  | { kind: "absent" }
+  /** It couldn't be started for another reason, or took too long: it says nothing. */
+  | { kind: "no-answer" };
+
+/** A short command's exit code and what it printed. */
+async function short(command: string, args: string[]): Promise<Short> {
   let child: Awaited<ReturnType<typeof processes.spawn>>;
   try {
     child = await processes.spawn(command, args, { processGroup: true });
-  } catch {
-    return null;
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code !== "ENOENT") console.warn(`Could not start ${command} ${args.join(" ")} (${code}).`);
+    return code === "ENOENT" ? { kind: "absent" } : { kind: "no-answer" };
   }
   let out = "";
   child.stdout?.on("data", (chunk: Buffer) => {
     if (out.length < 4096) out += chunk.toString("utf8");
   });
   child.stderr?.resume();
-  const timer = setTimeout(() => stopProcessTree(child), STATUS_MS);
+  let late = false;
+  const timer = setTimeout(() => {
+    late = true;
+    stopProcessTree(child);
+  }, STATUS_MS);
   const code = await new Promise<number | null>((resolve) => child.once("close", resolve));
   clearTimeout(timer);
-  return { code, out };
+  return late ? { kind: "no-answer" } : { kind: "exited", code, out };
 }
 
 export function createOwnAi({ command = "claude" }: { command?: string } = {}): OwnAiRunner {
   return {
     async status(): Promise<OwnAiStatus> {
       const version = await short(command, ["--version"]);
-      if (version?.code !== 0) return { kind: "missing" };
+      if (version.kind === "no-answer") return { kind: "unknown" };
+      if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
       const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
       if (!found || older(found, LOWEST_CLAUDE_CODE)) {
         return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
       }
+      // 0 signed in, 1 not: anything else says nothing about the sign-in.
       const signedIn = await short(command, ["auth", "status"]);
-      return signedIn?.code === 0 ? { kind: "ready" } : { kind: "signed-out" };
+      if (signedIn.kind === "exited" && signedIn.code === 0) return { kind: "ready" };
+      if (signedIn.kind === "exited" && signedIn.code === 1) return { kind: "signed-out" };
+      return { kind: "unknown" };
     },
 
     async run(request) {
@@ -85,7 +113,9 @@ export function createOwnAi({ command = "claude" }: { command?: string } = {}): 
       const cwd = await mkdtemp(join(tmpdir(), "incarnamind-check-"));
       const ours = (tool: unknown) =>
         typeof tool === "string" && tool.startsWith(`mcp__${SERVER}__`);
+      // The category of the request that failed last, if Claude Code named one IncarnaMind words.
       let failure: OwnAiFailure | null = null;
+      let begun = false;
       try {
         const configFile = join(cwd, "mcp.json");
         const { command: server, args, env } = request.server;
@@ -107,32 +137,42 @@ export function createOwnAi({ command = "claude" }: { command?: string } = {}): 
           persist: false,
           onMessage(message) {
             if (message.type === "system" && message.subtype === "init") {
-              const tools = Array.isArray(message.tools) ? message.tools : [];
-              const servers = Array.isArray(message.mcp_servers) ? message.mcp_servers : [];
+              const { tools, mcp_servers: servers } = message;
               // Only IncarnaMind's server, connected, and its Tools: anything else, a flag didn't hold.
-              if (!tools.every(ours)) throw new StrayRunError("a tool of its own");
+              if (!Array.isArray(tools) || !tools.every(ours)) {
+                throw new StrayRunError("a tool of its own, or no list of its tools");
+              }
               if (
+                !Array.isArray(servers) ||
                 servers.length !== 1 ||
                 object(servers[0]).name !== SERVER ||
                 object(servers[0]).status !== "connected"
               ) {
                 throw new StrayRunError("another server, or IncarnaMind's not connected");
               }
+              begun = true;
+              return;
             }
             if (message.type === "system" && message.subtype === "api_retry") {
-              failure = FAILURE_OF[String(message.error)] ?? failure;
+              failure = failureOf(message.error);
+              return;
             }
+            if (message.type !== "assistant") return;
+            if (!begun) throw new StrayRunError("a reply before its start");
+            // A reply that came back ends whatever an earlier retry was about.
+            failure = failureOf(message.error);
             const content = object(message.message).content;
-            if (message.type === "assistant" && Array.isArray(content)) {
-              // One of IncarnaMind's other Tools is denied by Claude Code and refused by the server.
-              for (const part of content.map(object)) {
-                if (part.type === "tool_use" && !ours(part.name)) {
-                  throw new StrayRunError("a call to a tool of its own");
-                }
+            for (const part of Array.isArray(content) ? content.map(object) : []) {
+              // A call to one of IncarnaMind's other Tools is denied by Claude Code and refused by
+              // the server; any other call, of a tool of its own or one its servers run, stops it.
+              const call = typeof part.type === "string" && part.type.endsWith("tool_use");
+              if (call && !(part.type === "tool_use" && ours(part.name))) {
+                throw new StrayRunError("a call to a tool of its own");
               }
             }
           },
         });
+        if (!begun) return { kind: "failed", reason: "other" };
         return result.subtype === "success" && result.is_error === false
           ? { kind: "finished" }
           : { kind: "failed", reason: failure ?? "other" };

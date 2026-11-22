@@ -8668,6 +8668,8 @@ export const en = {
     "{argument} holds the markup of the call itself, {markup}, not words for the note: nothing was written. Send the call again with each argument in its own field.",
   "agents.problem.checkRun":
     "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
+  "agents.problem.checkRunPath":
+    "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
@@ -9029,7 +9031,7 @@ export const en = {
   "agents.share.folders": "Choose Folders",
   // The consent to start the agent for a check in the background (#3606).
   "agents.connect.background":
-    "With no AI model set up here, pressing Check starts {agent} on this computer, signed in as you, to check the note in the background: nothing opens in {agent} and no chat is added. It reads only what IncarnaMind gives it, as above, and uses your Claude plan or API key.",
+    "With no AI model set up here, pressing Check starts your {agent} in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
@@ -9104,8 +9106,10 @@ export const en = {
     "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
   "agents.ownCheck.problem.too-old":
     "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then press Check again.",
+  "agents.ownCheck.problem.no-answer":
+    "{agent} didn’t answer on this computer, so the check didn’t start. Try again.",
   "agents.ownCheck.problem.plan-limit":
-    "{agent} stopped: your Claude plan’s limit is reached. Try again later.",
+    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
   "agents.ownCheck.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "agents.ownCheck.problem.timeout":
@@ -9115,6 +9119,10 @@ export const en = {
   "agents.ownCheck.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set. Ask it in {agent} instead.",
   "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
+  "agents.ownCheck.problem.local-mode":
+    "{agent} stopped: “Keep everything on this computer” is on.",
+  "agents.ownCheck.problem.taken-back":
+    "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
   "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":

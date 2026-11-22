@@ -1653,13 +1653,15 @@ export type OwnAiClient = "claude-code";
 
 /**
  * Whether the agent's command is on this computer, as its login shell finds it: missing, older than
- * IncarnaMind needs, not signed in, or ready. Read without any model call.
+ * IncarnaMind needs, not signed in, ready, or unknown when it couldn't be started or didn't answer
+ * in time. Read without any model call.
  */
 export type OwnAiStatus =
   | { kind: "ready" }
   | { kind: "missing" }
   | { kind: "signed-out" }
-  | { kind: "too-old"; found: string; lowest: string };
+  | { kind: "too-old"; found: string; lowest: string }
+  | { kind: "unknown" };
 
 /** Why a run of the User's own AI ended before it finished. */
 export type OwnAiFailure =

@@ -6778,15 +6778,25 @@ export function createCore(adapters: CoreAdapters): Core {
     askable: (mindId) => agents.askable(mindId),
     checkGrant: (pairingId, mindId) => agents.checkGrant(pairingId, mindId),
     async consented(pairing) {
+      const service = serviceOf(pairing);
+      // Taken back in Settings › Privacy: Check goes by the link until the User allows it again.
+      if (consent.takenBack("hosted-agents", service)) return false;
       try {
-        await consent.ensure("hosted-agents", serviceOf(pairing));
+        await consent.ensure("hosted-agents", service);
         return true;
       } catch (error) {
         if (error instanceof ConsentDeclinedError) return false;
         throw error;
       }
     },
-    allowed: (pairing) => consent.status("hosted-agents", serviceOf(pairing)) === "accepted",
+    heldBack(pairing, mindId) {
+      // Local mode pauses every pairing, so it comes before the reach it takes away.
+      if (embedding.localOnly()) return "local-mode";
+      if (!agents.askable(mindId).some((each) => each.id === pairing.id)) return "access";
+      return consent.status("hosted-agents", serviceOf(pairing)) === "accepted"
+        ? null
+        : "taken-back";
+    },
     onReachChange(listener) {
       const off = (
         [

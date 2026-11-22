@@ -2,10 +2,12 @@
  * One turn of the User's own Claude Code command line, started by IncarnaMind (ADR-0032): for
  * Meetings' requests, with no tools at all, and for a check the User pressed, with IncarnaMind's
  * server and the Tools it may call. The `claude` the login shell finds runs in a folder of its own,
- * with none of its built-in tools, hooks, connectors or slash commands; anything not allowed is
- * denied, never asked.
+ * with none of its built-in tools, hooks, connectors, slash commands, CLAUDE.md files or memory;
+ * anything not allowed is denied, never asked.
  */
 import type { ChildProcess } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { stopProcessTree } from "../core/execution";
 import { createLoginShellProcesses } from "./processes";
@@ -15,6 +17,7 @@ const processes = createLoginShellProcesses();
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
   command?: string;
+  /** A folder of the turn's own, which its caller removes: the system prompt is written there. */
   cwd: string;
   systemPrompt: string;
   prompt: string;
@@ -28,9 +31,11 @@ export interface ClaudeCodeTurn {
   server?: { configFile: string; name: string; tools: readonly string[] };
   /** Whether Claude Code keeps the turn's session, to be continued later; a check keeps none. */
   persist: boolean;
-  /** Each message before the result; one that throws stops the turn. */
+  /** Each message before the result, from the first; one that throws stops the turn. */
   onMessage?(message: Record<string, unknown>): void;
 }
+
+const SYSTEM_PROMPT_FILE = "system-prompt.txt";
 
 export function object(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -72,16 +77,25 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     "--verbose",
     "--settings",
     '{"disableAllHooks":true,"disableClaudeAiConnectors":true}',
-    "--system-prompt",
-    turn.systemPrompt,
+    // On Windows an npm-installed `claude.cmd` runs through cmd.exe, where a line break in an
+    // argument ends the command: the prompt goes on stdin and the system prompt in a file.
+    "--system-prompt-file",
+    join(turn.cwd, SYSTEM_PROMPT_FILE),
   ];
 }
 
 /** Starts the turn and resolves with its result message, a successful one or not. */
 export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<string, unknown>> {
+  await writeFile(join(turn.cwd, SYSTEM_PROMPT_FILE), turn.systemPrompt, { mode: 0o600 });
   const child = await processes.spawn(turn.command ?? "claude", argsOf(turn), {
     cwd: turn.cwd,
-    env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", ENABLE_CLAUDEAI_MCP_SERVERS: "false" },
+    env: {
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      ENABLE_CLAUDEAI_MCP_SERVERS: "false",
+      // The User's CLAUDE.md files and Claude Code's memory are not IncarnaMind's to give the turn.
+      CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+    },
     processGroup: true,
   });
   return readTurn(child, turn);
@@ -149,7 +163,7 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
         // A result ends this turn even when the CLI keeps its stream open.
         return msg;
       }
-      if (sent) turn.onMessage?.(msg);
+      turn.onMessage?.(msg);
     }
     signal.throwIfAborted();
     throw new Error("Claude Code could not complete the request.");

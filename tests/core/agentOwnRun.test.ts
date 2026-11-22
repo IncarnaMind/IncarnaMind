@@ -6,13 +6,19 @@
  * hear how it ended; and a User the background can't serve keeps the link.
  */
 
+import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { OwnAiRunner, OwnAiStatus } from "../../src/core/adapters";
+import { DATABASE_FILE } from "../../src/core";
+import type { OwnAiClient, OwnAiRunner, OwnAiStatus } from "../../src/core/adapters";
 import type { AgentLaunch, OwnAiCheckEnd } from "../../src/core/api";
+import { openDatabase } from "../../src/core/storage";
+import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
+import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
+import { createTempDataFolder } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
@@ -104,22 +110,49 @@ function runner(
 ) {
   const runs: RunRequest[] = [];
   const launches: AgentLaunch[] = [];
+  const statuses: OwnAiClient[] = [];
   const adapter: OwnAiRunner = {
-    status: async () => status,
+    async status(client) {
+      statuses.push(client);
+      return status;
+    },
     async run(request) {
       runs.push(request);
       launches.push(request.server);
       return act(await connectLegacyAgent(request.server), request);
     },
   };
-  return { adapter, runs, launches };
+  return { adapter, runs, launches, statuses };
 }
 
-/** A User with no model set up, Tides in "Coast", a Note they wrote there, Claude Code and VS Code. */
+/** A connection made before the background existed: no decision on it at all. */
+function madeBefore(dataDir: string) {
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.run("DELETE FROM data_flow_consents WHERE flow = 'hosted-agents'");
+  } finally {
+    db.close();
+  }
+}
+
+/** The Note's sentences the agent is given, by a Tool call on `agent`. */
+async function sentencesOf(agent: Agent, mindId: string) {
+  return structured<{ task: string; sentences: { n: number; text: string }[] }>(
+    await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+  );
+}
+
+/**
+ * A User with no model set up, Tides in "Coast", a Note they wrote there, Claude Code and VS Code,
+ * on a desktop app that reads a file an agent names by its path.
+ */
 async function written(ownAi?: OwnAiRunner) {
-  const started = await startAgentsCore(checkingModel({}, []), ownAi ? { ownAi } : {}, {
-    modelSetUp: false,
-  });
+  const canvasFiles = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
+  const started = await startAgentsCore(
+    checkingModel({}, []),
+    { canvasFiles, ...(ownAi && { ownAi }) },
+    { modelSetUp: false },
+  );
   const { core } = started;
   const sources = await createSourceFolder();
   const [tides] = await addAndProcess(core, [await writeSourceFile(sources, "Tides.md", TIDES)]);
@@ -276,26 +309,50 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     expect([...signedOut.runs, ...old.runs]).toEqual([]);
   });
 
-  // protects=a connection made before the background existed asks once, in the consent dialog, before IncarnaMind starts the agent; no keeps the link; fails_when=IncarnaMind starts the User's agent without the consent, or asks every time
-  it("asks once for a connection without the consent, and keeps the link on no", async () => {
+  // protects=a connection made before the background existed asks once, in the consent dialog, before anything of the User's agent starts, its --version included; no keeps the link and isn't asked again; yes runs it; fails_when=IncarnaMind starts the User's agent before the consent, or asks at every press
+  it("asks once for a connection without the consent, before anything starts, and keeps the link on no", async () => {
     const run = runner();
-    const { core, mindId, claude, ended } = await written(run.adapter);
-    await core.revokeConsent("hosted-agents", `agent:${claude.pairing.id}`);
-
+    const refused = await written(run.adapter);
+    madeBefore(refused.dataDir);
     const asked: string[] = [];
-    const off = core.on("consent.requested", (request) => {
+    const off = refused.core.on("consent.requested", (request) => {
       asked.push(request.flow.id);
-      void core.respondToConsent(request.requestId, false);
+      void refused.core.respondToConsent(request.requestId, false);
     });
-    expect(await core.checkWithOwnAi(mindId)).toEqual({ kind: "link" });
+    expect(await refused.core.checkWithOwnAi(refused.mindId)).toEqual({ kind: "link" });
+    expect(await refused.core.checkWithOwnAi(refused.mindId)).toEqual({ kind: "link" });
     off();
     expect(asked).toEqual(["hosted-agents"]);
+    expect(run.statuses).toEqual([]);
     expect(run.runs).toEqual([]);
 
-    await core.revokeConsent("hosted-agents", `agent:${claude.pairing.id}`);
-    core.on("consent.requested", (request) => void core.respondToConsent(request.requestId, true));
-    expect((await core.checkWithOwnAi(mindId)).kind).toBe("started");
-    expect((await ended())?.outcome).toBe("landed");
+    const allowed = await written(runner().adapter);
+    madeBefore(allowed.dataDir);
+    allowed.core.on(
+      "consent.requested",
+      (request) => void allowed.core.respondToConsent(request.requestId, true),
+    );
+    expect((await allowed.core.checkWithOwnAi(allowed.mindId)).kind).toBe("started");
+    expect((await allowed.ended())?.outcome).toBe("landed");
+  });
+
+  // protects=a run stopped by Local mode or by the consent taken back in Settings › Privacy says so, not that the agent can't read the Note; after the take-back Check goes by the link with no dialog, as the record says; fails_when=the line gives the wrong reason, or the next press asks again
+  it("says why a run stopped when Local mode or a take-back ended it, and keeps the link after a take-back", async () => {
+    const local = await written(runner(untilStopped).adapter);
+    await local.core.checkWithOwnAi(local.mindId);
+    await local.core.setLocalOnly(true);
+    expect(await local.ended()).toMatchObject({ outcome: "failed", problem: "local-mode" });
+
+    const run = runner(untilStopped);
+    const back = await written(run.adapter);
+    await back.core.checkWithOwnAi(back.mindId);
+    await back.core.revokeConsent("hosted-agents", `agent:${back.claude.pairing.id}`);
+    expect(await back.ended()).toMatchObject({ outcome: "failed", problem: "taken-back" });
+    const asked: string[] = [];
+    back.core.on("consent.requested", (request) => asked.push(request.flow.id));
+    expect(await back.core.checkWithOwnAi(back.mindId)).toEqual({ kind: "link" });
+    expect(asked).toEqual([]);
+    expect(run.runs).toHaveLength(1);
   });
 
   // protects=Stop ends the run and lands nothing; a run that ends with no report says so; one whose Note left the agent's reach stops; fails_when=a stopped or broken run leaves the line checking for ever, or lands marks after Stop
@@ -320,5 +377,101 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     await away.core.checkWithOwnAi(away.mindId);
     await away.core.disconnectAgent(away.claude.pairing.id);
     expect(await away.ended()).toMatchObject({ outcome: "failed", problem: "access" });
+  });
+
+  // protects=a check run reads only the pairing's Folders: it cites no file by its path, so nothing on the computer is opened or added, and a Citation the agent got for a file by its path on its own connection marks nothing in the run; fails_when=a check run opens any file the User's account can read, or rests a mark on one outside the Folders
+  it("cites no file by its path, and rests no mark on a file cited elsewhere", async () => {
+    const elsewhere = await createSourceFolder();
+    const path = await writeSourceFile(
+      elsewhere,
+      "Diary.md",
+      "# Diary\n\nSpring tides happen twice a month, my diary says.",
+    );
+    const unread = await writeSourceFile(
+      elsewhere,
+      "Letters.md",
+      "# Letters\n\nSpring tides happen twice a month, a letter says.",
+    );
+    const quote = "Spring tides happen twice a month";
+    let refused = "";
+    let unconfirmed: number[] = [];
+    let token = "";
+    const run = runner(async (agent, request) => {
+      const mindId = request.prompt.match(/mindId: ([^)]+)\)/)?.[1] ?? "";
+      refused = refusal(
+        await agent.callTool({ name: "cite", arguments: { citations: [{ path: unread, quote }] } }),
+      );
+      const given = await sentencesOf(agent, mindId);
+      const n = given.sentences.find((each) => each.text === SPRING)?.n;
+      ({ unconfirmed } = structured<{ unconfirmed: number[] }>(
+        await agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId,
+            task: given.task,
+            results: [{ n, verdict: "supported", cites: [token] }],
+          },
+        }),
+      ));
+      return { kind: "finished" };
+    });
+    const { core, mindId, claude, ended, marks } = await written(run.adapter);
+    const own = await connectLegacyAgent(claude.launch);
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await own.callTool({ name: "cite", arguments: { citations: [{ path, quote }] } }),
+    );
+    token = citations[0]?.cite ?? "";
+    expect(token).not.toBe("");
+    const documents = (await core.listDocuments()).length;
+
+    await core.checkWithOwnAi(mindId);
+    await ended();
+    expect(refused).toBe(translate("en", "agents.problem.checkRunPath"));
+    expect(unconfirmed).toHaveLength(1);
+    expect(await marks()).not.toContainEqual([SPRING, "supported"]);
+    expect((await core.listDocuments()).length).toBe(documents);
+  });
+
+  // protects=the grant's connections close when the run ends: one the agent keeps open can't call a Tool afterwards; fails_when=a connection opened with the grant goes on working after the run ended
+  it("closes the run's connections when it ends", async () => {
+    const kept: Agent[] = [];
+    const { core, mindId, ended } = await written(
+      runner(async (agent) => {
+        kept.push(agent);
+        return { kind: "finished" };
+      }).adapter,
+    );
+    await core.checkWithOwnAi(mindId);
+    expect((await ended())?.problem).toBe("no-marks");
+    await expect(
+      kept[0]?.callTool({ name: "search", arguments: { query: "tides" } }),
+    ).rejects.toThrow();
+  });
+
+  // protects=a run IncarnaMind starts leaves the agent's own connections nothing: they can't take a Note the User wrote while it runs, after Stop or after it fails, and the press takes back another agent's earlier ask, as asking another agent does; fails_when=the agent's own token reads the Note or lands marks for half an hour after a background press
+  it("gives the agent's own connections nothing, while it runs and after it ends", async () => {
+    // Both may only read: a Note the User wrote is theirs to check only while an ask stands.
+    const readOnly = translate("en", "agents.problem.read-only");
+    const take = async (agent: Agent, mindId: string) =>
+      refusal(await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }));
+
+    const stopped = await written(runner(untilStopped).adapter);
+    const { core, mindId, claude, vscode } = stopped;
+    await core.askAgent({ pairingId: vscode.pairing.id, mindId, ask: { kind: "check" } });
+    const editor = await connectLegacyAgent(vscode.launch);
+    await sentencesOf(editor, mindId);
+    const own = await connectLegacyAgent(claude.launch);
+    await core.checkWithOwnAi(mindId);
+    expect(await take(own, mindId)).toBe(readOnly);
+    expect(await take(editor, mindId)).toBe(readOnly);
+    await core.stopOwnAiCheck(mindId);
+    expect((await stopped.ended())?.outcome).toBe("stopped");
+    expect(await take(own, mindId)).toBe(readOnly);
+
+    const failed = await written(runner(async () => ({ kind: "failed", reason: "other" })).adapter);
+    await failed.core.checkWithOwnAi(failed.mindId);
+    expect((await failed.ended())?.problem).toBe("failed");
+    const theirs = await connectLegacyAgent(failed.claude.launch);
+    expect(await take(theirs, failed.mindId)).toBe(readOnly);
   });
 });

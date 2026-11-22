@@ -872,12 +872,13 @@ export interface ServedConnection {
 export function serveConnection(
   socket: Duplex,
   options: {
-    open(token: string): Promise<{ pairingId: string | null; access: AgentAccess }>;
+    /** `grant`: the key of the run grant the token is, if it is one. */
+    open(token: string): Promise<{ pairingId: string | null; access: AgentAccess; grant?: string }>;
     /** Whether IncarnaMind has an AI model of its own ready now, read at each connection. */
     modelReady(): Promise<boolean>;
     version: string;
-    /** Called once the connection's pairing is known (null for an unknown token). */
-    paired(pairingId: string | null, connection: ServedConnection): void;
+    /** Called once the connection's pairing is known (null for an unknown token), with `open`'s grant. */
+    paired(pairingId: string | null, connection: ServedConnection, grant?: string): void;
     reportError(error: unknown): void;
     handshakeTimeoutMs?: number;
   },
@@ -933,18 +934,22 @@ export function serveConnection(
               options.reportError(new Error(`An agent's connection failed (${error.name}).`)),
           },
         );
-        options.paired(opened.pairingId, {
-          close: async () => {
-            // The connection first: nothing more reaches the core once this is called.
-            socket.destroy();
-            await handle.close().catch(() => undefined);
+        options.paired(
+          opened.pairingId,
+          {
+            close: async () => {
+              // The connection first: nothing more reaches the core once this is called.
+              socket.destroy();
+              await handle.close().catch(() => undefined);
+            },
+            modelChanged: (now) => {
+              heard = true;
+              modelNow = now;
+              current?.modelChanged(now);
+            },
           },
-          modelChanged: (now) => {
-            heard = true;
-            modelNow = now;
-            current?.modelChanged(now);
-          },
-        });
+          opened.grant,
+        );
         // A change between the read above and the connection being registered reached nobody: read
         // again now that it would, and keep what an event said since if one came first.
         void options.modelReady().then((again) => {

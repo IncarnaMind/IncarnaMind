@@ -1337,10 +1337,10 @@ export function holdsMore(
 // ---------------------------------------------------------------------------
 // The implementation
 
-/** The core interface for one pairing's calls. */
 /**
- * `checkRun`: the connection is a check the User asked, started by IncarnaMind (./askedChecks): it takes
- * only the check's Tools, for that Note alone.
+ * The core interface for one pairing's calls. `checkRun`: the connection is a check the User
+ * pressed, started by IncarnaMind (./askedChecks): it takes only the check's Tools, for that Note
+ * alone, and reads only the pairing's Folders, never a file by its path.
  */
 export function createAgentAccess(
   deps: AgentAccessDeps,
@@ -1693,10 +1693,11 @@ export function createAgentAccess(
 
   /**
    * Whether a Citation the pairing was given may be used: of a Document it reaches, or of a file it
-   * cited by its path (#3509), whose tokens only it was given.
+   * cited by its path (#3509), whose tokens only it was given; a check run, which cites no path,
+   * rests on its Folders alone.
    */
   const usable = (inScope: ReadonlySet<string>, documentId: string) =>
-    inScope.has(documentId) || deps.citedOutside(documentId);
+    inScope.has(documentId) || (!checkRun && deps.citedOutside(documentId));
 
   /**
    * The Documents a check's results may rest on for the pairing: those it reaches, and files cited
@@ -1935,8 +1936,11 @@ export function createAgentAccess(
 
   /** The Note a check by the agent's own model takes: one it wrote, or one the User asked it to check. */
   const noteToCheck = (pairing: AdmittedPairing, mindId: unknown): Mind => {
-    if (checkRun && mindId !== checkRun.mindId) {
-      throw new AgentRefusedError("invalid", t("agents.problem.checkRun"));
+    if (checkRun) {
+      if (mindId !== checkRun.mindId) {
+        throw new AgentRefusedError("invalid", t("agents.problem.checkRun"));
+      }
+      return mindInScope(pairing, checkRun.mindId);
     }
     return typeof mindId === "string" && deps.askedChecks.holds(pairing.id, mindId)
       ? mindInScope(pairing, text(mindId, "mindId", 200))
@@ -2414,6 +2418,9 @@ export function createAgentAccess(
             "invalid",
             "citations must list at least one quote, with its passageId or path.",
           );
+        }
+        if (checkRun && list.some((each) => isRecord(each) && each.path !== undefined)) {
+          throw new AgentRefusedError("invalid", t("agents.problem.checkRunPath"));
         }
         const reachNow = () => new Set(scopeOf(deps.admit(pairingId), undefined));
         let inScope = new Set(scopeOf(pairing, undefined));

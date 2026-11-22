@@ -8170,6 +8170,8 @@ export const zhCN = {
     "{argument} 里有调用本身的标记 {markup}，不是笔记的文字：没有写入。请重新调用，每个参数各放在自己的字段里。",
   "agents.problem.checkRun":
     "这次核对只能核对它自己的笔记，只能用 check_mind_yourself、search、read_passages、cite、run_analysis 和 report_check。",
+  "agents.problem.checkRunPath":
+    "这次核对只能引用共享给这个智能体的文件夹里的段落，不能按路径引用文件：请为每条引文填写 search 或 read_passages 给出的 passageId。",
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → 智能体”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
@@ -8493,7 +8495,7 @@ export const zhCN = {
   "agents.share.all": "我的全部文档和笔记，包括以后添加的",
   "agents.share.folders": "选择文件夹",
   "agents.connect.background":
-    "还没在这里设置 AI 模型时，点“核对”会在这台电脑上以你的登录身份在后台启动 {agent} 核对笔记：不会打开 {agent}，也不会新增对话。它只读取上面所说的、IncarnaMind 交给它的内容，使用你的 Claude 订阅或 API 密钥。",
+    "没设置 AI 模型时，点“核对”会在后台启动你的 {agent} 来核对笔记，不打开窗口，也不新增对话。它只读 IncarnaMind 交给它的内容，用的是你自己的 Claude 订阅或 API 密钥。",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
@@ -8564,7 +8566,9 @@ export const zhCN = {
     "{agent} 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
   "agents.ownCheck.problem.too-old":
     "{agent} {found} 版本过旧，需要 {lowest} 或更高版本。更新后再点“核对”。",
-  "agents.ownCheck.problem.plan-limit": "{agent} 已停止：你的 Claude 订阅已达用量上限。稍后再试。",
+  "agents.ownCheck.problem.no-answer": "{agent} 在这台电脑上没有响应，核对没有开始。再试一次。",
+  "agents.ownCheck.problem.plan-limit":
+    "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
   "agents.ownCheck.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
   "agents.ownCheck.problem.timeout": "{agent} 超过 15 分钟仍未完成，核对已停止。再试一次。",
   "agents.ownCheck.problem.no-marks":
@@ -8572,6 +8576,8 @@ export const zhCN = {
   "agents.ownCheck.problem.isolation":
     "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。改为在 {agent} 中提问。",
   "agents.ownCheck.problem.access": "{agent} 已无法读取这篇笔记，核对已停止。",
+  "agents.ownCheck.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
+  "agents.ownCheck.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
   "agents.ownCheck.problem.failed": "{agent} 未完成就停止了。再试一次。",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
