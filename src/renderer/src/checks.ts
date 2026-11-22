@@ -21,14 +21,10 @@ import {
   type ProviderError,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import {
-  citationClosingLength,
-  parseQuotedWords,
-  type QuotedWordsOnPage,
-  quotedWordsAt,
-} from "../../shared/citations";
+import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../shared/citations";
 import { core } from "./core";
 import { citationDecision, citationsOf, partDecisions } from "./editor/alreadyCited";
+import { citationInsertionPoint } from "./editor/citationInsertion";
 import type { NumberedCitation } from "./editor/citationNumbers";
 import {
   canBeCited,
@@ -436,9 +432,7 @@ export function addAsCitation(
   if (!evidence || !type || !mark || citationDecision(state, claim, onPage).kind !== "add") {
     return false;
   }
-  const words = state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
-  const closing = citationClosingLength(words);
-  const at = claim.sentence.to - closing;
+  const at = citationInsertionPoint(state.doc, claim.sentence.from, claim.sentence.to);
   const tr = state.tr;
   if (!foundElsewhere(claim)) tr.removeMark(claim.from, claim.to, mark);
   tr.insert(at, type.create(foundCitation(evidence)));
@@ -483,8 +477,7 @@ function partCitationInserts(
     const place = placeInSentence(state, claim, { from: part.span.start, to: part.span.end });
     if (!place) return "changed";
     added.push(...citations);
-    const words = state.doc.textBetween(place.from, place.to, "\n", "￼");
-    inserts.push({ at: place.to - citationClosingLength(words), citations });
+    inserts.push({ at: citationInsertionPoint(state.doc, place.from, place.to), citations });
   }
   return inserts;
 }

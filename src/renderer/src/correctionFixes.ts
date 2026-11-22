@@ -23,13 +23,13 @@ import {
   type RecordAiUseInput,
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
-import { citationClosingLength } from "../../shared/citations";
 import { checkedCitation } from "../../shared/claimParts";
 import { readProposalAttribute } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
 import { core } from "./core";
 import { citationsOf } from "./editor/alreadyCited";
+import { citationInsertionPoint } from "./editor/citationInsertion";
 import { claimSpans, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { translateNow } from "./i18n";
@@ -222,8 +222,7 @@ export function writeCorrections(tr: Transaction, plans: readonly CorrectionPlan
     const sentenceFrom = tr.mapping.map(plan.claim.sentence.from, -1);
     const sentenceTo = tr.mapping.map(plan.claim.sentence.to);
     const lastWord = Math.max(...plan.edits.map((edit) => tr.mapping.map(edit.to)));
-    const words = tr.doc.textBetween(sentenceFrom, sentenceTo, "\n", INLINE_NODE);
-    const at = Math.max(lastWord, sentenceTo - citationClosingLength(words));
+    const at = Math.max(lastWord, citationInsertionPoint(tr.doc, sentenceFrom, sentenceTo));
     tr.insert(
       at,
       plan.cites.map((evidence) =>

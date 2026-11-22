@@ -32,7 +32,8 @@
  */
 import { randomUUID } from "node:crypto";
 import * as Y from "yjs";
-import { citationAttributesOf, citationClosingLength } from "../../../shared/citations";
+import { citationBackstep } from "../../../shared/citationPlace";
+import { citationAttributesOf } from "../../../shared/citations";
 import { passageToAdd } from "../../../shared/citedNow";
 import { readClaimCheck } from "../../../shared/claimChecks";
 import { isOwnView, partsWrittenBy, planOf } from "../../../shared/claimParts";
@@ -680,7 +681,7 @@ function foundPlaces(
   return found.flatMap(({ claim, span, citation }) => {
     const end = claim === now.claim ? inlineRange(projection, span.start, span.end)?.to : undefined;
     if (end === undefined) return [];
-    return [{ at: end - citationClosingLength(text.slice(place.from, end)), citation }];
+    return [{ at: end - citationBackstep(text.slice(place.from, end)), citation }];
   });
 }
 
