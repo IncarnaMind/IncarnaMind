@@ -8910,6 +8910,9 @@ export const en = {
   "agents.pairing.disconnect": "Disconnect",
   "agents.pairing.details": "Details for technical users",
   "agents.pairing.skill": "Skill installed: {agent} knows when to use IncarnaMind",
+  "agents.pairing.repair.line":
+    "{agent} can’t reach IncarnaMind: IncarnaMind has moved since it was connected",
+  "agents.pairing.repair": "Repair",
   "agents.pairing.skillOld": "Skill out of date: you changed it",
   "agents.pairing.skillOld.replace": "Replace…",
   "agents.pairing.skillOld.ask": "Replacing discards your changes to the Skill file.",

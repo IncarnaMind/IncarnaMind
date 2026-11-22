@@ -36,7 +36,7 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, sep } from "node:path";
+import { dirname, isAbsolute, join, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { clientTitle } from "../../shared/agentNames";
 import { AGENT_TOKEN_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
@@ -73,6 +73,7 @@ import {
   withCodexTable,
   withMcpServersEntry,
   withoutCodexTable,
+  writtenCommand,
 } from "./clients";
 import type { PairingEvents } from "./index";
 import { SKILL_MARKDOWN } from "./skill";
@@ -710,6 +711,35 @@ export function createAgentSetup(options: AgentSetupOptions) {
       }
       await removeCreatedFolders(created).catch(options.reportError);
       return { skillsLeft };
+    },
+
+    /**
+     * Whether a pairing's entry in its agent's settings starts a program that is no longer there:
+     * an AppImage's from an earlier start, or an app moved since (#3644). Only IncarnaMind's own
+     * entry is read, the one that holds this pairing's key.
+     */
+    async needsRepair(pairingId: unknown): Promise<boolean> {
+      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
+      if (!pairing || clientDefinition(pairing.client)?.setup !== "file") return false;
+      const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
+      if (token === "") return false;
+      for (const file of settingsFilesFor(pairing.client)) {
+        const text = await readText(pathOf(file));
+        if (text === null || !text.includes(token)) continue;
+        const command = writtenCommand(file.format, text);
+        if (command !== null && isAbsolute(command) && !existsSync(command)) return true;
+      }
+      return false;
+    },
+
+    /** Writes a pairing's entry again with the program as it is now: the User's Repair (#3644). */
+    async repair(pairingId: unknown): Promise<AgentSetupResult> {
+      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
+      const client = pairing ? clientDefinition(pairing.client) : undefined;
+      if (!pairing || !client) throw new NotFoundError({ key: "error.agent.notConnected" });
+      const result = await install(client, pairing.id, await options.agents.launch(pairing.id));
+      options.agents.announce();
+      return result;
     },
 
     /** At start-up: the Skill's copies IncarnaMind wrote, brought up to the current text. */

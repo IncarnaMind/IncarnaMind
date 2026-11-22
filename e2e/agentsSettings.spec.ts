@@ -583,3 +583,56 @@ test("Local mode pauses agents, and the page reads in Chinese at a narrow window
     await app.close();
   }
 });
+
+// protects=a connection whose program has gone since it was made (an AppImage's mount, an app moved) says so in its own row in English and Chinese, and Repair writes its entry again so the line goes; fails_when=the row reads as working while the agent can't start IncarnaMind, or Repair leaves the old program in the agent's settings
+test("a connection whose program has moved says so in its row, and Repair writes it again (#3644)", async () => {
+  await mkdir(join(home, ".codex"));
+  const codexSettings = join(home, ".codex", "config.toml");
+  await writeFile(codexSettings, 'model = "gpt-6-luna"\n');
+  const first = await launchApp(dataDir, { home });
+  let command = "";
+  try {
+    await dismissChatSetup(first.window);
+    await withCoast(first.window);
+    await acceptPlainTextKeys(first.window);
+    command = await first.window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const coast = (await bridge.getLibrary()).groups.find((group) => group.name === "Coast");
+      await bridge.setAgentsEnabled(true);
+      const { pairing } = await bridge.setUpAgent({
+        client: "codex",
+        folderIds: [coast?.id ?? ""],
+      });
+      return (await bridge.getAgentLaunch(pairing.id)).command;
+    });
+  } finally {
+    await first.app.close();
+  }
+  // The program Codex was given is gone, as an AppImage's mount is once it quits.
+  const gone = join(home, "gone", ".mount_x7Kq", "incarnamind");
+  const written = await readFile(codexSettings, "utf8");
+  await writeFile(codexSettings, written.replace(JSON.stringify(command), JSON.stringify(gone)));
+
+  const { app, window } = await launchApp(dataDir, { home });
+  try {
+    await dismissChatSetup(window);
+    const page = await openSettings(window, "ai");
+    const row = page.getByTestId("agent-pairing");
+    const line = row.getByTestId("agent-pairing-repair");
+    await expect(line).toContainText(
+      "ChatGPT app and Codex can’t reach IncarnaMind: IncarnaMind has moved since it was connected",
+    );
+    await setLanguage(window, "zh-CN");
+    await expect(line).toContainText("连不上 IncarnaMind：连接之后 IncarnaMind 换了位置");
+    await expect(row.getByTestId("agent-pairing-repair-button")).toHaveText("修复");
+    await setLanguage(window, "en");
+
+    await row.getByTestId("agent-pairing-repair-button").click();
+    await expect(line).toBeHidden();
+    const repaired = await readFile(codexSettings, "utf8");
+    expect(repaired).not.toContain(gone);
+    expect(repaired.startsWith('model = "gpt-6-luna"')).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
