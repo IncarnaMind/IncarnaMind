@@ -633,10 +633,11 @@ test("the model that sorts and tags is one optional line: closed, the step is as
   // A model set up in the step can sort too: choosing it is the one setting Settings › AI has.
   await useLocalChatModel(window);
   await expect(ai.getByTestId("setup-ai-works")).toBeVisible();
-  // The model set up in the step, by its name.
-  const ownOption = picker.locator("option", { hasText: /^Use / });
+  // The model set up in the step, by its name: "Use fake-model".
+  const ownOption = picker.locator(`option[value*='"kind":"chat"']`);
   await expect(ownOption).toHaveCount(1);
   const own = (await ownOption.textContent()) ?? "";
+  expect(own).toBe(translate("en", "models.sorting.chat", { model: "fake-model" }));
   await picker.selectOption({ label: own });
   await expect(panel.getByTestId("models-sorting-line")).toContainText("nothing leaves");
   const library = (await bridge(window).library()).settings;

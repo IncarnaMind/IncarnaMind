@@ -8840,6 +8840,7 @@ export const en = {
   "agents.settings.paused.open": "Change in Limits ›",
   "agents.settings.connectFirst": "Connect an agent\u2026",
   "agents.settings.connectAnother": "Connect another agent\u2026",
+  "agents.settings.readFailed": "Couldn’t read your AI’s connections",
   "agents.settings.connect.note": "Agents found on this computer come first.",
   "agents.settings.web": "Online-only chat apps can’t reach IncarnaMind.",
   "agents.find": "Search {count} agents",

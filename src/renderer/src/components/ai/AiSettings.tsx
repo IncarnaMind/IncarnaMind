@@ -105,7 +105,7 @@ export function AiSettings() {
     rerankAnswered &&
     sortingAnswered &&
     checkDecision !== undefined &&
-    agents.settings !== null &&
+    (agents.settings !== null || agents.failed) &&
     agents.clients !== null &&
     (servicesAnswered || services.state !== "loading");
 

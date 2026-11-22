@@ -12880,7 +12880,10 @@ export interface AgentPairing {
 }
 
 export interface AgentSettings {
-  /** Connecting agents is on. Off by default; connecting an agent turns it on; off, nothing listens. */
+  /**
+   * Connecting agents is on. Off by default; Settings and first run turn it on as the User connects
+   * an agent (`agentConnector`); off, nothing listens.
+   */
   enabled: boolean;
   /**
    * "local-mode": Local mode pauses every pairing, because an agent sends what

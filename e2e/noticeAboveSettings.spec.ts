@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -113,7 +114,10 @@ test("a dialog that opens over Settings leaves the notice readable and dismissab
     await expect(notice).toBeVisible();
 
     const settings = window.getByTestId("settings");
-    await settings.locator('[data-client="codex"]').getByTestId("agent-connect").focus();
+    await (await agentsToConnect(settings))
+      .locator('[data-client="codex"]')
+      .getByTestId("agent-connect")
+      .focus();
     await window.keyboard.press("Enter");
     const connect = window.getByTestId("connect-agent-dialog");
     await expect(connect).toBeVisible();

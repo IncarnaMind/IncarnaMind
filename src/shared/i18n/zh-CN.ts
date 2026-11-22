@@ -8312,6 +8312,7 @@ export const zhCN = {
   "agents.settings.paused.open": "在“限制”中更改 ›",
   "agents.settings.connectFirst": "连接智能体\u2026",
   "agents.settings.connectAnother": "连接其他智能体\u2026",
+  "agents.settings.readFailed": "无法读取你的 AI 的连接",
   "agents.settings.connect.note": "在这台电脑上找到的智能体排在前面。",
   "agents.settings.web": "只能在线使用的聊天应用无法连接 IncarnaMind。",
   "agents.find": "搜索 {count} 个智能体",

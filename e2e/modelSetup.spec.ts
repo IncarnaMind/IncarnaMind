@@ -869,7 +869,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(() => controlReads(app, "core:setTranscriptionKey", {})).toBe(1);
       await closeSettingsDialog(window);
       const again = await settingsOnModels(window);
-      await expect(again.getByTestId("your-providers")).toBeVisible();
+      // With no model and no key kept yet, there is no Accounts and keys (#3645).
+      await expect(again.getByTestId("ai-limits")).toBeVisible();
       await expect(sonioxRow(again)).toHaveCount(0);
 
       // The core keeps the key: Your providers lists it, though the reads that came back are

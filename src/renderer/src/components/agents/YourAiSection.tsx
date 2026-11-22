@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentClient, AgentSettings, LibraryGroup } from "../../../../core/api";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { noModelSetUp } from "../../noModelSetUp";
 import { useAppStore } from "../../store";
 import { InlinePath } from "../PathText";
+import { ProblemLine, ProblemMark } from "../ProblemLine";
 import { SLOT, Slotted } from "../Slotted";
 import {
   SettingsGroup,
@@ -25,25 +26,48 @@ const NO_FOLDERS: readonly LibraryGroup[] = [];
 
 export interface AgentsRead {
   settings: AgentSettings | null;
+  /** The agents' settings couldn't be read: Your AI says so, and the rest of the page shows. */
+  failed: boolean;
   /** The agents IncarnaMind can be set up in; none listed when they couldn't be read. */
   clients: readonly AgentClient[] | null;
+  /**
+   * Connecting is off with an agent connected, so the switch shows; once shown it stays while
+   * Settings is open, a provider's page and back included, not going from under the pointer.
+   */
+  switchShown: boolean;
   setSettings(settings: AgentSettings): void;
+  retry(): void;
 }
 
 /** What Your AI shows, read with the rest of Settings › AI and kept as it changes. */
 export function useAgentsRead(): AgentsRead {
   const reportError = useAppStore((state) => state.reportError);
   const [settings, setSettings] = useState<AgentSettings | null>(null);
+  const [failed, setFailed] = useState(false);
   const [clients, setClients] = useState<readonly AgentClient[] | null>(null);
+  const [switchShown, setSwitchShown] = useState(false);
+  if (!switchShown && settings && !settings.enabled && settings.pairings.length > 0) {
+    setSwitchShown(true);
+  }
+  const read = useCallback(() => {
+    setFailed(false);
+    core.getAgents().then(setSettings, (failure: unknown) => {
+      console.error("Couldn't read the agents' settings for Settings › AI:", failure);
+      setFailed(true);
+    });
+  }, []);
   useEffect(() => {
-    core.getAgents().then(setSettings, reportError);
+    read();
     core.listAgentClients().then(setClients, (failure: unknown) => {
       reportError(failure);
       setClients([]);
     });
-    return core.on("agents.changed", setSettings);
-  }, [reportError]);
-  return { settings, clients, setSettings };
+    return core.on("agents.changed", (next) => {
+      setFailed(false);
+      setSettings(next);
+    });
+  }, [read, reportError]);
+  return { settings, failed, clients, switchShown, setSettings, retry: read };
 }
 
 /**
@@ -57,7 +81,14 @@ export function useAgentsRead(): AgentsRead {
  * src/core/agents/clients.ts. Connect asks once, in plain words, what the agent may read and where
  * that goes, then sets it up in one click where the agent allows it (see src/core/agents/setup.ts).
  */
-export function YourAiSection({ settings, clients, setSettings }: AgentsRead) {
+export function YourAiSection({
+  settings,
+  failed,
+  clients,
+  switchShown,
+  setSettings,
+  retry,
+}: AgentsRead) {
   const t = useT();
   const language = useLanguage();
   const reportError = useAppStore((state) => state.reportError);
@@ -70,13 +101,9 @@ export function YourAiSection({ settings, clients, setSettings }: AgentsRead) {
   // The Skill a Disconnect left because the User changed it, said until the page goes.
   const [skillLeft, setSkillLeft] = useState<{ agent: string; paths: string[] } | null>(null);
   const [addingAnother, setAddingAnother] = useState(false);
-  // Shown once connecting is seen off, it stays while Settings is open: it doesn't go from under
-  // the pointer that just turned it on.
-  const [switchShown, setSwitchShown] = useState(false);
   const list = useRef<HTMLDivElement>(null);
 
   const connected = settings?.pairings ?? [];
-  if (!switchShown && settings && !settings.enabled && connected.length > 0) setSwitchShown(true);
   // Open while nothing at all is set up; otherwise one row unfolds it.
   const listed = (connected.length === 0 && noModel) || addingAnother;
 
@@ -84,6 +111,19 @@ export function YourAiSection({ settings, clients, setSettings }: AgentsRead) {
     if (addingAnother) list.current?.querySelector<HTMLInputElement>("input")?.focus();
   }, [addingAnother]);
 
+  if (failed) {
+    return (
+      <SettingsSection testId="agents-connected" title={t("setupPage.ai.title")}>
+        <ProblemLine
+          testId="agents-read-failed"
+          action={{ label: t("answer.error.retry"), onClick: retry }}
+        >
+          <ProblemMark />
+          {t("agents.settings.readFailed")}
+        </ProblemLine>
+      </SettingsSection>
+    );
+  }
   if (!settings) return null;
 
   const turn = (enabled: boolean) => core.setAgentsEnabled(enabled).then(setSettings, reportError);

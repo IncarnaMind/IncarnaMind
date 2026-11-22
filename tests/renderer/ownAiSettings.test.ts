@@ -60,8 +60,11 @@ const {
 }: {
   YourAiSection: ComponentType<{
     settings: AgentSettings | null;
+    failed: boolean;
     clients: readonly AgentClient[] | null;
+    switchShown: boolean;
     setSettings(settings: AgentSettings): void;
+    retry(): void;
   }>;
 } = await import(yourAiPath);
 const useModelPath = "../../src/renderer/src/components/ai/UseModelRow.tsx";
@@ -301,14 +304,24 @@ const agents = (pairings: AgentPairing[], enabled = true): AgentSettings =>
   }) as never;
 
 describe("Settings › AI leads with Your AI (#3645)", () => {
+  const retry = vi.fn();
   const yourAi = async (
     settings: AgentSettings,
     readiness: ChatReadiness = NO_MODEL,
     language = "en",
+    failed = false,
   ) => {
     user(readiness, false, language);
     const container = await shown(
-      createElement(YourAiSection, { settings, clients: CLIENTS, setSettings: () => undefined }),
+      createElement(YourAiSection, {
+        settings: failed ? null : settings,
+        failed,
+        clients: CLIENTS,
+        // As the page's read says: connecting off with an agent connected.
+        switchShown: !settings.enabled && settings.pairings.length > 0,
+        setSettings: () => undefined,
+        retry,
+      }),
     );
     const part = (id: string) => container.querySelector(`[data-testid="${id}"]`);
     const listed = () =>
@@ -353,6 +366,17 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     expect(toggle?.checked).toBe(false);
     expect(container.textContent).toContain("Off: no agent can reach your Documents.");
     expect(part("agent-pairing")).not.toBeNull();
+  });
+
+  test("agents that can't be read: one line with Try again, and nothing else of Your AI", async () => {
+    const { part, listed } = await yourAi(agents([]), NO_MODEL, "en", true);
+    expect(part("agents-read-failed")?.textContent).toContain(
+      "Couldn’t read your AI’s connections",
+    );
+    expect(listed()).toEqual([]);
+    const again = part("agents-read-failed")?.querySelector("button");
+    await act(async () => (again as unknown as { click(): void }).click());
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   test("in Chinese, in Chinese words", async () => {
