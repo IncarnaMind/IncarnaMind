@@ -152,7 +152,7 @@ describe("Migration 22: Units", { timeout: 30_000 }, () => {
   });
 
   test("at startup, Markdown and TXT are processed again into sections and lines; PDFs are left as they are", async () => {
-    expect(CURRENT_SINCE).toMatchObject({ markdown: 5, text: 5 });
+    expect(CURRENT_SINCE).toMatchObject({ markdown: 31, text: 5 });
     const { dataDir } = await beforeUnits();
     const core = startCore(dataDir);
     const statuses: [string, Document["status"]][] = [];
