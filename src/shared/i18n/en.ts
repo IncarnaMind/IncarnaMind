@@ -8901,7 +8901,7 @@ export const en = {
   "agents.activity.read_passages": "Read passages",
   "agents.activity.cite": "Cited “{text}”",
   "agents.activity.check_citations": "Checked its Citations",
-  "agents.activity.show_citation": "Showed you a Citation",
+  "agents.activity.show_citation": "Opened it in IncarnaMind for you",
   "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
   "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
   "agents.sorting.shareTags": "Allow sharing Tag names",

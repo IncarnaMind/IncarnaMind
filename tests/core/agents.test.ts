@@ -993,8 +993,9 @@ describe("outside agents", () => {
     // part is sized to be read in full (#3586); 3,421 before cite took a list of any length (#3585);
     // 3,417 before propose_sorting took new Folders and Tags by name, and list_sorting asked for
     // every page before a suggestion (#3610); 3,459 before propose_sorting took a Suggestion for
-    // every Document one list answer holds (#3626).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_455);
+    // every Document one list answer holds (#3626); 3,455 before show_citation showed a Note, file or
+    // Canvas again by its id (#3534).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_479);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
