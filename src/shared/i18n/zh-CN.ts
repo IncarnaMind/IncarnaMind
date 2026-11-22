@@ -6201,6 +6201,9 @@ export const zhCN = {
   "error.agent.nameTaken": "已有名为“{name}”的智能体。",
   "error.agent.noFolders": "至少选择一个文件夹，供智能体读取。",
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
+  "error.agent.socketTooLong":
+    "智能体无法从这个文件夹连接到 IncarnaMind：路径太长，无法建立本地连接。请改用更短的数据文件夹或临时文件夹。",
+  "error.agent.socketUnavailable": "智能体暂时无法连接到 IncarnaMind：无法打开本地连接。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
