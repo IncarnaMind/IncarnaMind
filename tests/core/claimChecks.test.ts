@@ -895,6 +895,161 @@ describe("A reply whose verdict is written in the turn that calls cite (#1673)",
   );
 });
 
+describe("A reply with a verdict and no recorded quote (#3595)", () => {
+  const SALES_DOC = {
+    name: "Tile sales 2025.md",
+    contents:
+      "# Tile sales 2025\n\nIn 2025 sales of floor tiles came to £2,416,000 and sales of wall tiles to £1,087,500.",
+  };
+  const SALES_SENTENCE = "Floor and wall tiles together sold £3,503,500 in 2025.";
+  const SALES_QUOTE =
+    "sales of floor tiles came to £2,416,000 and sales of wall tiles to £1,087,500";
+  const SALES_SAYS =
+    "The report gives £2,416,000 for floor tiles and £1,087,500 for wall tiles, totalling £3,503,500.";
+
+  const askedToCite = (call: ModelCall) =>
+    JSON.stringify(call.options.prompt).includes("Your verdict rests on no recorded quote");
+
+  // protects=a Run that writes a verdict in text without calling cite gets one more turn to record its quote and finishes Supported with that Citation (#3595); fails_when=the sentence is left Not checked (no-evidence); no_claim=how often a real model omits cite.
+  test("a verdict in text without calling cite gets one more turn to record its quote", async () => {
+    const model = scriptedModel(
+      (call) => {
+        if (!askedToCite(call)) {
+          return {
+            text: `Details: total £3,503,500 / £2,416,000 + £1,087,500 = £3,503,500, same.\nVerdict: supported\nExplanation: ${SALES_SAYS}\nEvidence: []\nWorking: 2,416,000 + 1,087,500 = 3,503,500`,
+          };
+        }
+        const search = call.results.find((result) => result.tool === "search_documents");
+        const passage = shownPassages(search?.text ?? "").find((each) =>
+          each.text.includes(SALES_QUOTE),
+        );
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [{ marker: 1, passage: passage?.id ?? "P1", quote: SALES_QUOTE }],
+                verdict: "supported",
+                explanation: `${SALES_SAYS} [^1]`,
+                working: "2,416,000 + 1,087,500 = 3,503,500",
+              },
+            },
+          ],
+        };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, client, check } = await mindWith([SALES_SENTENCE], model, [SALES_DOC]);
+
+    expect(await check()).toEqual({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    expect(checked?.check.evidence).toMatchObject({ quote: SALES_QUOTE, check: "found" });
+    expect(model.doStreamCalls).toHaveLength(2);
+  });
+
+  // protects=a verdict written beside calculate with a follow-up line that omits Verdict still triggers cite-first and records its quote (#3595); fails_when=cite-first ignores setAside and leaves the sentence Not checked; no_claim=none beyond protects.
+  test("a verdict written beside calculate without calling cite still gets its turn to record its quote", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const search = call.results.find((result) => result.tool === "search_documents");
+        const passage = shownPassages(search?.text ?? "").find((each) =>
+          each.text.includes(SALES_QUOTE),
+        );
+        if (askedToCite(call)) {
+          return {
+            calls: [
+              {
+                tool: "cite",
+                input: {
+                  citations: [{ marker: 1, passage: passage?.id ?? "P1", quote: SALES_QUOTE }],
+                  verdict: "supported",
+                  explanation: `${SALES_SAYS} [^1]`,
+                },
+              },
+            ],
+          };
+        }
+        if (!call.results.some((result) => result.tool === "calculate")) {
+          return {
+            text: `Verdict: supported\nExplanation: ${SALES_SAYS}\nEvidence: []`,
+            calls: [
+              {
+                tool: "calculate",
+                input: {
+                  figures: [
+                    {
+                      marker: 1,
+                      label: "Total tile sales",
+                      shown: "£3,503,500",
+                      formula: "floor + wall",
+                      inputs: [
+                        {
+                          name: "floor",
+                          label: "Floor tiles",
+                          value: 2_416_000,
+                          passage: passage?.id ?? "P1",
+                          quote: SALES_QUOTE,
+                        },
+                        {
+                          name: "wall",
+                          label: "Wall tiles",
+                          value: 1_087_500,
+                          passage: passage?.id ?? "P1",
+                          quote: SALES_QUOTE,
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          };
+        }
+        return { text: `Explanation: ${SALES_SAYS}` };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, client, check } = await mindWith([SALES_SENTENCE], model, [SALES_DOC]);
+
+    expect(await check()).toEqual({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "supported" });
+    expect(checked?.check.evidence).toMatchObject({ quote: SALES_QUOTE, check: "found" });
+  });
+
+  // protects=a verdict whose only quote is not found word for word stays Not checked even after its extra turn (#3595); fails_when=the sentence is marked Supported without a verbatim quote; no_claim=none beyond protects.
+  test("a verdict that still records no verbatim quote on its extra turn stays Not checked", async () => {
+    const model = scriptedModel(
+      (call) => {
+        const search = call.results.find((result) => result.tool === "search_documents");
+        const passage = shownPassages(search?.text ?? "").find((each) =>
+          each.text.includes(SALES_QUOTE),
+        );
+        if (!askedToCite(call)) {
+          return {
+            text: `Verdict: supported\nExplanation: ${SALES_SAYS}\nEvidence: [1]\n<cite>[{"marker":1,"passage":"${passage?.id ?? "P1"}","quote":"floor and wall tiles sold 3,503,500"}]</cite>`,
+          };
+        }
+        return {
+          text: `Verdict: supported\nExplanation: ${SALES_SAYS}\nEvidence: []`,
+        };
+      },
+      { generate: checkGenerate({}) },
+    );
+    const { core, client, check } = await mindWith([SALES_SENTENCE], model, [SALES_DOC]);
+
+    expect(await check()).toEqual({ kind: "checked", sentences: 1, checked: 0, smallModel: false });
+
+    const [checked] = await shownChecks(core, client);
+    expect(checked?.shown).toEqual({ state: "not-checked", reason: "no-evidence" });
+    expect(checked?.check.evidence).toBeNull();
+    expect(model.doStreamCalls).toHaveLength(2);
+  });
+});
+
 describe("Needs re-check", () => {
   test("editing a checked sentence, inside or at its start, makes its check need a re-check", async () => {
     const { core, client, check } = await mindWith([SUPPORTED, UNSUPPORTED]);
