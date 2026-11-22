@@ -6467,6 +6467,8 @@ export const zhCN = {
   "command.sources.find": "查找资料…",
   "command.sources.find.keywords": "论文 文献 文章 研究 搜索 OpenAlex arXiv PubMed DOI",
   "command.citation.open": "打开引用页面",
+  "command.citation.nextQuote": "此引用的下一处引文",
+  "command.citation.previousQuote": "此引用的上一处引文",
   "command.viewer.openCurrentVersion": "打开当前版本",
   "command.suggestions.on": "开启写作建议",
   "command.suggestions.off": "关闭写作建议",

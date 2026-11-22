@@ -804,6 +804,10 @@
     td.viewer-cell--quote {
       background: var(--quote-wash);
     }
+    /* Another quote of the same chip than the one the viewer is on (`useQuoteSteps`). */
+    td.viewer-cell--quote.quote-highlight--other {
+      background: color-mix(in srgb, var(--quote-wash) 30%, transparent);
+    }
     td.viewer-grid-corner {
       @apply sticky top-0 left-0 z-[10] bg-frame p-0;
     }
@@ -952,6 +956,11 @@
     padding: 1px;
     background-color: var(--quote-wash);
     border-radius: 2px;
+
+    /* Another quote of the same chip than the one the viewer is on (`useQuoteSteps`). */
+    &.quote-highlight--other {
+      background-color: color-mix(in srgb, var(--quote-wash) 30%, transparent);
+    }
 
     &.appended {
       position: initial;

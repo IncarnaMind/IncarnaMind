@@ -17,7 +17,7 @@
 import { deflateRawSync } from "node:zlib";
 import { footnoteSubjectKey } from "../../shared/citations";
 import type { PrintedMarks } from "../../shared/exportMarks";
-import { FootnoteNumbering } from "../../shared/footnoteNumbers";
+import { FootnoteNumbering, sharesMarkBefore } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
 import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
 import type { CitedWork, MindComment, ParagraphFormat, StyledRun } from "../api";
@@ -37,7 +37,7 @@ import {
 } from "../mindText";
 import { tabHeading } from "../noteTabs";
 import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
-import { changeKey } from "./citations";
+import { changeKey, isBlank, sharedNoteOf } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
 import { noteChecks } from "./noteChecks";
@@ -1111,6 +1111,10 @@ export class DocxWriter {
             const apart = before?.kind === "text" && /\S$/.test(before.text);
             xml += this.source(item.footnote, apart ? " " : "");
           } else {
+            // Side by side with a Citation of the same note: its mark stands for both (#3654).
+            const pending = context.pending === true;
+            if (sharesMarkBefore(content, index, (each) => sharedNoteOf(each, pending), isBlank))
+              break;
             const reference = this.footnote(
               item.footnote,
               item.work,

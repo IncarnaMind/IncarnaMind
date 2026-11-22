@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -42,9 +43,17 @@ import { useLanguage, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { FileStates } from "./FileStates";
 import { CitationMark, MARK_HEIGHT, quoteMarkOf, quoteTone, useMarkMeasure } from "./quoteMark";
+import {
+  CURRENT_QUOTE,
+  QuoteStepContext,
+  QuoteStepsLine,
+  quoteClass,
+  quoteIndexProps,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { citeRangeAction, SheetSelectionMenu } from "./SelectionMenu";
 import { addRangeToNote, askAboutRange, copyRange } from "./selectionActions";
 import {
@@ -188,10 +197,24 @@ function Sheets({
   const sheets = workbook.sheets;
   const from = target.pageFrom ?? 1;
   const to = target.pageTo ?? from;
-  const found = useMemo(
-    () => (target.quote ? findCells(units, target.quote, target.pageFrom, target.pageTo) : null),
-    [units, target.quote, target.pageFrom, target.pageTo],
-  );
+  const found = useMemo(() => {
+    const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
+    let sheet: string | null = null;
+    const cells = new Set<string>();
+    /** Which quote each cell is of, when several quotes of one chip are marked. */
+    const quoteOf = new Map<string, number>();
+    for (const [index, quote] of quotes.entries()) {
+      const one = findCells(units, quote, target.pageFrom, target.pageTo);
+      if (!one) continue;
+      sheet ??= one.sheet;
+      if (one.sheet !== sheet) continue;
+      for (const cell of one.cells) {
+        cells.add(cell);
+        if (quotes.length > 1 && !quoteOf.has(cell)) quoteOf.set(cell, index);
+      }
+    }
+    return sheet === null ? null : { sheet, cells, quoteOf };
+  }, [units, target.quote, target.quotes, target.pageFrom, target.pageTo]);
   const citedUnit = units.find((unit) => unit.page === from);
   const citedSheet = found?.sheet ?? citedUnit?.label?.sheet ?? null;
   const [active, setActive] = useState(() =>
@@ -289,10 +312,12 @@ function Sheets({
     Boolean(hasContent) && (citedSheet === null || sheet?.name === citedSheet),
     citedArea,
   );
+  const { step, stepper } = useQuoteSteps({ target, root: box, drawn: found });
 
   return (
-    <>
+    <QuoteStepContext.Provider value={step}>
       <ViewerHeader placeGone={citedPlaceGone(target, units.length)} />
+      <QuoteStepsLine stepper={stepper} />
       <div
         ref={box}
         data-testid="viewer-sheet"
@@ -308,6 +333,7 @@ function Sheets({
             units={units}
             headerRow={headerRows.get(sheet.name) ?? null}
             highlighted={found?.sheet === sheet.name ? found.cells : null}
+            quoteOf={found?.quoteOf ?? null}
             mark={found?.sheet === sheet.name ? mark : null}
             scrollTo={sheet.name === (citedSheet ?? "") ? scrollTo : null}
           />
@@ -363,7 +389,7 @@ function Sheets({
           ))}
         </div>
       </div>
-    </>
+    </QuoteStepContext.Provider>
   );
 }
 
@@ -578,6 +604,7 @@ function Grid({
   units,
   headerRow: sheetHeaderRow,
   highlighted,
+  quoteOf,
   mark,
   scrollTo,
 }: {
@@ -587,10 +614,13 @@ function Grid({
   units: readonly TextUnit[];
   headerRow: number | null;
   highlighted: ReadonlySet<string> | null;
+  /** Which of the quotes opened together each highlighted cell is of (`useQuoteSteps`). */
+  quoteOf: ReadonlyMap<string, number> | null;
   mark: ReturnType<typeof quoteMarkOf>;
   scrollTo: ScrollRequest | null;
 }) {
   const t = useT();
+  const step = useContext(QuoteStepContext);
   const scroller = useRef<HTMLDivElement>(null);
   const table = useRef<HTMLTableElement>(null);
   const [view, setView] = useState({ top: 0, height: 600, left: 0, width: 600 });
@@ -878,7 +908,7 @@ function Grid({
       setPlace(null);
       return;
     }
-    const marked = [...grid.querySelectorAll<HTMLElement>("td[data-quote-highlight]")];
+    const marked = [...grid.querySelectorAll<HTMLElement>(`td${CURRENT_QUOTE}`)];
     if (marked.length === 0) {
       setPlace(null);
       return;
@@ -913,7 +943,7 @@ function Grid({
         { ...measured, height: MARK_HEIGHT },
       ),
     );
-  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen]);
+  }, [mark, highlighted, first, last, view, measured, rows, columns, model.frozen, step]);
 
   const styleOf = (row: number, column: number): CellStyle | undefined =>
     model.book?.styles[styleIndexAt(model, row, column)];
@@ -948,6 +978,7 @@ function Grid({
       const { at, cell, shown, text } = contentOf(top, column);
       const style = styleOf(top, column);
       const isHighlighted = highlighted?.has(cellKey(sheet.name, ref)) ?? false;
+      const quote = isHighlighted ? quoteOf?.get(cellKey(sheet.name, ref)) : undefined;
       const isPicked = activeRange !== null && isInRange(activeRange, top, column);
 
       // Its extent: merged rows and columns in view, or empty cells its text spills over.
@@ -1120,12 +1151,13 @@ function Grid({
           data-ref={ref}
           data-row={top}
           data-quote-highlight={isHighlighted ? "" : undefined}
+          {...quoteIndexProps(quote)}
           data-selected={isPicked ? "" : undefined}
           rowSpan={spanRows > 1 ? spanRows : undefined}
           colSpan={spanColumns > 1 ? spanColumns : undefined}
           title={note ?? (unsavedMark ? t("sheet.noSavedValue") : undefined)}
           aria-label={unsavedMark ? t("sheet.noSavedValue") : undefined}
-          className={`${csv && numeric ? "viewer-cell--number" : ""} ${isHighlighted ? "viewer-cell--quote" : ""} ${note ? "viewer-cell--note" : ""} ${unsaved ? "viewer-cell--unsaved" : ""}`}
+          className={`${csv && numeric ? "viewer-cell--number" : ""} ${isHighlighted ? `viewer-cell--quote${quoteClass(quote, step)}` : ""} ${note ? "viewer-cell--note" : ""} ${unsaved ? "viewer-cell--unsaved" : ""}`}
           style={css}
         >
           {csv ? (

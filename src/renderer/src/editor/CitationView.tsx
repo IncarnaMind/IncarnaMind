@@ -41,7 +41,6 @@ import {
   quoteWashedOnOpen,
   withShownName,
 } from "../../../shared/citations";
-import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import {
   citationLocation,
   formatLocation,
@@ -93,7 +92,13 @@ import {
   clusterPlaceOf,
   memberMarker,
 } from "./citationClusters";
-import { type CitationLook, showLook, useCitationLooks, worstLook } from "./citationLooks";
+import {
+  type CitationLook,
+  groupBadgeText,
+  showLook,
+  useCitationLooks,
+  worstLook,
+} from "./citationLooks";
 import { citationGroupOf, citationNumberOf } from "./citationNumbers";
 import {
   QuoteWithUnsureWords,
@@ -134,35 +139,6 @@ import { runsText } from "./styledText";
 
 /** No other Citations: one that stands for none but itself. */
 const NO_MEMBERS: readonly string[] = [];
-
-/** Its found state line in the plural, for a chip that stands for several quotes all found. */
-const FOUND_FOR_SEVERAL: Partial<Record<MessageKey, MessageKey>> = {
-  "citation.badge.found.on": "citation.group.found.on",
-  "citation.badge.found.in": "citation.group.found.in",
-  "citation.badge.found.document": "citation.group.found.document",
-  "citation.badge.found.transcript": "citation.group.found.transcript",
-};
-
-/**
- * The state line of a chip that stands for several Citations: "3 quotes found in ¶ 19" when
- * all were, else the worst one's own line and how many share it: "Needs re-check · 1 of 3 quotes".
- */
-function groupBadgeText(
-  members: readonly CitationLook[],
-  worst: CitationLook | null,
-  own: { key: MessageKey; params?: Record<string, string> },
-  t: (key: MessageKey, params?: MessageParams) => string,
-): string {
-  const count = members.length;
-  const plural = FOUND_FOR_SEVERAL[own.key];
-  if (!worst || (worst.check === "found" && !worst.recheck)) {
-    return plural ? t(plural, { ...own.params, count }) : t(own.key, own.params);
-  }
-  const some = members.filter(
-    (member) => member.check === worst.check && member.recheck === worst.recheck,
-  ).length;
-  return t("citation.group.some", { badge: worst.badge, some, count });
-}
 
 useAppStore.subscribe((state) => {
   const mindId = pinnedMind();
@@ -869,6 +845,7 @@ export function CitationView({
                 openLabel={t(`citation.open.${openKind(location)}`)}
                 onOpenAll={() => openFromCard()}
                 onOpenOne={openMember}
+                note={noteOf(formatting, inCluster)}
                 hint={<CardKeyHint shown={byKeyboard && !pinned && !inCard} />}
               />
             ) : onScreen ? (

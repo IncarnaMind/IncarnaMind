@@ -1,9 +1,11 @@
 import type { ReactNode, RefObject } from "react";
-import type { CitationCheck } from "../../../core/api";
+import type { CitationCheck, StyledRun } from "../../../core/api";
 import { ObjectMenu } from "../components/ObjectMenu";
-import { useT } from "../i18n";
+import { useGap, useT } from "../i18n";
 import type { CitationLook } from "./citationLooks";
 import { CheckStateIcon, ClaimMarkIcon } from "./icons";
+import { StyledRuns } from "./StyledRuns";
+import { runsText } from "./styledText";
 
 /**
  * The card of a chip that stands for several Citations of one source and place side by side:
@@ -22,6 +24,7 @@ export function CitationGroupCard({
   openLabel,
   onOpenAll,
   onOpenOne,
+  note,
   hint,
 }: {
   card: RefObject<HTMLDivElement | null>;
@@ -33,9 +36,12 @@ export function CitationGroupCard({
   openLabel: string;
   onOpenAll(): void;
   onOpenOne(look: CitationLook): void;
+  /** In a note style, the note the Citations are written in, as an export will write it. */
+  note: readonly StyledRun[] | null;
   hint: ReactNode;
 }) {
   const t = useT();
+  const gap = useGap();
   const allFound = looks.every((look) => look.check === "found" && !look.recheck);
   return (
     <div
@@ -69,6 +75,13 @@ export function CitationGroupCard({
           <GroupQuote key={look.key} look={look} onOpen={() => onOpenOne(look)} />
         ))}
       </ul>
+      {note && (
+        <p data-testid="citation-styled-note" className="citation-card-styled">
+          <span className="citation-card-styled-label">{t("citation.note")}</span>
+          {gap(t("citation.note"), runsText(note))}
+          <StyledRuns runs={note} />
+        </p>
+      )}
       {allFound && <p className="citation-card-note">{t("citation.meaning")}</p>}
       <div className="citation-card-actions">
         <button

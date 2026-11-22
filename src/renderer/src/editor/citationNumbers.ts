@@ -1,6 +1,12 @@
 import { Extension, getChangedRanges } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { type EditorState, Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import {
+  type EditorState,
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   ANALYSIS_TABLE_NODE,
@@ -18,6 +24,7 @@ import type { CitationForm } from "../../../shared/citationStyles";
 import { type CitationLive, citationSubject } from "../../../shared/citations";
 import { FootnoteNumbering } from "../../../shared/footnoteNumbers";
 import { readProposalAttribute } from "../../../shared/proposals";
+import { asOneStep } from "./editorUndo";
 
 /**
  * A Citation in the Mind, with its number: its place among the Mind's
@@ -361,12 +368,14 @@ function numbersOf(
   const { citations, footnotes, figures, tables } = numberFootnotes(doc, form, live);
   const node = (pos: number, attrs: Record<string, string>, spec: Record<string, number>) =>
     Decoration.node(pos, pos + (doc.nodeAt(pos)?.nodeSize ?? 1), attrs, spec);
+  const keysByLead = new Map<number, string[]>();
+  for (const { shownBy, key } of citations) {
+    keysByLead.set(shownBy, [...(keysByLead.get(shownBy) ?? []), key]);
+  }
   const decorations = DecorationSet.create(doc, [
     ...citations.map(({ pos, number, key, shownBy }, place) => {
       const shows = shownBy === place;
-      const members = shows
-        ? citations.filter((each) => each.shownBy === place).map((each) => each.key)
-        : [];
+      const members = shows ? (keysByLead.get(place) ?? [key]) : [];
       const citationGroup: CitationGroup = { key, shows, members };
       return Decoration.node(
         pos,
@@ -498,6 +507,87 @@ export function citationNumbersPlugin(
 }
 
 /**
+ * What a key does beside a chip that stands for several Citations (#3654). The Citations it hides
+ * take no room, so the caret steps over them with the chip, as one; Backspace or Delete removes the
+ * chip with every Citation it stands for, wherever in its run they are; beside a hidden one that
+ * another chip stands for, they act on the chip beyond it and leave that one to its own. Null where
+ * the key does what it always does, as beside a chip of one Citation.
+ */
+export function groupKeyStep(state: EditorState, key: string): Transaction | null {
+  const { selection } = state;
+  if (!selection.empty) return null;
+  const citations = numbersKey.getState(state)?.citations ?? [];
+  const placeAt = new Map(citations.map((each, place) => [each.pos, place]));
+  const hidden = (pos: number) => {
+    const place = placeAt.get(pos);
+    return place !== undefined && citations[place]?.shownBy !== place;
+  };
+  const shownAt = (pos: number) => {
+    const place = placeAt.get(pos);
+    return place !== undefined && citations[place]?.shownBy === place ? place : null;
+  };
+  const step = key === "ArrowRight" || key === "Delete" ? 1 : -1;
+  const ahead = (pos: number) => (step === 1 ? pos : pos - 1);
+  let at = selection.from;
+  let skipped = false;
+  const skipHidden = () => {
+    while (hidden(ahead(at))) {
+      at += step;
+      skipped = true;
+    }
+  };
+  skipHidden();
+  const chip = shownAt(ahead(at));
+  if (key === "ArrowRight" || key === "ArrowLeft") {
+    if (chip !== null) {
+      at += step;
+      skipHidden();
+    }
+    return skipped ? state.tr.setSelection(TextSelection.create(state.doc, at)) : null;
+  }
+  if (key !== "Backspace" && key !== "Delete") return null;
+  if (chip === null) return null;
+  const stood = citations.filter((each) => each.shownBy === chip).map((each) => each.pos);
+  if (stood.length === 1 && !skipped) return null;
+  const tr = state.tr;
+  for (const pos of stood.sort((a, b) => b - a)) tr.delete(pos, pos + 1);
+  return tr.scrollIntoView();
+}
+
+/**
+ * A space written before a Citation, as an outside agent writes "claim [cite:…]", kept on the
+ * line with the chip: a chip never starts a line (DESIGN.md, Citation marker). The text keeps it.
+ */
+function leadSpace(doc: ProseMirrorNode, pos: number): Decoration[] {
+  if (pos < 1 || doc.resolve(pos).parentOffset < 1) return [];
+  return doc.textBetween(pos - 1, pos) === " "
+    ? [Decoration.inline(pos - 1, pos, { class: "citation-lead-space" })]
+    : [];
+}
+
+const leadSpacesKey = new PluginKey<{ numbers: Numbers | undefined; set: DecorationSet }>(
+  "citationLeadSpaces",
+);
+
+/** The spaces before the Citations (`leadSpace`), drawn again as the numbers are worked out. */
+function leadSpacesPlugin(): Plugin {
+  const of = (state: EditorState) => {
+    const numbers = numbersKey.getState(state);
+    const spaces = (numbers?.citations ?? []).flatMap(({ pos }) => leadSpace(state.doc, pos));
+    return { numbers, set: DecorationSet.create(state.doc, spaces) };
+  };
+  return new Plugin({
+    key: leadSpacesKey,
+    state: {
+      init: (_config, state) => of(state),
+      apply: (_tr, kept, _old, state) =>
+        numbersKey.getState(state) === kept.numbers ? kept : of(state),
+    },
+    props: { decorations: (state) => leadSpacesKey.getState(state)?.set },
+  });
+}
+
+/**
  * Numbers Citations, figures and footnotes (see `numberFootnotes`) with a node
  * decoration each, which reaches the node's view: it shows the number, and
  * redraws when an edit renumbers it. `form` says how the Mind's citation style
@@ -509,12 +599,30 @@ export const CitationNumbers = Extension.create<{
   live: () => CitationLive;
 }>({
   name: "citationNumbers",
+  // Ahead of the editor's own arrows and Backspace, which would take the hidden Citations one by one.
+  priority: 1000,
+
+  addKeyboardShortcuts() {
+    const press = (key: string) => () => {
+      const step = groupKeyStep(this.editor.state, key);
+      if (!step) return false;
+      if (step.docChanged) asOneStep(this.editor, () => this.editor.view.dispatch(step));
+      else this.editor.view.dispatch(step);
+      return true;
+    };
+    return {
+      ArrowLeft: press("ArrowLeft"),
+      ArrowRight: press("ArrowRight"),
+      Backspace: press("Backspace"),
+      Delete: press("Delete"),
+    };
+  },
 
   addOptions() {
     return { form: () => "numbered", live: () => ({ documents: null }) };
   },
 
   addProseMirrorPlugins() {
-    return [citationNumbersPlugin(this.options.form, this.options.live)];
+    return [citationNumbersPlugin(this.options.form, this.options.live), leadSpacesPlugin()];
   },
 });

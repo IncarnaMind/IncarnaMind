@@ -1,14 +1,17 @@
+import { isMacOS } from "@tiptap/core";
 import { type KeyboardEvent, useMemo } from "react";
 import { quoteStepHandle, useHandle } from "../commands/handles";
+import { shortcutLabel } from "../commands/keymap";
 import { ChevronDownLineIcon, ChevronUpLineIcon } from "../components/lineIcons";
+import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 
 /**
  * The quotes of a chip that stands for several Citations of one place, one at a time: which is
- * current and how many there are, with previous and next. It sits where the find bar sits, at the
- * top right of the pane, and looks like it, so a step never moves the buttons from under the
- * pointer; the current quote carries the Citation's mark beside it. ⌘G and ⇧⌘G step too, as
- * they step through a find's matches, and Enter and Shift+Enter on its buttons.
+ * current and how many there are, with previous and next. It looks like the find bar and sits at
+ * the top right of the viewer, so a step never moves the buttons from under the pointer; the
+ * current quote carries the Citation's mark beside it. ⌘G and ⇧⌘G step too, as they step through
+ * a find's matches, and Enter and Shift+Enter or ↓ and ↑ on its buttons.
  */
 export function QuoteStepper({
   number,
@@ -48,9 +51,9 @@ export function QuoteStepper({
         <button
           type="button"
           data-testid="quote-steps-previous"
-          title={t("citation.steps.previous")}
+          title={withKeys(t, t("citation.steps.previous"), shortcutLabel("citation.previousQuote"))}
           aria-label={t("citation.steps.previous")}
-          aria-keyshortcuts="Shift+Meta+G"
+          aria-keyshortcuts={isMacOS() ? "Shift+Meta+G" : "Shift+Control+G"}
           disabled={at === 0}
           onClick={() => onStep(-1)}
         >
@@ -59,9 +62,9 @@ export function QuoteStepper({
         <button
           type="button"
           data-testid="quote-steps-next"
-          title={t("citation.steps.next")}
+          title={withKeys(t, t("citation.steps.next"), shortcutLabel("citation.nextQuote"))}
           aria-label={t("citation.steps.next")}
-          aria-keyshortcuts="Meta+G"
+          aria-keyshortcuts={isMacOS() ? "Meta+G" : "Control+G"}
           disabled={at === total - 1}
           onClick={() => onStep(1)}
         >

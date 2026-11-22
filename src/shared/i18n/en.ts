@@ -5033,6 +5033,8 @@ export const en = {
   "citation.more": "More for this Citation",
   "card.useKey": "to use",
   "command.citation.open": "Open cited page",
+  "command.citation.nextQuote": "Next quote of this Citation",
+  "command.citation.previousQuote": "Previous quote of this Citation",
   "command.viewer.openCurrentVersion": "Open the current version",
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",

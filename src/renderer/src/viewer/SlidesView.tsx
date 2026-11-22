@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { AskedPictureData, Document } from "../../../core/api";
 import {
   extractPptx,
@@ -26,7 +34,7 @@ import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import { useAppStore, type ViewerTarget } from "../store";
 import { visiblePartOf } from "./captureRect";
 import { useCitedArea } from "./citedArea";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, quotesOf } from "./citedPlace";
 import { FileStates } from "./FileStates";
 import { HighlightedText } from "./highlightedText";
 import {
@@ -37,6 +45,13 @@ import {
   quoteMarkOf,
   quoteTone,
 } from "./quoteMark";
+import {
+  CURRENT_QUOTE,
+  type QuoteRange,
+  QuoteStepContext,
+  QuoteStepsLine,
+  useQuoteSteps,
+} from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
 import { findInDrawing, rangesByKey } from "./slides/pieces";
@@ -99,7 +114,7 @@ export function SlidesView({ document, target }: { document: Document; target: V
 
 /** Where the quote was found: in a drawn slide's text, an outline sheet's, a slide's notes, or nowhere (a slide-level mark). */
 type Found =
-  | { slide: number; where: "slide" | "outline" | "notes"; ranges: Map<string, TextRange[]> }
+  | { slide: number; where: "slide" | "outline" | "notes"; ranges: Map<string, QuoteRange[]> }
   | { slide: number; where: "none" };
 
 const isFailed = (slide: SlideDrawing | FailedSlide): slide is FailedSlide => "failed" in slide;
@@ -278,31 +293,53 @@ function Slides({
   );
 
   const highlight = useMemo((): Found | null => {
-    const quote = target.quote;
-    if (!quote) return null;
+    const quotes = quotesOf({ quote: target.quote, quotes: target.quotes });
+    if (quotes.length === 0) return null;
     const from = target.pageFrom ?? 1;
     const to = target.pageTo ?? from;
     const cited = slides.filter(
       (slide) => target.pageFrom === undefined || (slide.number >= from && slide.number <= to),
     );
-    for (const slide of cited) {
-      const drawnSlide = drawn.get(slide.number);
-      if (drawnSlide && !isFailed(drawnSlide)) {
-        const ranges = findInDrawing(drawnSlide, quote);
-        if (ranges) return { slide: slide.number, where: "slide", ranges };
-        const notes = findInNotes(slide, quote);
-        if (notes) return { slide: slide.number, where: "notes", ranges: notes };
-      } else {
-        const ranges = findInOutline(slide, quote);
-        if (ranges) return { slide: slide.number, where: "outline", ranges };
+    const findOne = (quote: string): Found | null => {
+      for (const slide of cited) {
+        const drawnSlide = drawn.get(slide.number);
+        if (drawnSlide && !isFailed(drawnSlide)) {
+          const ranges = findInDrawing(drawnSlide, quote);
+          if (ranges) return { slide: slide.number, where: "slide", ranges };
+          const notes = findInNotes(slide, quote);
+          if (notes) return { slide: slide.number, where: "notes", ranges: notes };
+        } else {
+          const ranges = findInOutline(slide, quote);
+          if (ranges) return { slide: slide.number, where: "outline", ranges };
+        }
+      }
+      return null;
+    };
+    // The quotes of one chip are of one slide: each is drawn where the first one found is.
+    let found: Extract<Found, { ranges: unknown }> | null = null;
+    for (const [index, quote] of quotes.entries()) {
+      const one = findOne(quote);
+      if (!one || one.where === "none") continue;
+      if (found === null) found = { ...one, ranges: new Map() };
+      if (one.slide !== found.slide || one.where !== found.where) continue;
+      for (const [key, ranges] of one.ranges) {
+        const tagged = ranges.map((range) =>
+          quotes.length > 1 ? { ...range, quote: index } : range,
+        );
+        found.ranges.set(
+          key,
+          [...(found.ranges.get(key) ?? []), ...tagged].sort((a, b) => a.start - b.start),
+        );
       }
     }
+    if (found) return found;
     const citedSlide = target.pageFrom;
     return citedSlide !== undefined && slides.some((slide) => slide.number === citedSlide)
       ? { slide: citedSlide, where: "none" }
       : null;
-  }, [slides, drawn, target.quote, target.pageFrom, target.pageTo]);
+  }, [slides, drawn, target.quote, target.quotes, target.pageFrom, target.pageTo]);
   const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  const { step, stepper } = useQuoteSteps({ target, root: scroller, drawn: highlight });
 
   // The slides fit the viewer's width, beside a gutter for the Citation's mark when there is one.
   useLayoutEffect(() => {
@@ -386,7 +423,7 @@ function Slides({
     if (!container || viewWidth === 0 || appliedRequest.current === target.request) return;
     appliedRequest.current = target.request;
     setNotesToggled(new Map());
-    const first = container.querySelector<HTMLElement>("[data-quote-highlight]");
+    const first = container.querySelector<HTMLElement>(CURRENT_QUOTE);
     const slide = slideElements.current.get(highlight?.slide ?? target.pageFrom ?? 0);
     const anchor = first ?? slide;
     if (!anchor) {
@@ -447,59 +484,62 @@ function Slides({
         }
         placeGone={citedPlaceGone(target, slides.length)}
       />
-      <div className="flex min-h-0 flex-1">
-        {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
-        <div
-          ref={scroller}
-          data-testid="viewer-slides"
-          data-drawn={drawing ? "yes" : "no"}
-          data-quote-tone={quoteTone(target.citation)}
-          onScroll={onScroll}
-          className={`viewer-backdrop min-w-0 flex-1 overflow-auto select-text ${drawing ? "viewer-deck-backdrop" : "viewer-slides-backdrop"}`}
-          style={drawing ? { paddingLeft: padding, paddingRight: gutter } : undefined}
-          {...pictureClick}
-        >
-          {viewWidth > 0 &&
-            slides.map((slide) => {
-              const found = highlight?.slide === slide.number ? highlight : null;
-              const drawnSlide = drawn.get(slide.number);
-              if (!drawing || !drawnSlide || isFailed(drawnSlide)) {
+      <QuoteStepsLine stepper={stepper} />
+      <QuoteStepContext.Provider value={step}>
+        <div className="flex min-h-0 flex-1">
+          {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
+          <div
+            ref={scroller}
+            data-testid="viewer-slides"
+            data-drawn={drawing ? "yes" : "no"}
+            data-quote-tone={quoteTone(target.citation)}
+            onScroll={onScroll}
+            className={`viewer-backdrop min-w-0 flex-1 overflow-auto select-text ${drawing ? "viewer-deck-backdrop" : "viewer-slides-backdrop"}`}
+            style={drawing ? { paddingLeft: padding, paddingRight: gutter } : undefined}
+            {...pictureClick}
+          >
+            {viewWidth > 0 &&
+              slides.map((slide) => {
+                const found = highlight?.slide === slide.number ? highlight : null;
+                const drawnSlide = drawn.get(slide.number);
+                if (!drawing || !drawnSlide || isFailed(drawnSlide)) {
+                  return (
+                    <SlideSheet
+                      key={slide.number}
+                      slide={slide}
+                      images={images}
+                      ranges={found && found.where === "outline" ? found.ranges : null}
+                      mark={found ? mark : null}
+                      width={drawing ? drawing.width * scale : undefined}
+                      setElement={setElement(slide.number)}
+                    />
+                  );
+                }
+                const notesOpen = notesToggled.get(slide.number) ?? found?.where === "notes";
                 return (
-                  <SlideSheet
+                  <SlideFrame
                     key={slide.number}
-                    slide={slide}
+                    outline={slide}
+                    slide={drawnSlide}
+                    width={drawing.width}
+                    height={drawing.height}
+                    scale={scale}
                     images={images}
-                    ranges={found && found.where === "outline" ? found.ranges : null}
+                    found={found}
                     mark={found ? mark : null}
-                    width={drawing ? drawing.width * scale : undefined}
+                    markRoom={gutter - MARK_GAP - 8}
+                    notesOpen={notesOpen}
+                    onNotesToggle={(open) =>
+                      setNotesToggled((before) => new Map(before).set(slide.number, open))
+                    }
+                    onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
                     setElement={setElement(slide.number)}
                   />
                 );
-              }
-              const notesOpen = notesToggled.get(slide.number) ?? found?.where === "notes";
-              return (
-                <SlideFrame
-                  key={slide.number}
-                  outline={slide}
-                  slide={drawnSlide}
-                  width={drawing.width}
-                  height={drawing.height}
-                  scale={scale}
-                  images={images}
-                  found={found}
-                  mark={found ? mark : null}
-                  markRoom={gutter - MARK_GAP - 8}
-                  notesOpen={notesOpen}
-                  onNotesToggle={(open) =>
-                    setNotesToggled((before) => new Map(before).set(slide.number, open))
-                  }
-                  onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
-                  setElement={setElement(slide.number)}
-                />
-              );
-            })}
+              })}
+          </div>
         </div>
-      </div>
+      </QuoteStepContext.Provider>
     </>
   );
 }
@@ -537,6 +577,7 @@ function SlideFrame({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const sheet = useRef<HTMLDivElement>(null);
+  const step = useContext(QuoteStepContext);
   const [markTop, setMarkTop] = useState<number | null>(null);
   const slideRanges = found?.where === "slide" ? found.ranges : null;
   const notesRanges = found?.where === "notes" ? found.ranges : null;
@@ -550,7 +591,7 @@ function SlideFrame({
       return;
     }
     const place = () => {
-      const first = element.querySelector("[data-quote-highlight]");
+      const first = element.querySelector(CURRENT_QUOTE);
       const top = sheet.current ? sheet.current.offsetTop + 8 : 0;
       setMarkTop(first ? markTopFor(first, element) : top);
     };
@@ -558,7 +599,7 @@ function SlideFrame({
     const observer = new ResizeObserver(place);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [mark, found, scale, notesOpen]);
+  }, [mark, found, scale, notesOpen, step]);
 
   return (
     <article
@@ -709,6 +750,7 @@ function SlideSheet({
 }) {
   const t = useT();
   const column = useRef<HTMLDivElement>(null);
+  const step = useContext(QuoteStepContext);
   const [markTop, setMarkTop] = useState<number | null>(null);
   const [markRoom, setMarkRoom] = useState(0);
   const text = (id: string, value: string) => (
@@ -724,7 +766,7 @@ function SlideSheet({
       return;
     }
     const place = () => {
-      const first = element.querySelector("[data-quote-highlight]");
+      const first = element.querySelector(CURRENT_QUOTE);
       setMarkTop(first ? markTopFor(first, element) : 0);
       setMarkRoom(marginRoom(element));
     };
@@ -732,7 +774,7 @@ function SlideSheet({
     const observer = new ResizeObserver(place);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [mark, ranges]);
+  }, [mark, ranges, step]);
 
   return (
     <article

@@ -5013,6 +5013,10 @@
       white-space: normal;
     }
   }
+  /* A space before a marker, as an outside agent writes one, never lets the marker start a line. */
+  .citation-lead-space {
+    white-space: nowrap;
+  }
   /* ProseMirror puts a separator image between two markers side by side. */
   :is(.node-citation, .node-citation + .ProseMirror-separator) + .node-citation .citation-marker {
     margin-left: 2px;
@@ -7778,11 +7782,23 @@
     padding: 8px;
   }
   /* The find bar over the Mind's top right corner; its matches are marked in the text. */
-  /* The quotes of one chip, one at a time, in the viewer: the find bar's look, at the pane's top right. */
+  /*
+   * The quotes of one chip, one at a time (#3654): the find bar's controls, on a slim line of
+   * their own under the viewer's toolbar, at its right, so they never cover the page.
+   */
+  .quote-steps-line {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: flex-end;
+    padding: 2px 8px;
+    border-bottom: 1px solid var(--color-rule);
+    background: var(--color-sheet);
+  }
   .find-bar.quote-steps {
-    position: absolute;
-    top: 8px;
-    right: 24px;
+    position: static;
+    padding: 0;
+    background: none;
+    box-shadow: none;
   }
   .quote-steps-number {
     display: inline-flex;
