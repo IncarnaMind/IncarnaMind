@@ -117,6 +117,10 @@ export function rememberAsked(
   put(keyOf(asked), { agent, for: asked, copied, state: "asked", at, seen: false });
 }
 
+/** Whether the User's own AI is asked to check this Note now, which its card's line says. */
+export const checkAsked = (mindId: string): boolean =>
+  useAgentAsked.getState().byKey[keyOf({ kind: "check", mindId })] !== undefined;
+
 /** Another check of the Note took its place, such as one run by a model set up since. */
 export function forgetAsked(asked: AskedFor): void {
   if (useAgentAsked.getState().byKey[keyOf(asked)]) put(keyOf(asked), null);

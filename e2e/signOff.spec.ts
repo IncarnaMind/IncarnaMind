@@ -328,8 +328,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(alone).toContainText(t("checks.problem.no-provider"));
       await screenshot(window, `tie-out-no-model-${language}`);
 
-      // Filed with its Documents in a Folder the User's own AI is connected to, the line offers
-      // to ask that AI: an agent reads only the Notes in the Folders it is let into.
+      // Filed with its Documents in a Folder the User's own AI is connected to, one press asks
+      // that AI at once and the line says so (#3587): an agent reads only the Notes in the Folders
+      // it is let into.
       await acceptPlainTextKeys(window);
       await window.evaluate(async () => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -348,12 +349,11 @@ for (const language of ["en", "zh-CN"] as const) {
           folderIds: [folder.id],
         });
       });
-      const asking = window.getByTestId("checks-ask-agent");
-      await tieOut(asking);
-      await expect(asking.getByTestId("checks-ask-agent-ask")).toHaveText(
-        t("agents.ask.action", { agent: "Claude Code" }),
-      );
-      await expect(asking.getByTestId("checks-ask-agent-set-up")).toHaveText(
+      const asked = window.getByTestId("checks-asked");
+      await tieOut(asked);
+      await expect(asked).toHaveText(t("agents.asked.opened", { agent: "Claude Code" }));
+      await expect(window.getByTestId("checks-asked-line-ask")).toHaveText(t("agents.asked.again"));
+      await expect(window.getByTestId("checks-asked-set-up")).toHaveText(
         t("agents.ask.setUpModel"),
       );
       await screenshot(window, `tie-out-own-ai-${language}`);

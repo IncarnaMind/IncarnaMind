@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { AgentPairing } from "../../src/core/api";
 
 /*
  * Tie out figures (#2313): the whole-Note Check it starts goes through the same price question as
@@ -6,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
  * answers. A rejected start is the caller's to report, never swallowed.
  */
 
-const bridge = vi.hoisted(() => ({ getFigureSchedule: vi.fn() }));
+const bridge = vi.hoisted(() => ({ getFigureSchedule: vi.fn(), on: () => () => undefined }));
 const mindCheck = vi.hoisted(() => ({
   asking: {} as Record<string, unknown>,
   listeners: new Set<(state: { asking: Record<string, unknown> }) => void>(),
@@ -19,6 +20,8 @@ const checks = vi.hoisted(() => ({
 }));
 const narrow = vi.hoisted(() => ({ value: false }));
 const store = vi.hoisted(() => ({
+  chatReadiness: { ready: false, reason: "no-provider" },
+  subscribe: () => () => undefined,
   changeLayout: vi.fn(async (_options: { focus?: boolean }) => {}),
   openMind: vi.fn(async () => {}),
   layout: {
@@ -55,15 +58,29 @@ vi.mock("../../src/renderer/src/layoutSlice", () => ({
   frontTabOfMind: () => ({ id: "tab" }),
   groupsMerged: () => narrow.value,
 }));
-vi.mock("../../src/renderer/src/store", () => ({ useAppStore: { getState: () => store } }));
+vi.mock("../../src/renderer/src/store", () => ({
+  useAppStore: { getState: () => store, subscribe: store.subscribe },
+}));
 
 const { tieOutFigures } = await import("../../src/renderer/src/figures");
+const { rememberAsked, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
 
 /** The Check ends as one with no AI model set up does: a line in the note's card, no question. */
 const endsInALine = async () => {
   checks.problems = {
     mind: { kind: "not-ready", readiness: { ready: false, reason: "no-provider" } },
   };
+  return null;
+};
+
+/** The Check ends as one does with no model and the User's own AI connected: that AI is asked (#3587). */
+const endsAsked = async () => {
+  const codex = { id: "pairing-codex", name: "Codex", client: "codex" } as AgentPairing;
+  rememberAsked(
+    codex,
+    { kind: "check", mindId: "mind" },
+    { copied: false, at: "2026-11-22T01:00:00.000Z" },
+  );
   return null;
 };
 
@@ -78,6 +95,7 @@ beforeEach(() => {
   checks.running = {};
   checks.problems = {};
   checks.listeners.clear();
+  useAgentAsked.setState({ byKey: {} });
   mindCheck.asked.mockResolvedValue(null);
   bridge.getFigureSchedule.mockResolvedValue(schedule("not-checked"));
   narrow.value = false;
@@ -128,6 +146,17 @@ describe("Tie out figures starts the Check the same way every other way in does"
   test("in a narrow window a Check that ends in a line in the note's card keeps it in front", async () => {
     narrow.value = true;
     mindCheck.asked.mockImplementation(endsInALine);
+
+    await tieOutFigures("mind");
+
+    expect(store.changeLayout).toHaveBeenCalledOnce();
+    expect(store.changeLayout.mock.calls[0]?.[0]).toMatchObject({ focus: false });
+  });
+
+  // protects=#3569: with no model and the User's own AI connected, one press asks that AI (#3587), and a narrow window keeps the note and its asked line in front, the schedule opening behind; fails_when=the schedule comes in front over the line, so the User never sees that their AI was asked
+  test("in a narrow window a Check that asks the User's own AI keeps the note in front", async () => {
+    narrow.value = true;
+    mindCheck.asked.mockImplementation(endsAsked);
 
     await tieOutFigures("mind");
 

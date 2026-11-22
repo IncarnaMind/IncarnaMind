@@ -9,6 +9,7 @@ import {
 } from "../../core/api";
 import { applyFigureScheduleChange } from "../../shared/figureSchedule";
 import { fingerprintOfMind } from "../../shared/mindState";
+import { checkAsked } from "./askedAgent";
 import { useChecks } from "./checks";
 import { core } from "./core";
 import { figurePlace } from "./editor/figurePlaces";
@@ -179,7 +180,8 @@ export async function tieOutFigures(mindId: string): Promise<void> {
     (row) => row.shown.state === "not-checked" || row.shown.state === "needs-recheck",
   );
   const asks = stale ? await startAsking(mindId) : false;
-  const said = stale && useChecks.getState().problems[mindId] !== undefined;
+  // A line in the note's card stays in front: a problem, or the User's own AI asked to check (#3587).
+  const said = stale && (useChecks.getState().problems[mindId] !== undefined || checkAsked(mindId));
   if (!((asks || said) && groupsMerged())) return openFigureSchedule(mindId);
   await openFigureSchedule(mindId, false);
   if (said) return;
