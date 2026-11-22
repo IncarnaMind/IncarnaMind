@@ -4,6 +4,7 @@
  * wants to understand a sentence never has to Undo words added to their own document.
  */
 import type { Editor } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import { mindSearchScope } from "../../../shared/searchScope";
 import { useComposer } from "../composer";
@@ -40,8 +41,12 @@ export async function explainSelection(
   const selection = selectionForEdit(editor.state);
   if (!selection) return false;
   if (hiddenForOwnAiNow()) {
-    // With only their own AI, it explains in its reply there (#3612).
+    // With only their own AI, it explains in its reply there (#3612). As a change handed over
+    // does, the selection closes at its end: nothing here answers over the words.
     closeSelectionMenu(editor);
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, selection.range.to)),
+    );
     if ((await handSelectionToOwnAi(selection, mindId, "explain")) === "none") {
       needsAnAi(mindId, selection, "menu");
     }

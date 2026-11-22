@@ -440,7 +440,7 @@ describe("the selection menu's AI actions", () => {
     expect(useEdits.getState().problems[MIND]).toBeUndefined();
   });
 
-  // protects=row 5: Explain asks the own AI to explain the words in its reply and opens nothing in IncarnaMind; with neither, it waits in the panel for a model as before; fails_when=the panel is asked to answer, or the own AI isn't asked
+  // protects=row 5: Explain asks the own AI to explain the words in its reply, opens nothing in IncarnaMind and closes the selection as a change handed over does, so selecting the words again opens the menu; with neither, it waits in the panel for a model as before; fails_when=the panel is asked to answer, the own AI isn't asked, or the words stay selected under a menu kept closed
   test("Explain", async () => {
     user("own AI");
     await shown();
@@ -453,6 +453,7 @@ describe("the selection menu's AI actions", () => {
         ask: { kind: "selection", action: "explain", text: SELECTED },
       },
     ]);
+    expect(editor.state.selection.empty).toBe(true);
     expect(useModelSetup.getState().waiting).toBeNull();
     await unmount?.();
 
