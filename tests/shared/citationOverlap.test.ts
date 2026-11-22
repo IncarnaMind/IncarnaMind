@@ -84,9 +84,40 @@ describe("a Citation and the Passage a check found overlap", () => {
     expect(overlap("The Tenant may not work remotely", "The Tenant may work remotely")).toBe(true);
   });
 
-  test("not when they are in different Documents, or the Citation has none", () => {
-    expect(overlapsCitation(place(CLAUSE, { documentId: "other" }), place(CLAUSE))).toBe(false);
-    expect(overlapsCitation(place(CLAUSE, { documentId: null }), place(CLAUSE))).toBe(false);
+  // protects=the same words in a Document and in its copy (two Documents with one content hash) are one Citation's place, in English and Chinese, and a copy that differs by a character, or a Citation with no Document or no version, is not; fails_when=a file's copy is cited a second time, or a changed copy counts as the same.
+  test.each([
+    ["English", CLAUSE],
+    ["Chinese", CLAUSE_ZH],
+  ] as const)("a copy of the Document holds the same place, in %s", (_language, words) => {
+    const copy = { documentId: "lease (1)" };
+    expect(overlapsCitation(place(words), place(words, copy))).toBe(true);
+    expect(overlapsCitation(place(words, copy), place(words))).toBe(true);
+    expect(overlapsCitation(place(words), place(words, { ...copy, contentHash: "v2" }))).toBe(
+      false,
+    );
+    expect(overlapsCitation(place(words), place(words, { ...copy, contentHash: null }))).toBe(
+      false,
+    );
+    expect(
+      overlapsCitation(
+        place(words, { contentHash: null }),
+        place(words, { ...copy, contentHash: null }),
+      ),
+    ).toBe(false);
+    expect(overlapsCitation(place(words, { documentId: null }), place(words))).toBe(false);
+  });
+
+  test("not for another clause of a copy, or a page of it that doesn't meet", () => {
+    const copy = { documentId: "lease (1)" };
+    expect(overlapsCitation(place("The notice period is three months."), place(CLAUSE, copy))).toBe(
+      false,
+    );
+    expect(
+      overlapsCitation(
+        place(CLAUSE, { pageFrom: 3, pageTo: 3 }),
+        place(CLAUSE, { ...copy, pageFrom: 9, pageTo: 9 }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -118,7 +149,11 @@ describe("the Passage a check found says more than the Citation's quote", () => 
   test("not for another clause, another Document, or a Place that doesn't meet", () => {
     expect(continues("two days a week", "The notice period is three months.", CLAUSE)).toBe(false);
     expect(
-      continuesCitation(place("two days a week"), place(CLAUSE, { documentId: "other" }), CLAUSE),
+      continuesCitation(
+        place("two days a week"),
+        place(CLAUSE, { documentId: "other", contentHash: "other" }),
+        CLAUSE,
+      ),
     ).toBe(false);
     expect(
       continuesCitation(
@@ -204,9 +239,12 @@ describe("in Chinese", () => {
       expect(overlap(cited, found), cited).toBe(false);
       expect(overlap(found, cited), found).toBe(false);
     }
-    expect(overlapsCitation(place(CLAUSE_ZH, { documentId: "other" }), place(CLAUSE_ZH))).toBe(
-      false,
-    );
+    expect(
+      overlapsCitation(
+        place(CLAUSE_ZH, { documentId: "other", contentHash: "other" }),
+        place(CLAUSE_ZH),
+      ),
+    ).toBe(false);
   });
 
   test("the same words on a page that doesn't meet are another place", () => {

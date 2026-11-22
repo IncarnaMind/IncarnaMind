@@ -32,6 +32,9 @@ const attributes = (over: Partial<CitationAttributes>): CitationAttributes => ({
   ...over,
 });
 
+/** Another Document: its own id and its own content hash, as a Document with other content has. */
+const HANDBOOK = { documentId: "handbook", contentHash: "handbook-v1" } as const;
+
 const text = (value: string): JSONContent => ({ type: "text", text: value });
 
 const state = (
@@ -93,6 +96,22 @@ describe("a sentence that already cites what its check found", () => {
     }
   });
 
+  // protects=a Passage the sentence cites from a Document is already cited when the check found it in a copy of that Document, with the same content hash, and offered when the copy differs by a character (another hash); fails_when=a file's copy is offered as a second Citation, or a changed copy is taken for the same Document; no_claim=none beyond protects.
+  test("is already cited from a copy of the same content, and offered a copy that differs", () => {
+    const held = state({}, null);
+    const sentence = firstSentence(true);
+    const same = { quote: "may work from home two days a week" };
+    expect(
+      citationDecision(held, claimOf(sentence, { ...same, documentId: "contract (1)" })),
+    ).toMatchObject({ kind: "already", citation: { number: 1 } });
+    expect(
+      citationDecision(
+        held,
+        claimOf(sentence, { ...same, documentId: "contract (2)", contentHash: "v2" }),
+      ).kind,
+    ).toBe("add");
+  });
+
   test("is offered the Passage on another page, or another clause, or another Document", () => {
     const held = state({}, null);
     const sentence = firstSentence(true);
@@ -105,9 +124,9 @@ describe("a sentence that already cites what its check found", () => {
         claimOf(sentence, { quote: "Probation lasts three months.", pageFrom: 3 }),
       ).kind,
     ).toBe("add");
-    expect(
-      citationDecision(held, claimOf(sentence, { documentId: "handbook", quote: LINE })).kind,
-    ).toBe("add");
+    expect(citationDecision(held, claimOf(sentence, { ...HANDBOOK, quote: LINE })).kind).toBe(
+      "add",
+    );
   });
 
   test("is offered it for a sentence with no Citation of its own, though the next sentence cites it", () => {
@@ -186,15 +205,16 @@ describe("a sentence that already cites what its check found", () => {
   });
 
   test("is already cited by the one of several Citations that overlaps", () => {
-    const held = state({ documentId: "handbook" }, {});
+    const held = state({ ...HANDBOOK }, {});
     const sentence = { from: 1, to: 1 + FIRST.length + 1 + 1 + SECOND.length + 1 };
     expect(citationDecision(held, claimOf(sentence, { quote: LINE }))).toMatchObject({
       kind: "already",
       citation: { number: 2 },
     });
-    expect(
-      citationDecision(held, claimOf(sentence, { documentId: "handbook", quote: LINE })),
-    ).toMatchObject({ kind: "already", citation: { number: 1 } });
+    expect(citationDecision(held, claimOf(sentence, { ...HANDBOOK, quote: LINE }))).toMatchObject({
+      kind: "already",
+      citation: { number: 1 },
+    });
   });
 
   test("offers nothing for a figure worked out or a check that found nothing", () => {
@@ -297,7 +317,7 @@ describe("what a supported sentence's card offers for the Passage its check foun
     const held = state({ quote: SECOND }, null);
     expect(citationDecision(held, claimOf(sentence, { quote: LINE })).kind).toBe("add");
     const elsewhere = state(
-      { quote: SECOND, documentId: "handbook", check: "not-found", checkReason: null },
+      { quote: SECOND, ...HANDBOOK, check: "not-found", checkReason: null },
       null,
     );
     expect(citationDecision(elsewhere, claimOf(sentence, { quote: LINE })).kind).toBe("add");

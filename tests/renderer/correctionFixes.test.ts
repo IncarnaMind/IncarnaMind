@@ -337,6 +337,41 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
   });
 
+  // protects=Change to… cites the Document's wording before the stop, after the Citations the sentence has before it, and not after a Citation that stands after the stop, which stays; fails_when=the new Citation lands after the stop, or after the Citation after it, or the one after the stop moves.
+  test.each([
+    ["The rate is 36.8%.", "36.8%", "38.6%", ".", "The rate is "],
+    ["比率是 36.8%。", "36.8%", "百分之三十八点六", "。", "比率是 "],
+  ] as const)(
+    "cites before the stop and after the Citations there, with one after the stop, in %s",
+    (sentence, from, wording, stop, lead) => {
+      const attrs = check("one", sentence, from, [
+        { wording, evidence: evidence("report", `${wording}.`) },
+      ]);
+      const { editor, doc } = editorWith([
+        {
+          type: "paragraph",
+          content: [
+            marked(`${lead}${from}`, attrs),
+            citation(evidence("before", "A quote the sentence cites before its stop.")),
+            marked(stop, attrs),
+            citation(evidence("after", "A quote an AI put after the stop.")),
+          ],
+        },
+      ]);
+
+      expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
+
+      expect(textOf(editor)).toBe(
+        `${lead}${wording}${INLINE_NODE}${INLINE_NODE}${stop}${INLINE_NODE}`,
+      );
+      expect(citationsOf(editor).map((each) => each.documentId)).toEqual([
+        "before",
+        "report",
+        "after",
+      ]);
+    },
+  );
+
   test("finds the old words past an inline footnote without moving or deleting it", () => {
     const text = `See ${INLINE_NODE} the rate is 36.8%.`;
     const attrs = check("one", text);
