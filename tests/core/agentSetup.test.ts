@@ -847,7 +847,12 @@ describe("a connection whose program has moved (#3644)", () => {
       args: [],
       env: { [TOKEN_ENV]: "another-key" },
     };
-    written.mcpServers.mine = { command: join(home, "gone", "mine"), args: [], env: {} };
+    // This pairing's key elsewhere in the file reads no other entry as its own.
+    written.mcpServers.mine = {
+      command: join(home, "gone", "mine"),
+      args: [],
+      env: { [TOKEN_ENV]: (await core.getAgentLaunch(pairing.id)).env[TOKEN_ENV] ?? "" },
+    };
     await writeFile(claude, JSON.stringify(written, null, 2));
     expect(await core.agentNeedsRepair(pairing.id)).toBe(false);
     const byHand = await core.connectAgent({ name: "My agent", folderIds: [coast.id] });

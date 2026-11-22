@@ -725,8 +725,8 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (token === "") return false;
       for (const file of settingsFilesFor(pairing.client)) {
         const text = await readText(pathOf(file));
-        if (text === null || !text.includes(token)) continue;
-        const command = writtenCommand(file.format, text);
+        if (text === null) continue;
+        const command = writtenCommand(file.format, text, token);
         if (command !== null && isAbsolute(command) && !existsSync(command)) return true;
       }
       return false;
