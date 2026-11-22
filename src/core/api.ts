@@ -12148,6 +12148,28 @@ export interface MeetingSummarySource {
   text: string;
 }
 
+export interface MeetingBriefPreparation {
+  route: { id: string; label: string; external: boolean; client?: true } | null;
+  invitation: Citation[];
+  questions: MeetingBriefQuestion[];
+  prepared: boolean;
+}
+
+export interface MeetingBriefQuestion {
+  question: string;
+  /** The cited sentence in the source's own words; null when there is no checked answer. */
+  citation: Citation | null;
+}
+
+export interface MeetingBriefItem {
+  meetingId: string;
+  itemId: number;
+  title: string;
+  kind: MeetingSummaryItem["kind"];
+  text: string;
+  citation: Citation;
+}
+
 export interface MeetingSummaryCandidate {
   id: number;
   sources: MeetingSummarySource[];
@@ -15303,6 +15325,11 @@ export interface CoreApi {
   takeEventNotes(eventId: string): Promise<{ mindId: string; created: boolean }>;
   /** The calendar event a Note was made for, as the calendar has it now; null for any other Note. */
   getNoteEvent(mindId: string): Promise<NoteEvent | null>;
+  getMeetingBriefPreparation(mindId: string): Promise<MeetingBriefPreparation | null>;
+  prepareMeetingBrief(mindId: string, route: string | null): Promise<MeetingBriefPreparation>;
+  getMeetingBriefHistory(mindId: string): Promise<MeetingBriefItem[]>;
+  keepMeetingBrief(mindId: string, section?: "questions"): Promise<boolean>;
+  dismissMeetingBrief(mindId: string, section?: "questions"): Promise<void>;
   /** Opens the system's Calendars privacy settings, after the Mac's calendar access was refused. */
   openCalendarSettings(): Promise<void>;
 
@@ -16322,6 +16349,11 @@ const methods: Record<CoreApiMethod, true> = {
   listCalendarEvents: true,
   takeEventNotes: true,
   getNoteEvent: true,
+  getMeetingBriefPreparation: true,
+  prepareMeetingBrief: true,
+  getMeetingBriefHistory: true,
+  keepMeetingBrief: true,
+  dismissMeetingBrief: true,
   openCalendarSettings: true,
   createMeeting: true,
   discardMeeting: true,

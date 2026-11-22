@@ -28,6 +28,7 @@ export const OUTPUT_LIMITS = {
   // `own`: more than a window keeps for every call's reply, so the notes' Run makes the room.
   "meeting-fill": { most: 64_000, own: true },
   // Long meetings can exhaust 1,024 tokens before the short visible summary is complete (#3459).
+  "meeting-brief": { most: 1536 },
   "meeting-summary": { most: 4_096 },
   "search-query": { most: 256 },
   tags: { most: 512 },
