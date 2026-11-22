@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   createMicrophone,
+  isRecordingDefaultMicrophone,
   type MicrophoneDevice,
   startMicrophone,
 } from "../../src/renderer/capture/microphone";
@@ -131,7 +132,7 @@ describe("The capture page's microphone, and a pause while it starts", () => {
     await started;
     expect(fake.isOpen()).toBe(true);
 
-    const reopened = microphone.reopen();
+    const reopened = microphone.reopen(() => true);
     await flush();
     fake.grant(1);
     await reopened;
@@ -139,9 +140,26 @@ describe("The capture page's microphone, and a pause while it starts", () => {
     expect(fake.asked()).toBe(2);
 
     await microphone.set(false);
-    await microphone.reopen();
+    await microphone.reopen(() => true);
     expect(fake.isOpen()).toBe(false);
     expect(fake.asked()).toBe(2);
+  });
+
+  test("a notification for the track that already ended leaves its replacement recording", async () => {
+    const fake = fakeDevice();
+    const microphone = createMicrophone(fake.device);
+    const started = microphone.start(true);
+    await flush();
+    fake.grant(0);
+    await started;
+
+    const originalIsActive = () => fake.asked() === 1;
+    const ended = microphone.reopen(originalIsActive);
+    const changed = microphone.reopen(originalIsActive);
+    await flush();
+    fake.grant(1);
+    await Promise.all([ended, changed]);
+    expect(fake.log).toEqual(["open asked", "open", "close", "open asked", "open"]);
   });
 
   test("a device that went while the call was paused isn't opened again by the change that follows the pause", async () => {
@@ -152,7 +170,7 @@ describe("The capture page's microphone, and a pause while it starts", () => {
     fake.grant(0);
     await started;
     const paused = microphone.set(false);
-    const reopened = microphone.reopen();
+    const reopened = microphone.reopen(() => true);
     await Promise.all([paused, reopened]);
     expect(fake.isOpen()).toBe(false);
     expect(fake.asked()).toBe(1);
@@ -253,5 +271,64 @@ describe("What the main process tells the capture page about the microphone", ()
     await flush();
     expect(messages).toEqual(["start allowed on", "off"]);
     expect(fake.isOpen()).toBe(false);
+  });
+});
+
+describe("keeping the recording when another device changes", () => {
+  const input = (deviceId: string, groupId: string, label = "Test microphone") => ({
+    kind: "audioinput" as const,
+    deviceId,
+    groupId,
+    label,
+  });
+  const other = {
+    kind: "audiooutput" as const,
+    deviceId: "output",
+    groupId: "speaker",
+    label: "Speaker",
+  };
+  const track = (deviceId: string, groupId: string, label = "Test microphone") => ({
+    readyState: "live" as const,
+    muted: false,
+    label,
+    getSettings: () => ({ deviceId, groupId }),
+  });
+
+  test("concrete IDs and a verified default alias survive a camera or output notification", () => {
+    const a = input("a", "headset");
+    expect(isRecordingDefaultMicrophone(track("a", "headset"), [other, a])).toBe(true);
+    expect(isRecordingDefaultMicrophone(track("b", "headset"), [a])).toBe(false);
+    const alias = input("default", "headset", "Default headset");
+    expect(
+      isRecordingDefaultMicrophone(track("default", "headset", alias.label), [other, alias, a]),
+    ).toBe(true);
+    expect(isRecordingDefaultMicrophone(track("a", "headset"), [alias, a])).toBe(true);
+    expect(
+      isRecordingDefaultMicrophone(track("default", "headset", alias.label), [
+        input("default", "new", alias.label),
+        a,
+      ]),
+    ).toBe(false);
+  });
+
+  test("a generic alias, multiple inputs in a group, a lost track and an unknown default retain recovery", () => {
+    const a = input("a", "group");
+    const alias = input("default", "group");
+    expect(isRecordingDefaultMicrophone(track("default", "group"), [alias])).toBe(false);
+    expect(isRecordingDefaultMicrophone(track("default", ""), [input("default", "")])).toBe(false);
+    expect(
+      isRecordingDefaultMicrophone(track("default", "group"), [
+        input("default", "group", "Another input"),
+        a,
+      ]),
+    ).toBe(false);
+    expect(
+      isRecordingDefaultMicrophone(track("default", "group"), [alias, a, input("b", "group")]),
+    ).toBe(false);
+    expect(isRecordingDefaultMicrophone({ ...track("a", "group"), readyState: "ended" }, [a])).toBe(
+      false,
+    );
+    expect(isRecordingDefaultMicrophone({ ...track("a", "group"), muted: true }, [a])).toBe(false);
+    expect(isRecordingDefaultMicrophone(track("a", "group"), [other])).toBe(false);
   });
 });
