@@ -611,6 +611,7 @@ describe("the writer's notes", () => {
         cited("Tides, p. 2", false, { inserted: change }),
         cited("Tides, p. 2"),
         cited("Tides, p. 2", false, { deleted: change }),
+        words(" and "),
         cited("Tides, p. 2"),
       ),
     ]);
@@ -655,6 +656,7 @@ describe("the writer's notes", () => {
         words(" and "),
         cited("Tides, p. 2", false, { work: first }),
         cited("Tides, p. 2", false, { work: later }),
+        words(" and "),
         cited("Tides, p. 2", false, { work: first }),
       ),
     ]);
@@ -667,6 +669,7 @@ describe("the writer's notes", () => {
       paragraph(
         cited("Notes", false, { work: work("a") }),
         cited("Notes", false, { work: work("b") }),
+        words(" and "),
         cited("Notes", false, { work: work("a") }),
       ),
     ]);
@@ -729,6 +732,32 @@ describe("the writer's notes", () => {
       ),
     ).toEqual([1, 2, 2, 2, 2, 3]);
     expect(printed.notes).toHaveLength(3);
+  });
+
+  test("in a run of Citations side by side each note shows one mark, as the Note shows each number once in it", () => {
+    const blocks = [
+      paragraph(
+        words("Slow"),
+        cited("Tides, p. 2"),
+        cited("Moon, p. 1"),
+        words(" "),
+        cited("Tides, p. 2"),
+        words("."),
+      ),
+    ];
+    const { document } = render(blocks);
+    expect(shownMarks(document).map((each) => each.shows)).toEqual([1, 2]);
+    const printed = renderPrintHtml(blocks, exportLabels("en"));
+    expect(
+      [...printed.body.matchAll(/<sup class="note-ref" data-note="(\d+)"/g)].map((found) =>
+        Number(found[1]),
+      ),
+    ).toEqual([1, 2]);
+    // As many as one opening of the source marks: the fifty-first starts a mark of its own.
+    const many = render([
+      paragraph(words("Many"), ...Array.from({ length: 51 }, () => cited("Tides, p. 2"))),
+    ]);
+    expect(shownMarks(many.document).map((each) => each.shows)).toEqual([1, 1]);
   });
 
   test("the one mark of Citations side by side carries the failed check of each in its Word comment", () => {
