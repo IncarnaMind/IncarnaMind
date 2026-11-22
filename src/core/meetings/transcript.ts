@@ -246,7 +246,7 @@ interface State extends Saved {
   fellBack: MeetingTranscript["fellBack"];
   probe: { audioMs: number; decodeMs: number; recorded: boolean };
   written: boolean;
-  separating: boolean;
+  separating: Promise<void> | null;
   lastIndexed: number;
   indexWait: AbortController | null;
   partialTimer: ReturnType<typeof setTimeout> | null;
@@ -444,7 +444,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       fellBack: null,
       probe: { audioMs: 0, decodeMs: 0, recorded: false },
       written: cues.length > 0,
-      separating: false,
+      separating: null,
       lastIndexed: 0,
       indexWait: null,
       partialTimer: null,
@@ -1604,7 +1604,8 @@ export function createTranscripts(options: TranscriptsOptions) {
       settle(state, "done");
       return;
     }
-    state.separating = true;
+    const finished = Promise.withResolvers<void>();
+    state.separating = finished.promise;
     options.changed();
     if (call) {
       // The pass runs whatever the notes do with this: they wait for its end at the latest.
@@ -1632,7 +1633,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         },
       )
       .then((outcome) => {
-        state.separating = false;
+        state.separating = null;
         if (current()) settle(state, outcome);
       })
       .catch((error: unknown) => {
@@ -1640,7 +1641,8 @@ export function createTranscripts(options: TranscriptsOptions) {
           meetingId: state.meetingId,
           message: messageOf(error),
         });
-      });
+      })
+      .finally(finished.resolve);
   }
 
   function settle(state: State, outcome: "done" | "failed"): void {
@@ -2027,6 +2029,12 @@ export function createTranscripts(options: TranscriptsOptions) {
       state.pending = addRange(state.pending, { fromMs, toMs: recordedMs });
       if (state.cues.length > 0 || state.pending.length > 0) state.state = "behind";
       persist(state);
+    },
+
+    pendingSpeakers(meetingId: string): Promise<void> | null {
+      const state = load(meetingId);
+      if (state.speakers === "due") separate(state);
+      return state.separating;
     },
 
     /** A stopped Meeting whose Transcript wasn't finished, when IncarnaMind started: it is finished now. */

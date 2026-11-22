@@ -1,5 +1,5 @@
 import { translate } from "../../shared/i18n";
-import { shownSpeaker } from "../../shared/speakers";
+import { partsOf, shownSpeaker, speakerOf } from "../../shared/speakers";
 import { transcriptCueLines } from "../../shared/units";
 import type { Document, Meeting, MeetingSummarySource } from "../api";
 import type { createDocuments } from "../documents";
@@ -45,6 +45,7 @@ interface Options {
   language(): Language;
   extract(documentId: string): Promise<void>;
   readTranscript(documentId: string): Promise<Uint8Array>;
+  pendingSpeakers(meetingId: string): Promise<void> | null;
   closed(): boolean;
   failed(meetingId: string, error: unknown): void;
 }
@@ -58,6 +59,7 @@ export function createMeetingCandidateReview({
   language,
   extract,
   readTranscript,
+  pendingSpeakers,
   closed,
   failed,
 }: Options) {
@@ -135,18 +137,29 @@ export function createMeetingCandidateReview({
   const candidateReviews = createCandidateReviews({
     current: (scope) => candidateReviewMeeting(scope) !== null,
     async input(scope) {
+      const pass = pendingSpeakers(scope.meetingId);
+      if (pass) {
+        await pass;
+        if (!candidateReviewMeeting(scope)) return null;
+      }
       const indexed = await currentSummaryCues(scope.meetingId, scope.documentId);
       const current = candidateReviewMeeting(scope);
       if (!current || indexed?.contentHash !== scope.contentHash || !indexed.cues.length)
         return null;
-      const utterances = indexed.cues.map(({ label, ...cue }) => ({
-        ...cue,
-        speaker: label
-          ? shownSpeaker(current.doc.speakers, cue.startMs, label, (key, params) =>
+      const speakers = current.doc.speakers;
+      const utterances = indexed.cues.map(({ label, ...cue }) => {
+        if (!label) return { ...cue, speaker: null };
+        const voice = speakerOf(speakers, cue.startMs, label);
+        const oneVoice = partsOf(speakers, { ...cue, label }).every(
+          (part) => speakerOf(speakers, part.startMs, label) === voice,
+        );
+        const speaker = oneVoice
+          ? shownSpeaker(speakers, cue.startMs, label, (key, params) =>
               translate(language(), key, params),
             )
-          : null,
-      }));
+          : null;
+        return { ...cue, speaker };
+      });
       const established = scope.items.flatMap((item) => {
         if (item.corrected) return [];
         const source = meetings.summaryItemEvidence(scope.meetingId, item.id);
