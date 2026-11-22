@@ -27,6 +27,7 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { until } from "../helpers/transcription";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
 
@@ -174,6 +175,50 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
   beforeAll(async () => {
     await buildAgentShim();
   }, 60_000);
+
+  // protects=an agent can read and search words just confirmed in a shared call; fails_when=it sees only the last scheduled index
+  it("reads and searches the latest confirmed speech during a shared meeting", async () => {
+    const opening = "The workshop is open.";
+    const decision = "The cobalt delivery arrives on Tuesday.";
+    const owner = "Morwenna will collect the marigolds.";
+    const { core, hear } = await startMeetingAgentsCore({
+      mine: [opening, owner],
+      theirs: [decision],
+    });
+    const folder = await core.createLibraryGroup({ name: "Workshop", description: "" });
+    const meeting = await core.createMeeting({ folderId: folder.id });
+    await core.setAgentsEnabled(true);
+    const agent = await connectLegacyAgent(
+      (await core.connectAgent({ name: "Claude Desktop", folderIds: [folder.id] })).launch,
+    );
+    await core.startMeeting({ meetingId: meeting.id, systemAudio: true });
+    const speak = (source: "microphone" | "system") => {
+      hear(2000, source);
+      hear(1000, null);
+    };
+    speak("microphone");
+    const { documentId } = await until(core, meeting.id, (transcript) => transcript.lines === 1);
+    if (!documentId) throw new Error("The first confirmed line has no Transcript.");
+    await waitForProcessing(core, [documentId]);
+    speak("system");
+    await until(core, meeting.id, (transcript) => transcript.lines === 2);
+    const read = structured<{ passages: { text: string; timedText?: string }[] }>(
+      await agent.callTool({ name: "read_passages", arguments: { documentId } }),
+    );
+    expect(read.passages.map((passage) => passage.timedText).join("\n")).toContain(decision);
+
+    speak("microphone");
+    await until(core, meeting.id, (transcript) => transcript.lines === 3);
+    const found = await search(agent, "marigolds");
+    expect(found).toContainEqual(
+      expect.objectContaining({
+        documentId,
+        timedText: expect.stringContaining(owner),
+        cite: expect.stringMatching(/^\[cite:/),
+      }),
+    );
+    await core.stopMeeting(meeting.id);
+  });
 
   // protects=an agent finds a shared meeting on its Note, with its date, and quotes and cites its Transcript, who said it included; fails_when=a meeting's Note looks like any Note, its Transcript is a second item of its own, or its Passages can't be searched, read or cited
   it("finds a shared meeting on its Note, with when it started, and searches, reads and cites its Transcript", async () => {
