@@ -267,7 +267,7 @@ describe("How a write's check goes, and what it left to do", () => {
         new Date("2026-10-18T09:00:00.000Z"),
         2,
       ).find((line) => line.kind === "left")?.text,
-    ).toBe("已核对 1 句 · 2 句待核对");
+    ).toBe("已核对 1 句 · 2 句未核对");
     // One sentence checked, with the rest of the write left and no live count to say by how much.
     expect(
       words("en", of({ request: "w", checkable: 3, cited: 1, sent: 1, checked: 1, failed: 0 })),
@@ -544,7 +544,7 @@ describe("A write no check followed (#3154)", () => {
       },
     ]);
     expect(lines("zh-CN")).toEqual([
-      { kind: "left", text: "3 句待核对", details: [], action: { label: "核对", does: "check" } },
+      { kind: "left", text: "3 句未核对", details: [], action: { label: "核对", does: "check" } },
     ]);
     expect(lines("en", 1)).toEqual([
       {
@@ -586,10 +586,10 @@ describe("A check the User stopped under the reply", () => {
       },
     ]);
     expect(lines("zh-CN", stopped)).toEqual([
-      { kind: "stopped", text: "已停止，4 句待核对", action: { label: "核对", does: "check" } },
+      { kind: "stopped", text: "已停止，4 句未核对", action: { label: "核对", does: "check" } },
     ]);
     expect(lines("en", { ...stopped, failed: 1 })[0]?.text).toBe("Stopped, 1 not checked yet");
-    expect(lines("zh-CN", { ...stopped, failed: 1 })[0]?.text).toBe("已停止，1 句待核对");
+    expect(lines("zh-CN", { ...stopped, failed: 1 })[0]?.text).toBe("已停止，1 句未核对");
     expect(lines("en", stopped, 2)[0]?.text).toBe("Stopped, 2 not checked yet");
     expect(lines("en", stopped, 0)).toEqual([]);
   });

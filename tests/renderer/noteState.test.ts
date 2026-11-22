@@ -260,14 +260,14 @@ describe("A note's state (D266)", () => {
     const done = noteStateOf(health({ checkable: 1, checkedAt: CHECKED_AT }), 3) ?? fail();
     // The words the card uses for the sentences no check covered, not a bare "Not checked" (#3212).
     expect(en(fresh)).toBe("1 sentence not checked yet");
-    expect(zh(fresh)).toBe("1 句待核对");
+    expect(zh(fresh)).toBe("1 句未核对");
     const several = noteStateOf(health({ checkable: 3, toCheck: [0, 6, 9] })) ?? fail();
     expect(en(several)).toBe("3 sentences not checked yet");
-    expect(zh(several)).toBe("3 句待核对");
+    expect(zh(several)).toBe("3 句未核对");
     // A check still running has no count to give: the bare words stay.
     const running = noteStateOf(health({ checkable: 1, checking: [0] })) ?? fail();
     expect(en(running)).toBe("Not checked yet");
-    expect(zh(running)).toBe("待核对");
+    expect(zh(running)).toBe("未核对");
     expect(en(one)).toBe("1 needs a look");
     expect(zh(one)).toBe("需要留意 1 处");
     expect(en(two)).toBe("2 need a look");
@@ -634,7 +634,7 @@ describe("Reading a note's state from its Yjs document (Home and Export)", () =>
       );
       expect(parts).toEqual([
         `${said} ${when}`,
-        language === "en" ? "1 sentence not checked yet" : "1 句待核对",
+        language === "en" ? "1 sentence not checked yet" : "1 句未核对",
       ]);
       doc.destroy();
     }
