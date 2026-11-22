@@ -5,6 +5,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   closeSettings,
+  controlReads,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -311,4 +312,27 @@ test("a model only: Your AI is one line and Connect an agent…", async () => {
     settings.getByTestId("agents-list").locator('[data-client="claude-code"]'),
   ).toBeVisible();
   await shot(window, "ai-model-en-1440");
+});
+
+// protects=a failed read of the agents leaves the rest of Settings › AI on screen, Your AI saying so with Try again, and a Try again still waiting keeps the page and the line until the read lands, then the agents show; fails_when=the page goes blank on the failure or while Try again waits, or the line stays after the read succeeds
+test("agents that can't be read: Your AI says so with Try again, and the page stays while it waits", async () => {
+  const window = await launch();
+  await connectClaudeCode(window);
+  await controlReads(app as ElectronApplication, "core:getAgents", { failNext: 1 });
+  const settings = await openSettings(window, "ai");
+  const failed = settings.getByTestId("agents-read-failed");
+  await expect(failed).toContainText("Couldn’t read your AI’s connections");
+  await expect(settings.getByTestId("ai-use-model-open")).toBeVisible();
+  await expect(settings.getByTestId("ai-jobs")).toBeVisible();
+  await expect(settings.getByTestId("ai-limits")).toBeVisible();
+
+  await controlReads(app as ElectronApplication, "core:getAgents", { hold: 1 });
+  await failed.getByRole("button", { name: "Try again" }).click();
+  await expect(failed).toBeVisible();
+  await expect(settings.getByTestId("ai-use-model-open")).toBeVisible();
+  await expect(settings.getByTestId("ai-jobs")).toBeVisible();
+
+  await controlReads(app as ElectronApplication, "core:getAgents", { settle: "resolve" });
+  await expect(failed).toHaveCount(0);
+  await expect(settings.getByTestId("agent-pairing")).toHaveAttribute("data-name", "Claude Code");
 });
