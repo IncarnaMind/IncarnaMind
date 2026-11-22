@@ -292,3 +292,20 @@ export function selectedForRequest(
   const quote = state.doc.textBetween(from, to, " ", "").trim();
   return quote !== "" && selection.length > 0 ? { quote: quote.slice(0, 4000), selection } : null;
 }
+
+/**
+ * A reply's Citation tokens, which the AI writes as it does in a Note; a Note shows them as chips,
+ * and a reply leaves them out until it shows them as chips too.
+ */
+export const withoutCitations = (reply: string) => reply.replace(/\s?\[cite:[a-z0-9]{1,32}\]/g, "");
+
+/** The first words of a reply, as one line: its Markdown marks gone. */
+export const firstWordsOf = (reply: string): string =>
+  (
+    withoutCitations(reply)
+      .split(/\n/)
+      .map((line) => line.replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/, "").trim())
+      .find((line) => line !== "") ?? ""
+  )
+    .replace(/\*\*|__|`/g, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");

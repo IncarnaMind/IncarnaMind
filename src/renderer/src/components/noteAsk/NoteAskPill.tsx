@@ -10,7 +10,7 @@ import { RemoveIcon } from "../../editor/icons";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
-import { allowAndAskAgain, type NoteAsk } from "../../ownAiInNote";
+import { allowAndAskAgain, firstWordsOf, type NoteAsk, withoutCitations } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
@@ -52,23 +52,6 @@ export function useWaitingInNote(editor: Editor): number {
       pendingIn(current.state).filter((each) => !each.theirs).length,
   });
 }
-
-/**
- * A reply's Citation tokens, which the AI writes as it does in a Note; a Note shows them as chips,
- * and a reply leaves them out until it shows them as chips too.
- */
-const withoutCitations = (reply: string) => reply.replace(/\s?\[cite:[a-z0-9]{1,32}\]/g, "");
-
-/** The first words of a reply, as one line: its Markdown marks gone. */
-export const firstWordsOf = (reply: string): string =>
-  (
-    withoutCitations(reply)
-      .split(/\n/)
-      .map((line) => line.replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/, "").trim())
-      .find((line) => line !== "") ?? ""
-  )
-    .replace(/\*\*|__|`/g, "")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");
 
 /** What the AI did, in IncarnaMind's words, for a reply that says nothing of it. */
 function factsOf(ask: NoteAsk, t: Translate): string {

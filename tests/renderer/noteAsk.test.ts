@@ -53,11 +53,16 @@ vi.mock("../../src/renderer/src/askedChanges", async (original) => ({
   applyTurn,
 }));
 
-const { allowAndAskAgain, askFromSelection, askInNote, selectedForRequest, useNoteAsks } =
-  await import("../../src/renderer/src/ownAiInNote");
+const {
+  allowAndAskAgain,
+  askFromSelection,
+  askInNote,
+  firstWordsOf,
+  selectedForRequest,
+  useNoteAsks,
+} = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
-const { firstWordsOf } = await import("../../src/renderer/src/components/noteAsk/NoteAskPill");
 
 const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   mindId: "m1",
