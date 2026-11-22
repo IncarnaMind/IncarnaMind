@@ -382,13 +382,10 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
               scope.documentIds.has(citation.documentId) ||
               (citesItself.has(citation.documentId) && options.citedOutside(citation.documentId)),
           );
-          const judgedResult = worked
-            ? workedResult(each, worked, evidence, sentence.said.length)
-            : reportedResult(each, evidence, sentence.said.length);
-          const result =
-            sentence.element.nodeName === CHART_NODE
-              ? onEachValue(judgedResult, sentence.figures ?? [])
-              : judgedResult;
+          const values = sentence.element.nodeName === CHART_NODE ? (sentence.figures ?? []) : null;
+          const result = worked
+            ? workedResult(each, worked, evidence, sentence.said.length, values)
+            : reportedResult(each, evidence, sentence.said.length, values);
           if (result.verdict === "not-checked") unconfirmed.push(each.n);
           const mark: ClaimCheckAttributes = {
             id: randomUUID(),
@@ -465,17 +462,21 @@ function workedResult(
   worked: Worked,
   cited: readonly Citation[],
   length: number,
+  values: readonly FigureOccurrence[] | null,
 ): ClaimCheckResult {
   const { verdict } = judged;
   if (verdict !== "supported" && verdict !== "contradicted") {
     const result = resultOf(judged, cited);
-    return worked.ok && result.verdict !== "not-checked"
-      ? {
-          ...result,
-          versions: [...result.versions, ...worked.backing.versions],
-          ...(worked.backing.working && { working: worked.backing.working }),
-        }
-      : result;
+    return onChartValues(
+      worked.ok && result.verdict !== "not-checked"
+        ? {
+            ...result,
+            versions: [...result.versions, ...worked.backing.versions],
+            ...(worked.backing.working && { working: worked.backing.working }),
+          }
+        : result,
+      values,
+    );
   }
   const unchecked = (reason: ClaimCheckFailure, detail: string | null): ClaimCheckResult => ({
     verdict: "not-checked",
@@ -503,9 +504,13 @@ function workedResult(
   };
   // Each input of a calculation is shown on its card, as the check's own quotes are.
   return more.length === 0
-    ? result
+    ? onChartValues(result, values)
     : resultFromParts([
-        partWithResult({ kind: "fact", span: { start: 0, end: length } }, result, more),
+        partWithResult(
+          { kind: "fact", span: { start: 0, end: length } },
+          onChartValues(result, values),
+          more,
+        ),
       ]);
 }
 
@@ -520,8 +525,9 @@ function reportedResult(
   judged: JudgedSentence,
   evidence: readonly Citation[],
   length: number,
+  values: readonly FigureOccurrence[] | null,
 ): ClaimCheckResult {
-  const result = resultOf(judged, evidence);
+  const result = onChartValues(resultOf(judged, evidence), values);
   if (result.verdict === "not-checked" || evidence.length === 0) return result;
   const ownView = judged.verdict === "own-view";
   if (evidence.length === 1 && (result.verdict !== "unsupported" || ownView)) return result;
@@ -534,6 +540,16 @@ function reportedResult(
     },
   ]);
 }
+
+/**
+ * A chart's verdict on each of its values; any other sentence's as it is. Put on the values before
+ * a result is made a part, which keeps them: a part made first has none, and a chart's mark read
+ * from it counted its values as not checked (#3587).
+ */
+const onChartValues = (
+  result: ClaimCheckResult,
+  values: readonly FigureOccurrence[] | null,
+): ClaimCheckResult => (values === null ? result : onEachValue(result, values));
 
 /**
  * A chart's result as the Note's own Check marks a chart, on each of its values, which is how the

@@ -9,9 +9,11 @@ import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { readNoteState } from "../../src/renderer/src/noteState";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { FORMULA_VERSION } from "../../src/shared/formula";
+import { checkRows } from "../../src/shared/noteHealth";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import {
@@ -497,7 +499,7 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
 
   // protects=a mark's card shows every quote the agent's verdict rests on, in the order it gave them, never only the first, whichever place each is from, and an overstated one on a single quote keeps it for its card (#3587); fails_when=a verdict on two quotes keeps only the first, an overstated one loses its quote, a sentence takes more than one mark, or a Supported or Contradicted result on one quote is stored differently from before (which would read as changed)
   it("keeps every quote a verdict rests on, in the order given, on the sentence's one mark", async () => {
-    const { core, agent, mindId, coast } = await paired();
+    const { core, agent, mindId, coast, tides } = await paired();
     const given = await task(agent, mindId);
     const twice = await cited(agent, "Spring tides happen twice a month");
     const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
@@ -514,6 +516,27 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
         ]),
         everyQuote: check.parts?.map((part) => part.restsOnEveryQuote === true),
       }));
+    };
+    /** The rows the Note's page counts, and what the agent is told of them once nothing is left. */
+    const counted = async () => {
+      const client = await connectToMind(core, mindId);
+      await client.settled();
+      const { health } = readNoteState({
+        doc: client.doc,
+        cellFigures: [],
+        footing: [],
+        documents: await core.listDocuments(),
+        keptCitationTexts: [],
+        folderId: coast.id,
+      });
+      const done = structured<Task & { checked: { supported: number; needLook: number } }>(
+        await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+      );
+      return {
+        page: Object.fromEntries(checkRows(health).map(({ row, places }) => [row, places.length])),
+        left: done.sentences,
+        told: { supported: done.checked.supported, needLook: done.checked.needLook },
+      };
     };
 
     structured<Reported>(
@@ -533,26 +556,49 @@ describe("an outside agent checks its Note with its own model (#3342)", () => {
       { text: PENGUINS, quotes: [SPRING_QUOTE], everyQuote: [true] },
       { text: SOURCES, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
     ]);
+    const onOneQuote = await counted();
+    expect(onOneQuote).toMatchObject({
+      page: { look: 2, notYetCited: 1, ownViews: 1 },
+      left: [],
+      // A Supported sentence that cites nothing yet is "can be cited", for the agent too.
+      told: { supported: 0, needLook: 2 },
+    });
 
     const again = structured<Task>(
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId, again: true } }),
     );
-    const penguins = again.sentences.find((each) => each.text === PENGUINS)?.n;
+    const numbered = (text: string) => again.sentences.find((each) => each.text === text)?.n;
     structured<Reported>(
       await report(agent, mindId, again.task, [
-        { n: penguins, verdict: "partly supported", cites: [largest, twice] },
+        { n: numbered(SPRING), verdict: "supported", cites: [twice, largest] },
+        { n: numbered(PENGUINS), verdict: "partly supported", cites: [largest, twice] },
       ]),
     );
-    expect((await quoted()).find((each) => each.text === PENGUINS)).toEqual({
-      text: PENGUINS,
-      quotes: [RANGE_QUOTE, SPRING_QUOTE],
-      everyQuote: [true],
-    });
+    expect(
+      (await quoted()).filter((each) => each.text === SPRING || each.text === PENGUINS),
+    ).toEqual([
+      { text: SPRING, quotes: [SPRING_QUOTE, RANGE_QUOTE], everyQuote: [true] },
+      { text: PENGUINS, quotes: [RANGE_QUOTE, SPRING_QUOTE], everyQuote: [true] },
+    ]);
+    // A verdict on several quotes reads as itself wherever it is read: its mark, the Note's page,
+    // what the agent is told, and Check again, which gives it no more.
     expect((await marks(core, mindId, coast.id)).map((each) => [each.text, each.state])).toEqual([
       [SPRING, "supported"],
       [NEAP, "contradicted"],
       [PENGUINS, "unsupported"],
       [SOURCES, "own-view"],
+    ]);
+    expect(await counted()).toEqual(onOneQuote);
+
+    // What they rest on is each quote's Document: changed, every one that quotes it is given again.
+    await writeFile(tides.path, `${TIDES}\n\nNeap tides come in between.\n`);
+    await core.reconcileDocuments();
+    await waitForProcessing(core, [tides.id]);
+    expect((await task(agent, mindId)).sentences.map((each) => each.text)).toEqual([
+      SPRING,
+      NEAP,
+      PENGUINS,
+      SOURCES,
     ]);
   });
 });
