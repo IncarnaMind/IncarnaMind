@@ -4,8 +4,11 @@
  * numbers Passages give and reports its working (#3393), which IncarnaMind confirms; a verdict it
  * reports may rest on either. Through the shim the app ships.
  */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AnalysisRuntime } from "../../src/core/adapters";
+import { NOT_DATA } from "../../src/core/agents/workings";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import type { AnalysisJob } from "../../src/shared/analysis";
@@ -16,6 +19,7 @@ import { checkingModel } from "../helpers/checks";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
+import { REPO_ROOT } from "../helpers/skills";
 
 const HARBOUR = [
   "# Harbour fares",
@@ -35,6 +39,9 @@ const PASSENGERS = "The crossings carried 350 passengers.";
 const FARES = "The harbour took £2,000,000 in fares in spring and autumn.";
 const COUNT = "Coast holds two Documents.";
 const NOTE = [PASSENGERS, FARES, COUNT].join("\n\n");
+const GROWTH = "The harbour plans for its fares to grow 3% next year.";
+const SALES = "国庆活动期间销售额 86 万。";
+const BUDGET = "双十一广告预算 30 万。";
 
 /** Words of the Documents, Folder and Note the agent may not read: none may reach it. */
 const UNSHARED = ["Payroll", "Ada Quill", "91000", "Minutes", "Larkspur", "Private", "Board plans"];
@@ -746,5 +753,209 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
     expect(await marks(core, mindId, coast.id)).toMatchObject([
       { text: FARES, state: "supported", workedOut: "1,250,000 + 750,000 = £2,000,000" },
     ]);
+  });
+
+  // protects=a working rests only on numbers its quotes give, besides those a calculation writes for counting, halves and percentages (#3661); fails_when=a number the agent wrote into its expression, a rate it supposes, marks a sentence Supported, or a cited rate, a percentage, a half or amounts in 万 no longer mark
+  it("marks nothing on a working that writes a number no quote gives, and tells the agent which", async () => {
+    const { core, agent, coast } = await paired();
+    const folder = await createSourceFolder();
+    const added = await addAndProcess(core, [
+      await writeSourceFile(folder, "Plan.md", `# Fares plan\n\n${GROWTH}`),
+      await writeSourceFile(folder, "销售.md", `# 销售\n\n${SALES}\n\n${BUDGET}`),
+    ]);
+    for (const each of added) if (each) await core.assignDocumentGroup(each.id, coast.id);
+    const WHAT_IF = "The harbour will take £1,287,500 in fares next spring.";
+    const SHARE = "Autumn fares were 60% of spring's.";
+    const HALF = "The harbour took £1,000,000 in fares on average each season.";
+    const BOTH = "国庆销售额和双十一广告预算合计 116 万。";
+    const ZH_WHAT_IF = "销售额若增长一成，将达 94.6 万。";
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Plans",
+          markdown: [WHAT_IF, SHARE, HALF, BOTH, ZH_WHAT_IF].join("\n\n"),
+        },
+      }),
+    );
+    const given = await task(agent, mindId);
+    const n = (text: string) => given.sentences.find((each) => each.text === text)?.n;
+    const harbour = await passageOf(agent, "fares spring", "Harbour");
+    const [spring = "", autumn = ""] = await citesOf(agent, harbour, [SPRING, AUTUMN]);
+    const [sales = "", budget = ""] = await citesOf(
+      agent,
+      await passageOf(agent, "销售额 广告预算", "销售"),
+      [SALES, BUDGET],
+    );
+    const fares = (expression: string, figure: string) => ({
+      inputs: [
+        { name: "spring", value: 1_250_000, cite: spring },
+        { name: "autumn", value: 750_000, cite: autumn },
+      ],
+      expression,
+      figure,
+    });
+    const reported = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: n(WHAT_IF),
+              verdict: "supported",
+              working: fares("spring * 1.03", "£1,287,500"),
+            },
+            { n: n(SHARE), verdict: "supported", working: fares("autumn / spring * 100", "60%") },
+            {
+              n: n(HALF),
+              verdict: "supported",
+              working: fares("(spring + autumn) / 2", "£1,000,000"),
+            },
+            {
+              n: n(BOTH),
+              verdict: "supported",
+              working: {
+                inputs: [
+                  { name: "sales", value: 860_000, cite: sales },
+                  { name: "budget", value: 300_000, cite: budget },
+                ],
+                expression: "sales + budget",
+                figure: "116 万",
+              },
+            },
+            {
+              n: n(ZH_WHAT_IF),
+              verdict: "supported",
+              working: {
+                inputs: [{ name: "sales", value: 860_000, cite: sales }],
+                expression: "sales * 1.1",
+                figure: "94.6 万",
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(reported).toMatchObject({ marked: 3, unconfirmed: [n(WHAT_IF), n(ZH_WHAT_IF)] });
+    expect(reported.next).toMatch(/1\.03 is written into the expression, and no quote gives it/);
+    expect(reported.next).toMatch(/1\.1 is written into the expression/);
+    const shown = async () =>
+      Object.fromEntries(
+        (await marks(core, mindId, coast.id)).map((each) => [
+          each.text,
+          [each.state, each.workedOut],
+        ]),
+      );
+    expect(await shown()).toEqual({
+      [SHARE]: ["supported", "750,000 ÷ 1,250,000 × 100 = 60%"],
+      [HALF]: ["supported", "(1,250,000 + 750,000) ÷ 2 = £1,000,000"],
+      [BOTH]: ["supported", "860,000 + 300,000 = 116 万 · 86 → 860,000, 30 → 300,000"],
+    });
+
+    // The rate given as an input with the quote that states it: the same figure marks.
+    const [rate = ""] = await citesOf(
+      agent,
+      await passageOf(agent, "fares grow next year", "Plan"),
+      [GROWTH],
+    );
+    const again = structured<Reported>(
+      await agent.callTool({
+        name: "report_check",
+        arguments: {
+          mindId,
+          task: given.task,
+          results: [
+            {
+              n: n(WHAT_IF),
+              verdict: "supported",
+              working: {
+                inputs: [
+                  { name: "spring", value: 1_250_000, cite: spring },
+                  { name: "growth", value: 3, cite: rate },
+                ],
+                expression: "spring * (1 + growth / 100)",
+                figure: "£1,287,500",
+              },
+            },
+          ],
+        },
+      }),
+    );
+    expect(again).toMatchObject({ marked: 1, unconfirmed: [] });
+    expect((await shown())[WHAT_IF]).toEqual([
+      "supported",
+      "1,250,000 × (1 + 3 ÷ 100) = £1,287,500",
+    ]);
+  });
+
+  // protects=a run's figure that IncarnaMind didn't work out again from the cells backs nothing when the code wrote a number of its own (#3661); fails_when=a figure that may carry a number the code wrote (the rows' sum × 1.03) marks Supported, or one worked out again from the cells stops marking
+  it("rests no verdict on a run's figure that a number written in its code may carry", async () => {
+    const written = [{ value: 1.03, line: 1, text: "1.03" }];
+    const total = (job: AnalysisJob) =>
+      rowsOf(job).reduce((sum, row) => sum + Number(row[2] ?? 0), 0);
+    const grown = await paired((job) => ({
+      output: {
+        literals: written,
+        results: [
+          {
+            kind: "figure",
+            name: "passengers",
+            label: "Passengers",
+            unit: null,
+            value: Math.round(total(job) * 1.03),
+          },
+        ],
+      },
+    }));
+    const rows = await passageOf(grown.agent, "passengers crossings", "Crossings");
+    const given = await task(grown.agent, grown.mindId);
+    const id = runId(await run(grown.agent, [{ name: "crossings", passageId: rows }]));
+    expect(
+      structured<Reported>(
+        await grown.agent.callTool({
+          name: "report_check",
+          arguments: {
+            mindId: grown.mindId,
+            task: given.task,
+            results: [{ n: 1, verdict: "supported", run: id, explanation: "361." }],
+          },
+        }),
+      ),
+    ).toMatchObject({ unconfirmed: [1] });
+    expect(
+      (await marks(grown.core, grown.mindId, grown.coast.id)).map((each) => each.state),
+    ).not.toContain("supported");
+
+    // The same code, its figure worked out again from the cells: it backs the sentence.
+    const right = summed({ passengers: "right" });
+    const checked = await paired((job) => {
+      const answer = right(job);
+      return answer === "hang" ? answer : { output: { ...answer.output, literals: written } };
+    });
+    const crossings = await passageOf(checked.agent, "passengers crossings", "Crossings");
+    const checkedTask = await task(checked.agent, checked.mindId);
+    const sum = runId(await run(checked.agent, [{ name: "crossings", passageId: crossings }]));
+    await checked.agent.callTool({
+      name: "report_check",
+      arguments: {
+        mindId: checked.mindId,
+        task: checkedTask.task,
+        results: [{ n: 1, verdict: "supported", run: sum, explanation: "The rows give 350." }],
+      },
+    });
+    expect(await marks(checked.core, checked.mindId, checked.coast.id)).toMatchObject([
+      { text: PASSENGERS, state: "supported", workedOut: "passengers = 350" },
+    ]);
+  });
+});
+
+describe("the numbers a working may write that no quote gives (#3661)", () => {
+  // protects=a working may write without a quote only the numbers a run's code may (counting, halves, percentages); fails_when=one list grows and the other doesn't
+  it("are the ones a run's code may write", async () => {
+    const python = await readFile(join(REPO_ROOT, "src", "shared", "incarnamind.py"), "utf8");
+    const listed = /^LEFT_OUT = \(([^)]*)\)$/m.exec(python)?.[1];
+    expect(listed?.split(",").map(Number)).toEqual(NOT_DATA);
   });
 });

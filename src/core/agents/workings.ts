@@ -87,6 +87,13 @@ export interface AgentAnalysed {
 const NO_FILE =
   "give a documentId or a passageId of a sheet or CSV file you can read, from search, read_passages or list_minds";
 
+/**
+ * The numbers a calculation may write for reasons other than data (counting, halves, percentages),
+ * as a run's code may: `LEFT_OUT` in src/shared/incarnamind.py, which a test holds equal. Any other
+ * number a working or a run writes itself is one no quote gives (#3661).
+ */
+export const NOT_DATA: readonly number[] = [0, 1, 2, -1, 100];
+
 export const pythonRuns = (runtime: AnalysisRuntime | undefined): runtime is AnalysisRuntime =>
   runtime?.languages.some((each) => each.language === "python") === true;
 
@@ -252,10 +259,18 @@ function workedRun(
   // A figure IncarnaMind worked out again from the cells and found different has no marker: the
   // run's report says it can't be used, and no verdict rests on it.
   const usable = new Set(run.markers.figures.map((each) => each.result));
+  // Where the code wrote a number of its own, only a figure worked out again from the cells is
+  // backed: any other may rest on that number, which no quote gives (#3661).
+  const wrote = run.output.literals.length > 0;
+  const recalculated = new Set((run.recalculations ?? []).map((each) => each.result));
   const figures = run.output.results.flatMap((each) =>
-    each.kind === "figure" && usable.has(each.name) ? [each] : [],
+    each.kind === "figure" && usable.has(each.name) && (!wrote || recalculated.has(each.name))
+      ? [each]
+      : [],
   );
-  if (figures.length === 0) return { ok: false, reason: "no-evidence", detail: null };
+  if (figures.length === 0) {
+    return { ok: false, reason: wrote ? "number-not-worked-out" : "no-evidence", detail: null };
+  }
   const library = lists ? libraryRead(lists.lists, lists.listed.filter(isLibraryList)) : null;
   // A mark is compared with the lists as the Note's own check counts them, which the window knows.
   const version = lists?.version ?? library?.citation.contentHash ?? null;
@@ -336,6 +351,18 @@ export function workedFrom(
     shown: figure,
   });
   if ("problems" in worked) return { ok: false, problem: worked.problems.join("; ") };
+  const written = [
+    ...new Set(
+      worked.literals.flatMap((each) => (NOT_DATA.includes(each.value) ? [] : [each.text])),
+    ),
+  ];
+  if (written.length > 0) {
+    const one = written.length === 1;
+    return {
+      ok: false,
+      problem: `${written.join(", ")} ${one ? "is" : "are"} written into the expression, and no quote gives ${one ? "it" : "them"}: give ${one ? "it" : "each"} as an input with the [cite:…] of a quote that holds ${one ? "it" : "its number"}, or, if no Document states ${one ? "it" : "them"}, report the sentence as not found`,
+    };
+  }
   const evidence = cited.map((each) => each.citation);
   return {
     ok: true,
