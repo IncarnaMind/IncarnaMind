@@ -221,6 +221,7 @@ import { StartGuide, useIsExample } from "./GettingStarted";
 import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
+import { meetingTemplateSlashItems } from "./meetings/MeetingTemplatePicker";
 import { useTabPlace } from "./tabs/tabItems";
 
 /** The Block at the top of the Note's view, and how far into it the view starts. */
@@ -729,7 +730,7 @@ function MindEditorView({
             const { skills: all, settings } = useAppStore.getState();
             const language = settings?.language ?? "en";
             const skills = skillSlashItems(
-              all,
+              all.filter((skill) => !skill.meetingTemplate),
               (skill) => skillDescription(skill, (key, params) => translate(language, key, params)),
               (skill) => {
                 // For the Question asked next, from the composer, which goes on this line.
@@ -747,9 +748,10 @@ function MindEditorView({
             );
             // A Skill is the panel's, which a User with only their own AI never sees (#3612).
             const offered = hiddenForOwnAiNow() ? [] : skills;
-            return place === "question"
-              ? offered
-              : [...writing, ...noteSlashItems, compare, ...offered];
+            if (place === "question") return offered;
+            const meeting = useMeetings.getState().meetings.find((item) => item.mindId === mindId);
+            const templates = meetingTemplateSlashItems(meeting, all, language);
+            return [...writing, ...noteSlashItems, compare, ...templates, ...offered];
           },
         }),
         ScopePicker,

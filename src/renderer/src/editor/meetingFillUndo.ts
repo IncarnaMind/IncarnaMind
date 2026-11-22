@@ -160,7 +160,7 @@ function holdFill(
     const fill = fillOf(state.meetings, meetingId);
     const was = fillOf(before.meetings, meetingId);
     if (!held || fill === was || (was?.state !== "filled" && was?.state !== "undone")) return;
-    const fillingAnew = fill?.state !== "filled" && fill?.state !== "undone";
+    const fillingAnew = following === 0 && fill?.state !== "filled" && fill?.state !== "undone";
     const undoneElsewhere =
       fill?.state === "undone" &&
       was.state !== "undone" &&

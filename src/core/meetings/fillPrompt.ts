@@ -18,6 +18,7 @@ import { languageSpoken } from "../answers/prompt";
 import { CITATION_NODE } from "../api";
 import { LANGUAGE_NAMES, LANGUAGES, type Language } from "../language";
 import { USER_TOKEN } from "./userName";
+import { type WriteupPlan, writeupInstructions } from "./writeupTemplates";
 
 /** A line the User wrote, as the model is shown it. */
 export interface FillLine {
@@ -148,6 +149,7 @@ export function notesContext(
   history?: FillHistory,
   spoken: CallLanguage | null = null,
   named = false,
+  template?: WriteupPlan,
 ): QuestionContext {
   const shown = lines.map(
     (line) => `${line.marker}${line.heading ? " (heading)" : ""}: ${line.text}`,
@@ -223,6 +225,7 @@ export function notesContext(
       : []),
     ...rules(spoken, named),
     ...QUOTE_RULES,
+    ...(template ? ["", writeupInstructions(template)] : []),
     "",
     "The notes:",
     ...shown,
@@ -241,8 +244,9 @@ export function sectionsContext(
   history?: FillHistory,
   spoken: CallLanguage | null = null,
   named = false,
+  template?: WriteupPlan,
 ): QuestionContext {
-  return notesContext([], question, history, spoken, named);
+  return notesContext([], question, history, spoken, named, template);
 }
 
 /**

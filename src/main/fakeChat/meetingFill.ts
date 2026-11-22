@@ -80,12 +80,18 @@ export function fillReply(prompt: Prompt, tools: readonly string[]): Reply | nul
   const purpose = chinese
     ? "通话讨论了工作重点和后续安排"
     : "The call reviewed priorities and follow-through";
+  const sectionTitles =
+    /Use these section titles in order, when supported by the Transcript: (\[[^\n]*\])\./.exec(
+      asked,
+    )?.[1];
+  const titles: unknown = sectionTitles ? JSON.parse(sectionTitles) : null;
+  const templated = Array.isArray(titles) && typeof titles[0] === "string" ? titles[0] : null;
   const frame = (suffix: number, label: string, citations: number[], body: string) => [
     `### FACT ${id}${suffix}`,
     "```json",
     JSON.stringify({
       topic: label,
-      heading: label,
+      heading: templated ?? label,
       citations,
       lines: markers,
       sections: ["decisions", "actions"],

@@ -5,6 +5,7 @@
  * when no safe item survives, a quit cuts it short, or Local mode keeps it off the cloud.
  */
 import { getEventListeners } from "node:events";
+import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import type {
@@ -73,7 +74,7 @@ const MY_LINES = [
   "We agreed the enterprise price is 45 dollars a seat",
   "Dana will send the contract by Friday",
   "The rollout starts in the second quarter",
-];
+] as const;
 const THEIR_LINES = ["The budget is approved for this year", "We still need the security review"];
 /** A call held in Chinese: what the microphone and the computer's sound say in turn. */
 const CHINESE_LINES = {
@@ -3673,4 +3674,358 @@ describe("A long Transcript is read in parts", () => {
       unasked.passages.map((each) => each.seq),
     );
   });
+});
+
+test("a selected Meeting template gives the empty Note its own checked write-up sections", async () => {
+  const formatted = [
+    fact("P1_F1", "Agreement", "The enterprise price is 45 dollars a seat. [^1]", {
+      heading: "What we agreed",
+      sections: ["decisions"],
+    }),
+    overview("We reached an agreement about the enterprise plan. [^1]"),
+  ].join("\n\n");
+  const model = fillingModel(formatted, { 1: MY_LINES[0] });
+  let templateId: string | undefined;
+  const { core, meeting, client } = await recorded(
+    model,
+    null,
+    async (core) => {
+      const template = await core.createSkill({
+        name: "customer-review",
+        description: "Write a checked account of customer reviews.",
+        steps: "## Sections\n\n- What we agreed\n- What still needs attention",
+        meetingTemplate: true,
+      });
+      if (!template.ok) throw new Error("Couldn't create the template.");
+      templateId = template.skill.id;
+    },
+    undefined,
+    {
+      async stop(core, meetingId) {
+        if (!templateId) throw new Error("Missing template.");
+        await core.setMeetingWriteupTemplate(meetingId, templateId);
+        await core.stopMeeting(meetingId);
+      },
+    },
+  );
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+  expect(outline(client).filter((row) => row.startsWith("## "))).toEqual(["## «What we agreed»"]);
+  expect(mindCitations(client)).toHaveLength(1);
+  expect(JSON.stringify(model.doStreamCalls)).toContain("What still needs attention");
+});
+
+test.each([
+  {
+    language: "en",
+    keep: "Pricing",
+    said: MY_LINES,
+    others: THEIR_LINES,
+    answer: "The enterprise price is 45 dollars a seat.",
+    extra: "Action items",
+  },
+  {
+    language: "zh-CN",
+    keep: "价格",
+    said: CHINESE_LINES.mine,
+    others: CHINESE_LINES.theirs,
+    answer: "企业版每个席位 45 美元。",
+    extra: "行动事项",
+  },
+] as const)("the template's off switch fills the typed line only ($language)", async (fixture) => {
+  const model = fillingModel(
+    [
+      fact("P1_F1", "Price", `${fixture.answer} [^1]`, {
+        heading: fixture.keep,
+        lines: ["L1"],
+        sections: ["decisions"],
+      }),
+      fact("P1_F2", "Contract", `${fixture.said[1]}. [^2]`, {
+        heading: fixture.extra,
+        sections: ["actions"],
+      }),
+      overview(`${fixture.said[0]}. [^1]`),
+    ].join("\n\n"),
+    { 1: fixture.said[0], 2: fixture.said[1] },
+  );
+  let templateId: string | undefined;
+  const { core, meeting, client } = await recorded(
+    model,
+    [note(fixture.keep)],
+    async (core) => {
+      await core.updateSettings({ user: { language: fixture.language } });
+      const template = await core.createSkill({
+        name: "typed-notes",
+        description: "Use when writing up a meeting from the User's notes.",
+        steps: `## Sections\n\n- ${fixture.keep}\n- ${fixture.extra}`,
+        meetingTemplate: true,
+      });
+      if (!template.ok) throw new Error("Couldn't create the template.");
+      templateId = template.skill.id;
+      await core.setMeetingTemplateFillUncovered(templateId, false);
+    },
+    undefined,
+    {
+      lines: { mine: fixture.said, theirs: fixture.others },
+      async stop(core, meetingId) {
+        if (!templateId) throw new Error("Missing template.");
+        await core.setMeetingWriteupTemplate(meetingId, templateId);
+        await core.stopMeeting(meetingId);
+      },
+    },
+  );
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+  expect(outline(client).filter(Boolean)).toEqual([fixture.keep, `«${fixture.answer} »\uFFFC`]);
+  expect(mindCitations(client)).toHaveLength(1);
+});
+
+test.each([
+  {
+    language: "en",
+    said: { mine: MY_LINES, theirs: THEIR_LINES },
+    title: "Pricing",
+    fillUncovered: true,
+  },
+  { language: "zh-CN", said: CHINESE_LINES, title: "价格", fillUncovered: false },
+] as const)(
+  "a template fill keeps unchecked claims in their own review section ($language)",
+  async (fixture) => {
+    const [price, , rollout] = fixture.said.mine;
+    const [budget] = fixture.said.theirs;
+    const stop = fixture.language === "en" ? "." : "。";
+    const model = fillingModel(
+      [
+        fact("P1_price", "Price", `${price} [^1]${stop}`, {
+          heading: fixture.title,
+          lines: ["L1"],
+          claim: true,
+        }),
+        fact("P1_budget", "Budget", `${budget} [^2]${stop}`, {
+          heading: fixture.title,
+          lines: ["L1"],
+          claim: true,
+        }),
+        fact("P1_rollout", "Rollout", `${rollout} [^3]${stop}`, {
+          heading: fixture.title,
+          claim: true,
+        }),
+      ].join("\n"),
+      { 1: price, 2: budget, 3: rollout },
+      { [`${price}${stop}`]: { verdict: "supported", quote: price } },
+    );
+    let templateId: string | undefined;
+    let folderId: string | undefined;
+    const { core, meeting, client } = await recorded(
+      model,
+      [note(fixture.title)],
+      async (core) => {
+        await core.updateSettings({ user: { language: fixture.language } });
+        folderId = await callFolder(core, { "Price list.md": `${price}\n` });
+        const template = await core.createSkill({
+          name: "budget-review",
+          description: "Write up a budget meeting.",
+          steps: `## Sections\n\n- ${fixture.title}`,
+          meetingTemplate: true,
+        });
+        if (!template.ok) throw new Error("Couldn't create the template.");
+        templateId = template.skill.id;
+        await core.setMeetingTemplateFillUncovered(templateId, fixture.fillUncovered);
+      },
+      undefined,
+      {
+        lines: fixture.said,
+        folder: () => folderId,
+        async stop(core, meetingId) {
+          if (!templateId) throw new Error("Missing template.");
+          await core.setMeetingWriteupTemplate(meetingId, templateId);
+          await core.stopMeeting(meetingId);
+        },
+      },
+    );
+    expect((await settledFill(core, meeting)).state).toBe("filled");
+    await client.settled();
+    const heading = translate(fixture.language, "meetings.fill.section.claims");
+    const pointer = translate(fixture.language, "meetings.fill.reference.below", {
+      topic: "Budget",
+    });
+    expect(outline(client).filter(Boolean)).toEqual([
+      fixture.title,
+      `«${price} »\uFFFC«${stop}»`,
+      `«${pointer} »\uFFFC`,
+      `## «${heading}»`,
+      `- «${budget} »\uFFFC«${stop}»`,
+      `- «${rollout} »\uFFFC«${stop}»`,
+    ]);
+    expect(mindCitations(client)).toHaveLength(4);
+  },
+);
+
+test("a different template refills a saved Note, keeps an edited AI heading, and restores the previous fill with Undo", async () => {
+  const model = fillingModel(
+    (prompt) =>
+      [
+        fact("P1_F1", "Agreement", "The enterprise price is 45 dollars a seat. [^1]", {
+          heading: prompt.includes("Selected review sections") ? "What we agreed" : "Account",
+          sections: ["decisions"],
+        }),
+        overview("We reached an agreement about the enterprise plan. [^1]"),
+      ].join("\n\n"),
+    { 1: MY_LINES[0] },
+  );
+  const { core, meeting, client } = await recorded(model, null);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+  editMind(client, (blocks) =>
+    blocks.map((block) =>
+      block.type === "heading" && block.content?.[0]?.text === "Summary"
+        ? { ...block, content: [{ type: "text", text: "My edited summary" }] }
+        : block,
+    ),
+  );
+  await client.settled();
+  const previous = outline(client);
+  expect(previous).toContain("## My edited summary");
+  expect(previous).toContain("## «Decisions»");
+
+  const choice = await core.createSkill({
+    name: "review-account",
+    description: "Selected review sections.",
+    steps: "Selected review sections\n\n## Sections\n\n- What we agreed",
+    meetingTemplate: true,
+  });
+  if (!choice.ok) throw new Error("Couldn't create the template.");
+  await core.setMeetingWriteupTemplate(meeting.id, choice.skill.id);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+  expect(outline(client)).toContain("## My edited summary");
+  expect(outline(client)).toContain("## «What we agreed»");
+  expect(outline(client)).not.toContain("## «Decisions»");
+
+  const undone = await core.undoMeetingFill(meeting.id);
+  expect(undone.writeupTemplateId).toBeUndefined();
+  expect(undone.fill?.state).toBe("filled");
+  await client.settled();
+  expect(outline(client)).toEqual(previous);
+});
+
+test("a blank Note is left alone when the template fills only the User's notes", async () => {
+  const model = fillingModel(
+    (prompt) =>
+      [
+        fact("P1_F1", "Price", "The enterprise price is 45 dollars a seat. [^1]", {
+          lines: prompt.includes("L1: Price?") ? ["L1"] : [],
+          sections: ["decisions"],
+        }),
+        overview("We reached an agreement about the enterprise plan. [^1]"),
+      ].join("\n\n"),
+    { 1: MY_LINES[0] },
+  );
+  let templateId: string | undefined;
+  const { core, meeting, client } = await recorded(
+    model,
+    null,
+    async (core) => {
+      const template = await core.createSkill({
+        name: "my-notes-only",
+        description: "Fill notes typed in the Meeting.",
+        steps: "Keep the user's words.",
+        meetingTemplate: true,
+      });
+      if (!template.ok) throw new Error("Couldn't create the template.");
+      templateId = template.skill.id;
+      await core.setMeetingTemplateFillUncovered(templateId, false);
+    },
+    undefined,
+    {
+      async stop(core, meetingId) {
+        if (!templateId) throw new Error("Missing template.");
+        await core.setMeetingWriteupTemplate(meetingId, templateId);
+        await core.stopMeeting(meetingId);
+      },
+    },
+  );
+  expect((await settledFill(core, meeting)).problem?.kind).toBe("empty");
+  await client.settled();
+  expect(readMind(client).textContent).toBe("");
+  expect(model.doStreamCalls).toHaveLength(0);
+
+  await core.setMeetingWriteupTemplate(meeting.id, null);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  const undone = await core.undoMeetingFill(meeting.id);
+  expect(undone.writeupTemplateId).toBe(templateId);
+  expect(undone.fill?.problem?.kind).toBe("empty");
+
+  await client.settled();
+  writeMind(client, [note("Price?")]);
+  await client.settled();
+  await core.fillMeetingNotes(meeting.id);
+  await vi.waitFor(async () => expect((await fillOf(core, meeting.id))?.state).toBe("filled"));
+  await client.settled();
+  expect(mindCitations(client)).toHaveLength(1);
+});
+
+test("refill and its Undo preserve a generated paragraph the User excluded from context", async () => {
+  const previousText = "The enterprise price is 45 dollars a seat.";
+  const nextText = "Enterprise seats cost 45 dollars each.";
+  const model = fillingModel(
+    (prompt) =>
+      [
+        fact(
+          "P1_F1",
+          "Agreement",
+          `${prompt.includes("Renewal account") ? nextText : previousText} [^1]`,
+          {
+            heading: "What we agreed",
+            sections: ["decisions"],
+          },
+        ),
+        overview("We reached an agreement about the enterprise plan. [^1]"),
+      ].join("\n\n"),
+    { 1: MY_LINES[0] },
+  );
+  const { core, meeting, client } = await recorded(model, null);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+
+  const exclude = (text: string) => {
+    const inContext = (node: JSONContent): JSONContent => {
+      if (node.type === "paragraph" && node.content?.some(({ text: run }) => run?.includes(text))) {
+        return { ...node, attrs: { ...node.attrs, includeInContext: false } };
+      }
+      return node.content ? { ...node, content: node.content.map(inContext) } : node;
+    };
+    editMind(client, (nodes) => nodes.map(inContext));
+  };
+  const excluded = () => {
+    const found: string[] = [];
+    readMind(client).descendants((node) => {
+      if (node.type.name === "paragraph" && node.attrs.includeInContext === false) {
+        found.push(node.textContent.trim());
+      }
+    });
+    return found;
+  };
+
+  exclude(previousText);
+  await client.settled();
+  expect(excluded()).toEqual([previousText]);
+
+  const chosen = await core.createSkill({
+    name: "renewal-account",
+    description: "Renewal account and verified agreement.",
+    steps: "Renewal account\n\n## Sections\n\n- What we agreed",
+    meetingTemplate: true,
+  });
+  if (!chosen.ok) throw new Error("Couldn't create the template.");
+  await core.setMeetingWriteupTemplate(meeting.id, chosen.skill.id);
+  expect((await settledFill(core, meeting)).state).toBe("filled");
+  await client.settled();
+  expect(excluded()).toEqual([previousText]);
+
+  exclude(nextText);
+  await client.settled();
+  await core.undoMeetingFill(meeting.id);
+  await client.settled();
+  expect(excluded()).toEqual([previousText, nextText]);
 });
