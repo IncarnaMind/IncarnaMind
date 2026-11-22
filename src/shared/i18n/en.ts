@@ -8592,6 +8592,9 @@ export const en = {
   // tells an agent when a call can't be done, which the agent passes on to the User.
   "consent.flow.agents": "Your AI agents",
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
+  "consent.flow.hosted-agents": "Your AI, run in the background",
+  "consent.flow.hosted-agents.purpose":
+    "start your own AI on this computer to check a note when you press Check",
   "consent.data.scoped-passages":
     "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
@@ -8652,6 +8655,8 @@ export const en = {
   "agents.mind.outsideCitation": "a Document in a Folder not shared with this agent",
   "agents.problem.callMarkup":
     "{argument} holds the markup of the call itself, {markup}, not words for the note: nothing was written. Send the call again with each argument in its own field.",
+  "agents.problem.checkRun":
+    "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
   "agents.problem.changed":
@@ -9007,6 +9012,9 @@ export const en = {
     "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",
   "agents.share.folders": "Choose Folders",
+  // The consent to start the agent for a check in the background (#3606).
+  "agents.connect.background":
+    "With no AI model set up here, pressing Check starts {agent} on this computer, signed in as you, to check the note in the background: nothing opens in {agent} and no chat is added. It reads only what IncarnaMind gives it, as above, and uses your Claude plan or API key.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",

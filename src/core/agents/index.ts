@@ -53,7 +53,7 @@ import {
   pairingReaches,
   reachedFolders,
 } from "./access";
-import { createAskedChecks } from "./askedChecks";
+import { CHECK_RUN_TOOLS, createAskedChecks } from "./askedChecks";
 import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import type { ServedConnection } from "./mcp";
@@ -67,12 +67,22 @@ export { agentSocketPath } from "./socket";
 /** What the "agents" flow sends to a paired agent. */
 export const AGENT_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds", "answers"];
 
+/**
+ * What the "hosted-agents" flow sends when IncarnaMind starts the User's own command-line AI for a
+ * check they pressed (ADR-0032): what that agent may read already, the Note's sentences and the
+ * Passages its Tools give.
+ */
+export const HOSTED_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds"];
+
+/** The agents IncarnaMind can start for a check, by the client their pairing was set up for. */
+export const HOSTED_CLIENTS: readonly string[] = ["claude-code"];
+
 /** The device setting that turns connecting agents on. */
 const ENABLED_KEY = "agentsEnabled";
 /** Each pairing's token, in ../secrets. */
 const secretName = (pairingId: string) => `agent-pairing:${pairingId}`;
-/** How a pairing is named as a service of the "agents" data flow. */
-const serviceOf = (pairing: { id: string; name: string }): ExternalService => ({
+/** How a pairing is named as a service of the "agents" and "hosted-agents" data flows. */
+export const serviceOf = (pairing: { id: string; name: string }): ExternalService => ({
   id: `agent:${pairing.id}`,
   name: pairing.name,
 });
@@ -309,6 +319,14 @@ export function createAgents(options: AgentsOptions) {
       sends: AGENT_FLOW_SENDS,
       services: async () => livePairings().map(serviceOf),
     });
+    options.consent.registry.register({
+      id: "hosted-agents",
+      sends: HOSTED_FLOW_SENDS,
+      services: async () =>
+        livePairings()
+          .filter((pairing) => HOSTED_CLIENTS.includes(pairing.client ?? ""))
+          .map(serviceOf),
+    });
   }
 
   const parseName = (value: unknown, exceptId: string | null): string => {
@@ -533,10 +551,23 @@ export function createAgents(options: AgentsOptions) {
     reportError: options.reportError,
   };
 
+  /** The grants of checks IncarnaMind started (`checkGrant`), by their token's digest. */
+  const grants = new Map<string, { pairingId: string; mindId: string }>();
+
   /** The core interface for a token's calls: refused at every call when the token is no pairing's. */
   const open = async (
     token: string,
   ): Promise<{ pairingId: string | null; access: AgentAccess }> => {
+    const grant = grants.get(digest(token).toString("hex"));
+    if (grant) {
+      return {
+        pairingId: grant.pairingId,
+        access: createAgentAccess(accessDeps, grant.pairingId, {
+          mindId: grant.mindId,
+          tools: CHECK_RUN_TOOLS,
+        }),
+      };
+    }
     const pairingId = await pairingOfToken(token);
     return { pairingId, access: createAgentAccess(accessDeps, pairingId ?? "") };
   };
@@ -724,8 +755,12 @@ export function createAgents(options: AgentsOptions) {
         [id, name, JSON.stringify(folderIds), client, propose ? 1 : 0, at, at],
       );
       tokens.set(id, token);
-      // The User confirmed what it may read and where that goes before this was called.
-      options.consent.choose(["agents"], serviceOf({ id, name }));
+      // The User confirmed what it may read and where that goes before this was called, and, for
+      // an agent IncarnaMind can start for a check, that it may (the connect sheet says so).
+      options.consent.choose(
+        HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
+        serviceOf({ id, name }),
+      );
       changed();
       return { pairing: requirePairing(id), launch: launchFor(token) } satisfies ConnectedAgent;
     },
@@ -770,6 +805,7 @@ export function createAgents(options: AgentsOptions) {
       });
       tokens.delete(pairing.id);
       options.consent.revoke("agents", serviceOf(pairing).id);
+      options.consent.revoke("hosted-agents", serviceOf(pairing).id);
       changed();
       await closeConnections(pairing.id);
       await options.secrets.delete(secretName(pairing.id));
@@ -837,6 +873,19 @@ export function createAgents(options: AgentsOptions) {
 
     /** The User asked this agent to check the Note: its marks land there while the ask stands (#3622). */
     askedToCheck: askedChecks.asked,
+
+    /**
+     * A check the User asked of this agent, for IncarnaMind to start it with (ADR-0032): the ask is
+     * recorded, and its server's launch carries a grant admitted as the pairing, for that Note and
+     * the check's Tools alone, held in memory only until `end`.
+     */
+    checkGrant(pairingId: string, mindId: string): { launch: AgentLaunch; end(): void } {
+      const token = `im_${randomBytes(32).toString("base64url")}`;
+      const key = digest(token).toString("hex");
+      grants.set(key, { pairingId, mindId });
+      askedChecks.asked(pairingId, mindId);
+      return { launch: launchFor(token), end: () => grants.delete(key) };
+    },
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */
     requestsFor(mindId: string): AgentRequest[] {

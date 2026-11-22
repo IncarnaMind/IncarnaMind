@@ -74,11 +74,12 @@ import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
-import { agentSocketPath, createAgents } from "./agents";
+import { agentSocketPath, createAgents, serviceOf } from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
 import { createOwnChanges } from "./agents/ownChanges";
+import { createOwnAiChecks } from "./agents/ownRun";
 import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import { createAgentSorting } from "./agents/sorting";
@@ -6772,6 +6773,45 @@ export function createCore(adapters: CoreAdapters): Core {
   ] as const)
     events.on(event, summaryAccessChanged);
   liveSummaries.changed(meetings.list());
+  const ownAiChecks = createOwnAiChecks({
+    runner: adapters.ownAi,
+    askable: (mindId) => agents.askable(mindId),
+    checkGrant: (pairingId, mindId) => agents.checkGrant(pairingId, mindId),
+    async consented(pairing) {
+      try {
+        await consent.ensure("hosted-agents", serviceOf(pairing));
+        return true;
+      } catch (error) {
+        if (error instanceof ConsentDeclinedError) return false;
+        throw error;
+      }
+    },
+    allowed: (pairing) => consent.status("hosted-agents", serviceOf(pairing)) === "accepted",
+    onReachChange(listener) {
+      const off = (
+        [
+          "agents.changed",
+          "privacy.changed",
+          "settings.changed",
+          "dataFlows.changed",
+          "minds.changed",
+          "library.changed",
+          "library.assignments",
+        ] as const
+      ).map((event) => events.on(event, listener));
+      return () => {
+        for (const each of off) each();
+      };
+    },
+    onActivity: (listener) => events.on("agents.activity", listener),
+    ended: (end) => events.emit("agents.ownCheck", end),
+    titleOf(mindId) {
+      const mind = minds.list().find((each) => each.id === mindId);
+      return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
+    },
+    lifetime: lifetime.signal,
+    log: adapters.log ?? silentLogger,
+  });
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -9300,6 +9340,16 @@ export function createCore(adapters: CoreAdapters): Core {
       return wanted.filter((id) => readable.has(id));
     },
     askAgent: (input) => agentAsk.ask(input),
+    checkWithOwnAi(mindId, pairingId) {
+      if (
+        typeof mindId !== "string" ||
+        (pairingId !== undefined && typeof pairingId !== "string")
+      ) {
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      }
+      return ownAiChecks.check(mindId, pairingId);
+    },
+    stopOwnAiCheck: async (mindId) => ownAiChecks.stop(mindId),
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);

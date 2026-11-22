@@ -8104,6 +8104,8 @@ export const zhCN = {
   "assistant.table.unmade": "没能做成表格：内容在下方，未添加到“{mind}”。",
   "consent.flow.agents": "你的 AI 智能体",
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
+  "consent.flow.hosted-agents": "在后台运行你的 AI",
+  "consent.flow.hosted-agents.purpose": "在你点“核对”时，在这台电脑上启动你自己的 AI 核对笔记",
   "consent.data.scoped-passages":
     "整理时会读取待整理文档的名称、类型、开头的文字和版本，以及可选文件夹和标签的名称和内部 ID。所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多；以及 IncarnaMind 在这台电脑上为它推算的结果：根据它引用的数字推算，或用代码处理这些文件夹中的表格或 CSV 文件（代码给出的数字、表格和打印的文字）",
   "consent.data.scoped-minds":
@@ -8157,6 +8159,8 @@ export const zhCN = {
   "agents.mind.outsideCitation": "未共享给此智能体的文件夹中的文档",
   "agents.problem.callMarkup":
     "{argument} 里有调用本身的标记 {markup}，不是笔记的文字：没有写入。请重新调用，每个参数各放在自己的字段里。",
+  "agents.problem.checkRun":
+    "这次核对只能核对它自己的笔记，只能用 check_mind_yourself、search、read_passages、cite、run_analysis 和 report_check。",
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → 智能体”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
@@ -8475,6 +8479,8 @@ export const zhCN = {
     "它读取的内容会发送给{agent}所用的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
   "agents.share.all": "我的全部文档和笔记，包括以后添加的",
   "agents.share.folders": "选择文件夹",
+  "agents.connect.background":
+    "还没在这里设置 AI 模型时，点“核对”会在这台电脑上以你的登录身份在后台启动 {agent} 核对笔记：不会打开 {agent}，也不会新增对话。它只读取上面所说的、IncarnaMind 交给它的内容，使用你的 Claude 订阅或 API 密钥。",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",

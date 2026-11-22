@@ -7,6 +7,27 @@
  * this device for as long as IncarnaMind runs.
  */
 
+import type { AgentToolName } from "../api";
+
+/**
+ * The Tools a check the User asked may use when IncarnaMind starts the agent for it (ADR-0032):
+ * what `check_mind_yourself`'s rules send it to, and nothing that changes words or reads other Notes.
+ */
+export const CHECK_RUN_TOOLS = [
+  "check_mind_yourself",
+  "search",
+  "read_passages",
+  "cite",
+  "run_analysis",
+  "report_check",
+] as const satisfies readonly AgentToolName[];
+
+/** A connection IncarnaMind started for one asked check: its Note, and the Tools it may call. */
+export interface CheckRun {
+  mindId: string;
+  tools: readonly AgentToolName[];
+}
+
 /**
  * How long an ask stands. #3587's six real checks took 30 to 97 seconds from the press to the
  * marks; this leaves room for a Note many times longer, and for a User who sends the request a
