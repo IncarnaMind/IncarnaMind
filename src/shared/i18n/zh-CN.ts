@@ -8387,6 +8387,9 @@ export const zhCN = {
   "agents.ask.fixAll": "交给{agent}修改这 {count} 句",
   "agents.ask.waiting": "等{agent}读取你的请求。",
   "agents.ask.read": "{agent}已读取你的请求。",
+  "agents.ask.continue": "在已打开的对话中继续",
+  "agents.ask.continued": "已复制，并已切到{agent}：粘贴到你刚才的对话里即可。",
+  "agents.ask.continueCopied": "已复制。请打开{agent}，粘贴到你刚才的对话里。",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
     "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",

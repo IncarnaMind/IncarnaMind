@@ -15,6 +15,7 @@ export function AskAgentLine({
   agents,
   label,
   onAsk,
+  onContinue,
   setUp,
   testId,
   className = "",
@@ -24,6 +25,8 @@ export function AskAgentLine({
   agents: readonly AgentPairing[];
   label(agent: string): string;
   onAsk(agent: AgentPairing): void;
+  /** The same ask, for the chat the User has open in the first agent's app (#3588). */
+  onContinue?(agent: AgentPairing): void;
   setUp: ProblemAction;
   testId: string;
   className?: string;
@@ -54,8 +57,14 @@ export function AskAgentLine({
                 onClick: () => onAsk(first),
               }}
             />
-            {others.length > 0 && (
-              <OtherAgents agents={others} label={label} onAsk={onAsk} testId={testId} />
+            {(others.length > 0 || onContinue) && (
+              <OtherAgents
+                agents={others}
+                label={label}
+                onAsk={onAsk}
+                {...(onContinue && { onContinue: () => onContinue(first) })}
+                testId={testId}
+              />
             )}
           </span>,
           <LineAction key="set-up" action={setUp} />,
@@ -70,6 +79,7 @@ export function OtherAgents({
   agents,
   label,
   onAsk,
+  onContinue,
   testId,
   className = "text-accent hover:bg-hover",
   name: named,
@@ -78,6 +88,11 @@ export function OtherAgents({
   agents: readonly AgentPairing[];
   label(agent: string): string;
   onAsk(agent: AgentPairing): void;
+  /**
+   * Continue in the open chat (#3588), first: the ask the button beside makes, for the chat the
+   * User has open in that agent's app.
+   */
+  onContinue?(): void;
   testId: string;
   className?: string;
   /** The ⌄'s name, where its menu holds more than agents. */
@@ -86,7 +101,7 @@ export function OtherAgents({
 }) {
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
-  const name = named ?? t("agents.ask.others");
+  const name = named ?? t(onContinue ? "agents.ask.more" : "agents.ask.others");
   return (
     <>
       <button
@@ -100,6 +115,23 @@ export function OtherAgents({
         <ChevronDownLineIcon className="size-3.5" />
       </button>
       <div {...menu.menuProps} role="menu" aria-label={name} className={menuClass}>
+        {menu.open && onContinue && (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid={`${testId}-continue`}
+              className={`${menuItemClass} pl-2`}
+              onClick={() => {
+                menu.close();
+                onContinue();
+              }}
+            >
+              {t("agents.ask.continue")}
+            </button>
+            {agents.length > 0 && <div className={menuRuleClass} />}
+          </>
+        )}
         {menu.open &&
           agents.map((agent) => (
             <button

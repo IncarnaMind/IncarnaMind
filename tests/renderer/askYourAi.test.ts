@@ -27,11 +27,18 @@ const bridge = {
   asked: [] as AskAgentInput[],
   /** The agent's app took the link, as Claude Code's does. */
   opens: false,
+  /** The agent's app was brought forward for the chat the User has open, as Claude's is (#3588). */
+  fronts: false,
   on: () => () => undefined,
   listAgentsToAsk: async () => bridge.agents,
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
+    if (input.openChat) {
+      return bridge.fronts
+        ? { kind: "fronted", text: "The request" }
+        : { kind: "copy", text: "The request" };
+    }
     return bridge.opens ? { kind: "opened" } : { kind: "copy", text: "The request" };
   },
   // The core keeps the assistant's place as the window asks.
@@ -220,6 +227,7 @@ async function lineAbove(): Promise<HTMLElement> {
 beforeEach(() => {
   bridge.asked = [];
   bridge.opens = false;
+  bridge.fronts = false;
   copied.length = 0;
   useNotices.setState({ confirmation: null });
   useModelSetup.setState({ waiting: null, wanted: false, ready: false });
@@ -476,5 +484,57 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
     expect(line.querySelector('[data-testid="checks-ask-agent"]')).toBeNull();
     expect(line.textContent).not.toContain("Ask Claude Code");
     expect(line.textContent).toContain("Set up");
+  });
+});
+
+describe("continuing in the chat the User has open (#3588)", () => {
+  // protects=Continue in the open chat asks as an Ask does, copies the line for the chat the User has open, and says it was copied and where to paste it: with the agent's app brought forward, or to open it where it can't be; fails_when=it asks for a new chat, copies nothing, or the notice says the app opened with the request typed
+  test("copies the line and says where to paste it, the app brought forward or not", async () => {
+    const claude = pairing("Claude", "claude-desktop");
+    user(NO_MODEL, [claude]);
+    bridge.fronts = true;
+    expect(await askAgent(claude, MIND, { kind: "note" }, undefined, { openChat: true })).toBe(
+      true,
+    );
+    expect(bridge.asked).toEqual([
+      { pairingId: claude.id, mindId: MIND, ask: { kind: "note" }, openChat: true },
+    ]);
+    expect(copied).toEqual(["The request"]);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "agents.ask.continued",
+      params: { agent: "Claude" },
+    });
+
+    const code = pairing("Claude Code", "claude-code");
+    bridge.fronts = false;
+    expect(await askAgent(code, MIND, { kind: "check" }, undefined, { openChat: true })).toBe(true);
+    expect(copied).toEqual(["The request", "The request"]);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "agents.ask.continueCopied",
+      params: { agent: "Claude Code" },
+    });
+  });
+
+  // protects=the one-press default is unchanged: a new chat with the line typed, never the open chat; fails_when=a plain Ask carries openChat or copies where the app opened
+  test("the default press still opens a new chat with the line typed", async () => {
+    const code = pairing("Claude Code", "claude-code");
+    user(NO_MODEL, [code]);
+    bridge.opens = true;
+    expect(await askAgent(code, MIND, { kind: "note" })).toBe(true);
+    expect(bridge.asked).toEqual([{ pairingId: code.id, mindId: MIND, ask: { kind: "note" } }]);
+    expect(copied).toEqual([]);
+    expect(useNotices.getState().confirmation).toMatchObject({ message: "agents.ask.opened" });
+  });
+
+  // protects=the Check line's ⌄ is there with a single AI connected, so the open chat is one step away, named for more than other AIs; fails_when=the ⌄ shows only with a second AI, or keeps saying "Ask another AI"
+  test.each([
+    ["en", "More ways to ask"],
+    ["zh-CN", "更多提问方式"],
+  ] as const)("the Check line offers it with one AI connected (%s)", async (language, name) => {
+    user(NO_MODEL, [pairing("Claude Code", "claude-code")], language);
+    const line = await checkLine(NO_MODEL as never);
+    expect(
+      line.querySelector('[data-testid="checks-ask-agent-others"]')?.getAttribute("aria-label"),
+    ).toBe(name);
   });
 });

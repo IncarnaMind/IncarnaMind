@@ -145,7 +145,8 @@ export const useNoModel = (): boolean => useAppStore(noModelIn);
 
 /**
  * Hands `ask` to `agent`. A question goes with what the User is looking at, as the assistant is
- * told it: the Documents open on screen and the chat box's Search scope (#3533). Resolves to
+ * told it: the Documents open on screen and the chat box's Search scope (#3533). `openChat`: for
+ * the chat the User has open there, the line copied and no new chat opened (#3588). Resolves to
  * whether it went: a failure is a notice.
  */
 export async function askAgent(
@@ -153,6 +154,7 @@ export async function askAgent(
   mindId: string | null,
   ask: AgentAsk,
   scope?: SearchScope,
+  { openChat = false }: { openChat?: boolean } = {},
 ): Promise<boolean> {
   try {
     const result = await core.askAgent({
@@ -160,13 +162,21 @@ export async function askAgent(
       mindId,
       ask,
       ...(ask.kind === "question" && { onScreen: documentsOnScreen(), scope: scope ?? null }),
+      ...(openChat && { openChat: true }),
     });
-    if (result.kind === "copy") await navigator.clipboard.writeText(result.text);
+    if (result.kind !== "opened") await navigator.clipboard.writeText(result.text);
     useNotices
       .getState()
-      .confirm(result.kind === "copy" ? "agents.ask.copied" : "agents.ask.opened", {
-        agent: agent.name,
-      });
+      .confirm(
+        result.kind === "opened"
+          ? "agents.ask.opened"
+          : result.kind === "fronted"
+            ? "agents.ask.continued"
+            : openChat
+              ? "agents.ask.continueCopied"
+              : "agents.ask.copied",
+        { agent: agent.name },
+      );
     return true;
   } catch (error) {
     useAppStore.getState().reportError(error);

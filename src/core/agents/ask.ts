@@ -33,7 +33,7 @@ import {
 } from "../api";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { parseSearchScope } from "../scope";
-import { promptLinkFor } from "./clients";
+import { frontLinkFor, promptLinkFor } from "./clients";
 import type { RequestNamed } from "./requests";
 
 type Say = (key: MessageKey, params?: MessageParams) => string;
@@ -401,6 +401,7 @@ interface ParsedInput {
   ask: AgentAsk;
   onScreen: string[];
   scope: SearchScope | null;
+  openChat: boolean;
 }
 
 function parseInput(input: unknown): ParsedInput {
@@ -414,10 +415,31 @@ function parseInput(input: unknown): ParsedInput {
       ? input.onScreen.filter((id): id is string => typeof id === "string" && id !== "")
       : [],
     scope: parseSearchScope(input.scope),
+    openChat: input.openChat === true,
   };
 }
 
 export function createAgentAsk(options: AgentAskOptions) {
+  /**
+   * The line for the chat the User has open in the agent's app (#3588): copied, never typed into a
+   * new chat, and the app brought forward where its documentation gives a link for that.
+   */
+  async function continueInOpenChat(pairing: AgentPairing, line: string): Promise<AskAgentResult> {
+    const front = frontLinkFor(pairing.client);
+    if (front && options.openLink) {
+      try {
+        await options.openLink(front);
+        return { kind: "fronted", text: line };
+      } catch (error) {
+        options.log.warn("agents.askFrontUnopened", {
+          client: pairing.client ?? "other",
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    }
+    return { kind: "copy", text: line };
+  }
+
   /** What the User looks at that this agent can read now, named as it is now. */
   const lookingAt = (
     pairingId: string,
@@ -493,7 +515,7 @@ export function createAgentAsk(options: AgentAskOptions) {
       };
     },
     async ask(input: unknown): Promise<AskAgentResult> {
-      const { pairingId, mindId, ask, onScreen, scope } = parseInput(input);
+      const { pairingId, mindId, ask, onScreen, scope, openChat } = parseInput(input);
       const pairing = options
         .askable(mindId, ask.kind === "summary" ? ask.documentId : undefined)
         .find((each) => each.id === pairingId);
@@ -550,6 +572,7 @@ export function createAgentAsk(options: AgentAskOptions) {
           named: named ?? null,
         });
       }
+      if (openChat) return continueInOpenChat(pairing, line);
       const link = promptLinkFor(pairing.client, line);
       if (link && options.openLink) {
         try {

@@ -35,14 +35,15 @@ export function CheckNotReady({
   // it comes.
   if (noModel && agents === null) return <p className="mind-health-line">{"\u00A0"}</p>;
   if (noModel && agents !== null && agents.length > 0) {
-    const ask = async (agent: AgentPairing) => {
-      if (await askAgent(agent, mindId, { kind: "check" })) dismiss();
+    const ask = async (agent: AgentPairing, openChat = false) => {
+      if (await askAgent(agent, mindId, { kind: "check" }, undefined, { openChat })) dismiss();
     };
     return (
       <AskAgentLine
         agents={agents}
         label={(agent) => t("agents.ask.action", { agent })}
         onAsk={(agent) => void ask(agent)}
+        onContinue={(agent) => void ask(agent, true)}
         setUp={{ ...setUp, label: t("agents.ask.setUpModel"), testId: "checks-ask-agent-set-up" }}
         testId="checks-ask-agent"
         className="mind-health-line"

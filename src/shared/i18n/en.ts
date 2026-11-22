@@ -8901,6 +8901,9 @@ export const en = {
   "agents.ask.fixAll": "Ask {agent} to fix {count}",
   "agents.ask.waiting": "Waiting for {agent} to read your request.",
   "agents.ask.read": "{agent} read your request.",
+  "agents.ask.continue": "Continue in the open chat",
+  "agents.ask.continued": "Copied, and {agent} is in front: paste it into the chat you were in.",
+  "agents.ask.continueCopied": "Copied. Open {agent} and paste it into the chat you were in.",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",

@@ -15,6 +15,7 @@ import {
   expectReadyDocuments,
   frontMind,
   launchApp,
+  motionSettled,
   openDocumentAt,
   openSettings,
   pointAndClick,
@@ -338,6 +339,94 @@ async function writtenUnchecked(launch: AgentLaunch): Promise<string> {
     await agent.close();
   }
 }
+
+test("Continue in the open chat, from the Ask pill's menu: the line an Ask types is copied, no new chat opens, Claude's app comes forward, and the notice says where to paste (#3588)", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    const launch = await connected(window);
+    const mindId = await writtenUnchecked(launch);
+    await pointAndClick(
+      window,
+      window.locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`),
+    );
+    await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
+    const noteNamed = `About my note “${TITLE}” in IncarnaMind:`;
+    const menu = window.getByTestId("own-ai-pill-others");
+    const choice = window.getByTestId("own-ai-pill-continue");
+
+    // Claude Code, used last: its documentation gives no link that comes back to a session, so the
+    // line is copied and nothing opens.
+    await expect(window.getByTestId("own-ai-pill-ask")).toContainText("Ask Claude Code");
+    await pointAndClick(window, menu);
+    await expect(choice).toHaveText("Continue in the open chat");
+    await motionSettled(window);
+    await shot(window, "continue-menu-en");
+    await pointAndClick(window, choice);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "Copied. Open Claude Code and paste it into the chat you were in.",
+    );
+    expect(await copied(window)).toBe(noteNamed);
+    expect(await urlsOpened(app)).toEqual([]);
+    await motionSettled(window);
+    await shot(window, "continue-copied-en");
+
+    // The request waits for Claude Code as an Ask's does, read once.
+    const agent = await claudeCode(launch);
+    try {
+      const read = await agent.callTool({ name: "read_request", arguments: { note: TITLE } });
+      expect(read.structuredContent).toMatchObject({ mindId, title: TITLE });
+    } finally {
+      await agent.close();
+    }
+
+    // Claude's app, connected since: its documented chat link with no chat's id brings it to the
+    // front on the User's recent chats, and starts none.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [first] = (await bridge.getAgents()).pairings;
+      if (!first) throw new Error("No agent was connected.");
+      await bridge.connectAgent({
+        name: "Claude",
+        client: "claude-desktop",
+        folderIds: first.folderIds,
+      });
+    });
+    await expect(window.getByTestId("own-ai-pill-ask")).toContainText("Ask Claude");
+    await expect(window.getByTestId("own-ai-pill-ask")).not.toContainText("Claude Code");
+    await pointAndClick(window, menu);
+    await pointAndClick(window, choice);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "Copied, and Claude is in front: paste it into the chat you were in.",
+    );
+    await expect.poll(() => urlsOpened(app)).toEqual(["claude://claude.ai/chat/"]);
+    expect(await copied(window)).toBe(noteNamed);
+
+    // The default press is unchanged: a new chat with the line typed.
+    await pointAndClick(window, window.getByTestId("own-ai-pill-ask"));
+    await expect.poll(async () => (await urlsOpened(app)).length).toBe(2);
+    const [, opened] = await urlsOpened(app);
+    expect(opened?.startsWith("claude://claude.ai/new?q=")).toBe(true);
+    expect(new URL(opened ?? "about:blank").searchParams.get("q")).toBe(noteNamed);
+
+    // The same, in Chinese.
+    await setLanguage(window, "zh-CN");
+    await pointAndClick(window, menu);
+    await expect(choice).toHaveText("在已打开的对话中继续");
+    await motionSettled(window);
+    await shot(window, "continue-menu-zh-CN");
+    await pointAndClick(window, choice);
+    await expect(window.getByTestId("copied-line")).toHaveText(
+      "已复制，并已切到 Claude：粘贴到你刚才的对话里即可。",
+    );
+    await motionSettled(window);
+    await shot(window, "continue-fronted-zh-CN");
+  } finally {
+    await app.close();
+  }
+});
 
 test("with no model, a question typed with a Document open names it in the line, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
   const { app, window } = await launchApp(dataDir, { home });

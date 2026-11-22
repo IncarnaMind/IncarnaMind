@@ -12992,13 +12992,23 @@ export interface AskAgentInput {
   onScreen?: string[] | null;
   /** With a question: the chat box's Search scope, as `AskInConversationInput.scope`; only the Folders and Documents of it that the agent can read are named or kept. */
   scope?: SearchScope | null;
+  /**
+   * Continue in the chat the User has open (#3588): the request is kept as an Ask keeps it, the
+   * line comes back to copy, and no link opens a new chat.
+   */
+  openChat?: boolean;
 }
 
 /**
  * "opened": the agent's app opened with the request's line typed in it; "copy": the line, `text`,
- * for the User to paste. The rest of the request waits in IncarnaMind for that agent (#3419).
+ * for the User to paste; "fronted": that line, with the agent's app brought to the front starting
+ * no chat, for the chat the User has open (#3588). The rest of the request waits in IncarnaMind for
+ * that agent (#3419).
  */
-export type AskAgentResult = { kind: "opened" } | { kind: "copy"; text: string };
+export type AskAgentResult =
+  | { kind: "opened" }
+  | { kind: "copy"; text: string }
+  | { kind: "fronted"; text: string };
 
 /**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
