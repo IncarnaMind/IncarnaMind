@@ -233,12 +233,10 @@ for (const language of ["en", "zh-CN"] as const) {
     // 1. The first run: the User's own AI comes first, and it connects inside the step.
     await pointAndClick(window, (await atStep("work")).getByTestId("setup-skip"));
     const ai = await atStep("ai");
-    await expect(ai.locator('[data-testid="setup-agent"]').first()).toHaveAttribute(
-      "data-value",
-      "claude-code",
-    );
+    const found = ai.locator('[data-testid="setup-agent"][data-value="claude-code"]');
+    await expect(found).toContainText(t("setupPage.agent.found"));
     await plainAndWithAWayOn(window, language, "the Your AI step");
-    await ai.locator('[data-testid="setup-agent"][data-value="claude-code"] input').press("Space");
+    await found.locator("input").press("Space");
     await pointAndClick(
       window,
       ai.getByTestId("setup-agent-connect").getByTestId("setup-agent-allow"),
