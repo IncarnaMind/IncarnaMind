@@ -242,8 +242,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await showMind(window, "Field visit");
     const editor = frontMind(window).getByTestId("mind-editor");
     await editor.locator(":scope > p").last().click();
-    await window.keyboard.press("ControlOrMeta+End");
+    await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
     await window.keyboard.insertText(" Edited.");
+    await expect(editor.locator(":scope > p").last()).toHaveText(`${CLAIM} Edited.`);
     await expect
       .poll(() => snapshotText(window, source.id), { timeout: 60_000 })
       .not.toContain("Edited");
