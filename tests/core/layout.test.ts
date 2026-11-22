@@ -977,7 +977,7 @@ describe("Tabs and groups", () => {
     const float = { width: 400, height: 300, corner: "bottom-left", x: 40, y: 32 } as const;
     layout = await change({ type: "assistant", place: { dock: "float", float, folded: true } });
     expect(layout.assistant).toMatchObject({ dock: "float", folded: true, width: 412, float });
-    await change({ type: "assistant", place: { height: 240 } });
+    await change({ type: "assistant", place: { height: 240, heightChosen: true } });
     core.close();
 
     const restarted = startCore(dataDir);
@@ -986,6 +986,7 @@ describe("Tabs and groups", () => {
       folded: true,
       width: 412,
       height: 240,
+      heightChosen: true,
       float,
     });
     for (const place of [
@@ -993,6 +994,7 @@ describe("Tabs and groups", () => {
       { folded: "yes" },
       { width: 0 },
       { height: Number.POSITIVE_INFINITY },
+      { heightChosen: "yes" },
       { float: { width: 300, height: 200, corner: "middle", x: 0, y: 0 } },
       { float: { width: 300, height: 200, corner: "top-left", x: -5, y: 0 } },
     ]) {

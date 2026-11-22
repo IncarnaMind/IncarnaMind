@@ -95,7 +95,7 @@ describe("sizes", () => {
     });
     expect(restoredSize(moved, "right")).toEqual({ width: 320 });
     expect(restoredSize(moved, "left")).toEqual({ width: 320 });
-    expect(restoredSize(moved, "bottom")).toEqual({ height: 300 });
+    expect(restoredSize(moved, "bottom")).toEqual({ height: 300, heightChosen: false });
     // A floating box keeps its corner and its distance to it.
     expect(restoredSize(moved, "float")).toEqual({
       float: { width: 380, height: 520, corner: "bottom-left", x: 30, y: 40 },
