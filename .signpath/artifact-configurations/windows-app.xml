@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   SignPath artifact configuration "windows-app": dist/win-unpacked, zipped by actions/upload-artifact
-  (docs/releasing.md, Windows signing). IncarnaMind.exe is the only file of ours in it; Electron's
-  and the native modules' libraries ship as their authors published them. electron-builder writes
-  the exe's product version as four numbers (1.2.3.0), which the workflow passes as windowsVersion.
+  (docs/releasing.md, Windows signing). IncarnaMind.exe and the optional call watcher are built
+  by this project. Electron's and the native modules' libraries ship as their authors published
+  them. Both executables use the four-part product version the workflow passes as windowsVersion.
 -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <parameters>
@@ -11,6 +11,9 @@
   </parameters>
   <zip-file>
     <pe-file path="IncarnaMind.exe" product-name="IncarnaMind" product-version="${windowsVersion}">
+      <authenticode-sign />
+    </pe-file>
+    <pe-file path="resources/call-watcher.exe" min-matches="0" product-name="IncarnaMind" product-version="${windowsVersion}">
       <authenticode-sign />
     </pe-file>
   </zip-file>

@@ -17,7 +17,7 @@ export interface MeetingApp {
   mac: readonly string[];
   /**
    * Executable names, lower case, or a packaged app's family name up to its "_", as Windows records
-   * microphone use: for the Windows watcher to come (#2843), and Settings' list of apps there.
+   * microphone use. A packaged name ends in the publisher identifier after its underscore.
    */
   windows: readonly string[];
   /** What PulseAudio names the recording stream's program, lower case: its binary or its name. */
@@ -200,4 +200,17 @@ export function appOfLinuxStream(binary: string | null, name: string | null): st
     if (found) return found.id;
   }
   return null;
+}
+
+/** The app Windows records as using the microphone, by executable or package family. */
+export function appOfWindowsMicrophone(name: string): string | null {
+  const token = name.toLowerCase();
+  const found = MEETING_APPS.find((app) =>
+    app.windows.some((entry) =>
+      entry.endsWith("_")
+        ? token.length > entry.length && token.startsWith(entry)
+        : token === entry,
+    ),
+  );
+  return found?.id ?? null;
 }

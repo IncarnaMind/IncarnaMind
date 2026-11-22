@@ -6824,11 +6824,12 @@ export const zhCN = {
   "settings.calendarOffers": "日历上的会议",
   "settings.calendarOffers.detail": "两人或以上的日程开始前 1 分钟，提示“记录会议”。",
   "settings.callOffers": "不在日历上的通话",
+  "settings.callOffers.detailWindows": "会议应用使用麦克风时提示。离开通话时请手动停止录制。",
   "settings.callOffers.detail": "会议应用开始使用麦克风时提示。",
   "settings.callOffers.perApp": "按应用…",
   "settings.callOffers.apps": "这些应用使用麦克风时询问",
   "settings.callOffers.noPactl": "需要 PulseAudio 的 pactl，这台电脑上没有。",
-  "settings.callOffers.notOnWindows": "Windows 上暂时还不能发现通话，后续版本会加入。",
+  "settings.callOffers.notOnWindows": "此 Windows 版本无法发现通话。",
   "offers.turnOn.line":
     "IncarnaMind 现在可以保留在菜单栏中、登录时打开，并在通话开始时提示你记录会议。",
   "offers.turnOn.line.other":
