@@ -5945,12 +5945,16 @@ export function createCore(adapters: CoreAdapters): Core {
     });
     return meetings.start({ meetingId: meeting.id }).id;
   };
-  let liveOfferMeetings = new Set(
-    meetings
-      .list()
-      .filter(isLive)
-      .map((meeting) => meeting.id),
-  );
+  const liveCalls = (list: readonly Meeting[]) =>
+    new Map(
+      list
+        .filter(isLive)
+        .map(
+          ({ id, kind, transcript }) =>
+            [id, kind === "meeting" ? transcript?.documentId : null] as const,
+        ),
+    );
+  let liveMeetings = liveCalls(meetings.list());
   const meetingOffers = createMeetingOffers({
     watcher: adapters.callWatcher,
     watching: () => {
@@ -5965,8 +5969,8 @@ export function createCore(adapters: CoreAdapters): Core {
       offerAllowed(settings.get().device, { kind: "calendar" }),
     calendarEvents: calendars.reminderEvents,
     markCalendarReminderSeen: calendars.markReminderSeen,
-    busy: () => liveOfferMeetings.size > 0,
-    live: (meetingId) => liveOfferMeetings.has(meetingId),
+    busy: () => liveMeetings.size > 0,
+    live: (meetingId) => liveMeetings.has(meetingId),
     record: () => recordOffer(),
     recordCalendar: (eventId) => {
       const { mindId, joinUrl } = calendars.takeReminderNotes(eventId);
@@ -5982,7 +5986,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   events.on("settings.changed", () => meetingOffers.refresh());
   events.on("meetings.changed", (list) => {
-    liveOfferMeetings = new Set(list.filter(isLive).map((meeting) => meeting.id));
+    liveMeetings = liveCalls(list);
     meetingOffers.refresh();
   });
   events.on("calendarEvents.changed", () => meetingOffers.refresh());
@@ -6286,6 +6290,15 @@ export function createCore(adapters: CoreAdapters): Core {
         return reached.filter((id) => sources.has(id));
       },
       noteTranscripts: () => noteTranscripts(db),
+      refreshLiveTranscripts: (documentIds) => {
+        if (!transcripts) return;
+        const checks = [...liveMeetings].flatMap(([meetingId, documentId]) =>
+          documentId && documentIds.includes(documentId)
+            ? [transcripts.refresh(meetingId, { waitForPassages: true })]
+            : [],
+        );
+        if (checks.length) return Promise.all(checks).then(() => undefined);
+      },
       // Without the reranker: it costs about a second a search (ADR-0009), and an agent's
       // search must answer in well under 100 ms.
       search: (query, documentIds, parameters, signal) =>
