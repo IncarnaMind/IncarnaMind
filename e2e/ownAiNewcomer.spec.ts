@@ -352,7 +352,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, window.getByTestId("badge-check-mind"));
       await expect
         .poll(typedInClaudeCode)
-        .toEqual([asked, t("agents.ask.line.check", { title: walk.title })]);
+        .toEqual([asked, t("agents.ask.line.check", { title: `“${walk.title}”` })]);
       const badge = window.getByTestId("badge-asked");
       await expect(badge).toHaveText(t("agents.asked.short.asked"));
       const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
