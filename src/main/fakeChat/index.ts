@@ -162,6 +162,30 @@ const SUMMARY_FIXTURES = [
   }[];
 }[];
 
+function fakeBriefQuestions({ prompt }: GenerateOptions): string | null {
+  if (!systemOf(prompt).startsWith("Prepare three distinct")) return null;
+  const { language, sources }: { language: string; sources: { source: number; text: string }[] } =
+    JSON.parse(lastUserText(prompt));
+  const examples =
+    language === "zh-CN"
+      ? [
+          ["年费是多少？", "年费为五百四十元。"],
+          ["付款期限是多久？", "付款期限为三十天。"],
+          ["何时带样品过来？", "我周五带样品过来。"],
+        ]
+      : [
+          ["What is the annual rate?", "The annual rate is $540."],
+          ["When is payment due?", "Payment is due within 30 days."],
+          ["When will the samples be brought?", "I will bring the samples on Friday."],
+        ];
+  return JSON.stringify(
+    examples.map(([question, quote]) => {
+      const row = sources.find((s) => quote && s.text.includes(quote));
+      return { question, source: row?.source ?? null, quote: row ? quote : null };
+    }),
+  );
+}
+
 function fakeMeetingReview({ prompt }: GenerateOptions): string | null {
   if (!systemOf(prompt).startsWith("Review the complete finished meeting transcript")) return null;
   const { utterances }: { utterances: { text: string }[] } = JSON.parse(lastUserText(prompt));
@@ -232,6 +256,7 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
  * doesn't return null answers it.
  */
 const GENERATE_HANDLERS: readonly ((options: GenerateOptions) => string | null)[] = [
+  fakeBriefQuestions,
   fakeMeetingSummary,
   fakeMeetingReview,
   fakeSentenceBatch,
