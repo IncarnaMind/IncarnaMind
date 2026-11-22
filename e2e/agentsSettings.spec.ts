@@ -620,10 +620,11 @@ test("a connection whose program has moved says so in its row, and Repair writes
     const row = page.getByTestId("agent-pairing");
     const line = row.getByTestId("agent-pairing-repair");
     await expect(line).toContainText(
-      "ChatGPT app and Codex can’t reach IncarnaMind: IncarnaMind has moved since it was connected",
+      "Needs repair: IncarnaMind has moved since the ChatGPT app or Codex was connected",
     );
     await setLanguage(window, "zh-CN");
-    await expect(line).toContainText("连不上 IncarnaMind：连接之后 IncarnaMind 换了位置");
+    await expect(line).toContainText("需要修复：连接");
+    await expect(line).toContainText(" 之后，IncarnaMind 换了位置");
     await expect(row.getByTestId("agent-pairing-repair-button")).toHaveText("修复");
     await setLanguage(window, "en");
 

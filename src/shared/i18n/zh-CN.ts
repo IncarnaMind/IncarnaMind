@@ -8380,7 +8380,7 @@ export const zhCN = {
   "agents.pairing.disconnect": "断开连接",
   "agents.pairing.details": "技术细节",
   "agents.pairing.skill": "已安装技能：{agent}知道何时使用 IncarnaMind",
-  "agents.pairing.repair.line": "{agent} 连不上 IncarnaMind：连接之后 IncarnaMind 换了位置",
+  "agents.pairing.repair.line": "需要修复：连接 {agent} 之后，IncarnaMind 换了位置",
   "agents.pairing.repair": "修复",
   "agents.pairing.skillOld": "技能已过期：你改过这个文件",
   "agents.pairing.skillOld.replace": "替换…",
