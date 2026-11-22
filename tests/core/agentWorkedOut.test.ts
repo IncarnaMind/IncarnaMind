@@ -923,7 +923,10 @@ describe("an outside agent has a figure worked out by IncarnaMind (#3363)", () =
           },
         }),
       ),
-    ).toMatchObject({ unconfirmed: [1] });
+    ).toMatchObject({
+      unconfirmed: [1],
+      next: expect.stringMatching(/1: the run's code writes 1\.03 itself, which no quote gives/),
+    });
     expect(
       (await marks(grown.core, grown.mindId, grown.coast.id)).map((each) => each.state),
     ).not.toContain("supported");

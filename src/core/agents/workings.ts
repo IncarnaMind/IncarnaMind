@@ -269,7 +269,13 @@ function workedRun(
       : [],
   );
   if (figures.length === 0) {
-    return { ok: false, reason: wrote ? "number-not-worked-out" : "no-evidence", detail: null };
+    return wrote
+      ? {
+          ok: false,
+          reason: "number-not-worked-out",
+          detail: [...new Set(run.output.literals.map((each) => each.text))].join(", "),
+        }
+      : { ok: false, reason: "no-evidence", detail: null };
   }
   const library = lists ? libraryRead(lists.lists, lists.listed.filter(isLibraryList)) : null;
   // A mark is compared with the lists as the Note's own check counts them, which the window knows.
@@ -360,7 +366,7 @@ export function workedFrom(
     const one = written.length === 1;
     return {
       ok: false,
-      problem: `${written.join(", ")} ${one ? "is" : "are"} written into the expression, and no quote gives ${one ? "it" : "them"}: give ${one ? "it" : "each"} as an input with the [cite:…] of a quote that holds ${one ? "it" : "its number"}, or, if no Document states ${one ? "it" : "them"}, report the sentence as not found`,
+      problem: `${written.join(", ")} ${one ? "is" : "are"} written into the expression, and no quote gives ${one ? "it" : "them"}: give ${one ? "it" : "each"} as an input with the [cite:…] of a quote that holds ${one ? "it" : "its number"}; for a scale or a unit, give the input's value in it instead (the quote's digits moved by a power of ten); if no Document states ${one ? "it" : "them"}, report the sentence as not found`,
     };
   }
   const evidence = cited.map((each) => each.citation);

@@ -3486,6 +3486,12 @@ export function createAgentAccess(
               ? workOut.confirmed(each.run, pairing.id, mind.id, reach)
               : undefined;
           if (run?.ok) for (const id of run.backing.documentIds) worked.add(id);
+          // The run's report said so too; told again here, the agent can run it once more.
+          if (run && !run.ok && run.reason === "number-not-worked-out" && run.detail) {
+            workings.push(
+              `${each.n}: the run's code writes ${run.detail} itself, which no quote gives: give each as an input, {"name", "citation", "value"}, and run it again`,
+            );
+          }
           return [
             {
               n: each.n,
