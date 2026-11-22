@@ -14,7 +14,7 @@ import { useModal } from "../useModal";
 import { type AgentChoice, ConnectAgentFields } from "./ConnectAgentFields";
 
 /**
- * The one confirmation before an agent is connected in Settings › Agents (#351), which is also
+ * The one confirmation before an agent is connected in Settings › AI (#351), which is also
  * the User's consent to its data flow: `ConnectAgentFields` says what it may read and where that
  * goes, and Allow is the press. Open while `client` is set; `onAllow` gets the choices.
  */

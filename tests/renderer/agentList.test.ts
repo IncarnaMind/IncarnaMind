@@ -1,5 +1,5 @@
 /**
- * The list of agents to connect (#3374), in the setup's Your AI step and Settings › Agents: chat
+ * The list of agents to connect (#3374), in the setup's Your AI step and Settings › AI: chat
  * apps before coding tools (#3487), those on this computer first in each, then the most used, and
  * any other found by typing its name.
  */

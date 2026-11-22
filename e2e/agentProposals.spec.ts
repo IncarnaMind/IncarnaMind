@@ -7,6 +7,7 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   boxBottom,
   boxesOverlap,
   boxOf,
@@ -32,10 +33,7 @@ import {
   setWindowSize,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * An outside agent proposes changes to a Note (#352): the User lets it where they connect it,
@@ -119,10 +117,8 @@ test("an agent the User lets propose changes: its change waits in the Note with 
       { mindId: mindId ?? "", folderId: coast },
     );
 
-    const page = await openSettings(window, "agents");
-    await page.getByTestId("agents-enabled").click();
-    await page
-      .getByTestId("agents-list")
+    const page = await openSettings(window, "ai");
+    await (await agentsToConnect(page))
       .locator('[data-client="other"]')
       .getByTestId("agent-connect")
       .click();

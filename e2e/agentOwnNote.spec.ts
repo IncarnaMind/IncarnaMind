@@ -22,10 +22,7 @@ import {
   setWindowSize,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * The User's own AI keeps working on a Note it wrote (#3371). Written while the User types in

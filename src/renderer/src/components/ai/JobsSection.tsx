@@ -33,7 +33,9 @@ import { popUpWidth, type Role, RoleSelect, useModelRoles } from "./RoleSelect";
 
 /**
  * Settings › AI › What each job uses: one row and one picker per job, and no other place chooses
- * it. `services`, `sorting`, `rerank` and `checkDecision`: the page's one read of each.
+ * it. `services`, `sorting`, `rerank` and `checkDecision`: the page's one read of each. With no
+ * model set up (`noModel`), only the jobs that run without one are listed: checking what the
+ * User's own AI writes, Organize, meeting transcription and Document search.
  */
 export function JobsSection({
   groups,
@@ -43,6 +45,7 @@ export function JobsSection({
   rerank,
   onRerank,
   checkDecision,
+  noModel,
   onAddKey,
 }: {
   groups: readonly ChatModelGroup[];
@@ -52,49 +55,59 @@ export function JobsSection({
   rerank: RerankSettings | null;
   onRerank(rerank: RerankSettings): void;
   checkDecision: CheckDecisionStatus | null;
+  noModel: boolean;
   onAddKey(): void;
 }) {
   const t = useT();
   const id = useId();
   const roles = useModelRoles(groups);
   const health = useModelHealthFailure();
+  const reached = useSettingsTarget<HTMLElement>(MODEL, !noModel, () =>
+    queueMicrotask(() => document.getElementById(`${id}-answers`)?.focus({ preventScroll: true })),
+  );
   return (
-    <SettingsSection title={t("ai.jobs.title")} testId="ai-jobs">
+    <SettingsSection ref={reached} title={t("ai.jobs.title")} testId="ai-jobs">
       <SettingsGroup>
-        <ModelRow
-          id={`${id}-answers`}
-          job="chatModel"
-          label={t("ai.jobs.answers")}
-          line={t("ai.jobs.answers.line")}
-          tip={t("ai.jobs.answers.tip")}
-          groups={groups}
-          providers={providers}
-          roles={roles}
-        >
-          {health && <ModelHealthLine />}
-        </ModelRow>
-        <ModelRow
-          id={`${id}-quick`}
-          job="quickTasksModel"
-          label={t("ai.jobs.quick")}
-          line={t("ai.jobs.quick.line")}
-          groups={groups}
-          providers={providers}
-          roles={roles}
-        />
-        {checkDecision && (
-          <CheckDecisionRow id={`${id}-checks`} status={checkDecision} onAddKey={onAddKey} />
+        {!noModel && (
+          <>
+            <ModelRow
+              id={`${id}-answers`}
+              job="chatModel"
+              label={t("ai.jobs.answers")}
+              line={t("ai.jobs.answers.line")}
+              tip={t("ai.jobs.answers.tip")}
+              groups={groups}
+              providers={providers}
+              roles={roles}
+            >
+              {health && <ModelHealthLine />}
+            </ModelRow>
+            <ModelRow
+              id={`${id}-quick`}
+              job="quickTasksModel"
+              label={t("ai.jobs.quick")}
+              line={t("ai.jobs.quick.line")}
+              groups={groups}
+              providers={providers}
+              roles={roles}
+            />
+            {checkDecision && (
+              <CheckDecisionRow id={`${id}-checks`} status={checkDecision} onAddKey={onAddKey} />
+            )}
+          </>
         )}
-        <CheckWritesRow />
-        <ModelRow
-          id={`${id}-images`}
-          job="imageModel"
-          label={t("ai.jobs.images")}
-          line={t("ai.jobs.images.line")}
-          groups={groups}
-          providers={providers}
-          roles={roles}
-        />
+        <CheckWritesRow assistant={!noModel} />
+        {!noModel && (
+          <ModelRow
+            id={`${id}-images`}
+            job="imageModel"
+            label={t("ai.jobs.images")}
+            line={t("ai.jobs.images.line")}
+            groups={groups}
+            providers={providers}
+            roles={roles}
+          />
+        )}
         <OrganizeRows id={`${id}-organize`} sorting={sorting} />
         <TranscriptionRow id={`${id}-meetings`} services={services} />
         <DocumentSearchRows
@@ -103,12 +116,13 @@ export function JobsSection({
           rerank={rerank}
           setRerank={onRerank}
         />
-        <WebSearchRow id={`${id}-web`} />
+        {!noModel && <WebSearchRow id={`${id}-web`} />}
       </SettingsGroup>
     </SettingsSection>
   );
 }
 
+const MODEL: readonly SettingsTarget[] = ["model"];
 const ANSWERS: readonly SettingsTarget[] = ["chat-model"];
 const NONE: readonly SettingsTarget[] = [];
 

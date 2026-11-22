@@ -93,10 +93,11 @@ test("Organize and Tags shows what sorts now; another model is chosen from the p
     );
     // The AI model runs on this computer, so it is offered under that heading.
     const local = picker.locator('optgroup[label="On this computer · free"] option');
-    await expect(local.filter({ hasText: "Use your AI model" })).toHaveCount(1);
+    // The AI model set up, by its name.
+    await expect(local.filter({ hasText: /^Use / })).toHaveCount(1);
 
     // Choosing the chat model saves it at once; a chat model gives no meeting hints.
-    const chat = await local.filter({ hasText: "Use your AI model" }).getAttribute("value");
+    const chat = await local.filter({ hasText: /^Use / }).getAttribute("value");
     if (!chat) throw new Error("No chat model to choose.");
     await picker.selectOption(chat);
     await expect

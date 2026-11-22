@@ -240,7 +240,7 @@ describe("a Note an outside agent writes (#3306)", () => {
     const finance = await core.createLibraryGroup({ name: "Finance", description: "Money." });
     const fine = { title: "Report", markdown: "The quay is 40 m long." };
     expect(refusal(await create(agent, { ...fine, folderId: finance.id }))).toBe(
-      "That Folder isn’t shared with this agent. Share more in Settings → Agents.",
+      "That Folder isn’t shared with this agent. Share more in Settings → AI.",
     );
     expect(refusal(await create(agent, { ...fine, title: " " }))).toBe("title must be text.");
     expect(refusal(await create(agent, { ...fine, markdown: "x".repeat(100_001) }))).toBe(
@@ -266,7 +266,7 @@ describe("a Note an outside agent writes (#3306)", () => {
 
     const reader = await paired({ propose: false });
     expect(refusal(await create(reader.agent, fine))).toBe(
-      "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
+      "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
     );
     expect(await reader.core.listMinds()).toHaveLength(0);
   });

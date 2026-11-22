@@ -62,7 +62,7 @@ function AgentSummaryProblem({ meeting, summary, agentId }: Props & { agentId: s
         testId="meeting-summary-problem"
         action={{
           label: t("meetings.notesAgent.settings"),
-          onClick: () => openSettings("agents"),
+          onClick: () => openSettings("ai"),
         }}
       >
         <ProblemMark />

@@ -1,6 +1,5 @@
 import type { CloudTranscriptionRoute } from "../../core/api";
 import type { SignInRoute } from "../../core/providers/signInRoutes";
-import { SHOW_AGENT_CONNECTION } from "../../shared/agentConnection";
 import type { MessageKey } from "../../shared/i18n";
 
 /** The pages of the Settings dialog, in the order its list shows them. */
@@ -10,13 +9,14 @@ export const settingsPages = [
   "meetings",
   "connectors",
   "skills",
-  "agents",
   "privacy",
 ] as const;
 
 export type SettingsPage = (typeof settingsPages)[number];
 
 export type SettingsTarget =
+  /** Where a model in IncarnaMind is set up or changed, for every way that asks for one (#3645). */
+  | "model"
   | "transcription"
   | `transcription-key:${CloudTranscriptionRoute}`
   | "output-location"
@@ -37,9 +37,7 @@ export type SettingsTarget =
   | "check-decision"
   | SignInRoute;
 
-export const offeredSettingsPages: readonly SettingsPage[] = settingsPages.filter(
-  (page) => page !== "agents" || SHOW_AGENT_CONNECTION,
-);
+export const offeredSettingsPages: readonly SettingsPage[] = settingsPages;
 
 /** What decides whether the pages only the built-in assistant uses are listed (#3537). */
 export interface PageOffers {
@@ -65,7 +63,6 @@ export const settingsPageLabels: Record<SettingsPage, MessageKey> = {
   meetings: "settings.pages.meetings",
   connectors: "connectors.settings.title",
   skills: "skills.settings.title",
-  agents: "settings.pages.agents",
   privacy: "privacy.tabs.privacy",
 };
 
@@ -75,6 +72,8 @@ const movedPages: Record<string, SettingsPage> = {
   notifications: "general",
   models: "ai",
   search: "ai",
+  // The User's own AI leads Settings › AI, so a link to the Agents page lands on it.
+  agents: "ai",
 };
 
 /** A page held back lands on AI, which says what a model adds. */

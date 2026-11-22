@@ -10,7 +10,7 @@ import { signInToClaudeAgain } from "./claudeSignIn";
 import { signInToCopilotAgain } from "./copilotSignIn";
 import { core } from "./core";
 import { requestModelMenu } from "./modelMenu";
-import type { SettingsPage } from "./settingsPages";
+import type { SettingsPage, SettingsTarget } from "./settingsPages";
 import { useAppStore } from "./store";
 
 const SIGN_INS: Partial<Record<SignInRoute, () => Promise<boolean>>> = {
@@ -22,7 +22,10 @@ const SIGN_INS: Partial<Record<SignInRoute, () => Promise<boolean>>> = {
 export function wayBackRun(
   route: SignInRoute,
   wayBack: RouteWayBack,
-  line: { onRetry?: (() => void) | undefined; onOpenSettings(page: SettingsPage): void },
+  line: {
+    onRetry?: (() => void) | undefined;
+    onOpenSettings(page: SettingsPage, at?: SettingsTarget): void;
+  },
 ): (() => void) | undefined {
   switch (wayBack) {
     case "sign-in":
@@ -36,7 +39,7 @@ export function wayBackRun(
     case "use-another-model":
       return requestModelMenu;
     case "paste-api-key":
-      return () => line.onOpenSettings("ai");
+      return () => line.onOpenSettings("ai", "model");
   }
 }
 

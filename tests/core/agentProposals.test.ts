@@ -565,7 +565,7 @@ describe("an outside agent's proposed changes (#352)", () => {
     const { version } = await readNamed(agent, mind.id);
 
     expect(refusal(await propose(mind.id, version, rewrite))).toBe(
-      "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → Agents.",
+      "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
     );
     expect(pendingProposals(client.blocks)).toEqual([]);
     await core.updateAgent(pairing.id, { propose: true });
@@ -739,7 +739,7 @@ describe("an outside agent's proposed changes (#352)", () => {
           },
         }),
       ),
-    ).toBe("这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → 智能体”中允许。");
+    ).toBe("这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → AI”中允许。");
 
     const accepted = decide(client, undoOf(client), () => true, "accept");
     await core.recordAiUse(

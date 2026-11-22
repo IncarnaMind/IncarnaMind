@@ -551,6 +551,16 @@ describe("outside agents", () => {
     await expect(core.getAgentLaunch(pairing.id)).rejects.toThrow();
   });
 
+  // protects=unpairing ends at once for an agent on the current protocol that listens for its Tool list to change, as Claude Code does; fails_when=closing its connection waits on a message to a socket already gone
+  it("unpair at once while the agent listens for its Tool list to change", async () => {
+    const { core, launch, pairing } = await pairedToCoast();
+    const agent = await connectModernAgent(launch, () => undefined);
+    await agent.callTool({ name: "search", arguments: { query: "tides" } });
+
+    await core.disconnectAgent(pairing.id);
+    expect((await core.getAgents()).pairings).toEqual([]);
+  });
+
   it("are paused in Local mode, and refused while connecting agents is off", async () => {
     const { core, launch, pairing } = await pairedToCoast();
     const agent = await connectLegacyAgent(launch);

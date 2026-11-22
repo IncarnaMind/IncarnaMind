@@ -13,7 +13,7 @@ export const settingsPageCommands: readonly Command[] = [
       (page): Command => ({
         id: `settings.${page}`,
         label: (_ctx, t) => t("command.settings.page", { page: t(settingsPageLabels[page]) }),
-        // Models and Search are found where they went.
+        // Models, Search and Agents are found where they went.
         keywords:
           page === "ai" ? ["settings.title", "command.settings.ai.keywords"] : ["settings.title"],
         group: "open",

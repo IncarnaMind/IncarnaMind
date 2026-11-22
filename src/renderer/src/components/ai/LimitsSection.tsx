@@ -4,7 +4,7 @@ import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { LocalOnlyRow } from "../providers/LocalOnlySetting";
-import { SpendingCapRow } from "../SpendingCapSettings";
+import { SpendingCapRow, useSpendingCapShown } from "../SpendingCapSettings";
 import { SettingsGroup, SettingsRow, SettingsSection } from "../settings/SettingsGroup";
 
 /** How many services the User allowed something to go to, as Privacy lists them. */
@@ -23,6 +23,7 @@ const allowedServices = (flows: readonly RegisteredDataFlow[]): number =>
  */
 export function LimitsSection() {
   const t = useT();
+  const capShown = useSpendingCapShown();
   const showPage = useAppStore((state) => state.showSettingsPage);
   const localOnly = useAppStore((state) => state.embedding?.localOnly);
   const [allowed, setAllowed] = useState<number | null>(null);
@@ -39,7 +40,7 @@ export function LimitsSection() {
     <SettingsSection title={t("ai.limits.title")} testId="ai-limits">
       <SettingsGroup>
         <LocalOnlyRow />
-        <SpendingCapRow />
+        {capShown && <SpendingCapRow />}
         <SettingsRow
           data-testid="ai-limits-privacy"
           label={t("ai.limits.read")}

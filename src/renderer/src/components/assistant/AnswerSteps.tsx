@@ -1160,7 +1160,7 @@ function FailedSearch({
         refused
           ? {
               label: t("answer.error.checkKey"),
-              onClick: () => useAppStore.getState().openSettings("ai"),
+              onClick: () => useAppStore.getState().openSettings("ai", "model"),
             }
           : { label: t("answer.error.retry"), onClick: onRegenerate }
       }

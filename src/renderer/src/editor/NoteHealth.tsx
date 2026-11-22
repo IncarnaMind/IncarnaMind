@@ -453,7 +453,7 @@ export function HealthCard({
             label: t("checks.problem.chooseModel"),
             onClick: () => {
               dismissCheckProblem(mindId);
-              openSettings("ai");
+              openSettings("ai", "model");
             },
           }}
         >
