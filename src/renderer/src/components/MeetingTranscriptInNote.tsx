@@ -59,7 +59,7 @@ export function MeetingTranscriptInNote({ meeting, tabId }: { meeting: Meeting; 
       data-document-id={documentId ?? undefined}
       aria-label={t("meetings.views.transcript")}
       tabIndex={-1}
-      className={`viewer-pane meeting-note-transcript flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet ${live ? "" : "pt-14"}`}
+      className={`viewer-pane meeting-note-transcript flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet [container:viewer/inline-size] ${live ? "" : "pt-14"}`}
     >
       {live && (
         <div className="mind-column meeting-note-transcript-top">

@@ -320,6 +320,12 @@ test("a zoomed live Transcript shows spoken lines above assistant setup and the 
         { timeout: 30_000 },
       )
       .toBeGreaterThanOrEqual(2);
+    const words = transcript.locator(".transcript-text").first();
+    const readingWidth = await words.evaluate((text) => text.getBoundingClientRect().width);
+    const sheetWidth = await transcript
+      .locator("article")
+      .evaluate((sheet) => sheet.getBoundingClientRect().width);
+    expect(readingWidth).toBeGreaterThan(sheetWidth / 2);
     const divider = window.getByTestId("assistant-resize");
     const height = Number(await divider.getAttribute("aria-valuenow"));
     await divider.press("ArrowUp");
