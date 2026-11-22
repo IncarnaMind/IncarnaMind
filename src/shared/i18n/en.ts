@@ -5050,6 +5050,7 @@ export const en = {
   "skills.builtIn.meeting-team.short": "Progress, decisions, blockers and agreed work.",
   "skills.builtIn.meeting-team":
     "Use when writing up a team sync or project check-in. Record progress, decisions and blockers separately and keep owners and deadlines only when the meeting establishes them.",
+  "meetings.template.importOther": "Choose a meeting template folder or zip.",
   "meetings.settings.templates": "Meeting templates",
   "skills.settings.meetings": "Meetings",
   "skills.settings.newMeeting": "New meeting template…",

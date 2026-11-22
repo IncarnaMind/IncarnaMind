@@ -112,8 +112,11 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
     setBusy("reading");
     try {
       const check = await core.previewSkillImport(path);
-      if (check.ok) setPreview(check.preview);
-      else setError(check.error);
+      if (!check.ok) setError(check.error);
+      else if (meetingsOnly && !check.preview.meetingTemplate) {
+        await core.cancelSkillImport(check.preview.importId);
+        setError(t("meetings.template.importOther"));
+      } else setPreview(check.preview);
     } catch (failure) {
       setError(errorMessage(failure, t));
     } finally {
@@ -236,12 +239,79 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
       </button>
     </div>
   );
+  const importControls = (
+    <>
+      <button
+        {...importMenu.buttonProps}
+        type="button"
+        data-testid="skill-import"
+        disabled={busy !== null || preview !== null}
+        className={buttonStyle("secondary", "sm")}
+      >
+        <ExportLineIcon className="size-4" />
+        {t("skills.settings.import")}
+      </button>
+      <div
+        {...importMenu.menuProps}
+        role="menu"
+        aria-label={t("skills.settings.import")}
+        data-testid="skill-import-menu"
+        className={menuClass}
+      >
+        {importMenu.open && (
+          <>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="skill-import-folder"
+              onClick={() => {
+                importMenu.close();
+                void choose("folder");
+              }}
+              className={`${menuItemClass} pl-2`}
+            >
+              {t("skills.import.folder")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="skill-import-zip"
+              onClick={() => {
+                importMenu.close();
+                void choose("zip");
+              }}
+              className={`${menuItemClass} pl-2`}
+            >
+              {t("skills.import.zip")}
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  );
+  const importFeedback = (
+    <>
+      {busy === "reading" && (
+        <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
+      )}
+      {error && <ImportError error={error} />}
+      {exported && <ExportStatus exported={exported} onExport={exportZip} />}
+      {preview && (
+        <SkillPreview
+          preview={preview}
+          importing={busy === "importing"}
+          onImport={() => void confirm(preview.importId)}
+          onCancel={() => cancel(preview.importId)}
+        />
+      )}
+    </>
+  );
   if (meetingsOnly) {
     return (
       <div data-testid="skills-meetings" className="mt-3 flex flex-col items-stretch gap-3">
         {meetingRows}
-        {error && <ImportError error={error} />}
-        {exported && <ExportStatus exported={exported} onExport={exportZip} />}
+        <div className="flex flex-wrap gap-2">{importControls}</div>
+        {importFeedback}
         {removedBuiltIns.some((name) => name.startsWith("meeting-")) && restore}
       </div>
     );
@@ -266,66 +336,9 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
             <PlusLineIcon className="size-4" />
             {t("skills.settings.new")}
           </button>
-          <button
-            {...importMenu.buttonProps}
-            type="button"
-            data-testid="skill-import"
-            disabled={busy !== null || preview !== null}
-            className={buttonStyle("secondary", "sm")}
-          >
-            <ExportLineIcon className="size-4" />
-            {t("skills.settings.import")}
-          </button>
-          <div
-            {...importMenu.menuProps}
-            role="menu"
-            aria-label={t("skills.settings.import")}
-            data-testid="skill-import-menu"
-            className={menuClass}
-          >
-            {importMenu.open && (
-              <>
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="skill-import-folder"
-                  onClick={() => {
-                    importMenu.close();
-                    void choose("folder");
-                  }}
-                  className={`${menuItemClass} pl-2`}
-                >
-                  {t("skills.import.folder")}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  data-testid="skill-import-zip"
-                  onClick={() => {
-                    importMenu.close();
-                    void choose("zip");
-                  }}
-                  className={`${menuItemClass} pl-2`}
-                >
-                  {t("skills.import.zip")}
-                </button>
-              </>
-            )}
-          </div>
+          {importControls}
         </div>
-        {busy === "reading" && (
-          <p className="text-[13px] leading-5 text-ink-meta">{t("skills.import.reading")}</p>
-        )}
-        {error && <ImportError error={error} />}
-        {exported && <ExportStatus exported={exported} onExport={exportZip} />}
-        {preview && (
-          <SkillPreview
-            preview={preview}
-            importing={busy === "importing"}
-            onImport={() => void confirm(preview.importId)}
-            onCancel={() => cancel(preview.importId)}
-          />
-        )}
+        {importFeedback}
         {editing?.kind === "new" && (
           <SkillEditor
             testId="skill-editor"

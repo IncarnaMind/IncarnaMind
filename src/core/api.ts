@@ -9679,6 +9679,7 @@ export interface SkillImportPreview {
   importId: string;
   /** The folder or zip it was read from. */
   source: string;
+  meetingTemplate: boolean;
   name: string;
   description: string;
   license: string | null;
