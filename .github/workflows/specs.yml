@@ -103,6 +103,13 @@ jobs:
           packages: ffmpeg
       # On Linux the app needs a display: two virtual ones, one for each of the two workers, as in
       # ci.yml. The word split of $SPECS is safe: the check above allowed only e2e paths.
+      - name: Prepare Chromium and folders for the optional visual specs
+        shell: bash
+        run: |
+          npx --no-install playwright install chromium
+          mkdir -p "$RUNNER_TEMP/feature-shots" "$RUNNER_TEMP/quiet-stills"
+          echo "INCARNAMIND_SCREENSHOTS=$RUNNER_TEMP/feature-shots" >> "$GITHUB_ENV"
+          echo "INCARNAMIND_QUIET_STILLS=$RUNNER_TEMP/quiet-stills" >> "$GITHUB_ENV"
       - name: Run the specs
         shell: bash
         run: |
