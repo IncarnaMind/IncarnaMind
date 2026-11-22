@@ -6552,8 +6552,7 @@ export const en = {
   "error.library.autoNotLocal": "Automatic classification must run on this computer.",
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
-  "error.library.projectUndo":
-    "Couldn’t undo it: where the folder’s files were before is unknown.",
+  "error.library.projectUndo": "Couldn’t undo it: where the folder’s files were before is unknown.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
   "error.meeting.purgeFailed":
     "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
