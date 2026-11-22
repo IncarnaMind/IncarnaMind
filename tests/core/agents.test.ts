@@ -1245,15 +1245,20 @@ describe("the agents' socket", () => {
     expect(await readdir(fakeHome)).toEqual([]);
     core.close();
 
-    // When the socket path fits in length but its parent folder can't be opened, enabling refuses cleanly.
+    // When the socket path fits in length but its parent folder can't be opened, enabling and connecting refuse cleanly.
     const missingSocket = join(dataDir, "no-such-folder", "a.sock");
     const core2 = startCore(dataDir, {
       agents: { ...base, socketPath: missingSocket },
     });
+    const folder2 = await core2.createLibraryGroup({ name: "Harbour", description: "Tides" });
     await expect(core2.setAgentsEnabled(true)).rejects.toThrow(
       /couldn’t open its local connection/i,
     );
     expect((await core2.getAgents()).enabled).toBe(false);
+    await expect(
+      core2.connectAgent({ name: "Claude Code", folderIds: [folder2.id] }),
+    ).rejects.toThrow(/couldn’t open its local connection/i);
+    expect((await core2.getAgents()).pairings).toEqual([]);
     core2.close();
 
     // End-to-end with both a long data folder and a long redirected temp folder:

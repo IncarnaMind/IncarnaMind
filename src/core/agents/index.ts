@@ -617,6 +617,8 @@ export function createAgents(options: AgentsOptions) {
     if (enabled() && !listener) {
       await syncListening();
       if (!listener) throw socketError();
+    } else if (!enabled() && listenProblem !== null) {
+      throw socketError();
     }
   };
 
