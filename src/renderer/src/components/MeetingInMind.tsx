@@ -119,7 +119,10 @@ function MeetingStart({ meeting }: { meeting: Meeting }) {
   const copyNotice = async () => {
     try {
       await navigator.clipboard.writeText(
-        t(keptForGood ? "meetings.start.noticeTextKept" : "meetings.start.noticeText"),
+        [
+          t(keptForGood ? "meetings.start.noticeTextKept" : "meetings.start.noticeText"),
+          t("meetings.start.noticeText.screen"),
+        ].join(" "),
       );
       setCopied(true);
     } catch (error) {
