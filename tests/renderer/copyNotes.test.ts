@@ -118,10 +118,11 @@ describe("copying Citations as Word footnotes", () => {
     const root = document.createElement("div");
     root.innerHTML =
       '<p>Spring tides<span data-type="citation"></span></p><p>Neap tides<span data-type="citation"></span></p>';
-    const citations = citationsIn(
+    addFootnotes(
+      root,
       fragmentOf(paragraph(text("a"), cite(2)), paragraph(text("b"), cite(5))),
+      context,
     );
-    addFootnotes(root, citations, context);
     return wordFootnoteHtml(root.innerHTML);
   };
 
@@ -147,12 +148,10 @@ describe("copying Citations as Word footnotes", () => {
       '<p>One<span data-type="citation"></span></p><p>Two<span data-type="citation"></span></p><p>Three<span data-type="citation"></span></p>';
     addFootnotes(
       root,
-      citationsIn(
-        fragmentOf(
-          paragraph(text("a"), cite(2)),
-          paragraph(text("b"), cite(5)),
-          paragraph(text("c"), cite(2)),
-        ),
+      fragmentOf(
+        paragraph(text("a"), cite(2)),
+        paragraph(text("b"), cite(5)),
+        paragraph(text("c"), cite(2)),
       ),
       context,
     );
@@ -376,5 +375,44 @@ describe("the numbers a copy writes", () => {
     expect(noteNumbers(citationsIn(fragmentOf(pending, cite(2), cite(5))), context)).toEqual([
       1, 2, 3,
     ]);
+  });
+});
+
+describe("Citations side by side with one note (#3654)", () => {
+  test("one marker stands for them, as the Note shows one chip; apart, each keeps its own", () => {
+    expect(
+      copiedText(
+        fragmentOf(
+          paragraph(text("Slow to open"), cite(2), cite(4), cite(4), cite(4), text(".")),
+          paragraph(text("Fast"), cite(4), text(" and slow"), cite(4)),
+        ),
+        schema,
+        context,
+      ),
+    ).toBe(
+      "Slow to open[1][2].\n\nFast[2] and slow[2]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 4",
+    );
+  });
+
+  test("spaces between them still make one marker; a Citation of another place parts them", () => {
+    expect(
+      copiedText(
+        fragmentOf(paragraph(text("A"), cite(4), text(" "), cite(4), cite(2), cite(4))),
+        schema,
+        context,
+      ),
+    ).toBe("A[1] [2][1]\n\nSources\n[1] Tides, p. 4\n[2] Tides, p. 2");
+  });
+
+  test("Word's copy writes one reference for them, and keeps each Citation's element", () => {
+    const { document } = parseHTML("<!doctype html><html><body></body></html>");
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<p>Slow<span data-type="citation"></span><span data-type="citation"></span><span data-type="citation"></span></p>';
+    addFootnotes(root, fragmentOf(paragraph(text("Slow"), cite(4), cite(4), cite(4))), context);
+    const html = wordFootnoteHtml(root.innerHTML);
+    expect(html.match(/mso-element:footnote"/g)).toHaveLength(1);
+    expect(html.match(/<sup class="MsoFootnoteReference">/g)).toHaveLength(1);
+    expect(html.match(/data-type="citation"/g)).toHaveLength(3);
   });
 });
