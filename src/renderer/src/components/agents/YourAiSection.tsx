@@ -30,21 +30,24 @@ export interface AgentsRead {
   failed: boolean;
   /** The agents IncarnaMind can be set up in; none listed when they couldn't be read. */
   clients: readonly AgentClient[] | null;
+  /** The agents to connect couldn't be listed: where the list goes, one line says so. */
+  clientsFailed: boolean;
   /**
    * Connecting is off with an agent connected, so the switch shows; once shown it stays while
    * Settings is open, a provider's page and back included, not going from under the pointer.
    */
   switchShown: boolean;
   setSettings(settings: AgentSettings): void;
+  /** Reads again what couldn't be read. */
   retry(): void;
 }
 
 /** What Your AI shows, read with the rest of Settings › AI and kept as it changes. */
 export function useAgentsRead(): AgentsRead {
-  const reportError = useAppStore((state) => state.reportError);
   const [settings, setSettings] = useState<AgentSettings | null>(null);
   const [failed, setFailed] = useState(false);
   const [clients, setClients] = useState<readonly AgentClient[] | null>(null);
+  const [clientsFailed, setClientsFailed] = useState(false);
   const [switchShown, setSwitchShown] = useState(false);
   if (!switchShown && settings && !settings.enabled && settings.pairings.length > 0) {
     setSwitchShown(true);
@@ -62,18 +65,32 @@ export function useAgentsRead(): AgentsRead {
       },
     );
   }, []);
+  const list = useCallback(() => {
+    core.listAgentClients().then(
+      (next) => {
+        setClients(next);
+        setClientsFailed(false);
+      },
+      (failure: unknown) => {
+        console.error("Couldn't list the agents to connect for Settings › AI:", failure);
+        setClients((shown) => shown ?? []);
+        setClientsFailed(true);
+      },
+    );
+  }, []);
   useEffect(() => {
     read();
-    core.listAgentClients().then(setClients, (failure: unknown) => {
-      reportError(failure);
-      setClients([]);
-    });
+    list();
     return core.on("agents.changed", (next) => {
       setFailed(false);
       setSettings(next);
     });
-  }, [read, reportError]);
-  return { settings, failed, clients, switchShown, setSettings, retry: read };
+  }, [read, list]);
+  const retry = () => {
+    if (failed) read();
+    if (clientsFailed) list();
+  };
+  return { settings, failed, clients, clientsFailed, switchShown, setSettings, retry };
 }
 
 /**
@@ -91,6 +108,7 @@ export function YourAiSection({
   settings,
   failed,
   clients,
+  clientsFailed,
   switchShown,
   setSettings,
   retry,
@@ -215,7 +233,8 @@ export function YourAiSection({
         title={t("setupPage.ai.title")}
         help={
           listed &&
-          clients && (
+          clients &&
+          !clientsFailed && (
             <>
               <p>{t("agents.settings.connect.note")}</p>
               <p className="mt-1">{t("agents.settings.web")}</p>
@@ -275,7 +294,16 @@ export function YourAiSection({
               )}
             </SettingsGroup>
           )}
-          {listed && clients && (
+          {listed && clientsFailed && (
+            <ProblemLine
+              testId="agents-list-failed"
+              action={{ label: t("answer.error.retry"), onClick: retry }}
+            >
+              <ProblemMark />
+              {t("agents.settings.listFailed")}
+            </ProblemLine>
+          )}
+          {listed && clients && !clientsFailed && (
             <div ref={list} data-testid="agents-clients">
               <AgentFinder clients={toConnect} testId="agents-list">
                 {(shown) => (

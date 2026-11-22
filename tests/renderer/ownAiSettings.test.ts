@@ -62,6 +62,7 @@ const {
     settings: AgentSettings | null;
     failed: boolean;
     clients: readonly AgentClient[] | null;
+    clientsFailed: boolean;
     switchShown: boolean;
     setSettings(settings: AgentSettings): void;
     retry(): void;
@@ -315,13 +316,15 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     readiness: ChatReadiness = NO_MODEL,
     language = "en",
     failed = false,
+    listFailed = false,
   ) => {
     user(readiness, false, language);
     const container = await shown(
       createElement(YourAiSection, {
         settings: failed ? null : settings,
         failed,
-        clients: CLIENTS,
+        clients: listFailed ? [] : CLIENTS,
+        clientsFailed: listFailed,
         // As the page's read says: connecting off with an agent connected.
         switchShown: !settings.enabled && settings.pairings.length > 0,
         setSettings: () => undefined,
@@ -380,6 +383,18 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     );
     expect(listed()).toEqual([]);
     const again = part("agents-read-failed")?.querySelector("button");
+    await act(async () => (again as unknown as { click(): void }).click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("agents to connect that can't be listed: one line with Try again where the list goes", async () => {
+    retry.mockClear();
+    const { part, listed } = await yourAi(agents([]), NO_MODEL, "en", false, true);
+    expect(part("agents-list-failed")?.textContent).toContain(
+      "Couldn’t list the agents to connect",
+    );
+    expect(listed()).toEqual([]);
+    const again = part("agents-list-failed")?.querySelector("button");
     await act(async () => (again as unknown as { click(): void }).click());
     expect(retry).toHaveBeenCalledTimes(1);
   });
