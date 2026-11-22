@@ -8,7 +8,7 @@
 import { writeFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { readNoteState } from "../../src/renderer/src/noteState";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
@@ -753,5 +753,155 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
     const shown = await marks(core, mindId, coast.id);
     expect(shown.find((each) => each.state === "own-view")?.text).toBe("Spring tides matter most.");
     expect(shown.map((each) => each.state)).not.toContain("needs-recheck");
+  });
+
+  // protects=after an agent rewrites a list item with a new cite token on an unchanged first sentence and replaces the marked second sentence, check_mind_yourself and the Note's marks agree so one round of re-check leaves nothing "not checked" (#3542); fails_when=a trailing space or stale mark left by the rewrite shows needs-recheck in the Note while check_mind_yourself omits that sentence
+  it("after rewriting a list item with a new cite token on an unchanged sentence, Note marks and check_mind_yourself agree (#3542)", async () => {
+    const { core, agent, coast } = await paired();
+    const twice1 = await cited(agent, "Spring tides happen twice a month");
+    const largest1 = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Credit memo",
+          markdown: [
+            "## Findings",
+            "",
+            `- **Tides:** Spring tides happen twice a month. ${twice1} Their range is tiny, barely noticeable, and has zero effect on the inner harbour channel during winter storms. ${largest1}`,
+            `- **Channel work:** Spring tides come at new moon and full moon. ${twice1}`,
+          ].join("\n"),
+          folderId: coast.id,
+        },
+      }),
+    );
+
+    const first = await task(agent, mindId);
+    expect(first.sentences).toHaveLength(3);
+    structured<Reported>(
+      await report(agent, mindId, first.task, [
+        { n: 1, verdict: "supported", cites: [twice1] },
+        { n: 2, verdict: "partly supported", cites: [largest1] },
+        { n: 3, verdict: "supported", cites: [twice1] },
+      ]),
+    );
+
+    // Mint fresh tokens (as Claude Code does after searching again) and rewrite the whole list item
+    // (>40% changed): first sentence identical words + new cite token, second sentence replaced.
+    const twice2 = await cited(
+      agent,
+      "Spring tides happen twice a month, at new moon and full moon.",
+    );
+    const largest2 = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const named = structured<{ markdown: string; version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    const listPara = named.markdown
+      .split("\n")
+      .find((line) => line.includes("Tides:"))
+      ?.match(/^(¶\d+)/)?.[1];
+    expect(listPara).toBeTruthy();
+
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: named.version,
+          changes: [
+            {
+              paragraph: listPara,
+              text: `- **Tides:** Spring tides happen twice a month. ${twice2} The range of a spring tide is the largest of the month. ${largest2}`,
+            },
+          ],
+        },
+      }),
+    );
+
+    const again = await task(agent, mindId);
+    expect(again.sentences.length).toBeGreaterThanOrEqual(1);
+    const reported = structured<Reported>(
+      await report(
+        agent,
+        mindId,
+        again.task,
+        again.sentences.map(({ n, text }) => ({
+          n,
+          verdict: "supported",
+          cites: text.includes("twice") ? [twice2] : [largest2],
+        })),
+      ),
+    );
+    expect(reported.unconfirmed).toEqual([]);
+    expect(reported.unreported).toEqual([]);
+
+    const done = structured<Task & { checked?: { notChecked: number; needLook: number } }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+    );
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const doc = readMind(client);
+    const versions = new Map(
+      (await core.listDocuments()).map((each) => [each.id, each.contentHash]),
+    );
+    const judgedNow = new Map(Object.entries((await core.judgedWithNow(mindId)).lines));
+    const uiClaims = claimsOf(doc, {
+      footing: "not-yet-known",
+      versions,
+      folderId: coast.id,
+      scope: null,
+      judgedNow,
+    }).claims;
+    expect(done.sentences).toEqual([]);
+    expect(done.checked?.notChecked).toBe(0);
+    expect(uiClaims.map((c) => c.shown.state)).toEqual(["supported", "supported", "supported"]);
+
+    // Also verify when the replacement second sentence is "nothing to check": stale marks must not
+    // linger on the second sentence or turn the unchanged first sentence into needs-recheck.
+    const named2 = structured<{ markdown: string; version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    structured(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: named2.version,
+          changes: [
+            {
+              paragraph: listPara,
+              text: `- **Tides:** Spring tides happen twice a month. ${twice2} See the notes below for details.`,
+            },
+          ],
+        },
+      }),
+    );
+    const again2 = await task(agent, mindId);
+    structured<Reported>(
+      await report(
+        agent,
+        mindId,
+        again2.task,
+        again2.sentences.map(({ n, text }) =>
+          text.includes("See the notes")
+            ? { n, verdict: "nothing to check" }
+            : { n, verdict: "supported", cites: [twice2] },
+        ),
+      ),
+    );
+    const done2 = structured<Task & { checked?: { notChecked: number } }>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+    );
+    await client.settled();
+    const uiClaims2 = claimsOf(readMind(client), {
+      footing: "not-yet-known",
+      versions,
+      folderId: coast.id,
+      scope: null,
+      judgedNow: new Map(Object.entries((await core.judgedWithNow(mindId)).lines)),
+    }).claims;
+    expect(done2.sentences).toEqual([]);
+    expect(done2.checked?.notChecked).toBe(0);
+    expect(uiClaims2.map((c) => c.shown.state)).not.toContain("needs-recheck");
   });
 });
