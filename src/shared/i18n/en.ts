@@ -9075,14 +9075,16 @@ export const en = {
   "agents.ask.request.check":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. If you didn’t write the note, read it with read_mind and check it yourself instead. Then tell me which sentences need a look.",
   // A selection handed to the User's own AI (#3612): the line names the Note or Document, the rest waits.
+  // A change says where it goes, for an agent that skips read_request.
   "agents.ask.line.selection.explain": "About my note {title} in IncarnaMind: explain {quote}.",
   "agents.ask.line.selection.improve":
-    "About my note {title} in IncarnaMind: improve the writing of {quote}.",
-  "agents.ask.line.selection.shorten": "About my note {title} in IncarnaMind: shorten {quote}.",
+    "About my note {title} in IncarnaMind: improve the writing of {quote}, as a change in the note for me to review.",
+  "agents.ask.line.selection.shorten":
+    "About my note {title} in IncarnaMind: shorten {quote}, as a change in the note for me to review.",
   "agents.ask.line.selection.translate":
-    "About my note {title} in IncarnaMind: translate {quote} into {language}.",
+    "About my note {title} in IncarnaMind: translate {quote} into {language}, as a change in the note for me to review.",
   "agents.ask.line.selection.translateAny":
-    "About my note {title} in IncarnaMind: translate {quote}.",
+    "About my note {title} in IncarnaMind: translate {quote}, as a change in the note for me to review.",
   "agents.ask.line.selection.edit":
     "About my note {title} in IncarnaMind, the words {quote}:\n\n{instruction}",
   "agents.ask.line.selection.ask":

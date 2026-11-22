@@ -8538,11 +8538,14 @@ export const zhCN = {
   "agents.ask.request.check":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。如果这篇笔记不是你写的，就用 read_mind 读取，自己核对。最后告诉我哪些句子需要留意。",
   "agents.ask.line.selection.explain": "关于我在 IncarnaMind 中的笔记{title}：解释{quote}。",
-  "agents.ask.line.selection.improve": "关于我在 IncarnaMind 中的笔记{title}：润色{quote}。",
-  "agents.ask.line.selection.shorten": "关于我在 IncarnaMind 中的笔记{title}：精简{quote}。",
+  "agents.ask.line.selection.improve":
+    "关于我在 IncarnaMind 中的笔记{title}：润色{quote}，作为修改写进笔记，由我确认。",
+  "agents.ask.line.selection.shorten":
+    "关于我在 IncarnaMind 中的笔记{title}：精简{quote}，作为修改写进笔记，由我确认。",
   "agents.ask.line.selection.translate":
-    "关于我在 IncarnaMind 中的笔记{title}：把{quote}翻译为 {language}。",
-  "agents.ask.line.selection.translateAny": "关于我在 IncarnaMind 中的笔记{title}：翻译{quote}。",
+    "关于我在 IncarnaMind 中的笔记{title}：把{quote}翻译为 {language}，作为修改写进笔记，由我确认。",
+  "agents.ask.line.selection.translateAny":
+    "关于我在 IncarnaMind 中的笔记{title}：翻译{quote}，作为修改写进笔记，由我确认。",
   "agents.ask.line.selection.edit":
     "关于我在 IncarnaMind 中的笔记{title}里的{quote}：\n\n{instruction}",
   "agents.ask.line.selection.ask": "关于我在 IncarnaMind 中的文档{document}里的{quote}：",

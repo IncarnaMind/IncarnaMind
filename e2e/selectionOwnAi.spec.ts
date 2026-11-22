@@ -167,7 +167,7 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
     await pointAndClick(window, menu.getByTestId("selection-action-improve"));
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(
-      `About my note ${note} in IncarnaMind: improve the writing of “The return fare rose from 14 pounds to 16 pound…”.`,
+      `About my note ${note} in IncarnaMind: improve the writing of “The return fare rose from 14 pounds to 16 pound…”, as a change in the note for me to review.`,
     );
     const asked = frontMind(window).getByTestId("edit-asked");
     await expect(asked).toContainText("Asked Claude Code: send the request there.");
@@ -240,7 +240,9 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
       window.getByTestId("selection-choices-translate").getByRole("menuitem", { name: "Français" }),
     );
     await expect.poll(() => urlsOpened(app)).toHaveLength(3);
-    expect(typedIn((await urlsOpened(app))[2])).toContain("into French (Français).");
+    expect(typedIn((await urlsOpened(app))[2])).toContain(
+      "into French (Français), as a change in the note for me to review.",
+    );
 
     menu = await selectParagraph(window, FIRST);
     await pointAndClick(window, menu.getByTestId("selection-edit-field"));
@@ -258,7 +260,7 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
     await pointAndClick(window, menu.getByTestId("selection-action-shorten"));
     await expect.poll(() => urlsOpened(app)).toHaveLength(5);
     expect(typedIn((await urlsOpened(app))[4])).toBe(
-      `关于我在 IncarnaMind 中的笔记“${TITLE}”：精简“The board will review the winter timetable in M…”。`,
+      `关于我在 IncarnaMind 中的笔记“${TITLE}”：精简“The board will review the winter timetable in M…”，作为修改写进笔记，由我确认。`,
     );
     await expect(frontMind(window).getByTestId("edit-asked")).toContainText(
       "已交给 Claude Code：在那里发送请求即可。",
