@@ -486,7 +486,7 @@ describe("meeting notes that weren't filled in", () => {
       providerId: "provider-2",
       en: "The note wasn’t filled in. No credit on this key · Choose another model · Try again",
       zh: "未能补全笔记。这个密钥没有额度 · 换一个模型 · 重试",
-      leads: () => expect(actions.openSettings.mock.calls).toEqual([["ai", undefined]]),
+      leads: () => expect(actions.openSettings.mock.calls).toEqual([["ai", "model"]]),
     },
     {
       error: "rate-limit",

@@ -256,7 +256,7 @@ export function FirstOpenSteps({ mindId }: { mindId: string }) {
   const askForSummary = (pairing: AgentPairing) => {
     if (named) void askAgent(pairing, null, { kind: "summary", documentId: named.id });
   };
-  const openAgentSettings = () => useAppStore.getState().openSettings("agents");
+  const openAgentSettings = () => useAppStore.getState().openSettings("ai");
   // Seen only once its check has landed: before that there is nothing yet to look at.
   const openAgentNote = () => {
     if (!agentNote) return;

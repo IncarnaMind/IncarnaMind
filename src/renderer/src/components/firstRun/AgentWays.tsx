@@ -19,7 +19,7 @@ const linkClass =
 
 /**
  * The setup's first way to an AI (#3362): the one the User already has. Its agents, those on this
- * computer first, then Other agent. Choosing one shows the lines Settings › Agents shows before
+ * computer first, then Other agent. Choosing one shows the lines Settings › AI shows before
  * it connects one, and Allow and connect does what it does there, turning connecting agents on
  * with it: the agent is then the one Settings lists. A connected agent shows as set, with what is
  * left to do in it. It reads all of the User's Documents and notes, those added later too (#3544),

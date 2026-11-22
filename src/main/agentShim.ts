@@ -24,9 +24,9 @@ const handshakeLine = (token: string) => `${JSON.stringify({ incarnamind: 1, tok
 
 /** The shim doesn't know the interface language, so it says this in both. */
 const NOT_OPEN =
-  "IncarnaMind isn't open, or connecting agents is turned off in it. Open IncarnaMind, check Settings → Agents, then reconnect this agent to it. / IncarnaMind 没有打开，或已关闭智能体连接。打开 IncarnaMind，检查“设置 → 智能体”，然后让这个智能体重新连接。";
+  "IncarnaMind isn't open, or connecting agents is turned off in it. Open IncarnaMind, check Settings → AI, then reconnect this agent to it. / IncarnaMind 没有打开，或已关闭智能体连接。打开 IncarnaMind，检查“设置 → AI”，然后让这个智能体重新连接。";
 const NOT_SET_UP =
-  "This agent's IncarnaMind settings are incomplete. Connect it again in IncarnaMind, in Settings → Agents. / 这个智能体的 IncarnaMind 设置不完整。在 IncarnaMind 的“设置 → 智能体”中重新连接它。";
+  "This agent's IncarnaMind settings are incomplete. Connect it again in IncarnaMind, in Settings → AI. / 这个智能体的 IncarnaMind 设置不完整。在 IncarnaMind 的“设置 → AI”中重新连接它。";
 
 /** Answers every request on stdin with an error saying `message`, until stdin ends. */
 function refuseEverything(message: string): void {

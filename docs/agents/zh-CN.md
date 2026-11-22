@@ -95,7 +95,7 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Skill | 技能 | As Kimi, Doubao, Yuanbao, Feishu, Notion and Cherry Studio. |
 | Skill script | 技能脚本 | |
 | Built-in Skill | 内置技能 | |
-| Outside agent | 智能体 | The User's own AI agent: "连接智能体", "设置 → 智能体". As Kimi, Doubao, Yuanbao and Coze call an agent. |
+| Outside agent | 智能体 | The User's own AI agent: "连接智能体", "设置 → AI". As Kimi, Doubao, Yuanbao and Coze call an agent. |
 | Proposal | 修订 | Accept: 接受; Reject: 拒绝; Accept all: 全部接受; Reject all: 全部拒绝. As WPS and Feishu (接受修订, 拒绝修订). |
 | AI text | AI 生成的文字 | Not shown as a word in the interface yet. "Mark as mine" is 标为我写的, and its undo line 已标为你写的. |
 | Checkpoint | 检查点 | |

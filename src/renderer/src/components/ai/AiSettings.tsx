@@ -7,7 +7,7 @@ import type {
   RerankSettings,
   TranscriptionServiceStatus,
 } from "../../../../core/api";
-import { useAgentPairings } from "../../agentNote";
+import { SHOW_AGENT_CONNECTION } from "../../../../shared/agentConnection";
 import { useAnswers } from "../../answers";
 import { useCheckDecision } from "../../checkDecision";
 import { core } from "../../core";
@@ -16,10 +16,11 @@ import { useLanguage, useT } from "../../i18n";
 import { useKeyRefusals } from "../../keyRefusals";
 import { clearModelFailure } from "../../modelHealth";
 import { useModelNames } from "../../modelNames";
+import { noModelSetUp } from "../../noModelSetUp";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServicesRead } from "../../transcriptionServices";
-import { NoAiYet, SetUpAgain } from "../firstRun/NoAiYet";
+import { useAgentsRead, YourAiSection } from "../agents/YourAiSection";
 import { MicLineIcon } from "../lineIcons";
 import { TranscriptionSetUp } from "../meetings/TranscriptionSetUp";
 import { AddProvider } from "../providers/AddProvider";
@@ -50,7 +51,9 @@ import { AccountsSection } from "./AccountsSection";
 import { AddSheet, useEntryName, usePlansOffered } from "./AddSheet";
 import { JobsSection } from "./JobsSection";
 import { LimitsSection } from "./LimitsSection";
+import { SetUpAgain } from "./SetUpAgain";
 import type { ServiceEntry } from "./serviceDirectory";
+import { UseModelRow } from "./UseModelRow";
 
 type View =
   | { page: "list" }
@@ -61,12 +64,13 @@ type View =
 const DIRECTORY_TARGET = ["add-provider"] as const;
 
 /**
- * Settings › AI: where the User's AI comes from and which model does each job, on one page. Its
- * three sections are What each job uses, Accounts and keys, and Limits; a provider's page, and
- * the page that sets up an entry of "Add an account or key", open in its place.
+ * Settings › AI: the User's own AI first, then a model in IncarnaMind, which is optional, and which
+ * model does each job, on one page. Its sections are Your AI, What each job uses, Accounts and
+ * keys, and Limits. With no model set up, a model in IncarnaMind is one quiet row, and only the
+ * jobs that run without one are listed; Accounts and keys shows once a key is kept. A provider's
+ * page, and the page that sets up an entry of "Add an account or key", open in its place.
  */
 export function AiSettings() {
-  const t = useT();
   const language = useLanguage();
   const readiness = useAppStore((state) => state.chatReadiness);
   const groups = useAnswers((state) => state.models);
@@ -86,8 +90,8 @@ export function AiSettings() {
   const { rerank, setRerank, answered: rerankAnswered } = useRerank();
   const sorting = useSorting();
   const checkDecision = useCheckDecision();
-  // Read with the rest, so the card at the top says once whose AI is connected (#3537).
-  const pairings = useAgentPairings();
+  // Read with the rest, so Your AI, at the top, lays out with them.
+  const agents = useAgentsRead();
   // One read for the page: the Meeting transcription row and the transcription keys. The page
   // waits for its first answer only: a Try again after a failure keeps the page on screen.
   const services = useTranscriptionServicesRead();
@@ -101,7 +105,8 @@ export function AiSettings() {
     rerankAnswered &&
     sortingAnswered &&
     checkDecision !== undefined &&
-    pairings !== null &&
+    (agents.settings !== null || agents.failed) &&
+    agents.clients !== null &&
     (servicesAnswered || services.state !== "loading");
 
   const refresh = useCallback(() => {
@@ -166,8 +171,9 @@ export function AiSettings() {
 
   const offered = usePlansOffered();
   const entryName = useEntryName();
+  const noModel = noModelSetUp(readiness);
 
-  if (!providers || !hosts || !laidOut || !pairings) return null;
+  if (!providers || !hosts || !laidOut) return null;
 
   const open = (next: View, from: string) => {
     opener.current = from;
@@ -180,6 +186,13 @@ export function AiSettings() {
   };
   const groupOf = (providerId: string): ChatModelGroup | undefined =>
     groups?.find((each) => each.provider.id === providerId);
+
+  // A key kept for one job (transcription, sorting, search) is listed with no model set up too.
+  const keysKept =
+    hosts.some((each) => each.ready) ||
+    jev?.hasApiKey === true ||
+    rerank?.hasApiKey === true ||
+    (services.state === "ready" && services.data.some((each) => each.key === "own" && each.hasKey));
 
   const pageFor = (catalogId: string, endpoint: string | null): View => {
     const saved = savedProviderFor(providers, catalogId, endpoint, language);
@@ -288,12 +301,8 @@ export function AiSettings() {
       <UndoLineAt place={MODELS_UNDO_PLACE} className="-mb-6 has-[*]:mb-0" />
       {body ?? (
         <>
-          <p data-testid="ai-lede" className="px-4 text-[13px] leading-5 text-ink-meta">
-            {t("ai.lede")}
-          </p>
-          {providers.length === 0 && (
-            <NoAiYet agents={pairings.map((pairing) => pairing.name)} onAdd={add} />
-          )}
+          {SHOW_AGENT_CONNECTION && <YourAiSection {...agents} />}
+          {noModel && <UseModelRow />}
           <ReadinessNote />
           {removed && <RemovedLine removed={removed} providers={providers} />}
           <JobsSection
@@ -304,33 +313,36 @@ export function AiSettings() {
             rerank={rerank}
             onRerank={setRerank}
             checkDecision={checkDecision ?? null}
+            noModel={noModel}
             onAddKey={add}
           />
           {providers.length > 0 && <SetUpAgain />}
-          <AccountsSection
-            providers={providers}
-            groups={groups ?? []}
-            hosts={hosts}
-            services={services.state === "ready" ? services.data : []}
-            jev={jev}
-            rerank={rerank}
-            sorting={
-              sorting.current && !sorting.current.unresolved ? sorting.current.classifier : null
-            }
-            onHosts={setHosts}
-            onJev={setJev}
-            onRerank={setRerank}
-            olderKeys={olderKeys}
-            onUseAccountKey={(job) => {
-              core.switchToAccountKey(job).then(readOlderKeys, (failure: unknown) => {
-                useAppStore.getState().reportError(failure);
-              });
-            }}
-            onOpen={(provider) =>
-              open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
-            }
-            onAdd={add}
-          />
+          {(!noModel || keysKept) && (
+            <AccountsSection
+              providers={providers}
+              groups={groups ?? []}
+              hosts={hosts}
+              services={services.state === "ready" ? services.data : []}
+              jev={jev}
+              rerank={rerank}
+              sorting={
+                sorting.current && !sorting.current.unresolved ? sorting.current.classifier : null
+              }
+              onHosts={setHosts}
+              onJev={setJev}
+              onRerank={setRerank}
+              olderKeys={olderKeys}
+              onUseAccountKey={(job) => {
+                core.switchToAccountKey(job).then(readOlderKeys, (failure: unknown) => {
+                  useAppStore.getState().reportError(failure);
+                });
+              }}
+              onOpen={(provider) =>
+                open({ page: "provider", providerId: provider.id }, `provider:${provider.id}`)
+              }
+              onAdd={add}
+            />
+          )}
           <LimitsSection />
         </>
       )}

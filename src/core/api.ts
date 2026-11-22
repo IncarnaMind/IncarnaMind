@@ -12887,7 +12887,10 @@ export interface AgentPairing {
 }
 
 export interface AgentSettings {
-  /** Connecting agents is on (Settings → Agents, experimental). Off by default; off, nothing listens. */
+  /**
+   * Connecting agents is on. Off by default; Settings and first run turn it on as the User connects
+   * an agent (`agentConnector`); off, nothing listens.
+   */
   enabled: boolean;
   /**
    * "local-mode": Local mode pauses every pairing, because an agent sends what
@@ -12979,7 +12982,7 @@ export const AGENT_TOOLS = [
 ] as const;
 
 /**
- * The agents Settings → Agents sets IncarnaMind up in, and "other" for the
+ * The agents Settings → AI sets IncarnaMind up in, and "other" for the
  * rest (see src/core/agents/clients.ts). A pairing made before an agent
  * stopped being listed keeps its own id, so a pairing's `client` is any text.
  */
@@ -14947,6 +14950,12 @@ export interface CoreApi {
   saveFigureScheduleExport(mindId: string): Promise<SavedExport>;
   /** The Mind's checks that Documents added since could change, with those Documents (#993). Sends nothing. */
   documentsAddedSinceChecks(mindId: string): Promise<DocumentsAddedSince[]>;
+  /**
+   * What an app link handed to IncarnaMind before this window loaded names (ADR-0033), for the
+   * window to open in front in place of Home; null for none. Once a window has asked, links are
+   * shown as they come (`agents.opened`).
+   */
+  takeLinked(): Promise<AgentOpened["item"] | null>;
 
   getSecretStorage(): Promise<SecretStorageStatus>;
   /** The User accepts storing keys without keyring protection on this device. */
@@ -16482,6 +16491,7 @@ const methods: Record<CoreApiMethod, true> = {
   judgedWithNow: true,
   saveFigureScheduleExport: true,
   documentsAddedSinceChecks: true,
+  takeLinked: true,
   getSecretStorage: true,
   acceptPlainTextSecretStorage: true,
   detectOllama: true,

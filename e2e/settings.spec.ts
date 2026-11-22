@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
@@ -27,7 +26,7 @@ import {
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 
 /** Each page, its name in the list, and the sections on it. */
-const ALL_PAGES = [
+const PAGES = [
   {
     page: "general",
     name: "General",
@@ -47,6 +46,7 @@ const ALL_PAGES = [
     page: "ai",
     name: "AI",
     sections: [
+      "agents-settings",
       "ai-jobs",
       "model-default-row-sorting",
       "ai-document-search",
@@ -66,16 +66,12 @@ const ALL_PAGES = [
     name: "Skills",
     sections: ["skills-settings", "skills-yours", "skills-built-in", "skill-scripts-settings"],
   },
-  { page: "agents", name: "Agents", sections: ["agents-settings"] },
   {
     page: "privacy",
     name: "Privacy",
     sections: ["consent-settings", "network-traffic", "approvals-settings"],
   },
 ] as const;
-
-const shown = (page: string) => page !== "agents" || SHOW_AGENT_CONNECTION;
-const PAGES = ALL_PAGES.filter((each) => shown(each.page));
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -250,17 +246,14 @@ test("the pages are named in Chinese too", async () => {
     );
     await window.getByRole("button", { name: "设置" }).click();
     const nav = window.getByTestId("settings-nav");
-    const chinese = (
-      [
-        ["general", "通用"],
-        ["ai", "AI"],
-        ["meetings", "会议"],
-        ["connectors", "连接器"],
-        ["skills", "技能"],
-        ["agents", "智能体"],
-        ["privacy", "隐私"],
-      ] as const
-    ).filter(([page]) => shown(page));
+    const chinese = [
+      ["general", "通用"],
+      ["ai", "AI"],
+      ["meetings", "会议"],
+      ["connectors", "连接器"],
+      ["skills", "技能"],
+      ["privacy", "隐私"],
+    ] as const;
     await expect(nav.getByRole("button")).toHaveText(chinese.map(([, name]) => name));
     for (const [page] of chinese) {
       await window.getByTestId(`settings-nav-${page}`).click();

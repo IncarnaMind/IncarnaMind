@@ -153,7 +153,7 @@ describe("an error the window shows", () => {
 });
 
 describe("the errors a User meets in each area", () => {
-  test("Settings → Agents says a name that is empty, too long or taken, and an agent that isn't connected", async () => {
+  test("Settings → AI says a name that is empty, too long or taken, and an agent that isn't connected", async () => {
     const { core } = await startAgentsCore(replyingModel());
     await core.setAgentsEnabled(true);
     await core.connectAgent({ name: "Codex", client: "codex" });

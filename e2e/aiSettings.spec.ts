@@ -8,11 +8,13 @@ import { createFakeOpenAI, signInAt } from "../tests/helpers/fakeOpenAI";
 import {
   acceptPlainTextKeys,
   closeSettings,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   interceptOpenExternal,
   launchApp,
   ollamaListing,
+  openAddSheet,
   openDirectoryEntry,
   openPlanPage,
   openSettings,
@@ -103,8 +105,8 @@ const row = (settings: Locator, name: string) =>
   settings.locator(`[data-testid="provider-row"]:has(span[title="${name}"])`);
 
 const TITLES = {
-  en: ["What each job uses", "Accounts and keys", "Limits"],
-  "zh-CN": ["各项任务使用的模型", "账户和密钥", "限制"],
+  en: ["Your AI", "What each job uses", "Accounts and keys", "Limits"],
+  "zh-CN": ["你的 AI", "各项任务使用的模型", "账户和密钥", "限制"],
 } as const;
 
 const JOBS = {
@@ -398,8 +400,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const window = await launch();
     const settings = await openSettings(window, "ai");
     await setLanguage(window, language);
-    await settings.getByTestId("models-add-provider").click();
-    const sheet = settings.getByTestId("ai-add-sheet");
+    const sheet = await openAddSheet(settings);
     await expect(sheet.getByTestId("provider-directory-search")).toBeFocused();
     await window.keyboard.type("soniox");
     const entries = sheet.getByTestId("provider-directory-entry");
@@ -439,20 +440,21 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// protects=a new User with nothing set up meets every section with plain empty states and no dead end: no model, said as text, only the built-in models, and the limits; fails_when=a picker offers a choice that does nothing, or a section is missing; no_claim=first run.
-test("with no model at all, each job says so and Accounts holds only the built-in models", async () => {
+// protects=a new User with nothing set up meets Your AI first, then one quiet row for a model, only the jobs that run without one, no Accounts and keys, and the limits, with no dead end (#3645); fails_when=a picker offers a choice that does nothing, a job that needs a model is listed, or a section is missing; no_claim=first run.
+test("with no model at all, a model is one quiet row, only the jobs that run without one are listed, and there is no Accounts and keys", async () => {
   // No Ollama answers, whatever runs on this computer: nothing local can sort either.
   const window = await launch({ ollama: "http://127.0.0.1:9" });
   const settings = await openSettings(window, "ai");
+  await expect(settings.getByTestId("ai-use-model-open")).toContainText(
+    "Use a model in IncarnaMind…",
+  );
   const jobs = settings.getByTestId("ai-jobs");
-  await expect(jobs.getByTestId("model-default-chatModel")).toHaveText("No model yet");
-  await expect(jobs.getByTestId("model-default-chatModel").locator("option")).toHaveCount(0);
+  await expect(jobs.getByTestId("model-default-chatModel")).toHaveCount(0);
   await expect(jobs.getByTestId("models-sorting").locator("option:checked")).toHaveText(
     "No model yet",
   );
   await expect(jobs.getByTestId("ai-organize-automatic")).toHaveCount(0);
-  await expect(settings.getByTestId("provider-row")).toHaveCount(0);
-  await expect(settings.getByTestId("built-in-row")).toBeVisible();
+  await expect(settings.getByTestId("your-providers")).toHaveCount(0);
   await expect(settings.getByTestId("ai-limits-privacy")).toContainText("No service allowed yet");
   await shot(window, "after-ai-empty-en-1440");
 });
@@ -526,6 +528,8 @@ test("a local runtime says “Running”, and “Not running” once it stops", 
 // protects=⌘K's Add an account or key opens the sheet, and Esc closes it with nothing changed; fails_when=it opens a page instead, or Esc closes Settings too; no_claim=the directory's groups, tested above.
 test("Esc closes the add sheet and leaves Settings open", async () => {
   const window = await launch();
+  // A model set up, so Accounts and keys holds the button the focus goes back to.
+  await connectLocalChatModel(window);
   const settings = await openSettings(window, "ai");
   await settings.getByTestId("models-add-provider").click();
   const sheet = settings.getByTestId("ai-add-sheet");

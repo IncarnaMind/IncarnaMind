@@ -1017,7 +1017,7 @@ function useStatuses(): Status[] {
       action: {
         label: t("signInRoute.wayBack.pasteApiKey"),
         testId: "tagging-paused-use-key",
-        run: () => openSettings("ai"),
+        run: () => openSettings("ai", "model"),
       },
     });
   } else if (taggingWaits && taggingNeedsOk) {

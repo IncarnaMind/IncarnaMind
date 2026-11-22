@@ -129,7 +129,7 @@ function AskOwnAgent({
   const title = useId();
   const settings = () => {
     close();
-    useAppStore.getState().openSettings("agents");
+    useAppStore.getState().openSettings("ai");
   };
   return (
     <Card testId="library-organize-agent" labelledBy={title}>

@@ -8,7 +8,6 @@ import { offeredSettingsPages, type SettingsPage, settingsPageLabels } from "../
 import { recordUsage, useAppStore } from "../store";
 import { AppearanceRow } from "./AppearanceSettings";
 import { AuthorNameSettings } from "./AuthorNameSettings";
-import { AgentsSettings } from "./agents/AgentsSettings";
 import { AiSettings } from "./ai/AiSettings";
 import { BackgroundSettings } from "./BackgroundSettings";
 import { ConnectorsSettings } from "./connectors/ConnectorsSettings";
@@ -20,6 +19,7 @@ import { OutputLocationSettings } from "./OutputLocationSettings";
 import { PrivacySettings } from "./PrivacySettings";
 import { SavedWebPagesSettings } from "./SavedWebPagesSettings";
 import { SkillScriptsSettings, SkillsSettings } from "./SkillsSettings";
+import { useSpendingCapShown } from "./SpendingCapSettings";
 import { SuggestionSettings } from "./SuggestionSettings";
 import { MovedToAi } from "./settings/MovedToAi";
 import { SettingsPopUpRow } from "./settings/PopUpButton";
@@ -38,7 +38,7 @@ const REPOSITORY_URL = "https://github.com/IncarnaMind/IncarnaMind";
 
 /**
  * Settings, in a native modal <dialog>: a list of pages on the frame on the
- * left (General, AI, Meetings, Connectors, Skills, Agents, Privacy), and the chosen page on the right under its title.
+ * left (General, AI, Meetings, Connectors, Skills, Privacy), and the chosen page on the right under its title.
  */
 export function SettingsDialog() {
   const t = useT();
@@ -151,7 +151,7 @@ function PageContent({ page }: { page: SettingsPage }) {
       return (
         <Page>
           <InterfaceSettings />
-          <MovedToAi testId="spending-cap-moved" title="cost.cap.title" at="spending-cap" />
+          <SpendingCapMoved />
           <BackgroundSettings />
           <TaskNotificationSettings />
           <SuggestionSettings />
@@ -184,12 +184,6 @@ function PageContent({ page }: { page: SettingsPage }) {
           <SkillScriptsSettings />
         </Page>
       );
-    case "agents":
-      return (
-        <Page>
-          <AgentsSettings />
-        </Page>
-      );
     case "privacy":
       return (
         <Page>
@@ -197,6 +191,14 @@ function PageContent({ page }: { page: SettingsPage }) {
         </Page>
       );
   }
+}
+
+/** Where the cap used to be, while Settings › AI shows it. */
+function SpendingCapMoved() {
+  const shown = useSpendingCapShown();
+  return shown ? (
+    <MovedToAi testId="spending-cap-moved" title="cost.cap.title" at="spending-cap" />
+  ) : null;
 }
 
 /** A page's sections, 24px apart. */

@@ -131,7 +131,7 @@ describe("the refusal to turn a Folder's wall on or off", () => {
 
 describe("a refusal's button names the page its click opens (#1741)", () => {
   const BUTTONS = [
-    { what: "keys", en: "Open AI settings", zh: "打开 AI 设置", page: "ai", at: null },
+    { what: "keys", en: "Open AI settings", zh: "打开 AI 设置", page: "ai", at: "model" },
     { what: "privacy", en: "Open AI settings", zh: "打开 AI 设置", page: "ai", at: "local-mode" },
     {
       what: "approvals",

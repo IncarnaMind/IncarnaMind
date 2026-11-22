@@ -6,6 +6,7 @@ import {
   acceptPlainTextKeys,
   capture,
   checkCard,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -159,6 +160,8 @@ for (const language of ["en", "zh-CN"] as const) {
   // protects=without the host's key the switch is off and can't be turned on, one line names the service it needs and Add a key… opens the same add sheet; with the key, where the User's checks go to that service, it is on before they touch it, with the line that says what goes there; off stays off and stores it, on again is the User's own choice of the model, and Local mode turns it off with one line and gives it back; fails_when=the switch can be turned on with no key or in Local mode, shows off where it is on by default, the sends line is missing while it can be turned on, or the row's words run under the switch at a narrow window; no_claim=what a check then does, which the core's tests cover.
   test(`the switch says what it does and why it is off, at 900 px (${language})`, async () => {
     const window = await launch(true, 900);
+    // A model set up, with no key for the decision model's host: the row is listed (#3645).
+    await connectLocalChatModel(window);
     const settings = await openSettings(window, "ai");
     await setLanguage(window, language);
     const page = settings.getByTestId("settings-page-ai");
@@ -240,9 +243,8 @@ test("off by default it waits for the User, and goes with its key", async () => 
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.deleteChatProvider(id);
   }, providerId);
-  await expect(toggle).toBeDisabled();
-  await expect(toggle).not.toBeChecked();
-  await expect(row.getByTestId("check-decision-blocked")).toHaveText(WORDS.en.noKey);
+  // The last model gone, the row goes with the other jobs that need one (#3645).
+  await expect(row).toHaveCount(0);
   expect(await chosen(window)).toBeNull();
   expect(sentToHost()).toEqual([]);
 });

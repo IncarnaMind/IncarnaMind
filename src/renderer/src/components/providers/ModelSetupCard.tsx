@@ -249,7 +249,7 @@ function ClaudeWay() {
           </span>
           <button
             type="button"
-            onClick={() => showPage("agents")}
+            onClick={() => showPage("ai")}
             className={buttonStyle("secondary", "sm")}
           >
             {t("setup.claude.openAgents")}

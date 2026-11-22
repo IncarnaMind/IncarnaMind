@@ -86,7 +86,7 @@ describe("connecting an agent where connecting agents is turned on with it", () 
     expect(rollbackProblems).toEqual([new Error("Settings are read-only.")]);
   });
 
-  // protects=Settings › Agents, which has its own switch, never turns it on or off; fails_when=connecting there changes the switch
+  // protects=Settings › AI, which has its own switch, never turns it on or off; fails_when=connecting there changes the switch
   test("leaves the switch alone where it isn't asked to turn it on", async () => {
     const { state, connect, started } = bridgeOf();
     state.enabled = true;

@@ -28,10 +28,7 @@ import {
 } from "./app";
 import { callTool } from "./canvases";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * What the card and the Note show for a deck and a workbook Claude Code handed over (#3493): the

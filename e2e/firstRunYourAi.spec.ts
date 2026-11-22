@@ -8,6 +8,7 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   catchCopies,
   controlReads,
   copied,
@@ -29,7 +30,7 @@ test.skip(!SHOW_AGENT_CONNECTION, "Agents are hidden while SHOW_AGENT_CONNECTION
 
 /*
  * The setup's Your AI step offers the AI the User already has before a model in IncarnaMind
- * (#3362): an agent connects inside the step as Settings › Agents connects it, Sorting waits for a
+ * (#3362): an agent connects inside the step as Settings › AI connects it, Sorting waits for a
  * model, and Get started follows the agent: add Documents, ask it for a document, see what needs a
  * look. A real agent client drives the Tools over the app's own connection. The home folder is a
  * temporary one, where Claude Code is found by its settings file, which connecting it adds to (a
@@ -219,7 +220,7 @@ async function connectClaudeCode(window: Page, ai: Locator): Promise<void> {
   await expect(ai.getByTestId("setup-agent-connected")).toHaveText("Claude Code is connected");
 }
 
-// protects=a fresh profile's Your AI step offers the User's own AI first, Claude Code connects inside the step with the lines Settings shows, Meetings follows the AI connection, the card follows the agent with no key asked for, and Settings › Agents lists the agent as one connected there and disconnects it; fails_when=the step asks for a key first, connecting leaves the step or needs a Document, Sorting shows with no model, the card asks for a key, or Settings shows another agent than the one connected
+// protects=a fresh profile's Your AI step offers the User's own AI first, Claude Code connects inside the step with the lines Settings shows, Meetings follows the AI connection, the card follows the agent with no key asked for, and Settings › AI lists the agent as one connected there and disconnects it; fails_when=the step asks for a key first, connecting leaves the step or needs a Document, Sorting shows with no model, the card asks for a key, or Settings shows another agent than the one connected
 test("connecting the AI the User has in the step: no key, sorting on request, the agent's card, and Settings lists it", async () => {
   test.setTimeout(180_000);
   const window = await launch();
@@ -339,24 +340,24 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
     "Your AI: Claude Code · Sorting: not set",
   );
 
-  // Settings › Agents lists it as one connected there, and disconnects it.
+  // Settings › AI lists it as one connected there, and disconnects it.
   await card.getByTestId("first-open-set-change").click();
   const models = await showSettingsPage(window, "ai");
   await expect(models.getByTestId("model-default-row-sorting")).toContainText(
     "Ask your connected AI to suggest Folders and Tags.",
   );
-  // With only their own AI connected, Settings says whose it is and holds back what is for the
-  // built-in assistant: no Connectors, no Skills, here or in ⌘K (#3537).
-  const none = models.getByTestId("ai-none");
-  await expect(none).toContainText("Your AI: Claude Code");
-  await expect(none).toContainText("A model in IncarnaMind is optional.");
-  await expect(none).not.toContainText("No AI yet");
+  // With only their own AI connected, Settings › AI leads with it, a model in IncarnaMind is one
+  // quiet row, and what is for the built-in assistant is held back: no Connectors, no Skills, here
+  // or in ⌘K (#3537, #3645).
+  await expect(models.getByTestId("agents-connected")).toContainText("Your AI");
+  await expect(models.getByTestId("agent-pairing")).toHaveAttribute("data-name", "Claude Code");
+  await expect(models.getByTestId("ai-use-model")).toContainText("Use a model in IncarnaMind…");
   const listed = await models
     .locator('[data-testid^="settings-nav-"]')
     .evaluateAll((all) =>
       all.map((each) => each.getAttribute("data-testid")?.replace("settings-nav-", "")),
     );
-  expect(listed).toEqual(["general", "ai", "meetings", "agents", "privacy"]);
+  expect(listed).toEqual(["general", "ai", "meetings", "privacy"]);
   await expect(window.getByTestId("settings-nav-connectors")).toHaveCount(0);
   await expect(window.getByTestId("settings-nav-skills")).toHaveCount(0);
   await expect(window.getByTestId("settings-page-connectors")).toHaveCount(0);
@@ -368,9 +369,9 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await expect(window.locator('[data-key="command:settings.connectors"]')).toHaveCount(0);
   await expect(window.locator('[data-key="command:settings.skills"]')).toHaveCount(0);
   await window.keyboard.press("Escape");
-  await openSettings(window, "ai");
-  const page = await showSettingsPage(window, "agents");
-  await expect(page.getByTestId("agents-enabled")).toBeChecked();
+  const page = await openSettings(window, "ai");
+  // Connecting is on, as connecting turned it on: there is no switch to show.
+  await expect(page.getByTestId("agents-enabled")).toHaveCount(0);
   const row = page.locator('[data-testid="agent-pairing"][data-name="Claude Code"]');
   await expect(row.getByTestId("agent-pairing-reads")).toHaveText(
     "Reads all your Documents and notes, and what you add later",
@@ -424,7 +425,7 @@ async function skipTheRest(window: Page): Promise<void> {
   }
 }
 
-// protects=a long list of agents stays easy to choose from: those on this computer first, then the most used, any other found by typing its name, by keyboard, in the setup and in Settings › Agents alike; fails_when=every agent shows at once, a found agent isn't first, typing a name or one it went by doesn't find it, or the keyboard can't reach the search or the agent found
+// protects=a long list of agents stays easy to choose from: those on this computer first, then the most used, any other found by typing its name, by keyboard, in the setup and in Settings › AI alike; fails_when=every agent shows at once, a found agent isn't first, typing a name or one it went by doesn't find it, or the keyboard can't reach the search or the agent found
 test("the agents found here come first, and any other is found by typing, in the step and in Settings", async () => {
   test.setTimeout(240_000);
   // Made-up signs of Zed and Qwen Code beside Claude Code's, in the test's own home folder.
@@ -484,8 +485,8 @@ test("the agents found here come first, and any other is found by typing, in the
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setAgentsEnabled(true),
   );
   await window.getByTestId("first-open-set-change").click();
-  const page = await showSettingsPage(window, "agents");
-  const list = page.getByTestId("agents-list");
+  const page = await showSettingsPage(window, "ai");
+  const list = await agentsToConnect(page);
   const rows = () =>
     list
       .getByTestId("agent-client")
@@ -760,7 +761,7 @@ test("with only their own AI, the User chooses a dedicated sorting model later i
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   await window.getByTestId("first-open-steps").getByTestId("first-open-set-change").click();
   const settings = await showSettingsPage(window, "ai");
-  await settings.getByTestId("ai-none-step-by-step").click();
+  await settings.getByTestId("ai-use-model-open").click();
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
   const sorting = await atStep(window, "sorting");
   await expect(sorting.getByTestId("setup-decision-host")).toHaveValue("openrouter");

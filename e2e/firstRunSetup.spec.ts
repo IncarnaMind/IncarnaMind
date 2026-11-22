@@ -345,8 +345,8 @@ test("a pasted key works at once, More services… stays in the setup, and sorti
   expect((await bridge(window).settings()).device.transcriptionRoute).toBe("local");
 });
 
-// protects=Settings › AI with no account or key starts with its lede, then No AI yet with its two actions together in one row in view at 900 and 1,440, in English and Chinese, and says No model yet as text; Set up step by step opens the three model steps in a dialog over Settings, which Esc and its ✕ close with the focus back on the button, Esc in More services going back first; from ⌘K the same dialog leaves the Note in front as it was; fails_when=No AI yet comes before the lede, the buttons split or need a scroll, the Answers row is a dead picker, the steps replace the window or close Settings, Esc or ✕ leaves the focus elsewhere, or the app loses its place; no_claim=the add sheet itself (aiSettings.spec.ts).
-test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up step by step opens a dialog over the app", async () => {
+// protects=Settings › AI with nothing set up leads with Your AI (its line, then the agents to connect), then one quiet row, Use a model in IncarnaMind…, at 900 and 1,440, in English and Chinese, and lists no job that needs a model (#3645); the row opens the three model steps in a dialog over Settings, which Esc and its ✕ close with the focus back on the row, Esc in More services going back first; from ⌘K the same dialog leaves the Note in front as it was; fails_when=the quiet row comes before Your AI, a job that needs a model is listed, the steps replace the window or close Settings, Esc or ✕ leaves the focus elsewhere, or the app loses its place; no_claim=the add sheet itself (aiSettings.spec.ts).
+test("Settings › AI with nothing set: Your AI, then the quiet row, whose press opens the steps in a dialog over the app", async () => {
   test.setTimeout(120_000);
   const { app: launched, window } = await launchApp(dataDir, { ...STAND_INS, examples: true });
   app = launched;
@@ -359,23 +359,25 @@ test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up s
   ] as const) {
     await setWindowSize(launched, window, width, 900);
     await bridge(window).setLanguage(language);
-    const none = settings.getByTestId("ai-none");
-    const add = none.getByTestId("ai-none-add");
-    const stepByStep = none.getByTestId("ai-none-step-by-step");
-    await expect(add).toHaveText(language === "en" ? "Add an account or key…" : "添加账户或密钥…");
-    await expect(add).toBeInViewport();
-    await expect(stepByStep).toBeInViewport();
-    const lede = await settings.getByTestId("ai-lede").boundingBox();
-    const card = await none.boundingBox();
-    expect(lede && card && lede.y + lede.height <= card.y, `${language} ${width}`).toBe(true);
-    // Together in one row beside the words, Set up step by step first.
-    const [before, after] = [await stepByStep.boundingBox(), await add.boundingBox()];
-    const words = await none.locator("p").boundingBox();
-    expect(before && after && Math.abs(before.y - after.y) < 1, `${language} ${width}`).toBe(true);
-    expect(before && after && before.x + before.width < after.x).toBe(true);
-    expect(before && words && before.y < words.y + words.height, `${language} ${width}`).toBe(true);
-    await expect(settings.getByTestId("model-default-chatModel")).toHaveText(
-      language === "en" ? "No model yet" : "还没有模型",
+    await expect(settings.getByTestId("ai-lede")).toHaveText(
+      language === "en"
+        ? "Let the AI tool you use read your Documents."
+        : "让你常用的 AI 工具读取你的文档。",
+    );
+    const list = settings.getByTestId("agents-list");
+    const row = settings.getByTestId("ai-use-model-open");
+    await expect(row).toContainText(
+      language === "en" ? "Use a model in IncarnaMind…" : "在 IncarnaMind 里用一个模型…",
+    );
+    await expect(row).toContainText(language === "en" ? "Optional" : "可选");
+    const [agents, quiet] = [await list.boundingBox(), await row.boundingBox()];
+    expect(agents && quiet && agents.y + agents.height <= quiet.y, `${language} ${width}`).toBe(
+      true,
+    );
+    await expect(settings.getByTestId("model-default-row-chatModel")).toHaveCount(0);
+    await expect(settings.getByTestId("web-search-settings")).toHaveCount(0);
+    await expect(settings.getByTestId("check-writes-settings")).toContainText(
+      language === "en" ? "Check what your own AI writes" : "自动核对你自己的 AI 写入的内容",
     );
     await shot(window, `settings-ai-empty-${language}-${width}`);
   }
@@ -383,7 +385,7 @@ test("Settings › AI with nothing set: the lede, then No AI yet, whose Set up s
   await setWindowSize(launched, window, 1440, 900);
 
   // A dialog over Settings, which stays where it was.
-  const stepByStep = settings.getByTestId("ai-none-step-by-step");
+  const stepByStep = settings.getByTestId("ai-use-model-open");
   await stepByStep.click();
   const dialog = dialogOf(window);
   await expect(dialog).toBeVisible();
@@ -438,7 +440,7 @@ test("with no AI yet, sorting and transcription each ask for one key, and one pr
   await setWindowSize(launched, window, 900, 900);
   await acceptPlainTextKeys(window);
   const settings = await openSettings(window, "ai");
-  await settings.getByTestId("ai-none-step-by-step").click();
+  await settings.getByTestId("ai-use-model-open").click();
   await (await atStep(window, "ai")).getByTestId("setup-skip").click();
 
   const sorting = await atStep(window, "sorting");
@@ -566,7 +568,7 @@ test("in Local mode, every model step offers only this computer", async () => {
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(true),
   );
   const settings = await openSettings(window, "ai");
-  await settings.getByTestId("ai-none-step-by-step").click();
+  await settings.getByTestId("ai-use-model-open").click();
   const ai = await atStep(window, "ai");
   await openInAppModel(ai);
   await expect(ai.getByTestId("setup-local-mode")).toBeVisible();
@@ -631,8 +633,11 @@ test("the model that sorts and tags is one optional line: closed, the step is as
   // A model set up in the step can sort too: choosing it is the one setting Settings › AI has.
   await useLocalChatModel(window);
   await expect(ai.getByTestId("setup-ai-works")).toBeVisible();
-  const own = translate("en", "models.sorting.chat");
-  await expect(picker.locator("option", { hasText: own })).toHaveCount(1);
+  // The model set up in the step, by its name: "Use fake-model".
+  const ownOption = picker.locator(`option[value*='"kind":"chat"']`);
+  await expect(ownOption).toHaveCount(1);
+  const own = (await ownOption.textContent()) ?? "";
+  expect(own).toBe(translate("en", "models.sorting.chat", { model: "fake-model" }));
   await picker.selectOption({ label: own });
   await expect(panel.getByTestId("models-sorting-line")).toContainText("nothing leaves");
   const library = (await bridge(window).library()).settings;

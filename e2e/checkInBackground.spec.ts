@@ -6,6 +6,7 @@ import { openDatabase } from "../src/core/storage";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   catchCopies,
   copied,
   createDataFolder,
@@ -23,10 +24,7 @@ import {
   writeNote,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 test.skip(process.platform === "win32", "The stand-in for Claude Code starts from a shell script.");
 
 /*
@@ -251,9 +249,8 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.disconnectAgent(id);
     }, pairingId);
-    const settings = await openSettings(window, "agents");
-    await settings
-      .getByTestId("agents-list")
+    const settings = await openSettings(window, "ai");
+    await (await agentsToConnect(settings))
       .locator('[data-client="claude-code"]')
       .getByTestId("agent-connect")
       .click();

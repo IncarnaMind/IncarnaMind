@@ -8,6 +8,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openAddSheet,
   openServiceList,
   openSettings,
   removeDataFolder,
@@ -36,7 +37,7 @@ test("each preset is a tile in Add a provider; Groq's page has its key page and 
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
     const settings = await openSettings(window, "ai");
-    await settings.getByTestId("models-add-provider").click();
+    await openAddSheet(settings);
     const more = settings.locator('[data-group="more"]');
     for (const id of ["groq", "together", "fireworks", "cerebras", "cohere", "venice"]) {
       await expect(more.locator(`[data-catalog-id="${id}"]`)).toHaveCount(1);
@@ -181,7 +182,7 @@ test("LM Studio and Unsloth Studio are On this computer in Add a provider, besid
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
     const settings = await openSettings(window, "ai");
-    await settings.getByTestId("models-add-provider").click();
+    await openAddSheet(settings);
     const local = settings.locator('[data-group="local"]');
     await expect(local.getByTestId("provider-directory-entry")).toHaveText([
       /^Ollama/,

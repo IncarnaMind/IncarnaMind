@@ -46,6 +46,7 @@ import { type MessageKey, type MessageParams, translate } from "../../shared/i18
 import { mindName } from "../../shared/naming";
 import { filingFolder } from "../../shared/searchScope";
 import { tagLinks } from "../../shared/tagLinks";
+import { showOpened } from "./agentOpened";
 import { attentionOrder } from "./attention";
 import { canvasOf, loadCanvases } from "./canvases";
 import {
@@ -1265,8 +1266,14 @@ export const useAppStore = create<AppState>()((set, get) => {
         const reloaded = windowLoadedBefore();
         // Minds made before this setting existed count as an earlier launch.
         const launchedBefore = settings.device.openedBefore || minds.length > 0;
+        // What an app link that started IncarnaMind names opens in Home's place (ADR-0033).
+        const linked = await core.takeLinked().catch((error: unknown) => {
+          console.error("Couldn't read what the link that started IncarnaMind names.", error);
+          return null;
+        });
         // Before the tabs are drawn, so the Mind left in front isn't drawn only to be covered.
-        if (!setup.show && !offered?.mindId && launchedBefore && !reloaded) {
+        if (linked) showOpened({ item: linked, front: true });
+        else if (!setup.show && !offered?.mindId && launchedBefore && !reloaded) {
           await get().openHome({ first: true });
         }
         const read = {

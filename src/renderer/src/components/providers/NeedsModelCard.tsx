@@ -32,7 +32,7 @@ export function NeedsModelCard({
         testId={`${testId}-key`}
         autoFocus={autoFocus}
         onSaved={onDone}
-        unrecognised={{ label: "setup.key.openSettings", run: () => openSettings("ai") }}
+        unrecognised={{ label: "setup.key.openSettings", run: () => openSettings("ai", "model") }}
       />
     </div>
   );

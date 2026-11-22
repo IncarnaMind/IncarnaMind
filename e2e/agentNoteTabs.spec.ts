@@ -7,6 +7,7 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
+  agentsToConnect,
   catchCopies,
   closeSettings,
   copied,
@@ -22,10 +23,7 @@ import {
   writeNote,
 } from "./app";
 
-test.skip(
-  !SHOW_AGENT_CONNECTION,
-  "Settings › Agents is hidden while SHOW_AGENT_CONNECTION is false.",
-);
+test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
  * An outside agent adds a tab to the User's Note (#3414): the tab waits with the first Block it
@@ -74,10 +72,8 @@ async function withHarbour(window: Page): Promise<string> {
 
 /** An agent connected as the User connects one that may propose changes in "Harbour". */
 async function connectAgent(window: Page): Promise<Client> {
-  const page = await openSettings(window, "agents");
-  await page.getByTestId("agents-enabled").click();
-  await page
-    .getByTestId("agents-list")
+  const page = await openSettings(window, "ai");
+  await (await agentsToConnect(page))
     .locator('[data-client="other"]')
     .getByTestId("agent-connect")
     .click();
