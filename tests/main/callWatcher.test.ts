@@ -110,12 +110,8 @@ describe("Windows: the microphone-use registry snapshot", () => {
   });
 
   test("invalid or inexact snapshots cannot end a call", () => {
-    for (const invalid of [
-      "{",
-      '{"apps":[]}',
-      '{"exact":false,"apps":[]}',
-      '{"exact":true,"apps":[null]}',
-    ]) {
+    expect(readWindowsLine('{"exact":false,"apps":[]}')).toBeNull();
+    for (const invalid of ["{", '{"apps":[]}', '{"exact":true,"apps":[null]}']) {
       expect(() => readWindowsLine(invalid)).toThrow("Invalid Windows microphone snapshot");
     }
   });

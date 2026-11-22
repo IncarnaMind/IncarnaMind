@@ -20,8 +20,7 @@ import {
 /*
  * IncarnaMind in the background and its offers to take notes (#189, #208): Settings › General's
  * switches, the tray icon's menu, closing the window, and an offer when a call app takes the
- * microphone, which records only on Take notes and stops when the call ends. The call watcher is
- * a fake the test drives; nothing reads the computer's microphone.
+ * microphone, which records only on Take notes. The call watcher is a fake the test drives; nothing reads the computer's microphone.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -149,6 +148,11 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(settings.getByTestId("calendar-offers-switch")).toHaveCount(0);
     await expect(settings.getByTestId("call-offers")).toContainText(words.calls);
     await expect(settings.getByTestId("call-offers-switch")).toBeChecked();
+    if (process.platform === "win32") {
+      await expect(settings.getByTestId("call-offers")).toContainText(
+        language === "en" ? "Stop recording when you leave." : "离开通话时请手动停止录制。",
+      );
+    }
 
     // Opening at login goes through the login item, which a test build keeps in its data folder.
     await settings.getByTestId("open-at-login-switch").click();
@@ -198,7 +202,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
-  test(`a call app taking the microphone is offered; Take notes records, and the call's end stops it (${language})`, async () => {
+  test(`a call app taking the microphone is offered; Take notes records and Stop saves it (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launch();
     await dismissChatSetup(window);
@@ -229,17 +233,24 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect.poll(() => notifications(app)).toEqual([]);
       await shot(window, `offer-taken-recording-${language}`);
 
-      // Zoom lets go of the microphone: the bar says it will stop, and Stop now stops it.
       await callsUse(app, []);
       const line = window.getByTestId("meeting-line-call-ended");
-      await expect(line).toContainText(
-        language === "en" ? "Did your meeting end?" : "会议结束了吗？",
-      );
-      await expect
-        .poll(async () => (await notifications(app)).map((each) => each.kind))
-        .toEqual(["ending"]);
-      await shot(window, `offer-call-ended-${language}`);
-      await line.getByTestId("meeting-line-stop-now").click();
+      if (process.platform === "win32") {
+        await expect(line).toHaveCount(0);
+        await expect(bar).toHaveAttribute("data-status", "recording");
+        expect(await notifications(app)).toEqual([]);
+        await shot(window, `offer-manual-stop-${language}`);
+        await bar.getByTestId("meeting-stop").click();
+      } else {
+        await expect(line).toContainText(
+          language === "en" ? "Did your meeting end?" : "会议结束了吗？",
+        );
+        await expect
+          .poll(async () => (await notifications(app)).map((each) => each.kind))
+          .toEqual(["ending"]);
+        await shot(window, `offer-call-ended-${language}`);
+        await line.getByTestId("meeting-line-stop-now").click();
+      }
       await expect.poll(() => meetingStatuses(window)).toEqual(["stopped"]);
       await expect(line).toHaveCount(0);
     };

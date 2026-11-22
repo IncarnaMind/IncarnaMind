@@ -17,7 +17,6 @@ const desktop = `${microphone}\\NonPackaged`;
 const zoom = `${desktop}\\C:#Users#IsolatedFixture#Zoom.exe`;
 const chrome = `${desktop}\\C:#Program Files#Google#Chrome#chrome.exe`;
 const stopped = `${desktop}\\C:#Fixture#firefox.exe`;
-const invalid = `${desktop}\\C:#Fixture#msedge.exe`;
 const version = process.argv[2];
 const testDirectory = process.argv[3];
 const fixture = join(testDirectory, "Release", "call-watcher-fixture.exe");
@@ -36,24 +35,27 @@ try {
   const exit = once(child, "exit");
   const lines = createInterface({ input: child.stdout });
   let latest = null;
+  let exact = false;
   let received = 0;
   lines.on("line", (line) => {
     const snapshot = JSON.parse(line);
-    assert.equal(snapshot.exact, true);
+    assert.equal(typeof snapshot.exact, "boolean");
     assert.ok(snapshot.apps.every((app) => /^[A-Za-z0-9._-]+$/.test(app)));
-    latest = [...snapshot.apps].sort();
+    exact = snapshot.exact;
+    if (exact) latest = [...snapshot.apps].sort();
+    else assert.deepEqual(snapshot.apps, []);
     received += 1;
   });
-  async function expectApps(...expected) {
-    expected.sort();
+  async function expectSnapshot(matches) {
     const started = performance.now();
-    const matching = () => JSON.stringify(latest) === JSON.stringify(expected);
     const signal = AbortSignal.timeout(5000);
-    while (!matching()) await once(lines, "line", { signal });
-    const elapsed = Math.round(performance.now() - started);
-    changes.push(elapsed);
-    return elapsed;
+    while (!matches()) await once(lines, "line", { signal });
+    changes.push(Math.round(performance.now() - started));
   }
+  const expectApps = (...expected) => {
+    expected.sort();
+    return expectSnapshot(() => exact && JSON.stringify(latest) === JSON.stringify(expected));
+  };
   const cpu = async () => {
     const { stdout } = await powershell(
       "-Command",
@@ -73,11 +75,20 @@ try {
 
   await time(stopped, "Stop", 30);
   await time(stopped, "Start", 20);
-  await time(invalid, "Stop", 0, "REG_SZ");
-  await time(invalid, "Start", 20);
   await time(chrome, "Stop", 0);
   await time(chrome, "Start", 20);
   await expectApps("MSTeams_8wekyb3d8bbwe", "Zoom.exe", "chrome.exe");
+
+  for (const [name, value] of [
+    ["Start", 20],
+    ["Stop", 1],
+  ]) {
+    await time(zoom, name, value, "REG_SZ");
+    await expectSnapshot(() => !exact);
+    assert.deepEqual(latest, ["MSTeams_8wekyb3d8bbwe", "Zoom.exe", "chrome.exe"]);
+    await time(zoom, name, value);
+    await expectApps("MSTeams_8wekyb3d8bbwe", "Zoom.exe", "chrome.exe");
+  }
 
   await time(teams, "Stop", 25);
   await expectApps("Zoom.exe", "chrome.exe");

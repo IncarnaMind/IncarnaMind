@@ -278,7 +278,10 @@ async function testTaskKinds(): Promise<TaskKind[]> {
 function callWatching(): { callWatcher?: CallWatcher } {
   if (import.meta.env.MODE === "test") {
     if (process.env.INCARNAMIND_TEST_CALLS !== "1") return {};
-    const fake = createFakeCallWatcher();
+    const fake = {
+      ...createFakeCallWatcher(),
+      endRecordingOnRelease: process.platform !== "win32",
+    };
     (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
     return { callWatcher: fake };
   }

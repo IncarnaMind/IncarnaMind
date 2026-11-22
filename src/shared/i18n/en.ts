@@ -7211,6 +7211,8 @@ export const en = {
   "settings.calendarOffers.detail":
     "One minute before an event with two or more people: “Take notes”.",
   "settings.callOffers": "Calls not on your calendar",
+  "settings.callOffers.detailWindows":
+    "Get an offer when a meeting app uses the microphone. Stop recording when you leave.",
   "settings.callOffers.detail": "When a meeting app starts using the microphone.",
   "settings.callOffers.perApp": "Per app…",
   "settings.callOffers.apps": "Ask when these apps use the microphone",

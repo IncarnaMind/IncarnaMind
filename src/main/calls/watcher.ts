@@ -14,7 +14,7 @@ import { isRecordingEvent, type RecordingStream, streamsOfJson, streamsOfText } 
 export const MAC_WATCHER = "call-watcher";
 export const WINDOWS_WATCHER = "call-watcher.exe";
 
-export function readWindowsLine(line: string): string[] {
+export function readWindowsLine(line: string): string[] | null {
   let value: unknown;
   try {
     value = JSON.parse(line);
@@ -25,13 +25,14 @@ export function readWindowsLine(line: string): string[] {
     !value ||
     typeof value !== "object" ||
     !("exact" in value) ||
-    value.exact !== true ||
+    typeof value.exact !== "boolean" ||
     !("apps" in value) ||
     !Array.isArray(value.apps) ||
     value.apps.some((app) => typeof app !== "string")
   ) {
     throw new Error("Invalid Windows microphone snapshot");
   }
+  if (!value.exact) return null;
   return [...new Set(value.apps.flatMap((name: string) => appOfWindowsMicrophone(name) ?? []))];
 }
 
@@ -212,6 +213,8 @@ export interface CallWatcherOptions {
 export function createCallWatcher(options: CallWatcherOptions): CallWatcher {
   const { log, platform, own } = options;
   return {
+    // A muted browser can release the microphone while its call continues.
+    endRecordingOnRelease: platform !== "win32",
     watch(listener) {
       let last = "";
       let apps: string[] = [];
@@ -237,8 +240,10 @@ export function createCallWatcher(options: CallWatcherOptions): CallWatcher {
           listener,
           start: () => spawn(program, [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true }),
           read: (line) => {
-            if (windows) report(readWindowsLine(line), true);
-            else {
+            if (windows) {
+              const read = readWindowsLine(line);
+              if (read !== null) report(read, true);
+            } else {
               const read = readMacLine(line, own);
               report(macCallApps(apps, read), read.exact);
             }
