@@ -448,7 +448,7 @@ describe("Verify a workbook", () => {
         },
         {
           name: "Headerless",
-          xml: `<sheetData><row r="1">${inline("A1", "Liability cap")}${inline("B1", "GBP 500,000")}</row></sheetData>`,
+          xml: `<sheetData><row r="1">${inline("A1", "Revenue")}${inline("B1", "USD 1 million")}</row><row r="2">${inline("A2", "Liability cap")}${inline("B2", "GBP 500,000")}</row></sheetData>`,
         },
         {
           name: "HeadersOnly",
@@ -467,7 +467,7 @@ describe("Verify a workbook", () => {
       reason: "choose-sheet",
       sheets: [
         { name: "Schedule", rows: 3, typed: 0, formulas: 0, textRows: 2 },
-        { name: "Headerless", rows: 1, typed: 0, formulas: 0, textRows: 1 },
+        { name: "Headerless", rows: 2, typed: 0, formulas: 0, textRows: 2 },
         { name: "HeadersOnly", rows: 1, typed: 0, formulas: 0 },
         { name: "SingleColumnNotes", rows: 2, typed: 0, formulas: 0 },
       ],
@@ -497,6 +497,10 @@ describe("Verify a workbook", () => {
         row.content?.map((cell) => [cell.type, cell.content?.[0]?.content?.[0]?.text]),
       ),
     ).toEqual([
+      [
+        ["tableCell", "Revenue"],
+        ["tableCell", "USD 1 million"],
+      ],
       [
         ["tableCell", "Liability cap"],
         ["tableCell", "GBP 500,000"],
