@@ -3364,6 +3364,11 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE agent_requests ADD COLUMN named TEXT;
     `,
   },
+  {
+    version: 157,
+    description: "Meeting write-up templates in Skills (#688)",
+    sql: "ALTER TABLE skills ADD COLUMN meeting_template INTEGER NOT NULL DEFAULT 0;",
+  },
 ];
 
 /**

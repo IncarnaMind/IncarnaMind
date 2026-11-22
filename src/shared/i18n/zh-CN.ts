@@ -32,9 +32,9 @@ export const zhCN = {
   "library.organize.explain": "为每个文档建议文件夹和标签，由你决定。",
   "agents.ask.line.organize": "帮我整理 IncarnaMind 里的文档。请先读取我在里面留的整理要求。",
   "agents.ask.request.organize":
-    "{scope} 从 list_sorting 的同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，只填列表里合适的文件夹和标签 ID，把建议留给我确认。",
+    "{scope} 先读完 list_sorting 的每一页，从同一条文档记录复制 id 和 version。用 propose_sorting 提建议时，列表里有合适的文件夹或标签就用它；都不合适时，用中文起一个新名称，但至少要有 3 个文档适合它。文件夹按工作领域或主题划分，不按文档类型划分。把建议留给我确认。",
   "agents.ask.organize.folder":
-    "只整理直接放在文件夹 {folder} 里的文档。如果建议移动，只能移入这些子文件夹：{folders}。没有合适的就留在原处。",
+    "只整理直接放在文件夹 {folder} 里的文档。如果建议移动，只能移入这些子文件夹：{folders}，或按名称新建的子文件夹（会建在这个文件夹里）。没有合适的就留在原处。",
   "agents.ask.organize.loose": "只整理还没放进文件夹的文档（folderId 为 null）。",
   "agents.ask.organize.selected": "只整理这些 ID 对应的文档：{ids}。",
   "library.organize.withAgent": "请{agent}整理",
@@ -94,6 +94,9 @@ export const zhCN = {
   "organizeReview.section.leftOut": "未归入",
   "organizeReview.notNow": "以后再说",
   "organizeReview.confirm": "确认",
+  "organizeReview.confirmAll": "全部确认",
+  "organizeReview.suggestedBy": "{agent}建议：{what}",
+  "organizeReview.nothingFrom": "{agent}没有可建议的文件夹或标签。",
   "organizeReview.menu": "更多",
   "organizeReview.fewer": "少一些文件夹",
   "organizeReview.fewer.fewest": "整理最少建议 {count} 个文件夹",
@@ -245,6 +248,7 @@ export const zhCN = {
   "library.drop.formats": "PDF、Word、PowerPoint、Excel、Markdown 和文本",
   "library.drop.stay": "文件保留在原处。",
   "library.review": "查看",
+  "library.row.suggested": "建议放入“{folder}”",
   "library.sources": "磁盘上的文件夹",
   "library.collapse": "收起 {name}",
   "library.expand": "展开 {name}",
@@ -4831,6 +4835,38 @@ export const zhCN = {
   "skills.settings.license": "许可证：{license}",
   "skills.settings.scripts.one": "1 个脚本",
   "skills.settings.scripts": "{count} 个脚本",
+  "skills.builtIn.meeting-board.title": "董事会会议",
+  "skills.builtIn.meeting-board.short": "议案、表决结果、行动事项和会上提到的风险。",
+  "skills.builtIn.meeting-board":
+    "区分提案和通过的决议。逐字稿给出了票数或弃权情况时才记录，风险写明由谁提出。",
+  "skills.builtIn.meeting-client.title": "客户会议",
+  "skills.builtIn.meeting-client.short": "客户提了什么、双方谈妥了什么，还有什么待确认。",
+  "skills.builtIn.meeting-client":
+    "先写客户的诉求，再写双方明确同意的内容。仍在商量的要求留在待确认事项里。",
+  "skills.builtIn.meeting-interview.title": "面试",
+  "skills.builtIn.meeting-interview.short": "按主题整理回答，保留已提出的疑问和建议。",
+  "skills.builtIn.meeting-interview":
+    "将候选人的原话和面试官的判断分开。只有会上明确给出建议，才写进建议一栏。",
+  "skills.builtIn.meeting-legal.title": "法律咨询",
+  "skills.builtIn.meeting-legal.short": "当事人陈述、律师意见及适用范围、待补材料和下一步。",
+  "skills.builtIn.meeting-legal":
+    "区分当事人陈述和律师意见。意见的适用条件与原话一起保留，不自行补充法律判断。",
+  "skills.builtIn.meeting-one-on-one.title": "一对一",
+  "skills.builtIn.meeting-one-on-one.short": "整理双方关心的事、反馈和各自答应的下一步。",
+  "skills.builtIn.meeting-one-on-one":
+    "双方单独沟通时，记录各自的优先事项、反馈和需要的支持。只有本人答应的事才列为待办。",
+  "skills.builtIn.meeting-sales.title": "销售通话",
+  "skills.builtIn.meeting-sales.short": "客户需求、答复、异议、报价和商定的下一步。",
+  "skills.builtIn.meeting-sales":
+    "把每个问题和当场答复放在一起，附上原话。分清报价和已经谈妥的条款，没人回答的地方保留问题。",
+  "skills.builtIn.meeting-team.title": "团队例会",
+  "skills.builtIn.meeting-team.short": "各项工作的进展、决定、阻碍和下一步。",
+  "skills.builtIn.meeting-team":
+    "进展按事项归纳。把阻碍与已经作出的决定分开。待办只写会上明确的负责人和时间。",
+  "meetings.template.importOther": "请选择会议模板的文件夹或压缩包。",
+  "meetings.settings.templates": "会议模板",
+  "skills.settings.meetings": "会议",
+  "skills.settings.newMeeting": "新建会议模板…",
   "skills.settings.builtIn": "内置",
   // The Built-in Skills, as Settings and the slash menu describe them; their SKILL.md, which Answers read, stays as written.
   "skills.builtIn.chronology.title": "事件时间线",
@@ -8489,6 +8525,7 @@ export const zhCN = {
   "agents.asked.copied": "已为{agent}复制：粘贴到那里并发送请求。",
   "agents.asked.checking": "{agent}正在核对这篇笔记。",
   "agents.asked.writing": "{agent}正在写笔记。",
+  "agents.asked.organizing": "{agent}正在整理文档。",
   "agents.asked.quiet": "{agent}还没有动静。请发送请求，或再问一次。",
   "agents.asked.again": "再问一次",
   "agents.asked.short.asked": "已交给你的 AI",

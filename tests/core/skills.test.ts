@@ -83,6 +83,7 @@ describe("Importing a Skill", () => {
     expect(preview).toEqual({
       importId: expect.any(String),
       source: folder,
+      meetingTemplate: false,
       name: "tide-tables",
       description:
         "Reads tide tables and explains high and low water. Use for questions about tides.",

@@ -2,6 +2,7 @@ import { useId } from "react";
 import type { MessageKey } from "../../../shared/i18n";
 import { CHINESE_SCRIPTS, type ChineseScript } from "../../../shared/meetingWords";
 import { useT } from "../i18n";
+import { useSettingsPageOffered } from "../settingsOffered";
 import { useAppStore } from "../store";
 import {
   ROUTE_LABELS,
@@ -14,6 +15,7 @@ import { MeetingNotesAgentSetting } from "./meetings/MeetingNotesAgentSetting";
 import { MeetingSummarySetting } from "./meetings/MeetingSummarySetting";
 import { TranscriptionRouteLine } from "./meetings/TranscriptionSettings";
 import { WordsToKnow } from "./meetings/WordsToKnow";
+import { SkillsSettings } from "./SkillsSettings";
 import { PopUpSelect } from "./settings/PopUpButton";
 import {
   SettingsGroup,
@@ -30,6 +32,7 @@ const SCRIPT_LABELS: Record<ChineseScript, MessageKey> = {
 
 export function MeetingsSettings() {
   const t = useT();
+  const skillsPage = useSettingsPageOffered("skills");
   const device = useAppStore((state) => state.settings?.device);
   const canRecord = useAppStore((state) => state.settings?.meetingAudio);
   const updateSettings = useAppStore((state) => state.updateSettings);
@@ -170,6 +173,17 @@ export function MeetingsSettings() {
       </SettingsSection>
       <WordsToKnow services={services} />
       <HelpSettings />
+      {!skillsPage && (
+        <details>
+          <summary
+            data-testid="meeting-templates-disclosure"
+            className="cursor-pointer text-[13px] font-semibold text-ink"
+          >
+            {t("meetings.settings.templates")}
+          </summary>
+          <SkillsSettings meetingsOnly />
+        </details>
+      )}
     </>
   );
 }
