@@ -43,6 +43,7 @@ function AgentSummaryProblem({ meeting, summary, agentId }: Props & { agentId: s
   useReadAgentsToAsk(meeting.mindId, documentId);
   const agents = useAgentsToAskRead(meeting.mindId, documentId);
   if (!device || agents === null) return null;
+  const agent = agents.find((each) => each.id === agentId);
   if (agentId !== device.meetingNotesAgentId || agentId !== device.meetingSummaryRoute)
     return (
       <ProblemLine
@@ -53,10 +54,12 @@ function AgentSummaryProblem({ meeting, summary, agentId }: Props & { agentId: s
         }}
       >
         <ProblemMark />
-        {t("error.meeting.summaryUnavailable")}
+        {agent
+          ? t("meetings.summary.restoreAgent", { agent: agent.name })
+          : t("error.meeting.summaryUnavailable")}
       </ProblemLine>
     );
-  if (!agents.some((agent) => agent.id === agentId)) {
+  if (!agent) {
     return (
       <ProblemLine
         testId="meeting-summary-problem"

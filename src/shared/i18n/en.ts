@@ -9324,6 +9324,8 @@ export const en = {
   "meetings.summary.share":
     "Your AI needs access to the meeting note and transcript to prepare a summary.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
+  "meetings.summary.restoreAgent":
+    "Choose {agent} in “AI for meeting notes” and “Automatic meeting summary,” then try again.",
   "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
   "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",
