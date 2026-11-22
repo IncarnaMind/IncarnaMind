@@ -167,7 +167,17 @@ describe("a file outside the Library, cited by its path (#3509)", () => {
         name: "cite",
         arguments: { citations: order === "after" ? [file, passage] : [passage, file] },
       });
-      expect((asked as { isError?: boolean }).isError).toBe(true);
+      if (order === "before") {
+        expect((asked as { isError?: boolean }).isError).toBe(true);
+      } else {
+        expect((asked as { isError?: boolean }).isError ?? false).toBe(false);
+        expect(
+          structured<{ citations: { check: string; cite: string | null }[] }>(asked).citations,
+        ).toEqual([
+          expect.objectContaining({ check: "found" }),
+          expect.objectContaining({ check: "not-found", cite: null }),
+        ]);
+      }
       expect(JSON.stringify(asked)).not.toContain("open every day");
     },
   );
