@@ -190,8 +190,12 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
   }
 }
 
-/** Waits for a stopped turn's output to close, up to `STOP_WAIT_MS`; past that, stops reading it. */
-async function drained(child: ChildProcess, closed: Promise<void>): Promise<void> {
+/**
+ * Waits for a stopped command's output to close, up to `STOP_WAIT_MS`; past that, stops reading
+ * it: a process it started can outlive the stop and hold the output (on Windows, `taskkill /T`
+ * misses one whose parent has exited).
+ */
+export async function drained(child: ChildProcess, closed: Promise<unknown>): Promise<void> {
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<boolean>((resolve) => {
     timer = setTimeout(() => resolve(true), STOP_WAIT_MS);

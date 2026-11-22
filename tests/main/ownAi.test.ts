@@ -4,6 +4,7 @@
  * whether Claude Code is there and signed in. A small Node program stands in for `claude`.
  */
 import { spawn as spawnNode } from "node:child_process";
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -354,6 +355,42 @@ describe("whether Claude Code can run a check", () => {
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
+});
+
+describe("a sign-in check that never closes", () => {
+  // protects=an auth status past its time whose output a process it started still holds (as on Windows, where taskkill /T misses one whose parent has exited) says it didn't answer, so the press returns; fails_when=the status probe waits for ever and the Check stays pending
+  it("says it can't tell when auth status outlives its time and its output stays held", async () => {
+    const folder = await mkdtemp(join(tmpdir(), "own-ai-probe-"));
+    const pidFile = join(folder, "pid");
+    useClaude({
+      auth: `
+        const held = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit", detached: true });
+        require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(held.pid));
+        process.exit(0);
+      `,
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+    let held = 0;
+    try {
+      const status = createOwnAi().status("claude-code");
+      for (const until = Date.now() + 10_000; !existsSync(pidFile) && Date.now() < until; ) {
+        await turn();
+      }
+      held = Number(await readFile(pidFile, "utf8"));
+      for (let at = 0; at < 50; at++) await turn();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(status).resolves.toEqual({ kind: "unknown" });
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+      if (held > 0) process.kill(held);
+      await rm(folder, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
 
 describe("whether Claude Code is on this computer", () => {

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
-import { ClaudeCodeIsolationError, object, runClaudeCodeTurn } from "./claudeCode";
+import { ClaudeCodeIsolationError, drained, object, runClaudeCodeTurn } from "./claudeCode";
 import { createLoginShellProcesses } from "./processes";
 
 const processes = createLoginShellProcesses();
@@ -82,14 +82,17 @@ async function short(command: string, args: string[]): Promise<Short> {
     if (out.length < 4096) out += chunk.toString("utf8");
   });
   child.stderr?.resume();
-  let late = false;
-  const timer = setTimeout(() => {
-    late = true;
-    stopProcessTree(child);
-  }, STATUS_MS);
-  const code = await new Promise<number | null>((resolve) => child.once("close", resolve));
+  const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), STATUS_MS);
+  });
+  const code = await Promise.race([closed, deadline]);
   clearTimeout(timer);
-  return late ? { kind: "no-answer" } : { kind: "exited", code, out };
+  if (code !== "late") return { kind: "exited", code, out };
+  stopProcessTree(child);
+  await drained(child, closed);
+  return { kind: "no-answer" };
 }
 
 /** A file the User's account may run. */
