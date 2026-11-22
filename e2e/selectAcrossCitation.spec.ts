@@ -56,7 +56,11 @@ async function shiftClick(window: Page, x: number, y: number): Promise<void> {
 const wordBefore = (window: Page) =>
   window.evaluate(() => {
     const citation = document.querySelector('[data-testid="citation"]');
-    const before = citation?.closest(".node-citation")?.previousSibling;
+    let before = citation?.closest(".node-citation")?.previousSibling;
+    // The space before a Citation is drawn in a span of its own, so a chip never starts a line (#3654).
+    if (before instanceof Element && before.classList.contains("citation-lead-space")) {
+      before = before.previousSibling;
+    }
     if (!(before instanceof Text)) return null;
     const text = before.data;
     let end = text.length;
@@ -287,7 +291,10 @@ for (const language of ["en", "zh-CN"] as const) {
       // An earlier word on the same line, with what the far end keeps when it is pressed.
       const earlier = await window.evaluate(() => {
         const citation = document.querySelector('[data-testid="citation"]');
-        const before = citation?.closest(".node-citation")?.previousSibling;
+        let before = citation?.closest(".node-citation")?.previousSibling;
+        if (before instanceof Element && before.classList.contains("citation-lead-space")) {
+          before = before.previousSibling;
+        }
         if (!(before instanceof Text)) return null;
         const text = before.data;
         let end = text.length;
