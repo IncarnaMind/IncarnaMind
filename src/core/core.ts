@@ -220,7 +220,7 @@ import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
 import { readVtt } from "./documents/formats/vtt";
 import { createOwnFiles } from "./documents/ownFiles";
-import { approximateTokens } from "./documents/passages";
+import { approximateTokens, livePassageText } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
 import { READING_SPEED } from "./documents/readingSpeed";
 import {
@@ -6021,8 +6021,16 @@ export function createCore(adapters: CoreAdapters): Core {
     await transcripts.refresh(meeting.id);
     await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
     const now = meetings.list().find((each) => each.id === meeting.id) ?? meeting;
+    const passages = await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER);
+    const first = passages[0];
     return {
-      passages: await documents.passagesBetween(documentId, 0, Number.MAX_SAFE_INTEGER),
+      passages:
+        first && passages.length > 1
+          ? livePassageText(
+              passages,
+              documents.pageTexts(documentId, first.contentHash, null, null),
+            )
+          : passages,
       behind: isBehind(now),
     };
   };
