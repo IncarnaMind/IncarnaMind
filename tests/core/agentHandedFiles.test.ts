@@ -12,6 +12,7 @@ import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { verificationOf } from "../../src/shared/verification";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { isCheckRun, sentenceOf } from "../helpers/checks";
+import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import {
   DECK,
@@ -28,6 +29,7 @@ import {
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import type { ModelCall } from "../helpers/models";
+import { xlsxPackage } from "../helpers/office";
 import { plainDeck } from "../helpers/pptx";
 
 describe("files an outside agent hands over", () => {
@@ -230,6 +232,91 @@ describe("files an outside agent hands over", () => {
         }),
       ],
       formulas: { workedOut: 1, notWorkedOut: 0, differ: [] },
+    });
+  });
+
+  // protects=a handed-over workbook whose cells are all inline strings with figures written as text ("GBP 500,000", "14 days") gets a check Note and flags a wrong figure against the Documents, while a workbook that truly holds nothing to check still says so (#3575); fails_when=hand_over_file answers "found nothing in it to check" for a text workbook, skips making a check Note, or checks an empty/notes-only workbook
+  it("checks a handed-over workbook whose figures are written as text and finds a wrong figure, while a genuinely empty one still says nothing to check (#3575)", async () => {
+    const CAP = "Liability cap — Value: GBP 500,000";
+    const NOTICE = "Notice period — Value: 14 days";
+    const { core, coast, writer, files } = await started([], {
+      plans: {
+        [CAP]: {
+          verdict: "supported",
+          quote: "The liability cap is GBP 500,000.",
+          says: "Agreement states the liability cap is GBP 500,000.",
+        },
+        [NOTICE]: {
+          verdict: "contradicted",
+          quote: "The notice period is 30 days.",
+          says: "Agreement states the notice period is 30 days, not 14 days.",
+        },
+      },
+    });
+    const sources = await createSourceFolder();
+    const [agreement] = await addAndProcess(core, [
+      await writeSourceFile(
+        sources,
+        "Agreement.md",
+        "# Agreement\n\nThe liability cap is GBP 500,000.\n\nThe notice period is 30 days.\n",
+      ),
+    ]);
+    if (!agreement) throw new Error("No Agreement Document added.");
+    await core.assignDocumentGroup(agreement.id, coast.id);
+
+    const agent = await connectLegacyAgent(writer.launch);
+    const inline = (ref: string, words: string) =>
+      `<c r="${ref}" t="inlineStr"><is><t>${words}</t></is></c>`;
+    const textBook = xlsxPackage({
+      sheets: [
+        {
+          name: "Summary",
+          xml: `<sheetData><row r="1">${inline("A1", "Term")}${inline("B1", "Value")}</row><row r="2">${inline("A2", "Liability cap")}${inline("B2", "GBP 500,000")}</row><row r="3">${inline("A3", "Notice period")}${inline("B3", "14 days")}</row></sheetData>`,
+        },
+      ],
+    });
+    const textPath = join(files, "Commercial terms.xlsx");
+    await writeFile(textPath, textBook);
+
+    const handed = structured<Handed>(
+      await handOver(agent, { path: textPath, folderId: coast.id }),
+    );
+    expect(handed.mindId).not.toBeNull();
+    expect(handed).toMatchObject({
+      version: 1,
+      status: "checked",
+      why: null,
+      supported: 1,
+      needLook: 1,
+      claims: [
+        expect.objectContaining({
+          where: "sheet “Summary”",
+          text: "Notice period | 14 days",
+          result: "contradicted",
+          says: "Agreement states the notice period is 30 days, not 14 days.",
+        }),
+      ],
+    });
+
+    // A workbook with only a one-cell note still tells the agent there is nothing in it to check.
+    const emptyBook = xlsxPackage({
+      sheets: [
+        {
+          name: "Notes",
+          xml: `<sheetData><row r="1">${inline("A1", "Prepared by the team.")}</row></sheetData>`,
+        },
+      ],
+    });
+    const emptyPath = join(files, "Empty notes.xlsx");
+    await writeFile(emptyPath, emptyBook);
+
+    const emptyHanded = structured<Handed>(
+      await handOver(agent, { path: emptyPath, folderId: coast.id }),
+    );
+    expect(emptyHanded).toMatchObject({
+      mindId: null,
+      status: "not-checked",
+      why: "IncarnaMind kept the file but found nothing in it to check.",
     });
   });
 

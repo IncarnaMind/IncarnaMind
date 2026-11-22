@@ -8754,6 +8754,8 @@ export interface WorkbookSheetChoice {
   typed: number;
   /** Its cells with a formula. */
   formulas: number;
+  /** Rows of text (with no typed-in numbers or formulas) readable as table claims (#3575). */
+  textRows?: number;
 }
 
 /** What `verifyDocument` did. */

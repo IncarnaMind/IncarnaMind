@@ -25,10 +25,23 @@ import type { NodeJSON } from "../blocks";
 export const MOST_TYPED_NUMBERS = 1_000;
 
 const NUMBER_SHOWN = /^[\s(-]*[£$€¥]?\s*-?[\d,]*\.?\d+\s*[%)]?\s*[kKmMbB]?$/;
+const FOUR_DIGIT_YEAR = /^(?:19|20)\d{2}$/;
+const CURRENCY_TEXT =
+  /^(?:(?:GBP|USD|EUR|JPY|CNY|RMB|CHF|CAD|AUD|HKD|SGD|INR|NZD|SEK|NOK|DKK|KRW|TWD)\s*-?[\d,]+(?:\.\d+)?\s*[kKmMbB]?|-?[\d,]+(?:\.\d+)?\s*[kKmMbB]?\s*(?:GBP|USD|EUR|JPY|CNY|RMB|CHF|CAD|AUD|HKD|SGD|INR|NZD|SEK|NOK|DKK|KRW|TWD))$/i;
+const QUANTITY_TEXT =
+  /^-?[\d,]+(?:\.\d+)?\s*(?:days?|weeks?|months?|years?|hours?|minutes?|bps|tonnes?|tons?|kg|km|miles?|shares?|units?)$/i;
+const WORDS = /[\p{L}\p{N}]/u;
 
 /** A cell holding a number someone typed, not one a formula worked out. */
 export const isTyped = (cell: WorkbookCell): boolean =>
   cell.formula === null && typeof cell.saved === "number" && NUMBER_SHOWN.test(cell.shown);
+
+/** A text cell that clearly states a figure ("GBP 500,000", "14 days", "£14,000"), never a bare year heading. */
+function isTextFigure(shown: string): boolean {
+  const trimmed = shown.trim();
+  if (trimmed === "" || FOUR_DIGIT_YEAR.test(trimmed)) return false;
+  return NUMBER_SHOWN.test(trimmed) || CURRENCY_TEXT.test(trimmed) || QUANTITY_TEXT.test(trimmed);
+}
 
 /** The workbook of a Document's Units, or null when they aren't a workbook's (or hold no sheet). */
 export function workbookOf(
@@ -42,13 +55,14 @@ export function workbookOf(
 
 export function sheetChoices(model: WorkbookModel): WorkbookSheetChoice[] {
   return model.sheets.map((sheet) => {
-    let typed = 0;
-    let formulas = 0;
-    for (const cell of sheet.cells.values()) {
-      if (cell.formula !== null) formulas++;
-      else if (isTyped(cell)) typed++;
-    }
-    return { name: sheet.name, rows: sheet.rows.length, typed, formulas };
+    const shape = sheetTable(sheet, null);
+    return {
+      name: sheet.name,
+      rows: sheet.rows.length,
+      typed: shape.typed,
+      formulas: shape.formulas,
+      ...(shape.textRows > 0 && { textRows: shape.textRows }),
+    };
   });
 }
 
@@ -88,6 +102,8 @@ export interface SheetTable {
   headed: boolean;
   typed: number;
   formulas: number;
+  /** Data rows with no formulas or typed-in numbers that `tableClaim` reads as claims (#3575). */
+  textRows: number;
 }
 
 /** The range a check covers: the one given, else every cell the sheet holds. */
@@ -160,10 +176,15 @@ export function sheetTable(
   const first = rowNumbers[0];
   const firstCells = first === undefined ? [] : [...(byRow.get(first)?.values() ?? [])];
   const headed =
-    firstCells.length > 0 && firstCells.every((cell) => cell.formula === null && !isTyped(cell));
+    firstCells.length > 0 &&
+    firstCells.every(
+      (cell) => cell.formula === null && !isTyped(cell) && !isTextFigure(cell.shown),
+    );
   const dataRows = headed ? rowNumbers.slice(1) : rowNumbers;
+  const textOf = (row: number, column: number) => cellText(byRow.get(row)?.get(column), worked);
   let typed = 0;
   let formulas = 0;
+  let textRows = 0;
   const rows: TableRow[] = dataRows.map((row) => {
     const cells = byRow.get(row) ?? new Map<number, WorkbookCell>();
     const formulaColumns: number[] = [];
@@ -179,13 +200,20 @@ export function sheetTable(
         typedColumns.push(index);
       }
     });
+    if (
+      formulaColumns.length === 0 &&
+      typedColumns.length === 0 &&
+      columns.slice(1).some((column) => WORDS.test(textOf(row, column)))
+    ) {
+      textRows++;
+    }
     return { row, formulas: formulaColumns, typed: typedColumns };
   });
-  const textOf = (row: number, column: number) => cellText(byRow.get(row)?.get(column), worked);
   return {
     headed,
     typed,
     formulas,
+    textRows,
     rows,
     columns,
     node: {
