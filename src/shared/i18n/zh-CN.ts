@@ -6201,6 +6201,10 @@ export const zhCN = {
   "error.agent.nameTaken": "已有名为“{name}”的智能体。",
   "error.agent.noFolders": "至少选择一个文件夹，供智能体读取。",
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
+  "error.agent.socketTooLong":
+    "智能体无法从这个文件夹连接到 IncarnaMind：路径太长，无法建立本地连接。请改用更短的数据文件夹或临时文件夹。",
+  "error.agent.socketUnavailable":
+    "智能体暂时无法连接到 IncarnaMind：无法打开本地连接。请重启 IncarnaMind 或关闭另一个正在运行的窗口后再试。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
@@ -8369,7 +8373,7 @@ export const zhCN = {
   "agents.activity.read_passages": "读取了段落",
   "agents.activity.cite": "引用了“{text}”",
   "agents.activity.check_citations": "核对了引用",
-  "agents.activity.show_citation": "向你展示了一条引用",
+  "agents.activity.show_citation": "在 IncarnaMind 中为你打开了它",
   "ai.jobs.organize.agent": "你可以让已连接的 AI 推荐文件夹和标签。",
   "agents.sorting.tagConsent": "允许将这些文档的标签名称发送给 {agent} 使用的 AI 模型吗？",
   "agents.sorting.shareTags": "允许共享标签名称",
