@@ -7,6 +7,7 @@
  * the conversation goes with the Note, the connection and the consent.
  */
 
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
@@ -510,7 +511,36 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   // protects=the run has the connection's Tools but no file by its path: cite's path, a hand-over and a Canvas's files are refused; fails_when=a request at a Note's foot opens a file the User never gave it
   it("opens no file by its path", async () => {
     const tried: string[] = [];
-    const run = runner(async (agent) => {
+    const folder = await createSourceFolder();
+    const picture = join(folder, "chart.png");
+    await writeFile(
+      picture,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    );
+    let pictureLeftOut: unknown[] = [];
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = structured<{ markdown: string; version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      pictureLeftOut = structured<{ refused: unknown[] }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [
+              {
+                paragraph: `${read.markdown.match(/¶\d+/g)?.at(-1) ?? "¶1"}+`,
+                text: `![Chart](${picture})`,
+              },
+            ],
+          },
+        }),
+      ).refused;
       tried.push(
         refusal(
           await agent.callTool({
@@ -534,6 +564,8 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await core.askInNote({ mindId, words: "cite my hosts file" });
     await ended();
     expect(tried).toEqual(Array(3).fill(translate("en", "agents.problem.runNoPath")));
+    // A picture by its path is left out, unread.
+    expect(pictureLeftOut).toHaveLength(1);
     expect((await core.listDocuments()).map((each) => each.name)).not.toContain("hosts");
   });
 

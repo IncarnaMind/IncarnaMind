@@ -1422,7 +1422,8 @@ export function createAgentAccess(
   const visualsFor = async (texts: readonly string[]): Promise<NoteVisuals> => ({
     pictures: await readPictures(
       texts.flatMap((each) => holdPictures(each).pictures),
-      deps.readNamed,
+      // A run IncarnaMind started reads no file by its path, a picture's included (ADR-0034).
+      grant ? undefined : deps.readNamed,
       deps.pictures,
     ),
     language: deps.language(),
