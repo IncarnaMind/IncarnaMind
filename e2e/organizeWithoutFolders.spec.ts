@@ -120,10 +120,11 @@ test("after linking a folder, the Library and ⌘K offer Organize, which propose
     await organizeWithChatModel(window);
     // Three of each: a new Folder needs at least three Documents.
     await files(3);
+    // Its filing as one Folder off, so there is no Folder yet (#3613).
     await window.evaluate(async (path) => {
-      await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addLinkedFolder(
-        path,
-      );
+      const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const linked = await core.addLinkedFolder(path);
+      if (linked.bound) await core.unbindFolder(linked.bound.folder.id, linked.bound.filed);
     }, sources);
     await expect.poll(() => bridge(window).ready(), { timeout: 30_000 }).toBe(6);
 

@@ -25,12 +25,18 @@ import {
 } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import { createTempDataFolder } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, shownWithChanges, writeMind } from "../helpers/minds";
 
 const FERRY = "The ferry carried 212,000 passengers in 2025.";
 const FARES = "Fares rose by ten percent.";
+const TIMETABLE = "On Tuesday the ferry runs at 07:10 and 18:40.";
 
 /** What the tests call of the command line's connection, on either protocol. */
 interface Agent {
@@ -506,6 +512,43 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(
       "It counts each crossing: out and back",
     );
+  });
+
+  // protects=a Folder linking made and the User gave the connection is read in a Note's conversation as by any other call of that connection, and one it wasn't given isn't (#3613); fails_when=the conversation finds the linked folder's file where a call doesn't, or misses it where a call finds it
+  it("reads a Folder linking made as the connection's other calls do", async () => {
+    const found: string[][] = [];
+    const search = async (agent: Agent) =>
+      structured<{ passages: { documentId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "timetable ferry Tuesday" } }),
+      ).passages.map((each) => each.documentId);
+    const run = runner(async (agent) => {
+      found.push(await search(agent));
+      return { kind: "finished", reply: "Found it." };
+    });
+    const { core, mindId, claude, ended } = await written(run.adapter);
+    const folder = await createSourceFolder();
+    await writeSourceFile(folder, "Timetable.md", `# Timetable\n\n${TIMETABLE}\n`);
+    const linked = await core.addLinkedFolder(folder);
+    await core.reconcileDocuments();
+    const [timetable] = await waitForProcessing(
+      core,
+      (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id),
+    );
+    if (!linked.bound || !timetable) throw new Error("Linking made no Folder.");
+    const call = await connectLegacyAgent(claude.launch);
+
+    expect(await search(call)).not.toContain(timetable.id);
+    await core.askInNote({ mindId, words: "when does the ferry run on Tuesday?" });
+    await ended(1);
+    expect(found[0]).not.toContain(timetable.id);
+
+    await core.updateAgent(claude.pairing.id, {
+      folderIds: [...claude.pairing.folderIds, linked.bound.folder.id],
+    });
+    expect(await search(call)).toContain(timetable.id);
+    await core.askInNote({ mindId, words: "when does the ferry run on Tuesday?" });
+    await ended(2);
+    expect(found[1]).toContain(timetable.id);
   });
 
   // protects=the run has the connection's Tools but no file by its path: cite's path, a hand-over and a Canvas's files are refused; fails_when=a request at a Note's foot opens a file the User never gave it

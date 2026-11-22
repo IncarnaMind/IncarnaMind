@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  BoundFolderChange,
   ChatReadiness,
   DeviceSettings,
   Document,
@@ -19,6 +20,7 @@ import type {
   LinkedFolder,
   LinkedFolderLayout,
   LinkedFolderPreview,
+  MergedFolder,
   Mind,
   PrivacySettings,
   ReadyQuestion,
@@ -30,6 +32,7 @@ import type {
   Skill,
   Tag,
   TranscriptSpeakers,
+  UnboundFolder,
   WindowLayout,
   WorkKind,
 } from "../../core/api";
@@ -108,7 +111,7 @@ import { sortOf, useSort } from "./sortChoices";
 import { returnFocusAfterTabClose } from "./tabFocus";
 import { tabTitle } from "./tabs";
 import { asOneStep, makeInTurn, sayWhileSlow, type Undoable, UndoRefused, useUndo } from "./undo";
-import { wallLines } from "./walls";
+import { wallChange, wallLines } from "./walls";
 
 type Status = { kind: "loading" } | { kind: "ready" } | { kind: "failed"; message: string };
 
@@ -506,11 +509,12 @@ export interface AppState extends LayoutSlice {
   /** Pauses or resumes a Linked folder's indexing, with Undo. Resolves to that change, if it changed anything. */
   setLinkedFolderPaused(linkedFolderId: string, paused: boolean): Promise<Undoable | undefined>;
   /**
-   * Makes a Linked folder a Project (ADR-0030): a Folder named after it, keeping its work inside it,
-   * that its files are filed in as they arrive. With Undo, which deletes that Folder again and puts
-   * its files back where they were.
+   * Files a Linked folder's files in one Folder bound to it again (ADR-0030, #3613), with Undo,
+   * which puts its files back where they were.
    */
-  makeProject(linkedFolderId: string): Promise<void>;
+  fileAsFolder(linkedFolderId: string): Promise<void>;
+  /** Files a Linked folder's files in no Folder of its own: its Folder goes, with Undo (#3613). */
+  stopFilingAsFolder(groupId: string): Promise<void>;
   /** Downloads a Linked folder's online-only files and indexes them. */
   downloadOnlineOnlyFiles(linkedFolderId: string): Promise<void>;
   /** Shows a Linked folder in the system's file manager. */
@@ -571,6 +575,9 @@ interface LinkStep {
   linkedFolderId: string;
   path: string;
   before: LibraryBefore;
+  /** The Folder the link made and what it filed, and the Folders of the folders it merged. */
+  bound: BoundFolderChange | null;
+  merged: MergedFolder[];
 }
 
 interface LibraryBefore {
@@ -589,6 +596,7 @@ function moveLinkSteps(from: string, to: string): void {
   for (const link of linkSteps.values()) {
     link.path = moved(link.path);
     for (const merged of link.before.linkedFolders) merged.path = moved(merged.path);
+    for (const merged of link.merged) merged.path = moved(merged.path);
   }
 }
 
@@ -756,10 +764,22 @@ export const useAppStore = create<AppState>()((set, get) => {
         throw new UndoRefused((t) => t("undo.linkedFolder.mergedGone", { name }), null);
       }
     }
+    // The Folders it nested go back where they were, and the one it made goes with what it
+    // filed, so nothing is left as the User's choice that they didn't make (#3613).
+    const live = new Set(get().library?.groups.map((each) => each.id));
+    const moves = link.merged
+      .filter((each) => live.has(each.groupId))
+      .map((each) => ({ id: each.groupId, parentId: each.parentId }));
+    if (moves.length > 0) await core.moveLibraryGroups(moves);
+    if (link.bound && live.has(link.bound.folder.id)) {
+      await core.unbindFolder(link.bound.folder.id, link.bound.filed);
+    }
     await core.removeLinkedFolder(now.id, { keep: link.before.documentIds });
-    // The Linked folders it merged are linked again, their Documents keeping their ids.
+    // The Linked folders it merged are linked again, their Documents keeping their ids, each
+    // bound to its own Folder again.
     for (const inner of link.before.linkedFolders) {
-      const back = await core.addLinkedFolder(inner.path);
+      const rebind = link.merged.find((each) => each.path === inner.path)?.groupId;
+      const back = await core.addLinkedFolder(inner.path, rebind ? { rebind } : undefined);
       showLinked(await core.setLinkedFolderLayout(back.id, inner.layout));
       for (const other of linkSteps.values()) {
         if (other.path === inner.path) other.linkedFolderId = back.id;
@@ -776,6 +796,36 @@ export const useAppStore = create<AppState>()((set, get) => {
       const merged = new Set(link.before.linkedFolders.map((each) => each.path));
       gone.push(...[...linkSteps].filter(([, inner]) => merged.has(inner.path)));
     }
+  };
+  /**
+   * Filing a Linked folder's files as one Folder turned on or off (#3613): each Undo and Redo
+   * unbinds or binds the same Folder again, from where the last step left it.
+   */
+  const filingChange = (
+    name: string,
+    state: { bound: BoundFolderChange | null; unbound: UnboundFolder | null },
+    on: boolean,
+    wallsLeft: readonly string[] = [],
+  ): Undoable => {
+    const unbind = async () => {
+      if (state.bound)
+        state.unbound = await core.unbindFolder(state.bound.folder.id, state.bound.filed);
+      await get().refreshLibrary();
+    };
+    const bind = async () => {
+      if (state.unbound) state.bound = await core.rebindFolder(state.unbound);
+      await get().refreshLibrary();
+    };
+    return {
+      said: (t) => {
+        const message = t(on ? "undo.fileAsFolder.on" : "undo.fileAsFolder.off", { name });
+        const suffix = wallLines(t, null, wallsLeft);
+        return suffix ? `${message}${t("text.sentenceBreak")}${suffix}` : message;
+      },
+      name: (t) => t(on ? "undo.name.fileAsFolder.on" : "undo.name.fileAsFolder.off"),
+      undo: on ? unbind : bind,
+      redo: on ? bind : unbind,
+    };
   };
   const showLinked = (linked: LinkedFolder) =>
     set((state) => ({ linkedFolders: replaceLinked(state.linkedFolders, linked) }));
@@ -819,27 +869,6 @@ export const useAppStore = create<AppState>()((set, get) => {
       minds.some((each) => each.folderId === folderId) ||
       conversations.some((each) => each.folderId === folderId)
     );
-  };
-
-  /**
-   * The walls a move crosses, by the paths Move to… shows: the wall it enters and those it leaves.
-   * An item already behind the wall it goes to crosses none.
-   */
-  const wallChange = (
-    groups: readonly LibraryGroup[],
-    fromFolders: readonly (string | null)[],
-    into: string | null,
-  ): { entered: string | null; left: string[] } => {
-    const after = into === null ? null : folderWallOf(groups, into);
-    const crossed = fromFolders.flatMap((from) => {
-      const before = from === null ? null : folderWallOf(groups, from);
-      return before === after ? [] : [{ before, after }];
-    });
-    const path = (id: string) => folderPathLabel(groups, id);
-    return {
-      entered: after !== null && crossed.length > 0 ? path(after) : null,
-      left: [...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)])))],
-    };
   };
 
   /**
@@ -2079,14 +2108,19 @@ export const useAppStore = create<AppState>()((set, get) => {
               : work();
           await remove();
           const shown = first ? displayName(first) : "";
-          push(
-            deleted(
-              shown,
-              live.map((id) => ({ kind: "document", id })),
-              remove,
-              { putBack, takeOut },
-            ),
+          const change = deleted(
+            shown,
+            live.map((id) => ({ kind: "document", id })),
+            remove,
+            { putBack, takeOut },
           );
+          // A Linked folder's file stays where it is: the line says so (ADR-0010, #3613).
+          const onDisk = get().linkedFolders.find((each) => each.id === first?.linkedFolderId);
+          if (live.length === 1 && onDisk) {
+            const folder = linkedFolderName(onDisk.path);
+            change.said = (t) => t("object.removed.keepsFile", { name: shown, folder });
+          }
+          push(change);
         }),
       ),
 
@@ -2167,6 +2201,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolderId: "",
           path: preview.path,
           before: { documentIds: [], linkedFolders: [] },
+          bound: null,
+          merged: [],
         };
         let linked: Promise<boolean> = Promise.resolve(false);
         const step = folderLinked(
@@ -2181,6 +2217,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             link.before = await libraryBefore(link.path);
             const again = await core.addLinkedFolder(link.path);
             link.linkedFolderId = again.id;
+            link.bound = again.bound;
+            link.merged = again.merged;
             showLinked(await core.setLinkedFolderLayout(again.id, layout));
             useRequests.getState().ask({ showLinked: again.id });
           },
@@ -2192,6 +2230,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           link.before = await libraryBefore(preview.path);
           const added = await core.addLinkedFolder(preview.path);
           link.linkedFolderId = added.id;
+          link.bound = added.bound;
+          link.merged = added.merged;
           useRequests.getState().ask({ showLinked: added.id });
           // Set now, before its first scan ends, so the scan's own suggestion doesn't replace it.
           showLinked(await core.setLinkedFolderLayout(added.id, layout));
@@ -2230,24 +2270,30 @@ export const useAppStore = create<AppState>()((set, get) => {
       return change;
     },
 
-    makeProject: (linkedFolderId) =>
+    fileAsFolder: (linkedFolderId) =>
       attempt(async () => {
         const linked = get().linkedFolders.find((each) => each.id === linkedFolderId);
         if (!linked) return;
-        const { folder: project, filed } = await core.createBoundFolder(linked.folderId);
+        const bound = await core.createBoundFolder(linked.folderId);
         await get().refreshLibrary();
-        push({
-          said: (t) => t("undo.projectMade", { name: project.name }),
-          name: (t) => t("undo.name.makeProject"),
-          undo: async () => {
-            await core.undoBoundFolder(project.id, filed);
-            await get().refreshLibrary();
-          },
-          redo: async () => {
-            await core.restore([{ kind: "folder", id: project.id }]);
-            await get().refreshLibrary();
-          },
+        push(filingChange(bound.folder.name, { bound, unbound: null }, true));
+      }),
+
+    stopFilingAsFolder: (groupId) =>
+      attempt(async () => {
+        const before = get().library;
+        const folder = before?.groups.find((each) => each.id === groupId);
+        if (!before || !folder) return;
+        const held = before.assignments.filter((each) => each.groupId === groupId);
+        const unbound = await core.unbindFolder(groupId, []);
+        await get().refreshLibrary();
+        // Its files leave a wall it is behind, as a move out of it does (ADR-0012, #3613): the line says so.
+        const now = get().library?.assignments ?? [];
+        const left = held.flatMap(({ documentId }) => {
+          const to = now.find((each) => each.documentId === documentId)?.groupId ?? null;
+          return to === groupId ? [] : wallChange(before.groups, [groupId], to).left;
         });
+        push(filingChange(folder.name, { bound: null, unbound }, false, [...new Set(left)]));
       }),
 
     downloadOnlineOnlyFiles: (linkedFolderId) =>

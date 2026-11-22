@@ -185,8 +185,8 @@ function PreviewFacts({ preview }: { preview: LinkedFolderPreview }) {
               })}
         </p>
       )}
-      <p className="py-2 text-[13px] leading-5 text-ink-meta">
-        {t("linkedFolders.preview.readOnly")}
+      <p data-testid="link-folder-promise" className="py-2 text-[13px] leading-5 text-ink-meta">
+        {t("linkedFolders.preview.becomesFolder")}
       </p>
     </div>
   );

@@ -82,8 +82,8 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Style (a Note's font and text size) | 样式 | "样式…" in the Note's menu. Its parts: 字体 (font), 字号 (text size: 小、默认、大) and "设为新建笔记的默认样式". The three fonts are 默认, 衬线 and 等宽, as Notion's; a font the computer lacks is "此电脑未安装该字体". |
 | Format (the selection menu's Aa) | 格式 | As Word and WPS name formatting: 字体、字号; alignment 左对齐、居中、右对齐、两端对齐; 行距 with 单倍、1.15、1.5、双倍、自定义…; space around a paragraph 添加/移除段前间距, 添加/移除段后间距, as Google Docs words it; 增加缩进, 减少缩进 and 首行缩进 2 字符; 文字颜色 with 自动; 上标, 下标. A Note's own line spacing in 样式 is 行距 too, its first choice 默认. |
 | Folder | 文件夹 | |
-| Project | 项目 | A Folder bound to a folder on disk (ADR-0030); only for that, never for a Folder in general. "设为项目" on a Linked folder's menu. |
-| Source location | 磁盘上的文件夹 | The sidebar's name for the files as they are on disk; the Library's filter names it 文件位置. |
+| Project | 项目 | A Folder bound to a folder on disk (ADR-0030); only for that, never for a Folder in general, and only in what agents are told: the interface calls it a 文件夹 (#3613). Its menu's switch is "归为一个文件夹". |
+| Source location | 文件位置 | The Library's filter names the files' place on disk so. The sidebar has no list of folders on disk: a Linked folder is a 文件夹 there (#3613). |
 | Tag | 标签 | Tagging is 打标签; automatic tagging is 自动打标签. |
 | Library | 资料库 | Where the User's files live in ChatGPT (资料库), Yuanbao (资料库, 加入资料库) and LobeChat. Not 知识库, which in Feishu and Yuque is a wiki and in AI clients a collection built for one assistant. |
 | Organize | 整理 | "整理此文件夹". As Tencent Docs (批量整理文档) and Apple Notes (整理备忘录). |

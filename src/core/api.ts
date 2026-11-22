@@ -546,11 +546,34 @@ export interface MovedDocument extends MovedItem {
 
 /**
  * A Folder bound to a folder on disk (ADR-0030), and each Document filed in it then with its place
- * before and after, for `undoBoundFolder`.
+ * before and after, for `unbindFolder`.
  */
 export interface BoundFolderChange {
   folder: LibraryGroup;
   filed: AssignmentChange[];
+}
+
+/**
+ * A Folder taken off its folder on disk (`unbindFolder`, #3613), for `rebindFolder` to put back:
+ * the folder it was bound to (null: none), and whether it went because it held nothing else.
+ */
+export interface UnboundFolder {
+  groupId: string;
+  boundFolderId: string | null;
+  removed: boolean;
+  /** Its folder's Documents a Folder bound further up took then, which putting it back takes back. */
+  refiled: AssignmentChange[];
+}
+
+/**
+ * A Folder bound to a Linked folder that a link around it merged (#3613): it is bound to the same
+ * folder inside the new one now, and, at the top level before, inside the new one's Folder.
+ * `parentId` is where it was, for Undo.
+ */
+export interface MergedFolder {
+  path: string;
+  groupId: string;
+  parentId: string | null;
 }
 
 /**
@@ -6046,6 +6069,19 @@ export interface AddDocumentsOptions {
 /** A Linked folder just linked, with the batch of the Documents its first scan adds. */
 export interface AddedLinkedFolder extends LinkedFolder {
   batchId: string;
+  /** The Folder linking made, bound to it, and what it filed then; null for a folder linked already. */
+  bound: BoundFolderChange | null;
+  /** The Folders of the Linked folders it merged, bound inside it now. */
+  merged: MergedFolder[];
+}
+
+/** How `addLinkedFolder` links a folder. */
+export interface LinkFolderOptions extends AddDocumentsOptions {
+  /**
+   * An existing Folder to bind to it rather than making one, as Undo of a link that merged this
+   * folder puts its own Folder back. A Folder gone since is ignored.
+   */
+  rebind?: string;
 }
 
 /**
@@ -13451,18 +13487,22 @@ export interface CoreApi {
   /**
    * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
    * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
-   * after it and keeps its work inside it; the folder's Documents with no filing of their own are
-   * filed in it now, and its new ones as they arrive, and again when it is restored from Recently
-   * deleted. One already bound to it is returned as it is, filing nothing.
+   * after it, open to work outside it as any new Folder is (#3613); the folder's Documents with no
+   * filing of their own are filed in it now, and its new ones as they arrive, and again when it is
+   * restored from Recently deleted. One already bound to it is returned as it is, filing nothing.
+   * Linking a folder makes its own (`addLinkedFolder`); this files one again after `unbindFolder`.
    */
   createBoundFolder(folderId: string): Promise<BoundFolderChange>;
   /**
-   * Takes back a Folder `createBoundFolder` made (ADR-0030). Each of its folder's Documents still
-   * filed in it goes back as it was: one it filed as `filed` found it, one filed since to no
-   * filing. Then it is deleted as `deleteLibraryGroup` deletes one; `restore` brings it back with
-   * its folder's Documents filed in it again.
+   * Takes a Folder off its folder on disk (#3613): each of the folder's Documents still filed in
+   * it goes back as `filed` (what binding filed) found it, one filed since to no filing, where a
+   * Folder bound further up takes it. The Folder stays, a plain Folder, with whatever else it
+   * holds; holding nothing, it goes without passing through Recently deleted. `rebindFolder`
+   * puts it back.
    */
-  undoBoundFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<void>;
+  unbindFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<UnboundFolder>;
+  /** Puts back a Folder `unbindFolder` took off its folder, its folder's unfiled Documents in it again. */
+  rebindFolder(unbound: UnboundFolder): Promise<BoundFolderChange>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
    * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
@@ -14225,10 +14265,13 @@ export interface CoreApi {
    * A folder inside a Linked folder is already linked: that Linked folder is
    * returned. Linked folders inside this one are merged into it, their
    * Documents keeping their ids. Files added on their own that are inside it
-   * become its Documents. The Documents its first scan adds are one batch;
-   * given a Folder (see `AddDocumentsOptions`), they are filed there.
+   * become its Documents. The Documents its first scan adds are one batch.
+   * Linking makes a Folder bound to it (#3613), named after it, inside the
+   * Folder given (see `AddDocumentsOptions`) or at the top level, and its
+   * files are filed in that Folder as they arrive; a merged Linked folder's
+   * Folder stays bound to its folder, inside the new one's.
    */
-  addLinkedFolder(path: string, options?: AddDocumentsOptions): Promise<AddedLinkedFolder>;
+  addLinkedFolder(path: string, options?: LinkFolderOptions): Promise<AddedLinkedFolder>;
   /** The Linked folders, in path order. */
   listLinkedFolders(): Promise<LinkedFolder[]>;
   /**
@@ -16569,7 +16612,8 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   createBoundFolder: true,
-  undoBoundFolder: true,
+  unbindFolder: true,
+  rebindFolder: true,
   updateLibraryGroup: true,
   moveLibraryGroups: true,
   deleteLibraryGroup: true,

@@ -20,7 +20,6 @@ import {
   gettingStarted,
   interceptOpenDialog,
   launchApp,
-  linkedFolderRow,
   nameMind,
   newMind,
   openPageMenu,
@@ -291,15 +290,8 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
       const { mindId } = await bridge.getExamples();
       if (mindId) await bridge.deleteMind(mindId);
     });
-    // The one row goes with its Mind; its Linked folder row opens the Library on that folder's
-    // Documents, the examples' included.
-    await expect(window.getByTestId("example-section")).toHaveCount(0);
-    await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
-    await expect(window.getByTestId("linked-folders-section")).toBeVisible();
-    // Under Linked folders nothing else says the folder is the example's, so its row keeps the badge.
-    await expect(linkedFolderRow(window, "Examples").getByTestId("example-chip")).toHaveText(
-      "Example",
-    );
+    // The Note's row goes with its Mind; the Examples section stays, listing the example's own
+    // Documents, under its ⋯, until the User removes them: its folder is never a Folder (#3613).
     const exampleDocuments = await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const examples = await bridge.getExamples();
@@ -308,22 +300,20 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
         .map((doc) => doc.name);
     });
     expect(exampleDocuments).toHaveLength(2);
-    await linkedFolderRow(window, "Examples").getByTestId("linked-folder-open").click();
-    const library = window.getByTestId("library");
-    await expect(library).toBeVisible();
-    // The view's count is its rows, never the Library's own count plus the examples'.
-    await expect(library.getByTestId("library-count")).toHaveText(String(exampleDocuments.length));
-    const rows = library.getByTestId("library-document");
-    await expect(rows).toHaveCount(2);
-    expect((await rows.getByTestId("library-document-name").allInnerTexts()).sort()).toEqual(
-      [...exampleDocuments].sort(),
-    );
-    await expect(library.getByTestId("library-no-match")).toHaveCount(0);
-    // The view counts the source's own Documents before the search, so the header holds while
-    // the rows narrow to one.
-    await library.getByTestId("library-search").fill("Q3");
-    await expect(rows).toHaveCount(1);
-    await expect(library.getByTestId("library-count")).toHaveText(String(exampleDocuments.length));
+    const left = window.getByTestId("example-section");
+    await expect(left.getByTestId("mind-list-item")).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        (
+          await left.getByTestId("document-list-item").getByTestId("row-text").allInnerTexts()
+        ).sort(),
+      )
+      .toEqual([...exampleDocuments].sort());
+    await expect(left.getByTestId("examples-menu")).toBeAttached();
+    await expect(window.locator("[data-linked-folder-id]")).toHaveCount(0);
+    await expect(
+      window.getByTestId("library-folders").getByTestId("document-list-item"),
+    ).toHaveCount(1);
   } finally {
     await app.close();
     await removeDataFolder(sources);

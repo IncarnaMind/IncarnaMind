@@ -444,7 +444,7 @@ test("↑ ↓ Home and End walk the rows, → and ← unfold, fold, step in and 
   }
 });
 
-test("a Linked folder is one row of the tree, reached by the arrows: → and ← leave it as it is, and Enter opens the Library", async () => {
+test("a Linked folder's Folder is one row of the tree, reached by the arrows: ← closes it and → opens it to its files (#3613)", async () => {
   const library = join(sources, "Library");
   for (const file of ["root.txt", "A/top.txt", "A/B/mid.txt"]) {
     await mkdir(dirname(join(library, file)), { recursive: true });
@@ -456,17 +456,13 @@ test("a Linked folder is one row of the tree, reached by the arrows: → and ←
     await dismissChatSetup(window);
     await linkFolderFromSidebar(app, window, library);
     await showSourceLocations(window);
-    const section = window.getByTestId("linked-folders-section");
-    const linked = section.getByRole("treeitem", { name: /^Library/ });
-    await expect(section.getByRole("treeitem")).toHaveCount(1);
+    const section = window.getByTestId("folders-section");
+    const linked = section.getByTestId("folder-row").filter({ hasText: /^Library/ });
     await expect(linked).toHaveAttribute("aria-level", "1");
-    await expect(linked).not.toHaveAttribute("aria-expanded");
-    // Its files are rows of Not in a Folder.
-    await expect(
-      window.getByTestId("not-in-a-folder").getByRole("treeitem", { name: /^(root|top|mid)/ }),
-    ).toHaveCount(3);
+    // Just linked, it is open: its files, from every depth, are its rows, flat.
+    await expect(linked).toHaveAttribute("aria-expanded", "true");
+    await expect(section.getByRole("treeitem", { name: /^(root|top|mid)/ })).toHaveCount(3);
 
-    // From the Documents in Not in a Folder, ↓ goes on into the Linked folders section.
     await tabIntoTree(window);
     for (
       let step = 0;
@@ -477,13 +473,12 @@ test("a Linked folder is one row of the tree, reached by the arrows: → and ←
     }
     await expect(linked).toBeFocused();
     await expectOneRing(window);
-    for (const key of ["ArrowRight", "ArrowLeft"]) {
-      await window.keyboard.press(key);
-      await expect(linked).toBeFocused();
-      await expect(section.getByRole("treeitem")).toHaveCount(1);
-    }
-    await window.keyboard.press("Enter");
-    await expect(window.getByTestId("library")).toBeVisible();
+    await window.keyboard.press("ArrowLeft");
+    await expect(linked).toHaveAttribute("aria-expanded", "false");
+    await expect(section.getByRole("treeitem", { name: /^(root|top|mid)/ })).toHaveCount(0);
+    await window.keyboard.press("ArrowRight");
+    await expect(linked).toHaveAttribute("aria-expanded", "true");
+    await expect(section.getByRole("treeitem", { name: /^(root|top|mid)/ })).toHaveCount(3);
   } finally {
     await app.close();
   }

@@ -13,6 +13,7 @@ import { formatShortDate, formatTime } from "../../../shared/dates";
 import { displayName } from "../../../shared/documentNames";
 import { type FileDates, fileDates, shownFileDate } from "../../../shared/fileProperties";
 import { mindName } from "../../../shared/naming";
+import { useBoundPlace } from "../boundFolders";
 import { copyText } from "../copied";
 import { core, files } from "../core";
 import { useDocumentFolder, useUnitCount } from "../documentFacts";
@@ -493,24 +494,34 @@ function DocumentInfo({ document }: { document: Document }) {
   );
 }
 
-function LinkedFolderInfo({ linked }: { linked: LinkedFolder }) {
+/** How many files a Linked folder holds and their size, in words, and its state's. */
+function useFolderOnDisk(linked: LinkedFolder | null) {
   const t = useT();
   const language = useLanguage();
   const documents = useAppStore((state) => state.documents);
+  const linkedId = linked?.id ?? null;
   const bytes = useMemo(
     () =>
       documents.reduce(
-        (sum, each) => (each.linkedFolderId === linked.id ? sum + each.size : sum),
+        (sum, each) => (each.linkedFolderId === linkedId ? sum + each.size : sum),
         0,
       ),
-    [documents, linked.id],
+    [documents, linkedId],
   );
-  const state = rowStateLabel(linkedFolderRowState(linked, true), t, language);
-  const files = linked.progress.files;
-  const count = t(`info.files.${files === 1 ? "one" : "other"}`, {
-    count: formatCount(files, language),
-  });
-  const size = formatBytes(bytes, t);
+  const files = linked?.progress.files ?? 0;
+  return {
+    state: linked && rowStateLabel(linkedFolderRowState(linked, true), t, language),
+    count: t(`info.files.${files === 1 ? "one" : "other"}`, {
+      count: formatCount(files, language),
+    }),
+    size: formatBytes(bytes, t),
+  };
+}
+
+function LinkedFolderInfo({ linked }: { linked: LinkedFolder }) {
+  const t = useT();
+  const language = useLanguage();
+  const { state, count, size } = useFolderOnDisk(linked);
   return (
     <>
       <Header
@@ -559,17 +570,53 @@ function FolderInfo({ group }: { group: LibraryGroup }) {
   const documents = t(count === 1 ? "library.count.one" : "library.count", {
     count: formatCount(count, language),
   });
+  const bound = useBoundPlace(group.id);
+  const onDisk = useFolderOnDisk(bound?.linked ?? null);
   return (
     <>
       <Header icon={<FolderLineIcon className="size-7" />} name={group.name} line={documents} />
       <Rows>
+        {bound && (
+          <Row label={t("info.where")} testId="info-path">
+            {bound.path}
+          </Row>
+        )}
         <Row label={t("info.description")} testId="info-description">
           {group.description || <span className="text-ink-meta">{t("info.description.none")}</span>}
         </Row>
+        {bound && (
+          <>
+            <Row label={t("info.files")} testId="info-files">
+              {onDisk.count}
+            </Row>
+            <Row label={t("info.size")} testId="info-size">
+              {onDisk.size}
+            </Row>
+            <Row label={t("info.status")} testId="info-status">
+              {onDisk.state?.full ?? t("info.upToDate")}
+            </Row>
+          </>
+        )}
         <Row label={t("info.added")} testId="info-added">
           {addedDate(group.createdAt, language)}
         </Row>
       </Rows>
+      {bound && (
+        <>
+          <p
+            data-testid="info-promise"
+            className="px-4 pb-3 text-[12px] leading-[18px] text-ink-meta"
+          >
+            {t("folder.bound.promise")}
+          </p>
+          <Actions
+            path={bound.path}
+            canShow={bound.linked.status !== "unavailable"}
+            showLabel={t(showFileLabelKey(navigator.platform))}
+            onShow={() => void useAppStore.getState().showLinkedFolder(bound.linked.id)}
+          />
+        </>
+      )}
     </>
   );
 }

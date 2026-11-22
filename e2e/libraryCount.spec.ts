@@ -363,7 +363,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the example's Documents leave the tree and the page together when its Note is deleted (${language})`, async () => {
+  test(`the example's Documents stay under Examples and leave the page when its Note is deleted (${language})`, async () => {
     test.setTimeout(240_000);
     const words = WORDS[language];
     const ownPath = join(sources, "Tides.pdf");
@@ -397,27 +397,30 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(names.examples).toHaveLength(2);
       expect(names.own).toEqual(["Tides"]);
 
-      // Its Note deleted, the example folds back to nothing: its Documents stay in the core,
-      // reachable through their Linked folder row, and out of the Library's one list.
+      // Its Note deleted, the example folds back to its Documents under Examples: they stay in
+      // the core, reachable there (#3613), and out of the Library's one list.
       await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         const { mindId } = await core.getExamples();
         if (mindId) await core.deleteMind(mindId);
       });
-      await expect(window.getByTestId("example-section")).toHaveCount(0);
+      await expect(window.getByTestId("example-section").getByTestId("mind-list-item")).toHaveCount(
+        0,
+      );
 
       const sidebar = window.getByTestId("sidebar");
       await expect(sidebar.getByTestId("library-row-count")).toHaveText("1");
-      await expect(sidebar.getByTestId("document-list-item")).toHaveCount(1);
-      await expect(sidebar.getByTestId("document-list-item").getByTestId("row-text")).toHaveText(
-        "Tides",
-      );
+      const own = sidebar.getByTestId("library-folders").getByTestId("document-list-item");
+      await expect(own).toHaveCount(1);
+      await expect(own.getByTestId("row-text")).toHaveText("Tides");
       const listed = sidebar.getByTestId("not-in-a-folder-section");
       await expect(listed.getByTestId("not-in-a-folder-title")).toContainText(words.documents);
       await expect(listed.getByTestId("sidebar-section-count")).toHaveText("1");
       await expect(listed.getByTestId("document-list-item")).toHaveCount(1);
       for (const name of names.examples) await expect(listed).not.toContainText(name);
-      await expect(sidebar.getByTestId("linked-folders-section")).toBeVisible();
+      await expect(
+        sidebar.getByTestId("example-section").getByTestId("document-list-item"),
+      ).toHaveCount(2);
       expect(await coreDocumentNames(window)).toHaveLength(3);
 
       // The page's own Not in a Folder lists the same one Document and the same set.

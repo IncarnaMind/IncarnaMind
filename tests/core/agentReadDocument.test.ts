@@ -12,7 +12,7 @@ import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent, resultText, startAgentsCore } from "../helpers/agents";
 import {
   createSourceFolder,
-  linkAndProcess,
+  linkWithoutFolderAndProcess,
   waitForDocuments,
   writeSourceFile,
 } from "../helpers/documents";
@@ -48,7 +48,7 @@ async function library() {
   await writeSourceFile(source, "Short interview.txt", shortText);
   const longPath = await writeSourceFile(source, "Long interview.txt", longText);
   await writeSourceFile(source, "Private interview.txt", interview(40, "counted"));
-  const documents = await linkAndProcess(core, source);
+  const documents = await linkWithoutFolderAndProcess(core, source);
   const named = (name: string) => {
     const found = documents.find((each) => each.name === name);
     if (!found) throw new Error(`No Document ${name}.`);
@@ -338,7 +338,7 @@ describe("an agent reading a Document", () => {
     ].join("\n");
     const source = await createSourceFolder();
     await writeSourceFile(source, "Ferry call.vtt", vtt);
-    const [call] = await linkAndProcess(core, source);
+    const [call] = await linkWithoutFolderAndProcess(core, source);
     expect(call?.kind).toBe("transcript");
     await core.setAgentsEnabled(true);
     const agent = await connectLegacyAgent(

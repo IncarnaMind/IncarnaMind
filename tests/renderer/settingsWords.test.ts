@@ -84,7 +84,6 @@ const CONSENT_FACTS = [
   // What it may read and where that goes, in the line the User reads before they allow (#3487),
   // with the Folders all leaves out (#3544), and what a connected agent reads, in those words.
   "agents.connect.reads.all",
-  "agents.connect.reads.projects",
   "agents.connect.reads.walled",
   "agents.pairing.readsAll",
   "agents.connect.backup",

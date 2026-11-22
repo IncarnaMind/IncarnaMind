@@ -200,7 +200,6 @@ for (const [language, width] of [
       for (const section of [
         "folders-section",
         "not-in-a-folder",
-        "linked-folders-section",
         "sidebar-tags",
         "browse-views",
       ]) {

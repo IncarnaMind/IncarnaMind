@@ -1,6 +1,8 @@
 import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
 import type { Canvas, Document, LibraryGroup, Mind } from "../../../core/api";
+import { exampleLinkedIds, unboundLinkedFolders, useBoundPlace } from "../boundFolders";
+import { sidebarHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
 import { commands } from "../commands/registry";
 import { useDraggedRef, useDragSource, useDropTarget } from "../dragDrop";
@@ -10,6 +12,8 @@ import { buildFolderTree, type FolderNode, folderPathLabel } from "../folders";
 import { useLanguage, useT } from "../i18n";
 import { currentMindIdOf, currentTabOf } from "../layoutSlice";
 import { treeCounts } from "../libraryPage";
+import { indexingShare, linkedFolderRowState, rowStateLabel } from "../linkedFolders";
+import { isListedDocument } from "../meetingTranscript";
 import { DAY_ONE_DOCUMENTS, useExampleDocuments } from "../ownDocuments";
 import { useRequests } from "../requests";
 import { useSelectable, useSeveralSelected } from "../selection";
@@ -21,9 +25,11 @@ import { canvasFields, documentFields, mindFields } from "../sortFields";
 import { allExamples, exampleMindIds, isOwnDocument, useAppStore } from "../store";
 import { foldKeys, isMoveToKey, useTreeItem } from "../treeKeys";
 import { useRename } from "../useRename";
+import { BoundMark } from "./BoundMark";
 import { CanvasRow } from "./CanvasRow";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
+import { UnboundLinkedFolderRows } from "./LinkedFolderRows";
 import {
   ChevronDownLineIcon,
   ChevronRightLineIcon,
@@ -55,6 +61,9 @@ const NO_MINDS: readonly Mind[] = [];
 const NO_CANVASES: readonly Canvas[] = [];
 
 const FOLDS_KEY = "incarnamind.sidebar.folders";
+
+/** As long as the wash's animation lasts (`[data-just-linked]` in styles.css). */
+const LINKED_WASH_MS = 1600;
 
 interface Folds {
   /** The Folders shown open; the rest are closed. */
@@ -231,10 +240,14 @@ export function LibraryFolders({
   const looseCanvases = canvasesByFolder.get(null) ?? NO_CANVASES;
   const looseDocuments = documentsByFolder.get(null) ?? NO_DOCUMENTS;
   const newFolderLabel = t("sidebar.newFolderKeys", { keys: shortcutLabel("folder.new") });
+  const exampleIds = useAppStore(exampleLinkedIds);
+  const turnedOff = useAppStore(
+    (state) => unboundLinkedFolders(state, new Set(exampleIds.split(" "))).length > 0,
+  );
 
   return (
     <div data-testid="library-folders">
-      {orderedGroups.length > 0 && (
+      {(orderedGroups.length > 0 || turnedOff) && (
         <SidebarSection
           testId="folders-section"
           title={t("library.groups")}
@@ -270,6 +283,7 @@ export function LibraryFolders({
               />
             ))}
           </ul>
+          <UnboundLinkedFolderRows />
         </SidebarSection>
       )}
       {(looseMinds.length > 0 ||
@@ -454,8 +468,27 @@ function FolderGroup({
     return first ? nameNewFolder(folder.id, name) : renameFolder(folder.id, name);
   });
   const t = useT();
+  const language = useLanguage();
   const objectMenu = useObjectMenu(object);
   const treeItem = useTreeItem({ depth, expanded, selected: lit });
+  const bound = useBoundPlace(folder.id);
+  const linkedId = bound?.linked.id ?? null;
+  const hasFiles = useAppStore((state) =>
+    state.documents.some((each) => each.linkedFolderId === linkedId && isListedDocument(each)),
+  );
+  const diskState = bound ? linkedFolderRowState(bound.linked, hasFiles) : null;
+  const status = diskState ? rowStateLabel(diskState, t, language) : null;
+  const progress = diskState ? indexingShare(diskState) : null;
+  const justLinked = useRequests((state) => linkedId !== null && state.showLinked === linkedId);
+  // Its row, once it shows: open, in sight, washed for a moment, then as any other (#763, #3613).
+  useEffect(() => {
+    if (!justLinked) return;
+    if (sidebarHandle.current?.hidden) sidebarHandle.current.toggle();
+    useFolds.getState().reveal(folder.id);
+    row.current?.scrollIntoView({ block: "nearest" });
+    const timer = setTimeout(() => useRequests.getState().clear("showLinked"), LINKED_WASH_MS);
+    return () => clearTimeout(timer);
+  }, [justLinked, folder.id]);
   const fold = foldKeys(expanded, toggle);
   const Chevron = expanded ? ChevronDownLineIcon : ChevronRightLineIcon;
   const count = counts.get(folder.id) ?? 0;
@@ -502,7 +535,14 @@ function FolderGroup({
         {...(rename.renaming ? {} : objectMenu.rowProps)}
         {...(rename.renaming ? {} : dragSource)}
         {...drop.props}
-        className={`${rowClass(lit, "app", several && select.selected, dragged)} ${place}`}
+        {...(justLinked && { "data-just-linked": "true" })}
+        {...(bound && {
+          "data-linked-folder-id": bound.linked.id,
+          "data-root": bound.linked.folderId === folder.boundFolderId ? "true" : undefined,
+          "data-status": bound.linked.status,
+          "data-state": diskState?.kind,
+        })}
+        className={`${rowClass(lit, diskState?.kind === "unavailable" ? "muted" : "app", several && select.selected, dragged)} ${place} @container`}
       >
         {rename.renaming ? (
           <span
@@ -528,15 +568,7 @@ function FolderGroup({
             {...treeItem}
             data-testid="folder-row"
             aria-current={shownInLibrary ? "page" : undefined}
-            title={
-              path === folder.name
-                ? folder.description
-                  ? `${folder.name}\n${folder.description}`
-                  : folder.name
-                : folder.description
-                  ? `${path}\n${folder.description}`
-                  : path
-            }
+            title={[path, bound?.path, folder.description].filter(Boolean).join("\n")}
             onClick={(event) => {
               if (event.metaKey || event.ctrlKey || event.shiftKey) select.onClick(event);
               // A plain click only opens or closes it: the Mind the User is in stays the one lit.
@@ -558,6 +590,7 @@ function FolderGroup({
             <span data-testid="row-text" className="min-w-0 flex-1 truncate">
               {folder.name}
             </span>
+            {bound && <BoundMark path={bound.path} />}
             {folder.keepInside === true && (
               <span
                 data-testid="folder-wall"
@@ -569,14 +602,46 @@ function FolderGroup({
                 <LockLineIcon className="size-3.5 text-ink-meta" />
               </span>
             )}
-            <span
-              data-testid="browse-count"
-              className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
-            >
-              {count}
-            </span>
+            {status ? (
+              <span
+                data-testid="folder-status"
+                data-state={diskState?.kind}
+                title={status.full}
+                className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+              >
+                <span aria-hidden="true" className="@max-[13rem]:hidden">
+                  {status.short}
+                </span>
+                <span aria-hidden="true" className="hidden @max-[13rem]:inline">
+                  {status.compact}
+                </span>
+                <span className="sr-only">{status.full}</span>
+              </span>
+            ) : (
+              <span
+                data-testid="browse-count"
+                className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
+              >
+                {count}
+              </span>
+            )}
             <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
           </button>
+        )}
+        {progress !== null && (
+          <span
+            aria-hidden="true"
+            data-testid="folder-progress"
+            className="pointer-events-none absolute right-2 bottom-0.5 h-0.5 overflow-hidden rounded-full bg-rule"
+            style={{ left: rowPadding(depth).paddingLeft + 24 }}
+          >
+            <span
+              className={`block h-full rounded-full transition-[width] duration-180 ease-in-out motion-reduce:transition-none ${
+                diskState?.kind === "paused" ? "bg-ink-placeholder" : "bg-accent"
+              }`}
+              style={{ width: `${Math.round(progress * 1000) / 10}%` }}
+            />
+          </span>
         )}
         {!rename.renaming && (
           <div className={rowActionsClass}>
@@ -600,6 +665,17 @@ function FolderGroup({
           </div>
         )}
       </div>
+      {diskState?.kind === "empty" && (
+        // Under its row, never in its place: the row says its state, and this says why (#763).
+        <p
+          role="status"
+          data-testid="linked-folder-nothing-to-read"
+          className="pr-2 pb-1 text-[12px] leading-[18px] text-ink-meta"
+          style={{ paddingLeft: rowPadding(depth).paddingLeft + 24 }}
+        >
+          {t("linkedFolders.nothingToRead.notice", { folder: folder.name })}
+        </p>
+      )}
       {expanded && (
         <Contents
           listKey={folder.id}

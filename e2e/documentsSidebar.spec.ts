@@ -196,7 +196,7 @@ test("a right-click on a row opens its menu, without selecting its name; a selec
 
   const root = linkedFolderRow(window, "Library");
   await root.getByTestId("row-text").click({ button: "right" });
-  await expect(root.getByTestId("linked-folder-actions")).toBeVisible();
+  await expect(root.getByTestId("folder-actions")).toBeVisible();
   expect(await window.evaluate(() => document.getSelection()?.toString() ?? "")).toBe("");
   await window.keyboard.press("Escape");
 

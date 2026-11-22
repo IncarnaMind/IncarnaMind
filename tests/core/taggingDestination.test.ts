@@ -34,7 +34,8 @@ import {
   addAndProcess,
   createSourceFolder,
   documentAt,
-  linkAndProcess,
+  linkWithoutFolder,
+  linkWithoutFolderAndProcess,
   sha256,
   waitForDocuments,
   waitForProcessing,
@@ -261,7 +262,7 @@ describe("A Document held off stays off, for every sender", () => {
       for (const at of [1, 2, 3, 4, 5]) {
         await writeSourceFile(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
       }
-      const linked = await linkAndProcess(core, folder);
+      const linked = await linkWithoutFolderAndProcess(core, folder);
       const ids = linked.map((each) => each.id);
       await waitForTagging(core, ids, (each) => each.tagging === "off");
 
@@ -362,7 +363,7 @@ describe("Every Document already here is held, whatever its state", () => {
       await writeSourceFile(folder, "Report 1.txt", "Quarterly report 1.");
       const blankPath = await writeSourceFile(folder, "Blank.txt", "");
       const brokenPath = await writeSourceFile(folder, "Broken.pdf", "not a PDF at all");
-      const linked = await linkAndProcess(core, folder);
+      const linked = await linkWithoutFolderAndProcess(core, folder);
       const blank = documentAt(linked, blankPath);
       const broken = documentAt(linked, brokenPath);
       expect([blank.status, broken.status]).not.toContain("ready");
@@ -533,7 +534,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     for (let at = 1; at <= 40; at++) {
       await writtenBefore(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
     }
-    const linked = await core.addLinkedFolder(folder);
+    const linked = await linkWithoutFolder(core, folder);
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     await core.reconcileDocuments();
     const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);
@@ -566,7 +567,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     const anthropic = await core.saveChatProvider(ANTHROPIC);
     const folder = await createSourceFolder();
     await writtenBefore(folder, "Before.txt", "Quarterly report, before.");
-    const [first] = await linkAndProcess(core, folder);
+    const [first] = await linkWithoutFolderAndProcess(core, folder);
     if (!first?.linkedFolderId) throw new Error("Not linked.");
     await core.setLinkedFolderPaused(first.linkedFolderId, true);
     const pausedPath = await writeSourceFile(folder, "While paused.txt", "Written while paused.");
@@ -601,7 +602,7 @@ describe("Only what is new since tagging was turned on goes by itself", () => {
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     const folder = await createSourceFolder();
     await writtenBefore(folder, "Old file.txt", "Written long ago, linked now.");
-    const linked = await linkAndProcess(core, folder);
+    const linked = await linkWithoutFolderAndProcess(core, folder);
     await waitForTagging(
       core,
       linked.map((each) => each.id),
@@ -678,7 +679,7 @@ describe("New means IncarnaMind saw it arrive, whatever the file's times say", (
     const folder = await createSourceFolder();
     const editedPath = await writtenBefore(folder, "Report 1.txt", "Quarterly report 1.");
     const renamedPath = await writtenBefore(folder, "Report 2.txt", "Quarterly report 2.");
-    const linked = await linkAndProcess(core, folder);
+    const linked = await linkWithoutFolderAndProcess(core, folder);
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     await watcher.watching(folder);
 
@@ -819,7 +820,7 @@ describe("Everything is per service: a turn-on and a clearance", () => {
     await handle.truncate(4_000);
     await handle.close();
     if ((await lstat(placeholder)).blocks !== 0) context.skip(); // no sparse files here
-    const linked = await linkAndProcess(core, folder);
+    const linked = await linkWithoutFolderAndProcess(core, folder);
     expect(linked).toHaveLength(1);
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     await watcher.watching(folder);
@@ -921,7 +922,7 @@ describe("A Linked folder linked in the same millisecond as the turn-on", () => 
     for (const at of [1, 2, 3]) {
       await writtenBefore(folder, `Report ${at}.txt`, `Quarterly report ${at}.`);
     }
-    const linked = await core.addLinkedFolder(folder);
+    const linked = await linkWithoutFolder(core, folder);
     await turnOn(core, chatModel(anthropic.id, ANTHROPIC.modelId));
     await core.reconcileDocuments();
     const ids = (await core.listDocuments({ linkedFolderId: linked.id })).map((each) => each.id);

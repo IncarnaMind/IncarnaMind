@@ -9,7 +9,7 @@ import {
   type SearchScope,
 } from "../../core/api";
 import type { NodeJSON } from "../../shared/blockJson";
-import { folderWallOf } from "./folders";
+import { folderPathLabel, folderWallOf } from "./folders";
 import type { Translate } from "./objects";
 
 /** What of the Library the walls are read from (#3131). */
@@ -33,6 +33,27 @@ export function documentWalls(
   library: Pick<WallLibrary, "documentWalls">,
 ): Map<string, DocumentWall> {
   return new Map(Object.entries(library.documentWalls ?? {}));
+}
+
+/**
+ * The walls a move crosses, by the paths Move to… shows: the wall it enters and those it leaves.
+ * An item already behind the wall it goes to crosses none.
+ */
+export function wallChange(
+  groups: WallLibrary["groups"],
+  fromFolders: readonly (string | null)[],
+  into: string | null,
+): { entered: string | null; left: string[] } {
+  const after = into === null ? null : folderWallOf(groups, into);
+  const crossed = fromFolders.flatMap((from) => {
+    const before = from === null ? null : folderWallOf(groups, from);
+    return before === after ? [] : [{ before, after }];
+  });
+  const path = (id: string) => folderPathLabel(groups, id);
+  return {
+    entered: after !== null && crossed.length > 0 ? path(after) : null,
+    left: [...new Set(crossed.flatMap(({ before }) => (before === null ? [] : [path(before)])))],
+  };
 }
 
 /**

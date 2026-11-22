@@ -12,7 +12,7 @@ import { buildAgentShim, connectLegacyAgent, resultText, startAgentsCore } from 
 import {
   addAndProcess,
   createSourceFolder,
-  linkAndProcess,
+  linkWithoutFolderAndProcess,
   writeSourceFile,
 } from "../helpers/documents";
 import { replyingModel } from "../helpers/models";
@@ -62,7 +62,8 @@ async function withHarbour(core: Core) {
     "Pilot.md",
     note("Pilot", "The harbour pilot boards ships at the outer buoy."),
   );
-  const fromLinked = await linkAndProcess(core, linked);
+  // Its filing as one Folder off, so its files are in no Folder (#3613).
+  const fromLinked = await linkWithoutFolderAndProcess(core, linked);
   const ferry = fromLinked.find((each) => each.name.startsWith("Ferry"));
   const pilot = fromLinked.find((each) => each.name.startsWith("Pilot"));
   if (!tides || !reef || !budget || !ferry || !pilot)

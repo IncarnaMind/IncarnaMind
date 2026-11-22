@@ -47,10 +47,8 @@ test("typing @ in the composer limits the search to a Folder: the Answer cites o
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await bridge.addLinkedFolder(path);
   }, notes);
-  const items = window.getByTestId("document-list-item");
-  await expect(items).toHaveCount(2);
-  await expect(items.nth(0)).toHaveAttribute("data-status", "ready");
-  await expect(items.nth(1)).toHaveAttribute("data-status", "ready");
+  // Its files are in its Folder, made by linking (#3613).
+  await expectReadyDocuments(window, 2);
   const oceanId = await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await bridge.listFolders()).find((folder) => folder.name === "Ocean")?.id;
@@ -74,7 +72,7 @@ test("typing @ in the composer limits the search to a Folder: the Answer cites o
   await expect(picker.getByRole("group", { name: "Tags" })).toBeVisible();
   await expect(picker.getByRole("group", { name: "Documents" })).toBeVisible();
   const choices = picker.getByTestId("scope-choice");
-  // The Linked folder's own Folder, then its folders, each with the path it is in.
+  // The Linked folder's Folder, then the folders inside it on disk, each with the path it is in.
   await expect(choices.first().locator(".truncate").first()).toHaveText("Notes");
   await expect(choices.first()).toHaveAttribute("aria-selected", "true");
   await window.keyboard.press("ArrowDown");
