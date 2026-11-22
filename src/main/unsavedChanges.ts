@@ -13,6 +13,7 @@ import type { Core, UnsavedChanges } from "../core";
 import { quitCopyOptions } from "../shared/exportOptions";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { systemReason } from "../shared/systemReasons";
+import { settleSummaries, summariesWaiting } from "./meetings/summaryClosing";
 import { showMessageBox, showSaveDialog } from "./systemDialogs";
 
 type Choice = "saveCopy" | "quitAnyway" | "keepOpen";
@@ -96,6 +97,7 @@ export function guardQuit(
   };
   /** True once nothing waits, or the User chose to quit anyway or saved copies; false if they keep the app open. */
   const settle = async (): Promise<boolean> => {
+    if (!(await settleSummaries())) return false;
     let copyFailed: string | null = null;
     for (;;) {
       const left = await core.saveChangesAgain();
@@ -120,7 +122,7 @@ export function guardQuit(
     quit();
   };
   app.on("before-quit", (event) => {
-    if (leaving || !unsaved) return;
+    if (leaving || (!unsaved && !summariesWaiting())) return;
     event.preventDefault();
     // Whatever goes wrong here, IncarnaMind stays open: quitting would lose what waits.
     decide().catch((error: unknown) => {

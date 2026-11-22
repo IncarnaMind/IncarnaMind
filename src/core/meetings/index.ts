@@ -39,6 +39,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { formatDay } from "../../shared/dates";
 import { translate } from "../../shared/i18n";
+import type { EditedMeetingSummary } from "../../shared/meetingSummaryContent";
 import {
   type AudioCapture,
   type CaptureSession,
@@ -159,6 +160,7 @@ interface MeetingRow {
   fill: string | null;
   summary: string | null;
   summary_corrections: string | null;
+  edited_summary_content: string | null;
   writeup_template_id: string | null;
   last_transcript_action_id: number;
   transcript_document_id: string | null;
@@ -168,7 +170,7 @@ interface MeetingRow {
 }
 
 const COLUMNS =
-  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, writeup_template_id, last_transcript_action_id, transcript_document_id, purged_at, created_at, updated_at";
+  "id, mind_id, kind, status, paused_by, system_audio, periods, started_at, stopped_at, audio_expires_at, audio_kept_at, audio_deleted_at, fill, summary, summary_corrections, edited_summary_content, writeup_template_id, last_transcript_action_id, transcript_document_id, purged_at, created_at, updated_at";
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends FillVersion {
@@ -453,11 +455,22 @@ export function createMeetings(options: MeetingsOptions) {
     }
     const current = live?.meetingId === row.id ? live : null;
     const storedSummary = storedSummaryOf(row);
-    const summary = visibleSummary(
+    const generated = visibleSummary(
       storedSummary,
       readCorrections(row.summary_corrections),
       isCurrentCandidateReview(row, storedSummary),
     );
+    // Keep hand edits in the displayed summary and out of the next model request.
+    const edit: EditedMeetingSummary | null = row.edited_summary_content
+      ? JSON.parse(row.edited_summary_content)
+      : null;
+    const summary = edit
+      ? {
+          ...(generated ?? { throughMs: 0, state: "ready" as const }),
+          text: edit.text,
+          editedContent: edit.content,
+        }
+      : generated;
     const writeupTemplateId = row.writeup_template_id;
     const override = templates.get(row.id);
     const helpTemplate =
@@ -981,6 +994,7 @@ export function createMeetings(options: MeetingsOptions) {
         purged_at: at,
         summary: null,
         summary_corrections: null,
+        edited_summary_content: null,
         ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
       });
     }
@@ -1302,6 +1316,35 @@ export function createMeetings(options: MeetingsOptions) {
     summaryItemEvidence(meetingId: string, itemId: number) {
       const row = rowOf(meetingId);
       return itemEvidence(storedSummaryOf(row), readCorrections(row.summary_corrections), itemId);
+    },
+
+    async updateSummaryContent(
+      meetingId: string,
+      expected: unknown,
+      replacement: unknown,
+    ): Promise<Meeting> {
+      const { readMeetingSummaryContent } = await import("../../shared/meetingSummaryContent");
+      const next = readMeetingSummaryContent(replacement);
+      const before = expected === null ? null : readMeetingSummaryContent(expected);
+      if (!next || (expected !== null && !before))
+        throw new InvalidInputError({ key: "error.meeting.summaryContentInvalid" });
+      const written = db.transaction(() => {
+        const row = rowOf(meetingId);
+        if (
+          row.kind !== "meeting" ||
+          row.status !== "stopped" ||
+          (!row.edited_summary_content && !storedSummaryOf(row)?.summary.text.trim())
+        )
+          throw new InvalidInputError({ key: "error.meeting.summaryContentUnavailable" });
+        const serialized = JSON.stringify(next);
+        if (row.edited_summary_content === serialized) return false;
+        if (row.edited_summary_content !== (before && JSON.stringify(before)))
+          throw new InvalidInputError({ key: "error.meeting.summaryContentChanged" });
+        save(row.id, { edited_summary_content: serialized });
+        return true;
+      });
+      if (written) changed();
+      return toMeeting(rowOf(meetingId));
     },
 
     correctSummaryItem(meetingId: string, expected: unknown, replacement: unknown): Meeting {
