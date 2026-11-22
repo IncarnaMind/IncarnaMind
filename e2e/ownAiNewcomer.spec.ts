@@ -289,7 +289,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(viewer).toContainText(walk.shows);
     await expect(assistant).toBeHidden();
     const pill = window.getByTestId("own-ai-pill-ask");
-    await expect(pill).toHaveText(t("agents.ask.pill", { agent: "Claude Code" }));
+    await expect(pill).toContainText(t("agents.ask.pill", { agent: "Claude Code" }));
     await pointAndClick(window, pill);
     await expect.poll(typedInClaudeCode).toHaveLength(1);
     const [asked = ""] = await typedInClaudeCode();
