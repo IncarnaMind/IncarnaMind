@@ -256,14 +256,17 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
         name: "check_mind_yourself",
         arguments: { mindId: "another-note" },
       });
-      tried = [refusal(other), refusal(write), refusal(elsewhere)];
+      // It would open the Note in the User's window: never one of a run's Tools.
+      const mindId = request.prompt.match(/mindId: ([^)]+)\)/)?.[1] ?? "";
+      const shown = await agent.callTool({ name: "show_citation", arguments: { note: mindId } });
+      tried = [refusal(other), refusal(write), refusal(elsewhere), refusal(shown)];
       return checks(agent, request);
     });
     const { core, mindId, ended } = await written(run.adapter);
     await core.checkWithOwnAi(mindId);
     expect((await ended())?.outcome).toBe("landed");
     expect(tried).toEqual(
-      Array(3).fill(
+      Array(4).fill(
         "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
       ),
     );
