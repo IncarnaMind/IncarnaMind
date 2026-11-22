@@ -11,6 +11,8 @@ import { MeetingSummaryCandidates } from "./MeetingSummaryCandidates";
 import { MeetingSummaryItems } from "./MeetingSummaryItems";
 import { MeetingSummaryProblem } from "./MeetingSummaryProblem";
 
+import { MeetingSummaryText } from "./MeetingSummaryText";
+
 const NO_ITEMS: readonly MeetingSummaryItem[] = [];
 
 export function MeetingSummary({
@@ -42,7 +44,7 @@ export function MeetingSummary({
   const text = summary.text.trim();
   const items = summary.items ?? NO_ITEMS;
   const coverage =
-    text && summary.throughMs > 0
+    !summary.editedContent && text && summary.throughMs > 0
       ? t("meetings.summary.coverage", { time: clockTime(summary.throughMs) })
       : null;
   const needsRecovery =
@@ -53,10 +55,16 @@ export function MeetingSummary({
   const progress = needsRecovery
     ? null
     : summary.state === "ready"
-      ? text || items.length > 0
+      ? text || items.length > 0 || summary.editedContent
         ? null
         : t("meetings.summary.empty")
-      : t(text ? "meetings.summary.updating" : "meetings.summary.preparing");
+      : t(
+          summary.editedContent
+            ? "meetings.summary.content.updatingItems"
+            : text
+              ? "meetings.summary.updating"
+              : "meetings.summary.preparing",
+        );
 
   return (
     <section
@@ -69,27 +77,27 @@ export function MeetingSummary({
           : "mb-4 border-b border-rule pb-3"
       }
     >
-      <h2
-        ref={heading}
-        id={id}
-        tabIndex={-1}
-        className="text-[13px] leading-5 font-semibold text-ink"
-      >
-        {t("meetings.summary.title")}
-      </h2>
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <h2
+          ref={heading}
+          id={id}
+          tabIndex={-1}
+          className="text-[13px] leading-5 font-semibold text-ink"
+        >
+          {t("meetings.summary.title")}
+        </h2>
+        {summary.editedContent && (
+          <span className="text-[12px] text-ink-meta">{t("meetings.summary.item.edited")}</span>
+        )}
+      </div>
       {needsRecovery && <MeetingSummaryProblem meeting={meeting} summary={summary} />}
       {(progress || coverage) && (
         <p role="status" className="text-[13px] leading-5 text-ink-meta">
           {[progress, coverage].filter(Boolean).join(" · ")}
         </p>
       )}
-      {text && (
-        <p
-          data-testid="meeting-summary-text"
-          className="mt-1 max-w-3xl text-[14px] leading-6 break-words whitespace-pre-wrap text-ink-answer"
-        >
-          {text}
-        </p>
+      {(text || summary.editedContent) && (
+        <MeetingSummaryText key={`text-${meeting.id}`} meetingId={meeting.id} summary={summary} />
       )}
       <MeetingSummaryItems
         key={meeting.id}
@@ -98,7 +106,9 @@ export function MeetingSummary({
         focusSummary={() => heading.current?.focus()}
       />
       {(summary.candidatesReviewed ||
-        (summary.state === "ready" && !!text && meeting.transcript?.state === "saved")) && (
+        (summary.state === "ready" &&
+          (!!text || !!summary.editedContent) &&
+          meeting.transcript?.state === "saved")) && (
         <MeetingSummaryCandidates
           key={`candidates-${meeting.id}`}
           meeting={meeting}

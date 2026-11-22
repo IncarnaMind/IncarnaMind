@@ -17,7 +17,7 @@
 import { deflateRawSync } from "node:zlib";
 import { footnoteSubjectKey } from "../../shared/citations";
 import type { PrintedMarks } from "../../shared/exportMarks";
-import { FootnoteNumbering, sharesMarkBefore } from "../../shared/footnoteNumbers";
+import { FootnoteNumbering, sharedMarkOf } from "../../shared/footnoteNumbers";
 import type { TableAlign } from "../../shared/markdownTables";
 import { NUMBERING_SCHEMES, type NumberingScheme, wordLevel } from "../../shared/numbering";
 import type { CitedWork, MindComment, ParagraphFormat, StyledRun } from "../api";
@@ -37,7 +37,7 @@ import {
 } from "../mindText";
 import { tabHeading } from "../noteTabs";
 import { HEADER_AND_FOOTER_DISTANCE, MARGIN, PAPER } from "../pageDefaults";
-import { changeKey, isBlank, sharedNoteOf } from "./citations";
+import { changeKey, isBlank, markRun } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToOmml, MATH_NAMESPACE } from "./math";
 import { noteChecks } from "./noteChecks";
@@ -1111,10 +1111,9 @@ export class DocxWriter {
             const apart = before?.kind === "text" && /\S$/.test(before.text);
             xml += this.source(item.footnote, apart ? " " : "");
           } else {
-            // Side by side with a Citation of the same note: its mark stands for both (#3654).
-            const pending = context.pending === true;
-            const noteOf = (each: Inline) => sharedNoteOf(each, pending);
-            if (sharesMarkBefore(content, index, noteOf, isBlank)) break;
+            // In a run of Citations side by side, the first of a note's marks stands for all (#3654).
+            const citationRun = markRun(context.pending === true);
+            if (sharedMarkOf(content, index, citationRun) !== null) break;
             const reference = this.footnote(
               item.footnote,
               item.work,
@@ -1127,9 +1126,9 @@ export class DocxWriter {
             for (let next = index + 1; next < content.length; next++) {
               const later = content[next];
               if (!later || isBlank(later)) continue;
-              if (later.kind !== "citation" || !sharesMarkBefore(content, next, noteOf, isBlank))
-                break;
-              footnotes.push(later.footnote);
+              if (later.kind !== "citation") break;
+              if (sharedMarkOf(content, next, citationRun) === index)
+                footnotes.push(later.footnote);
             }
             xml += this.review ? this.review.failed(reference, footnotes) : reference;
           }

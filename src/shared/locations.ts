@@ -511,7 +511,7 @@ function commentAt(unit: UnitText, offset: number): { author: string | null } | 
   return null;
 }
 
-// A Word file with no headings has no place but its paragraphs.
+// A Word, Markdown, RTF or HTML file with no headings has no place but its paragraphs (#3657).
 function numbersParagraphs({ label }: UnitText): boolean {
   if (label?.paragraphs) return true;
   return label?.path?.length === 0 && !label.beforeHeading && !label.notes;

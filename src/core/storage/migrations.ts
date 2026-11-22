@@ -3411,6 +3411,11 @@ export const migrations: readonly Migration[] = [
         WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 161,
+    description: "Keep the User’s edited meeting summary separately from generated text",
+    sql: "ALTER TABLE meetings ADD COLUMN edited_summary_content TEXT;",
+  },
 ];
 
 /**

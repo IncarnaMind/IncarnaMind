@@ -30,6 +30,8 @@ import {
   type RawEntry,
   writeZip,
 } from "../../src/core/documents/formats/zip";
+import { translate } from "../../src/shared/i18n";
+import { formatLocation, joinUnits, locationOf } from "../../src/shared/locations";
 import { anchorsOf, type TextUnit } from "../../src/shared/units";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -953,6 +955,100 @@ describe("Markdown", () => {
     expect(units.length).toBeGreaterThan(1);
     expect(units.map((unit) => unit.label?.part ?? 1)).toEqual(units.map((_, index) => index + 1));
     expect(units.every((unit) => unit.text.length <= MAX_SECTION_CHARS)).toBe(true);
+  });
+});
+
+describe("Markdown with no headings (#3657)", () => {
+  const paragraphsOf = (source: string) =>
+    markdownUnits(source).flatMap((unit) =>
+      anchorsOf(unit).map((anchor) => [anchor.target, unit.text.slice(anchor.start, anchor.end)]),
+    );
+  /** Where a quote is, as a Citation of it says, in English and in Chinese. */
+  const placeOf = (source: string, quote: string) => {
+    const units = markdownUnits(source);
+    const start = joinUnits(units).text.indexOf(quote);
+    expect(start, quote).toBeGreaterThanOrEqual(0);
+    const location = locationOf(units, [{ start, end: start + quote.length }]);
+    if (!location) return null;
+    return {
+      en: formatLocation(location, (key, params) => translate("en", key, params)),
+      zh: formatLocation(location, (key, params) => translate("zh-CN", key, params)),
+    };
+  };
+
+  test("numbers its paragraphs from the top: text between blank lines, each list item and each fenced block", () => {
+    const source = [
+      "Interviewer: How did the harbour change?",
+      "",
+      "Alex: The east quay grew,",
+      "and the slipway closed.",
+      "",
+      "- First boats",
+      "- Then the ferry",
+      "  that ran all winter",
+      "",
+      "```",
+      "tide table",
+      "",
+      "noon high",
+      "```",
+      "Closing words.",
+    ].join("\n");
+    expect(paragraphsOf(source)).toEqual([
+      ["p1", "Interviewer: How did the harbour change?"],
+      ["p2", "Alex: The east quay grew,\nand the slipway closed."],
+      ["p3", "- First boats"],
+      ["p4", "- Then the ferry\n  that ran all winter"],
+      ["p5", "```\ntide table\n\nnoon high\n```"],
+      ["p6", "Closing words."],
+    ]);
+  });
+
+  test("a quote names the paragraph it is in, or those it runs over, in English and Chinese", () => {
+    const source = [
+      "采访者：港口有什么变化？",
+      "",
+      "Alex: The east quay grew.",
+      "",
+      "Alex: The slipway closed at dusk.",
+      "",
+      "李明：渡轮整个冬天都在运行。",
+    ].join("\n");
+    expect(placeOf(source, "The east quay grew")).toEqual({ en: "¶\u00a02", zh: "第 2 段" });
+    expect(placeOf(source, "grew.\n\nAlex: The slipway")).toEqual({
+      en: "¶\u00a02–3",
+      zh: "第 2–3 段",
+    });
+    expect(placeOf(source, "渡轮整个冬天")).toEqual({ en: "¶\u00a04", zh: "第 4 段" });
+  });
+
+  test("a long file's parts keep counting, and a paragraph split between two parts is in both", () => {
+    const paragraph = "Tide gauges were read every fifteen minutes. ".repeat(20).trim();
+    const source = Array.from({ length: 12 }, (_, index) => `${index + 1}. ${paragraph}`).join(
+      "\n\n",
+    );
+    const units = markdownUnits(source);
+    expect(units.length).toBeGreaterThan(1);
+    const targets = units.flatMap((unit) => anchorsOf(unit).map((anchor) => anchor.target));
+    expect([...new Set(targets)]).toEqual(
+      Array.from({ length: 12 }, (_, index) => `p${index + 1}`),
+    );
+    expect(placeOf(source, `12. ${paragraph.slice(0, 40)}`)?.en).toBe("¶\u00a012");
+  });
+
+  test("a file with headings is cited by its sections as before, its Units without paragraph anchors", () => {
+    const source = "# Harbour\n\nThe east quay grew.\n\nThe slipway closed.";
+    expect(paragraphsOf(source)).toEqual([]);
+    expect(placeOf(source, "The slipway closed")).toEqual({ en: "§ Harbour", zh: "§ Harbour" });
+  });
+
+  test("a converted RTF or HTML file's paragraphs are its blocks, whatever their first words", () => {
+    const source = ["- not a list: the file's own words", "", "Second block."].join("\n");
+    expect(
+      markdownUnits(source, { literal: true }).flatMap((unit) =>
+        anchorsOf(unit).map((a) => a.target),
+      ),
+    ).toEqual(["p1", "p2"]);
   });
 });
 

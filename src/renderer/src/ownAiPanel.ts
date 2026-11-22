@@ -86,7 +86,11 @@ export interface OwnAiPill {
   agents: readonly AgentPairing[];
 }
 
-/** What the pill asks about: the Note the assistant reads, else the Document in front. */
+/**
+ * What the pill asks about: the Note the assistant reads, else the Document in front. A Note no
+ * connected AI may read (an example's, which a new User has open) gives way to the Document opened
+ * beside it, so the pill doesn't go when the User opens one there.
+ */
 interface AskedOn {
   mindId: string | null;
   documentId: string | null;
@@ -94,12 +98,24 @@ interface AskedOn {
 
 const NOTHING: AskedOn = { mindId: null, documentId: null };
 
+/** `noteAgents`: the agents that may read `mindId`; null until they are read, when the Note stands. */
+const askedOn = (
+  mindId: string | null,
+  documentId: string | null,
+  noteAgents: readonly AgentPairing[] | null,
+): AskedOn =>
+  mindId !== null && (noteAgents === null || noteAgents.length > 0 || documentId === null)
+    ? { mindId, documentId: null }
+    : documentId !== null
+      ? { mindId: null, documentId }
+      : NOTHING;
+
 const askedOnOf = (merged: boolean): AskedOn => {
   const { layout } = useAppStore.getState();
   const tab = assistantTabOf(layout, merged);
-  if (tab?.item.kind === "mind") return { mindId: tab.item.mindId, documentId: null };
-  const [documentId] = documentsOnScreenOf(layout, merged);
-  return documentId ? { mindId: null, documentId } : NOTHING;
+  const mindId = tab?.item.kind === "mind" ? tab.item.mindId : null;
+  const [documentId = null] = documentsOnScreenOf(layout, merged);
+  return askedOn(mindId, documentId, mindId === null ? null : agentsToAsk(mindId));
 };
 
 /**
@@ -130,10 +146,10 @@ function useAskedOn(): AskedOn {
     const tab = assistantTabOf(state.layout, merged);
     return tab?.item.kind === "mind" ? tab.item.mindId : null;
   });
-  const documentId = useAppStore((state) =>
-    mindId === null ? (documentsOnScreenOf(state.layout, merged)[0] ?? null) : null,
-  );
-  return mindId !== null || documentId !== null ? { mindId, documentId } : NOTHING;
+  const documentId = useAppStore((state) => documentsOnScreenOf(state.layout, merged)[0] ?? null);
+  useReadAgentsToAsk(mindId);
+  const noteAgents = useAgentsToAskRead(mindId);
+  return askedOn(mindId, documentId, mindId === null ? null : noteAgents);
 }
 
 /** Whether the pill shows, as the Workbench reads its agents: for a page that makes room for it. */

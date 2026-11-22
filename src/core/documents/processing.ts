@@ -88,9 +88,10 @@ import type { PictureProblem } from "./web/pictures";
  * column, so a table's rows line up with its heading row). 29: #3289 (a PDF
  * page larger than A4 with its own text is no longer read from its picture).
  * 30: #3412 (a workbook's formula that saved no result keeps its cell's number
- * format).
+ * format). 31: #3657 (a Markdown, RTF or HTML file with no headings numbers its
+ * paragraphs, so a quote's Location names them).
  */
-export const PROCESSING_VERSION = 30;
+export const PROCESSING_VERSION = 31;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -146,19 +147,22 @@ export const PROCESSING_VERSION = 30;
  * `SCAN_CURRENT_SINCE` reads again (#3289). Version 30 only workbooks', whose
  * formulas that saved no result keep their cells' number formats; a workbook
  * read before keeps showing them plainly until it is next read, so none is
- * read again for it (#3412).
+ * read again for it (#3412). Version 31 Markdown, RTF and HTML files': one
+ * with no headings numbers its paragraphs in its Units' anchors, so a new
+ * Citation of it names its paragraph; its text and Passages come out as they
+ * were, and a Citation made before keeps the whole file as its Location (#3657).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
   pdf: 27,
   text: 5,
-  markdown: 5,
+  markdown: 31,
   docx: 27,
   pptx: 27,
   xlsx: 28,
   csv: 28,
   image: 22,
-  rtf: 22,
-  html: 22,
+  rtf: 31,
+  html: 31,
   web: 28,
   transcript: 7,
 };

@@ -19,7 +19,7 @@ import {
 } from "../../../core/api";
 import { readChart } from "../../../shared/charts";
 import { citationSubject } from "../../../shared/citations";
-import { FootnoteNumbering } from "../../../shared/footnoteNumbers";
+import { FootnoteNumbering, type MarkRun, sharedMarkOf } from "../../../shared/footnoteNumbers";
 import { translate } from "../../../shared/i18n";
 import { readProposalAttribute } from "../../../shared/proposals";
 import { type SourceContext, sourceText } from "../../../shared/sources";
@@ -58,27 +58,35 @@ export function noteNumbers(citations: readonly Cited[], context: SourceContext)
 }
 
 /**
- * The Citations (by their place in `citationsIn`) side by side with the one before them, nothing
- * but spaces between, that have its number: one marker stands for them all (#3654), as the Note
- * shows one chip.
+ * The Citations (by their place in `citationsIn`) whose number an earlier one in their run of
+ * Citations side by side already shows: one marker stands for them all (#3654), as the Note
+ * shows each number once in such a run (`sharedMarkOf`).
  */
 export function besideRepeats(fragment: Fragment, numbers: readonly number[]): Set<number> {
   const repeats = new Set<number>();
   let index = 0;
+  /** One inline of a run, with its place among the Citations when it is one. */
+  type Piece = { node: ProseMirrorNode; citation: number | null };
+  const shown: MarkRun<Piece> = {
+    noteOf: ({ citation }) => {
+      const number = citation === null ? undefined : numbers[citation];
+      return number === undefined ? null : String(number);
+    },
+    isCitation: ({ citation }) => citation !== null,
+    isSpace: ({ node }) => node.isText && (node.text ?? "").trim() === "",
+  };
   // A run of inline content: a text block's, or the copy's own when it is part of one paragraph.
   const run = (content: Fragment) => {
-    let previous: number | null = null;
+    const pieces: Piece[] = [];
     content.forEach((child) => {
-      if (child.type.name === CITATION_NODE) {
-        const number = numbers[index] ?? null;
-        if (number !== null && number === previous) repeats.add(index);
-        previous = number;
-        index++;
-        return;
+      const citation = child.type.name === CITATION_NODE ? index++ : null;
+      pieces.push({ node: child, citation });
+      if (citation === null && !child.isInline) block(child);
+    });
+    pieces.forEach((piece, at) => {
+      if (piece.citation !== null && sharedMarkOf(pieces, at, shown) !== null) {
+        repeats.add(piece.citation);
       }
-      if (child.isText && (child.text ?? "").trim() === "") return;
-      previous = null;
-      if (!child.isInline) block(child);
     });
   };
   const block = (node: ProseMirrorNode) => {

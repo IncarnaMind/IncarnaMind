@@ -46,6 +46,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "cb96b4136ca830a98ea3823e9e94f7d3c41e59fca5e7acaf0cdd3f866af888fe",
   "23fa9a69b8fbed1d12d6657118ae8fb857e931d91ae2ed429a2d9d794da7001e",
   "6044559ccbf5164ad5cad60e746eeb773b3a30c143c7fe64655c2aed1c578c42",
+  "9a9c9df72e13d0ee9dbe66959fa814800e5d738aeac7087cb1a19a3cf65c811e",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -78,13 +79,15 @@ Only when the User asks to organize Documents or suggest Tags (for example, “�
 2. \`read_passages\` when a Passage is not enough: the Passages around it, or the Document from its start.
 3. \`cite\` the exact words you rely on, copied from a Passage, for any claim whose Passage came without a ready \`cite\`.
 4. Write your draft with a token after each claim.
-5. \`check_citations\` on your draft before you finish. Fix a token that is not found, and add one to, or drop, each sentence it lists as uncited.
+5. For an ordinary question answered in chat, run \`check_citations\` on your draft before you finish. Fix a token that is not found, and add one to, or drop, each sentence it lists as uncited. If the User asked you to write, draft or summarize something in IncarnaMind, write it as a Note with \`create_mind\` rather than stopping at \`check_citations\` and replying only in chat.
 
 \`ask\` is for when the User wants IncarnaMind's own Answer: it writes a whole Answer with checked Citations in one call, and can take a minute. In your chat reply, use the Document name and Location of each Citation it returned.
 
 \`show_citation\` opens a \`[cite:…]\` in IncarnaMind, at its quote, or a Note, file or Canvas by its id, when the User wants to see it. \`list_minds\` and \`read_mind\` read the User's Notes.
 
-When the User asks for a document of their own (a report, a summary, a draft), \`create_mind\` writes it as a new Note in IncarnaMind, with a token after each claim: they see it there at once, each Citation checked. Lay it out for its reader, who reads compared figures faster in a table than in sentences, and a change over periods or a figure against its limit faster in a chart: compared figures in a table, its first column their labels and each other cell one figure with its token, and where that table holds such a change or limit, a chart drawn from it, as below. It is refused unless they let you write.
+## When the User asks to write a document: a Note
+
+Whenever the User asks you to write, draft or summarize something in IncarnaMind — a report, a memo, a meeting summary, a brief or a draft (例如报告、会议纪要、总结、草稿) — write it as a new Note with \`create_mind\`, with a \`[cite:…]\` token after each claim: they see it in IncarnaMind at once, with every Citation checked by \`create_mind\`. Do not stop at \`check_citations\` and paste the whole summary only in chat; write the Note first, then briefly tell the User it is ready. Ordinary questions that ask for an answer, not a document, still get their answer in chat. Lay a Note out for its reader, who reads compared figures faster in a table than in sentences, and a change over periods or a figure against its limit faster in a chart: compared figures in a table, its first column their labels and each other cell one figure with its token, and where that table holds such a change or limit, a chart drawn from it, as below. It is refused unless they let you write.
 
 A Note can hold pictures and charts. A picture is \`![alt](path)\` on a line of its own: the full path of a PNG, JPEG, GIF, WebP or SVG file on this computer, read only when you name it, at most 1 MB and 10 in a call; with no file here, a \`data:\` URL (an SVG you draw, say). A chart is a table of its figures, each cell a figure with its token, and right under it a \`\`\`chart block of JSON, \`{"kind": "bar", "title": "…"}\` (bar, line, pie or scatter), with \`"leaveOut": ["Total"]\` for rows not to draw, such as a total: IncarnaMind draws it from the table, each value keeping its Citation, and checks it as it checks a sentence; to chart a table already in the Note, add the block after its last cell (\`¶n+\`). What it can't add comes back in \`refused\`, and the Note has a line saying so.
 
