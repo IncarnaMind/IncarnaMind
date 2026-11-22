@@ -49,12 +49,18 @@ export function useAgentsRead(): AgentsRead {
   if (!switchShown && settings && !settings.enabled && settings.pairings.length > 0) {
     setSwitchShown(true);
   }
+  // A failed read stays said until one succeeds: the page doesn't go blank while Try again waits.
   const read = useCallback(() => {
-    setFailed(false);
-    core.getAgents().then(setSettings, (failure: unknown) => {
-      console.error("Couldn't read the agents' settings for Settings › AI:", failure);
-      setFailed(true);
-    });
+    core.getAgents().then(
+      (next) => {
+        setSettings(next);
+        setFailed(false);
+      },
+      (failure: unknown) => {
+        console.error("Couldn't read the agents' settings for Settings › AI:", failure);
+        setFailed(true);
+      },
+    );
   }, []);
   useEffect(() => {
     read();

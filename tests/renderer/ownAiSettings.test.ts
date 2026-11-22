@@ -67,6 +67,11 @@ const {
     retry(): void;
   }>;
 } = await import(yourAiPath);
+const {
+  useAgentsRead,
+}: {
+  useAgentsRead(): { settings: AgentSettings | null; failed: boolean; retry(): void };
+} = await import(yourAiPath);
 const useModelPath = "../../src/renderer/src/components/ai/UseModelRow.tsx";
 const { UseModelRow }: { UseModelRow: ComponentType } = await import(useModelPath);
 const menuPath = "../../src/renderer/src/components/AddDocumentsMenu.tsx";
@@ -377,6 +382,39 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     const again = part("agents-read-failed")?.querySelector("button");
     await act(async () => (again as unknown as { click(): void }).click());
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failed read stays said while Try again waits, so the page keeps showing, and goes once one succeeds", async () => {
+    let answer: (settings: AgentSettings) => void = () => undefined;
+    const reads = [
+      () => Promise.reject(new Error("The agents' settings couldn't be read.")),
+      () =>
+        new Promise<AgentSettings>((resolve) => {
+          answer = resolve;
+        }),
+    ];
+    const original = bridge.getAgents;
+    Object.assign(bridge, { getAgents: () => (reads.shift() ?? reads[0])?.() });
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      let read = { settings: null, failed: false, retry: () => undefined } as ReturnType<
+        typeof useAgentsRead
+      >;
+      const Probe = () => {
+        read = useAgentsRead();
+        return null;
+      };
+      await shown(createElement(Probe));
+      expect(read.failed).toBe(true);
+      await act(async () => read.retry());
+      expect(read.failed).toBe(true);
+      await act(async () => answer(agents([CLAUDE_CODE])));
+      expect(read.failed).toBe(false);
+      expect(read.settings?.pairings).toHaveLength(1);
+    } finally {
+      Object.assign(bridge, { getAgents: original });
+      error.mockRestore();
+    }
   });
 
   test("in Chinese, in Chinese words", async () => {
