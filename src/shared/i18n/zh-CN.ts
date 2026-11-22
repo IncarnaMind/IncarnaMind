@@ -7461,6 +7461,7 @@ export const zhCN = {
   "meetings.command.audioWhileRecording": "暂停或停止录制后，才能删除音频",
   "transcript.action.menu": "这句的操作",
   "transcript.action.menu.line": "这句的操作：{time}，{text}",
+  "transcript.action.selection": "将选中的原话加入待办",
   "transcript.action.add": "加入待办事项",
   "transcript.action.already": "待办事项中已有这句",
   "transcript.addToNote": "加入笔记",

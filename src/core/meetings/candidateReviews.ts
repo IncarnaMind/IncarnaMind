@@ -1,7 +1,7 @@
 import { translate } from "../../shared/i18n";
 import { partsOf, shownSpeaker, speakerOf } from "../../shared/speakers";
 import { transcriptCueLines } from "../../shared/units";
-import type { Document, Meeting, MeetingSummarySource } from "../api";
+import type { Document, Meeting, MeetingSummarySource, TextRange } from "../api";
 import type { createDocuments } from "../documents";
 import { hashBytes } from "../documents/files";
 import { isRecord, NotFoundError } from "../errors";
@@ -255,7 +255,12 @@ export function createMeetingCandidateReview({
     },
     get: cachedSummaryCandidates,
     review: reviewMeetingSummaryCandidates,
-    async addTranscriptAction(meetingId: string, documentId: string, source: MeetingSummarySource) {
+    async addTranscriptAction(
+      meetingId: string,
+      documentId: string,
+      source: MeetingSummarySource,
+      excerpt?: TextRange,
+    ) {
       if (!isRecord(source)) throw summaryCandidateUnavailable();
       const checked = await currentSummaryCues(meetingId, documentId);
       const doc = checked && meetingSummaryDocument(meetingId, documentId);
@@ -266,7 +271,7 @@ export function createMeetingCandidateReview({
         meetings.get(meetingId).transcript?.state !== "saved"
       )
         throw summaryCandidateUnavailable();
-      const line = transcriptActionLine(checked.cues, doc.speakers, source);
+      const line = transcriptActionLine(checked.cues, doc.speakers, source, excerpt);
       if (!line) throw summaryCandidateUnavailable();
       return meetings.addTranscriptAction(meetingId, documentId, checked.contentHash, line);
     },

@@ -7907,6 +7907,7 @@ export const en = {
   "meetings.command.audioWhileRecording": "Pause or stop the recording to delete its audio",
   "transcript.action.menu": "Line actions",
   "transcript.action.menu.line": "Line actions for {time}, {text}",
+  "transcript.action.selection": "Add selected words to action items",
   "transcript.action.add": "Add to action items",
   "transcript.action.already": "Already in action items",
   "transcript.addToNote": "Add to note",
