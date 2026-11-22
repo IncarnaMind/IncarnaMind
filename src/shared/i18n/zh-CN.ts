@@ -3848,8 +3848,10 @@ export const zhCN = {
   "privacy.skills.body":
     "技能脚本在这台电脑上运行，可发送它读取的内容。每个脚本运行前都会询问，除非你设为“始终允许”。",
   "privacy.screen.title": "共享屏幕",
-  "privacy.screen.body":
-    "选好窗口后，IncarnaMind 会在本机识别文字。会议中提问时，这些文字可能发给你选的模型。如果问题需要看图，且模型支持图片，还可能发送一张窗口截图。停止录音后，IncarnaMind 会删除截取的画面和识别出的文字。",
+  "privacy.screen.sendsText": "你提问时，屏幕文字可能发给所选模型。",
+  "privacy.screen.sendsPicture": "问题需要看图时，还可能发送一张画面。",
+  "privacy.screen.stop": "停止会议录音后，截取的画面和识别出的文字会被删除。",
+  "privacy.screen.body": "只在本机读取你选择的窗口。",
   "privacy.aiUse.title": "AI 使用记录",
   "privacy.aiUse.body": "记录 AI 写了什么、核对了什么。",
   "privacy.aiUse.private":
@@ -6627,8 +6629,8 @@ export const zhCN = {
   "approvals.thirdParty.task.imported": "会先问你：这个任务读过含有导入文字的笔记。",
   "approvals.thirdParty.task.webPage": "会先问你：这个任务读过网页。",
   "approvals.thirdParty.task.checkedDocument": "会先问你：这个任务读过正在核对的文档。",
-  "approvals.thirdParty.mind.sharedScreen": "这个 Mind 里有来自共享屏幕的文字，所以会先问你。",
-  "approvals.thirdParty.mind.transcript": "这个 Mind 里有来自会议转写稿的文字，所以会先问你。",
+  "approvals.thirdParty.mind.sharedScreen": "这篇笔记里有来自共享屏幕的文字，所以会先问你。",
+  "approvals.thirdParty.mind.transcript": "这篇笔记里有来自会议转录稿的文字，所以会先问你。",
   "approvals.thirdParty.mind.imported": "会先问你：这篇笔记里有导入的文字。",
   "approvals.thirdParty.mind.webPage": "会先问你：这篇笔记里有来自网页的文字。",
   "approvals.thirdParty.mind.checkedDocument": "会先问你：这篇笔记里有正在核对的文档中的文字。",
@@ -6971,8 +6973,7 @@ export const zhCN = {
   "meetings.transcript.retry": "重试",
   "meetings.transcript.save": "保存",
   "meetings.settings.pictureLimit": "每场会议的图片上限",
-  "meetings.settings.pictureLimitBody":
-    "针对画面提问时，最多可发送的截图数。设为 0 表示只使用文字。",
+  "meetings.settings.pictureLimitBody": "设为 0 时只发送文字。",
   "meetings.screen.use.text": "读取了共享屏幕上的文字",
   "meetings.screen.use.picture": "看了共享屏幕",
   "meetings.screen.use.no-vision": "这次用了屏幕文字。你选的模型不支持图片。",
@@ -7211,8 +7212,7 @@ export const zhCN = {
   "meetings.settings.whatBoth": "你的麦克风和其他人（电脑声音）。",
   "meetings.settings.whatMe": "只录制你的麦克风。",
   "meetings.settings.screen": "会议开始时询问是否读取共享屏幕",
-  "meetings.settings.screenBody":
-    "有人共享窗口时，IncarnaMind 可以在这台电脑上识别其中的文字，在会议中回答你的问题；会议结束后删除。",
+  "meetings.settings.screenBody": "每次开会时，选择要读取的窗口。",
   "meetings.settings.keepAudio": "保留会议音频",
   "meetings.settings.keepAudioOff": "会议结束一天后删除音频。",
   "meetings.settings.keepAudioOn": "会议音频一直保留，直到你删除。",

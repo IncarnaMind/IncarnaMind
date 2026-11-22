@@ -7,7 +7,7 @@ export const en = {
   "meetings.start.noticeText.screen":
     "If I share a window with my AI during the call, it can receive text or a picture from that window when I ask a question. IncarnaMind deletes the captured frames and screen text when the meeting ends.",
   "consent.data.chat.passages":
-    "Matching Document Passages, and during a meeting, the latest transcript and text from the window you choose to share",
+    "Matching document passages, the live transcript, and text from your selected meeting window",
   "library.title": "Library",
   "library.open.keywords": "documents all files",
   "library.open": "Open the Library",
@@ -4046,8 +4046,10 @@ export const en = {
   "privacy.skills.body":
     "Skill scripts run here and can send what they read. Each asks before it runs, unless you set it to Always allow.",
   "privacy.screen.title": "Shared screen",
-  "privacy.screen.body":
-    "When you choose a window, IncarnaMind reads its text on this computer. Asking during the call can send that text to your selected model. A visual question can also send one picture if the model supports images. Stopping the meeting deletes the frames and screen text from IncarnaMind.",
+  "privacy.screen.sendsText": "Questions can send screen text to your selected model.",
+  "privacy.screen.sendsPicture": "A visual question can also send one picture.",
+  "privacy.screen.stop": "Stopping the meeting deletes captured frames and screen text.",
+  "privacy.screen.body": "Only your chosen window is read, on this computer.",
   "privacy.aiUse.title": "AI use record",
   "privacy.aiUse.body": "Records what AI wrote and checked.",
   "privacy.aiUse.private":
@@ -7010,9 +7012,9 @@ export const en = {
   "approvals.thirdParty.task.webPage": "Asks first: this Task read web pages.",
   "approvals.thirdParty.task.checkedDocument": "Asks first: this Task read the checked document.",
   "approvals.thirdParty.mind.sharedScreen":
-    "This Mind contains text from a shared screen, so it asks you first.",
+    "This note has text from a shared screen, so IncarnaMind asks you first.",
   "approvals.thirdParty.mind.transcript":
-    "This Mind contains text from a meeting transcript, so it asks you first.",
+    "This note has text from a meeting transcript, so IncarnaMind asks you first.",
   "approvals.thirdParty.mind.imported": "Asks first: this note has imported text.",
   "approvals.thirdParty.mind.webPage": "Asks first: this note has text from a web page.",
   "approvals.thirdParty.mind.checkedDocument":
@@ -7387,8 +7389,7 @@ export const en = {
   "meetings.transcript.retry": "Try again",
   "meetings.transcript.save": "Save it",
   "meetings.settings.pictureLimit": "Pictures per meeting",
-  "meetings.settings.pictureLimitBody":
-    "Maximum pictures to send for visual questions. Set to 0 to use only text.",
+  "meetings.settings.pictureLimitBody": "Set to zero to send only text.",
   "meetings.screen.use.text": "Read the text on the shared screen",
   "meetings.screen.use.picture": "Looked at the shared screen",
   "meetings.screen.use.no-vision": "Used the screen text. Your model cannot read pictures.",
@@ -7645,8 +7646,7 @@ export const en = {
   "meetings.settings.whatBoth": "Your microphone and the other people (the computer’s sound).",
   "meetings.settings.whatMe": "Only your microphone.",
   "meetings.settings.screen": "Ask to read the shared screen when a meeting starts",
-  "meetings.settings.screenBody":
-    "When someone shares a window, IncarnaMind can read its text on this computer to answer your questions during the call, and deletes it when the meeting stops.",
+  "meetings.settings.screenBody": "Choose a window to read during each meeting.",
   "meetings.settings.keepAudio": "Keep a meeting’s audio",
   "meetings.settings.keepAudioOff": "A meeting’s audio is deleted a day after it ends.",
   "meetings.settings.keepAudioOn": "A meeting’s audio stays until you delete it.",

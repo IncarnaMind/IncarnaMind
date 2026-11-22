@@ -830,11 +830,10 @@ export interface ScreenSession {
 /** Why a window couldn't be captured (see `ScreenCapture.start`). */
 export class ScreenCaptureError extends Error {
   override name = "ScreenCaptureError";
-  constructor(
-    readonly reason: "whole-screen" | "denied" | "closed",
-    message: string,
-  ) {
+  readonly reason: "whole-screen" | "denied" | "closed";
+  constructor(reason: "whole-screen" | "denied" | "closed", message: string) {
     super(message);
+    this.reason = reason;
   }
 }
 

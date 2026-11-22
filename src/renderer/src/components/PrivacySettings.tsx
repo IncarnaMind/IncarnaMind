@@ -195,7 +195,14 @@ export function PrivacySettings() {
       {/* What a Meeting reads from a shared window, and where it goes (ADR-0031). */}
       <div data-testid="shared-screen-note" role="note">
         <SettingsSection title={t("privacy.screen.title")}>
-          <SettingsHelp>{t("privacy.screen.body")}</SettingsHelp>
+          <SettingsHelp>
+            {[
+              t("privacy.screen.body"),
+              t("privacy.screen.sendsText"),
+              t("privacy.screen.sendsPicture"),
+              t("privacy.screen.stop"),
+            ].join(" ")}
+          </SettingsHelp>
         </SettingsSection>
       </div>
 
