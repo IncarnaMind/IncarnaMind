@@ -438,7 +438,9 @@ test("with no model, a Document open is what ⌘J and a question typed in ⌘K a
     const request = `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`;
 
     // The panel stays out of sight (#3612): ⌘J asks Claude Code about the Document, and the User
-    // types the question there; a question typed in ⌘K goes with the Document.
+    // types the question there; a question typed in ⌘K goes with the Document. The panel folded
+    // says the window knows the User has only their own AI, which ⌘J waits on.
+    await expect(window.getByTestId("assistant")).toBeHidden();
     await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(named);
