@@ -5,6 +5,7 @@ import {
   coreOf,
   createDataFolder,
   dismissChatSetup,
+  firstTranscriptLine,
   focusSettled,
   launchApp,
   openPageMenu,
@@ -13,6 +14,7 @@ import {
   removeDataFolder,
   reviewedWords,
   runCommand,
+  setLanguage,
   setWindowSize,
   slideSelect,
   startRecording,
@@ -276,5 +278,70 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
     });
     await retained.evaluate((held) => held.dispose());
     await retained.dispose();
+  }
+});
+
+test("a zoomed live Transcript shows spoken lines above assistant setup and the divider still resizes", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    transcriber: { live: true, lines: ["请检查这次会议的预算。", "我会在周五把报告发给大家。"] },
+    computerSound: "silent",
+  });
+  try {
+    await dismissChatSetup(window);
+    await setLanguage(window, "zh-CN");
+    await setWindowSize(app, window, 900, 660);
+    await (await app.browserWindow(window)).evaluate((win) => win.webContents.setZoomFactor(1.25));
+    const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+    await firstTranscriptLine(window);
+    await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
+    const transcript = window
+      .getByTestId("meeting-note-transcript")
+      .getByTestId("viewer-transcript");
+    await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", "bottom");
+    await expect
+      .poll(
+        () =>
+          transcript.evaluate((page) => {
+            const clip = page.getBoundingClientRect();
+            const line = page.querySelector(".transcript-sentence");
+            if (!line || clip.height < 4 * Number.parseFloat(getComputedStyle(line).lineHeight))
+              return 0;
+            const rows = new Set<number>();
+            for (const sentence of page.querySelectorAll(".transcript-sentence")) {
+              const range = document.createRange();
+              range.selectNodeContents(sentence);
+              for (const rect of range.getClientRects()) {
+                if (rect.height > 0 && rect.top >= clip.top && rect.bottom <= clip.bottom)
+                  rows.add(rect.top);
+              }
+            }
+            return rows.size;
+          }),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
+    const words = transcript.locator(".transcript-text").first();
+    const readingWidth = await words.evaluate((text) => text.getBoundingClientRect().width);
+    const sheetWidth = await transcript
+      .locator("article")
+      .evaluate((sheet) => sheet.getBoundingClientRect().width);
+    expect(readingWidth).toBeGreaterThan(sheetWidth / 2);
+    const divider = window.getByTestId("assistant-resize");
+    const height = Number(await divider.getAttribute("aria-valuenow"));
+    await divider.press("ArrowUp");
+    await expect(divider).toHaveAttribute("aria-valuenow", String(height + 10));
+    const bridge = await coreOf(window);
+    await bridge.evaluate((api) =>
+      api.changeLayout("main", { type: "assistant", place: { height: 290, heightChosen: true } }),
+    );
+    await expect(divider).toHaveAttribute("aria-valuenow", "290");
+    await divider.press("ArrowUp");
+    await expect(divider).toHaveAttribute("aria-valuenow", "300");
+    await divider.press("ArrowDown");
+    await expect(divider).toHaveAttribute("aria-valuenow", "290");
+    await divider.dblclick();
+    await expect(divider).toHaveAttribute("aria-valuenow", String(height));
+  } finally {
+    await app.close();
   }
 });
