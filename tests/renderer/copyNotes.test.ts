@@ -394,14 +394,25 @@ describe("Citations side by side with one note (#3654)", () => {
     );
   });
 
-  test("spaces between them still make one marker; a Citation of another place parts them", () => {
+  test("spaces or a Citation of another place between them still make one marker, as the Note shows each number once in the run", () => {
     expect(
       copiedText(
-        fragmentOf(paragraph(text("A"), cite(4), text(" "), cite(4), cite(2), cite(4))),
+        fragmentOf(
+          paragraph(
+            text("A"),
+            cite(4),
+            text(" "),
+            cite(4),
+            cite(2),
+            cite(4),
+            text(" and"),
+            cite(4),
+          ),
+        ),
         schema,
         context,
       ),
-    ).toBe("A[1] [2][1]\n\nSources\n[1] Tides, p. 4\n[2] Tides, p. 2");
+    ).toBe("A[1] [2] and[1]\n\nSources\n[1] Tides, p. 4\n[2] Tides, p. 2");
   });
 
   test("a copy of part of one paragraph writes one marker for them too", () => {
