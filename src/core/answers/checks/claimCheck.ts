@@ -15,6 +15,7 @@
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { workingAddsUp } from "../../../shared/plainFigures";
+import { isClaim } from "../../../shared/sentences";
 import type { AnalysisRuntime } from "../../adapters";
 import type {
   AnswerAnalysis,
@@ -210,7 +211,10 @@ const CITE_FIRST =
 const MARKERS_READ = 8;
 
 /** The sentence as the one part of its result: what a sentence's mark and its card are made from. */
-const asWhole = (claim: string, { more, ...result }: Judged): ClaimCheckResult =>
+const asWhole = (
+  claim: string,
+  { more, retryRefusal: _retry, ...result }: Judged,
+): ClaimCheckResult =>
   claim.length === 0
     ? { ...result, parts: [] }
     : resultFromParts([
@@ -218,11 +222,16 @@ const asWhole = (claim: string, { more, ...result }: Judged): ClaimCheckResult =
       ]);
 
 /** A sentence's result, with the quotes that decide it beside the first, which its card shows too. */
-type Judged = ClaimCheckResult & { more?: readonly Citation[] };
+type Judged = ClaimCheckResult & { more?: readonly Citation[]; retryRefusal?: true };
 
 export function createClaimCheck(deps: ClaimCheckDependencies) {
   return async (request: ClaimCheckRequest): Promise<ClaimCheckResult> => {
-    const result = await judged(deps, request);
+    let result = await judged(deps, request);
+    // A provider can refuse one request in a concurrent Note check with a passing 400 (#3339):
+    // try the check once more from a clean Run before leaving the sentence Not checked.
+    if (result.retryRefusal && !request.signal.aborted) {
+      result = await judged(deps, request);
+    }
     const explained = await explainedIn(result, {
       language: deps.language(),
       model: request.model,
@@ -410,7 +419,12 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
     else if (event.type === "finished") finished = true;
   }
   if (signal.aborted) return notChecked("stopped");
-  if (failed) return failedCheck(failed);
+  if (failed) {
+    return {
+      ...failedCheck(failed),
+      ...(failed.kind === "refused" && { retryRefusal: true as const }),
+    };
+  }
   if (!finished || reply.trim() === "") return notChecked("empty");
   // A model may write its verdict beside `cite` and only its sentence after: the turns from that
   // verdict on are read as one. A turn after it that declines takes the verdict back.
@@ -501,8 +515,16 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   ): ClaimCorrection | null {
     const quoted = marker === null ? null : session.finalCitation(marker);
     const source = quoted?.check === "found" ? quoted : quotes[0];
-    return source && claim.includes(from) && from !== wording
-      ? { from, choices: [{ wording, evidence: source }] }
-      : null;
+    if (!source || !claim.includes(from) || from === wording) return null;
+    // Never paste a raw pipe-delimited table row into a prose sentence, nor replace an entire
+    // claim sentence (which drops its subject when the model pastes a shorter quote, #3339).
+    if (wording.includes("|") && !from.includes("|") && !claim.includes("|")) return null;
+    const stripEnd = (value: string) =>
+      value
+        .trim()
+        .replace(/[.!?。！？…]+$/u, "")
+        .trim();
+    if (isClaim(claim) && stripEnd(from) === stripEnd(claim)) return null;
+    return { from, choices: [{ wording, evidence: source }] };
   }
 }

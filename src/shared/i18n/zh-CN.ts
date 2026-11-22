@@ -1545,6 +1545,7 @@ export const zhCN = {
   "claim.reason.plan-limit": "已达到套餐的用量上限。",
   "claim.reason.out-of-credit": "模型服务提示余额不足。",
   "claim.reason.failed": "无法核对：{detail}",
+  "claim.reason.failed.unknown": "无法完成核对，请稍后重新核对。",
   "claim.reason.timed-out": "模型在 {detail} 秒内没有回复。",
   "claim.reason.stopped": "核对前已停止。",
   "claim.reason.answer-failed": "回答出错停止，这句话尚未核对。",

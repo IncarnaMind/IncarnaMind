@@ -229,6 +229,27 @@ const BARE_FORBIDDEN = /^request not allowed\.?$/i;
 const TOO_LONG =
   /context[_ ]length|prompt is too long|maximum context|exceeds? the (?:maximum )?(?:number of )?(?:context|tokens)|exceeds? (?:the )?max(?:imum)? length|input token count|token limit|too many tokens/i;
 
+const BARE_BAD_REQUEST = /^(?:bad request|http\s*4\d\d)\.?$/i;
+
+/**
+ * The provider's own explanation from a JSON error body when the SDK's error message is empty or
+ * only the HTTP status phrase ("Bad Request"); falls back to `message`.
+ */
+function errorDetailOf(message: string, body: string | undefined): string {
+  const trimmed = message.trim();
+  if (trimmed !== "" && !BARE_BAD_REQUEST.test(trimmed)) return message;
+  try {
+    const fields: unknown = body ? JSON.parse(body) : undefined;
+    const error = isRecord(fields) && isRecord(fields.error) ? fields.error : fields;
+    if (isRecord(error) && typeof error.message === "string" && error.message.trim() !== "") {
+      return error.message.trim();
+    }
+  } catch {
+    // A body that isn't JSON has no structured error message to read.
+  }
+  return message;
+}
+
 /**
  * What a provider says of a failure, for telling its kind: its message and the code and type of
  * its error, not its whole body, which some servers fill with the request they were sent.
@@ -346,7 +367,12 @@ function sortedError(cause: unknown): ProviderError {
     if (status === 429) return { kind: "rate-limit", message };
     // The provider answered, but not in a form that can be read.
     if (status >= 200 && status < 300) return { kind: "no-answer", message };
-    if (status >= 400 && status < 500) return { kind: "refused", message };
+    if (status >= 400 && status < 500) {
+      return {
+        kind: "refused",
+        message: streamed ? message : errorDetailOf(message, cause.responseBody),
+      };
+    }
     if (status >= 500) return { kind: "provider", message };
     return { kind: "unknown", message };
   }

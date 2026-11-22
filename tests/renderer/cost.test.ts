@@ -427,9 +427,19 @@ describe("A whole read stopped at the most it may spend", () => {
     },
   );
 
-  test("another reason says its detail as it is", () => {
+  test("another reason says its detail as it is, and blank failures still explain why (#3339)", () => {
     expect(reasonText(t("en"), "en", "failed", "The service failed.")).toBe(
       "The check failed: The service failed.",
     );
+    expect(reasonText(t("en"), "en", "failed", "Content Exists Risk")).toBe(
+      "The check failed: Content Exists Risk",
+    );
+    expect(reasonText(t("zh-CN"), "zh-CN", "failed", "Content Exists Risk")).toBe(
+      "无法核对：Content Exists Risk",
+    );
+    expect(reasonText(t("en"), "en", "failed", null)).toBe(
+      "The check couldn’t be completed. Check again in a moment.",
+    );
+    expect(reasonText(t("zh-CN"), "zh-CN", "failed", "  ")).toBe("无法完成核对，请稍后重新核对。");
   });
 });
