@@ -23,6 +23,7 @@ import {
 } from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
+import { REPO_ROOT } from "../helpers/skills";
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -420,5 +421,13 @@ describe("a disconnected agent's rows", () => {
     restart();
     bothOwnedBy(stays);
     expect(await core.listAgentActivity(stays)).toHaveLength(1);
+  });
+});
+
+describe("the Skill's file in the repository (#3644)", () => {
+  // protects=skills/incarnamind/SKILL.md, where a directory of Skills reads it, is the text IncarnaMind installs; fails_when=the Skill changes and the file in the repository keeps an older text
+  it("is the text IncarnaMind installs", async () => {
+    const file = await readFile(join(REPO_ROOT, "skills", "incarnamind", "SKILL.md"), "utf8");
+    expect(file).toBe(SKILL_MARKDOWN);
   });
 });
