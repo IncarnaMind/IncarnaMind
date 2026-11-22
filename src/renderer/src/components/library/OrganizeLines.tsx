@@ -1,18 +1,23 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
+import type { DocumentGroupAssignment, LibraryGroup, OrganizeReview } from "../../../../core/api";
+import { type AgentAsked, organizeSeen, useAskedAgent, useOrganizeAsked } from "../../askedAgent";
 import { estimateText } from "../../cost";
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import {
   acceptEstimate,
+  confirmReview,
   dismissEstimate,
   dismissFailed,
   dismissTaggingFailed,
   LIBRARY_UNDO_PLACE,
   openReview,
+  refreshReview,
   retryFailed,
   stopOrganizing,
   useOrganizeReview,
 } from "../../organizeReview";
+import { reviewLayout, waitsToConfirm, willMoveText } from "../../organizeReviewView";
 import { useAppStore } from "../../store";
 import { actionParts, MetaLine } from "../MetaLine";
 import { ProblemLine } from "../ProblemLine";
@@ -34,11 +39,13 @@ function Line({
   testId,
   parts,
   role = "status",
+  state,
   children,
 }: {
   testId: string;
   parts: readonly ReactNode[];
   role?: "status" | "alert";
+  state?: string;
   children?: ReactNode;
 }) {
   return (
@@ -46,6 +53,7 @@ function Line({
       as="div"
       role={role}
       data-testid={testId}
+      data-state={state}
       parts={parts}
       className="mt-2 min-h-6 items-center text-[13px] leading-5 text-ink-secondary"
     >
@@ -54,16 +62,75 @@ function Line({
   );
 }
 
+const NO_GROUPS: readonly LibraryGroup[] = [];
+const NO_ASSIGNMENTS: readonly DocumentGroupAssignment[] = [];
+const report = (error: unknown) => useAppStore.getState().reportError(error);
+
+/** The agent's Suggestions wait with something to confirm: a Folder or a Tag. */
+const fromAgent = (review: OrganizeReview, asked: AgentAsked) =>
+  review.items.some(
+    (item) => item.origin === "agent" && item.agent === asked.agent.name && waitsToConfirm(item),
+  );
+
+/**
+ * An Organize asked of the User's own AI (#3610): that it was asked and is at work, in the words a
+ * check asked of it says; once its Suggestions land, what Confirm will do, with Review and Confirm
+ * all, which is the Review's own Confirm; or that it had nothing to suggest.
+ */
+function AskedLine() {
+  const t = useT();
+  const organize = useOrganizeAsked();
+  const asked = useAskedAgent(organize?.for ?? null);
+  const review = useOrganizeReview((state) => state.review);
+  const groups = useAppStore((state) => state.library?.groups ?? NO_GROUPS);
+  const assignments = useAppStore((state) => state.library?.assignments ?? NO_ASSIGNMENTS);
+  const landed = organize?.state === "landed";
+  useEffect(() => {
+    if (landed && review === null) void refreshReview().catch(report);
+  }, [landed, review]);
+  if (!organize) return null;
+  const line = (parts: readonly ReactNode[]) => (
+    <Line testId="organize-asked" state={organize.state} parts={parts} />
+  );
+  if (asked) return line([asked.words]);
+  if (!review) return null;
+  const agent = organize.agent.name;
+  if (!fromAgent(review, organize)) return line([t("organizeReview.nothingFrom", { agent })]);
+  const what = willMoveText(reviewLayout(review, groups, assignments), t);
+  return line([
+    t("organizeReview.suggestedBy", { agent, what }),
+    ...actionParts([
+      <Action
+        key="review"
+        label={t("library.review")}
+        testId="organize-asked-review"
+        onClick={openReview}
+      />,
+      <Action
+        key="confirm"
+        label={t("organizeReview.confirmAll")}
+        testId="organize-asked-confirm"
+        onClick={() => void confirmReview().then(organizeSeen, report)}
+      />,
+    ]),
+  ]);
+}
+
 /**
  * Organize's one state, said once at the Library's top (#1569): what it asks before it runs;
  * "Organizing 12 of 40…" with Stop while it runs; its cost first when that is over $1; after Stop,
  * that nothing moved; while Documents wait to be confirmed, how many with Review, in the update's
- * own words until the Review is first opened; and what Confirm or Discard did, with Undo.
+ * own words until the Review is first opened, or the User's own AI's until then (#3610); and what
+ * Confirm or Discard did, with Undo.
  */
 export function OrganizeLines() {
   const t = useT();
   const language = useLanguage();
   const run = useOrganizeReview((state) => state.run);
+  const organize = useOrganizeAsked();
+  const review = useOrganizeReview((state) => state.review);
+  const saidByAgent =
+    organize?.state === "landed" && review !== null && fromAgent(review, organize);
   const stopped = useOrganizeReview((state) => state.stopped);
   const stoppedTagging = useOrganizeReview((state) => state.stoppedTagging);
   const apart = useOrganizeReview((state) => state.apart);
@@ -163,7 +230,8 @@ export function OrganizeLines() {
               ]}
             />
           )}
-          {count > 0 && (
+          <AskedLine />
+          {count > 0 && !saidByAgent && (
             <Line
               testId="organize-waiting"
               parts={[
