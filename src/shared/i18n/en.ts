@@ -7903,6 +7903,13 @@ export const en = {
   "meetings.command.deleteAudio": "Delete audio",
   "meetings.command.keepAudio": "Keep audio",
   "meetings.command.audioKeptAlready": "This meeting’s audio is already kept",
+  "meetings.template.saveAs": "Save as meeting template…",
+  "meetings.template.reviewHeadings": "Review the section headings and give this template a name.",
+  "meetings.template.addHeadings":
+    "This write-up has no section headings yet. Enter the sections you want to reuse.",
+  "meetings.template.draftWhen": "Use these sections when writing up this kind of meeting.",
+  "meetings.template.sectionGuidance":
+    "Keep the sections in this order. Include a section when the meeting supports it and cite the words behind decisions and commitments.",
   "meetings.command.saveRecording": "Save recording…",
   "meetings.command.saveWhileRecording": "Stop the recording to save it",
   "meetings.recording.saveTitle": "Save recording",
@@ -9235,7 +9242,7 @@ export const en = {
     "I limited this question to these folders and documents in IncarnaMind: {items}. Look only there.",
   "agents.ask.request.item": "{name} ({idName}: {id})",
   "agents.ask.request.check":
-    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. If you didn’t write the note, read it with read_mind and check it yourself instead. Then tell me which sentences need a look.",
+    "My message is about my note {title} in IncarnaMind (mindId: {mindId}). Check every sentence of it against my Documents: use check_mind_yourself, then hand your results back with report_check. Then tell me which sentences need a look.",
   "agents.ask.verdict.unsupported": "has no support in my Documents",
   "agents.ask.verdict.contradicted": "is contradicted by my Documents",
   "agents.ask.verdict.not-found": "isn’t found in my Documents",

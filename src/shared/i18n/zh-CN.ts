@@ -7456,6 +7456,12 @@ export const zhCN = {
   "meetings.command.deleteAudio": "删除音频",
   "meetings.command.keepAudio": "保留音频",
   "meetings.command.audioKeptAlready": "这场会议的音频已保留",
+  "meetings.template.saveAs": "存为会议模板…",
+  "meetings.template.reviewHeadings": "核对要保留的小标题，再给模板起个名字。",
+  "meetings.template.addHeadings": "这份纪要还没有小标题。可以在下方填写想重复使用的章节。",
+  "meetings.template.draftWhen": "整理同类会议纪要时，使用以下章节。",
+  "meetings.template.sectionGuidance":
+    "按以下顺序整理。会上谈到的内容才写入对应章节，决定和承诺都要引用原话。",
   "meetings.command.saveRecording": "另存录音…",
   "meetings.command.saveWhileRecording": "停止录制后才能另存录音",
   "meetings.recording.saveTitle": "另存录音",
@@ -8676,7 +8682,7 @@ export const zhCN = {
     "我把这个问题限定在 IncarnaMind 的这些文件夹和文档里：{items}。只在这些范围内查找。",
   "agents.ask.request.item": "{name}（{idName}：{id}）",
   "agents.ask.request.check":
-    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。如果这篇笔记不是你写的，就用 read_mind 读取，自己核对。最后告诉我哪些句子需要留意。",
+    "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。请对照我的文档，逐句核对这篇笔记：先用 check_mind_yourself，再用 report_check 交回你的结果。最后告诉我哪些句子需要留意。",
   "agents.ask.verdict.unsupported": "没有依据",
   "agents.ask.verdict.contradicted": "与我的文档矛盾",
   "agents.ask.verdict.not-found": "在我的文档中找不到",

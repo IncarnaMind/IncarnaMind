@@ -6829,6 +6829,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     minds: () => minds.list(),
     keepRequest: (request) => agents.keepRequest(request),
+    askedToCheck: (pairingId, mindId) => agents.askedToCheck(pairingId, mindId),
     openLink: adapters.agents?.openLink ?? null,
     say: (key, params) => translate(settings.get().language, key, params),
     log: adapters.log ?? silentLogger,

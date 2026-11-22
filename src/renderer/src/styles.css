@@ -1476,6 +1476,7 @@
   /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
   .mind-menu-slot {
     position: absolute;
+    z-index: 11;
     top: 16px;
     right: 16px;
     display: flex;
@@ -8246,6 +8247,13 @@
     font-size: var(--text-meta);
     line-height: 16px;
     color: var(--color-ink-meta);
+  }
+
+  /* The recording bar reaches into the page controls' gutters in a narrow pane. */
+  @container mind (width < 808px) {
+    .meeting-bar {
+      top: 48px;
+    }
   }
 
   /* The margins narrow, from 56px and 48px to 40px each at 760px, with the measure kept at 680px. */

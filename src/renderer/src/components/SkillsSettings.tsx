@@ -16,6 +16,7 @@ import { showFileLabelKey } from "../fileInfo";
 import { useLanguage, useT } from "../i18n";
 import { savedFolderLabel } from "../outputFiles";
 import { openCodeSandboxHelp } from "../sandbox";
+import { useSettingsTarget } from "../settingsTarget";
 import {
   formatSize,
   pickSkill,
@@ -73,6 +74,7 @@ const NEW_SKILL: SkillDraft = { name: "", description: "", steps: "" };
 export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolean } = {}) {
   const t = useT();
   const language = useLanguage();
+  const templates = useSettingsTarget<HTMLElement>(["meeting-templates"], !meetingsOnly);
   const skills = useAppStore((state) => state.skills);
   const restoreBuiltInSkills = useAppStore((state) => state.restoreBuiltInSkills);
   const removedBuiltIns = useRemovedBuiltIns();
@@ -361,7 +363,11 @@ export function SkillsSettings({ meetingsOnly = false }: { meetingsOnly?: boolea
         )}
       </SettingsSection>
 
-      <SettingsSection testId="skills-meetings" title={t("skills.settings.meetings")}>
+      <SettingsSection
+        ref={templates}
+        testId="skills-meetings"
+        title={t("skills.settings.meetings")}
+      >
         {meetingRows}
       </SettingsSection>
 
