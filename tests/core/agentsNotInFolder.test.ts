@@ -20,7 +20,7 @@ import { replyingModel } from "../helpers/models";
 const note = (title: string, sentence: string) => `# ${title}\n\n${sentence}\n`;
 
 interface SearchOut {
-  passages: { passageId: string; documentId: string; cite: string | null }[];
+  passages: { passageId: string; documentId: string; text: string }[];
 }
 
 const structured = <T>(result: unknown): T => {
@@ -97,6 +97,24 @@ const search = async (
 const found = async (agent: Awaited<ReturnType<typeof connectLegacyAgent>>) =>
   [...new Set((await search(agent)).map((passage) => passage.documentId))].sort();
 
+/** The first Passage the agent finds, and its Citation as an agent makes one: `cite` of its sentence. */
+const citeFirst = async (agent: Awaited<ReturnType<typeof connectLegacyAgent>>) => {
+  const [passage] = await search(agent);
+  if (!passage) return null;
+  const sentence =
+    passage.text
+      .split("\n")
+      .find((line) => line.includes("harbour"))
+      ?.trim() ?? "";
+  const { citations } = structured<{ citations: { cite: string | null }[] }>(
+    await agent.callTool({
+      name: "cite",
+      arguments: { citations: [{ passageId: passage.passageId, quote: sentence }] },
+    }),
+  );
+  return { passage, cite: citations[0]?.cite ?? null };
+};
+
 describe("an agent that may read Not in a Folder", () => {
   beforeAll(async () => {
     await buildAgentShim();
@@ -108,7 +126,7 @@ describe("an agent that may read Not in a Folder", () => {
     const control = await connect("Cursor", [coast.id]);
 
     expect(await found(agent)).toEqual([tides.id, ferry.id].sort());
-    const [elsewhere] = await search(control);
+    const elsewhere = await citeFirst(control);
     if (!elsewhere?.cite) throw new Error("The control found nothing to cite.");
 
     const refused = async (name: string, args: Record<string, unknown>) => {
@@ -121,11 +139,11 @@ describe("an agent that may read Not in a Folder", () => {
         /No such passage, Document, note or Citation/,
       );
     }
-    await refused("read_passages", { passageId: elsewhere.passageId });
+    await refused("read_passages", { passageId: elsewhere.passage.passageId });
     const cited = structured<{ citations: { check: string; cite: string | null }[] }>(
       await agent.callTool({
         name: "cite",
-        arguments: { citations: [{ passageId: elsewhere.passageId, quote: "harbour" }] },
+        arguments: { citations: [{ passageId: elsewhere.passage.passageId, quote: "harbour" }] },
       }),
     );
     expect(cited.citations).toEqual([expect.objectContaining({ check: "not-found", cite: null })]);
@@ -165,8 +183,7 @@ describe("an agent that may read Not in a Folder", () => {
   it("covers the Documents in no Folder at the time of each call", async () => {
     const { core, connect, tides, ferry, reef, budget, finance, coast, own } = await started();
     const agent = await connect("Claude Code", [NOT_IN_A_FOLDER_ID]);
-    const [first] = await search(agent);
-    const cite = first?.cite;
+    const cite = (await citeFirst(agent))?.cite;
     if (!cite) throw new Error("Nothing was found to cite.");
     const stillChecks = async () =>
       structured<{ citations: { check: string }[] }>(
