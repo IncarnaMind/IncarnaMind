@@ -241,8 +241,9 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
       kinds[name] = blocks.map((block) => block.node.type);
       texts[name] = blocks.map((block) => String(block.node.content?.[0]?.text ?? ""));
     }
-    // Each title, byline and heading with no full stop is a block of its own, where the blocks
-    // before #3288 ran it into the text under it: 9, 8, 13, 6, 14, 11 and 20 blocks then.
+    // Each title, byline and heading with no full stop that the page sets apart is a block of its
+    // own, where the blocks before #3288 ran it into the text under it: 9, 8, 13, 6, 14, 11 and 20
+    // blocks then.
     const P = "paragraph";
     const H = "heading";
     const T = "table";
@@ -250,16 +251,17 @@ describe("A Chinese page's heading", { timeout: 30_000 }, () => {
       "2025年度财务报表.pdf": [P, P, P, T, P, T, P, T, H, P],
       "2026年第一季度销售报告.pdf": [P, P, H, P, H, T, H, P, H, P, P, H, P],
       "TR2026-03.pdf": [P, P, P, P, P, P, P, P, P, P, P, P, P, T, P, P, P, P],
-      "dzfp_044031900111_20260312.pdf": [P, P, P, P, T, P, P],
-      "租赁合同-2026.pdf": Array.from({ length: 23 }, () => P),
+      "dzfp_044031900111_20260312.pdf": [P, P, P, P, P, T, P, P],
+      "租赁合同-2026.pdf": Array.from({ length: 22 }, () => P),
       "第三章.pdf": [P, P, P, P, P, P, P, P, P, P, P, P, P, P, T, P, P, P],
       "说明书.pdf": [P, P, H, P, P, P, P, P, H, T, H, P, P, P, P, P, H, P, H, P, H, T, H, P],
     });
-    expect(texts["租赁合同-2026.pdf"]?.slice(0, 6)).toEqual([
+    expect(texts["租赁合同-2026.pdf"]?.slice(0, 5)).toEqual([
       "房屋租赁合同",
       "出租方（甲方）：周敏 身份证号：示例（略）",
-      "承租方（乙方）：刘思远 联系电话：555-0142",
-      "根据《中华人民共和国民法典》及有关规定，甲乙双方在平等、自愿的基础上，就房屋租赁事宜达成如下协议：",
+      // Nothing on the page measures this line, and after a number only its size could tell: it
+      // is joined, as before #3288.
+      "承租方（乙方）：刘思远 联系电话：555-0142根据《中华人民共和国民法典》及有关规定，甲乙双方在平等、自愿的基础上，就房屋租赁事宜达成如下协议：",
       "第一条 房屋基本情况",
       "甲方将位于示例市示例区示例路 88 号 3 栋 502 室的房屋出租给乙方居住使用，建筑面积 76 平方米，附带家具家电清单见附件一。",
     ]);

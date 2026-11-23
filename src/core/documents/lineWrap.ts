@@ -56,8 +56,8 @@ const BLOCK_GAP = 1.25;
 /** Lines end at one edge within this many sizes of each other. */
 const SAME_EDGE = 0.5;
 /**
- * This many lines say where their lines end: a block's, a column's, or a run of them in a row
- * that end together, short of the rest of their block as they may be.
+ * This many lines say where their lines end: a block's, or a run of them in a row that end
+ * together, short of the rest of their block as they may be.
  */
 const SEVERAL = 3;
 /** A column's lines this many sizes above or below a line are the ones around it. */
@@ -136,8 +136,8 @@ function blocksOf(page: readonly PrintedLine[]): PrintedLine[][] {
 
 /**
  * The right edge each of the page's lines is measured against: where most lines of its block end
- * (see `blockMeasures`). A block of one or two lines can't say where its lines end, so its column
- * does (see `columnEdge`).
+ * (see `blockMeasures`). A block of one or two lines can't say where its lines end, so the wrapped
+ * lines around it do, where there are any (see `columnEdge`).
  */
 export function pageMeasures(page: readonly PrintedLine[]): (number | undefined)[] {
   const measured = new Map<PrintedLine, number | undefined>();
@@ -157,9 +157,7 @@ export function pageMeasures(page: readonly PrintedLine[]): (number | undefined)
   }
   const positioned = page.filter(placed);
   for (const block of few) {
-    for (const line of block) {
-      if (placed(line)) measured.set(line, columnEdge(line, block, positioned, wrapped));
-    }
+    for (const line of block) if (placed(line)) measured.set(line, columnEdge(line, wrapped));
   }
   return page.map((line) => {
     const measure = measured.get(line);
@@ -176,31 +174,18 @@ export function pageMeasures(page: readonly PrintedLine[]): (number | undefined)
 }
 
 /**
- * Where the lines of `line`'s column end: its wrapped lines around `line`, which a figure beside
- * them may have narrowed; else all its lines, where another starts where `line` does, or there are
- * several; else, for a line few others start near, such as a centred title or a caption, the
- * page's lines.
+ * Where the wrapped lines around `line` that start near it end, which a figure beside them may
+ * have narrowed. None where there is no such line, as beside a figure, a formula or nothing at
+ * all: there the line under it decides (see `endedByPage`).
  */
-function columnEdge(
-  line: Placed,
-  block: readonly PrintedLine[],
-  page: readonly Placed[],
-  wrapped: readonly Placed[],
-): number | undefined {
-  const inColumn = (other: Placed) =>
-    Math.abs(other.left - line.left) <= SAME_COLUMN * Math.max(line.size, other.size);
+function columnEdge(line: Placed, wrapped: readonly Placed[]): number | undefined {
   const around = wrapped.filter(
-    (other) => inColumn(other) && Math.abs(other.baseline - line.baseline) <= AROUND * line.size,
+    (other) =>
+      Math.abs(other.left - line.left) <= SAME_COLUMN * Math.max(line.size, other.size) &&
+      Math.abs(other.baseline - line.baseline) <= AROUND * line.size,
   );
-  const column = page.filter(inColumn);
-  const aligned = column.some(
-    (other) => !block.includes(other) && Math.abs(other.left - line.left) <= SAME_LEFT * line.size,
-  );
-  const own = column.length > 1 && column.every((other) => block.includes(other));
-  const near =
-    around.length > 0 ? around : column.length >= SEVERAL || aligned || own ? column : page;
   return fromLargest(
-    near.map((other) => other.right),
+    around.map((other) => other.right),
     1 / 4,
   );
 }
@@ -258,12 +243,22 @@ function firstWordWidth(after: PrintedLine): number {
  * And a wrapped line reaches its measure, whatever the line under it does: the page ends it
  * because the next character doesn't fit, or, before a Latin word or a number, the next word. A
  * line that stops well short of where its block's lines end was ended on purpose (#3288).
+ *
+ * Where the page gives no measure, only the line under it tells, as it did before: beside Han,
+ * kana or Bopomofo a wrapped line's next line stays under it, as the page gives up at most a
+ * character of the line, and elsewhere the page may wrap before a whole word, so a break that
+ * could be a wrap keeps the text rule's join.
  */
 function endedByPage(before: PrintedLine, after: PrintedLine, measure: number | undefined) {
   if (!sameSize(before.size, after.size)) return true;
-  if (lastVisible(before.text) === "" || firstVisible(after.text) === "") return true;
-  if (measure === undefined || !placed(before)) return false;
-  return shortOf(before, measure, firstWordWidth(after));
+  const ends = lastVisible(before.text);
+  const starts = firstVisible(after.text);
+  if (ends === "" || starts === "") return true;
+  if (measure !== undefined && placed(before)) {
+    return shortOf(before, measure, firstWordWidth(after));
+  }
+  if (!isSpaceless(ends) || !isSpaceless(starts)) return false;
+  return after.right > before.right + Math.max(before.size, after.size);
 }
 
 /** Whether `line` stops short of `measure` by more than the page leaves where it wraps, `room` more. */

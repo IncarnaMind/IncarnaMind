@@ -174,8 +174,49 @@ describe("a line the page ended itself", () => {
     expect(joinCjkLineWraps(text, kept)).not.toContain("\n");
   });
 
-  // protects=a wrapped paragraph in a second column is joined by its own column's edge, not the page's (#3288); fails_when=a column that ends short of the page's widest line has every wrapped line kept apart
-  test("a column is measured by its own lines", () => {
+  // protects=a line that nothing around it measures, beside a figure or a formula, is judged by the line under it as before, so no sentence is cut where the page gives no measure (#3288); fails_when=a short block is measured against lines of its column far from it and its wrapped line is kept apart
+  test("a line nothing around it measures is judged by the line under it, as before", () => {
+    const at = (text: string, right: number, baseline: number) => ({
+      text,
+      right,
+      size: 12,
+      left: 43.5,
+      baseline,
+    });
+    const full = "近端策略优化等基于人类反馈的强化学习算法被广泛用于进一步微调一个大语言模型，";
+    const { text, kept } = joinPrintedLines([
+      at(full, 552.7, 760),
+      at(full, 552.7, 744),
+      at("的问题。", 91.5, 728),
+      at("考虑到这一点，我们可以从函数的局部极小值的初始估", 342.4, 600),
+      at("计出发，并考虑如下序列使得", 289, 584),
+    ]);
+    expect(joinCjkLineWraps(text, kept)).toContain("初始估计出发");
+  });
+
+  // protects=a sentence that runs from the foot of the left column into the head of the right one is a wrap, as the line before reaches its column's edge, so it stays whole (#3288); fails_when=the jump to the next column keeps the break and cuts the sentence, as "门口⏎设置。" was cut
+  test("a sentence the page carries from one column's foot to the next column's head stays whole", () => {
+    const at = (text: string, right: number, left: number, baseline: number) => ({
+      text,
+      right,
+      size: 9.5,
+      left,
+      baseline,
+    });
+    const { text, kept } = joinPrintedLines([
+      at("屋顶绿化单位面积成本最高，但顶层住户室内气温平均", 279, 51, 172.9),
+      at("下降两度左右。行道树需要两个夏季才能形成树荫，但树下", 280.6, 51, 159.9),
+      at("路面降温最明显。", 127, 51, 146.9),
+      at("喷雾降温设施可使周边五米内气温降低最多三度，但每", 280.6, 51, 127.9),
+      at("套每小时耗水约四十五升。居民希望在公交站和菜市场门口", 281.8, 51, 114.9),
+      at("设置。", 336.1, 307.6, 594.3),
+      at("对一千二百六十名居民的问卷显示，老城区有近半数的受访者", 543.2, 307.6, 581.3),
+    ]);
+    expect(joinCjkLineWraps(text, kept)).toContain("居民希望在公交站和菜市场门口设置。");
+  });
+
+  // protects=a wrapped paragraph in a second column stays joined, judged by its own lines and not the page's widest (#3288); fails_when=a column that ends short of the page's widest line has every wrapped line kept apart
+  test("a second column's wrapped lines are joined", () => {
     const left = page(
       line("左栏的第一行文字在这里换行并且继续写到", 200),
       line("下一行，直到这一段结束为止。", 150),

@@ -16,14 +16,21 @@ import { buildPdf, type PdfPage } from "../helpers/pdf";
 
 const TITLE = "老旧小区加装电梯情况报告";
 const HEADINGS = ["概述", "主要发现", "建议"];
-const FIRST = "全市今年共有一百八十六个老旧小区申请加装电梯，其中已经完工的有七十四个。";
-// One sentence the page wraps over two lines.
-const SECOND_LINE_ONE = "晚间平均每小时到馆的有四十六人，下午为三十一人，周末的人数高于工作日，";
-const SECOND_LINE_TWO = "需要继续观察到年底，再决定是否推广。";
+// Sentences the page wraps over three lines and over two.
+const FIRST_LINES = [
+  "全市今年共有一百八十六个老旧小区申请加装电梯，其中已经完工的有七十四个，",
+  "另有三十二个正在施工，四十个已经通过公示，其余的小区还在征求住户意见，",
+  "预计明年年底以前全部完成。",
+];
+const SECOND_LINES = [
+  "晚间平均每小时到馆的有四十六人，下午为三十一人，周末的人数高于工作日，",
+  "需要继续观察到年底，再决定是否推广。",
+];
+const FIRST = FIRST_LINES.join("");
+const SECOND = SECOND_LINES.join("");
 const THIRD = "继续试行延长开放时间，并在明年第一季度复查到馆人数，公布每个社区的结果。";
-const SECOND = `${SECOND_LINE_ONE}${SECOND_LINE_TWO}`;
 
-const PRINTED = [TITLE, "概述", FIRST, "主要发现", SECOND_LINE_ONE, SECOND_LINE_TWO, "建议", THIRD];
+const PRINTED = [TITLE, "概述", ...FIRST_LINES, "主要发现", ...SECOND_LINES, "建议", THIRD];
 const PARAGRAPHS = [TITLE, "概述", FIRST, "主要发现", SECOND, "建议", THIRD];
 
 const larger = (text: string) => text === TITLE || HEADINGS.includes(text);
