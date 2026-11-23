@@ -1,9 +1,11 @@
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { agentSocketPath } from "../../src/core/agents/socket";
+import type { AgentLaunch } from "../../src/core/api";
 import {
   agentSocketAnswers,
   cursorLaunch,
@@ -37,6 +39,79 @@ test.afterEach(async () => {
   folders = [];
   dataFolder = null;
 });
+
+/**
+ * Runs the packaged shim with a protocol-matching opening JSON-RPC request and
+ * returns the first JSON-RPC reply line and stderr, to verify the plain-word
+ * refusal message even when a pinned 2026-07-28 SDK client wraps the error.
+ */
+async function probePackagedShimRefusal(
+  launch: AgentLaunch,
+  protocol: "2025-11-25" | "2026-07-28",
+): Promise<{ message: string; stderr: string }> {
+  const child = spawn(launch.command, launch.args, {
+    env: { ...process.env, ...launch.env },
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  const request =
+    protocol === "2026-07-28"
+      ? { jsonrpc: "2.0", id: 1, method: "server/discover", params: {} }
+      : {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "packaged-test", version: "1.0.0" },
+          },
+        };
+  try {
+    const line = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Timed out waiting for packaged shim refusal (stderr: ${stderr})`));
+      }, 10_000);
+      const finish = (value: string) => {
+        clearTimeout(timer);
+        child.stdout.off("data", check);
+        resolve(value);
+      };
+      const check = () => {
+        const nl = stdout.indexOf("\n");
+        if (nl !== -1) finish(stdout.slice(0, nl).trim());
+      };
+      child.stdout.on("data", check);
+      child.once("error", (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.once("close", () => finish(stdout.trim()));
+      child.stdin.write(`${JSON.stringify(request)}\n`);
+      check();
+    });
+    child.stdin.end();
+    await new Promise<void>((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) resolve();
+      else child.once("close", () => resolve());
+    });
+    if (!line) throw new Error(`Packaged shim exited without a JSON-RPC reply (stderr: ${stderr})`);
+    const parsed = JSON.parse(line) as { error?: { message?: string } };
+    return { message: parsed.error?.message ?? "", stderr };
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
+}
 
 for (const [protocol, documents] of [
   ["2025-11-25", false],
@@ -186,27 +261,22 @@ for (const [protocol, documents] of [
       } finally {
         await client.close();
       }
-      const revoked = await connect(launch);
-      try {
-        expect(
-          (await revoked.callTool({ name: "search", arguments: { query: "spring tides" } }))
-            .isError,
-        ).toBe(true);
-      } finally {
-        await revoked.close();
-      }
-      const unknown = await connect({
+      const expectRefusedBeforeMcp = async (target: AgentLaunch) => {
+        if (protocol === "2025-11-25") {
+          await expect(connect(target)).rejects.toThrow(/no longer connected/);
+        } else {
+          await expect(connect(target)).rejects.toThrow();
+        }
+        const probed = await probePackagedShimRefusal(target, protocol);
+        expect(probed.message).toMatch(/no longer connected/);
+        const token = target.env.INCARNAMIND_AGENT_TOKEN ?? "";
+        if (token) expect(probed.stderr).not.toContain(token);
+      };
+      await expectRefusedBeforeMcp(launch);
+      await expectRefusedBeforeMcp({
         ...launch,
         env: { ...launch.env, INCARNAMIND_AGENT_TOKEN: "unpaired-test-agent" },
       });
-      try {
-        expect(
-          (await unknown.callTool({ name: "search", arguments: { query: "spring tides" } }))
-            .isError,
-        ).toBe(true);
-      } finally {
-        await unknown.close();
-      }
       expect(existsSync(join(home, ".agents", "skills", "incarnamind", "SKILL.md"))).toBe(false);
       const log = (await packagedLogLines(data, /./)).join("\n");
       expect(log.includes(launch.env.INCARNAMIND_AGENT_TOKEN ?? "")).toBe(false);
