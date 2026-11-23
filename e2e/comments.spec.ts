@@ -230,7 +230,7 @@ test("after a comment is deleted, Comment on its words makes a new one", async (
   await app.close();
 });
 
-test("a Word file's comments on the same words each keep theirs: through a delete, its Undo and a restart (#2585)", async () => {
+test("a Word file's comments on the same words each keep theirs: through typing, Resolve with Undo, and a restart (#2585)", async () => {
   const files = await createDataFolder();
   try {
     const path = join(files, "Overlap.docx");
@@ -273,20 +273,37 @@ test("a Word file's comments on the same words each keep theirs: through a delet
     await expect(card(window)).toHaveCount(2);
     await screenshot(window, "comments-overlapping");
 
-    // Deleting Luis's comment leaves Dana's on all her words, and Undo brings his back on his.
+    // A card's menu is drawn as a menu, on the sheet with the popover's shadow, not as bare text.
     await pointAndClick(window, window.getByTestId("comment-menu-word-comment-1"));
-    await pointAndClick(window, window.getByRole("menuitem", { name: "Delete" }));
-    await expect(card(window)).toHaveCount(1);
-    await words(window, "word-comment-1").toBe("");
+    const menu = window.locator(".comment-menu");
+    await expect(menu).toBeVisible();
+    expect(await menu.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+    await screenshot(window, "comment-menu");
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    // Typing writes the paragraph back from the editor, and both comments keep their words.
+    const editor = window.getByTestId("mind-editor");
+    await pointAndClick(window, editor.locator("p").first());
+    await window.keyboard.press("End");
+    await window.keyboard.type(" Later.");
+    await expect(editor.locator("p").first()).toHaveText("Revenue grew 12% in May and June. Later.");
     await words(window, "word-comment-0").toBe("Revenue grew 12% in May");
-    await pointAndClick(window, window.getByRole("button", { name: "Undo" }).first());
-    await expect(card(window)).toHaveCount(2);
     await words(window, "word-comment-1").toBe("12% in May and June.");
+
+    // Resolving Luis's comment leaves Dana's card beside the text; Undo brings his back.
+    await pointAndClick(window, window.getByTestId("comment-resolve-word-comment-1"));
+    await expect(card(window)).toHaveCount(1);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(card(window)).toHaveCount(2);
     await app.close();
 
     const restarted = await launchApp(dataDir);
     await setWindowSize(restarted.app, restarted.window, 1800, 900);
     await pointAndClick(restarted.window, restarted.window.getByTestId("mind-row").first());
+    await expect(restarted.window.getByTestId("mind-editor").locator("p").first()).toHaveText(
+      "Revenue grew 12% in May and June. Later.",
+    );
     await words(restarted.window, "word-comment-0").toBe("Revenue grew 12% in May");
     await words(restarted.window, "word-comment-1").toBe("12% in May and June.");
     await restarted.app.close();
