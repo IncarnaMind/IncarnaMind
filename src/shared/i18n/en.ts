@@ -6561,7 +6561,7 @@ export const en = {
   "error.agent.socketUntrusted":
     "Agents can’t reach IncarnaMind: {path} isn’t private to your account. Fix its permissions or remove it, or use a different data folder.",
   "error.agent.socketUnavailable":
-    "Agents can’t reach IncarnaMind: couldn’t open its local connection at {path}. Close another copy of IncarnaMind using this folder, or check permissions on that folder, and try again.",
+    "Agents can’t reach IncarnaMind: couldn’t open its local connection at {path}. Close another copy of IncarnaMind, or check permissions there, and try again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",

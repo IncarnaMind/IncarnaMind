@@ -1,16 +1,23 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { AgentEndpointError, agentSocketPath, listenForAgents } from "../../src/core/agents/socket";
+import { openPackage } from "../../src/core/documents/formats/zip";
 import {
+  AGENT_HANDSHAKE_MAX_BYTES,
   AGENT_SOCKET_ENV,
   AGENT_TOKEN_ENV,
+  challengeLine,
+  clientProofInput,
+  clientProofLine,
   handshakeLine,
+  keyIdInput,
   parseOpeningLine,
+  parseServerChallenge,
   serverChallengeLine,
   serverProofInput,
 } from "../../src/shared/agentSocket";
@@ -243,6 +250,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
       expect(source).not.toMatch(/Add-Type|DllImport/);
       expect(source).not.toMatch(/\bos\.type\b|from "node:os".*\btype\b/);
     }
+    expect(socketSource).not.toMatch(/process\.env/);
 
     const shimImports = [...shimSource.matchAll(/^import\s+.*?from\s+"([^"]+)";$/gm)].map(
       (match) => match[1],
@@ -362,7 +370,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     }
   }, 60_000);
 
-  it("keeps accepting legacy v1 shims, persists shimsOutOfDate, allows reinstall, and clears after v2 upgrade", async () => {
+  it("keeps accepting legacy v1 shims, rotates the key on reinstall revoking the old key, and clears after v2 upgrade", async () => {
     const dataDir = await createTempDataFolder();
     const home = await createTempDataFolder();
     const tempDir = await createTempDataFolder();
@@ -389,16 +397,16 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
 
     const core = makeCore();
     await core.setAgentsEnabled(true);
-    const { pairing, launch } = await core.connectAgent({
+    const { pairing, launch: oldLaunch } = await core.connectAgent({
       name: "Claude Desktop",
       client: "claude-desktop",
     });
-    const token = launch.env[AGENT_TOKEN_ENV] ?? "";
-    const socketPath = launch.env[AGENT_SOCKET_ENV] ?? "";
-    expect(token).not.toBe("");
+    const oldToken = oldLaunch.env[AGENT_TOKEN_ENV] ?? "";
+    const socketPath = oldLaunch.env[AGENT_SOCKET_ENV] ?? "";
+    expect(oldToken).not.toBe("");
     expect(socketPath).not.toBe("");
 
-    const v1Reply = await callViaLegacyV1(socketPath, token, {
+    const v1Reply = await callViaLegacyV1(socketPath, oldToken, {
       jsonrpc: "2.0",
       id: 2,
       method: "tools/list",
@@ -407,16 +415,40 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect(Array.isArray((v1Reply.result as { tools?: unknown[] } | undefined)?.tools)).toBe(true);
     expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
 
-    // Persists across restart and unlocks openAgentInstallAgain for bundle clients.
+    // Persists across restart and reinstalling rotates the pairing key.
     core.close();
     await expect.poll(() => agentSocketAnswers(socketPath)).toBe(false);
     const restarted = makeCore();
+    await expect.poll(() => agentSocketAnswers(socketPath)).toBe(true);
     expect((await restarted.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
     await restarted.openAgentInstallAgain(pairing.id);
     expect(openedBundles.length).toBe(1);
 
-    // Connecting with the v2 shim clears shimsOutOfDate.
-    const v2Client = await legacyAgentClient(launch);
+    // The reopened bundle carries a brand-new key, and the old key is immediately revoked for both v1 and v2.
+    const bundlePath = openedBundles[0] ?? "";
+    const manifestBytes = await openPackage(await readFile(bundlePath)).read("manifest.json");
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as {
+      server: { mcp_config: { env: Record<string, string> } };
+    };
+    const newToken = manifest.server.mcp_config.env[AGENT_TOKEN_ENV] ?? "";
+    expect(newToken).not.toBe("");
+    expect(newToken).not.toBe(oldToken);
+
+    const oldV1AfterRotate = await callViaLegacyV1(socketPath, oldToken, {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "search", arguments: { query: "test" } },
+    });
+    expect(JSON.stringify(oldV1AfterRotate)).toMatch(/no longer connected/);
+    await expect(legacyAgentClient(oldLaunch)).rejects.toThrow(/no longer connected/);
+
+    // Out-of-date mark remains set until a v2 shim proves itself with the new key.
+    expect((await restarted.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+
+    const newLaunch = await restarted.getAgentLaunch(pairing.id);
+    expect(newLaunch.env[AGENT_TOKEN_ENV]).toBe(newToken);
+    const v2Client = await legacyAgentClient(newLaunch);
     try {
       await v2Client.listTools();
     } finally {
@@ -424,16 +456,168 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     }
     expect((await restarted.getAgents()).shimsOutOfDate).toEqual([]);
 
-    // After disconnect: legacy v1 still gets "no longer connected", while v2 shim refuses before MCP.
+    // After disconnect: both v1 and v2 cleanly report "no longer connected" (no impostor warning on intentional disconnect).
     await restarted.disconnectAgent(pairing.id);
-    const disconnectedV1 = await callViaLegacyV1(socketPath, token, {
+    const disconnectedV1 = await callViaLegacyV1(socketPath, newToken, {
       jsonrpc: "2.0",
-      id: 3,
+      id: 4,
       method: "tools/call",
       params: { name: "search", arguments: { query: "test" } },
     });
     expect(JSON.stringify(disconnectedV1)).toMatch(/no longer connected/);
-    await expect(legacyAgentClient(launch)).rejects.toThrow(/Couldn't verify IncarnaMind/);
+    await expect(legacyAgentClient(newLaunch)).rejects.toThrow(/no longer connected/);
+  }, 60_000);
+
+  it("signs only the matching keyId, and the app refuses forged, reflected, and replayed line 3 proofs", async () => {
+    const { core } = await startAgentsCore(scriptedModel(() => ({ text: "ok" })));
+    await core.setAgentsEnabled(true);
+    await core.connectAgent({ name: "Agent A" });
+    const { launch: launchB } = await core.connectAgent({ name: "Agent B" });
+    await core.connectAgent({ name: "Agent C" });
+
+    const tokenB = launchB.env[AGENT_TOKEN_ENV] ?? "";
+    const socketPath = launchB.env[AGENT_SOCKET_ENV] ?? "";
+    const keyIdB = createHash("sha256").update(keyIdInput(tokenB)).digest("hex").slice(0, 16);
+
+    const openRawHandshake = async (shimNonce: string, keyId: string) => {
+      const sock = createConnection(socketPath);
+      await new Promise<void>((done, fail) => {
+        sock.once("connect", () => done());
+        sock.once("error", fail);
+      });
+      sock.setEncoding("utf8");
+      let buf = "";
+      const line2 = await new Promise<string>((resolve, reject) => {
+        const onData = (chunk: string) => {
+          buf += chunk;
+          const nl = buf.indexOf("\n");
+          if (nl !== -1) {
+            sock.off("data", onData);
+            resolve(buf.slice(0, nl));
+          }
+        };
+        sock.on("data", onData);
+        sock.once("error", reject);
+        sock.once("close", () => reject(new Error("Closed before line 2")));
+        sock.write(challengeLine(shimNonce, keyId));
+      });
+      return { sock, reply: parseServerChallenge(line2) };
+    };
+
+    const expectRejectedAfterProof = async (sock: Socket, proofHex: string) => {
+      let received = "";
+      sock.on("data", (chunk: string) => {
+        received += chunk;
+      });
+      const closed = new Promise<void>((resolve) => sock.once("close", () => resolve()));
+      sock.write(clientProofLine(proofHex));
+      sock.write(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-11-25",
+            capabilities: {},
+            clientInfo: { name: "attacker", version: "0.0.0" },
+          },
+        })}\n`,
+      );
+      await closed;
+      expect(received).toBe("");
+    };
+
+    // 1. App signs ONLY the matching pairing (proofs.length === 1 even with 3 pairings) and rejects forged line 3.
+    const forged = await openRawHandshake("forged_shim_nonce_1234567890", keyIdB);
+    expect(forged.reply?.kind).toBe("challenge");
+    if (forged.reply?.kind !== "challenge") throw new Error("Expected challenge");
+    expect(forged.reply.proofs).toHaveLength(1);
+    await expectRejectedAfterProof(forged.sock, "0".repeat(64));
+
+    // 2. Reflecting the app's own server proof back as line 3 is rejected (domain separation).
+    const reflected = await openRawHandshake("reflected_shim_nonce_12345678", keyIdB);
+    if (reflected.reply?.kind !== "challenge") throw new Error("Expected challenge");
+    expect(reflected.reply.proofs).toHaveLength(1);
+    await expectRejectedAfterProof(reflected.sock, reflected.reply.proofs[0] ?? "");
+
+    // 3. Replaying a valid client proof from an earlier session is rejected (fresh appNonce).
+    const reusedShimNonce = "replayed_shim_nonce_123456789";
+    const first = await openRawHandshake(reusedShimNonce, keyIdB);
+    if (first.reply?.kind !== "challenge") throw new Error("Expected challenge");
+    const validProofFromFirst = createHmac("sha256", tokenB)
+      .update(clientProofInput(first.reply.nonce, reusedShimNonce))
+      .digest("hex");
+    first.sock.destroy();
+
+    const second = await openRawHandshake(reusedShimNonce, keyIdB);
+    if (second.reply?.kind !== "challenge") throw new Error("Expected challenge");
+    expect(second.reply.nonce).not.toBe(first.reply.nonce);
+    await expectRejectedAfterProof(second.sock, validProofFromFirst);
+
+    // 4. Unknown keyId gets { incarnamind: 2, unknown: true } and closes immediately.
+    const unknownKeyId = createHash("sha256")
+      .update(keyIdInput("im_unknown_pairing_key"))
+      .digest("hex")
+      .slice(0, 16);
+    const unknown = await openRawHandshake("unknown_shim_nonce_123456789", unknownKeyId);
+    expect(unknown.reply).toEqual({ kind: "unknown" });
+    unknown.sock.destroy();
+  }, 60_000);
+
+  it("refuses an oversized server challenge and times out if a peer never answers (~5s)", async () => {
+    const shimPath = await buildAgentShim();
+    const token = "im_secret_timeout_and_size_token";
+
+    // Oversized line 2 (> 16 KB) rejected immediately with 0 key bytes sent.
+    const oversizedEndpoint = isUnix
+      ? join(await shortUnixTempDir(), "oversized.sock")
+      : `\\\\.\\pipe\\incarnamind-oversized-${randomBytes(8).toString("hex")}`;
+    const oversizedDecoy = await startDecoyServer(oversizedEndpoint, {
+      mode: 0o600,
+      onLine: (_line, socket) => {
+        socket.write(`${"x".repeat(AGENT_HANDSHAKE_MAX_BYTES + 256)}\n`);
+      },
+    });
+    try {
+      const result = await probeBuiltShim(shimPath, {
+        [AGENT_SOCKET_ENV]: oversizedEndpoint,
+        [AGENT_TOKEN_ENV]: token,
+      });
+      expect(oversizedDecoy.received).not.toContain(token);
+      expect(oversizedDecoy.received).not.toContain('"proof"');
+      expect((result.reply?.error as { message?: string } | undefined)?.message ?? "").toContain(
+        "Couldn't verify IncarnaMind",
+      );
+      expect(result.stderr).toContain("challenge exceeded size limit");
+      expect(result.stderr).not.toContain(token);
+    } finally {
+      await oversizedDecoy.close();
+    }
+
+    // Silent peer that never responds: shim gives up at its 5 s handshake timeout instead of hanging.
+    const silentEndpoint = isUnix
+      ? join(await shortUnixTempDir(), "silent.sock")
+      : `\\\\.\\pipe\\incarnamind-silent-${randomBytes(8).toString("hex")}`;
+    const silentDecoy = await startDecoyServer(silentEndpoint, { mode: 0o600 });
+    try {
+      const started = Date.now();
+      const result = await probeBuiltShim(shimPath, {
+        [AGENT_SOCKET_ENV]: silentEndpoint,
+        [AGENT_TOKEN_ENV]: token,
+      });
+      const elapsedMs = Date.now() - started;
+      expect(elapsedMs).toBeGreaterThanOrEqual(4_500);
+      expect(elapsedMs).toBeLessThan(12_000);
+      expect(silentDecoy.received).not.toContain(token);
+      expect(silentDecoy.received).not.toContain('"proof"');
+      expect((result.reply?.error as { message?: string } | undefined)?.message ?? "").toContain(
+        "Couldn't verify IncarnaMind",
+      );
+      expect(result.stderr).toContain("handshake timed out");
+      expect(result.stderr).not.toContain(token);
+    } finally {
+      await silentDecoy.close();
+    }
   }, 60_000);
 
   describe("Unix fallback paths, directory walk, and migration", () => {
@@ -712,18 +896,18 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
       ).rejects.toMatchObject({ reason: "untrusted" });
     });
 
-    it("provides EN and ZH socket error messages naming the folder with no Restart advice", () => {
+    it("provides EN and ZH socket error messages naming the endpoint with no Restart advice and not calling a pipe a folder", () => {
       for (const language of ["en", "zh-CN"] as const) {
         const untrusted = translate(language, "error.agent.socketUntrusted", {
           path: "/tmp/im-1000",
         });
         const unavailable = translate(language, "error.agent.socketUnavailable", {
-          path: "/tmp/im-1000",
+          path: "\\\\.\\pipe\\incarnamind-agents-0123456789abcdef",
         });
         expect(untrusted).toContain("/tmp/im-1000");
-        expect(unavailable).toContain("/tmp/im-1000");
+        expect(unavailable).toContain("\\\\.\\pipe\\incarnamind-agents-0123456789abcdef");
         expect(untrusted).not.toMatch(/restart|重启/i);
-        expect(unavailable).not.toMatch(/restart|重启/i);
+        expect(unavailable).not.toMatch(/restart|重启|folder|文件夹/i);
       }
     });
   });

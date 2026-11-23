@@ -1296,6 +1296,8 @@ export interface CoreAdapters {
     offered?: boolean;
     launcher?: AgentLauncher;
     socketPath?: string;
+    /** Private per-user runtime directory from the host (e.g. $XDG_RUNTIME_DIR on Linux). */
+    runtimeDir?: string;
     version?: string;
     /** The shim's script, built (`out/main/agentShim.js`): Claude's install file carries a copy. */
     shimScript?: string;

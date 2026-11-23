@@ -24,6 +24,7 @@ import {
   AGENT_SOCKET_ENV,
   AGENT_TOKEN_ENV,
   clientProofInput,
+  keyIdInput,
   serverProofInput,
 } from "../../shared/agentSocket";
 import type { Logger } from "../adapters";
@@ -259,6 +260,8 @@ const shownRequest = (kept: KeptRequest): AgentRequest => ({
 });
 
 const digest = (token: string) => createHash("sha256").update(token).digest();
+const keyIdOf = (token: string) =>
+  createHash("sha256").update(keyIdInput(token)).digest("hex").slice(0, 16);
 const hmacHex = (token: string, input: string) =>
   createHmac("sha256", token).update(input).digest("hex");
 const equalHex = (a: string, b: string) => {
@@ -654,11 +657,15 @@ export function createAgents(options: AgentsOptions) {
   };
 
   /**
-   * Prepares a v2 mutual HMAC challenge-response session (ADR-0036): signs the
-   * shim's nonce with each live pairing's and active check grant's token so the
-   * shim verifies IncarnaMind before sending its own proof.
+   * Prepares a v2 mutual HMAC challenge-response session (ADR-0036): when the
+   * shim supplies a keyId, signs only the matching live pairing or active run
+   * grant (returning null when none matches so the shim reports it is no longer
+   * connected without warning of an impostor).
    */
-  const challenge = async (shimNonce: string): Promise<AgentChallengeSession> => {
+  const challenge = async (
+    shimNonce: string,
+    keyId?: string,
+  ): Promise<AgentChallengeSession | null> => {
     const appNonce = randomBytes(32).toString("base64url");
     const serverInput = serverProofInput(shimNonce, appNonce);
     const candidates: Array<{
@@ -666,6 +673,7 @@ export function createAgents(options: AgentsOptions) {
       open: () => OpenedAgentConnection | null;
     }> = [];
     for (const [key, grant] of grants.entries()) {
+      if (keyId !== undefined && keyIdOf(grant.token) !== keyId) continue;
       candidates.push({
         token: grant.token,
         open: () => {
@@ -682,6 +690,7 @@ export function createAgents(options: AgentsOptions) {
     for (const pairing of livePairings()) {
       const token = await tokenOf(pairing.id);
       if (!token) continue;
+      if (keyId !== undefined && keyIdOf(token) !== keyId) continue;
       candidates.push({
         token,
         open: () => {
@@ -693,6 +702,7 @@ export function createAgents(options: AgentsOptions) {
         },
       });
     }
+    if (keyId !== undefined && candidates.length === 0) return null;
     const proofs = candidates.map((entry) => hmacHex(entry.token, serverInput));
     return {
       appNonce,
@@ -1065,6 +1075,20 @@ export function createAgents(options: AgentsOptions) {
         throw new NotFoundError({ key: "error.agent.keyUnreadable" });
       }
       return launchFor(token);
+    },
+
+    /**
+     * Issues a new pairing key and revokes the previous one, closing any open
+     * connections on it (#2049, ADR-0036). Keeps any legacy-shim marker until a
+     * v2 shim proves itself with the new key.
+     */
+    async rotateKey(pairingIdInput: unknown): Promise<AgentLaunch> {
+      const pairing = requirePairing(pairingIdInput);
+      const nextToken = `im_${randomBytes(32).toString("base64url")}`;
+      await options.secrets.set(secretName(pairing.id), nextToken);
+      tokens.set(pairing.id, nextToken);
+      await closeConnections(pairing.id);
+      return launchFor(nextToken);
     },
 
     activity(pairingIdInput: unknown): AgentActivity[] {

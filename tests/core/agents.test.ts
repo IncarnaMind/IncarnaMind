@@ -545,7 +545,7 @@ describe("outside agents", () => {
     await closed;
     expect((await core.getAgents()).pairings).toEqual([]);
 
-    await expect(connectLegacyAgent(launch)).rejects.toThrow(/Couldn't verify IncarnaMind/);
+    await expect(connectLegacyAgent(launch)).rejects.toThrow(/no longer connected/);
     await expect(core.getAgentLaunch(pairing.id)).rejects.toThrow();
   });
 

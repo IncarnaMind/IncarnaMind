@@ -287,7 +287,7 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
 
     const [launch] = run.launches;
     if (!launch) throw new Error("No run was started.");
-    await expect(connectLegacyAgent(launch)).rejects.toThrow(/Couldn't verify IncarnaMind/);
+    await expect(connectLegacyAgent(launch)).rejects.toThrow(/no longer connected/);
   });
 
   // protects=a User the background can't serve keeps today's link: no runner on this host, only an agent that runs in its own app, or Claude Code not installed, which on a connection made before asks no consent for a run that can't happen; fails_when=the press does nothing, starts a run that can't work, or asks the User to allow an agent that isn't there

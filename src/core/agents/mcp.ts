@@ -25,6 +25,7 @@ import {
   parseClientProof,
   parseOpeningLine,
   serverChallengeLine,
+  serverUnknownPairingLine,
 } from "../../shared/agentSocket";
 import { DOCUMENT_KINDS } from "../../shared/libraryFacts";
 import type { AgentToolName } from "../api";
@@ -898,8 +899,8 @@ export function serveConnection(
   options: {
     /** `grant`: the key of the run grant the token is, if it is one (legacy v1 handshake). */
     open(token: string): Promise<OpenedAgentConnection>;
-    /** Prepares a v2 mutual HMAC challenge for the shim's nonce (ADR-0036). */
-    challenge?(shimNonce: string): Promise<AgentChallengeSession>;
+    /** Prepares a v2 mutual HMAC challenge for the shim's nonce (ADR-0036); returns null when keyId matches no live pairing or grant. */
+    challenge?(shimNonce: string, keyId?: string): Promise<AgentChallengeSession | null>;
     /** Whether IncarnaMind has an AI model of its own ready now, read at each connection. */
     modelReady(): Promise<boolean>;
     version: string;
@@ -1062,9 +1063,14 @@ export function serveConnection(
     }
     phase = "sending-challenge";
     buffer = rest;
-    options.challenge(opening.nonce).then(
+    options.challenge(opening.nonce, opening.keyId).then(
       (prepared) => {
         if (socket.destroyed) return;
+        if (prepared === null) {
+          clearTimeout(timer);
+          socket.end(serverUnknownPairingLine());
+          return;
+        }
         session = prepared;
         phase = "awaiting-proof";
         socket.write(serverChallengeLine(prepared.appNonce, prepared.proofs));

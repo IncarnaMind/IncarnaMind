@@ -120,7 +120,7 @@ export function agentSocketPath(
   if (Buffer.byteLength(inDataFolder) <= MAX_SOCKET_PATH_BYTES) return inDataFolder;
   const uid = options?.uid ?? process.getuid?.();
   const socketName = `incarnamind-${id}.sock`;
-  const runtimeDir = options?.runtimeDir ?? process.env.XDG_RUNTIME_DIR;
+  const runtimeDir = options?.runtimeDir;
   if (runtimeDir) {
     const inRuntime = join(runtimeDir, socketName);
     const canUseRuntime =

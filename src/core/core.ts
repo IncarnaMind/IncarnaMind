@@ -6604,7 +6604,9 @@ export function createCore(adapters: CoreAdapters): Core {
     writeValue: (key, value) => settings.writeDeviceValue(key, value),
     localOnly: () => embedding.localOnly(),
     modelReady: async () => (await chat.readiness()).ready,
-    socketPath: adapters.agents?.socketPath ?? agentSocketPath(dataDir),
+    socketPath:
+      adapters.agents?.socketPath ??
+      agentSocketPath(dataDir, process.platform, { runtimeDir: adapters.agents?.runtimeDir }),
     // Without a host's launcher there is no shim to start; tests and the evaluation give theirs.
     launcher: adapters.agents?.launcher ?? { command: process.execPath, args: [] },
     version: adapters.agents?.version ?? "0.0.0",

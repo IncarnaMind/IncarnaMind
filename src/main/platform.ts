@@ -1088,6 +1088,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     // running the shim built beside this file (inside app.asar, which Node mode reads).
     agents: {
       offered: SHOW_AGENT_CONNECTION,
+      runtimeDir: process.env.XDG_RUNTIME_DIR,
       launcher: agentLauncher({
         execPath: process.execPath,
         shim: join(__dirname, "agentShim.js"),

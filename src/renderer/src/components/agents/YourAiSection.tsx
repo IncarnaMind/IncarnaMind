@@ -265,10 +265,9 @@ export function YourAiSection({
                   awaitingInstall={settings.awaitingInstall.includes(pairing.id)}
                   shimOutOfDate={settings.shimsOutOfDate.includes(pairing.id)}
                   isBundleClient={
-                    pairing.client === "claude-desktop" ||
                     clients?.some(
                       (each) => each.id === pairing.client && each.setup === "bundle",
-                    ) === true
+                    ) ?? false
                   }
                   folders={folders}
                   justSetUp={justSetUp}

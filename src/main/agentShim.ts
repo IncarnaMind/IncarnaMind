@@ -22,7 +22,7 @@
  * wire format matches src/shared/agentSocket.ts; the tests run this shim
  * against the core so the two can't drift apart.
  */
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
 import { createConnection } from "node:net";
 import { basename, dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
@@ -46,12 +46,17 @@ const NOT_OPEN =
   "IncarnaMind isn't open, or connecting agents is turned off in it. Open IncarnaMind, check Settings → AI, then reconnect this agent to it. / IncarnaMind 没有打开，或已关闭智能体连接。打开 IncarnaMind，检查“设置 → AI”，然后让这个智能体重新连接。";
 const NOT_SET_UP =
   "This agent's IncarnaMind settings are incomplete. Connect it again in IncarnaMind, in Settings → AI. / 这个智能体的 IncarnaMind 设置不完整。在 IncarnaMind 的“设置 → AI”中重新连接它。";
+const DISCONNECTED =
+  "This agent is no longer connected to IncarnaMind. Connect it again in Settings → AI. / 这个智能体已与 IncarnaMind 断开连接。请在“设置 → AI”中重新连接。";
 const UNVERIFIED_ENDPOINT =
-  "Couldn't verify IncarnaMind on this local connection, so no pairing key was sent. This agent may have been disconnected, or something else on this computer may be answering in its place. Check Settings → AI in IncarnaMind and reconnect this agent. / 无法验证这个本地连接是否来自 IncarnaMind，未发送配对密钥。这个智能体可能已断开连接，或电脑上的其他程序正在冒充回应。请在 IncarnaMind 的“设置 → AI”中检查并重新连接这个智能体。";
+  "Couldn't verify IncarnaMind on this local connection, so no pairing key was sent. Something else on this computer may be answering in its place. Check Settings → AI in IncarnaMind and reconnect this agent. / 无法验证这个本地连接是否来自 IncarnaMind，未发送配对密钥。电脑上的其他程序可能正在冒充回应。请在 IncarnaMind 的“设置 → AI”中检查并重新连接这个智能体。";
 
 type EndpointVerdict = "ok" | "not-open" | "untrusted";
 
 const isWindowsPipe = (path: string): boolean => path.startsWith("\\\\.\\pipe\\");
+
+const keyIdOf = (token: string): string =>
+  createHash("sha256").update(`incarnamind:v2:key-id:${token}`).digest("hex").slice(0, 16);
 
 const serverProofInput = (shimNonce: string, appNonce: string): string =>
   `incarnamind:v2:server:${shimNonce}:${appNonce}`;
@@ -68,19 +73,22 @@ function equalHex(a: string, b: string): boolean {
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
 }
 
-const challengeLine = (nonce: string): string =>
-  `${JSON.stringify({ incarnamind: AGENT_CHALLENGE_VERSION, nonce })}\n`;
+const challengeLine = (nonce: string, keyId: string): string =>
+  `${JSON.stringify({ incarnamind: AGENT_CHALLENGE_VERSION, nonce, keyId })}\n`;
 
 const clientProofLine = (proof: string): string =>
   `${JSON.stringify({ incarnamind: AGENT_CHALLENGE_VERSION, proof })}\n`;
 
-function parseServerChallenge(line: string): { nonce: string; proofs: string[] } | null {
+type ServerReply = { kind: "challenge"; nonce: string; proofs: string[] } | { kind: "unknown" };
+
+function parseServerChallenge(line: string): ServerReply | null {
   try {
     const value: unknown = JSON.parse(line);
     if (typeof value !== "object" || value === null) return null;
-    const { incarnamind, nonce, proofs } = value as Record<string, unknown>;
+    const { incarnamind, nonce, proofs, unknown } = value as Record<string, unknown>;
+    if (incarnamind !== AGENT_CHALLENGE_VERSION) return null;
+    if (unknown === true) return { kind: "unknown" };
     if (
-      incarnamind !== AGENT_CHALLENGE_VERSION ||
       typeof nonce !== "string" ||
       !NONCE_RE.test(nonce) ||
       !Array.isArray(proofs) ||
@@ -90,7 +98,7 @@ function parseServerChallenge(line: string): { nonce: string; proofs: string[] }
     ) {
       return null;
     }
-    return { nonce, proofs };
+    return { kind: "challenge", nonce, proofs };
   } catch {
     return null;
   }
@@ -323,14 +331,15 @@ function connectAndAuthenticate(target: string, token: string, attempt = 0): voi
   let pending: Buffer = Buffer.alloc(0);
   let timer: ReturnType<typeof setTimeout> | null = null;
   const shimNonce = randomBytes(32).toString("base64url");
+  const keyId = keyIdOf(token);
 
-  const failHandshake = (reason: string) => {
+  const failHandshake = (reason: string, message = UNVERIFIED_ENDPOINT) => {
     if (failed || verified) return;
     failed = true;
     if (timer) clearTimeout(timer);
     socket.destroy();
     logDiagnostic(reason, target);
-    refuseEverything(UNVERIFIED_ENDPOINT);
+    refuseEverything(message);
   };
 
   const onHandshakeData = (chunk: Buffer) => {
@@ -355,6 +364,10 @@ function connectAndAuthenticate(target: string, token: string, attempt = 0): voi
       failHandshake("invalid server challenge");
       return;
     }
+    if (challenge.kind === "unknown") {
+      failHandshake("pairing is no longer connected", DISCONNECTED);
+      return;
+    }
     const expectedServerProof = hmacHex(token, serverProofInput(shimNonce, challenge.nonce));
     const matched = challenge.proofs.some((proof) => equalHex(proof, expectedServerProof));
     if (!matched) {
@@ -375,7 +388,7 @@ function connectAndAuthenticate(target: string, token: string, attempt = 0): voi
     timer = setTimeout(() => failHandshake("handshake timed out"), HANDSHAKE_TIMEOUT_MS);
     timer.unref?.();
     socket.on("data", onHandshakeData);
-    socket.write(challengeLine(shimNonce));
+    socket.write(challengeLine(shimNonce, keyId));
   });
 
   socket.on("error", (error: NodeJS.ErrnoException) => {

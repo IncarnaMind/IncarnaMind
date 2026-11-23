@@ -52,7 +52,7 @@ export function AgentPairingRow({
   skillOutOfDate,
   awaitingInstall,
   shimOutOfDate = false,
-  isBundleClient = pairing.client === "claude-desktop",
+  isBundleClient = false,
   folders,
   justSetUp,
   onUndone,

@@ -6220,7 +6220,7 @@ export const zhCN = {
   "error.agent.socketUntrusted":
     "智能体无法连接到 IncarnaMind：{path} 并非仅限当前账号使用。请修正它的权限或移除它，或改用其他数据文件夹。",
   "error.agent.socketUnavailable":
-    "智能体无法连接到 IncarnaMind：无法在 {path} 建立本地连接。请关闭正在使用此文件夹的另一个 IncarnaMind 窗口，或检查该文件夹权限后再试。",
+    "智能体无法连接到 IncarnaMind：无法在 {path} 建立本地连接。请关闭另一个正在运行的 IncarnaMind 窗口，或检查该位置的权限后再试。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",

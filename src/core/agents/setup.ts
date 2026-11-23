@@ -89,6 +89,8 @@ export interface AgentSetupOptions {
     connect(input: unknown): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
     disconnect(pairingId: unknown): Promise<void>;
     launch(pairingId: unknown): Promise<AgentLaunch>;
+    /** Issues a new key and revokes the previous one when reinstalling an out-of-date shim (ADR-0036). */
+    rotateKey(pairingId: unknown): Promise<AgentLaunch>;
     /** How the server starts with this token, for showing settings before there is one. */
     launchFor(token: string): AgentLaunch;
     ensureReachable?(): Promise<void>;
@@ -672,7 +674,10 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
       if (clientDefinition(pairing.client)?.setup !== "bundle") return;
       if (!awaitingInstall.includes(pairing.id) && !shimsOutOfDate.includes(pairing.id)) return;
-      await openBundle(pairing.id, await options.agents.launch(pairing.id));
+      const launch = shimsOutOfDate.includes(pairing.id)
+        ? await options.agents.rotateKey(pairing.id)
+        : await options.agents.launch(pairing.id);
+      await openBundle(pairing.id, launch);
     },
 
     async settingsFor(pairingId: unknown) {
