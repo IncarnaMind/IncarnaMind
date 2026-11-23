@@ -383,6 +383,24 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(turns.filter((turn) => turn.quiet)).toEqual([]);
   });
 
+  // protects=once condensing is over, the line says the AI is quiet again when it is; fails_when=a run silent after compacting shows a line that never changes
+  it("says the AI is quiet again after condensing, when it is", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "compacting" });
+      await pause(200);
+      request.progress?.({ kind: "compacted" });
+      await pause(1_200);
+      return { kind: "finished", reply: "OK." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 600 });
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "landed" });
+    const working = turns.filter((turn) => turn.state === "working");
+    const condensed = working.findIndex((turn) => turn.doing?.kind === "compacting");
+    expect(condensed).toBeGreaterThanOrEqual(0);
+    expect(working.slice(condensed).some((turn) => turn.quiet)).toBe(true);
+  });
+
   // protects=a compaction that didn't finish in time ends the request with its own plain reason; fails_when=it reads as the AI gone silent, or as a generic failure
   it("ends with its own reason when condensing didn't finish", async () => {
     const run = runner(async () => ({ kind: "failed", reason: "compaction" }));

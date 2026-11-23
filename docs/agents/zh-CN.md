@@ -118,6 +118,7 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Covers (a quantified part) | 覆盖 {total} 项中的 {covered} 项 | No unit: its measure word would change with the unit, and the rows name each member. Counted with 项, never a fixed 个. |
 | Not examined | 未能判断是否需要核对 | A sentence the model said nothing of when the check named the claims: "1 句未能判断是否需要核对". Not 未核对, which is a claim whose check failed or hasn't run. |
 | Claim | 说法 | What a check looks at, in an Answer, a Note or a document someone else wrote. Counted with 条: "核对 24 条说法". Not 论断, an argued conclusion, or 主张, a party's claim in law: neither fits a sentence in a contract or a site report. |
+| Compact (a conversation) | 压缩 | What the User's AI does to a long conversation so far: "正在压缩之前的对话…". Not 精简, which is the Shorten command. |
 | Shorten (an AI edit) | 精简 | "精简", "正在精简…". Not 缩写, which means abbreviate. The others: 润色, 翻译, 解释. |
 | Find support | 查找出处 | No longer a command: only a ⌘K keyword for Check against Documents, which offers Add as Citation. 出处 is the word for a source a writer cites (注明出处); not 依据, which reads as a check. |
 | Check record | 核对记录 | "将核对记录导出为 PDF". The PDF or CSV of what a Note's checks left. |

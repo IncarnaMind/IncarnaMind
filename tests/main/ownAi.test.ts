@@ -664,7 +664,11 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       const ticks = setInterval(() => console.log(${JSON.stringify(thinking)}), 100);
       ${session(after, false, `clearInterval(ticks); ${then}`)}
     `;
-    const run = (options: { stallMs: number; compactMs?: number }, steps: unknown[] = []) =>
+    const run = (
+      options: { stallMs: number; compactMs?: number },
+      steps: unknown[] = [],
+      signal = new AbortController().signal,
+    ) =>
       createOwnAi(options).run({
         client: "claude-code",
         server: SERVER,
@@ -672,45 +676,85 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
         instructions: INSTRUCTIONS,
         prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
         progress: (step) => steps.push(step),
-        signal: new AbortController().signal,
+        signal,
       });
+    const compactionSteps = (steps: unknown[]) =>
+      steps.filter((step) => ["compacting", "compacted"].includes((step as { kind: string }).kind));
+    /** Prints `lines` after `ms`, then ticks as it thinks for `ticksFor` ms, then answers. */
+    const later = (ms: number, lines: unknown[], ticksFor = 0) => `setTimeout(() => {
+      for (const each of ${JSON.stringify(lines)}) console.log(JSON.stringify(each));
+      const thinking = setInterval(() => console.log(${JSON.stringify(thinking)}), 100);
+      setTimeout(() => {
+        clearInterval(thinking);
+        for (const each of ${JSON.stringify([answer, done])}) console.log(JSON.stringify(each));
+      }, ${ticksFor});
+    }, ${ms});`;
 
     // protects=the silence of a compaction, which Claude Code works through without a word, doesn't count towards the stall limit, and the line hears it start and end; fails_when=a healthy run is stopped as stalled while it compacts
     it("is work, not silence", async () => {
       useClaude({
-        run: stream(
-          [started, status("requesting"), compacting],
-          `setTimeout(() => {
-            for (const each of ${JSON.stringify([...compacted, answer, done])}) console.log(JSON.stringify(each));
-          }, 2500);`,
-        ),
+        run: stream([started, status("requesting"), compacting], later(2_500, compacted)),
       });
       const steps: unknown[] = [];
       await expect(run({ stallMs: 1_000 }, steps)).resolves.toEqual({
         kind: "finished",
         reply: "Checked.",
       });
-      const said = steps.filter(
-        (step) =>
-          (step as { kind: string }).kind === "compacting" ||
-          (step as { kind: string }).kind === "compacted",
-      );
-      expect(said).toEqual([{ kind: "compacting" }, { kind: "compacted" }]);
+      expect(compactionSteps(steps)).toEqual([{ kind: "compacting" }, { kind: "compacted" }]);
     }, 15_000);
 
-    // protects=only Claude Code's own status line for the run's session, after its start, starts a compaction; fails_when=a line of another session, or one before the start, keeps a dead run alive
+    // protects=once a compaction ends, silence counts again, and its bound goes with it; fails_when=a run that dies after compacting waits out the 15 minutes, or a healthy run is stopped at a bound that should have gone
+    it("counts silence again once it ends, and its bound goes", async () => {
+      useClaude({
+        run: stream(
+          [started, compacting],
+          `${later(300, compacted, 2_500)}; setTimeout(() => {}, 60_000);`,
+        ),
+      });
+      await expect(run({ stallMs: 1_000, compactMs: 1_500 })).resolves.toEqual({
+        kind: "finished",
+        reply: "Checked.",
+      });
+      useClaude({
+        run: stream(
+          [started, compacting],
+          `setTimeout(() => { for (const each of ${JSON.stringify(compacted)}) console.log(JSON.stringify(each)); }, 300);
+          setTimeout(() => {}, 60_000);`,
+        ),
+      });
+      await expect(run({ stallMs: 1_000, compactMs: 4_000 })).resolves.toEqual({
+        kind: "failed",
+        reason: "stalled",
+      });
+    }, 15_000);
+
+    // protects=the model at work ends a compaction though no end line came, so a later Claude Code that prints none doesn't have a healthy run stopped at the bound; fails_when=a run answering after its compaction is stopped as a stuck compaction
+    it("ends when the model is at work again, with no end line", async () => {
+      useClaude({ run: stream([started, compacting], later(300, [], 2_500)) });
+      const steps: unknown[] = [];
+      await expect(run({ stallMs: 1_000, compactMs: 1_500 }, steps)).resolves.toEqual({
+        kind: "finished",
+        reply: "Checked.",
+      });
+      expect(compactionSteps(steps)).toEqual([{ kind: "compacting" }, { kind: "compacted" }]);
+    }, 15_000);
+
+    // protects=only Claude Code's own "compacting" line for the run's session, after its start, starts a compaction; fails_when=a line of another session, one before the start, or a status that isn't compacting keeps a dead run alive
     it.each([
       ["of another session", [started, { ...compacting, session_id: "another" }]],
       ["before the run's start", [compacting, started]],
+      ["that only says it is requesting", [started, status("requesting")]],
     ])(
-      "doesn't count a compacting line %s",
+      "doesn't count a status line %s",
       async (_name, after) => {
         useClaude({ run: stream(after, "setTimeout(() => {}, 60_000);") });
+        const steps: unknown[] = [];
         // A compaction it wrongly counted would end at its bound, with another reason, not hang.
-        await expect(run({ stallMs: 1_000, compactMs: 4_000 })).resolves.toEqual({
+        await expect(run({ stallMs: 1_000, compactMs: 4_000 }, steps)).resolves.toEqual({
           kind: "failed",
           reason: "stalled",
         });
+        expect(compactionSteps(steps)).toEqual([]);
       },
       15_000,
     );
@@ -723,11 +767,24 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           `setInterval(() => console.log(JSON.stringify(${JSON.stringify(compacting)})), 300);`,
         ),
       });
+      const stop = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
       // A run the bound doesn't end fails here at once, rather than waiting out the test's limit.
-      const unended = new Promise((resolve) => setTimeout(() => resolve("still running"), 8_000));
-      await expect(
-        Promise.race([run({ stallMs: 60_000, compactMs: 1_500 }), unended]),
-      ).resolves.toEqual({ kind: "failed", reason: "compaction" });
+      const unended = new Promise((resolve) => {
+        timer = setTimeout(() => resolve("still running"), 8_000);
+      });
+      const running = run({ stallMs: 60_000, compactMs: 1_500 }, [], stop.signal);
+      // Stopped below once the test is over: that it then rejects is no failure of the test.
+      running.catch(() => undefined);
+      try {
+        await expect(Promise.race([running, unended])).resolves.toEqual({
+          kind: "failed",
+          reason: "compaction",
+        });
+      } finally {
+        clearTimeout(timer);
+        stop.abort();
+      }
     }, 15_000);
   });
 

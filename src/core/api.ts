@@ -13252,6 +13252,8 @@ export type OwnAiCheckProblem =
   | "timeout"
   /** It sent nothing for six minutes, and was stopped. */
   | "stalled"
+  /** Condensing its conversation so far didn't finish in ten minutes. */
+  | "compaction"
   | "no-marks"
   | "isolation"
   | "access"
@@ -13309,11 +13311,10 @@ export interface NoteRequestInput {
 }
 
 /**
- * Why a request at a Note's foot didn't go or didn't finish: the check's reasons; "read-only", the
- * connection may only read and the request would change something; and "compaction", condensing
- * the conversation so far didn't finish in time.
+ * Why a request at a Note's foot didn't go or didn't finish: the check's reasons, and "read-only",
+ * the connection may only read and the request would change something.
  */
-export type NoteTurnProblem = OwnAiCheckProblem | "read-only" | "compaction";
+export type NoteTurnProblem = OwnAiCheckProblem | "read-only";
 
 /**
  * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",

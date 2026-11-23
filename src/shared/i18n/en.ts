@@ -9136,6 +9136,8 @@ export const en = {
     "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
   "agents.ownCheck.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+  "agents.ownCheck.problem.compaction":
+    "{agent} spent ten minutes condensing its conversation without finishing, so the check stopped. Try again.",
   "agents.ownCheck.problem.stalled":
     "{agent} stopped answering for six minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":

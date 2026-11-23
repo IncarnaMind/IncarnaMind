@@ -41,8 +41,8 @@ const STALL_MS = 6 * 60_000;
 
 /**
  * How long Claude Code may spend compacting a conversation, saying nothing meanwhile, before the
- * run is stopped. It compacted 153,589 tokens in 11 s in #3677's real run; a full window of a
- * million tokens, at that pace, takes about a minute and a quarter: this is eight times that.
+ * run is stopped: generous, as only one compaction was measured, 153,589 tokens to a summary of
+ * 1,360 in 11 s (#3677). A longer summary takes longer, more than a larger input does.
  */
 const COMPACT_MS = 10 * 60_000;
 
@@ -303,8 +303,12 @@ export function createOwnAi({
             }
             if (message.type === "stream_event") {
               const event = object(message.event);
-              // Claude Code asks the model again only once each call it sent is answered or dropped.
-              if (event.type === "message_start") running.clear();
+              // Claude Code asks the model again only once each call it sent is answered or dropped,
+              // and once a compaction is over.
+              if (event.type === "message_start") {
+                running.clear();
+                compactionEnds();
+              }
               // A call stops the run as it starts, not once it has been written whole.
               if (event.type === "content_block_start") {
                 if (!begun) throw new StrayRunError("a reply before its start");
@@ -321,13 +325,14 @@ export function createOwnAi({
             ) {
               // As Claude Code 2.1.330 says it: "compacting", then the next status (with how it went)
               // and the boundary. A line of another session, or before the start, counts for nothing.
-              if (!begun || session === null || message.session_id !== session) return;
+              if (session === null || message.session_id !== session) return;
               if (message.subtype === "status" && message.status === "compacting")
                 compactionStarts();
               else compactionEnds();
               return;
             }
             if (message.type === "system" && message.subtype === "thinking_tokens") {
+              compactionEnds();
               request.progress?.({ kind: "thinking" });
               return;
             }
@@ -355,6 +360,7 @@ export function createOwnAi({
             }
             if (message.type !== "assistant") return;
             if (!begun) throw new StrayRunError("a reply before its start");
+            compactionEnds();
             // A reply that came back ends whatever an earlier retry was about.
             failure = failureOf(message.error);
             written = "";
@@ -385,7 +391,7 @@ export function createOwnAi({
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
         if (error instanceof ClaudeCodeStalledError) return { kind: "failed", reason: "stalled" };
-        if (compactionStuck) return { kind: "failed", reason: "compaction" };
+        if (compactionStuck) return { kind: "failed", reason: failure ?? "compaction" };
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
         console.warn(
           "A run of the User's own AI failed:",

@@ -33,8 +33,7 @@ const PROBLEM_OF: Record<OwnAiFailure, OwnAiCheckProblem> = {
   isolation: "isolation",
   "lost-conversation": "failed",
   stalled: "stalled",
-  // A check keeps no conversation, so there is none to compact.
-  compaction: "failed",
+  compaction: "compaction",
   other: "failed",
 };
 
