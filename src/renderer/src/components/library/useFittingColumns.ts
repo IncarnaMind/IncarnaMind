@@ -29,10 +29,25 @@ const isCut = (name: HTMLElement, slack = 0) =>
   name.clientWidth + 1 + slack < (name.scrollWidth <= WORTH_ROOM ? name.scrollWidth : LEAST_ROOM);
 
 /**
- * The least step at which `fits`, looked for from `from`, the one in force: up while it doesn't,
- * else down while the one before does. Settled, that is two measures, not one for every step.
+ * Find the first step with enough room. Each probe lays out the page. On opening, bisect the
+ * steps after checking the full columns. On resizing, start at the step already in force.
  */
-export function leastGivenUp(from: number, last: number, fits: (step: number) => boolean): number {
+export function leastGivenUp(
+  from: number | null,
+  last: number,
+  fits: (step: number) => boolean,
+): number {
+  if (from === null) {
+    if (fits(0)) return 0;
+    let tooNarrow = 0;
+    let enough = last;
+    while (enough - tooNarrow > 1) {
+      const middle = Math.floor((tooNarrow + enough) / 2);
+      if (fits(middle)) enough = middle;
+      else tooNarrow = middle;
+    }
+    return enough;
+  }
   let step = from;
   if (!fits(step)) {
     while (step < last) if (fits(++step)) return step;
@@ -59,17 +74,14 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
     if (!element) return;
     let widths = "";
     let words = "";
+    let settled: number | null = null;
     const fitColumns = () => {
       const names = namesOf(element);
-      const settled = leastGivenUp(
-        Math.max(0, STEPS.indexOf(element.dataset.hide ?? "")),
-        STEPS.length - 1,
-        (step) => {
-          element.dataset.hide = STEPS[step] ?? "";
-          if (step === STEPS.length - 1) return true;
-          return !names.some((name) => isCut(name, step === NARROWEST ? A_FEW_LETTERS : 0));
-        },
-      );
+      settled = leastGivenUp(settled, STEPS.length - 1, (step) => {
+        element.dataset.hide = STEPS[step] ?? "";
+        if (step === STEPS.length - 1) return true;
+        return !names.some((name) => isCut(name, step === NARROWEST ? A_FEW_LETTERS : 0));
+      });
       element.dataset.hide = STEPS[settled] ?? "";
       widths = widthsOf(element);
       words = names.map((name) => name.textContent).join("\n");
