@@ -272,7 +272,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
     const tenth = editor.locator(":scope > p").nth(9);
     await pointAndClick(window, tenth);
-    await window.keyboard.press("End");
+    await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
     const scroller = panel.getByTestId("mind-scroller");
     let before = await notesPlace(editor);
     const settled = async () => {

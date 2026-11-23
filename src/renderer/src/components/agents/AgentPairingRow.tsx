@@ -106,6 +106,22 @@ export function AgentPairingRow({
     setReplacing(false);
   };
 
+  // Read as the row opens and as the agents change: a connection whose program has gone (#3644).
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    let current = true;
+    const read = () =>
+      core.agentNeedsRepair(pairing.id).then((needs) => {
+        if (current) setBroken(needs);
+      }, reportError);
+    read();
+    const stop = core.on("agents.changed", read);
+    return () => {
+      current = false;
+      stop();
+    };
+  }, [pairing.id, reportError]);
+
   // The activity list follows each call while it is open.
   useEffect(() => {
     if (open !== "activity") return;
@@ -251,6 +267,25 @@ export function AgentPairingRow({
                 }
               >
                 {t("agents.sorting.shareTags")}
+              </button>
+            </span>
+          )}
+          {broken && (
+            <span data-testid="agent-pairing-repair" className="block">
+              {t("agents.pairing.repair.line", { agent: pairingInSentence(pairing, t) })}
+              <span aria-hidden="true"> · </span>
+              <button
+                type="button"
+                data-testid="agent-pairing-repair-button"
+                onClick={() =>
+                  core
+                    .repairAgent(pairing.id)
+                    .then(() => core.agentNeedsRepair(pairing.id))
+                    .then(setBroken, reportError)
+                }
+                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                {t("agents.pairing.repair")}
               </button>
             </span>
           )}

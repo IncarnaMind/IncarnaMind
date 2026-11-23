@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
-import { basename, dirname, extname, isAbsolute, join } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import * as Y from "yjs";
 import { cleanApiKey } from "../shared/apiKey";
@@ -57,6 +57,7 @@ import {
   writeMindStyle,
 } from "../shared/mindStyle";
 import { missingNumberWords } from "../shared/missingNumbers";
+import { sameName } from "../shared/names";
 import { mindName } from "../shared/naming";
 import { recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
@@ -75,10 +76,17 @@ import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
-import { agentSocketPath, createAgents, serviceOf } from "./agents";
+import {
+  agentSocketPath,
+  createAgents,
+  HOSTED_CHECK_SENDS,
+  HOSTED_FLOW_SENDS,
+  serviceOf,
+} from "./agents";
 import { createAgentAsk } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
+import { createOwnAiConversations } from "./agents/ownAiConversations";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createOwnAiChecks } from "./agents/ownRun";
 import { createAgentSetup } from "./agents/setup";
@@ -127,9 +135,11 @@ import {
   type AddDocumentsResult,
   type AddedToNote,
   type AgentOpened,
+  type AgentPairing,
   type AnnotationColour,
   type AnswerPlace,
   BLOCK_ID_ATTRIBUTE,
+  type BoundFolderChange,
   type CallHelpKind,
   type ChatModelChoice,
   type ChatProviderKind,
@@ -144,6 +154,7 @@ import {
   type CoreApi,
   type CoreApiMethod,
   type CoreEventSource,
+  type DataKind,
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
   type DecisionHostStatus,
@@ -158,8 +169,10 @@ import {
   type FigureSchedule,
   type FirstOpenQuestion,
   type LibrarySource,
+  type LinkedFolder,
   type MarkAiTextChoice,
   type Meeting,
+  type MergedFolder,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   type Mind,
@@ -187,6 +200,7 @@ import {
   type TaggingRoute,
   type Task,
   type TurnPlace,
+  type UnboundFolder,
   type UnlockDocumentInput,
   type UnreadFile,
   type UnsavedAtEnd,
@@ -279,7 +293,7 @@ import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFirstRun } from "./firstRun";
-import { createFolders } from "./folders";
+import { createFolders, folderIdFor } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
 import { CLASSIFICATION_FLOW_SENDS, createLibrary, SCAN_IMAGES_FLOW_SENDS } from "./library";
@@ -691,6 +705,57 @@ function parseUnlock(input: unknown): UnlockDocumentInput {
     throw new InvalidInputError({ key: "error.document.passwordMissing" });
   }
   return { documentId: parseDocumentId(input.documentId), password };
+}
+
+/** Where migration 162 lists the Linked folders the first start binds (#3613). */
+const LINKED_FOLDERS_TO_BIND = "linkedFoldersToBind";
+/** Starts that try to bind one of them before it is left with its filing as one Folder off. */
+const BIND_TRIES = 3;
+
+/** The list at `LINKED_FOLDERS_TO_BIND`, and how many starts have tried it, or null for none. */
+function parseFoldersToBind(value: unknown): { linkedFolderIds: string[]; tries: number } | null {
+  if (!isRecord(value) || !Array.isArray(value.linkedFolderIds)) return null;
+  return {
+    linkedFolderIds: value.linkedFolderIds.filter((id): id is string => typeof id === "string"),
+    tries: typeof value.tries === "number" ? value.tries : 0,
+  };
+}
+
+/** `rebindFolder`'s input, as `unbindFolder` gave it, its refiled changes still to be read. */
+function parseUnboundFolder(
+  input: unknown,
+): Omit<UnboundFolder, "refiled"> & { refiled: unknown[] } {
+  if (
+    !isRecord(input) ||
+    typeof input.groupId !== "string" ||
+    input.groupId === "" ||
+    (input.boundFolderId !== null && typeof input.boundFolderId !== "string") ||
+    typeof input.removed !== "boolean" ||
+    !Array.isArray(input.refiled)
+  ) {
+    // Only Undo sends it, as `unbindFolder` gave it: anything else can't be put back.
+    throw new InvalidInputError({ key: "error.library.projectUndo" });
+  }
+  return {
+    groupId: input.groupId,
+    boundFolderId: input.boundFolderId,
+    removed: input.removed,
+    refiled: input.refiled,
+  };
+}
+
+/** The Folder each refiled Document went to, by that Folder: `unfileBound` checks the rest. */
+function refiledByFolder(refiled: readonly unknown[]): Map<string, string[]> {
+  const by = new Map<string, string[]>();
+  for (const change of refiled) {
+    const after = isRecord(change) && isRecord(change.after) ? change.after.assignment : undefined;
+    const to = isRecord(after) && typeof after.groupId === "string" ? after.groupId : null;
+    if (!to || !isRecord(change) || typeof change.documentId !== "string") {
+      throw new InvalidInputError({ key: "error.library.projectUndo" });
+    }
+    by.set(to, [...(by.get(to) ?? []), change.documentId]);
+  }
+  return by;
 }
 
 /** `deleteAgain`'s input: each item, and the time it was deleted before its Restore. */
@@ -3760,9 +3825,11 @@ export function createCore(adapters: CoreAdapters): Core {
   };
   const unlinkFolder = (linkedFolderId: string, keep: readonly string[] = []) => {
     const own = documents.linkedFolders.list().find((each) => each.id === linkedFolderId)?.folderId;
-    if (own) library.unbindLinkedFolder(linkedFolderId, own);
+    const unbound = own ? library.unbindLinkedFolder(linkedFolderId, own) : [];
     documents.linkedFolders.remove(linkedFolderId, keep);
     outputs.forgetLinkedFolder(linkedFolderId);
+    // Its Folder keeps the User's Notes (ADR-0030); one that held only the folder's files goes.
+    for (const id of unbound) if (library.isEmpty(id)) library.removeQuietly(id);
   };
 
   // Automatic tagging: Jev when it is set up on this device, otherwise the
@@ -4181,10 +4248,172 @@ export function createCore(adapters: CoreAdapters): Core {
       const change = fileInBoundFolder(document.id);
       return change ? [change] : [];
     });
+  /**
+   * Makes a Folder bound to a folder on disk, named after it, inside `parentId` (#3613): a Linked
+   * folder's own Folder, known before a scan has made its row, or one inside it. One already bound
+   * to it is returned as it is, filing nothing.
+   */
+  const bindFolderOnDisk = (folderId: string, parentId: string | null) => {
+    const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
+    const folder = linked
+      ? { id: folderId, name: basename(linked.path) || linked.path }
+      : folders.get(folderId);
+    const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
+    if (already) return { folder: already, filed: [] };
+    const name = (folder.name.trim() || linked?.path || folder.id).slice(0, 100).trim();
+    const made = library.create(
+      { name: freeFolderName(name, parentId), description: "", parentId },
+      true,
+    );
+    return { folder: library.bind(made.id, folder.id), filed: fileUnder([folder.id]) };
+  };
+  /** The name, or the first of "name 2", "name 3"… that no other Folder beside it has. */
+  const freeFolderName = (name: string, parentId: string | null, self?: string) => {
+    const beside = library
+      .folders()
+      .filter((each) => each.parentId === parentId && each.id !== self);
+    const taken = (candidate: string) => beside.some((each) => sameName(each.name, candidate));
+    let free = name;
+    for (let n = 2; taken(free); n += 1) free = `${name.slice(0, 96)} ${n}`;
+    return free;
+  };
   /** Whether a Document is in this folder on disk: a Linked folder's own Folder or one inside it. */
   const inFolderOnDisk = (documentId: string, folderId: string) => {
     const [document] = documents.getMany([documentId]);
     return !!document?.linkedFolderId && documents.foldersAbove(document.path).includes(folderId);
+  };
+  /** See `CoreApi.unbindFolder`. */
+  const unbindFolder = (groupId: string, filed: unknown): UnboundFolder => {
+    const { boundFolderId } = library.folder(groupId);
+    return db.transaction(() => {
+      const back =
+        boundFolderId === null
+          ? []
+          : library.unfileBound(groupId, filed, (id) => inFolderOnDisk(id, boundFolderId));
+      if (boundFolderId !== null) library.unbind(groupId);
+      const removed = library.isEmpty(groupId);
+      if (removed) library.removeQuietly(groupId);
+      // Each has no filing of its own again, so a Folder bound further up takes it (ADR-0030).
+      const refiled = back.flatMap((id) => fileInBoundFolder(id) ?? []);
+      return { groupId, boundFolderId, removed, refiled };
+    });
+  };
+  /** Brings back a Folder taken away quietly, under a free name, unless it was purged since. */
+  const restoreRemoved = (groupId: string): boolean => {
+    if (!library.restoreQuietly(groupId)) return false;
+    // A Folder made beside it since may have its name: it takes the next free one.
+    const back = library.folder(groupId);
+    const name = freeFolderName(back.name, back.parentId, back.id);
+    if (name !== back.name) library.update(back.id, { ...back, name });
+    return true;
+  };
+  /** See `CoreApi.rebindFolder`. */
+  const rebindFolder = (input: unknown): BoundFolderChange => {
+    const unbound = parseUnboundFolder(input);
+    return db.transaction(() => {
+      if (unbound.removed && !restoreRemoved(unbound.groupId)) {
+        // Purged since: binding makes a Folder again, as linking does.
+        if (unbound.boundFolderId === null)
+          throw new NotFoundError({ key: "error.folder.notFound" });
+        return bindFolderOnDisk(unbound.boundFolderId, null);
+      }
+      if (unbound.boundFolderId === null) {
+        return { folder: library.folder(unbound.groupId), filed: [] };
+      }
+      const folder = library.bind(unbound.groupId, unbound.boundFolderId);
+      // What a Folder further up took when this one let go goes back to no filing, for this one.
+      const live = new Set(library.folders().map((each) => each.id));
+      for (const [to, ids] of refiledByFolder(unbound.refiled)) {
+        if (live.has(to)) library.unfileBound(to, unbound.refiled, (id) => ids.includes(id));
+      }
+      return { folder, filed: fileUnder([unbound.boundFolderId]) };
+    });
+  };
+  /**
+   * Binds the Folders of the Linked folders a link around them merged to the same folders inside
+   * the new one (#3613), whose ids are its own, and says where each was.
+   */
+  const rebindMerged = (
+    before: readonly LinkedFolder[],
+    bindings: ReadonlyMap<string, readonly { id: string; relativePath: string }[]>,
+    linked: LinkedFolder,
+  ): MergedFolder[] => {
+    const live = new Set(documents.linkedFolders.list().map((each) => each.id));
+    return before.flatMap((inner) => {
+      const inside = relative(linked.path, inner.path);
+      if (live.has(inner.id) || inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
+        return [];
+      }
+      const base = inside.split(sep).join("/");
+      // Its own Folder and any bound to a folder inside it, as each was before the merge.
+      return (bindings.get(inner.id) ?? []).map(({ id, relativePath }) => {
+        const { parentId } = library.folder(id);
+        library.bind(id, folderIdFor(linked.id, relativePath ? `${base}/${relativePath}` : base));
+        return { path: inner.path, groupId: id, parentId };
+      });
+    });
+  };
+  /**
+   * Binds the folders linked before that migration 162 chose, as linking binds one now, so each
+   * Document is filed as the bind files it (#3613). A connection that read Not in a Folder, where
+   * their files were, is given their new Folders, so it reads them still. Tidying up after an
+   * upgrade never stops a start: a folder that fails is logged and tried again at the next start,
+   * up to `BIND_TRIES` starts, and meanwhile shows as one whose filing as one Folder is off.
+   */
+  const bindFoldersLinkedBefore = () => {
+    const log = adapters.log ?? silentLogger;
+    const failure = (error: unknown) => ({
+      error: error instanceof Error ? error.name : "unknown",
+      message: error instanceof Error ? error.message : String(error),
+    });
+    try {
+      const toBind = parseFoldersToBind(settings.readDeviceValue(LINKED_FOLDERS_TO_BIND));
+      if (!toBind) return;
+      const tries = toBind.tries + 1;
+      const failed: string[] = [];
+      for (const linked of documents.linkedFolders.list()) {
+        if (!toBind.linkedFolderIds.includes(linked.id)) continue;
+        try {
+          db.transaction(() => {
+            if (library.boundTo([linked.folderId]) !== null) return;
+            const made = bindFolderOnDisk(linked.folderId, null).folder.id;
+            db.run(
+              `UPDATE agent_pairings SET
+                 folder_ids = (SELECT json_group_array(value) FROM (
+                   SELECT value FROM json_each(agent_pairings.folder_ids) UNION ALL SELECT ?)),
+                 updated_at = ?
+               WHERE deleted_at IS NULL AND json_valid(folder_ids)
+                 AND EXISTS (SELECT 1 FROM json_each(agent_pairings.folder_ids) WHERE value = ?)`,
+              [made, now(), NOT_IN_A_FOLDER_ID],
+            );
+          });
+        } catch (error) {
+          failed.push(linked.id);
+          log.error("linkedFolder.bind.failed", {
+            linkedFolderId: linked.id,
+            tries,
+            ...failure(error),
+          });
+        }
+      }
+      if (failed.length > 0 && tries < BIND_TRIES) {
+        settings.writeDeviceValue(LINKED_FOLDERS_TO_BIND, { linkedFolderIds: failed, tries });
+      } else settings.deleteDeviceValue(LINKED_FOLDERS_TO_BIND);
+    } catch (error) {
+      log.error("linkedFolder.bind.failed", failure(error));
+    }
+  };
+  /** Puts each merged Folder that was at the top level inside the new Folder, as on disk. */
+  const nestMerged = (merged: readonly MergedFolder[], outerId: string) => {
+    for (const each of merged) {
+      if (each.parentId !== null) continue;
+      try {
+        library.moveGroups([{ id: each.groupId, parentId: outerId }]);
+      } catch (error) {
+        // A Folder of the same name is there already: it stays where it was, still bound.
+        console.error(`A merged Folder couldn't move inside the new one (${each.groupId}).`, error);
+      }
+    }
   };
   const mindSources = createMindSources({
     dataDir,
@@ -4445,11 +4674,17 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     forgotten: (ids) => layouts.forgetClosed(ids),
     foldersRestored: (folderIds) => {
-      const bound = library
-        .folders()
-        .flatMap((each) =>
-          folderIds.includes(each.id) && each.boundFolderId ? [each.boundFolderId] : [],
+      const live = library.folders();
+      const bound: string[] = [];
+      for (const each of live) {
+        if (!folderIds.includes(each.id) || !each.boundFolderId) continue;
+        const taken = live.some(
+          (other) => !folderIds.includes(other.id) && other.boundFolderId === each.boundFolderId,
         );
+        // One Folder a folder (ADR-0030): one bound to it since keeps it, and this comes back plain.
+        if (taken) library.unbind(each.id);
+        else bound.push(each.boundFolderId);
+      }
       if (bound.length > 0) fileUnder(bound);
     },
     conversationsChanged,
@@ -5121,6 +5356,7 @@ export function createCore(adapters: CoreAdapters): Core {
       stopReadyWaits.delete(stop);
     }
   };
+  bindFoldersLinkedBefore();
   // Started here, not with the rest of the Library, so a Document an earlier version filed as an
   // example's is never worked on again (#1942).
   library.start();
@@ -6803,55 +7039,94 @@ export function createCore(adapters: CoreAdapters): Core {
   ] as const)
     events.on(event, summaryAccessChanged);
   liveSummaries.changed(meetings.list());
+  /** Whether the User's consent lets IncarnaMind start this agent to send `sends`, asking once if not. */
+  const hostedConsent = async (pairing: AgentPairing, sends: readonly DataKind[]) => {
+    const service = serviceOf(pairing);
+    // Taken back in Settings › Privacy: the job goes by the link until the User allows it again.
+    if (consent.takenBack("hosted-agents", service)) return false;
+    try {
+      await consent.ensure("hosted-agents", service, sends);
+      return true;
+    } catch (error) {
+      if (error instanceof ConsentDeclinedError) return false;
+      throw error;
+    }
+  };
+  const hostedHeldBack = (pairing: AgentPairing, mindId: string) => {
+    // Local mode pauses every pairing, so it comes before the reach it takes away.
+    if (embedding.localOnly()) return "local-mode" as const;
+    if (!agents.askable(mindId).some((each) => each.id === pairing.id)) return "access" as const;
+    // An acceptance from before the flow grew still counts for what was allowed then.
+    return consent.allows("hosted-agents", serviceOf(pairing)) ? null : ("taken-back" as const);
+  };
+  const onHostedReachChange = (listener: () => void) => {
+    const off = (
+      [
+        "agents.changed",
+        "privacy.changed",
+        "settings.changed",
+        "dataFlows.changed",
+        "minds.changed",
+        "library.changed",
+        "library.assignments",
+      ] as const
+    ).map((event) => events.on(event, listener));
+    return () => {
+      for (const each of off) each();
+    };
+  };
+  const hostedTitleOf = (mindId: string) => {
+    const mind = minds.list().find((each) => each.id === mindId);
+    return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
+  };
   const ownAiChecks = createOwnAiChecks({
     runner: adapters.ownAi,
     askable: (mindId) => agents.askable(mindId),
     checkGrant: (pairingId, mindId) => agents.checkGrant(pairingId, mindId),
-    async consented(pairing) {
-      const service = serviceOf(pairing);
-      // Taken back in Settings › Privacy: Check goes by the link until the User allows it again.
-      if (consent.takenBack("hosted-agents", service)) return false;
-      try {
-        await consent.ensure("hosted-agents", service);
-        return true;
-      } catch (error) {
-        if (error instanceof ConsentDeclinedError) return false;
-        throw error;
-      }
-    },
-    heldBack(pairing, mindId) {
-      // Local mode pauses every pairing, so it comes before the reach it takes away.
-      if (embedding.localOnly()) return "local-mode";
-      if (!agents.askable(mindId).some((each) => each.id === pairing.id)) return "access";
-      return consent.status("hosted-agents", serviceOf(pairing)) === "accepted"
-        ? null
-        : "taken-back";
-    },
-    onReachChange(listener) {
-      const off = (
-        [
-          "agents.changed",
-          "privacy.changed",
-          "settings.changed",
-          "dataFlows.changed",
-          "minds.changed",
-          "library.changed",
-          "library.assignments",
-        ] as const
-      ).map((event) => events.on(event, listener));
-      return () => {
-        for (const each of off) each();
-      };
-    },
+    consented: (pairing) => hostedConsent(pairing, HOSTED_CHECK_SENDS),
+    heldBack: hostedHeldBack,
+    onReachChange: onHostedReachChange,
     onActivity: (listener) => events.on("agents.activity", listener),
     ended: (end) => events.emit("agents.ownCheck", end),
-    titleOf(mindId) {
-      const mind = minds.list().find((each) => each.id === mindId);
-      return (mind && mindName(mind)) || translate(settings.get().language, "mind.untitled");
-    },
+    titleOf: hostedTitleOf,
     lifetime: lifetime.signal,
     log: adapters.log ?? silentLogger,
   });
+  const ownAiConversations = createOwnAiConversations({
+    runner: adapters.ownAi,
+    db,
+    askable: (mindId) => agents.askable(mindId),
+    conversationGrant: (pairingId, front, hears) =>
+      agents.conversationGrant(pairingId, front, hears),
+    consented: (pairing) => hostedConsent(pairing, HOSTED_FLOW_SENDS),
+    heldBack: hostedHeldBack,
+    onReachChange: onHostedReachChange,
+    turned: (turn) => events.emit("agents.noteTurn", turn),
+    titleOf: hostedTitleOf,
+    newId: () => crypto.randomUUID(),
+    now,
+    lifetime: lifetime.signal,
+    log: adapters.log ?? silentLogger,
+  });
+  // A connection's conversations go with the connection, and with its consent to start it (ADR-0034).
+  const forgetConversations = (pairingId: string) =>
+    ownAiConversations
+      .forgetPairing(pairingId)
+      .catch((error: unknown) =>
+        console.error("A Note's conversation couldn't be deleted:", error),
+      );
+  agents.watch({ connected: () => undefined, disconnected: forgetConversations });
+  events.on("dataFlows.changed", () => {
+    const pairings = agents.settings().pairings;
+    for (const pairingId of ownAiConversations.pairingsWithConversations()) {
+      const pairing = pairings.find((each) => each.id === pairingId);
+      if (pairing && consent.allows("hosted-agents", serviceOf(pairing))) continue;
+      void forgetConversations(pairingId);
+    }
+  });
+  ownAiConversations
+    .dropPurged()
+    .catch((error: unknown) => console.error("A Note's conversation couldn't be deleted:", error));
   const agentAsk = createAgentAsk({
     meetingTranscript(meetingId, mindId) {
       try {
@@ -7596,16 +7871,47 @@ export function createCore(adapters: CoreAdapters): Core {
     readableQuote: async (input) => documents.readableQuote(parseQuoted(input), true),
     previewLinkedFolder: (path) => documents.linkedFolders.preview(path),
     addLinkedFolder: async (path, options) => {
-      const groupId = library.target(options);
-      const known = new Set(documents.linkedFolders.list().map((each) => each.id));
+      const dropped = library.target(options);
+      const rebind =
+        isRecord(options) && typeof options.rebind === "string" ? options.rebind : null;
+      const before = documents.linkedFolders.list();
+      const bindings = new Map(
+        before.map((each) => [each.id, library.boundToLinkedFolder(each.id, each.folderId)]),
+      );
       const linked = await documents.linkedFolders.add(path);
-      // Its first scan only starts adding Documents once this has returned.
-      const batchId = batches.begin(groupId);
+      const known = before.some((each) => each.id === linked.id);
+      // Linking makes its Folder at once, inside the one it was dropped on (#3613).
+      const { bound, merged } = known
+        ? { bound: null, merged: [] }
+        : db.transaction(() => {
+            const regrouped = rebindMerged(before, bindings, linked);
+            // Undo of an unlink links it again into the Folder it had, as it was.
+            const kept =
+              rebind !== null &&
+              (library.folders().some((each) => each.id === rebind) || restoreRemoved(rebind));
+            const made = kept
+              ? {
+                  folder: library.bind(rebind, linked.folderId),
+                  filed: fileUnder([linked.folderId]),
+                }
+              : bindFolderOnDisk(
+                  linked.folderId,
+                  // The Folder it was dropped on, deleted while the folder was linked: at the top level.
+                  dropped !== null && library.folders().some((each) => each.id === dropped)
+                    ? dropped
+                    : null,
+                );
+            nestMerged(regrouped, made.folder.id);
+            return { bound: made, merged: regrouped };
+          });
+      // Its first scan only starts adding Documents once this has returned. They are filed as they
+      // are found, in the Folder bound to them then (ADR-0030), never by the batch (#3613).
+      const batchId = batches.begin(known ? dropped : null);
       // A folder inside one already linked adds nothing: its scans aren't this batch.
-      if (known.has(linked.id)) batches.done(batchId);
+      if (known) batches.done(batchId);
       else batches.linking(batchId, linked);
       usageData.record({ event: "folder_linked", fields: {} });
-      return { ...linked, batchId };
+      return { ...linked, batchId, bound, merged };
     },
     listLinkedFolders: async () => documents.linkedFolders.list(),
     listUnreadFiles: async (scope) => unreadIn(parseSearchScope(scope)),
@@ -8270,34 +8576,9 @@ export function createCore(adapters: CoreAdapters): Core {
 
     getLibrary: async () => library.snapshot(),
     createLibraryGroup: async (input) => library.create(input),
-    createBoundFolder: async (folderId) => {
-      // A Linked folder's own Folder is known before a scan has made its row: binding works by id.
-      const linked = documents.linkedFolders.list().find((each) => each.folderId === folderId);
-      const folder = linked
-        ? { id: folderId, name: basename(linked.path), linkedFolderId: linked.id }
-        : folders.get(folderId);
-      const already = library.folders().find((each) => each.id === library.boundTo([folder.id]));
-      if (already) return { folder: already, filed: [] };
-      const made = library.create({
-        name: folder.name.slice(0, 100),
-        description: "",
-        keepInside: true,
-      });
-      const bound = library.bind(made.id, folder.id);
-      return { folder: bound, filed: fileUnder([folder.id]) };
-    },
-    undoBoundFolder: async (groupId, filed) => {
-      const { boundFolderId } = library.folder(groupId);
-      db.transaction(() => {
-        const back =
-          boundFolderId === null
-            ? []
-            : library.unfileBound(groupId, filed, (id) => inFolderOnDisk(id, boundFolderId));
-        removeFolder(groupId);
-        // Each has no filing of its own again, so a Project still above it takes it (ADR-0030).
-        for (const id of back) fileInBoundFolder(id);
-      });
-    },
+    createBoundFolder: async (folderId) => bindFolderOnDisk(folderId, null),
+    unbindFolder: async (groupId, filed) => unbindFolder(groupId, filed),
+    rebindFolder: async (unbound) => rebindFolder(unbound),
     updateLibraryGroup: async (id, input) => library.update(id, input),
     moveLibraryGroups: async (moves) => library.moveGroups(moves),
     deleteLibraryGroup: async (id) => removeFolder(id),
@@ -8443,6 +8724,7 @@ export function createCore(adapters: CoreAdapters): Core {
         wordImports.dropPurged(),
         documents.dropPurged(),
         canvases.dropPurged(),
+        ownAiConversations.dropPurged(),
       ]);
       transcripts?.dropPurged();
       // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
@@ -9131,6 +9413,8 @@ export function createCore(adapters: CoreAdapters): Core {
       meetings.undoAddTranscriptAction(meetingId, itemId),
     addMeetingSummaryCandidate: candidateReviews.add,
     undoAddMeetingSummaryCandidate: candidateReviews.undo,
+    updateMeetingSummaryContent: async (meetingId, expected, content) =>
+      meetings.updateSummaryContent(meetingId, expected, content),
     correctMeetingSummaryItem: async (meetingId, expected, replacement) =>
       meetings.correctSummaryItem(meetingId, expected, replacement),
     retryMeetingSummary: async (meetingId) => {
@@ -9362,6 +9646,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return left;
     },
     replaceAgentSkill: (pairingId) => agentSetup.replaceSkill(pairingId),
+    agentNeedsRepair: (pairingId) => agentSetup.needsRepair(pairingId),
+    repairAgent: (pairingId) => agentSetup.repair(pairingId),
     listAgentClients: async () => agentSetup.clients(),
     previewAgentSetup: async (client) => agentSetup.preview(client),
     setUpAgent: (input) => agentSetup.setUp(input),
@@ -9402,6 +9688,18 @@ export function createCore(adapters: CoreAdapters): Core {
       return ownAiChecks.check(mindId, pairingId);
     },
     stopOwnAiCheck: async (mindId) => ownAiChecks.stop(mindId),
+    askInNote: (input) => ownAiConversations.ask(input),
+    stopInNote: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.stop(mindId);
+    },
+    noteConversation: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.turns(mindId);
+    },
+    ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);

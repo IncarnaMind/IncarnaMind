@@ -56,6 +56,7 @@ const SENTENCES = {
 const LANGUAGES = {
   en: {
     found: /Quote found/,
+    twoFound: /2 quotes found on p\. 3/,
     notFound: /Quote not found/,
     contradicted: /Contradicted/,
     cantCheck: /Can’t check/,
@@ -69,6 +70,7 @@ const LANGUAGES = {
   },
   "zh-CN": {
     found: /已在.*找到引文/,
+    twoFound: /已在第 3 页找到 2 处引文/,
     notFound: /未在.*找到引文/,
     contradicted: /与文档矛盾/,
     cantCheck: /无法核对/,
@@ -279,14 +281,14 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // Found: the neutral chip with no icon, under a supported and an unsupported sentence
       // alike: the sentence's verdict never changes its Citations' markers.
-      const found = [
-        supported.getByTestId("citation-chip"),
-        ...(await unsupported.getByTestId("citation-chip").all()),
-      ];
-      expect(found).toHaveLength(3);
-      for (const marker of found) {
+      for (const [line, label] of [
+        [supported, words.found],
+        [unsupported, words.twoFound],
+      ] as const) {
+        const marker = line.getByTestId("citation-chip").filter({ visible: true });
+        await expect(marker).toHaveCount(1);
         await expect(marker).toHaveAttribute("data-check", "found");
-        await expect(marker).toHaveAccessibleName(words.found);
+        await expect(marker).toHaveAccessibleName(label);
         expect(await paintOf(marker)).toEqual({ background: neutral, color: neutralInk });
         await expect(iconOf(marker)).toBeHidden();
       }

@@ -24,7 +24,7 @@ const CONTEXT: CommandContext = { selection: [], focus: null, surface: "mind" };
  */
 export function BarMore({ meeting }: { meeting: Meeting }) {
   const t = useT();
-  const menu = usePopoverMenu();
+  const menu = usePopoverMenu({ focus: "first" });
   const bar = menu.buttonProps.ref.current?.closest(".meeting-bar");
   const hidden = menu.open
     ? FOLDING.filter(({ fold }) => {

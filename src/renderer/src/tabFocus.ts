@@ -16,26 +16,27 @@ export function forgetTabCloseFocus(groupId: string, tabId: string | null): void
   if (pending?.groupId === groupId && pending.tabId === tabId) pending.stop();
 }
 
-function focusOnceDrawn(find: () => HTMLElement | null, onlyIfLost: boolean): void {
+function focusOnceDrawn(find: () => HTMLElement | null, from?: Element | null): void {
   requestAnimationFrame(() => {
-    if (onlyIfLost && document.activeElement !== document.body) return;
+    const active = document.activeElement;
+    if (from !== undefined && active !== from && active !== document.body) return;
     find()?.focus();
   });
 }
 
 /**
  * Moves the keyboard's focus to a tab once it is drawn. With `onlyIfLost`, only if the focus
- * is nowhere by then: a field the User has moved to since keeps it.
+ * is nowhere by then. With `from`, a place the User focused since the request keeps the focus.
  */
 export function focusTab(
   tabId: string | null | undefined,
-  { onlyIfLost = false }: { onlyIfLost?: boolean } = {},
+  { onlyIfLost = false, from }: { onlyIfLost?: boolean; from?: Element | null } = {},
 ): void {
   forgetContentFocus();
   if (!tabId) return;
   focusOnceDrawn(
     () => document.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`),
-    onlyIfLost,
+    onlyIfLost ? document.body : from,
   );
 }
 
@@ -151,6 +152,6 @@ export function returnFocusAfterTabClose(
           ? document.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(next.activeTabId)}"]`)
           : pane?.querySelector<HTMLElement>('[data-testid="new-tab"]')) ?? null
       );
-    }, true);
+    }, document.body);
   };
 }

@@ -120,15 +120,13 @@ export function choiceOfAll(
 }
 
 /**
- * Which Folders all leaves out, as the consent says so (#3544): none, Projects alone, or Folders
- * that keep their work inside them, a Project whose wall is off being part of all.
+ * Which Folders all leaves out, as the consent says so (#3544): none, or the Folders that keep
+ * their work inside them, one bound to a folder on disk as any other (#3613).
  */
 export function leftOutOfAll(
-  folders: readonly Pick<LibraryGroup, "keepInside" | "boundFolderId">[],
-): "none" | "projects" | "walled" {
-  const walled = folders.filter((folder) => folder.keepInside);
-  if (walled.length === 0) return "none";
-  return walled.every((folder) => folder.boundFolderId !== null) ? "projects" : "walled";
+  folders: readonly Pick<LibraryGroup, "keepInside">[],
+): "none" | "walled" {
+  return folders.some((folder) => folder.keepInside) ? "walled" : "none";
 }
 
 /** The Folders an agent given `chosen` reads besides those it was given: the Folders inside them. */

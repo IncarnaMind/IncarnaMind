@@ -69,6 +69,9 @@ async function libraryWithFolder(app: Parameters<typeof linkFolderFromSidebar>[0
   await linkFolderFromSidebar(app, window, sources);
   await expectReadyDocuments(window, 5);
   await (await coreOf(window)).evaluate(async (core, name) => {
+    // Its filing as one Folder off: the CSV is the one in no Folder (#3613).
+    const bound = (await core.getLibrary()).groups.find((each) => each.boundFolderId);
+    if (bound) await core.unbindFolder(bound.id, []);
     const folder = await core.createLibraryGroup({
       name,
       description: "Tides, harbours and estuaries",

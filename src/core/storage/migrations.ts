@@ -3377,6 +3377,86 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE skills ADD COLUMN meeting_fill_uncovered INTEGER NOT NULL DEFAULT 1;
     `,
   },
+  {
+    version: 160,
+    description: "A Note's conversation with the User's own command-line AI (#3627)",
+    sql: `
+      -- Each Note's conversation with the User's own command-line AI (ADR-0034), and each request
+      -- in it: on this device only, as agent_requests is, since the agent's own copy is on this
+      -- computer. A deleted one keeps no words: its row stays only as the deletion.
+      CREATE TABLE own_ai_conversations (
+        id TEXT PRIMARY KEY,
+        mind_id TEXT NOT NULL,
+        pairing_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE UNIQUE INDEX own_ai_conversations_live ON own_ai_conversations (mind_id, pairing_id)
+        WHERE deleted_at IS NULL;
+      CREATE TABLE own_ai_turns (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        request TEXT NOT NULL,
+        selection TEXT NOT NULL DEFAULT '',
+        reply TEXT NOT NULL DEFAULT '',
+        outcome TEXT NOT NULL,
+        problem TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX own_ai_turns_by_conversation ON own_ai_turns (conversation_id, created_at)
+        WHERE deleted_at IS NULL;
+    `,
+  },
+  {
+    version: 161,
+    description: "Keep the User’s edited meeting summary separately from generated text",
+    sql: "ALTER TABLE meetings ADD COLUMN edited_summary_content TEXT;",
+  },
+  {
+    version: 162,
+    description: "A folder linked before is a Folder bound to it, as linking one makes now (#3613)",
+    sql: `
+      -- A Folder its filing as one Folder took away holding nothing (#3613) is deleted as any
+      -- Folder is, and marked so that Recently deleted doesn't list it: only Undo brings it back.
+      ALTER TABLE library_groups ADD COLUMN deleted_quietly INTEGER NOT NULL DEFAULT 0;
+      -- The Linked folders the first start binds as linking binds one now, through the same code:
+      -- each of the User's with no Folder bound to it (in Recently deleted included; a Folder bound
+      -- to a folder inside it keeps that folder and its files), not the app's own examples folder,
+      -- and not one whose Documents the User has all filed already, whose new files keep going to
+      -- Not in a Folder as they did until the User chooses File as one Folder. A Document has a
+      -- filing of its own when it is in a live Folder, or in no Folder by the User's choice.
+      INSERT INTO device_settings (id, key, value, created_at, updated_at)
+        SELECT ${UUID_V4_SQL}, 'linkedFoldersToBind',
+          json_object('linkedFolderIds', json(ids), 'tries', 0), at, at FROM (
+          SELECT json_group_array(lf.id) AS ids, COUNT(*) AS count,
+            strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS at
+          FROM linked_folders lf
+          WHERE lf.deleted_at IS NULL
+            AND lf.id NOT IN (
+              SELECT json_extract(s.value, '$.linkedFolderId') FROM device_settings s
+              WHERE (s.key = 'examples' OR s.key LIKE 'examples.%') AND s.deleted_at IS NULL
+                AND json_valid(s.value) AND json_extract(s.value, '$.linkedFolderId') IS NOT NULL)
+            AND NOT EXISTS (
+              SELECT 1 FROM library_groups g WHERE g.purged_at IS NULL AND g.bound_folder_id IN
+                (SELECT id FROM folders WHERE linked_folder_id = lf.id AND relative_path = ''))
+            AND (
+              NOT EXISTS (SELECT 1 FROM documents d
+                WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL)
+              OR EXISTS (SELECT 1 FROM documents d
+                WHERE d.linked_folder_id = lf.id AND d.deleted_at IS NULL AND NOT EXISTS (
+                  SELECT 1 FROM document_groups a
+                  WHERE a.document_id = d.id AND a.deleted_at IS NULL
+                    AND (a.source = 'user' OR EXISTS (SELECT 1 FROM library_groups g
+                      WHERE g.id = a.group_id AND g.deleted_at IS NULL)))))
+        )
+        WHERE count > 0 AND NOT EXISTS (SELECT 1 FROM device_settings
+          WHERE key = 'linkedFoldersToBind' AND deleted_at IS NULL);
+    `,
+  },
 ];
 
 /**

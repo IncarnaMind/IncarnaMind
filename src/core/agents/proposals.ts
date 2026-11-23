@@ -29,6 +29,9 @@ import { asGenerated, INLINE_CODE_MARK } from "../../shared/aiText";
 import { type NodeJSON, replaceMarkers } from "../../shared/blockJson";
 import { REFUSAL_WORDS } from "../../shared/changeRefusals";
 import { gridOfTable, readChart, redrawnData } from "../../shared/charts";
+import { type CitedPlace, overlapsCitation } from "../../shared/citationOverlap";
+import { citationsBeforeTheStop } from "../../shared/citationStop";
+import { citationAttributesOf } from "../../shared/citations";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
@@ -141,7 +144,7 @@ export interface NamedOptions {
  * ("[note:1]"), or Citation n it has no token for ("[kept:1]"). One the User typed is shown
  * escaped ("\\[note:1]") and read back as words.
  */
-const HANDLE = /(?<!\\)\[(note|kept):(\d{1,4})\]/g;
+export const HANDLE = /(?<!\\)\[(note|kept):(\d{1,4})\]/g;
 const handle = (kind: "note" | "kept", n: number) => `[${kind}:${n}]`;
 const escapeHandles = (text: string) => text.replace(/\[(?=(?:note|kept):\d)/g, "\\[");
 const unescapeHandles = (text: string) => text.replace(/\\\[(?=(?:note|kept):\d)/g, "[");
@@ -502,6 +505,68 @@ const sameCitation = (had: Attributes, minted: CitedToken["minted"]) =>
   had.quote === minted.quote &&
   (had.pageFrom ?? null) === minted.pageFrom;
 
+/** Where a Citation's attributes put it: its Document, version, pages and words. */
+const placeOfAttributes = (attributes: Attributes | undefined): CitedPlace => {
+  const { documentId, contentHash, pageFrom, pageTo, quote } = citationAttributesOf(
+    attributes ?? {},
+  );
+  return {
+    documentId: documentId ?? null,
+    contentHash: contentHash ?? null,
+    pageFrom: pageFrom ?? null,
+    pageTo: pageTo ?? null,
+    quote: quote ?? null,
+  };
+};
+
+/** A marker of a rewrite's words: "[2]" a Citation, "[^1]" a footnote, "[=1]" a figure. */
+const REWRITE_MARKER = /(\[\^\d+\]|\[\d+\]|\[=\d+\])/;
+const COUNTED_CITATION = /^\[(\d+)\]$/;
+
+/**
+ * A rewrite's words with each Citation the agent's tokens made new that it wrote after a
+ * sentence's stop put before it, and taken out where it repeats one its sentence holds (and out of
+ * `fresh`, which says what the rewrite adds): a Citation the paragraph already has stays where it
+ * is. Lines that hold code, a formula or a table cell are left as they are: a "[2]" there may be words.
+ */
+function freshBeforeTheStop(
+  text: string,
+  fresh: Map<number, Attributes>,
+  had: readonly Attributes[],
+): string {
+  const attributesOf = (node: NodeJSON): Attributes | undefined => {
+    const n = Number(COUNTED_CITATION.exec(String(node.attrs?.raw))?.[1]);
+    return fresh.get(n) ?? had[n - 1];
+  };
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/[$`|]/.test(line) || !REWRITE_MARKER.test(line)) return line;
+      const content = line.split(REWRITE_MARKER).flatMap((part): NodeJSON[] => {
+        if (part === "") return [];
+        return REWRITE_MARKER.test(part)
+          ? [{ type: COUNTED_CITATION.test(part) ? CITATION_NODE : "marker", attrs: { raw: part } }]
+          : [{ type: "text", text: part }];
+      });
+      const placed = citationsBeforeTheStop(content, {
+        moves: (node) => fresh.has(Number(COUNTED_CITATION.exec(String(node.attrs?.raw))?.[1])),
+        repeats: (moved, held) =>
+          held.type === CITATION_NODE &&
+          overlapsCitation(
+            placeOfAttributes(attributesOf(held)),
+            placeOfAttributes(attributesOf(moved)),
+          ),
+      });
+      for (const node of placed.dropped) {
+        fresh.delete(Number(COUNTED_CITATION.exec(String(node.attrs?.raw))?.[1]));
+      }
+      return placed.content
+        .map((node) => (node.type === "text" ? node.text : node.attrs?.raw))
+        .join("");
+    })
+    .join("\n");
+}
+
 /**
  * The agent's new text for one paragraph, for Edit with AI's reading of a reply: a Citation or
  * footnote the paragraph has is its own marker again, once, so it stays as it is; a token it may
@@ -570,7 +635,11 @@ function rewriteText(
   if (!rewrite.placed.every((marker) => read.includes(marker))) {
     throw new ChangeRefused("agents.propose.formula", name);
   }
-  return { text: rewrite.text, fresh: rewrite.fresh, kept: rewrite.kept };
+  return {
+    text: freshBeforeTheStop(rewrite.text, rewrite.fresh, selection.citations),
+    fresh: rewrite.fresh,
+    kept: rewrite.kept,
+  };
 }
 
 /** `text` with each token as `marker` gives it and the words between as `words` gives them. */
@@ -641,6 +710,7 @@ export function newBlocks(
     };
   });
   const cited: Attributes[] = [];
+  const madeFrom = new WeakMap<NodeJSON, Attributes>();
   const parsed = replaceMarkers(
     markdownToBlocks(withPictures.text),
     HELD_TOKEN,
@@ -653,6 +723,7 @@ export function newBlocks(
         type: CITATION_NODE,
         attrs: Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
       };
+      madeFrom.set(node, attributes);
       return { before, put: node };
     },
   );
@@ -669,9 +740,24 @@ export function newBlocks(
       node.content ? { ...node, content: node.content.flatMap((each) => own(each, inCode)) } : node,
     ];
   };
-  const parsedNodes = asGenerated(parsed.flatMap((each) => own(each))).filter(
-    (block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0),
-  );
+  // Every Citation here is new: one the agent put after a stop goes before it, and a repeat goes.
+  const beforeTheStop = (node: NodeJSON): NodeJSON => {
+    if (!node.content || node.type === "codeBlock") return node;
+    const placed = citationsBeforeTheStop(node.content, {
+      repeats: (moved, held) =>
+        held.type === CITATION_NODE &&
+        overlapsCitation(placeOfAttributes(held.attrs), placeOfAttributes(moved.attrs)),
+    });
+    for (const each of placed.dropped) {
+      const attributes = madeFrom.get(each);
+      const at = attributes ? cited.indexOf(attributes) : -1;
+      if (at >= 0) cited.splice(at, 1);
+    }
+    return { ...node, content: placed.content.map(beforeTheStop) };
+  };
+  const parsedNodes = asGenerated(parsed.flatMap((each) => own(each)))
+    .filter((block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0))
+    .map(beforeTheStop);
   const { nodes, refused } = options.visuals
     ? placeVisuals(parsedNodes, pictures, options.visuals, before)
     : { nodes: parsedNodes, refused: [] };

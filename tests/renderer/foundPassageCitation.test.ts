@@ -371,6 +371,38 @@ describe("All together from the check's result line", { timeout: 30_000 }, () =>
   });
 });
 
+/** A paragraph holding `sentence` with a Citation of its writer's after its stop, as an AI may write one. */
+const citedAfterTheStop = (id: string, sentence: string, citation: JSONContent): JSONContent => ({
+  type: "paragraph",
+  attrs: { id },
+  content: [{ type: "text", text: sentence }, citation],
+});
+
+describe("Add all with a Citation already after a sentence's stop", { timeout: 30_000 }, () => {
+  // protects=Add all puts the Passage its check found before the sentence's stop and leaves the writer's Citation after the stop where it is, in English and Chinese; fails_when=the added Citation lands after the stop, or after the one that stands there; no_claim=none.
+  test("goes before the stop", async () => {
+    const { editor } = await checked(
+      (tides) => [
+        citedAfterTheStop("en", SENTENCE, citationOf(tides, OTHER)),
+        citedAfterTheStop("zh", SENTENCE_ZH, citationOf(tides, OTHER_ZH)),
+      ],
+      ["en", "zh"],
+    );
+
+    expect(addFoundCitations(editor)).toBe(2);
+
+    const pieces = (index: number) => {
+      const found: string[] = [];
+      editor.state.doc.child(index).forEach((node) => {
+        found.push(node.isText ? (node.text ?? "") : `[${String(node.attrs.quote)}]`);
+      });
+      return found;
+    };
+    expect(pieces(0)).toEqual([SENTENCE.slice(0, -1), `[${LINE}]`, ".", `[${OTHER}]`]);
+    expect(pieces(1)).toEqual([SENTENCE_ZH.slice(0, -1), `[${LINE_ZH}]`, "。", `[${OTHER_ZH}]`]);
+  });
+});
+
 describe("Supported, not yet cited, in its own words and counted apart", {
   timeout: 30_000,
 }, () => {

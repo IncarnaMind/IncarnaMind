@@ -295,7 +295,7 @@ test("Get info on a file that is missing says so, and a long path and Chinese na
   await setWindowSize(app, window, 900, 700);
   await linkFolderFromSidebar(app, window, sources);
   await showSourceLocations(window);
-  const items = window.getByTestId("not-in-a-folder").getByTestId("document-list-item");
+  const items = window.getByTestId("library-folders").getByTestId("document-list-item");
   await expect(items).toHaveCount(2);
   await expect(items.first()).toHaveAttribute("data-status", "ready");
   await expect(items.nth(1)).toHaveAttribute("data-status", "ready");

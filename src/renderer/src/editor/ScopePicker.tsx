@@ -22,6 +22,7 @@ import {
 import {
   DocumentLineIcon,
   FolderLineIcon,
+  LinkLineIcon,
   LockLineIcon,
   MindLineIcon,
   TagLineIcon,
@@ -31,7 +32,7 @@ import { useT } from "../i18n";
 import { useTextSearch } from "../libraryTextSearch";
 import { blockedFrom, meetingChoices, type ScopeChoice, scopeChoices } from "../scope";
 import { useAppStore } from "../store";
-import { takeTypedTrigger } from "./documentPicker";
+import { inNoteText, listenForDocumentPickerKeys, takeTypedTrigger } from "./documentPicker";
 import { asOneStep } from "./editorUndo";
 
 const DOCUMENTS_ONLY: readonly ScopeKind[] = ["document"];
@@ -124,10 +125,11 @@ export const ScopePicker = Extension.create({
   priority: 1100,
 
   addProseMirrorPlugins() {
+    const key = new PluginKey("scopePicker");
     return [
       Suggestion<ScopeChoice, ScopeChoice>({
         editor: this.editor,
-        pluginKey: new PluginKey("scopePicker"),
+        pluginKey: key,
         char: "@",
         // In a Question, or in the text of a Note: in code or an Answer an "@" is just an "@".
         // Never while a Chinese input method is composing, whose "@" is the method's (#281).
@@ -140,21 +142,33 @@ export const ScopePicker = Extension.create({
         render: () => {
           let renderer: ReactRenderer<ChoiceListHandle, ScopePickerListProps> | null = null;
           let unmount: (() => void) | null = null;
+          let stopKeys: (() => void) | undefined;
+          let cancelled = false;
           return {
             onStart(props) {
               renderer = new ReactRenderer(ScopePickerList, { editor: props.editor, props });
               unmount = props.mount(renderer.element);
+              if (inNoteText(props.editor)) {
+                const view = props.editor.view;
+                stopKeys = listenForDocumentPickerKeys(props.editor, (event) => {
+                  const plugin = key.get(view.state);
+                  return plugin?.props.handleKeyDown?.call(plugin, view, event) ?? false;
+                });
+              }
             },
             onUpdate(props) {
               renderer?.updateProps(props);
             },
             onKeyDown({ event }) {
+              cancelled = event.key === "Escape";
               return renderer?.ref?.onKeyDown(event) ?? false;
             },
             onExit(props) {
               // An "@" a command typed for the User goes with the picker, and the words typed
               // after it, unless a choice already took them out for its chip.
-              takeTypedTrigger(props.range.to);
+              stopKeys?.();
+              takeTypedTrigger(props.editor, props.range.to, cancelled);
+              cancelled = false;
               unmount?.();
               renderer?.destroy();
               renderer = null;
@@ -171,6 +185,7 @@ export const ScopePicker = Extension.create({
 function ChoiceIcon({ choice }: { choice: ScopeChoice }) {
   const className = "size-4 text-ink-meta";
   if (choice.walled) return <LockLineIcon className={className} />;
+  if (choice.sourceLocation) return <LinkLineIcon className={className} />;
   if (choice.kind === "folder") return <FolderLineIcon className={className} />;
   if (choice.kind === "tag") return <TagLineIcon className={className} />;
   if (choice.meeting) return <MindLineIcon className={className} />;
@@ -400,12 +415,8 @@ export function ScopeChoiceList({
                     {item.count === 0 ? t("scope.picker.empty.hint") : item.count}
                   </span>
                 )}
-                {(item.path.length > 0 || item.sourceLocation) && (
-                  <span className="scope-picker-path">
-                    {[...(item.sourceLocation ? [t("library.sources")] : []), ...item.path].join(
-                      " / ",
-                    )}
-                  </span>
+                {item.path.length > 0 && (
+                  <span className="scope-picker-path">{item.path.join(" / ")}</span>
                 )}
               </button>
             );

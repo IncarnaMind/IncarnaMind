@@ -58,7 +58,14 @@ import {
   pairingReaches,
   reachedFolders,
 } from "./access";
-import { CHECK_RUN_TOOLS, createAskedChecks } from "./askedChecks";
+import {
+  CHECK_RUN_TOOLS,
+  CONVERSATION_TOOLS,
+  type ConversationHears,
+  type ConversationRun,
+  createAskedChecks,
+  type RunGrant,
+} from "./askedChecks";
 import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
 import type { AgentChallengeSession, OpenedAgentConnection, ServedConnection } from "./mcp";
@@ -83,7 +90,17 @@ export const AGENT_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped
  * check they pressed (ADR-0032): what that agent may read already, the Note's sentences and the
  * Passages its Tools give.
  */
-export const HOSTED_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds"];
+export const HOSTED_CHECK_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds"];
+
+/**
+ * And for a request typed at a Note's foot (ADR-0034): its words and the words selected. A User
+ * who allowed only the check's kinds is asked once more, at their first request.
+ */
+export const HOSTED_FLOW_SENDS: readonly DataKind[] = [
+  ...HOSTED_CHECK_SENDS,
+  "note-requests",
+  "selection",
+];
 
 /** The agents IncarnaMind can start for a check, by the client their pairing was set up for. */
 export const HOSTED_CLIENTS: readonly string[] = ["claude-code"];
@@ -595,13 +612,28 @@ export function createAgents(options: AgentsOptions) {
   };
 
   /**
-   * The grants of checks IncarnaMind started (`checkGrant`), by their token's digest, each with the
-   * connections opened with it.
+   * The grants of runs IncarnaMind started (`checkGrant`, `conversationGrant`), by their token's
+   * digest, each with the connections opened with it.
    */
   const grants = new Map<
     string,
-    { pairingId: string; mindId: string; token: string; connections: Set<ServedConnection> }
+    { pairingId: string; grant: RunGrant; token: string; connections: Set<ServedConnection> }
   >();
+
+  /** A grant admitted as the pairing, held in memory only until `end`, which closes its connections. */
+  const grantFor = (pairingId: string, grant: RunGrant) => {
+    const token = `im_${randomBytes(32).toString("base64url")}`;
+    const key = digest(token).toString("hex");
+    const connections = new Set<ServedConnection>();
+    grants.set(key, { pairingId, grant, token, connections });
+    return {
+      launch: launchFor(token),
+      end: async () => {
+        grants.delete(key);
+        await Promise.all([...connections].map((connection) => connection.close()));
+      },
+    };
+  };
 
   /**
    * The core interface for a token's calls: refused at every call when the token is no pairing's.
@@ -613,10 +645,7 @@ export function createAgents(options: AgentsOptions) {
     if (grant) {
       return {
         pairingId: grant.pairingId,
-        access: createAgentAccess(accessDeps, grant.pairingId, {
-          mindId: grant.mindId,
-          tools: CHECK_RUN_TOOLS,
-        }),
+        access: createAgentAccess(accessDeps, grant.pairingId, grant.grant),
         grant: key,
       };
     }
@@ -644,10 +673,7 @@ export function createAgents(options: AgentsOptions) {
           if (!active) return null;
           return {
             pairingId: active.pairingId,
-            access: createAgentAccess(accessDeps, active.pairingId, {
-              mindId: active.mindId,
-              tools: CHECK_RUN_TOOLS,
-            }),
+            access: createAgentAccess(accessDeps, active.pairingId, active.grant),
             grant: key,
           };
         },
@@ -1067,18 +1093,26 @@ export function createAgents(options: AgentsOptions) {
      * before to check the Note no longer may (./askedChecks).
      */
     checkGrant(pairingId: string, mindId: string): { launch: AgentLaunch; end(): Promise<void> } {
-      const token = `im_${randomBytes(32).toString("base64url")}`;
-      const key = digest(token).toString("hex");
-      const connections = new Set<ServedConnection>();
-      grants.set(key, { pairingId, mindId, token, connections });
       askedChecks.withdraw(mindId);
-      return {
-        launch: launchFor(token),
-        end: async () => {
-          grants.delete(key);
-          await Promise.all([...connections].map((connection) => connection.close()));
-        },
-      };
+      return grantFor(pairingId, { kind: "check", mindId, tools: CHECK_RUN_TOOLS });
+    },
+
+    /**
+     * A request the User typed at a Note's foot, for IncarnaMind to start this agent with
+     * (ADR-0034): its server's launch carries a grant that stands for the pairing, with its reach
+     * and write switch and every Tool but a file by its path, held in memory only until `end`.
+     */
+    conversationGrant(
+      pairingId: string,
+      front: ConversationRun["front"],
+      hears: ConversationHears = {},
+    ): { launch: AgentLaunch; end(): Promise<void> } {
+      return grantFor(pairingId, {
+        kind: "conversation",
+        tools: CONVERSATION_TOOLS,
+        front,
+        ...hears,
+      });
     },
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */

@@ -320,12 +320,18 @@ function parseAssignmentState(input: unknown): AssignmentState {
 }
 
 /** Each Document's place before, from the changes that filed it. */
-function parseFiled(input: unknown): { documentId: string; before: AssignmentState }[] {
+function parseFiled(
+  input: unknown,
+): { documentId: string; before: AssignmentState; after: AssignmentState | null }[] {
   const invalid = new InvalidInputError({ key: "error.library.projectUndo" });
   if (!Array.isArray(input)) throw invalid;
   return input.map((each: unknown) => {
     if (!isRecord(each) || typeof each.documentId !== "string") throw invalid;
-    return { documentId: each.documentId, before: parseAssignmentState(each.before) };
+    return {
+      documentId: each.documentId,
+      before: parseAssignmentState(each.before),
+      after: each.after === undefined ? null : parseAssignmentState(each.after),
+    };
   });
 }
 
@@ -1397,8 +1403,12 @@ export function createLibrary(options: {
     return isCitationStyleId(value) ? value : null;
   }
 
-  function create(input: unknown): LibraryGroup {
-    const value = parseGroup(input);
+  /**
+   * Makes a Folder. `linking`: one a folder linked on disk makes (#3613), which the limit on
+   * Folders never refuses, since the User asked for it by linking the folder.
+   */
+  function create(input: unknown, linking = false): LibraryGroup {
+    const value = parseGroup(input, undefined, linking);
     const at = now();
     const id = randomUUID();
     db.run(
@@ -1421,14 +1431,28 @@ export function createLibrary(options: {
     return group(id);
   }
 
-  function parseGroup(input: unknown, existing?: { id: string; parentId: string | null }) {
+  /** Binds a Folder to no folder on disk any more: it stays a Folder, with what is in it. */
+  function unbind(groupId: string): void {
+    db.run("UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE id = ?", [
+      now(),
+      group(groupId).id,
+    ]);
+    revision++;
+    changed();
+  }
+
+  function parseGroup(
+    input: unknown,
+    existing?: { id: string; parentId: string | null },
+    overLimit = false,
+  ) {
     if (!isRecord(input) || typeof input.name !== "string" || typeof input.description !== "string")
       throw new InvalidInputError({ key: "error.folder.nameAndDescription" });
     const name = input.name.trim();
     const description = input.description.trim();
     if (!name || name.length > 100 || description.length > 500)
       throw new InvalidInputError({ key: "error.folder.lengths" });
-    if (existing === undefined && groups().length >= 100)
+    if (existing === undefined && !overLimit && groups().length >= 100)
       throw new InvalidInputError({ key: "error.folder.limit" });
     const { countsOwnFiles, keepInside, parentId } = input;
     if (countsOwnFiles !== undefined && typeof countsOwnFiles !== "boolean")
@@ -1609,19 +1633,84 @@ export function createLibrary(options: {
     },
     /**
      * Unbinds the Folders bound to a Linked folder's folders, its own (`ownFolderId`) included
-     * though a scan may not have made its row, as it is unlinked (ADR-0030).
+     * though a scan may not have made its row, as it is unlinked (ADR-0030). Returns the live ones.
      */
-    unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): void {
+    unbindLinkedFolder(linkedFolderId: string, ownFolderId: string): string[] {
       const bound = `(bound_folder_id = ? OR bound_folder_id IN
         (SELECT id FROM folders WHERE linked_folder_id = ?))`;
       const params = [ownFolderId, linkedFolderId];
-      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, params)) return;
+      const live = db
+        .all<{ id: string }>(
+          `SELECT id FROM library_groups WHERE ${bound} AND deleted_at IS NULL`,
+          params,
+        )
+        .map((row) => row.id);
+      if (!db.get(`SELECT 1 FROM library_groups WHERE ${bound}`, params)) return live;
+      // One in Recently deleted too: restored, it is bound to no folder that is gone.
       db.run(`UPDATE library_groups SET bound_folder_id = NULL, updated_at = ? WHERE ${bound}`, [
         now(),
         ...params,
       ]);
       revision++;
       changed();
+      return live;
+    },
+    unbind,
+    /**
+     * The live Folders bound to a Linked folder's own folder (`ownFolderId`) or to a folder inside
+     * it, each with that folder's path inside it ('' for its own).
+     */
+    boundToLinkedFolder(
+      linkedFolderId: string,
+      ownFolderId: string,
+    ): { id: string; relativePath: string }[] {
+      return db.all<{ id: string; relativePath: string }>(
+        `SELECT g.id, CASE WHEN g.bound_folder_id = ? THEN '' ELSE f.relative_path END
+           AS relativePath
+         FROM library_groups g LEFT JOIN folders f ON f.id = g.bound_folder_id
+         WHERE g.deleted_at IS NULL AND (g.bound_folder_id = ? OR f.linked_folder_id = ?)`,
+        [ownFolderId, ownFolderId, linkedFolderId],
+      );
+    },
+    /** Whether a live Folder holds nothing: no Folder, Note, Canvas, conversation or Document. */
+    isEmpty(groupId: string): boolean {
+      const id = group(groupId).id;
+      return !db.get(
+        `SELECT 1 FROM library_groups WHERE parent_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM minds WHERE folder_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM canvases WHERE folder_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM conversations WHERE folder_id = ? AND deleted_at IS NULL
+         UNION ALL SELECT 1 FROM document_groups a JOIN documents d ON d.id = a.document_id
+           WHERE a.group_id = ? AND a.deleted_at IS NULL AND d.deleted_at IS NULL
+         LIMIT 1`,
+        [id, id, id, id, id],
+      );
+    },
+    /**
+     * Takes an empty Folder away without passing through Recently deleted (#3613): it is deleted,
+     * marked as taken away quietly so Recently deleted doesn't list it, and purged with the rest
+     * after 30 days; only Undo (`restoreQuietly`) brings it back before then.
+     */
+    removeQuietly(groupId: string): void {
+      const at = now();
+      db.run(
+        "UPDATE library_groups SET deleted_at = ?, deleted_quietly = 1, updated_at = ? WHERE id = ?",
+        [at, at, group(groupId).id],
+      );
+      revision++;
+      changed();
+    },
+    /** Brings back a Folder `removeQuietly` took away, unless it was purged since. Says whether. */
+    restoreQuietly(groupId: string): boolean {
+      const taken = `id = ? AND deleted_at IS NOT NULL AND deleted_quietly = 1 AND purged_at IS NULL`;
+      if (!db.get(`SELECT 1 FROM library_groups WHERE ${taken}`, [groupId])) return false;
+      db.run(
+        `UPDATE library_groups SET deleted_at = NULL, deleted_quietly = 0, updated_at = ? WHERE ${taken}`,
+        [now(), groupId],
+      );
+      revision++;
+      changed();
+      return true;
     },
     /**
      * The live Documents in no live Folder now, the Library's "Not in a Folder": a Linked
@@ -2319,12 +2408,18 @@ export function createLibrary(options: {
       filed: unknown,
       ofItsFolder: (documentId: string) => boolean,
     ): string[] {
-      const before = new Map(parseFiled(filed).map((each) => [each.documentId, each.before]));
+      const changes = new Map(parseFiled(filed).map((each) => [each.documentId, each]));
       const back = db.transaction(() =>
         everyFiledDocumentIdsOf(group(groupId).id).filter((id) => {
           const row = assignment(id);
           if (row?.group_id !== groupId || row.source !== "user" || !ofItsFolder(id)) return false;
-          const was = before.get(id);
+          const change = changes.get(id);
+          // A filing the User made since, even back into this Folder, is later work, and it wins
+          // (#1928); its tags read since are not, so only where and when it was filed are compared.
+          const made = change?.after?.assignment;
+          if (made && (assignmentFields(row).filedAt ?? null) !== (made.filedAt ?? null))
+            return false;
+          const was = change?.before;
           restoreAssignmentRow(document(id), was?.assignment ?? null);
           if (was?.tagging) restoreTaggingRow(id, was.tagging);
           return true;

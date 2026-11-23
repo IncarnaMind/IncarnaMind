@@ -343,8 +343,10 @@ describe("Re-processing", { timeout: 30_000 }, () => {
     ).join("\n");
     const first = startCore(dataDir, { embedder });
     await turnOnEmbeddings(first);
+    // Plain text, which this version reads as version 5 did: only its index is older (#3657 reads
+    // Markdown again).
     const [report] = (await addAndProcess(first, [
-      await writeSourceFile(sources, "Annual Report.md", entries),
+      await writeSourceFile(sources, "Annual Report.txt", entries),
     ])) as [Document];
     first.close();
     const live = () =>
@@ -528,15 +530,16 @@ describe("Re-processing", { timeout: 30_000 }, () => {
       (_, line) => `Entry ${line} notes ordinary weather and quiet coastal traffic.`,
     ).join("\n");
     const first = startCore(dataDir);
+    // Plain text, which this version reads as version 5 did (#3657 reads Markdown again).
     const [, minutes] = (await addAndProcess(first, [
-      await writeSourceFile(sources, "Annual Report.md", entries),
-      await writeSourceFile(sources, "Weekly Notes.md", "Rainfall rose through the year.\n"),
+      await writeSourceFile(sources, "Annual Report.txt", entries),
+      await writeSourceFile(sources, "Weekly Notes.txt", "Rainfall rose through the year.\n"),
     ])) as [Document, Document];
     // Renamed before this version: the old index holds the new name in every row.
     first.renameDocument(minutes.id, "Quarterly Log");
     // A name with no words at all: its rows never held a name.
     await addAndProcess(first, [
-      await writeSourceFile(sources, "!!!.md", "Coastal traffic only.\n"),
+      await writeSourceFile(sources, "!!!.txt", "Coastal traffic only.\n"),
     ]);
     first.close();
 

@@ -140,7 +140,7 @@ export const FIND_OWN_CLAIMS_INSTRUCTIONS = [
   "A sentence about the User's Library itself, such as how many Documents it holds, in all or in a Folder, their names and kinds, which share a name, or its Folders, Tags and notes, is a claim.",
   // Sorted as words about the note, a note's unit line was never checked against the Document's (#2864).
   'Which unit or scale figures are in ("All amounts are in SEK thousands", "下列金额以千日元计") is a claim, which a Document\'s own unit line states.',
-  '"note": the sentence only describes this draft as a text: how it is laid out, what it covers or leaves out, where its content was taken from, what a word means in it. It says nothing about the subject and gives no judgement, advice or plan. A sentence about anything else, a source, a study or a document among them, is a claim.',
+  '"note": only when the sentence speaks of this draft itself ("this note", "this summary", "this section", "below") — how this draft is laid out, what this draft covers or leaves out, where its content was taken from, or what a word means in it — and states nothing about the subject. A sentence that says what a named report, filing, study, table or other document covers, contains or states ("The annual report covers the northern division…", "《年度报告》涵盖北部业务…") is about that document, never "note": it is a "claim".',
   "Where a sentence could be either, it is a claim: a check it didn't need costs little, and a fact left out is never checked.",
   `"no": ${NOTHING}`,
   replyWith('{"13":"claim","14":"note","15":"no"}'),

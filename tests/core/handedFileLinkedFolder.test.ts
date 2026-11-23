@@ -19,7 +19,7 @@ import { translate } from "../../src/shared/i18n";
 import { verificationOf } from "../../src/shared/verification";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createTempDataFolder } from "../helpers/core";
-import { waitForProcessing } from "../helpers/documents";
+import { linkWithoutFolder, waitForProcessing } from "../helpers/documents";
 import { type Handed, handOver, refusal, started, structured } from "../helpers/handedFiles";
 import { connectToMind } from "../helpers/mindClient";
 import { note, writeMind } from "../helpers/minds";
@@ -49,12 +49,13 @@ async function quay(core: Core) {
 }
 
 /**
- * The Coast Library with its project folder linked; Claude Code connected before anything in it,
- * and given Not in a Folder too, where a Linked folder's Documents are until the User files them.
+ * The Coast Library with its project folder linked, its filing as one Folder off (#3613), so its
+ * Documents are in no Folder until the User files them; Claude Code connected before anything in
+ * it, and given Not in a Folder too.
  */
 async function linked() {
   const set = await started();
-  const folder = await set.core.addLinkedFolder(set.files);
+  const folder = await linkWithoutFolder(set.core, set.files);
   await set.core.updateAgent(set.writer.pairing.id, {
     folderIds: [set.coast.id, NOT_IN_A_FOLDER_ID],
   });
@@ -164,7 +165,7 @@ describe("a file an agent hands over from a Linked folder", () => {
     const set = await started();
     const path = join(set.files, "Quay review.pptx");
     await writeFile(path, deck());
-    await set.core.addLinkedFolder(set.files);
+    await linkWithoutFolder(set.core, set.files);
     await set.core.reconcileDocuments();
     await quay(set.core);
     await after();
@@ -378,7 +379,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     });
     const citation = await citedInNote(core, copy);
 
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     const { documents, searched } = await quay(core);
     expect(documents).toEqual([
@@ -432,7 +433,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     const { core, coast, files } = set;
     const path = join(files, "Quay review.pptx");
     await writeFile(path, deck());
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     const [own] = (await quay(core)).documents;
     await after();
@@ -462,7 +463,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
     const [copy] = (await quay(core)).documents;
     await writeFile(path, deck([EAST, WEST]));
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
 
     const second = structured<Handed>(await handOver(agent, { path }));
@@ -480,7 +481,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
     const [copy] = (await quay(core)).documents;
     await writeFile(path, deck([EAST, WEST]));
-    await core.addLinkedFolder(files);
+    await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     const { documents, searched } = await quay(core);
     expect(documents).toEqual([expect.objectContaining({ id: copy?.id, notCited: true })]);
@@ -496,7 +497,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     const [copy] = (await quay(core)).documents;
     if (!copy) throw new Error("No Document holds the deck.");
     await writeFile(path, plainDeck([{ title: "Slipway" }, { lines: [SLIPWAY] }]));
-    await core.addLinkedFolder(files);
+    await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     await waitForProcessing(core, [copy.id]);
     const slipway = async () =>
@@ -517,7 +518,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
     const { core, coast, agent, path, files } = await handedOutside();
     const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
     const [copy] = (await quay(core)).documents;
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     await quay(core);
 
@@ -539,7 +540,7 @@ describe("the User's choice, and a scan that meets a handed file", () => {
   it("the folder unlinked after that: the Document goes with it, the versions and checks stay", async () => {
     const { core, coast, agent, path, files } = await handedOutside();
     const handed = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     await quay(core);
 
@@ -595,7 +596,7 @@ describe("where the agent doesn't reach, it changes nothing (#3458, #3499)", () 
     const agent = await connectLegacyAgent(writer.launch);
     const path = join(files, "Quay review.pptx");
     await writeFile(path, deck());
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     await core.reconcileDocuments();
     const alias = join(await createTempDataFolder(), "project");
     await symlink(files, alias);
@@ -613,7 +614,7 @@ describe("where the agent doesn't reach, it changes nothing (#3458, #3499)", () 
   // protects=a first hand-over from inside a Linked folder whose Documents the agent doesn't reach is refused before anything is read or kept; once the User files the file's Document in the agent's Folder, it is handed over as any (#3458, #3499); fails_when=the folder's Document is marked, or a copy is made, while the agent can't reach it
   it("a first hand-over from a Linked folder not shared: refused; filed in its Folder, handed over", async () => {
     const { core, coast, writer, files } = await started();
-    const folder = await core.addLinkedFolder(files);
+    const folder = await linkWithoutFolder(core, files);
     const agent = await connectLegacyAgent(writer.launch);
     const path = join(files, "Quay review.pptx");
     await writeFile(path, deck());

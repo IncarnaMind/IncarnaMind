@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdir, realpath, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { vi } from "vitest";
-import type { AddDocumentsOptions, Core, Document, DocumentStatus } from "../../src/core";
+import type {
+  AddDocumentsOptions,
+  AddedLinkedFolder,
+  Core,
+  Document,
+  DocumentStatus,
+} from "../../src/core";
 import { normaliseText } from "../../src/shared/text";
 import { createTempDataFolder } from "./core";
 
@@ -141,8 +147,35 @@ export async function linkAndProcess(
   options?: AddDocumentsOptions,
 ): Promise<Document[]> {
   const linked = await core.addLinkedFolder(path, options);
+  return processedIn(core, linked.id);
+}
+
+/**
+ * Links a folder with its filing as one Folder turned off at once, before its first scan adds a
+ * Document (#3613), as a test of what Not in a Folder or Organize does with its files needs.
+ */
+export async function linkWithoutFolder(
+  core: Core,
+  path: string,
+  options?: AddDocumentsOptions,
+): Promise<AddedLinkedFolder> {
+  const linked = await core.addLinkedFolder(path, options);
+  if (linked.bound) await core.unbindFolder(linked.bound.folder.id, linked.bound.filed);
+  return linked;
+}
+
+/** `linkWithoutFolder`, then waits until every file in the folder is processed. */
+export async function linkWithoutFolderAndProcess(
+  core: Core,
+  path: string,
+  options?: AddDocumentsOptions,
+): Promise<Document[]> {
+  return processedIn(core, (await linkWithoutFolder(core, path, options)).id);
+}
+
+async function processedIn(core: Core, linkedFolderId: string): Promise<Document[]> {
   await core.reconcileDocuments();
-  const documents = await core.listDocuments({ linkedFolderId: linked.id });
+  const documents = await core.listDocuments({ linkedFolderId });
   return waitForProcessing(
     core,
     documents.map((document) => document.id),

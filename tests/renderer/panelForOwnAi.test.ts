@@ -392,6 +392,39 @@ describe("⌘J", () => {
     expect(offered("composer.focus")).toBe(true);
   });
 
+  // protects=a Note no connected AI may read (the example a new User has open) gives way to the Document opened beside it: the pill shows and ⌘J asks about that Document; fails_when=the pill goes and ⌘J asks nothing, as on the first run's example Note with a file opened beside it
+  test("a Note no AI may read beside a Document: asks about the Document", async () => {
+    const EXAMPLE = "mind-example";
+    user("own AI");
+    bridge.readers.set(`${EXAMPLE}/`, []);
+    const tab = (id: string, item: TabItem) => ({
+      id: `group-${id}`,
+      tabs: [{ id, item, preview: false, pinned: false, place: null, opened: 0 }],
+      activeTabId: id,
+      width: 1,
+    });
+    bridge.layout = {
+      ...(bridge.layout as WindowLayout),
+      groups: [
+        tab("example", { kind: "mind", mindId: EXAMPLE }),
+        tab("file", { kind: "document", documentId: DOC }),
+      ],
+      focusedGroupId: "group-file",
+    } as WindowLayout;
+    useAppStore.setState({ layout: bridge.layout });
+    expect((await shown()).pill).toEqual({ mindId: null, documentId: DOC, agents: [CLAUDE] });
+    await commands.run("composer.focus");
+    expect(bridge.asked).toEqual([
+      {
+        pairingId: CLAUDE.id,
+        mindId: null,
+        ask: { kind: "question", text: "" },
+        onScreen: [DOC],
+        scope: null,
+      },
+    ]);
+  });
+
   // protects=row 4: with words selected in the Note and no menu field to take them, ⌘J hands them to the own AI for the User to say what to do; fails_when=it asks about the whole Note or nothing
   test("with words selected in the Note, hands them over", async () => {
     user("own AI");

@@ -203,7 +203,8 @@ async function linkAndLocate(app: ElectronApplication, window: Page, merged = fa
   await expect(row).toHaveAttribute("data-state", "unavailable", { timeout: 15_000 });
   await interceptOpenDialog(app, moved);
   await (await openLinkedFolderMenu(row)).getByTestId("linkedFolder.locate").click();
-  await expect(linkedFolderRow(window, "Deals 2026")).toHaveAttribute("data-state", "idle", {
+  // Its Folder keeps its name where the folder now is (#3613).
+  await expect(linkedFolderRow(window, "Deals")).toHaveAttribute("data-state", "idle", {
     timeout: 15_000,
   });
   return moved;
@@ -219,7 +220,7 @@ test("after Locate, ⌘Z unlinks the folder where it is now, and ⇧⌘Z links i
     .poll(() => undoItem(app))
     .toEqual({ label: "Undo Link “Deals 2026”", enabled: true });
   await window.keyboard.press("ControlOrMeta+z");
-  await expect(linkedFolderRow(window, "Deals 2026")).toHaveCount(0);
+  await expect(linkedFolderRow(window, "Deals")).toHaveCount(0);
   await expect.poll(() => library(window)).toEqual({ linked: [], documents: [] });
   await expect(window.getByTestId("undo-line")).not.toContainText(
     translate("en", "undo.refused", { reason: "" }),
@@ -352,10 +353,10 @@ test("after Locate, unlinking from the folder's menu takes the link's Undo away"
   await makeFolder(window);
   await linkAndLocate(app, window);
 
-  const menu = await openLinkedFolderMenu(linkedFolderRow(window, "Deals 2026"));
+  const menu = await openLinkedFolderMenu(linkedFolderRow(window, "Deals"));
   await menu.getByTestId("linkedFolder.unlink").click();
   await window.getByTestId("confirm-unlink-folder").click();
-  await expect(linkedFolderRow(window, "Deals 2026")).toHaveCount(0);
+  await expect(linkedFolderRow(window, "Deals")).toHaveCount(0);
 
   await leaveText(window);
   await expect.poll(() => undoItem(app)).toEqual({ label: "Undo New Folder", enabled: true });

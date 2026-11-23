@@ -27,24 +27,18 @@ import {
 
 const QUESTION = "What is the project budget for the harbour survey, and has it changed?";
 
-/** The Chinese label is wider: its line ends earlier, so the label fits at some widths tried. */
-const BUDGET_LINES = {
-  en: "The project budget is 2.4 million pounds, approved by the steering group on 3 February 2026.",
-  "zh-CN": "The project budget is 2.4 million pounds, approved by the board on 3 February 2026.",
-} as const;
-
-const brief = (budget: string) =>
-  buildPdf([
-    {
-      lines: [
-        "Survey brief",
-        "Prepared for the port board.",
-        budget,
-        "Fieldwork starts in spring.",
-      ],
-    },
-    { lines: ["Timeline", "The fieldwork runs for nine months."] },
-  ]);
+const BUDGET = "The project budget is 2.4 million pounds.";
+const BRIEF = buildPdf([
+  {
+    lines: ["Survey brief", "Prepared for the port board."],
+    placed: [
+      { text: BUDGET, x: 280, y: 718, size: 11 },
+      // A printed page number fixes the text margin on both platforms and in both languages.
+      { text: "1", x: 500, y: 36 },
+    ],
+  },
+  { lines: ["Timeline", "The fieldwork runs for nine months."] },
+]);
 
 /**
  * Window widths, with the assistant open beside one group, between which the page widens with
@@ -160,7 +154,7 @@ async function labelEdge(
 for (const language of ["en", "zh-CN"] as const) {
   test(`a PDF Citation opens at its quote at 1280 × 800 and through window widths either side of where its mark's label stops fitting (${language})`, async () => {
     test.setTimeout(120_000);
-    await writeFile(join(sources, "Harbour Survey Brief.pdf"), brief(BUDGET_LINES[language]));
+    await writeFile(join(sources, "Harbour Survey Brief.pdf"), BRIEF);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
@@ -174,7 +168,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // Citation › Open the page, as a person does it, at the default window size.
     await pointAt(window, answer.getByTestId("citation").first().getByTestId("citation-chip"));
     const card = window.getByTestId("citation-card");
-    await expect(card.locator("blockquote")).toHaveText(BUDGET_LINES[language]);
+    await expect(card.locator("blockquote")).toHaveText(BUDGET);
     await card.getByTestId("citation-open").click();
     await settled(window);
     await expectQuoteAndMark(window, 1280);

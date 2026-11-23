@@ -102,7 +102,7 @@ async function fresh({ examples = false, keychain = createMemoryKeychain() } = {
   return { ...started, core, keychain, sources, add, folder, note, connect };
 }
 
-/** The User's Project: a Linked folder holding the quay plan, made a Project (ADR-0030). */
+/** The User's Project: a Linked folder holding the quay plan, its Folder made by linking (ADR-0030). */
 async function project(core: Core) {
   const files = await createSourceFolder();
   await writeFile(
@@ -115,10 +115,10 @@ async function project(core: Core) {
     core,
     (await core.listDocuments()).map((each) => each.id),
   );
-  const { folder: bound } = await core.createBoundFolder(linked.folderId);
+  if (!linked.bound) throw new Error("Linking made no Folder.");
   const plan = (await core.listDocuments()).find((each) => each.name === "Quay plan");
   if (!plan) throw new Error("The quay plan wasn't read.");
-  return { project: bound, plan };
+  return { project: linked.bound.folder, plan };
 }
 
 describe("an agent given all of the User's Documents and Notes", () => {
@@ -140,7 +140,7 @@ describe("an agent given all of the User's Documents and Notes", () => {
     const cove = await add("Cove", bays.id);
     const linked = await createSourceFolder();
     await writeSourceFile(linked, "Ferry.md", "# Ferry\n\nThe harbour ferry leaves at noon.\n");
-    await core.addLinkedFolder(linked);
+    const ferries = (await core.addLinkedFolder(linked)).bound?.folder.id;
     await core.reconcileDocuments();
     const ferry = await vi.waitFor(
       async () => {
@@ -156,10 +156,16 @@ describe("an agent given all of the User's Documents and Notes", () => {
     expect(await found(agent)).toEqual([tides.id, reef.id, cove.id, ferry?.id].sort());
     const listed = await list(agent);
     expect(listed.notShared).toBeUndefined();
-    expect(listed.folders.map((each) => each.id)).toEqual([coast.id, bays.id, NOT_IN_A_FOLDER_ID]);
+    // The Linked folder is a Folder of its own (#3613).
+    expect(listed.folders.map((each) => each.id)).toEqual([
+      coast.id,
+      bays.id,
+      ferries,
+      NOT_IN_A_FOLDER_ID,
+    ]);
     expect(listed.folders[0]?.minds.map((each) => each.id)).toEqual([diary.id]);
-    expect(listed.folders[2]?.minds).toEqual([expect.not.objectContaining({ yours: true })]);
-    expect(listed.folders[2]?.minds[0]?.id).toBe(plan.id);
+    expect(listed.folders[3]?.minds).toEqual([expect.not.objectContaining({ yours: true })]);
+    expect(listed.folders[3]?.minds[0]?.id).toBe(plan.id);
     const read = structured<{ mindId: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: plan.id } }),
     );
@@ -176,6 +182,15 @@ describe("an agent given all of the User's Documents and Notes", () => {
     );
   });
 
+  // protects=a Folder made by linking a folder is open to work outside it, so a connection given all reads its files as any Folder's (#3613); fails_when=it is walled unasked, and all leaves it out
+  it("reads a Folder made by linking as any Folder's", async () => {
+    const { core, connect } = await fresh();
+    const { project: quay, plan } = await project(core);
+    expect(quay.keepInside).toBe(false);
+    const { agent } = await connect("Claude Code", [ALL_SHARED_ID]);
+    expect(await found(agent)).toEqual([plan.id]);
+  });
+
   // protects=a Folder that keeps its work inside it, a Project among them, is never part of all: nothing in it is searched, read or listed, it is shared only when ticked on its own, and all with a Project is refused rather than widened (#3544, #3511); fails_when=all reaches a walled Folder, or a Project ticked beside all mixes its work with the rest
   it("leaves a walled Folder, a Project among them, out until it is shared on its own", async () => {
     const { core, add, folder, connect } = await fresh();
@@ -183,8 +198,12 @@ describe("an agent given all of the User's Documents and Notes", () => {
     const reef = await add("Reef", coast.id);
     const legal = await folder("Legal", { keepInside: true });
     const brief = await add("Brief", legal.id);
-    const { project: quay, plan } = await project(core);
-    expect(quay.keepInside).toBe(true);
+    const { project: open, plan } = await project(core);
+    const quay = await core.updateLibraryGroup(open.id, {
+      name: open.name,
+      description: open.description,
+      keepInside: true,
+    });
     const { agent, pairing } = await connect("Claude Code", [ALL_SHARED_ID]);
 
     const all = await search(agent);

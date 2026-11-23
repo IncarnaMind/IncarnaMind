@@ -61,6 +61,7 @@ import { createFileLoginItem, createSystemLoginItem, openedAtLogin } from "./log
 import { isCaptureWindow } from "./meetings/captureWindow";
 import { isGuideWindow, servePermissionGuide } from "./meetings/guide";
 import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
+import { watchSummaryClosing } from "./meetings/summaryClosing";
 import { installAppMenu } from "./menu";
 import { createSystemNotifications } from "./notifications";
 import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } from "./platform";
@@ -510,6 +511,7 @@ function createWindow(): BrowserWindow {
     if (closingLastWindowQuits(process.platform, keepsRunning()) && appWindows().length === 0)
       appEnd.quit("lastWindow");
   });
+  watchSummaryClosing(window, async () => (await core?.getSettings())?.language ?? "en");
   reopenAfterCrash(window);
   appEnd.watchSessionEnd(window, {
     store: () => core?.sessionEnding() ?? { count: 0, minds: [] },

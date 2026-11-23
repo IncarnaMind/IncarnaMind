@@ -2,9 +2,11 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, LinkedFolder } from "../src/core/api";
+import { offeredSettingsPages } from "../src/renderer/src/settingsPages";
 import {
   addDocuments,
   confirmLink,
+  useLocalChatModel as connectLocalChatModel,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -17,7 +19,6 @@ import {
   removeDataFolder,
   showSourceLocations,
   turnOnEmbeddings,
-  useLocalChatModel,
 } from "./app";
 
 /*
@@ -95,13 +96,17 @@ async function rowEdges(sidebar: Locator, rows: Locator) {
   );
 }
 
-/** Links a folder through the core's bridge, as "Add folder…" does once the User picked it. */
+/**
+ * Links a folder through the core's bridge, as "Add folder…" does once the User picked it, its
+ * filing as one Folder turned off (#3613): its row stays a Linked folder's, its files loose.
+ */
 const linkFolder = (page: Page, path: string) =>
-  page.evaluate(
-    async (wanted) =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addLinkedFolder(wanted),
-    path,
-  ) as Promise<LinkedFolder>;
+  page.evaluate(async (wanted) => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    const linked = await core.addLinkedFolder(wanted);
+    if (linked.bound) await core.unbindFolder(linked.bound.folder.id, linked.bound.filed);
+    return linked;
+  }, path) as Promise<LinkedFolder>;
 
 /** Writes `files` (relative paths) under `root`, each holding its own name. */
 async function writeTree(root: string, files: string[]): Promise<void> {
@@ -170,7 +175,7 @@ async function expectRowsAligned(window: Page): Promise<number> {
   return measured.length;
 }
 
-test("sidebar rows share one text edge, in Not in a Folder and in the Linked folders, and pane headers are 44px", async () => {
+test("sidebar rows share one text edge, in Not in a Folder and in the Linked folders filed as no Folder, and pane headers are 44px", async () => {
   // Two Linked folders, one with a folder inside, and a file added on its own.
   const papersPath = join(sources, "Papers");
   const reportsPath = join(sources, "Reports");
@@ -217,9 +222,9 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
     expect((await boxOf(row)).height).toBeCloseTo(28, 0);
   }
 
-  // The Linked folders: a row each, which doesn't unfold, at x 16 / 40.
+  // The Linked folders filed as no Folder: a row each in Folders, which doesn't unfold, at x 16 / 40.
   await showSourceLocations(window);
-  const linked = window.getByTestId("linked-folders-section");
+  const linked = window.getByTestId("linked-folder-rows");
   const rows = linked.getByTestId("folder-item");
   await expect(rows).toHaveCount(2);
   await expect(linked.getByTestId("document-list-item")).toHaveCount(0);
@@ -237,7 +242,7 @@ test("sidebar rows share one text edge, in Not in a Folder and in the Linked fol
   const settings = window.getByTestId("sidebar-footer").getByRole("button", { name: "Settings" });
   expect((await boxOf(settings.locator("svg"))).x - sidebarLeft).toBeCloseTo(16, 0);
   expect((await textLeft(settings.locator("span"))) - sidebarLeft).toBeCloseTo(40, 0);
-  for (const heading of ["not-in-a-folder-title", "linked-folders-section-heading"]) {
+  for (const heading of ["not-in-a-folder-title", "folders-section-heading"]) {
     expect((await textLeft(window.getByTestId(heading))) - sidebarLeft).toBeCloseTo(16, 0);
   }
   // The header starts the window's title bar: macOS's traffic lights there (e2e/titleBar.spec.ts),
@@ -436,7 +441,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
   expect(await layout()).toEqual(before);
 
   // A chat model: tagging starts, then stops. Nothing above the footer moves.
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await expect(item).toHaveAttribute("data-tagging", "tagged");
   await expect(status.locator("[role]")).toHaveCount(0);
   expect(await layout()).toEqual(before);
@@ -446,7 +451,7 @@ test("the status footer doesn't move the tree when tagging starts or stops", asy
 test("an Answer that waits for the User's approval shows an amber dot on the assistant, folded too, and none on the Mind", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
-  await useLocalChatModel(window);
+  await connectLocalChatModel(window);
   await window.evaluate(
     async ({ node, server }) => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -507,23 +512,19 @@ test("an Answer that waits for the User's approval shows an amber dot on the ass
 test("first run and every Settings page", async () => {
   test.skip(!SCREENSHOTS, "Only takes screenshots: set INCARNAMIND_SCREENSHOTS to a folder.");
   const { app, window } = await launchApp(dataDir);
-  await screenshot(window, "first-run");
-
-  await window.getByRole("button", { name: "Settings" }).click();
-  const settings = window.getByTestId("settings");
-  for (const page of [
-    "general",
-    "models",
-    "search",
-    "meetings",
-    "connectors",
-    "skills",
-    "privacy",
-  ]) {
-    await settings.getByTestId(`settings-nav-${page}`).click();
-    await expect(settings).toHaveAttribute("data-page", page);
-    await expect(settings.getByTestId(`settings-page-${page}`)).not.toBeEmpty();
-    await screenshot(window, `settings-${page}`);
+  try {
+    await screenshot(window, "first-run");
+    await dismissChatSetup(window);
+    await connectLocalChatModel(window);
+    await window.getByRole("button", { name: "Settings" }).click();
+    const settings = window.getByTestId("settings");
+    for (const page of offeredSettingsPages) {
+      await settings.getByTestId(`settings-nav-${page}`).click();
+      await expect(settings).toHaveAttribute("data-page", page);
+      await expect(settings.getByTestId(`settings-page-${page}`)).not.toBeEmpty();
+      await screenshot(window, `settings-${page}`);
+    }
+  } finally {
+    await app.close();
   }
-  await app.close();
 });

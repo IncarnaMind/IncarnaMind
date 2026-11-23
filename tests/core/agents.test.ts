@@ -1002,7 +1002,8 @@ describe("outside agents", () => {
     // 3,417 before propose_sorting took new Folders and Tags by name, and list_sorting asked for
     // every page before a suggestion (#3610); 3,459 before propose_sorting took a Suggestion for
     // every Document one list answer holds (#3626); 3,455 before show_citation showed a Note, file or
-    // Canvas again by its id (#3534).
+    // Canvas again by its id (#3534); 3,416 before search said its ready Citation is for its own
+    // sentence only (found in #3667).
     expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_479);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.

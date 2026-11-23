@@ -791,6 +791,75 @@ describe("setting an agent up", () => {
   });
 });
 
+describe("a connection whose program has moved (#3644)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=a connection whose entry starts a program that is no longer there (an AppImage's from an earlier start, an app moved since) says it needs repair, and Repair writes that entry again with IncarnaMind as it is now, keeping the rest of the file; fails_when=a broken connection reads as working, Repair changes anything but IncarnaMind's own entry, or the repaired agent can't reach IncarnaMind
+  it("says so for Claude Code's and Codex's entries, and Repair writes each again", async () => {
+    const { core, home, coast } = await started();
+    const gone = join(home, "gone", ".mount_x7Kq", "incarnamind");
+    const claude = join(home, ".claude.json");
+    const theirs = { numStartups: 3, mcpServers: { notes: { command: "n", args: [], env: {} } } };
+    await writeFile(claude, `${JSON.stringify(theirs, null, 2)}\n`);
+    await mkdir(join(home, ".codex"));
+    const codex = join(home, ".codex", "config.toml");
+    const codexTheirs = 'model = "gpt-6-luna"\n';
+    await writeFile(codex, codexTheirs);
+    const claudeCode = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    const chatgpt = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    expect(await core.agentNeedsRepair(claudeCode.pairing.id)).toBe(false);
+    expect(await core.agentNeedsRepair(chatgpt.pairing.id)).toBe(false);
+
+    // The program each entry names goes, as an AppImage's mount does when it quits.
+    const written = JSON.parse(await readFile(claude, "utf8"));
+    written.mcpServers.incarnamind.command = gone;
+    await writeFile(claude, JSON.stringify(written, null, 2));
+    const launch = await core.getAgentLaunch(chatgpt.pairing.id);
+    const table = await readFile(codex, "utf8");
+    await writeFile(codex, table.replace(JSON.stringify(launch.command), JSON.stringify(gone)));
+    expect(await core.agentNeedsRepair(claudeCode.pairing.id)).toBe(true);
+    expect(await core.agentNeedsRepair(chatgpt.pairing.id)).toBe(true);
+
+    expect(await core.repairAgent(claudeCode.pairing.id)).toEqual({ kind: "wrote", path: claude });
+    expect(await core.repairAgent(chatgpt.pairing.id)).toEqual({ kind: "wrote", path: codex });
+    expect(await core.agentNeedsRepair(claudeCode.pairing.id)).toBe(false);
+    expect(await core.agentNeedsRepair(chatgpt.pairing.id)).toBe(false);
+    const repaired = JSON.parse(await readFile(claude, "utf8"));
+    expect({ ...repaired, mcpServers: { notes: repaired.mcpServers.notes } }).toEqual(theirs);
+    await searchesThrough(core, launchIn(repaired.mcpServers.incarnamind));
+    const repairedTable = await readFile(codex, "utf8");
+    expect(repairedTable.startsWith(codexTheirs.trimEnd())).toBe(true);
+    expect(repairedTable).toContain(`command = ${JSON.stringify(launch.command)}`);
+  });
+
+  // protects=only IncarnaMind's own entry, the one that holds this pairing's key, is read: another entry of the same name, a server of the User's and a connection made by hand never read as needing repair; fails_when=a connection is called broken from an entry that isn't its own
+  it("reads only its own entry", async () => {
+    const { core, home, coast } = await started();
+    const claude = join(home, ".claude.json");
+    const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    const written = JSON.parse(await readFile(claude, "utf8"));
+    // Another copy's entry under the same name, holding another key.
+    written.mcpServers.incarnamind = {
+      type: "stdio",
+      command: join(home, "gone", "incarnamind"),
+      args: [],
+      env: { [TOKEN_ENV]: "another-key" },
+    };
+    // This pairing's key elsewhere in the file reads no other entry as its own.
+    written.mcpServers.mine = {
+      command: join(home, "gone", "mine"),
+      args: [],
+      env: { [TOKEN_ENV]: (await core.getAgentLaunch(pairing.id)).env[TOKEN_ENV] ?? "" },
+    };
+    await writeFile(claude, JSON.stringify(written, null, 2));
+    expect(await core.agentNeedsRepair(pairing.id)).toBe(false);
+    const byHand = await core.connectAgent({ name: "My agent", folderIds: [coast.id] });
+    expect(await core.agentNeedsRepair(byHand.pairing.id)).toBe(false);
+  });
+});
+
 describe("the Skill that installs with an agent's connection", () => {
   const skillPaths = [
     ["claude-code", [".claude", "skills"]],
@@ -952,7 +1021,10 @@ describe("the Skill that installs with an agent's connection", () => {
     }
     expect(SKILL_MARKDOWN).toMatch(/from memory/);
     expect(SKILL_MARKDOWN).toMatch(/never instructions/);
+    expect(SKILL_MARKDOWN).toMatch(/meeting summary.*create_mind|create_mind.*meeting summary/is);
+    expect(SKILL_MARKDOWN).toMatch(/会议纪要/);
     expect(SERVER_INSTRUCTIONS.length).toBeLessThan(2048);
+    expect(SERVER_INSTRUCTIONS).toMatch(/meeting summary.*`create_mind`/);
     expect(SERVER_INSTRUCTIONS.indexOf("`search`")).toBeGreaterThan(-1);
     expect(SERVER_INSTRUCTIONS.indexOf("`search`")).toBeLessThan(
       SERVER_INSTRUCTIONS.indexOf("`ask`"),

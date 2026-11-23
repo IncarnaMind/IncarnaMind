@@ -11,9 +11,11 @@ import type { AgentPairing } from "../../core/api";
 import {
   agentsToAsk,
   noModel,
+  ownAiRunsHereNow,
   useAgentsToAsk,
   useAgentsToAskRead,
   useNoModel,
+  useOwnAiRunsHere,
   useReadAgentsToAsk,
 } from "./askYourAi";
 import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
@@ -84,7 +86,11 @@ export interface OwnAiPill {
   agents: readonly AgentPairing[];
 }
 
-/** What the pill asks about: the Note the assistant reads, else the Document in front. */
+/**
+ * What the pill asks about: the Note the assistant reads, else the Document in front. A Note no
+ * connected AI may read (an example's, which a new User has open) gives way to the Document opened
+ * beside it, so the pill doesn't go when the User opens one there.
+ */
 interface AskedOn {
   mindId: string | null;
   documentId: string | null;
@@ -92,16 +98,44 @@ interface AskedOn {
 
 const NOTHING: AskedOn = { mindId: null, documentId: null };
 
+/** `noteAgents`: the agents that may read `mindId`; null until they are read, when the Note stands. */
+const askedOn = (
+  mindId: string | null,
+  documentId: string | null,
+  noteAgents: readonly AgentPairing[] | null,
+): AskedOn =>
+  mindId !== null && (noteAgents === null || noteAgents.length > 0 || documentId === null)
+    ? { mindId, documentId: null }
+    : documentId !== null
+      ? { mindId: null, documentId }
+      : NOTHING;
+
 const askedOnOf = (merged: boolean): AskedOn => {
   const { layout } = useAppStore.getState();
   const tab = assistantTabOf(layout, merged);
-  if (tab?.item.kind === "mind") return { mindId: tab.item.mindId, documentId: null };
-  const [documentId] = documentsOnScreenOf(layout, merged);
-  return documentId ? { mindId: null, documentId } : NOTHING;
+  const mindId = tab?.item.kind === "mind" ? tab.item.mindId : null;
+  const [documentId = null] = documentsOnScreenOf(layout, merged);
+  return askedOn(mindId, documentId, mindId === null ? null : agentsToAsk(mindId));
 };
 
-const pillOf = (hidden: boolean, on: AskedOn, agents: readonly AgentPairing[]): OwnAiPill | null =>
-  hidden && (on.mindId !== null || on.documentId !== null) && agents.length > 0
+/**
+ * An agent IncarnaMind can run in the background, its command line on this computer: a Note it can
+ * read has its own input (#3627).
+ */
+export const runsInBackground = (pairing: AgentPairing, runsHere: boolean): boolean =>
+  runsHere && pairing.client === "claude-code";
+
+const pillOf = (
+  hidden: boolean,
+  on: AskedOn,
+  agents: readonly AgentPairing[],
+  runsHere: boolean,
+): OwnAiPill | null =>
+  hidden &&
+  (on.mindId !== null || on.documentId !== null) &&
+  agents.length > 0 &&
+  // The Note's own input asks in its place.
+  !(on.mindId !== null && agents.some((each) => runsInBackground(each, runsHere)))
     ? { ...on, agents }
     : null;
 
@@ -112,17 +146,20 @@ function useAskedOn(): AskedOn {
     const tab = assistantTabOf(state.layout, merged);
     return tab?.item.kind === "mind" ? tab.item.mindId : null;
   });
-  const documentId = useAppStore((state) =>
-    mindId === null ? (documentsOnScreenOf(state.layout, merged)[0] ?? null) : null,
-  );
-  return mindId !== null || documentId !== null ? { mindId, documentId } : NOTHING;
+  const documentId = useAppStore((state) => documentsOnScreenOf(state.layout, merged)[0] ?? null);
+  useReadAgentsToAsk(mindId);
+  const noteAgents = useAgentsToAskRead(mindId);
+  return askedOn(mindId, documentId, mindId === null ? null : noteAgents);
 }
 
 /** Whether the pill shows, as the Workbench reads its agents: for a page that makes room for it. */
 export function useOwnAiPillShown(): boolean {
   const hidden = useHiddenForOwnAi();
   const on = useAskedOn();
-  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined)) !== null;
+  const runsHere = useOwnAiRunsHere();
+  return (
+    pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere) !== null
+  );
 }
 
 /** The pill's Note or Document and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
@@ -130,13 +167,19 @@ export function useOwnAiPill(): OwnAiPill | null {
   const hidden = useHiddenForOwnAi();
   const on = useAskedOn();
   useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
-  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined));
+  const runsHere = useOwnAiRunsHere();
+  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere);
 }
 
 /** The same, read once: what ⌘J asks while the pill shows. */
 export function ownAiPillNow(): OwnAiPill | null {
   const on = askedOnOf(groupsMerged());
-  return pillOf(hiddenForOwnAiNow(), on, agentsToAsk(on.mindId, on.documentId ?? undefined));
+  return pillOf(
+    hiddenForOwnAiNow(),
+    on,
+    agentsToAsk(on.mindId, on.documentId ?? undefined),
+    ownAiRunsHereNow(),
+  );
 }
 
 /** The Note a question typed elsewhere (⌘K, the Library) is about: the one the assistant reads. */

@@ -1,3 +1,4 @@
+import { boundPlaceOf } from "../boundFolders";
 import { copyText } from "../copied";
 import { infoLabelKey, userFile } from "../fileInfo";
 import { useInfo } from "../info";
@@ -14,6 +15,11 @@ function fileOf(ctx: CommandContext): { ref: ObjectRef; path: string; web: boole
   if (ref.kind === "linkedFolder") {
     const linked = state.linkedFolders.find((each) => each.id === ref.id);
     return linked && { ref, path: linked.path, web: false };
+  }
+  if (ref.kind === "folder") {
+    const group = state.library?.groups.find((each) => each.id === ref.id);
+    const place = boundPlaceOf(group, state);
+    return place ? { ref, path: place.path, web: false } : undefined;
   }
   const [document] = documentsOf(ctx);
   return document && { ref, path: document.path, web: !userFile(document) };
@@ -41,7 +47,7 @@ export const fileCommands: readonly Command[] = [
     // Alt as Finder's Copy as Pathname; the file's own keys, as a list's.
     shortcut: { keys: "CmdOrCtrl+Alt+C", list: true },
     group: "file",
-    appliesTo: ["document", "linkedFolder"],
+    appliesTo: ["document", "linkedFolder", "folder"],
     // A web page has an address to copy, not a path.
     when: (ctx) => fileOf(ctx)?.web === false,
     reversible: true,

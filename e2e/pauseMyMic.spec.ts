@@ -490,6 +490,7 @@ test("the recording bar never wraps: from 1,600 px down to 900 px, in English an
       await window.keyboard.press("Enter");
       const menu = window.getByTestId("meeting-more-menu");
       const items = menu.getByRole("menuitem");
+      await expect(menu.getByRole("menuitemradio", { checked: true })).toBeVisible();
       await expect(items.first()).toBeFocused();
       await expect(menu.getByTestId("meeting-more-mark")).toBeEnabled();
       const hidden = [];

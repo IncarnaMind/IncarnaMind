@@ -962,10 +962,15 @@ const STAGES: Record<Staged, Stage> = {
       ),
     opened: ({ window }) => window.getByTestId("library"),
   },
+  // Its own row shows once its filing as one Folder is off; on, it is a Folder's row (#3613).
   linkedFolder: {
     async make({ app, window }) {
       await linkFolderFromSidebar(app, window, await folderOnDisk("Library"));
-      return read(window, async (core) => (await core.listLinkedFolders())[0]?.id ?? "");
+      return read(window, async (core) => {
+        const bound = (await core.getLibrary()).groups.find((each) => each.boundFolderId);
+        if (bound) await core.unbindFolder(bound.id, []);
+        return (await core.listLinkedFolders())[0]?.id ?? "";
+      });
     },
     async show({ window }, key) {
       await showSourceLocations(window);

@@ -8,7 +8,13 @@ import {
   documentOrFolderScope,
   keptFrom,
 } from "./documentOrFolder";
-import { DocumentLineIcon, FolderLineIcon, LockLineIcon, MindLineIcon } from "./lineIcons";
+import {
+  DocumentLineIcon,
+  FolderLineIcon,
+  LinkLineIcon,
+  LockLineIcon,
+  MindLineIcon,
+} from "./lineIcons";
 import { type PickerOption, type PickerSection, SearchPicker } from "./SearchPicker";
 
 export type { DocumentOrFolderChoice } from "./documentOrFolder";
@@ -77,9 +83,7 @@ export function DocumentOrFolderPicker({
               : choice.kind === "document" && byId.get(choice.id)?.status === "no-text"
                 ? t("documents.statusShort.noText")
                 : undefined;
-      const place = [...(choice.sourceLocation ? [t("library.sources")] : []), ...choice.path].join(
-        " / ",
-      );
+      const place = choice.path.join(" / ");
       const detail = [place, choice.count?.toString()].filter(Boolean).join(" · ");
       return {
         id: choice,
@@ -89,6 +93,8 @@ export function DocumentOrFolderPicker({
         data: { "data-scope-kind": choice.kind, "data-scope-id": choice.id },
         icon: kept ? (
           <LockLineIcon className="size-4 shrink-0 text-ink-meta" />
+        ) : choice.sourceLocation ? (
+          <LinkLineIcon className="size-4 shrink-0 text-ink-meta" />
         ) : choice.kind === "folder" ? (
           <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
         ) : choice.meeting ? (

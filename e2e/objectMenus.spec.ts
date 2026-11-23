@@ -20,6 +20,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  openLinkedFolderMenu,
   openMoreMenu,
   openPageMenu,
   pageMenuButton,
@@ -372,7 +373,8 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     "tag.delete",
   ]);
 
-  // A Linked folder, in the Linked folders section.
+  // A Linked folder, its Folder in Folders (#3613): a Folder's menu with its folder's actions, and
+  // Unlink… in Delete's place.
   await linkFolderFromSidebar(app, window, library);
   await showSourceLocations(window);
   const linked = linkedFolderRow(window, "Library");
@@ -380,12 +382,49 @@ test("a right-click opens the menu the ⋯ button opens, for a Mind, a Document,
     window,
     linked,
     linked.getByTestId("row-text"),
-    linked.getByTestId("linked-folder-menu"),
-    linked.getByTestId("linked-folder-actions"),
+    linked.getByTestId("folder-menu"),
+    linked.getByTestId("folder-actions"),
   );
   expect(linkedMenu).toEqual([
+    "folder.open",
+    "—",
+    "folder.newMind",
+    "folder.addDocuments",
+    "folder.newInside",
+    "folder.ask",
+    "folder.organize",
+    "folder.editDescription",
+    "folder.keepInside",
+    "linkedFolder.fileAsFolder",
     "linkedFolder.pause",
-    "linkedFolder.makeProject",
+    "folder.sort",
+    "—",
+    "folder.moveTo",
+    "—",
+    "folder.rename",
+    "—",
+    "linkedFolder.reveal",
+    "file.copyPath",
+    "file.info",
+    "linkedFolder.locate",
+    "—",
+    "linkedFolder.unlink",
+  ]);
+
+  // Filed as no Folder, it is a row of its own in Folders, with its folder's menu.
+  await (await openLinkedFolderMenu(linked)).getByTestId("linkedFolder.fileAsFolder").click();
+  const own = window.getByTestId("linked-folder-row").locator('[data-root="true"]');
+  await expect(own).toHaveCount(1);
+  const ownMenu = await sameFromBothWays(
+    window,
+    own,
+    own.getByTestId("row-text"),
+    own.getByTestId("linked-folder-menu"),
+    own.getByTestId("linked-folder-actions"),
+  );
+  expect(ownMenu).toEqual([
+    "linkedFolder.fileAsFolder",
+    "linkedFolder.pause",
     "folder.sort",
     "—",
     "linkedFolder.reveal",

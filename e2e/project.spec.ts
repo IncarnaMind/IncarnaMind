@@ -28,11 +28,12 @@ import { callTool } from "./canvases";
 test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
- * A new User's first walk with a Project (#3507, ADR-0030): a Linked folder made a Project from its
- * menu, with Undo; the folder's files filed in it; the agent given the Project alone, its folder
- * named under it in Settings › AI; and a deck the agent made in the folder and a Note it wrote
- * there, both checked. The scripted model (src/main/fakeChat/) checks. Set INCARNAMIND_SCREENSHOTS to
- * a folder to also save stills there.
+ * A new User's first walk with a linked folder's Folder (#3507, #3613, ADR-0030): linking a folder
+ * makes a Folder bound to it, its files filed in it; File as one Folder turned off and back with
+ * Undo and Redo; the agent given that Folder alone, its folder named under it in Settings › AI;
+ * and a deck the agent made in the folder and a Note it wrote there, both checked. The scripted
+ * model (src/main/fakeChat/) checks. Set INCARNAMIND_SCREENSHOTS to a folder to also save stills
+ * there.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -67,8 +68,8 @@ for (const language of ["en", "zh-CN"] as const) {
   const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
     translate(language, key, params);
 
-  // protects=a new User makes a Linked folder a Project from its menu, with Undo; its files are filed in it; an agent given it alone sees its folder named in Settings › AI, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507); fails_when=the menu has no such item, the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
-  test(`a Linked folder made a Project: the agent's deck and Note there are checked (${language})`, async () => {
+  // protects=linking a folder makes a Folder bound to it, its files filed in it; File as one Folder turned off and back is one step each for Undo and Redo; an agent given that Folder alone sees its folder named in Settings › AI, hands over a deck it made there and writes a Note there, and both are checked against the folder's files (#3507, #3613); fails_when=the files stay in Not in a Folder, Undo leaves the file put in no Folder by the User or Redo doesn't file it again, the picker doesn't say which folder it is, or the hand-over is refused for lack of reach
+  test(`a linked folder's Folder: the agent's deck and Note there are checked (${language})`, async () => {
     test.setTimeout(150_000);
     const { app, window } = await launchApp(dataDir, { home, fakeChat: true });
     await dismissChatSetup(window);
@@ -82,30 +83,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeFile(join(work, "Quay plan.md"), `# Quay plan\n\n${EAST}\n`);
       await (await bridge(window)).evaluate((core, path) => core.addLinkedFolder(path), work);
       await expectReadyDocuments(window, 1);
-
-      const menu = await openLinkedFolderMenu(linkedFolderRow(window, basename(work)));
-      const make = menu.getByTestId("linkedFolder.makeProject");
-      await expect(make).toHaveText(t("linkedFolders.makeProject"));
-      await shot(window, `project-menu-${language}`);
-      await make.click();
-      const made = t("undo.projectMade", { name: basename(work) });
-      await expect(undoMessage(window)).toHaveText(made);
-      const project = await (await bridge(window)).evaluate(async (core) => {
-        const library = await core.getLibrary();
-        const group = library.groups.find((each) => each.boundFolderId !== null);
-        const filed = library.assignments.filter((each) => each.groupId === group?.id);
-        return { id: group?.id ?? "", keepInside: group?.keepInside, filed: filed.length };
-      });
-      expect(project).toMatchObject({ keepInside: true, filed: 1 });
-      await shot(window, `project-made-${language}`);
-      // Undo takes the Project back, its file as it was: in no Folder, and not as the User's choice,
-      // so Organize may still place it and a Project made again files it. Redo brings both back.
       const projects = () =>
         bridge(window).then((core) =>
-          core.evaluate(
-            async (each) =>
-              (await each.getLibrary()).groups.filter((group) => group.boundFolderId !== null)
-                .length,
+          core.evaluate(async (each) =>
+            (await each.getLibrary()).groups
+              .filter((group) => group.boundFolderId !== null)
+              .map((group) => ({ id: group.id, keepInside: group.keepInside })),
           ),
         );
       const planFiling = () =>
@@ -118,16 +101,31 @@ for (const language of ["en", "zh-CN"] as const) {
             return { groupId: row?.groupId ?? null, byUser: row?.source === "user" };
           }),
         );
-      await window.keyboard.press("ControlOrMeta+z");
-      await expect.poll(projects).toBe(0);
-      await expect.poll(planFiling).toEqual({ groupId: null, byUser: false });
-      await window.keyboard.press("ControlOrMeta+Shift+z");
-      await expect.poll(projects).toBe(1);
+      const [project] = await projects();
+      if (!project) throw new Error("Linking made no Folder.");
+      expect(project.keepInside).toBe(false);
       await expect.poll(planFiling).toEqual({ groupId: project.id, byUser: true });
-      // Made once: the item isn't offered again for the same folder.
-      const again = await openLinkedFolderMenu(linkedFolderRow(window, basename(work)));
-      await expect(again.getByTestId("linkedFolder.makeProject")).toHaveCount(0);
-      await window.keyboard.press("Escape");
+      await shot(window, `project-made-${language}`);
+
+      // Turned off from its menu, its file goes back to no filing, not as the User's choice, so
+      // Organize may still place it; Undo files it in the same Folder again, Redo turns it off.
+      const menu = await openLinkedFolderMenu(linkedFolderRow(window, basename(work)));
+      const fileAsFolder = menu.getByTestId("linkedFolder.fileAsFolder");
+      await expect(fileAsFolder).toHaveText(t("folder.fileAsFolder"));
+      await shot(window, `project-menu-${language}`);
+      await fileAsFolder.click();
+      await expect(undoMessage(window)).toHaveText(
+        t("undo.fileAsFolder.off", { name: basename(work) }),
+      );
+      await expect.poll(projects).toEqual([]);
+      await expect.poll(planFiling).toEqual({ groupId: null, byUser: false });
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect.poll(projects).toEqual([project]);
+      await expect.poll(planFiling).toEqual({ groupId: project.id, byUser: true });
+      await window.keyboard.press("ControlOrMeta+Shift+z");
+      await expect.poll(projects).toEqual([]);
+      await window.keyboard.press("ControlOrMeta+z");
+      await expect.poll(planFiling).toEqual({ groupId: project.id, byUser: true });
 
       const launch = await (await bridge(window)).evaluate(async (core, folderId) => {
         await core.setAgentsEnabled(true);

@@ -35,8 +35,17 @@ export function failureOf(error: ProviderError): {
     case "cut-short":
     case "cut-short-small-window":
       return { reason: "cut-short", detail: null };
-    default:
-      return { reason: "failed", detail: error.message };
+    case "refused": {
+      const detail = error.message.trim();
+      return {
+        reason: "failed",
+        detail: detail === "" || /^(?:bad request|http\s*4\d\d)\.?$/i.test(detail) ? null : detail,
+      };
+    }
+    default: {
+      const detail = error.message.trim();
+      return { reason: "failed", detail: detail === "" ? null : detail };
+    }
   }
 }
 

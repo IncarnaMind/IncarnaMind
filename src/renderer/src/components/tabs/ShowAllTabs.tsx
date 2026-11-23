@@ -68,7 +68,7 @@ function Row({ tab, active, close }: { tab: LayoutTab; active: boolean; close():
         close();
         void useAppStore.getState().changeLayout({ type: "show", tabId: tab.id });
         // The chosen tab is where the keyboard goes next, as after picking it in the strip.
-        focusTab(tab.id);
+        focusTab(tab.id, { from: document.activeElement });
       }}
     >
       <span className="flex size-4 shrink-0 items-center justify-center">

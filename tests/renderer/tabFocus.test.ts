@@ -63,6 +63,28 @@ describe("the focus asked of a Note's tab", () => {
     expect(taken).not.toHaveBeenCalled();
   });
 
+  // protects=choosing from Show all tabs focuses the chosen tab unless the User has already reopened the list (#2586); fails_when=a pending frame takes the keyboard out of the reopened menu.
+  test("choosing a tab keeps the keyboard in a menu reopened before the next frame", async () => {
+    vi.stubGlobal("CSS", { escape: (text: string) => text });
+    const tab = document.createElement("div");
+    tab.dataset.tabId = "chosen";
+    document.body.append(tab);
+    tab.focus = () => focusOn(tab);
+    const trigger = document.createElement("button");
+    const row = document.createElement("button");
+
+    focusOn(trigger);
+    focusTab("chosen", { from: trigger });
+    focusOn(row);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(row);
+
+    focusOn(trigger);
+    focusTab("chosen", { from: trigger });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(tab);
+  });
+
   // protects=a click on a Note's tab whose text was never drawn, as when its copy couldn't open yet, asks nothing more once the keyboard is on the tabs: the Note drawn later, reached by the arrow keys, leaves the focus on the tab list (#3115); fails_when=the Note reached by keyboard takes the focus from the tab list because of the earlier click; no_claim=the tab strip's keys, which the smoke spec presses.
   test("the keyboard on the tabs drops what an earlier click asked of a tab's text", async () => {
     vi.stubGlobal("CSS", { escape: (text: string) => text });

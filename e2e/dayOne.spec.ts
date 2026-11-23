@@ -131,7 +131,7 @@ for (const language of ["en", "zh-CN"] as const) {
     // else new: no Linked folders, no Tags.
     await expect(window.getByTestId("open-library")).toBeVisible();
     await expect(window.getByTestId("library-row-count")).toHaveText("3");
-    await expect(window.getByTestId("linked-folders-section")).toHaveCount(0);
+    await expect(window.locator("[data-linked-folder-id]")).toHaveCount(0);
     await expect(window.getByTestId("sidebar-tags")).toHaveCount(0);
     // And nothing asks for a model for Tags, or names them at all.
     for (const id of ["tagging-waiting", "tagging-stopped", "tagging-failed"]) {
@@ -308,7 +308,7 @@ test("a Folder is offered at the eighth loose Document, by pointer and by the tr
   await expect(window.getByTestId("open-library")).toBeVisible();
 });
 
-test("a Linked folder of the User's own shows its row only, never the example's, and brings the Library with its first Document (#1942, #2376)", async () => {
+test("a Linked folder of the User's own shows its Folder only, never the example's, and brings the Library with its first Document (#1942, #2376, #3613)", async () => {
   test.setTimeout(180_000);
   const folder = join(sources, "Contracts");
   await mkdir(folder);
@@ -318,12 +318,14 @@ test("a Linked folder of the User's own shows its row only, never the example's,
   await setLanguage(window, "en");
   await linkFolderFromSidebar(app, window, folder);
 
-  const section = window.getByTestId("linked-folders-section");
+  // Its Folder, made by linking, is the one row in Folders, never the example's (#3613).
+  const section = window.getByTestId("folders-section");
   await expect(section).toBeVisible();
-  await expect(section.getByTestId("row-text")).toHaveText(["Contracts"]);
-  await expect(window.getByTestId("linked-folder-rows").getByText("Examples")).toHaveCount(0);
-  // A Linked folder's file is a Document of the User's own: the Library is there for it, and its
-  // Source locations view opens from the folder's row (#2376).
+  await expect(section.locator("[data-linked-folder-id]").getByTestId("row-text")).toHaveText([
+    "Contracts",
+  ]);
+  await expect(section.getByText("Examples")).toHaveCount(0);
+  // A Linked folder's file is a Document of the User's own: the Library is there for it (#2376).
   await expect(window.getByTestId("open-library")).toBeVisible();
 
   // The steps put away, the rest of the shell comes as it did.

@@ -472,6 +472,8 @@ function useBarPlace(
         ?.querySelector("[data-ask-pill]")
         ?.getBoundingClientRect();
       const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
+      // The Note's own input at its foot (#3627), with the line and the conversation above it.
+      const input = pageOf?.querySelector(".note-ask")?.getBoundingClientRect();
       // Its width at the widest it is drawn, before this placement's own cap.
       element.style.maxWidth = "";
       const size = { width: element.offsetWidth, height: element.offsetHeight };
@@ -485,7 +487,11 @@ function useBarPlace(
       };
       const limits = {
         right: Math.min(page.right, badge ? badge.left - GAP_PX : page.right),
-        bottom: Math.min(page.bottom, pill ? pill.top : page.bottom),
+        bottom: Math.min(
+          page.bottom,
+          pill ? pill.top : page.bottom,
+          input ? input.top : page.bottom,
+        ),
       };
       const at = changeBarPlace(box, textRight, pageBox, size, line, limits);
       element.style.maxWidth = `${at.maxWidth}px`;

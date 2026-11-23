@@ -44,6 +44,19 @@ describe("A provider's refusal", () => {
       message: "messages: field required",
       status: 400,
     });
+    const bodyOnly = new APICallError({
+      message: "Bad Request",
+      url: "https://api.deepseek.com/chat/completions",
+      requestBodyValues: {},
+      statusCode: 400,
+      responseBody: JSON.stringify({ error: { message: "Content Exists Risk" } }),
+      isRetryable: false,
+    });
+    expect(classifyProviderError(bodyOnly)).toEqual({
+      kind: "refused",
+      message: "Content Exists Risk",
+      status: 400,
+    });
   });
 
   test("of a key, said only in the body of a 400 (Google's model list), is a refused key", () => {

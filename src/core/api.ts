@@ -1,3 +1,4 @@
+import type { NodeJSON } from "../shared/blockJson";
 import type {
   AssignmentChange,
   AssignmentState,
@@ -545,11 +546,34 @@ export interface MovedDocument extends MovedItem {
 
 /**
  * A Folder bound to a folder on disk (ADR-0030), and each Document filed in it then with its place
- * before and after, for `undoBoundFolder`.
+ * before and after, for `unbindFolder`.
  */
 export interface BoundFolderChange {
   folder: LibraryGroup;
   filed: AssignmentChange[];
+}
+
+/**
+ * A Folder taken off its folder on disk (`unbindFolder`, #3613), for `rebindFolder` to put back:
+ * the folder it was bound to (null: none), and whether it went because it held nothing else.
+ */
+export interface UnboundFolder {
+  groupId: string;
+  boundFolderId: string | null;
+  removed: boolean;
+  /** Its folder's Documents a Folder bound further up took then, which putting it back takes back. */
+  refiled: AssignmentChange[];
+}
+
+/**
+ * A Folder bound to a Linked folder that a link around it merged (#3613): it is bound to the same
+ * folder inside the new one now, and, at the top level before, inside the new one's Folder.
+ * `parentId` is where it was, for Undo.
+ */
+export interface MergedFolder {
+  path: string;
+  groupId: string;
+  parentId: string | null;
 }
 
 /**
@@ -817,6 +841,13 @@ export interface OutsideAgentRequest {
   pairingId: string;
   /** ISO 8601, UTC. */
   createdAt: string;
+  /**
+   * The User asked for it at the foot of the Note it changes (#3627): it applies at once, with
+   * Undo, as an edit asked of the assistant does. Absent: it waits for the User.
+   */
+  requested?: "edit";
+  /** What the User typed there, which says whether they asked for a translation. */
+  instruction?: string;
 }
 
 /**
@@ -6038,6 +6069,19 @@ export interface AddDocumentsOptions {
 /** A Linked folder just linked, with the batch of the Documents its first scan adds. */
 export interface AddedLinkedFolder extends LinkedFolder {
   batchId: string;
+  /** The Folder linking made, bound to it, and what it filed then; null for a folder linked already. */
+  bound: BoundFolderChange | null;
+  /** The Folders of the Linked folders it merged, bound inside it now. */
+  merged: MergedFolder[];
+}
+
+/** How `addLinkedFolder` links a folder. */
+export interface LinkFolderOptions extends AddDocumentsOptions {
+  /**
+   * An existing Folder to bind to it rather than making one, as Undo of a link that merged this
+   * folder puts its own Folder back. A Folder gone since is ignored.
+   */
+  rebind?: string;
 }
 
 /**
@@ -10190,6 +10234,7 @@ export const dataKinds = [
   "checked-sentences",
   "worked-figures",
   "library-counts",
+  "note-requests",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -12213,8 +12258,14 @@ export interface MeetingSummaryCandidate {
   sources: MeetingSummarySource[];
 }
 
+export interface MeetingSummaryContent {
+  type: "doc";
+  content: NodeJSON[];
+}
+
 export interface MeetingSummary {
   text: string;
+  editedContent?: MeetingSummaryContent;
   items?: MeetingSummaryItem[];
   candidateCount?: number;
   candidatesReviewed?: true;
@@ -13237,6 +13288,97 @@ export interface OwnAiCheckEnd {
 }
 
 /**
+ * The words selected in one top-level Block of a Note, for a request typed at its foot (#3627):
+ * the Block's plain text before the selection and after it, which a change inside leaves as they
+ * were.
+ */
+export interface NoteSelectionBlock {
+  blockId: string;
+  before: string;
+  after: string;
+}
+
+/** A request the User typed at the foot of a Note, for their own command-line AI (ADR-0034). */
+export interface NoteRequestInput {
+  mindId: string;
+  /** What they typed. */
+  words: string;
+  /** The words selected, as they read: the request's context. Absent: the whole Note. */
+  quote?: string;
+  selection?: NoteSelectionBlock[];
+  /** The agent to ask; absent: the first that can run in the background. */
+  pairingId?: string;
+}
+
+/**
+ * Why a request at a Note's foot didn't go or didn't finish: the check's reasons, and "read-only",
+ * the connection may only read and the request would change something.
+ */
+export type NoteTurnProblem = OwnAiCheckProblem | "read-only";
+
+/**
+ * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",
+ * no agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ */
+export type NoteRequestStart =
+  | { kind: "started"; pairing: AgentPairing; turnId: string }
+  | { kind: "link" }
+  | {
+      kind: "problem";
+      pairing: AgentPairing;
+      problem: NoteTurnProblem;
+      versions?: { found: string; lowest: string };
+    };
+
+/** A change in the Note asked from that applied at once: its request, and what it changed (#3627). */
+export interface NoteChangeApplied {
+  mindId: string;
+  request: string;
+  changed: number;
+  added: number;
+  tables: number;
+  /**
+   * In a Note the agent wrote: applied already, with its own Undo there (#3371), so nothing is left
+   * for the window to apply; the line still counts it.
+   */
+  own?: true;
+}
+
+/** One request at a Note's foot and how it went, as the Note's conversation shows it (ADR-0034). */
+export interface NoteTurn {
+  id: string;
+  /** What the User typed, and the words selected then ("" for none). */
+  request: string;
+  quote: string;
+  /** The agent's last words. */
+  reply: string;
+  outcome: "working" | "landed" | "stopped" | "failed";
+  problem: NoteTurnProblem | null;
+  /** ISO 8601, UTC. */
+  at: string;
+}
+
+/**
+ * A request at a Note's foot, as it goes: what the agent is doing (`doing`, from IncarnaMind's
+ * record of its Tool calls), then how it ended. `applied`: the changes in the Note asked from that
+ * apply at once, for the window that asked to apply with Undo; `waiting`: changes elsewhere that
+ * wait; `made`: Notes it wrote; `fresh`: the Note's earlier conversation was gone and this one is new.
+ */
+export interface NoteTurnEvent {
+  mindId: string;
+  turnId: string;
+  pairingId: string;
+  state: "working" | "landed" | "stopped" | "failed";
+  doing: { tool: AgentToolName; summary: string } | null;
+  problem: NoteTurnProblem | null;
+  reply: string;
+  applied: NoteChangeApplied[];
+  waiting: { mindId: string; title: string; count: number }[];
+  made: { title: string }[];
+  fresh: boolean;
+}
+
+/**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
  * agent: the line typed in the agent's app says what they want, and the agent reads the rest with
  * `read_request`, once.
@@ -13351,18 +13493,22 @@ export interface CoreApi {
   /**
    * Makes a Folder bound to a folder on disk (ADR-0030): `folderId` is a Linked folder's own
    * Folder (`LinkedFolder.folderId`) or one inside it (`listFolders`). The new Folder is named
-   * after it and keeps its work inside it; the folder's Documents with no filing of their own are
-   * filed in it now, and its new ones as they arrive, and again when it is restored from Recently
-   * deleted. One already bound to it is returned as it is, filing nothing.
+   * after it, open to work outside it as any new Folder is (#3613); the folder's Documents with no
+   * filing of their own are filed in it now, and its new ones as they arrive, and again when it is
+   * restored from Recently deleted. One already bound to it is returned as it is, filing nothing.
+   * Linking a folder makes its own (`addLinkedFolder`); this files one again after `unbindFolder`.
    */
   createBoundFolder(folderId: string): Promise<BoundFolderChange>;
   /**
-   * Takes back a Folder `createBoundFolder` made (ADR-0030). Each of its folder's Documents still
-   * filed in it goes back as it was: one it filed as `filed` found it, one filed since to no
-   * filing. Then it is deleted as `deleteLibraryGroup` deletes one; `restore` brings it back with
-   * its folder's Documents filed in it again.
+   * Takes a Folder off its folder on disk (#3613): each of the folder's Documents still filed in
+   * it goes back as `filed` (what binding filed) found it, one filed since to no filing, where a
+   * Folder bound further up takes it. The Folder stays, a plain Folder, with whatever else it
+   * holds; holding nothing, it goes without passing through Recently deleted. `rebindFolder`
+   * puts it back.
    */
-  undoBoundFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<void>;
+  unbindFolder(groupId: string, filed: BoundFolderChange["filed"]): Promise<UnboundFolder>;
+  /** Puts back a Folder `unbindFolder` took off its folder, its folder's unfiled Documents in it again. */
+  rebindFolder(unbound: UnboundFolder): Promise<BoundFolderChange>;
   updateLibraryGroup(groupId: string, input: LibraryGroupInput): Promise<LibraryGroup>;
   /**
    * Moves Folders in one step: each to its new parent (null: the top level). A Folder moved with
@@ -14125,10 +14271,13 @@ export interface CoreApi {
    * A folder inside a Linked folder is already linked: that Linked folder is
    * returned. Linked folders inside this one are merged into it, their
    * Documents keeping their ids. Files added on their own that are inside it
-   * become its Documents. The Documents its first scan adds are one batch;
-   * given a Folder (see `AddDocumentsOptions`), they are filed there.
+   * become its Documents. The Documents its first scan adds are one batch.
+   * Linking makes a Folder bound to it (#3613), named after it, inside the
+   * Folder given (see `AddDocumentsOptions`) or at the top level, and its
+   * files are filed in that Folder as they arrive; a merged Linked folder's
+   * Folder stays bound to its folder, inside the new one's.
    */
-  addLinkedFolder(path: string, options?: AddDocumentsOptions): Promise<AddedLinkedFolder>;
+  addLinkedFolder(path: string, options?: LinkFolderOptions): Promise<AddedLinkedFolder>;
   /** The Linked folders, in path order. */
   listLinkedFolders(): Promise<LinkedFolder[]>;
   /**
@@ -15678,6 +15827,11 @@ export interface CoreApi {
       parentCue?: { startMs: number; endMs: number };
     })[];
   } | null>;
+  updateMeetingSummaryContent(
+    meetingId: string,
+    expected: MeetingSummaryContent | null,
+    content: MeetingSummaryContent,
+  ): Promise<Meeting>;
   correctMeetingSummaryItem(
     meetingId: string,
     expected: MeetingSummaryItem,
@@ -15802,6 +15956,14 @@ export interface CoreApi {
    * is out of date (`AgentSettings.skillsOutOfDate`) and the User confirmed their changes go (#3430).
    */
   replaceAgentSkill(pairingId: string): Promise<void>;
+  /**
+   * Whether the entry IncarnaMind wrote in this agent's settings starts a program that is no longer
+   * there (an AppImage's from an earlier start, an app moved since), so the agent can't reach
+   * IncarnaMind until it is repaired (#3644).
+   */
+  agentNeedsRepair(pairingId: string): Promise<boolean>;
+  /** Writes this agent's entry in its settings again, with IncarnaMind as it is now: the User's Repair (#3644). */
+  repairAgent(pairingId: string): Promise<AgentSetupResult>;
   /** How a paired agent starts IncarnaMind's server, again: e.g. to set it up in that agent once more. */
   getAgentLaunch(pairingId: string): Promise<AgentLaunch>;
   /** The calls a paired agent made, newest first: the most recent 500. */
@@ -15853,6 +16015,21 @@ export interface CoreApi {
   checkWithOwnAi(mindId: string, pairingId?: string): Promise<OwnAiCheckStart>;
   /** Stops the check running on the User's own AI for the Note, if one is: nothing of it lands. */
   stopOwnAiCheck(mindId: string): Promise<void>;
+  /**
+   * Sends a request typed at a Note's foot to the User's own command-line AI, in the background, in
+   * the Note's one conversation (ADR-0034): on `pairingId`, or the first agent that can run it.
+   * Asks once for the consent to send it. Its progress and end are told by "agents.noteTurn".
+   */
+  askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
+  /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
+  stopInNote(mindId: string): Promise<void>;
+  /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
+  noteConversation(mindId: string): Promise<NoteTurn[]>;
+  /**
+   * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
+   * is on this computer's path (ADR-0034). Looking starts nothing.
+   */
+  ownAiRunsHere(): Promise<boolean>;
   /**
    * The file an outside agent handed over that this Note checks, with its versions (#3412); null
    * for a Note that checks none.
@@ -16152,6 +16329,8 @@ export interface CoreEvents {
   "agents.request": AgentRequest;
   /** A check on the User's own AI ended (see `checkWithOwnAi`). */
   "agents.ownCheck": OwnAiCheckEnd;
+  /** A request at a Note's foot is working, or ended (see `askInNote`). */
+  "agents.noteTurn": NoteTurnEvent;
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
@@ -16447,7 +16626,8 @@ const methods: Record<CoreApiMethod, true> = {
   getLibrary: true,
   createLibraryGroup: true,
   createBoundFolder: true,
-  undoBoundFolder: true,
+  unbindFolder: true,
+  rebindFolder: true,
   updateLibraryGroup: true,
   moveLibraryGroups: true,
   deleteLibraryGroup: true,
@@ -16630,6 +16810,7 @@ const methods: Record<CoreApiMethod, true> = {
   undoAddMeetingSummaryCandidate: true,
   addMeetingSummaryCandidate: true,
   getMeetingSummaryItemSources: true,
+  updateMeetingSummaryContent: true,
   correctMeetingSummaryItem: true,
   undoMeetingFill: true,
   followMeetingFillUndo: true,
@@ -16661,6 +16842,8 @@ const methods: Record<CoreApiMethod, true> = {
   updateAgent: true,
   disconnectAgent: true,
   replaceAgentSkill: true,
+  agentNeedsRepair: true,
+  repairAgent: true,
   getAgentLaunch: true,
   listAgentActivity: true,
   listAgentClients: true,
@@ -16676,6 +16859,10 @@ const methods: Record<CoreApiMethod, true> = {
   frontAgent: true,
   checkWithOwnAi: true,
   stopOwnAiCheck: true,
+  askInNote: true,
+  stopInNote: true,
+  noteConversation: true,
+  ownAiRunsHere: true,
   handedFileOf: true,
   listCanvases: true,
   showCanvas: true,

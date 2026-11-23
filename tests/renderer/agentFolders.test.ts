@@ -234,9 +234,9 @@ describe("all of the User's Documents and notes (#3544)", () => {
     ]);
   });
 
-  test("says which Folders all leaves out: Projects alone, or any Folder that keeps its work inside it", () => {
+  test("says which Folders all leaves out: any Folder that keeps its work inside it, one bound to a folder on disk as any other", () => {
     expect(leftOutOfAll([coast, open])).toBe("none");
-    expect(leftOutOfAll([coast, quay])).toBe("projects");
+    expect(leftOutOfAll([coast, quay])).toBe("walled");
     expect(leftOutOfAll([coast, quay, matter])).toBe("walled");
   });
 });

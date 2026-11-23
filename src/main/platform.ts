@@ -1102,9 +1102,14 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
     summarizeWithMeetingAgent,
     ...(import.meta.env.MODE !== "test"
-      ? { ownAi: createOwnAi() }
+      ? { ownAi: createOwnAi({ conversations: join(dataDir, "Own AI conversations") }) }
       : testOwnAi
-        ? { ownAi: createOwnAi({ command: testOwnAi }) }
+        ? {
+            ownAi: createOwnAi({
+              command: testOwnAi,
+              conversations: join(dataDir, "Own AI conversations"),
+            }),
+          }
         : {}),
     transcriber: fakeTranscriber
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))

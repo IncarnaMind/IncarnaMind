@@ -283,10 +283,20 @@ export function claimSpans(doc: ProseMirrorNode): ClaimSpan[] {
     const places = claimPlaces(block, pos);
     const { text, starts, ends, sentences } = places;
     for (const { check, from, to } of found.values()) {
-      const markedStart = starts.indexOf(from);
-      const markedEnd = ends.indexOf(to) + 1;
+      let markedStart = starts.indexOf(from);
+      let markedEnd = ends.indexOf(to) + 1;
       if (markedStart < 0 || markedEnd <= markedStart) continue;
-      const touched = sentences.filter((span) => span.from < to && span.to > from);
+      // Ignore whitespace at a mark's edges (e.g. a space before a rewritten Citation) unless the
+      // stored check text itself keeps that edge whitespace, so it never stretches the sentence
+      // text beyond what the core reads (#3542).
+      if (!/^\s/.test(check.text))
+        while (markedStart < markedEnd && /\s/.test(text[markedStart] ?? "")) markedStart++;
+      if (!/\s$/.test(check.text))
+        while (markedEnd > markedStart && /\s/.test(text[markedEnd - 1] ?? "")) markedEnd--;
+      if (markedEnd <= markedStart) continue;
+      const spanFrom = starts[markedStart] ?? from;
+      const spanTo = ends[markedEnd - 1] ?? to;
+      const touched = sentences.filter((span) => span.from < spanTo && span.to > spanFrom);
       const start = Math.min(markedStart, touched[0]?.start ?? markedStart);
       const end = Math.max(markedEnd, touched.at(-1)?.end ?? markedEnd);
       const range = inlineRange(places, start, end);

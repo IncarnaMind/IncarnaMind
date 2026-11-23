@@ -12,7 +12,7 @@
  * who made it and when (#734).
  */
 import { footnoteSubjectKey } from "../../shared/citations";
-import { FootnoteNumbering, sharesMarkBefore } from "../../shared/footnoteNumbers";
+import { FootnoteNumbering, sharedMarkOf } from "../../shared/footnoteNumbers";
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
 import type { ParagraphFormat, StyledRun } from "../api";
@@ -27,7 +27,7 @@ import {
 } from "../mindText";
 import { tabHeading } from "../noteTabs";
 import { changedContent, changeEnding, changeSpans } from "../shownChanges";
-import { isBlank, sharedNoteOf } from "./citations";
+import { markRun } from "./citations";
 import type { ExportLabels } from "./labels";
 import { latexToMathMl } from "./math";
 import { noteChecks } from "./noteChecks";
@@ -478,8 +478,8 @@ class PrintWriter {
             const number = this.numbering.footnote();
             this.notes.push(this.citations.note(item.footnote));
             html += this.citations.marker(item.footnote, number);
-          } else if (!sharesMarkBefore(content, index, (each) => sharedNoteOf(each), isBlank)) {
-            // Side by side with a Citation of the same note, its marker stands for both (#3654).
+          } else if (sharedMarkOf(content, index, markRun()) === null) {
+            // In a run of Citations side by side, the first of a note's markers stands for all (#3654).
             html += this.citationMarker(item, state.lastWasNote);
             lastWasNote = true;
           }

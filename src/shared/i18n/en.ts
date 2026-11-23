@@ -261,7 +261,6 @@ export const en = {
   "library.drop.stay": "Your files stay where they are.",
   "library.review": "Review",
   "library.row.suggested": "Suggested: “{folder}”",
-  "library.sources": "Folders on disk",
   "library.collapse": "Collapse {name}",
   "library.expand": "Expand {name}",
   "library.needsAttention": "Needs attention",
@@ -622,6 +621,10 @@ export const en = {
   "undo.readHiddenSheets": "Read the hidden sheets of “{name}”",
   "undo.name.readHiddenSheets": "Read hidden sheets",
   "folder.wall.title": "This Folder keeps its work inside it",
+  "folder.bound.mark": "Linked folder: {path}",
+  "folder.bound.promise":
+    "IncarnaMind never changes, moves or deletes the files already in this folder.",
+  "folder.fileAsFolder": "File as one Folder",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
   "tag.color": "Color",
@@ -685,14 +688,16 @@ export const en = {
   "undo.examplesShown": "Showed the examples",
   "menu.showExamples": "Show the examples again",
   "undo.folderLinked": "Linked “{name}”",
-  "undo.projectMade": "Made “{name}” a project",
+  "undo.fileAsFolder.on": "Filed “{name}” as one Folder",
+  "undo.fileAsFolder.off": "Stopped filing “{name}” as one Folder",
+  "undo.name.fileAsFolder.on": "File as one Folder",
+  "undo.name.fileAsFolder.off": "Stop filing as one Folder",
   "undo.folderUnlinked": "Unlinked “{name}”",
   "undo.linkedFolder.mergedGone":
     "“{name}”, the Linked folder this link took in, isn’t on the disk any more.",
   "undo.linkedFolderPaused": "Paused reading in “{name}”",
   "undo.linkedFolderResumed": "Resumed reading in “{name}”",
   "undo.name.linkFolder": "Link “{name}”",
-  "undo.name.makeProject": "Make a project",
   "undo.name.move": "Move “{name}”",
   "undo.name.move.minds": "Move {count} notes",
   "undo.name.move.documents": "Move {count} Documents",
@@ -713,6 +718,7 @@ export const en = {
   "undo.tabMoveRefused": "the tabs couldn’t be changed",
   "object.renamed": "Renamed to “{name}”",
   "object.deleted": "Moved “{name}” to Recently deleted",
+  "object.removed.keepsFile": "Removed “{name}” from IncarnaMind. The file stays in “{folder}”.",
   "object.deleted.documents": "Moved {count} Documents to Recently deleted",
   "object.deleting.documents": "Moving {count} Documents to Recently deleted…",
   "object.restoring.count": "Restoring {count} items…",
@@ -1528,6 +1534,7 @@ export const en = {
   "claim.searchWeb": "Search the web",
   "error.check.partChecking": "This sentence is being checked. Wait for it to finish.",
   "error.check.partChanged": "Those words have changed. Check the sentence again.",
+  "error.check.failed": "The check couldn’t be completed. Check again in a moment.",
   "claim.usedDocumentWording": "Changed to what the Document says",
   "claim.useDocumentWording": "Use the Document’s wording",
   "opinions.one": "1 opinion left out",
@@ -1598,6 +1605,7 @@ export const en = {
   "claim.reason.plan-limit": "Your plan’s usage limit is reached.",
   "claim.reason.out-of-credit": "The model’s service says the credit balance is too low.",
   "claim.reason.failed": "The check failed: {detail}",
+  "claim.reason.failed.unknown": "The check couldn’t be completed. Check again in a moment.",
   "claim.reason.timed-out": "The model didn’t reply within {detail} seconds.",
   "claim.reason.stopped": "Stopped before it was checked.",
   "claim.reason.answer-failed": "The Answer stopped with an error before this was checked.",
@@ -2751,14 +2759,8 @@ export const en = {
   "linkedFolders.preview.time": "Reading takes {time}, newest first.",
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
-  "linkedFolders.readOnly": "read-only",
-  "linkedFolders.readOnly.full":
-    "IncarnaMind reads this folder where it is and never changes, moves or deletes anything in it.",
-  "linkedFolders.readOnly.unchecked": "not checked",
-  "linkedFolders.readOnly.unchecked.title":
-    "IncarnaMind couldn’t read which folders it may add files to. Open the Output location to answer it there.",
-  "linkedFolders.preview.readOnly":
-    "IncarnaMind only reads this folder. It never changes, moves or deletes anything.",
+  "linkedFolders.preview.becomesFolder":
+    "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never changes, moves or deletes the files already there.",
   "linkedFolders.preview.merge.one":
     "“{names}”, already linked, merges into this folder and keeps its Tags and Citations.",
   "linkedFolders.preview.merge.other":
@@ -2796,7 +2798,6 @@ export const en = {
     "No files IncarnaMind can read in “{folder}” yet. New ones are read as they arrive.",
   "linkedFolders.more": "More actions for {name}",
   "linkedFolders.pause": "Pause reading",
-  "linkedFolders.makeProject": "Make it a project",
   "linkedFolders.resume": "Resume reading",
   "linkedFolders.downloadOnlineOnly.one": "Download and read 1 online-only file",
   "linkedFolders.downloadOnlineOnly.other": "Download and read {count} online-only files",
@@ -2811,6 +2812,7 @@ export const en = {
   "linkedFolders.unlink.body": "Your files aren’t touched. IncarnaMind forgets what it read.",
   "linkedFolders.unlink.citations":
     "It keeps only what your Citations quote, so they stay checkable.",
+  "linkedFolders.unlink.notes": "Its notes stay in the Folder “{folder}”.",
   "linkedFolders.unlink.cancel": "Cancel",
   "linkedFolders.unlink.confirm": "Unlink",
   "units.kb": "{size} KB",
@@ -3851,6 +3853,8 @@ export const en = {
   "consent.flow.edits": "Edit with AI",
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
+  "consent.data.note-requests":
+    "What you type in the box at the bottom of a note, each time you send it. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
   "consent.data.source-quotes":
     "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 
@@ -6539,6 +6543,8 @@ export const en = {
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
+  "error.noteAsk.tooLong":
+    "A request can be at most {max} characters. Shorten it, then send it again.",
   "error.agent.selectionTooLong":
     "That’s more than your AI can be handed at once. Select fewer words and ask again.",
   "error.agent.nameEmpty": "Give the agent a name.",
@@ -6570,7 +6576,7 @@ export const en = {
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
   "error.library.projectUndo":
-    "Couldn’t undo the project: where its folder’s files were before is unknown.",
+    "Couldn’t undo it: the Folders its Documents were in before aren’t known. File them again by hand.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
   "error.meeting.purgeFailed":
     "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
@@ -8622,7 +8628,7 @@ export const en = {
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.flow.hosted-agents": "Your AI, run in the background",
   "consent.flow.hosted-agents.purpose":
-    "start your own AI on this computer to check a note when you press Check",
+    "start your own AI on this computer when you press Check or ask at the bottom of a note",
   "consent.data.scoped-passages":
     "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":
@@ -8687,6 +8693,8 @@ export const en = {
     "This check can only check its own note, with check_mind_yourself, search, read_passages, cite, run_analysis and report_check.",
   "agents.problem.checkRunPath":
     "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
+  "agents.problem.runNoPath":
+    "This run of the User’s AI has no files of its own, so IncarnaMind opens no file by its path here. Use the Documents and notes shared with this agent.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
@@ -8809,6 +8817,8 @@ export const en = {
   "agents.propose.text": "Give the text for {name}.",
   "agents.propose.textTooLong": "The text for {name} is longer than {max} characters.",
   "agents.propose.version": "Give the version read_mind returned with named.",
+  "agents.propose.outsideSelection":
+    "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
   "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
   "agents.propose.firstWaiting":
     "The first paragraphs are already waiting for review. Let the user review them before proposing more.",
@@ -8902,6 +8912,8 @@ export const en = {
   "agents.pairing.disconnect": "Disconnect",
   "agents.pairing.details": "Details for technical users",
   "agents.pairing.skill": "Skill installed: {agent} knows when to use IncarnaMind",
+  "agents.pairing.repair.line": "Needs repair: IncarnaMind has moved since {agent} was connected",
+  "agents.pairing.repair": "Repair",
   "agents.pairing.skillOld": "Skill out of date: you changed it",
   "agents.pairing.skillOld.replace": "Replace…",
   "agents.pairing.skillOld.ask": "Replacing discards your changes to the Skill file.",
@@ -9043,15 +9055,13 @@ export const en = {
   "agents.connect.reads.all":
     "It may read all your Documents and notes, including those you add later. What it reads goes to the AI model {agent} uses.",
   "agents.connect.reads": "What it reads goes to the AI model {agent} uses.",
-  "agents.connect.reads.projects":
-    "What it reads goes to the AI model {agent} uses. A Project is shared only on its own.",
   "agents.connect.reads.walled":
     "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",
   "agents.share.folders": "Choose Folders",
   // The consent to start the agent for a check in the background (#3606).
   "agents.connect.background":
-    "With no AI model set up here, pressing Check starts your {agent} in the background to check the note. Nothing opens and no chat is added. It reads only what IncarnaMind gives it, and uses your own Claude plan or API key.",
+    "With no AI model set up here, Check and the box at the bottom of a note run your {agent} in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
@@ -9144,6 +9154,64 @@ export const en = {
   "agents.ownCheck.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
   "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
+  // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
+  "noteAsk.placeholder": "Describe a change…",
+  "noteAsk.send": "Send",
+  "noteAsk.stop": "Stop",
+  "noteAsk.working": "{agent} is working…",
+  "noteAsk.doing.read_mind": "Reading “{summary}”",
+  "noteAsk.doing.list_minds": "Looking through your notes",
+  "noteAsk.doing.search": "Searching your Documents for “{summary}”",
+  "noteAsk.doing.read_passages": "Reading your Documents",
+  "noteAsk.doing.cite": "Checking quotes",
+  "noteAsk.doing.propose_changes": "Changing “{summary}”",
+  "noteAsk.doing.create_mind": "Writing “{summary}”",
+  "noteAsk.doing.run_analysis": "Working out figures",
+  "noteAsk.doing.publish_canvas": "Making a page",
+  "noteAsk.stopped": "Stopped.",
+  "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
+  "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
+  "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
+  "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",
+  "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
+  "noteAsk.done.wrote": "Wrote “{title}”.",
+  "noteAsk.done.nothing": "{agent} changed nothing.",
+  "noteAsk.done.held.one": "1 change waits for you in this note.",
+  "noteAsk.done.held.other": "{count} changes wait for you in this note.",
+  "noteAsk.busy": "{agent} is still working on your last request. Stop it to ask something else.",
+  "noteAsk.readOnly": "{agent} may only read. Let it propose changes?",
+  "noteAsk.allow": "Allow",
+  "noteAsk.showConversation": "Show conversation",
+  "noteAsk.hideConversation": "Hide conversation",
+  "noteAsk.conversation": "This note’s conversation with your AI",
+  "noteAsk.conversationEmpty": "Nothing asked yet.",
+  "noteAsk.wholeNote": "Ask about the whole note",
+  "noteAsk.command": "Describe a change to this note…",
+  "noteAsk.action.improve": "Improve the writing",
+  "noteAsk.action.shorten": "Make it shorter",
+  "noteAsk.action.translate": "Translate it into {language}",
+  "noteAsk.action.edit": "Change it",
+  "noteAsk.action.explain": "Explain this",
+  "noteAsk.problem.signed-out":
+    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
+  "noteAsk.problem.too-old":
+    "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then send it again.",
+  "noteAsk.problem.no-answer":
+    "{agent} didn’t answer on this computer, so nothing was sent. Try again.",
+  "noteAsk.problem.plan-limit":
+    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
+  "noteAsk.problem.billing":
+    "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+  "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
+  "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
+  "noteAsk.problem.isolation":
+    "{agent} can’t run here beside a hook or plugin your organization set.",
+  "noteAsk.problem.access": "{agent} can no longer read this note, so it stopped.",
+  "noteAsk.problem.local-mode": "{agent} stopped: “Keep everything on this computer” is on.",
+  "noteAsk.problem.taken-back":
+    "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
+  "noteAsk.problem.failed": "{agent} stopped before it finished. Try again.",
+  "noteAsk.problem.read-only": "{agent} may only read. Let it propose changes?",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":
     "Read my meeting note {title} (mindId: {mindId}) and its transcript (documentId: {transcriptId}) in IncarnaMind. Summarize decisions and action items, with owners and deadlines where stated. Cite each item from the transcript. Keep the draft in chat and pass its full text directly to check_citations. Fix missing citations and any result other than found. Keep only items whose verified quotes support them. Preserve my notes. {action}",
@@ -9196,6 +9264,17 @@ export const en = {
     "Set up IncarnaMind AI or choose Codex or Claude Code for meeting notes.",
   "meetings.summary.agentUnavailable": "Selected AI unavailable",
   "meetings.summary.title": "Quick AI summary",
+  "error.meeting.summaryContentChanged": "The summary changed elsewhere. Your draft is still here.",
+  "error.meeting.summaryContentUnavailable": "This summary is no longer available to edit.",
+  "error.meeting.summaryContentInvalid":
+    "This edit could not be saved. Try a shorter or simpler summary.",
+  "meetings.summary.content.saveFailed": "Couldn’t save your changes. Your draft is still here.",
+  "meetings.summary.content.closeMessage": "Close without saving your meeting summary changes?",
+  "meetings.summary.content.discard": "Discard changes",
+  "meetings.summary.content.keepMine": "Save my version",
+  "meetings.summary.content.useSaved": "Use saved version",
+  "meetings.summary.content.savedVersion": "View saved version",
+  "meetings.summary.content.updatingItems": "Finishing decisions and action items…",
   "meetings.summary.items": "Decisions and action items ({count})",
   "meetings.summary.items.decision": "Decisions",
   "meetings.summary.items.action": "Action items",
@@ -9264,6 +9343,8 @@ export const en = {
   "meetings.summary.share":
     "Your AI needs access to the meeting note and transcript to prepare a summary.",
   "meetings.summary.failed": "Couldn’t prepare a summary.",
+  "meetings.summary.restoreAgent":
+    "Choose {agent} in “AI for meeting notes” and “Automatic meeting summary,” then try again.",
   "meetings.summary.updateFailed": "Couldn’t finish the summary.",
   // The line the User sends in their own AI (#3419): their own words, no ids, no instructions.
   "agents.ask.line.fix": "Fix the sentence IncarnaMind flagged in {title}.",

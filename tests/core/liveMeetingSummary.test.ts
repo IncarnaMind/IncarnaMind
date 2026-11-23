@@ -316,6 +316,95 @@ test("restoring access while a stopped meeting's cancelled request settles waits
   }
 });
 
+test.each([
+  { change: "switch", hasNewSpeech: false },
+  { change: "switch", hasNewSpeech: true },
+  { change: "revoke and restore", hasNewSpeech: true },
+])(
+  "while Stop saves the Transcript ($change, new speech: $hasNewSpeech)",
+  async ({ change, hasNewSpeech }) => {
+    const finished = Promise.withResolvers<void>();
+    const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) =>
+      prompt.includes(friday)
+        ? launchReply("Launch on Friday.", friday, 1)
+        : launchReply("Launch on Monday.", monday, null),
+    );
+    const { core, pairing, adapters, meeting, push, summary } = await startLiveAgentMeeting(
+      run,
+      true,
+      hasNewSpeech ? [monday, friday] : [monday],
+      "claude-code",
+    );
+    const finish = adapters.transcriber.finish.bind(adapters.transcriber);
+    vi.spyOn(adapters.transcriber, "finish").mockImplementation(async (stream) => {
+      await finished.promise;
+      await finish(stream);
+    });
+    try {
+      const { pairing: codex } = await core.connectAgent({
+        client: "codex",
+        name: "Other AI",
+        folderIds: pairing.folderIds,
+      });
+      push(2500);
+      await vi.waitFor(async () => expect((await summary())?.text).toBe("Launch on Monday."));
+      const warm = await summary();
+      if (hasNewSpeech) {
+        push(2000);
+        await until(core, meeting.id, (state) => state.lines === 2);
+      }
+      const atStop = await core.stopMeeting(meeting.id);
+      expect(atStop.transcript?.state).toBe("finishing");
+      expect(atStop.summary).toEqual(warm);
+      if (change === "switch") {
+        await core.updateSettings({ user: { language: "zh-CN" } });
+        await core.updateSettings({ device: { meetingNotesAgentId: codex.id } });
+        await core.updateSettings({ device: { meetingSummaryRoute: codex.id } });
+      } else {
+        await core.updateAgent(pairing.id, { folderIds: [] });
+        await vi.waitFor(async () => {
+          const available = await core.listAgentsToAsk(meeting.mindId);
+          expect(available.some((agent) => agent.id === pairing.id)).toBe(false);
+        });
+        await core.updateAgent(pairing.id, { folderIds: pairing.folderIds });
+      }
+      finished.resolve();
+      await until(core, meeting.id, (state) => state.state === "saved");
+      await new Promise<void>((done) => setImmediate(done));
+
+      const final = await vi.waitFor(async () => {
+        const value = await summary();
+        expect(value).toMatchObject({ ...warm, state: hasNewSpeech ? "failed" : "ready" });
+        return value;
+      });
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run.mock.calls[0]?.[0].client).toBe("claude-code");
+      if (hasNewSpeech) {
+        expect(final?.retryAgentId).toBe(pairing.id);
+        if (change === "switch") {
+          await expect(core.retryMeetingSummary(meeting.id)).rejects.toThrow();
+          await core.updateSettings({
+            device: { meetingNotesAgentId: pairing.id, meetingSummaryRoute: pairing.id },
+          });
+        }
+        expect((await summary())?.state).toBe("failed");
+        expect(run).toHaveBeenCalledTimes(1);
+        await core.retryMeetingSummary(meeting.id);
+        await vi.waitFor(async () =>
+          expect(await summary()).toMatchObject({ state: "ready", text: "Launch on Friday." }),
+        );
+        expect(run).toHaveBeenCalledTimes(2);
+        expect(run.mock.lastCall?.[0].client).toBe("claude-code");
+      } else {
+        expect(final?.retryAgentId).toBeUndefined();
+      }
+    } finally {
+      finished.resolve();
+      core.close();
+    }
+  },
+);
+
 test("sharing a stopped meeting after a refusal lets its owner choose when to retry", async () => {
   const run = vi.fn(async () => launchReply("Launch on Monday.", monday, null));
   const { core, pairing, meeting, push, summary } = await setup(run);

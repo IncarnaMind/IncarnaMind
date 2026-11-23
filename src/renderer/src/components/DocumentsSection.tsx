@@ -15,7 +15,7 @@ import { currentTabOf } from "../layoutSlice";
 import { fileStatusLabel, formatCount } from "../linkedFolders";
 import { isListedDocument } from "../meetingTranscript";
 import { useOrganizeReview } from "../organizeReview";
-import { useLibraryDocuments, useLibraryShown } from "../ownDocuments";
+import { useExampleDocuments, useLibraryDocuments, useLibraryShown } from "../ownDocuments";
 import { usePeekKey } from "../peek";
 import { scanningStatus } from "../scanStatus";
 import {
@@ -37,7 +37,6 @@ import { DocumentTagMenu } from "./DocumentTags";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
 import { Contents, LibraryFolders } from "./LibraryFolders";
-import { LinkedFolderRows } from "./LinkedFolderRows";
 import { LinkFolderDialog } from "./LinkFolderDialog";
 import { DocumentLineIcon, MoreLineIcon } from "./lineIcons";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
@@ -77,8 +76,8 @@ const NO_MINDS: readonly Mind[] = [];
 /**
  * The sidebar's tree, the same on every screen: Home, Search and the Library, then
  * the sections, each shown once it has something in it: the Folders, each
- * with its Minds and Documents, and Not in a Folder (see `LibraryFolders`),
- * the Linked folders (see `LinkedFolderRows`), and the Tags in
+ * with its Minds and Documents, a Linked folder's among them (#3613), and Not in a Folder (see
+ * `LibraryFolders`), and the Tags in
  * use (see `SidebarTags`). On a first open it waits, with the rest of the shell, until the User
  * has a Document or a Note of their own, and then it is there (#2376); until then it holds the
  * Examples: the example Note, then its Documents. Each Document is one
@@ -117,28 +116,14 @@ export function DocumentsSection() {
   const exampleMind = useAppStore((state) =>
     exampleMindId === null ? null : (state.minds.find((each) => each.id === exampleMindId) ?? null),
   );
-  const exampleFolders = useAppStore((state) =>
-    allExamples(state)
-      .flatMap((each) => (each.linkedFolderId ? [each.linkedFolderId] : []))
-      .join(" "),
-  );
   const foldExamples = hasOwnDocuments && exampleMindId !== null;
   const exampleDocuments = useExampleFoldDocuments();
+  // Its Note deleted, the examples' Documents stay under Examples until the User removes them:
+  // their own folder is never a Folder (#3613).
+  const leftExamples = useExampleDocuments();
+  const examplesWithoutNote = hasOwnDocuments && exampleMindId === null && leftExamples.length > 0;
   const exampleMinds = useMemo(() => (exampleMind ? [exampleMind] : NO_MINDS), [exampleMind]);
-  const folded = useMemo(
-    () => (foldExamples ? new Set(exampleFolders.split(" ").filter(Boolean)) : new Set<string>()),
-    [foldExamples, exampleFolders],
-  );
   const libraryOpen = useAppStore((state) => currentTabOf(state.layout)?.item.kind === "library");
-  // The example's own folder is no Linked folder of the User's while its Mind is there to reach its
-  // Documents (#1942); once the fold's Mind is deleted, its row opens the Source locations view on
-  // that folder, the examples' Documents included (#1944).
-  const hasLinkedFolders = useAppStore((state) => {
-    const shown = state.linkedFolders.filter((each) => !folded.has(each.id));
-    const exampleIds = new Set(exampleFolders.split(" ").filter(Boolean));
-    const onlyExamples = shown.length > 0 && shown.every((each) => exampleIds.has(each.id));
-    return shown.length > 0 && !(onlyExamples && exampleMindId !== null);
-  });
   const addDocuments = useAppStore((state) => state.addDocuments);
   const noCanvases = useCanvases((state) => state.canvases.length === 0);
   const treeIsEmpty =
@@ -288,14 +273,24 @@ export function DocumentsSection() {
             {t("library.none")}
           </p>
         )}
-        {/* Linking a folder is using Linked folders, so its section shows at once, empty or still
-            being read, where the rest of the Library waits for the first Document (#763). */}
-        {hasLinkedFolders && (
-          <SidebarSection testId="linked-folders-section" title={t("library.sources")}>
-            <LinkedFolderRows hideExamples={exampleMindId !== null} />
+        {!quiet && <SidebarTags />}
+        {examplesWithoutNote && (
+          <SidebarSection
+            testId="example-section"
+            title={t("sidebar.examples")}
+            headingTestId="example-title"
+            actions={<ExamplesMenu />}
+          >
+            <Contents
+              listKey="examples"
+              scope="sidebar"
+              depth={0}
+              minds={NO_MINDS}
+              documents={leftExamples}
+              renderDocument={renderDocument}
+            />
           </SidebarSection>
         )}
-        {!quiet && <SidebarTags />}
         {foldExamples && exampleMind && (
           <SidebarSection
             testId="example-section"

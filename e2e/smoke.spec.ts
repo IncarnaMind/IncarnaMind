@@ -359,7 +359,7 @@ test("an API key typed for one chat provider is cleared when another is chosen, 
   await app.close();
 });
 
-test("a Linked folder is one row in its section, which doesn't unfold: its files sit in Not in a Folder with those added on their own, and the row opens the Library", async () => {
+test("a Linked folder is a Folder in the one list of Folders: its files, from every depth, are in it, apart from those added on their own (#3613)", async () => {
   const sources = await createDataFolder();
   try {
     const library = join(await realpath(sources), "Library");
@@ -371,34 +371,30 @@ test("a Linked folder is one row in its section, which doesn't unfold: its files
 
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
-    const section = window.getByTestId("linked-folders-section");
     const notInAFolder = window.getByTestId("not-in-a-folder").getByTestId("document-list-item");
 
-    // A file added on its own, with no Linked folder yet: its row in Not in a Folder, and no
-    // Linked folders section.
+    // A file added on its own, with no Linked folder yet: its row in the Documents, and no Folder.
     await addDocuments(window, [loose]);
     const looseItem = notInAFolder.filter({ hasText: "Loose notes" });
     await expect(looseItem).toHaveAttribute("data-depth", "0");
-    await expect(section).toHaveCount(0);
+    await expect(window.getByTestId("folders-section")).toHaveCount(0);
 
-    // "Link a folder…" links a folder once the User confirms in the link dialog. Its one row comes,
-    // with nothing to unfold and none of its files under it.
+    // "Link a folder…" links a folder once the User confirms in the link dialog. Its Folder comes,
+    // with the mark, open with its files, flat, from its top and from its folders.
     await linkFolderFromSidebar(app, window, library);
     await showSourceLocations(window);
     const root = linkedFolderRow(window, "Library");
-    await expect(section.getByTestId("folder-item")).toHaveCount(1);
-    await expect(root.getByTestId("linked-folder-open")).not.toHaveAttribute("aria-expanded");
-    await expect(section.getByTestId("document-list-item")).toHaveCount(0);
-    // Its files, from its top and from its folders, sit in Not in a Folder beside the loose one.
-    await expect(notInAFolder.filter({ hasText: "Paper" })).toHaveAttribute("data-depth", "0");
-    await expect(notInAFolder.filter({ hasText: "Plan" })).toHaveAttribute("data-depth", "0");
+    await expect(root.getByTestId("folder-bound")).toBeVisible();
+    const folder = window.getByTestId("library-folder").filter({ has: root });
+    await expect(
+      folder.getByTestId("document-list-item").filter({ hasText: "Paper" }),
+    ).toHaveAttribute("data-depth", "1");
+    await expect(
+      folder.getByTestId("document-list-item").filter({ hasText: "Plan" }),
+    ).toHaveAttribute("data-depth", "1");
+    // The file added on its own stays in Not in a Folder.
     await expect(looseItem).toBeVisible();
-
-    // The row opens the Library, and stays as it was.
-    await root.getByTestId("linked-folder-open").click();
-    await expect(window.getByTestId("library")).toBeVisible();
-    await expect(section.getByTestId("folder-item")).toHaveCount(1);
-    await expect(section.getByTestId("document-list-item")).toHaveCount(0);
+    await expect(notInAFolder).toHaveCount(1);
     await app.close();
   } finally {
     await removeDataFolder(sources);

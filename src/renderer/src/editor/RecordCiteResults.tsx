@@ -3,8 +3,9 @@ import type { RecordCiteResult } from "../../../core/api";
 import { citedSpeakers } from "../../../shared/citations";
 import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
 import { SearchPicker } from "../components/SearchPicker";
+import { reasonText } from "../cost";
 import { errorMessage } from "../errors";
-import { useT } from "../i18n";
+import { useLanguage, useT } from "../i18n";
 import { openCited } from "../openCited";
 import { useAppStore } from "../store";
 import { useCitedOrigin } from "./mindContext";
@@ -31,6 +32,7 @@ export function RecordCiteResults({
 }) {
   const origin = useCitedOrigin();
   const t = useT();
+  const language = useLanguage();
   const documents = useAppStore((store) => store.documents);
   const [picker, setPicker] = useState<{
     cite: RecordCiteResult;
@@ -183,7 +185,7 @@ export function RecordCiteResults({
               )}
               {cite.outcome === "not-checked" && (
                 <p data-testid="record-cite-not-checked" className="record-cite-detail">
-                  {t(`claim.reason.${cite.reason ?? "failed"}`, { detail: cite.detail ?? "" })}
+                  {reasonText(t, language, cite.reason ?? "failed", cite.detail ?? null)}
                 </p>
               )}
               {cite.passage && (

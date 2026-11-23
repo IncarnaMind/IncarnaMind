@@ -84,26 +84,26 @@ export function createLiveSummaries(options: Options) {
     return options.selected(m) === route && !!m.transcript?.documentId && options.allowed(m, route);
   }
 
+  function finish(meetingId: string, value: StoredMeetingSummary) {
+    options.save(meetingId, { ...value, summary: { ...value.summary, state: "ready" } });
+    armed.delete(meetingId);
+  }
+
   function step(m: Meeting, batchReady = false) {
     if (m.kind !== "meeting" || m.status === "ready" || m.summary?.state === "ready") return;
-    if (!live(m) && !armed.has(m.id) && (!m.summary || m.summary.state === "failed")) return;
+    const recording = live(m);
+    const final = !recording && m.transcript?.state === "saved";
+    const waitingForRetry = !recording && !armed.has(m.id) && m.summary?.state === "failed";
+    if (!recording && !armed.has(m.id) && (!m.summary || (waitingForRetry && !final))) return;
     const selected = options.selected(m);
-    if (live(m) && selected) {
+    if (recording && selected) {
       armed.set(m.id, selected);
       if (!m.summary) {
         options.save(m.id, starting(selected));
         return;
       }
     }
-    if (!selected) {
-      if (m.summary && m.summary.state !== "failed") {
-        const stored = options.saved(m.id);
-        if (stored) fail(m.id, stored);
-      }
-      return;
-    }
     if ((!armed.has(m.id) && !m.summary) || active.has(m.id)) return;
-    const final = !live(m) && m.transcript?.state === "saved";
     // Partial text events can arrive for every token. Only confirmed lines advance the summary.
     const change = JSON.stringify([
       selected,
@@ -115,7 +115,26 @@ export function createLiveSummaries(options: Options) {
     if (observed.get(m.id) === change) return;
     observed.set(m.id, change);
     const stored = options.saved(m.id);
-    if (!live(m) && stored && m.transcript?.state === "empty") {
+    // The existing summary can finish locally once the saved Transcript proves it is complete.
+    if (
+      final &&
+      stored?.count &&
+      stored.documentId &&
+      stored.documentId === m.transcript?.documentId &&
+      (waitingForRetry || stored.route !== selected)
+    ) {
+      const cues = options.cues(m.id);
+      if (cues.length === stored.count && fingerprint(cues) === stored.digest) {
+        finish(m.id, stored);
+        return;
+      }
+    }
+    if (waitingForRetry) return;
+    if (!selected) {
+      if (stored && m.summary && m.summary.state !== "failed") fail(m.id, stored);
+      return;
+    }
+    if (!recording && stored && m.transcript?.state === "empty") {
       armed.delete(m.id);
       options.save(m.id, {
         ...starting(stored.route),
@@ -123,16 +142,16 @@ export function createLiveSummaries(options: Options) {
       });
       return;
     }
-    if (!m.transcript?.documentId && (live(m) || m.transcript?.state === "finishing")) return;
+    if (!m.transcript?.documentId && (recording || m.transcript?.state === "finishing")) return;
     if (
       m.transcript?.state === "failed" ||
-      (!live(m) && (stored?.route ?? armed.get(m.id)) !== selected) ||
+      (!recording && (stored?.route ?? armed.get(m.id)) !== selected) ||
       !eligible(m, selected)
     ) {
       if (stored) fail(m.id, stored);
       return;
     }
-    if (!live(m) && !final) return;
+    if (!recording && !final) return;
     const documentId = m.transcript?.documentId;
     const prior =
       stored?.route === selected && (!stored.documentId || stored.documentId === documentId)
@@ -148,7 +167,7 @@ export function createLiveSummaries(options: Options) {
     if (lastFailure !== undefined && !final && endMs - lastFailure < INTERVAL_MS) return;
     if (prior?.count && !final && endMs - prior.summary.throughMs < INTERVAL_MS) return;
     // Speech services can confirm several turns in one burst, delivered to the core one at a time.
-    if (live(m) && !batchReady) {
+    if (recording && !batchReady) {
       if (!liveBatches.has(m.id)) {
         liveBatches.set(
           m.id,
@@ -169,10 +188,7 @@ export function createLiveSummaries(options: Options) {
       fingerprint(cues.slice(0, prior.count)) === prior.digest;
     const from = samePrefix && prior ? prior.count : 0;
     if (from === cues.length && prior) {
-      if (final) {
-        options.save(m.id, { ...prior, summary: { ...prior.summary, state: "ready" } });
-        armed.delete(m.id);
-      }
+      if (final) finish(m.id, prior);
       return;
     }
     let to = from;
@@ -212,7 +228,8 @@ export function createLiveSummaries(options: Options) {
     const input = {
       previous: samePrefix && prior ? prior.summary.text : null,
       ...(items && { items }),
-      closing: !live(m) && to === cues.length && !!items?.some((item) => item.status === "active"),
+      closing:
+        !recording && to === cues.length && !!items?.some((item) => item.status === "active"),
       utterances: slice.map(({ text, speaker }) => ({ text, speaker })),
     };
     void Promise.resolve()

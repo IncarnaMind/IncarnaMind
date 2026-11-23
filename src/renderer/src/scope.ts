@@ -92,6 +92,7 @@ export interface ScopeChoice {
   name: string;
   /** A Folder's parent Folders' names, outermost first: where it is. Empty otherwise. */
   path: string[];
+  /** A folder on disk, shown with the link mark. */
   sourceLocation?: boolean;
   /** The Folder wall this item belongs to, if any. */
   walled?: string | null;
@@ -210,6 +211,9 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
   const walls = documentWalls(library);
   const names = new Map(library.folders.map((folder) => [folder.id, folder.name]));
   const parents = new Map(library.folders.map((folder) => [folder.id, folder.parentId]));
+  const bound = new Set(
+    groups.flatMap((group) => (group.boundFolderId ? [group.boundFolderId] : [])),
+  );
   const pathOf = (folder: Folder) => {
     const path: string[] = [];
     const seen = new Set<string>([folder.id]);
@@ -233,17 +237,20 @@ function everything(library: ScopeLibrary): ScopeChoice[] {
         walled: folderWallOf(groups, folder.id),
       }),
     ),
-    ...flattenFolderTree(buildFolderTree(library.folders)).map(
-      ({ folder }): ScopeChoice => ({
-        kind: "folder",
-        id: folder.id,
-        name: folder.name,
-        path: pathOf(folder),
-        sourceLocation: groups.length > 0,
-        documentKind: null,
-        count: counts.get(folder.id) ?? 0,
-      }),
-    ),
+    // A folder on disk a Folder is bound to is offered once, as that Folder (#3613).
+    ...flattenFolderTree(buildFolderTree(library.folders))
+      .filter(({ folder }) => !bound.has(folder.id))
+      .map(
+        ({ folder }): ScopeChoice => ({
+          kind: "folder",
+          id: folder.id,
+          name: folder.name,
+          path: pathOf(folder),
+          sourceLocation: true,
+          documentKind: null,
+          count: counts.get(folder.id) ?? 0,
+        }),
+      ),
     ...library.tags.map(
       (tag): ScopeChoice => ({
         kind: "tag",

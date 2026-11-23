@@ -51,7 +51,7 @@ export const SERVER_INSTRUCTIONS = [
   "For a handoff (“About my note … in IncarnaMind”, “Check my note …”, open Document, meeting, flagged sentence or search scope), `read_request` first. It holds the rest. Pass a named Note’s title.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
-  "To hand the User a new document, `create_mind` writes it as a Note of its own; a page to look at, `publish_canvas`; a deck, workbook, Word file or PDF you make them, `hand_over_file`, unasked.",
+  "To write, draft or summarize in IncarnaMind (report, meeting summary, draft), use `create_mind`, not chat only; answer questions in chat. Page: `publish_canvas`; file you made: `hand_over_file`, unasked.",
   "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
   "A figure no Passage states: `run_analysis` for rows or lists (report its id), else your own working.",
   "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general.",
@@ -200,7 +200,7 @@ export function createAgentServer(
     {
       title: "Search Documents",
       description:
-        "Search the User's Documents. Returns the best Passages, each with its Location and a ready Citation (`cite`) of its best sentence (`quote`). Use the words a Document would use; ask for page 2 for more.",
+        "Search the User's Documents. Returns the best Passages, each with its Location and a ready Citation (`cite`) of its best sentence (`quote`), for that sentence only: a claim on other words needs `cite` of those words. Use the words a Document would use; ask for page 2 for more.",
       inputSchema: z.object({
         query: z.string().describe("Words to look for."),
         folderIds,
@@ -286,7 +286,7 @@ export function createAgentServer(
     {
       title: "Check Citations",
       description:
-        "Check the [cite:…] tokens in your draft against their Documents and list uncited sentences.",
+        "Check [cite:…] tokens in a chat draft and list uncited sentences. For a Note, call create_mind.",
       inputSchema: z.object({ text: z.string().describe("Your draft, with its Citations.") }),
       outputSchema: z.object({
         citations: z.array(
@@ -510,6 +510,7 @@ export function createAgentServer(
         uncited: z.array(z.string()),
         refused: leftOut,
         next: z.string().nullable(),
+        why: z.string().optional().describe("Why it waits for the User."),
       }),
       // In a Note the agent wrote it changes the Note, one step the User's Undo takes back; in any
       // other it writes only Proposals, which change the Note once the User accepts them.
@@ -528,7 +529,7 @@ export function createAgentServer(
     {
       title: "Write a new Note",
       description:
-        'Write a new Note (a report, a summary, a draft), marked as yours. Lay it out in Markdown for its reader, who reads compared figures faster in a table than in sentences, and a change over periods or a figure against its limit faster in a chart: a heading for each part; compared figures in a table, its first column their labels and each other cell one figure with its [cite:…] token; where that table holds a change over periods or a figure against its limit, draw it with a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), with "leaveOut": ["Total"] for rows not to draw. Keep a short answer short. Cite each claim from the User\'s Documents with its token, exactly as given. A picture: ![alt](its full path, or a data: URL) on its own line. Tabs only if asked: a ```tab block of its title opens each. Returns each Citation\'s check and uncited sentences. Refused unless the User let this agent write.',
+        'Write a new Note (report, meeting summary, draft), marked as yours; use when asked to write or summarize in IncarnaMind, not chat only. Format in Markdown: headings; compared figures in a table (labels in column 1, one figure + [cite:…] per cell); for a change over periods or figure against a limit, add a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), with "leaveOut": ["Total"] to skip rows. Keep a short answer short. Cite each claim with its exact token. Picture: ![alt](full path or data: URL) on its own line. Tabs only if asked: ```tab block of its title. Returns Citation checks and uncited sentences. Refused unless allowed to write.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
