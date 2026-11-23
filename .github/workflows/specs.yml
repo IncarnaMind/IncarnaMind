@@ -40,32 +40,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  specs:
-    name: Specs on ${{ inputs.os }}
-    runs-on: ${{ fromJSON('{"linux":"ubuntu-latest","macos":"macos-latest","windows":"windows-latest"}')[inputs.os] }}
-    timeout-minutes: 45
-    # The inputs reach the steps only as environment variables, never inside a script's text.
+  paired:
+    name: alpha.7 and candidate 3 on one Mac
+    runs-on: macos-latest
+    timeout-minutes: 65
     env:
-      SPECS: ${{ inputs.specs }}
-      REPEAT: ${{ inputs.repeat }}
-      GREP: ${{ inputs.grep }}
-      PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
       INCARNAMIND_KEEP_ARTIFACTS: "1"
+      PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/report.json
     steps:
       - uses: actions/checkout@v7
-      # The same check the helper makes before it dispatches: the specs must exist under e2e/, and
-      # nothing else is let near a shell.
-      - name: Check the inputs
-        shell: bash
-        run: node scripts/run-specs.mjs --check
+        with:
+          ref: 1826d663251c5f4c05003a33ed36d93f4535b838
+          path: alpha7
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 150dcfde55e984a149ba59e781074a06dba99f0a
+          path: candidate3
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
-          node-version-file: .nvmrc
+          node-version-file: alpha7/.nvmrc
           cache: npm
+          cache-dependency-path: |
+            alpha7/package-lock.json
+            candidate3/package-lock.json
+      - name: Verify both checked-out versions
+        shell: bash
+        run: |
+          mkdir compact measurements
+          test "$(git -C alpha7 rev-parse HEAD)" = 1826d663251c5f4c05003a33ed36d93f4535b838
+          test "$(git -C candidate3 rev-parse HEAD)" = 150dcfde55e984a149ba59e781074a06dba99f0a
+          for file in .nvmrc playwright.config.ts e2e/feel.ts e2e/feelMinds.spec.ts; do
+            cmp "alpha7/$file" "candidate3/$file"
+          done
+          { git -C alpha7 rev-parse HEAD; git -C candidate3 rev-parse HEAD; sw_vers; uname -m; node --version; } > compact/machine.txt
       - run: npm ci
+        working-directory: alpha7
       # Downloads from GitHub's releases fail now and then (a 500), so a failed download is tried
       # again here rather than failing every spec.
       - name: Make sure Electron is installed
+        working-directory: alpha7
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -76,6 +91,7 @@ jobs:
       # Playwright records the app's video with its own ffmpeg, which the Electron install doesn't
       # bring: without it the app's first window never opens.
       - name: Install the recorder's ffmpeg
+        working-directory: alpha7
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -83,57 +99,75 @@ jobs:
             sleep 20
           done
           exit 1
-      # As in ci.yml: Chromium's sandbox starts on the runner only with its helper root's and setuid.
-      - name: Let Electron's sandbox start
-        if: runner.os == 'Linux'
-        run: |
-          sudo chown root:root node_modules/electron/dist/chrome-sandbox
-          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-      - name: Install the Noto CJK fonts
-        if: runner.os == 'Linux'
-        uses: ./.github/actions/apt-install
-        with:
-          packages: fonts-noto-cjk
-      - name: Install ffmpeg for the feel check's videos
-        if: runner.os == 'Linux'
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: ./.github/actions/apt-install
-        with:
-          packages: ffmpeg
-      # On Linux the app needs a display: two virtual ones, one for each of the two workers, as in
-      # ci.yml. The word split of $SPECS is safe: the check above allowed only e2e paths.
-      - name: Run the specs
+      - run: npm ci
+        working-directory: candidate3
+      # Downloads from GitHub's releases fail now and then (a 500), so a failed download is tried
+      # again here rather than failing every spec.
+      - name: Make sure Electron is installed
+        working-directory: candidate3
         shell: bash
         run: |
-          args=(--repeat-each "$REPEAT" --add-reporter json)
-          if [ -n "$GREP" ]; then args+=("--grep=$GREP"); fi
-          if [ "$RUNNER_OS" = Linux ]; then
-            trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
-            for number in 98 99; do
-              Xvfb ":$number" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
-              for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
-              test -S "/tmp/.X11-unix/X$number"
+          for attempt in 1 2 3; do
+            node node_modules/electron/install.js && exit 0
+            sleep 20
+          done
+          exit 1
+      # Playwright records the app's video with its own ffmpeg, which the Electron install doesn't
+      # bring: without it the app's first window never opens.
+      - name: Install the recorder's ffmpeg
+        working-directory: candidate3
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install ffmpeg && exit 0
+            sleep 20
+          done
+          exit 1
+      - name: Run eight counterbalanced pairs without a test retry
+        shell: bash
+        run: |
+          set -eu
+          for pair in {1..8}; do
+            if (( pair % 2 == 1 )); then arms=(alpha7 candidate3); else arms=(candidate3 alpha7); fi
+            for arm in "${arms[@]}"; do
+              sample="$pair-$arm"
+              out="$GITHUB_WORKSPACE/measurements/$sample"
+              small="$GITHUB_WORKSPACE/compact/$sample"
+              mkdir "$out" "$small"
+              echo "$sample" | tee -a compact/order.txt
+              status=0
+              (cd "$arm" && npm run test:smoke -- e2e/feelMinds.spec.ts:35 '--grep=first open, a Question' --repeat-each 1 --retries=0 --add-reporter json) > "$out/runner.log" 2>&1 || status=$?
+              echo "$status" > "$small/exit-code"
+              if [[ -d "$arm/test-results" ]]; then
+                mv "$arm/test-results" "$out/results"
+                for file in report.json feel/first-open.json; do
+                  if [[ -f "$out/results/$file" ]]; then cp "$out/results/$file" "$small/"; fi
+                done
+              fi
+              echo "$sample exit=$status"
             done
-            export DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99
-            args+=(--workers=2)
-          fi
-          npm run test:smoke -- $SPECS "${args[@]}"
-      # Every test's trace, video and window picture, passed or failed (e2e/app.ts).
-      - name: Upload the results
+          done
+      - name: Upload per-launch measurements and reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: specs-${{ inputs.os }}-${{ github.run_id }}
-          path: test-results/
-          retention-days: 7
-          if-no-files-found: ignore
-      # What the helper reads to say which specs passed, without downloading the videos.
-      - name: Upload the report
+          name: paired-measurements
+          path: compact
+          retention-days: 14
+      - name: Upload original traces and logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: specs-report-${{ inputs.os }}-${{ github.run_id }}
-          path: test-results/report.json
-          retention-days: 7
-          if-no-files-found: ignore
+          name: paired-traces
+          path: measurements
+          retention-days: 14
+      - name: Preserve original test verdicts
+        shell: bash
+        run: |
+          set -eu
+          for pair in {1..8}; do
+            for arm in alpha7 candidate3; do
+              dir="compact/$pair-$arm"
+              test -s "$dir/report.json" && test -s "$dir/first-open.json" && test "$(cat "$dir/exit-code")" = 0 || exit 1
+            done
+          done
