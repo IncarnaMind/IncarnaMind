@@ -24,6 +24,10 @@ on:
         description: Only the tests whose title matches this regular expression (optional)
         required: false
         type: string
+      profile_library_scroll:
+        description: Collect a CPU profile during the 2,000-Document Library's downward scroll
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -105,6 +109,8 @@ jobs:
       # ci.yml. The word split of $SPECS is safe: the check above allowed only e2e paths.
       - name: Run the specs
         shell: bash
+        env:
+          INCARNAMIND_PROFILE_LIBRARY_SCROLL: ${{ inputs.profile_library_scroll && '1' || '0' }}
         run: |
           args=(--repeat-each "$REPEAT" --add-reporter json)
           if [ -n "$GREP" ]; then args+=("--grep=$GREP"); fi
