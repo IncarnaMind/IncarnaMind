@@ -17,6 +17,7 @@ import type {
   AgentPairing,
   CitationAttributes,
   ClaimCalculation,
+  ClaimChange,
   ClaimCheckPart,
   ClaimPartSpan,
 } from "../../../core/api";
@@ -70,13 +71,7 @@ import { MetaLine } from "../components/MetaLine";
 import { useObjectMenu } from "../components/ObjectMenu";
 import { LineAction } from "../components/ProblemLine";
 import { askInAssistant } from "../conversations";
-import {
-  acceptChange,
-  applyCorrection,
-  changeToAccept,
-  correctionsFor,
-  type PartCorrection,
-} from "../correctionFixes";
+import { applyCorrection, correctionsFor, type PartCorrection } from "../correctionFixes";
 import { reasonText, sentenceReasonText } from "../cost";
 import { useEdits } from "../editWithAi";
 import { openFigureSchedule } from "../figures";
@@ -91,6 +86,7 @@ import { useNotices } from "../notices";
 import { citationStepOpen } from "../nudges";
 import { openCited } from "../openCited";
 import { ownAiOnlyNow } from "../ownAiPanel";
+import { acceptChange, changeToMake } from "../ownChange";
 import { useQuotedWordsOnPage } from "../quotedWordsOnPage";
 import { useScopeName } from "../scopeDocuments";
 import { useAppStore } from "../store";
@@ -234,10 +230,14 @@ const NONE_OPEN: ReadonlySet<string> = new Set();
 const coversSentence = (text: string, span: { start: number; end: number }) =>
   !/[\p{L}\p{N}]/u.test(text.slice(0, span.start) + text.slice(span.end));
 
-/** ⌘↩ presses a card's Accept change, as it presses a change's Accept in the Note. */
-function pressAccept(card: HTMLElement | null): void {
+/**
+ * The card's Accept change that ⌘↩ presses, as it presses a change's Accept in the Note; null when
+ * the key isn't ⌘↩ or the card has none, which leaves the key to whatever else takes it.
+ */
+function acceptKeyed(event: KeyboardEvent, card: HTMLElement | null): HTMLButtonElement | null {
+  if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey) || event.isComposing) return null;
   const accept = card?.querySelector<HTMLButtonElement>('[data-testid="claim-accept-change"]');
-  if (accept && !accept.disabled) accept.click();
+  return accept && !accept.disabled ? accept : null;
 }
 
 /**
@@ -361,6 +361,9 @@ export function ClaimMark({
   // model, the model writes them, as Fix the sentence: pasted in by code they broke 33 of 48 (#3383).
   const corrections =
     running || editing || fixable || fileOnly ? [] : correctionsFor(editor, claim);
+  // The one test ⌘K and Accept ask too, so Accept is offered only where it works (#3715).
+  const placed = changeToMake(editor, mindId, claim);
+  const ownChange = placed.ok ? placed.change : null;
   const label = ownNoteOnly ? t("claim.ownNote") : t("claim.mark.label", { state: heading });
   const agents = useAgentsToAsk(mindId);
   const requests = useAgentRequests(mindId);
@@ -536,9 +539,10 @@ export function ClaimMark({
         // Space and Enter go into the card the focus shows; they don't pin it (#3102).
         onKeyDown={(event) => {
           if (claim.kind === "chart" || event.nativeEvent.isComposing) return;
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          const accept = acceptKeyed(event.nativeEvent, card.current);
+          if (accept) {
             event.preventDefault();
-            if (!event.repeat) pressAccept(card.current);
+            if (!event.repeat) accept.click();
             return;
           }
           if (!isSpaceKey(event) && !(event.key === "Enter" && !event.shiftKey)) return;
@@ -616,9 +620,10 @@ export function ClaimMark({
               );
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              const accept = acceptKeyed(event.nativeEvent, card.current);
+              if (accept) {
                 event.preventDefault();
-                if (!event.repeat && !event.nativeEvent.isComposing) pressAccept(card.current);
+                if (!event.repeat) accept.click();
                 return;
               }
               if (!enteredFromMark.current) {
@@ -748,6 +753,7 @@ export function ClaimMark({
                 applyCorrection(editor, mindId, doc, claim, span);
                 done(true);
               }}
+              change={ownChange}
               onAccept={() => {
                 acceptChange(editor, mindId, doc, claim, !noModel);
                 done(true);
@@ -947,6 +953,7 @@ export function ClaimCard({
   onCutSentence,
   onKeep,
   onCorrect,
+  change = null,
   onAccept,
   use,
   onUse,
@@ -994,7 +1001,9 @@ export function ClaimCard({
   onCutSentence(): void;
   onKeep(): void;
   onCorrect(span: ClaimPartSpan | null): void;
-  /** Makes the change the User's own AI gave with the check (#3715). */
+  /** The change the User's own AI gave with the check, where it can be made now (#3715). */
+  change?: ClaimChange | null;
+  /** Makes it. */
   onAccept(): void;
   use: boolean;
   onUse(): void;
@@ -1341,20 +1350,8 @@ export function ClaimCard({
   const sentenceShown =
     partsShown && !(rows.length === 1 && onlyRow && coversSentence(check.text, onlyRow.part.span));
   const folded = useQuotesFolded();
-  const ownChange = checking || fileOnly ? null : changeToAccept(editor, claim);
-  const [onlyChoice] =
-    !ownChange && sole?.correction.choices.length === 1 ? sole.correction.choices : [];
-  const shownChange =
-    ownChange ??
-    (sole && onlyChoice ? { replace: sole.correction.from, with: onlyChoice.wording } : null);
-  const changeShown = shownChange ? changeView(claim.sentence.text, shownChange) : null;
-  // A correction the card can't draw as a change keeps its own button.
-  const soleChoice = changeShown && !ownChange ? sole : null;
-  const accept = changeShown
-    ? ownChange
-      ? onAccept
-      : () => onCorrect(soleChoice?.span ?? null)
-    : null;
+  const changeShown = change && !checking ? changeView(claim.sentence.text, change) : null;
+  const accept = changeShown ? onAccept : null;
 
   // One "Checked by me" for every Citation of the sentence the card shows (#2869).
   const signable = [
@@ -1449,14 +1446,13 @@ export function ClaimCard({
         primary: true,
         onClick: onCut,
       },
-      sole &&
-        !soleChoice && {
-          key: "correct",
-          testId: "claim-correct",
-          label: correctionLabel(sole.correction, t),
-          primary: true,
-          onClick: () => onCorrect(sole.span),
-        },
+      sole && {
+        key: "correct",
+        testId: "claim-correct",
+        label: correctionLabel(sole.correction, t),
+        primary: true,
+        onClick: () => onCorrect(sole.span),
+      },
       use &&
         calculation && {
           key: "use",
@@ -1526,7 +1522,7 @@ export function ClaimCard({
       (fixes || notFound || keep) && {
         key: "keep",
         testId: "claim-keep",
-        label: t("claim.keepAsView"),
+        label: t("claim.keepAsWritten"),
         keep: true,
         onClick: onKeep,
       },
@@ -2198,7 +2194,7 @@ export function ClaimCard({
             {figureSources}
             {worked}
             {statedUnits}
-            {sole && !soleChoice && <CorrectionConflict correction={sole.correction} />}
+            {sole && <CorrectionConflict correction={sole.correction} />}
             {ownNoteOnly && (
               <p data-testid="claim-own-note" className="citation-card-note">
                 {t("claim.ownSource")}

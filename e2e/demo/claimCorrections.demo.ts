@@ -149,13 +149,13 @@ test("captures the built card, badge and corrected sentence", async () => {
     await expect(window.getByTestId("claim-card")).toBeVisible();
     await captureCard(window, `${prefix}-card-${language}-${width}`);
     if (!baseline) {
-      await window.getByTestId("claim-accept-change").click();
+      await window.getByTestId("claim-correct").click();
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       await captureCard(window, `${prefix}-applied-${language}-${width}`);
       await window.getByTestId("undo-action").click();
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
     } else {
-      await expect(window.getByTestId("claim-accept-change")).toHaveCount(0);
+      await expect(window.getByTestId("claim-correct")).toHaveCount(0);
       await window.keyboard.press("Escape");
     }
     const badge = await checkCard(window);
@@ -183,7 +183,7 @@ test("records the built correction flow", async () => {
     await hand.click(window.getByTestId("claim-mark"));
     hand.caption(CAPTIONS.card);
     await hand.hold(1300);
-    await hand.click(window.getByTestId("claim-accept-change"));
+    await hand.click(window.getByTestId("claim-correct"));
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
     hand.caption(CAPTIONS.applied);
     await hand.hold(1600);

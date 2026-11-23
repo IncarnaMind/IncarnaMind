@@ -354,6 +354,14 @@ for (const lang of ["en", "zh-CN"] as const) {
       ).toHaveCount(1);
       await window.keyboard.press("ControlOrMeta+z");
       await expect(editor).toContainText(T.owner);
+      // Undo brings back its check: Overstated again, with its change to accept.
+      const back = await openCard(window, T.owner.slice(0, 10));
+      await expect(back).toHaveAttribute("data-check", "unsupported");
+      await expect(back.getByTestId("claim-badge")).toHaveText(L.overstated);
+      await expect(back.getByTestId("claim-change")).toBeVisible();
+      await expect(back.getByTestId("claim-accept-change")).toBeVisible();
+      await window.keyboard.press("Escape");
+      await expect(back).toBeHidden();
 
       // Not found: Ask first, Keep as written second, Search all Documents on its own line.
       const none = await openCard(window, T.none.slice(0, 8));
@@ -394,6 +402,141 @@ test("⌘↩ makes the change, and at 900 × 600 the buttons stay in view", asyn
     await expect(frontMind(window).getByTestId("mind-editor")).toContainText(
       "Kestrel Ferries carried 42,800 passengers in 2025.",
     );
+  } finally {
+    await app.close();
+  }
+});
+
+/**
+ * Claude Code writes a Note whose sentences carry their Citations, as an AI-written Note does, and
+ * checks it: one change rewrites a sentence up to the stop after its Citation, the other would take
+ * a Citation out with the words around it.
+ */
+async function citedAndChecked(launch: AgentLaunch): Promise<string> {
+  const agent = await claudeCode(launch);
+  try {
+    const cite = async (query: string, quote: string) => {
+      const found = (await agent.callTool({ name: "search", arguments: { query } }))
+        .structuredContent as { passages: { passageId: string }[] };
+      const { citations } = (
+        await agent.callTool({
+          name: "cite",
+          arguments: { citations: found.passages.map(({ passageId }) => ({ passageId, quote })) },
+        })
+      ).structuredContent as { citations: { cite: string | null }[] };
+      const token = citations.find((each) => each.cite !== null)?.cite;
+      if (!token) throw new Error(`No Passage holds “${quote}”.`);
+      return token;
+    };
+    const pontoon = await cite(
+      "pontoon one boat at a time",
+      "The pontoon takes one boat at a time until its second arm is built in 2027.",
+    );
+    const carried = await cite("passengers 2025", TEXT.en.q.carried);
+    const made = await agent.callTool({
+      name: "create_mind",
+      arguments: {
+        title: "Kestrel Bay: pontoon",
+        markdown: [
+          `The pontoon takes two boats at a time ${pontoon}.`,
+          `Kestrel Ferries carried 48,200 ${carried} passengers in 2025.`,
+        ].join("\n\n"),
+      },
+    });
+    const { mindId } = made.structuredContent as { mindId: string };
+    const { task, sentences } = (
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
+    ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
+    const [boats, ferries] = sentences;
+    if (!boats || !ferries) throw new Error("The check gave fewer sentences than written.");
+    const from = ferries.text.indexOf("48,200");
+    const reported = await agent.callTool({
+      name: "report_check",
+      arguments: {
+        mindId,
+        task,
+        results: [
+          {
+            n: boats.n,
+            verdict: "contradicted",
+            cites: [pontoon],
+            change: {
+              replace: boats.text,
+              with: "The pontoon takes one boat at a time until 2027.",
+            },
+            explanation: "Mara Quinn said one boat at a time until 2027.",
+          },
+          {
+            n: ferries.n,
+            verdict: "contradicted",
+            cites: [carried],
+            change: { replace: ferries.text.slice(from), with: "42,800 passengers in 2025." },
+            explanation: "The annual report says 42,800 passengers in 2025, not 48,200.",
+          },
+        ],
+      },
+    });
+    expect(reported.isError ?? false).toBe(false);
+    return mindId;
+  } finally {
+    await agent.close();
+  }
+}
+
+// protects=Accept is offered only where the change can be written: up to the stop after a Citation it is written around it, the Citation kept just before the stop; one that would take out a Citation is never offered, the card leads with asking the AI, and ⌘↩ there is left to the page; fails_when=Accept shows where it can't work, the Citation moves or goes, or ⌘↩ is swallowed on a card with no Accept
+test("Accept writes around a sentence's Citation, and isn't offered where the change would take one out", async () => {
+  test.setTimeout(180_000);
+  const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await citedAndChecked(await connected(window, "en"));
+    await openNote(window, mindId);
+    const editor = frontMind(window).getByTestId("mind-editor");
+    const lines = editor.locator(":scope > p");
+
+    // Taking the Citation out with the words around it: no change on the card, and Ask leads.
+    const ferries = await openCard(window, "Kestrel Ferries carried");
+    await expect(ferries.getByTestId("claim-change")).toHaveCount(0);
+    await expect(ferries.getByTestId("claim-accept-change")).toHaveCount(0);
+    const buttons = ferries.locator(".citation-card-actions button");
+    await expect(buttons.first()).toHaveText(TEXT.en.labels.ask);
+    // ⌘↩ on a card with no Accept is the page's, not the card's.
+    await window.evaluate(() => {
+      const seen = globalThis as unknown as { keptKey?: boolean };
+      globalThis.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey))
+          seen.keptKey = !event.defaultPrevented;
+      });
+    });
+    await buttons.nth(1).focus();
+    await window.keyboard.press("ControlOrMeta+Enter");
+    expect(
+      await window.evaluate(() => (globalThis as unknown as { keptKey?: boolean }).keptKey),
+    ).toBe(true);
+    await expect(lines.nth(1)).toContainText("48,200");
+    await window.keyboard.press("Escape");
+    await expect(ferries).toBeHidden();
+
+    // Up to the stop after its Citation: written around it, the Citation kept before the stop.
+    const boats = await openCard(window, "The pontoon takes");
+    await expect(boats.getByTestId("claim-change")).toBeVisible();
+    await pointAndClick(window, boats.getByTestId("claim-accept-change"));
+    await expect(boats).toBeHidden();
+    await expect(lines.nth(0)).toContainText("The pontoon takes one boat at a time until 2027");
+    await expect(lines.nth(0).getByTestId("citation")).toHaveCount(1);
+    const beforeCitation = await lines.nth(0).evaluate((line) => {
+      const chip = line.querySelector('[data-testid="citation"]');
+      const range = document.createRange();
+      range.setStart(line, 0);
+      if (chip) range.setEndBefore(chip);
+      return range.toString().trim();
+    });
+    expect(beforeCitation).toBe("The pontoon takes one boat at a time until 2027");
+    await expect(
+      frontMind(window).locator('[data-testid="claim-mark"][data-check="needs-recheck"]'),
+    ).toHaveCount(1);
   } finally {
     await app.close();
   }

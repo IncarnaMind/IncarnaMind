@@ -7,7 +7,6 @@ import type {
   CitationAttributes,
   CitationCheckReason,
   ClaimCalculation,
-  ClaimChange,
   ClaimCheckAttributes,
   ClaimCheckBasis,
   ClaimCheckFailure,
@@ -380,17 +379,6 @@ export function readClaimCorrection(value: unknown): ClaimCorrection | null {
     choices.push({ wording, evidence });
   }
   return { from, choices };
-}
-
-/** A change the User's own AI gave as a mark stores it, or null when it isn't one. */
-export function readClaimChange(value: unknown): ClaimChange | null {
-  return isRecord(value) &&
-    typeof value.replace === "string" &&
-    value.replace.trim() !== "" &&
-    typeof value.with === "string" &&
-    value.with !== value.replace
-    ? { replace: value.replace, with: value.with }
-    : null;
 }
 
 function boundary(text: string, at: number): boolean {

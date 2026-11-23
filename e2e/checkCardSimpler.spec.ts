@@ -531,6 +531,13 @@ for (const [language, width] of [
       await expect(card.getByTestId(line)).toHaveCount(0);
     await nothingClipped(window, card);
     await screenshot(window, `simpler-fine-${language}-${width}`);
+    // The one "Checked by me" is a row of the card's ⋯ that ticks (#3715), not ticked yet.
+    const sign = (await openCardMenu(window, card)).getByTestId("sign-off-toggle");
+    await expect(sign).toHaveCount(1);
+    await expect(sign).toHaveText(t("signOff.action"));
+    await expect(sign).toHaveAttribute("aria-checked", "false");
+    await window.keyboard.press("Escape");
+    await expect(sign).toBeHidden();
     // The count opens the other quote, and folds it again, keeping the focus.
     await more.focus();
     await window.keyboard.press("Enter");

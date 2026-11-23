@@ -294,8 +294,10 @@ for (const language of ["en", "zh-CN"] as const) {
             return row;
           };
           await pointAndClick(window, await signRow(false));
-          // It signs every quote, and opens the one folded so the User sees what they signed.
+          // It signs every quote, and opens the one folded so the User sees what they signed; the
+          // focus goes back to the ⋯ the row was under.
           await expect(sourceCard.getByTestId("claim-signed")).toBeVisible();
+          await expect(sourceCard.getByTestId("check-menu")).toBeFocused();
           await expect(receipts).toHaveCount(2);
           await screenshot(window, `opinions-part-signoff-${language}-${width}`);
           // A second press takes it back from both.

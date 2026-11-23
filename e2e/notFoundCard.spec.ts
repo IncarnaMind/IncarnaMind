@@ -63,7 +63,7 @@ const LANGUAGES = {
     searchWeb: "Search the web",
     remove: "Remove the mark",
     cutDone: "Cut the sentence",
-    kept: "Kept as your view",
+    kept: "Kept as written",
   },
   "zh-CN": {
     heading: "需要留意：未找到",
@@ -79,7 +79,7 @@ const LANGUAGES = {
     searchWeb: "联网搜索",
     remove: "移除标记",
     cutDone: "已删除这句",
-    kept: "已保留为你的观点",
+    kept: "已保留原句",
   },
 } as const;
 
@@ -254,11 +254,12 @@ for (const language of ["en", "zh-CN"] as const) {
       // Where the row has no room, it wraps to a second row: no label breaks inside its button.
       for (const id of BUTTONS)
         expect(await labelLines(card.getByTestId(id)), `${id} at ${width} px`).toBe(1);
-      // It cites nothing, so there is no Citation to sign and no "Checked by me".
-      await expect(card.getByTestId("sign-off-toggle")).toHaveCount(0);
       // The rest under the one ⋯, in their order, Find sources among them: the Mind cites no paper or book.
       await expect(card.getByTestId(IDS.findSources)).toHaveCount(0);
       const menu = await openCardMenu(window, card);
+      // It cites nothing, so there is no Citation to sign and no "Checked by me" row (#3715).
+      await expect(menu.getByRole("menuitem").first()).toBeVisible();
+      await expect(menu.getByTestId("sign-off-toggle")).toHaveCount(0);
       const listed = await menu
         .locator('[role="menuitem"]:not([data-testid="claim-about-lines"])')
         .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));

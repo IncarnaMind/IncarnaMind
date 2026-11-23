@@ -1445,11 +1445,16 @@ export const zhCN = {
   "claim.currencyClause.noSource": "文档注明了币种：{quote}",
   "claim.openCitation": "打开引用 {number}",
   "claim.cutUnsupported": "删去无依据的部分",
-  "claim.keepAsView": "保留原句",
+  "claim.keepAsView": "保留为我的观点",
   "claim.keptAsView": "已保留为你的观点",
+  "claim.keepAsWritten": "保留原句",
+  "claim.keptAsWritten": "已保留原句",
   "claim.acceptChange.command": "接受核对给出的修改",
   "claim.acceptChange": "接受修改",
   "claim.changeAccepted": "已接受修改",
+  "claim.change.inside":
+    "这处修改会删掉引用或算出的数字，不能在这里直接修改。请让你的 AI 修改这句。",
+  "claim.change.underReview": "这些文字上有一处待你处理的修改，请先接受或拒绝它。",
   "claim.change.title": "建议改为",
   "claim.askToFix": "交给 {agent} 修改",
   "claim.group.otherwise": "说法不同",
@@ -8244,8 +8249,20 @@ export const zhCN = {
     "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户。如果要自己重新核对这些句子，用 again: true 调用 check_mind_yourself，再把结果交给 report_check：只写在回复里的结论不会改变笔记上的标记。",
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
-  "agents.check.changeNotKept":
-    "第 {sentences} 句的修改没有保留：只有夸大、部分有依据或与文档矛盾的句子才给修改，要替换的文字须在句中恰好出现一次。如需给出修改，请为这句重新交回结果。",
+  "agents.check.changeTakesNone":
+    "第 {sentences} 句的修改没有保留：这个结论的句子不需要修改。这句无需再做什么。",
+  "agents.check.changeSame":
+    "第 {sentences} 句的修改没有保留：替换后的文字与原文相同。这句无需再做什么。",
+  "agents.check.changeNotOnce":
+    "第 {sentences} 句的修改没有保留：要替换的文字没有在句中恰好出现一次。如需给出修改，请为这句重新交回同样的结论，replace 照句中原文逐字复制。",
+  "agents.check.changeCitation":
+    "第 {sentences} 句的修改没有保留：其中含有 [cite:…] 标记。修改只写句中的文字，引用留在原处。如需给出修改，请为这句重新交回同样的结论，修改中不带标记。",
+  "agents.check.changeLineBreak":
+    "第 {sentences} 句的修改没有保留：其中有换行。修改只写一句话，在同一行内。如需给出修改，请为这句重新交回同样的结论，修改写在一行内。",
+  "agents.check.changeObject":
+    "第 {sentences} 句的修改没有保留：其中含有句中代表引用或数字的占位字符。如需给出修改，请为这句重新交回同样的结论，只写它前后的文字。",
+  "agents.check.changeTooLong":
+    "第 {sentences} 句的修改没有保留：它比一句话能有的长度更长（{max} 个字符）。如需给出修改，请为这句重新交回同样的结论，只改这一句。",
   "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.note.wrote": "{name} 新建了笔记“{mind}”",
   "agents.note.changed.one": "{name} 修改了“{mind}”中的 1 个段落",

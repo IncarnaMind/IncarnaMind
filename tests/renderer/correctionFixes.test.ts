@@ -18,7 +18,6 @@ import {
 } from "../../src/core/api";
 import type { Language } from "../../src/core/language";
 import {
-  acceptChange,
   applyCorrection,
   correctableCount,
   correctContradictions,
@@ -884,38 +883,4 @@ test("a correction of a whole sentence leaves its check to the model", async () 
   expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
   await vi.waitFor(() => expect(asked.checks).toHaveLength(1));
-});
-
-describe("Accept change keeps the sentence's check on the words it writes (#3715)", () => {
-  const text = "The ferry runs every 30 minutes all summer.";
-  test.each([
-    ["inside the sentence", "every 30 minutes all summer", "on spring tides in July and August"],
-    ["to its stop", text, "The ferry runs on spring tides in July and August."],
-  ])(
-    "a change %s leaves the sentence checked, waiting for its AI's next check",
-    (_, replace, written) => {
-      const attrs: ClaimCheckAttributes = {
-        ...basis("own", text),
-        providerId: null,
-        modelId: "Claude Code",
-        state: "unsupported",
-        unsupported: {
-          reason: "Only on spring tides in July and August.",
-          covered: null,
-          uncovered: null,
-        },
-        change: { replace, with: written },
-      };
-      const { editor, doc } = editorWith([
-        { type: "paragraph", attrs: { id: "block-own" }, content: [marked(text, attrs)] },
-      ]);
-
-      expect(acceptChange(editor, "mind", doc, claim(editor, "own"), false)).toBe(true);
-
-      const after = claim(editor, "own");
-      expect(after.sentence.text).toBe(text.replace(replace, written));
-      expect(after.shown.state).toBe("needs-recheck");
-      expect(generatedText(editor).join("")).toBe(written);
-    },
-  );
 });

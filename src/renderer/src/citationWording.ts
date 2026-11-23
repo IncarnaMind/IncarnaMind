@@ -11,7 +11,7 @@ import { parseQuotedWords } from "../../shared/citations";
 import { differsOnlyInMarks } from "../../shared/quoteMarks";
 import { findQuote } from "../../shared/quoteMatch";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
-import { underReview } from "./correctionFixes";
+import { underReview } from "./editor/changePlacement";
 import { placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { translateNow } from "./i18n";

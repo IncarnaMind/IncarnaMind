@@ -28,6 +28,7 @@ import {
 import { type RecordCiteNote, shortFormsThrough } from "../core/recordCites/referents";
 import { citedInputs } from "./calculatedFigures";
 import { asCitedNow, citesPassage, type HeldCitation, partToCite } from "./citedNow";
+import { readClaimChange } from "./claimChange";
 import {
   CLAIM_CHECK_FAILURES,
   checkedCitation,
@@ -37,7 +38,6 @@ import {
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
-  readClaimChange,
   readClaimCorrection,
   readClaimParts,
   readClaimScope,

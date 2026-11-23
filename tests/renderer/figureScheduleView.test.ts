@@ -556,7 +556,7 @@ test("a selection of mixed figures shows each item for, counts and acts on the f
   await click(mainOf("kept"));
   await click(mainOf("unread"), { ctrlKey: true });
   // A kept row's menu still keeps the selected figure that isn't kept.
-  await click(button("Keep as written", menuOf("kept") ?? container));
+  await click(button("Keep as my view", menuOf("kept") ?? container));
   expect(actions.onKeep).toHaveBeenLastCalledWith(["unread"]);
 });
 

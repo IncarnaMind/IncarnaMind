@@ -226,16 +226,12 @@ for (const [language, width] of [
     await expect(marks).toHaveCount(4);
 
     await pointAndClick(window, marks.nth(0));
-    // The fix is drawn as a change in the Note is, and Accept change makes it (#3715).
-    const change = card.getByTestId("claim-change-text");
-    await expect(change.locator("del")).toHaveText("36.8%");
-    await expect(change.locator("ins")).toHaveText("38.6%");
-    const correct = card.getByTestId("claim-accept-change");
-    await expect(correct).toHaveText(translate(language, "claim.acceptChange"));
+    const correct = card.getByTestId("claim-correct");
+    await expect(correct).toHaveText(translate(language, "claim.correction", { wording: "38.6%" }));
     // The fix first, then Keep as written; Open the page is first under the card's ⋯ (#2869).
     const actions = card.locator(".citation-card-actions button");
     await expect(actions).toHaveCount(2);
-    await expect(actions.nth(0)).toHaveAttribute("data-testid", "claim-accept-change");
+    await expect(actions.nth(0)).toHaveAttribute("data-testid", "claim-correct");
     await expect(actions.nth(1)).toHaveAttribute("data-testid", "claim-keep");
     const more = await openCardMenu(window, card);
     await expect(more.locator('[role="menuitem"]').first()).toHaveAttribute(
@@ -263,12 +259,8 @@ for (const [language, width] of [
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
 
     await pointAndClick(window, marks.nth(1));
-    // Wording too long for a button is the change the card shows (#3715).
-    await expect(card.getByTestId("claim-change")).toContainText(
-      "the complete replacement wording from the Document, which is too long for a button",
-    );
-    await expect(card.getByTestId("claim-accept-change")).toHaveText(
-      translate(language, "claim.acceptChange"),
+    await expect(card.getByTestId("claim-correct")).toHaveText(
+      translate(language, "claim.useDocumentWording"),
     );
     await withinCard(window);
     await window.keyboard.press("Escape");
@@ -288,7 +280,6 @@ for (const [language, width] of [
     // A check without a correction keeps what it offered before: Keep as written, and Open the
     // page under the card's ⋯.
     await expect(card.getByTestId("claim-correct")).toHaveCount(0);
-    await expect(card.getByTestId("claim-accept-change")).toHaveCount(0);
     await expect(card.getByTestId("claim-keep")).toBeVisible();
     await expect((await openCardMenu(window, card)).getByTestId("claim-open")).toBeVisible();
     await app.close();
@@ -335,10 +326,7 @@ for (const [language, width] of [
     const library = async () =>
       (await coreOf(window)).evaluate(async (core) => (await core.listDocuments()).length);
     await pointAndClick(window, mark);
-    await pointAndClick(
-      window,
-      window.getByTestId("claim-card").getByTestId("claim-accept-change"),
-    );
+    await pointAndClick(window, window.getByTestId("claim-card").getByTestId("claim-correct"));
     await fixed();
 
     // Outside the note, as after the card closes: ⌘Z and ⇧⌘Z reach the window's changes.

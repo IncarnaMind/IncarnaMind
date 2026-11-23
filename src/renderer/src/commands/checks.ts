@@ -11,14 +11,14 @@ import {
   useChecks,
 } from "../checks";
 import { chooseCitationIn, requestCitationPicker } from "../citationPick";
-import { acceptChange, applyCorrection, changeAt, correctionAt } from "../correctionFixes";
+import { applyCorrection, correctionAt } from "../correctionFixes";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
 import { fixableAt, fixSentence } from "../fixSentence";
-import { checksHandedFile } from "../handedFiles";
 import { startMindCheck } from "../mindCheck";
+import { acceptChange, changeAt } from "../ownChange";
 import { readableNow } from "../readableDocuments";
 import {
   applyDocumentWording,
@@ -105,10 +105,9 @@ const withContradicted = () => withClaim(contradictedAt);
 // With a model, Fix the sentence has the model write what Change to pastes in by code (#3383).
 const withCorrection = () => (noModel() ? withClaim(correctionAt) : null);
 const withFixable = () => (noModel() ? null : withClaim(fixableAt));
-// As on its card, a handed-over file's Note offers no change to accept: its words are the file's.
 const withChange = () => {
-  const at = withClaim(changeAt);
-  return at && !checksHandedFile(at.mindId) ? at : null;
+  const note = noteHandle.current;
+  return note ? withClaim((editor) => changeAt(editor, note.mindId)) : null;
 };
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
 const withKeepable = () => withNothingBacking() ?? withContradicted();
@@ -349,7 +348,7 @@ export const checkCommands: readonly Command[] = [
   },
   {
     id: "check.keepAsView",
-    label: "claim.keepAsView",
+    label: "claim.keepAsWritten",
     group: "main",
     reversible: true,
     when: () => withKeepable() !== null,

@@ -449,9 +449,10 @@ export interface CreateMindInput {
  *   content is version 61 content as it is: a Note without the Block is one tab.
  * - 63: a sentence's check by the User's own AI may keep the change it gave (`change`, its
  *   `replace` and `with`) and which of its quotes say otherwise (`otherwise`, #3715). An older
- *   editor would drop both when it saves the Note, and the card would offer no change and group
- *   no quote, so it opens these Notes read-only. Older content is version 62 content as it is: a
- *   check without them gives no change and names no roles.
+ *   editor writes the sentence's text again without both on any edit there, a word made bold
+ *   too, and its card then offers no change and groups no quote, so it opens these Notes
+ *   read-only. Older content is version 62 content as it is: a check without them gives no
+ *   change and names no roles.
  */
 export const CONTENT_SCHEMA_VERSION = 63;
 

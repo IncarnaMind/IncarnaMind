@@ -29,9 +29,9 @@ import type { MessageKey } from "../../shared/i18n";
 import { inlineRange } from "../../shared/inlineText";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
-import { underReview } from "./correctionFixes";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
+import { underReview } from "./editor/changePlacement";
 import {
   claimPlaces,
   firstReadingShown,
@@ -402,7 +402,7 @@ export function keepAsView(editor: Editor, claim: ShownClaim): void {
   );
   makeMine(state, tr, claim.sentence.from, claim.sentence.to);
   asOneStep(editor, () => editor.view.dispatch(tr));
-  offerEditorUndo(editor, (t) => t("claim.keptAsView"));
+  offerEditorUndo(editor, (t) => t("claim.keptAsWritten"));
 }
 
 /**

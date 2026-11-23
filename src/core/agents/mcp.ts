@@ -639,7 +639,9 @@ export function createAgentServer(
                   .describe(
                     "The sentence's own words to change, copied exactly, as few as will do.",
                   ),
-                with: z.string().describe("The words to put in their place."),
+                with: z
+                  .string()
+                  .describe("The words to put in their place: words only, no [cite:…]."),
               })
               .optional()
               .describe(

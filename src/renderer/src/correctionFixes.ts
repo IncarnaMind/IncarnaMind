@@ -5,33 +5,27 @@
  * one from the check badge, each one step of Undo.
  */
 import type { Editor } from "@tiptap/core";
-import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
   type Citation,
-  CLAIM_CHECK_MARK,
-  type ClaimChange,
   type ClaimCheckAttributes,
   type ClaimCorrection,
   type ClaimCorrectionChoice,
   type ClaimPartSpan,
   GENERATED_MARK,
-  PROPOSAL_ATTRIBUTE,
-  PROPOSAL_DELETE_MARK,
-  PROPOSAL_INSERT_MARK,
   type RecordAiUseInput,
 } from "../../core/api";
-import { changedSentence } from "../../shared/checkChange";
 import { overlapsCitation } from "../../shared/citationOverlap";
 import { checkedCitation } from "../../shared/claimParts";
-import { readProposalAttribute } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
 import { core } from "./core";
 import { citationsOf } from "./editor/alreadyCited";
+import { underReview } from "./editor/changePlacement";
 import { citationInsertionPoint } from "./editor/citationInsertion";
 import { claimSpans, placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
@@ -76,28 +70,6 @@ export function correctionsOf(
       ? [{ correction: part.correction, span: part.span }]
       : [],
   );
-}
-
-/**
- * Whether a change waiting for review covers these words: someone's tracked change from Word, or
- * one asked for. Writing over it would drop it unreviewed.
- */
-export function underReview(state: EditorState, from: number, to: number): boolean {
-  const $from = state.doc.resolve(from);
-  for (let depth = $from.depth; depth > 0; depth--) {
-    if (readProposalAttribute($from.node(depth).attrs[PROPOSAL_ATTRIBUTE])) return true;
-  }
-  let found = false;
-  state.doc.nodesBetween(from, to, (node) => {
-    found ||=
-      readProposalAttribute(node.attrs[PROPOSAL_ATTRIBUTE]) !== null ||
-      node.marks.some(
-        (mark) =>
-          mark.type.name === PROPOSAL_INSERT_MARK || mark.type.name === PROPOSAL_DELETE_MARK,
-      );
-    return !found;
-  });
-  return found;
 }
 
 function editOf(
@@ -199,7 +171,7 @@ export function correctableCount(editor: Editor): number {
     : 0;
 }
 
-function blockIdAt(doc: ProseMirrorNode, from: number): string | null {
+export function blockIdAt(doc: ProseMirrorNode, from: number): string | null {
   const $from = doc.resolve(from);
   if ($from.depth < 1) return null;
   const id: unknown = $from.node(1).attrs[BLOCK_ID_ATTRIBUTE];
@@ -316,126 +288,6 @@ export function applyCorrection(
   if (plan && apply(editor, mindId, doc, [plan]) > 0) return true;
   useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
   return false;
-}
-
-/**
- * The change the User's own AI gave with the sentence's check (#3715), while the card can make it:
- * its verdict still needs a look, the sentence reads as checked and its words are there once.
- */
-export function changeToAccept(editor: Editor, claim: ShownClaim): ClaimChange | null {
-  const { change } = claim.check;
-  const state = claim.shown.state;
-  if (
-    !change ||
-    claim.kind === "chart" ||
-    !editor.isEditable ||
-    (state !== "contradicted" && state !== "unsupported") ||
-    claim.check.unsupported?.word === "own-view" ||
-    claim.check.text !== claim.sentence.text
-  )
-    return null;
-  return changedSentence(claim.sentence.text, change) === null ? null : change;
-}
-
-/** The sentence at the selection whose check gave a change the card can make, for ⌘K. */
-export function changeAt(editor: Editor): ShownClaim | null {
-  const { from, to } = editor.state.selection;
-  return (
-    shownClaims(editor.state).find(
-      (claim) =>
-        claim.sentence.from <= from &&
-        to <= claim.sentence.to &&
-        changeToAccept(editor, claim) !== null,
-    ) ?? null
-  );
-}
-
-/** Each Note's last check again after an accepted change: a check still running turns the next away. */
-const rechecks = new Map<string, Promise<void>>();
-
-/**
- * Writes the change the User's own AI gave over its words, as AI text by that agent, with one Undo
- * (#3715). With a model set up in IncarnaMind the sentence is checked again like any edit; with
- * only the User's own AI it reads Needs re-check until that AI checks it again. Nothing here
- * turns it into Supported.
- */
-export function acceptChange(
-  editor: Editor,
-  mindId: string,
-  doc: Y.Doc,
-  claim: ShownClaim,
-  recheck: boolean,
-): boolean {
-  const change = changeToAccept(editor, claim);
-  const at = change ? claim.sentence.text.indexOf(change.replace) : -1;
-  const place =
-    change && at >= 0
-      ? placeInSentence(editor.state, claim, { from: at, to: at + change.replace.length })
-      : null;
-  if (
-    !change ||
-    !place ||
-    !fixesFree(mindId) ||
-    editor.state.doc.textBetween(place.from, place.to, "\n", INLINE_NODE) !== change.replace ||
-    underReview(editor.state, place.from, place.to)
-  ) {
-    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
-    return false;
-  }
-  const tr = editor.state.tr;
-  const { marks } = tr.doc.type.schema;
-  const checkType = marks[CLAIM_CHECK_MARK];
-  const generated = marks[GENERATED_MARK];
-  // The check's mark isn't inclusive: words written up to the sentence's end would lose it.
-  let checked: Mark | undefined;
-  tr.doc.nodesBetween(place.from, place.to, (node) => {
-    checked ??= node.marks.find((mark) => mark.type === checkType);
-    return checked === undefined;
-  });
-  if (change.with === "") tr.delete(place.from, place.to);
-  else {
-    tr.insertText(change.with, place.from, place.to);
-    const end = place.from + change.with.length;
-    if (checked) tr.addMark(place.from, end, checked);
-    if (generated) tr.addMark(place.from, end, generated.create());
-  }
-  asOneStep(editor, () => editor.view.dispatch(tr));
-  const again = () => {
-    if (!recheck) return;
-    const next = (rechecks.get(mindId) ?? Promise.resolve())
-      .then(async () => {
-        await flushMindUpdates(mindId);
-        const now = shownClaims(editor.state).find((each) => each.check.id === claim.check.id);
-        if (now) await checkAgain(editor, mindId, doc, now);
-      })
-      .catch((error: unknown) =>
-        console.error("A sentence couldn't be checked again after its change.", error),
-      );
-    rechecks.set(mindId, next);
-  };
-  offerEditorUndo(
-    editor,
-    (t) => t("claim.changeAccepted"),
-    undefined,
-    () => restoreCheck(editor, claim, claim.check),
-    again,
-  );
-  again();
-  const blockId = blockIdAt(editor.state.doc, tr.mapping.map(place.from, -1));
-  core
-    .recordAiUse([
-      {
-        mindId,
-        kind: "outside-agent-change-accepted",
-        providerId: null,
-        modelId: null,
-        agent: claim.check.modelId,
-        characters: change.with.length,
-        ...(blockId && { blockIds: [blockId] }),
-      },
-    ])
-    .catch((error: unknown) => useNotices.getState().showError(error));
-  return true;
 }
 
 /** Changes every contradicted part the Documents correct, in one transaction and one Undo, and checks each sentence again. */

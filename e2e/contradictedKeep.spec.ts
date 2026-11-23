@@ -44,14 +44,14 @@ const LANGUAGES = {
   en: {
     keep: "Keep as written",
     keptOne: "1 kept as your view",
-    kept: "Kept as your view",
+    kept: "Kept as written",
     contradicted: "Needs a look · Contradicted",
     checkMind: "Check",
   },
   "zh-CN": {
     keep: "保留原句",
     keptOne: "1 句已保留为你的观点",
-    kept: "已保留为你的观点",
+    kept: "已保留原句",
     contradicted: "需要留意：与文档矛盾",
     checkMind: "核对",
   },
