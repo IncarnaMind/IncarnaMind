@@ -143,6 +143,8 @@ function heard(event: NoteTurnEvent): void {
     asked: was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
+  // Claude Code no longer had the Note's conversation, so this request began a new one.
+  if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
   const byNote = new Map<string, NoteChangeApplied[]>();
   // A change in a Note the agent wrote applied already, with its own Undo there.
   for (const each of event.applied.filter((change) => !change.own))

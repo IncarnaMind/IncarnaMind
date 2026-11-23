@@ -131,6 +131,13 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(ask()).toMatchObject({ state: "landed", reply: "Shorter." });
   });
 
+  // protects=a request that had to begin a new conversation, Claude Code having lost the Note's, says so once in the window that asked; fails_when=the User never learns the AI forgot what came before
+  test("says when a request began a new conversation", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    tell(event({ state: "landed", reply: "Shorter.", fresh: true }));
+    expect(useNotices.getState().confirmation).toMatchObject({ message: "noteAsk.fresh" });
+  });
+
   // protects=a request another window sent shows its line here but applies only there; fails_when=two windows apply one turn's changes
   test("doesn't apply a turn another window asked", async () => {
     tell(
