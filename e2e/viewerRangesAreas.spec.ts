@@ -425,13 +425,24 @@ async function dragArea(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ): Promise<void> {
+  const before = await areaChip(window).count();
   await pointAndClick(window, window.getByTestId("viewer-area-select"));
   await dragAreaOver(window, page, from, to);
-  await expect(areaChip(window)).toBeVisible();
+  await expectAddedChip(window, before);
+}
+
+/**
+ * The chip the gesture added, after those a test keeps from before it: the composer adds it last,
+ * and a chip kept from earlier may still be there beside it.
+ */
+async function expectAddedChip(window: Page, before: number): Promise<void> {
+  await expect(areaChip(window)).toHaveCount(before + 1);
+  await expect(areaChip(window).last()).toBeVisible();
 }
 
 /** Draws an area from the top left of `first` to the bottom right of `last`, wherever the page puts them. */
 async function dragAreaAcross(window: Page, first: Locator, last: Locator): Promise<void> {
+  const before = await areaChip(window).count();
   await pointAndClick(window, window.getByTestId("viewer-area-select"));
   const start = await first.boundingBox();
   const end = await last.boundingBox();
@@ -440,7 +451,7 @@ async function dragAreaAcross(window: Page, first: Locator, last: Locator): Prom
   await window.mouse.down();
   await window.mouse.move(end.x + end.width - 1, end.y + end.height - 1, { steps: 12 });
   await window.mouse.up();
-  await expect(areaChip(window)).toBeVisible();
+  await expectAddedChip(window, before);
 }
 
 test("an area over a chart's words is found, and its picture goes into the composer", async () => {
@@ -1023,19 +1034,26 @@ test("opening an area chip outlines the region it cites", async () => {
   expect(box.width).toBeLessThan(page.width * 0.95);
 });
 
-test("an area of a file with no headings is just Figure, with no empty place", async () => {
+test("an area of a file with no headings names its words' paragraph, and one with no words is just Figure, with no empty place", async () => {
   const notes = "The river rose 0.4 metres in March, the highest this year.\n";
   const { window } = await setUp({ files: [{ name: "Notes.md", bytes: Buffer.from(notes) }] });
   await openDocument(window, /Notes/);
   await expect(window.getByTestId("viewer").locator(".viewer-text-page")).toContainText(
     "0.4 metres",
   );
+  // Over the words: the paragraph they are in, as a Word file with no headings has it (#3657).
   await dragArea(window, 1, { x: 0.1, y: 0.1 }, { x: 0.9, y: 0.5 });
   const chip = areaChip(window);
-  await expect(chip.getByTestId("composer-area-chip-show")).toHaveText("Figure");
-  await expect(chip).not.toHaveAttribute("title", /Figure ·\s/);
+  await expect(chip.getByTestId("composer-area-chip-show")).toHaveText("Figure · ¶\u00a01");
   await expect(chip).toHaveAttribute("data-check", "found");
-  await expect(chip).toHaveAttribute("title", /The figure’s words were found\./);
+  await expect(chip).toHaveAttribute("title", /The figure’s words were found on ¶\s1/);
+  await pointAndClick(window, window.getByTestId("composer-area-chip-remove"));
+
+  // Over no words: no paragraph, and no empty place after "Figure".
+  await dragArea(window, 1, { x: 0.1, y: 0.7 }, { x: 0.9, y: 0.95 });
+  const picture = areaChip(window);
+  await expect(picture.getByTestId("composer-area-chip-show")).toHaveText("Figure");
+  await expect(picture).not.toHaveAttribute("title", /Figure ·\s/);
 });
 
 test("a picture area in a file with sections is cited to its own section, not the first", async () => {
