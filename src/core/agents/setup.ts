@@ -138,30 +138,25 @@ interface Written {
 /**
  * `isInstalled`'s reads. A file or folder that can't be read is not there, for this purpose. On
  * Windows a Store app's command is a link no `stat` follows, so the link itself is what counts there,
- * and any file there is one to run.
+ * and any file there is one to run. A command is a file, never a folder.
  */
 function diskLook(platform: NodeJS.Platform): InstallLook {
-  const there = (path: string) =>
-    stat(path).then(
-      () => true,
-      () =>
-        platform === "win32"
-          ? lstat(path).then(
-              () => true,
-              () => false,
-            )
-          : false,
-    );
+  const windows = platform === "win32";
+  const found = async (path: string, file: boolean) => {
+    const target = await stat(path).catch(() => null);
+    if (target) return !file || target.isFile();
+    const link = windows ? await lstat(path).catch(() => null) : null;
+    return link !== null && !(file && link.isDirectory());
+  };
   return {
-    exists: there,
+    exists: (path) => found(path, false),
     runnable: async (path) =>
-      platform === "win32"
-        ? there(path)
-        : (await stat(path).catch(() => null))?.isFile() === true &&
-          (await access(path, constants.X_OK).then(
-            () => true,
-            () => false,
-          )),
+      (await found(path, true)) &&
+      (windows ||
+        (await access(path, constants.X_OK).then(
+          () => true,
+          () => false,
+        ))),
     read: (path) => readFile(path, "utf8").catch(() => null),
     list: (folder) => readdir(folder).catch(() => []),
   };

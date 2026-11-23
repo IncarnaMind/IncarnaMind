@@ -936,6 +936,30 @@ describe("an agent is found where its installer put it (#3644)", () => {
     },
   );
 
+  // protects=a folder on the PATH named as an agent's command is no sign of it, here and on Windows, where a file of that name is (#3644); fails_when=a folder named codex, or codex.cmd on Windows, makes Codex found
+  it("a folder named as an agent's command finds no agent, here or on Windows", async () => {
+    const codexFound = async (core: Awaited<ReturnType<typeof started>>["core"]) =>
+      (await core.listAgentClients()).find((each) => each.id === "codex")?.installed;
+    const here = await started();
+    await mkdir(join(here.commands, process.platform === "win32" ? "codex.cmd" : "codex"));
+    expect(await codexFound(here.core)).toBe(false);
+
+    const real = process.platform;
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    let windows: Awaited<ReturnType<typeof started>>;
+    try {
+      windows = await started();
+    } finally {
+      Object.defineProperty(process, "platform", { configurable: true, value: real });
+    }
+    const command = join(windows.commands, "codex.cmd");
+    await mkdir(command);
+    expect(await codexFound(windows.core)).toBe(false);
+    await rm(command, { recursive: true });
+    await writeFile(command, "@echo off\r\n");
+    expect(await codexFound(windows.core)).toBe(true);
+  });
+
   // protects=an editor's extension counts while the editor lists it, and one it uninstalled and keeps until a restart does not (#3644); fails_when=an extension removed in VS Code still makes Cline found, or one VS Code lists is missed
   it("an extension counts while its editor lists it, not after it is uninstalled", async () => {
     const { core, home } = await started();
