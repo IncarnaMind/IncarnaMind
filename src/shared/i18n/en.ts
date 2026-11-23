@@ -9070,6 +9070,7 @@ export const en = {
   "agents.connect.allow": "Allow and connect",
   "agents.connect.cancel": "Cancel",
   "agents.done.bundle": "Claude opened: click Install there to finish.",
+  "agents.done.bundleRotated": "Install the file just opened; the old install stops now.",
   "agents.done.link": "Opened {agent}: click Install there to finish.",
   "agents.done.wrote":
     "Added to the settings of {agent}. Start a new session in {agent} to use it.",

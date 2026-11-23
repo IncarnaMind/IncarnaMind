@@ -638,6 +638,12 @@ export function createAgents(options: AgentsOptions) {
     };
   };
 
+  /** Whether `token` is still the current stored token for `pairingId` (false after rotateKey or disconnect). */
+  const isCurrentToken = (pairingId: string, token: string): boolean => {
+    const current = tokens.get(pairingId);
+    return current !== undefined && timingSafeEqual(digest(current), digest(token));
+  };
+
   /**
    * The core interface for a token's calls: refused at every call when the token is no pairing's.
    * `grant`: the run grant's key, for a connection opened with one.
@@ -653,18 +659,22 @@ export function createAgents(options: AgentsOptions) {
       };
     }
     const pairingId = await pairingOfToken(token);
-    return { pairingId, access: createAgentAccess(accessDeps, pairingId ?? "") };
+    return {
+      pairingId,
+      access: createAgentAccess(accessDeps, pairingId ?? ""),
+      ...(pairingId !== null ? { isCurrent: () => isCurrentToken(pairingId, token) } : {}),
+    };
   };
 
   /**
-   * Prepares a v2 mutual HMAC challenge-response session (ADR-0036): when the
-   * shim supplies a keyId, signs only the matching live pairing or active run
-   * grant (returning null when none matches so the shim reports it is no longer
-   * connected without warning of an impostor).
+   * Prepares a v2 mutual HMAC challenge-response session (ADR-0036): signs only
+   * the live pairing or active run grant matching `keyId` (returning null when
+   * none matches so the shim reports it is no longer connected without warning
+   * of an impostor).
    */
   const challenge = async (
     shimNonce: string,
-    keyId?: string,
+    keyId: string,
   ): Promise<AgentChallengeSession | null> => {
     const appNonce = randomBytes(32).toString("base64url");
     const serverInput = serverProofInput(shimNonce, appNonce);
@@ -673,7 +683,7 @@ export function createAgents(options: AgentsOptions) {
       open: () => OpenedAgentConnection | null;
     }> = [];
     for (const [key, grant] of grants.entries()) {
-      if (keyId !== undefined && keyIdOf(grant.token) !== keyId) continue;
+      if (keyIdOf(grant.token) !== keyId) continue;
       candidates.push({
         token: grant.token,
         open: () => {
@@ -690,19 +700,20 @@ export function createAgents(options: AgentsOptions) {
     for (const pairing of livePairings()) {
       const token = await tokenOf(pairing.id);
       if (!token) continue;
-      if (keyId !== undefined && keyIdOf(token) !== keyId) continue;
+      if (keyIdOf(token) !== keyId) continue;
       candidates.push({
         token,
         open: () => {
-          if (!findPairing(pairing.id)) return null;
+          if (!findPairing(pairing.id) || !isCurrentToken(pairing.id, token)) return null;
           return {
             pairingId: pairing.id,
             access: createAgentAccess(accessDeps, pairing.id),
+            isCurrent: () => isCurrentToken(pairing.id, token),
           };
         },
       });
     }
-    if (keyId !== undefined && candidates.length === 0) return null;
+    if (candidates.length === 0) return null;
     const proofs = candidates.map((entry) => hmacHex(entry.token, serverInput));
     return {
       appNonce,

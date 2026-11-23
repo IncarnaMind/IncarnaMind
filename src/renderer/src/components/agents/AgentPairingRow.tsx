@@ -34,6 +34,8 @@ import { ProposeChoice } from "./ProposeChoice";
 export interface JustSetUp {
   pairingId: string;
   result: AgentSetupResult;
+  /** True when reopening the bundle rotated an out-of-date key, revoking the old install immediately. */
+  rotated?: boolean;
 }
 
 /**
@@ -73,8 +75,8 @@ export function AgentPairingRow({
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;
   onUndone(): void;
-  /** The install file was made and opened again. */
-  onInstallReopened(): void;
+  /** The install file was made and opened again; `rotated` is true when an out-of-date key was replaced. */
+  onInstallReopened(rotated?: boolean): void;
   /** The agent is disconnected; `agent` is how a sentence names it. */
   onDisconnected(agent: string, left: AgentDisconnected): void;
 }) {
@@ -242,7 +244,9 @@ export function AgentPairingRow({
                   type="button"
                   data-testid="agent-install-again"
                   onClick={() =>
-                    core.openAgentInstallAgain(pairing.id).then(onInstallReopened, reportError)
+                    core
+                      .openAgentInstallAgain(pairing.id)
+                      .then(() => onInstallReopened(shimOutOfDate), reportError)
                   }
                   className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
                 >
@@ -352,7 +356,7 @@ export function AgentPairingRow({
                         onClick={() =>
                           core
                             .openAgentInstallAgain(pairing.id)
-                            .then(onInstallReopened, reportError)
+                            .then(() => onInstallReopened(true), reportError)
                         }
                         className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
                       >
@@ -368,7 +372,7 @@ export function AgentPairingRow({
           )}
           {done && (
             <p data-testid="agent-setup-done" role="status" className="mt-1">
-              {doneWords(done, pairing, t)}
+              {justSetUp?.rotated ? t("agents.done.bundleRotated") : doneWords(done, pairing, t)}
               {done.kind === "wrote" && (
                 <>
                   <span aria-hidden="true"> · </span>

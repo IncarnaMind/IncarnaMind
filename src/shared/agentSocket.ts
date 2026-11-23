@@ -39,10 +39,10 @@ export interface AgentHandshake {
   token: string;
 }
 
-/** What the app reads from the shim's first line: a v2 challenge nonce (with optional keyId) or a legacy v1 token. */
+/** What the app reads from the shim's first line: a v2 challenge nonce + keyId or a legacy v1 token. */
 export type AgentOpening =
   | { version: typeof AGENT_HANDSHAKE_VERSION; token: string }
-  | { version: typeof AGENT_CHALLENGE_VERSION; nonce: string; keyId?: string };
+  | { version: typeof AGENT_CHALLENGE_VERSION; nonce: string; keyId: string };
 
 /** What the shim reads from the app's second line: a challenge with server proofs, or an unknown-pairing refusal. */
 export type AgentServerReply =
@@ -65,8 +65,8 @@ export function handshakeLine(token: string): string {
   return `${JSON.stringify(handshake)}\n`;
 }
 
-export function challengeLine(nonce: string, keyId?: string): string {
-  return `${JSON.stringify({ incarnamind: AGENT_CHALLENGE_VERSION, nonce, ...(keyId ? { keyId } : {}) })}\n`;
+export function challengeLine(nonce: string, keyId: string): string {
+  return `${JSON.stringify({ incarnamind: AGENT_CHALLENGE_VERSION, nonce, keyId })}\n`;
 }
 
 export function serverChallengeLine(nonce: string, proofs: readonly string[]): string {
@@ -87,7 +87,7 @@ export function parseHandshake(line: string): string | null {
   return parsed?.version === AGENT_HANDSHAKE_VERSION ? parsed.token : null;
 }
 
-/** Parses line 1 from the shim: either a v2 challenge nonce (plus optional keyId) or a legacy v1 token. */
+/** Parses line 1 from the shim: either a v2 challenge nonce + keyId or a legacy v1 token. */
 export function parseOpeningLine(line: string): AgentOpening | null {
   try {
     const value: unknown = JSON.parse(line);
@@ -96,15 +96,14 @@ export function parseOpeningLine(line: string): AgentOpening | null {
     if (
       incarnamind === AGENT_CHALLENGE_VERSION &&
       typeof nonce === "string" &&
-      NONCE_RE.test(nonce)
+      NONCE_RE.test(nonce) &&
+      typeof keyId === "string" &&
+      KEY_ID_HEX_RE.test(keyId)
     ) {
-      if (keyId !== undefined && (typeof keyId !== "string" || !KEY_ID_HEX_RE.test(keyId))) {
-        return null;
-      }
       return {
         version: AGENT_CHALLENGE_VERSION,
         nonce,
-        ...(typeof keyId === "string" ? { keyId } : {}),
+        keyId,
       };
     }
     if (incarnamind === AGENT_HANDSHAKE_VERSION && typeof token === "string" && token !== "") {

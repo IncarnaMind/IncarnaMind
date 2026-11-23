@@ -487,6 +487,12 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     expect(bundle.part("agent-shim-reinstall")?.textContent).toBe(
       "Open the install in Claude again",
     );
+    await act(async () =>
+      (bundle.part("agent-shim-reinstall") as unknown as { click(): void }).click(),
+    );
+    expect(bundle.part("agent-setup-done")?.textContent).toContain(
+      "Install the file just opened; the old install stops now.",
+    );
     await clear();
 
     // When both awaitingInstall and shimOutOfDate apply, render only one reinstall button.
@@ -513,6 +519,12 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     );
     expect(zh.part("agent-pairing-shim-old")?.textContent).toContain("旧版连接程序");
     expect(zh.part("agent-shim-reinstall")?.textContent).toBe("在 Claude 中重新打开安装");
+    await act(async () =>
+      (zh.part("agent-shim-reinstall") as unknown as { click(): void }).click(),
+    );
+    expect(zh.part("agent-setup-done")?.textContent).toContain(
+      "请安装刚打开的文件；旧安装现已停用。",
+    );
   });
 
   test("a model in IncarnaMind, with none set up, is one quiet row that says it is optional", async () => {

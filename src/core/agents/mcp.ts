@@ -879,6 +879,8 @@ export interface OpenedAgentConnection {
   pairingId: string | null;
   access: AgentAccess;
   grant?: string;
+  /** Returns false if the pairing's key was rotated or revoked while the handshake was in flight. */
+  isCurrent?(): boolean;
 }
 
 /** A v2 mutual HMAC challenge session (ADR-0036): proves the app holds the key before verifying the shim. */
@@ -899,8 +901,8 @@ export function serveConnection(
   options: {
     /** `grant`: the key of the run grant the token is, if it is one (legacy v1 handshake). */
     open(token: string): Promise<OpenedAgentConnection>;
-    /** Prepares a v2 mutual HMAC challenge for the shim's nonce (ADR-0036); returns null when keyId matches no live pairing or grant. */
-    challenge?(shimNonce: string, keyId?: string): Promise<AgentChallengeSession | null>;
+    /** Prepares a v2 mutual HMAC challenge for the shim's nonce and keyId (ADR-0036); returns null when keyId matches no live pairing or grant. */
+    challenge?(shimNonce: string, keyId: string): Promise<AgentChallengeSession | null>;
     /** Whether IncarnaMind has an AI model of its own ready now, read at each connection. */
     modelReady(): Promise<boolean>;
     version: string;
@@ -930,12 +932,19 @@ export function serveConnection(
     socket.pause();
     openedPromise
       .then(async (opened) => {
-        if (socket.destroyed || opened === null) {
+        if (
+          socket.destroyed ||
+          opened === null ||
+          (opened.isCurrent !== undefined && !opened.isCurrent())
+        ) {
           socket.destroy();
           return;
         }
         const ready = await options.modelReady();
-        if (socket.destroyed) return;
+        if (socket.destroyed || (opened.isCurrent !== undefined && !opened.isCurrent())) {
+          socket.destroy();
+          return;
+        }
         // The model's state as this connection last knew it: a server is built at its first
         // message, which may come after the state changed.
         let modelNow = ready;

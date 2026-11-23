@@ -272,10 +272,11 @@ export function YourAiSection({
                   folders={folders}
                   justSetUp={justSetUp}
                   onUndone={() => setJustSetUp(null)}
-                  onInstallReopened={() =>
+                  onInstallReopened={(rotated) =>
                     setJustSetUp({
                       pairingId: pairing.id,
                       result: { kind: "opened", how: "bundle" },
+                      rotated,
                     })
                   }
                   onDisconnected={(agent, left) =>

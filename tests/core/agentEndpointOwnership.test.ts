@@ -20,6 +20,7 @@ import {
   parseServerChallenge,
   serverChallengeLine,
   serverProofInput,
+  serverUnknownPairingLine,
 } from "../../src/shared/agentSocket";
 import { translate } from "../../src/shared/i18n";
 import { agentSocketAnswers, legacyAgentClient } from "../helpers/agentClients";
@@ -368,6 +369,36 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     } finally {
       await replayDecoy.close();
     }
+
+    // A decoy replying with { incarnamind: 2, unknown: true } receives only line 1 and 0 key/proof bytes.
+    const unknownEndpoint = isUnix
+      ? join(await shortUnixTempDir(), "decoy-unknown.sock")
+      : `\\\\.\\pipe\\incarnamind-decoy-unknown-${randomBytes(8).toString("hex")}`;
+    const unknownDecoy = await startDecoyServer(unknownEndpoint, {
+      mode: 0o600,
+      onLine: (_line, socket) => {
+        socket.end(serverUnknownPairingLine());
+      },
+    });
+    try {
+      const result = await probeBuiltShim(shimPath, {
+        [AGENT_SOCKET_ENV]: unknownEndpoint,
+        [AGENT_TOKEN_ENV]: token,
+      });
+
+      expect(unknownDecoy.connections).toBe(1);
+      const lines = unknownDecoy.received.trim().split("\n").filter(Boolean);
+      expect(lines).toHaveLength(1);
+      expect(parseOpeningLine(lines[0] ?? "")?.version).toBe(2);
+      expect(unknownDecoy.received).not.toContain(token);
+      expect(unknownDecoy.received).not.toContain('"proof"');
+      expect(unknownDecoy.received).not.toContain("initialize");
+      const errorMessage = (result.reply?.error as { message?: string } | undefined)?.message ?? "";
+      expect(errorMessage).toMatch(/no longer connected/);
+      expect(result.stderr).not.toContain(token);
+    } finally {
+      await unknownDecoy.close();
+    }
   }, 60_000);
 
   it("keeps accepting legacy v1 shims, rotates the key on reinstall revoking the old key, and clears after v2 upgrade", async () => {
@@ -415,14 +446,68 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect(Array.isArray((v1Reply.result as { tools?: unknown[] } | undefined)?.tools)).toBe(true);
     expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
 
-    // Persists across restart and reinstalling rotates the pairing key.
+    // Persists across restart; start an in-flight v2 handshake on oldToken, then rotate via openAgentInstallAgain.
     core.close();
     await expect.poll(() => agentSocketAnswers(socketPath)).toBe(false);
     const restarted = makeCore();
     await expect.poll(() => agentSocketAnswers(socketPath)).toBe(true);
     expect((await restarted.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+
+    const inFlightShimNonce = "inflight_rotate_nonce_123456";
+    const oldKeyId = createHash("sha256").update(keyIdInput(oldToken)).digest("hex").slice(0, 16);
+    const inFlightSocket = createConnection(socketPath);
+    await new Promise<void>((done, fail) => {
+      inFlightSocket.once("connect", () => done());
+      inFlightSocket.once("error", fail);
+    });
+    inFlightSocket.setEncoding("utf8");
+    const inFlightLine2 = await new Promise<string>((resolve, reject) => {
+      let buf = "";
+      const onData = (chunk: string) => {
+        buf += chunk;
+        const nl = buf.indexOf("\n");
+        if (nl !== -1) {
+          inFlightSocket.off("data", onData);
+          resolve(buf.slice(0, nl));
+        }
+      };
+      inFlightSocket.on("data", onData);
+      inFlightSocket.once("error", reject);
+      inFlightSocket.write(challengeLine(inFlightShimNonce, oldKeyId));
+    });
+    const inFlightChallenge = parseServerChallenge(inFlightLine2);
+    expect(inFlightChallenge?.kind).toBe("challenge");
+    if (inFlightChallenge?.kind !== "challenge") throw new Error("Expected challenge");
+
     await restarted.openAgentInstallAgain(pairing.id);
     expect(openedBundles.length).toBe(1);
+
+    // Finishing the in-flight v2 handshake with the now-revoked oldToken must be refused immediately.
+    let inFlightReceived = "";
+    inFlightSocket.on("data", (chunk: string) => {
+      inFlightReceived += chunk;
+    });
+    const inFlightClosed = new Promise<void>((resolve) =>
+      inFlightSocket.once("close", () => resolve()),
+    );
+    const oldClientProof = createHmac("sha256", oldToken)
+      .update(clientProofInput(inFlightChallenge.nonce, inFlightShimNonce))
+      .digest("hex");
+    inFlightSocket.write(clientProofLine(oldClientProof));
+    inFlightSocket.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: 99,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "inflight-old", version: "0.0.0" },
+        },
+      })}\n`,
+    );
+    await inFlightClosed;
+    expect(inFlightReceived).toBe("");
 
     // The reopened bundle carries a brand-new key, and the old key is immediately revoked for both v1 and v2.
     const bundlePath = openedBundles[0] ?? "";

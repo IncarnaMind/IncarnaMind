@@ -8533,6 +8533,7 @@ export const zhCN = {
   "agents.connect.allow": "允许并连接",
   "agents.connect.cancel": "取消",
   "agents.done.bundle": "已打开 Claude：在其中点击“安装”完成连接。",
+  "agents.done.bundleRotated": "请安装刚打开的文件；旧安装现已停用。",
   "agents.done.link": "已打开{agent}：在其中点击“安装”完成连接。",
   "agents.done.wrote": "已添加到{agent}的设置中。在{agent}中开始一个新会话即可使用。",
   "agents.done.wrote.codex":

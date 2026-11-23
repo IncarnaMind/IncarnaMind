@@ -7,6 +7,7 @@ import {
   challengeLine,
   clientProofLine,
   handshakeLine,
+  parseOpeningLine,
   parseServerChallenge,
 } from "../../src/shared/agentSocket";
 
@@ -120,5 +121,39 @@ describe("v2 mutual HMAC handshake limits and timeouts (ADR-0036)", () => {
     toServer.write(challengeLine("shim_nonce_timeout_1234567", "0123456789abcdef"));
     await closed;
     expect(verify).not.toHaveBeenCalled();
+  });
+
+  test("v2 line 1 without keyId is rejected", () => {
+    expect(
+      parseOpeningLine(JSON.stringify({ incarnamind: 2, nonce: "shim_nonce_1234567890abcdef" })),
+    ).toBeNull();
+  });
+
+  test("an in-flight v1 handshake whose key rotates before modelReady finishes is refused and never paired", async () => {
+    const { serverSide, toServer } = createTestSocketPair();
+    let stillCurrent = true;
+    let releaseModelReady: (ready: boolean) => void = () => undefined;
+    const paired = vi.fn();
+    serveConnection(serverSide, {
+      open: async () => ({
+        pairingId: "pairing-1",
+        access: {} as never,
+        isCurrent: () => stillCurrent,
+      }),
+      modelReady: () =>
+        new Promise<boolean>((resolve) => {
+          releaseModelReady = resolve;
+        }),
+      version: "test",
+      paired,
+      reportError: vi.fn(),
+    });
+    const closed = once(serverSide, "close");
+    toServer.write(handshakeLine("im_old_v1_token"));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    stillCurrent = false;
+    releaseModelReady(true);
+    await closed;
+    expect(paired).not.toHaveBeenCalled();
   });
 });
