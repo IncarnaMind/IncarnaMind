@@ -904,4 +904,58 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
     expect(done2.checked?.notChecked).toBe(0);
     expect(uiClaims2.map((c) => c.shown.state)).not.toContain("needs-recheck");
   });
+
+  // protects=the card of a sentence the agent found needs a look shows the change it gave and which of its quotes say otherwise (#3715); fails_when=a change is kept on a sentence that doesn't need one, or on words that aren't in the sentence once, or the roles are lost on the way to the Note
+  it("keeps the change and the quotes that say otherwise the agent gives with a verdict that needs a look", async () => {
+    const { core, agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        {
+          n: 1,
+          verdict: "supported",
+          cites: [twice],
+          change: { replace: "twice", with: "two times" },
+        },
+        {
+          n: 2,
+          verdict: "contradicted",
+          cites: [],
+          otherwise: [largest],
+          change: { replace: "Neap tides", with: "Spring tides" },
+          explanation: "Tides gives the largest range to spring tides, not neap tides.",
+        },
+        { n: 3, verdict: "not found", change: { replace: "Penguins", with: "Gulls" } },
+        {
+          n: 4,
+          verdict: "overstated",
+          cites: [twice],
+          change: { replace: "a fortnight", with: "a month" },
+        },
+      ]),
+    );
+    expect(reported).toMatchObject({ marked: 4, unconfirmed: [], unreported: [] });
+    expect(reported.next).toContain("No change was kept for sentence 1, 3, 4");
+
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const checks = new Map(
+      claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check]),
+    );
+    expect(checks.get(NEAP)?.state).toBe("contradicted");
+    expect(checks.get(NEAP)?.change).toEqual({ replace: "Neap tides", with: "Spring tides" });
+    // A quote named only as saying otherwise is a quote the verdict rests on.
+    expect(checks.get(NEAP)?.otherwise).toEqual([
+      "The range of a spring tide is the largest of the month.",
+    ]);
+    expect(checks.get(NEAP)?.parts?.[0]?.evidence.map((each) => each.quote)).toEqual([
+      "The range of a spring tide is the largest of the month.",
+    ]);
+    for (const sentence of [SPRING, PENGUINS, SOURCES]) {
+      expect(checks.get(sentence)?.change).toBeUndefined();
+      expect(checks.get(sentence)?.otherwise).toBeUndefined();
+    }
+  });
 });

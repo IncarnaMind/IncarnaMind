@@ -208,7 +208,7 @@ for (const [language, width] of [
       await markShownFor(window, mark(id));
       await pointAndClick(window, mark(id));
       await expect(card).toBeVisible();
-      await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words[id]}”`);
+      await expect.poll(() => card.getAttribute("aria-label")).toContain(words[id]);
       await motionSettled(window);
     };
     const close = async () => {
@@ -248,7 +248,7 @@ for (const [language, width] of [
     await expect(card).not.toContainText(LINES.stores);
     const where = card.getByTestId("claim-where");
     await expect(where.getByTestId("claim-source")).toContainText("Northwind Retail");
-    await expect(where.getByTestId("claim-source")).toContainText(words.page);
+    await expect(where).toContainText(words.page);
     await expect(card.getByTestId("claim-add-citation")).toHaveCount(0);
     await expect(card.getByTestId("claim-already-chip")).toHaveCount(0);
     const openPlace = card.getByTestId("claim-open-place");

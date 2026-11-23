@@ -12,6 +12,7 @@ import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
   type Citation,
+  type ClaimChange,
   type ClaimCheckAttributes,
   type ClaimCorrection,
   type ClaimCorrectionChoice,
@@ -22,6 +23,7 @@ import {
   PROPOSAL_INSERT_MARK,
   type RecordAiUseInput,
 } from "../../core/api";
+import { changedSentence } from "../../shared/checkChange";
 import { overlapsCitation } from "../../shared/citationOverlap";
 import { checkedCitation } from "../../shared/claimParts";
 import { readProposalAttribute } from "../../shared/proposals";
@@ -313,6 +315,108 @@ export function applyCorrection(
   if (plan && apply(editor, mindId, doc, [plan]) > 0) return true;
   useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
   return false;
+}
+
+/**
+ * The change the User's own AI gave with the sentence's check (#3715), while the card can make it:
+ * its verdict still needs a look, the sentence reads as checked and its words are there once.
+ */
+export function changeToAccept(editor: Editor, claim: ShownClaim): ClaimChange | null {
+  const { change } = claim.check;
+  const state = claim.shown.state;
+  if (
+    !change ||
+    claim.kind === "chart" ||
+    !editor.isEditable ||
+    (state !== "contradicted" && state !== "unsupported") ||
+    claim.check.unsupported?.word === "own-view" ||
+    claim.check.text !== claim.sentence.text
+  )
+    return null;
+  return changedSentence(claim.sentence.text, change) === null ? null : change;
+}
+
+/** The sentence at the selection whose check gave a change the card can make, for ⌘K. */
+export function changeAt(editor: Editor): ShownClaim | null {
+  const { from, to } = editor.state.selection;
+  return (
+    shownClaims(editor.state).find(
+      (claim) =>
+        claim.sentence.from <= from &&
+        to <= claim.sentence.to &&
+        changeToAccept(editor, claim) !== null,
+    ) ?? null
+  );
+}
+
+/**
+ * Writes the change the User's own AI gave over its words, as AI text by that agent, with one Undo
+ * (#3715). With a model set up in IncarnaMind the sentence is checked again like any edit; with
+ * only the User's own AI it reads Needs re-check until that AI checks it again. Nothing here
+ * turns it into Supported.
+ */
+export function acceptChange(
+  editor: Editor,
+  mindId: string,
+  doc: Y.Doc,
+  claim: ShownClaim,
+  recheck: boolean,
+): boolean {
+  const change = changeToAccept(editor, claim);
+  const at = change ? claim.sentence.text.indexOf(change.replace) : -1;
+  const place =
+    change && at >= 0
+      ? placeInSentence(editor.state, claim, { from: at, to: at + change.replace.length })
+      : null;
+  if (
+    !change ||
+    !place ||
+    !fixesFree(mindId) ||
+    editor.state.doc.textBetween(place.from, place.to, "\n", INLINE_NODE) !== change.replace ||
+    underReview(editor.state, place.from, place.to)
+  ) {
+    useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
+    return false;
+  }
+  const tr = editor.state.tr;
+  const generated = tr.doc.type.schema.marks[GENERATED_MARK];
+  if (change.with === "") tr.delete(place.from, place.to);
+  else {
+    tr.insertText(change.with, place.from, place.to);
+    if (generated) tr.addMark(place.from, place.from + change.with.length, generated.create());
+  }
+  asOneStep(editor, () => editor.view.dispatch(tr));
+  const again = () => {
+    if (!recheck) return;
+    void (async () => {
+      await flushMindUpdates(mindId);
+      const now = shownClaims(editor.state).find((each) => each.check.id === claim.check.id);
+      if (now) await checkAgain(editor, mindId, doc, now);
+    })();
+  };
+  offerEditorUndo(
+    editor,
+    (t) => t("claim.changeAccepted"),
+    undefined,
+    () => restoreCheck(editor, claim, claim.check),
+    again,
+  );
+  again();
+  const blockId = blockIdAt(editor.state.doc, tr.mapping.map(place.from, -1));
+  core
+    .recordAiUse([
+      {
+        mindId,
+        kind: "outside-agent-change-accepted",
+        providerId: null,
+        modelId: null,
+        agent: claim.check.modelId,
+        characters: change.with.length,
+        ...(blockId && { blockIds: [blockId] }),
+      },
+    ])
+    .catch((error: unknown) => useNotices.getState().showError(error));
+  return true;
 }
 
 /** Changes every contradicted part the Documents correct, in one transaction and one Undo, and checks each sentence again. */

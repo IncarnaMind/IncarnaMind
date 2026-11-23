@@ -62,6 +62,8 @@ const ATTRIBUTES: readonly (keyof ClaimCheckAttributes)[] = [
   "text",
   "evidence",
   "correction",
+  "change",
+  "otherwise",
   "says",
   "unsupported",
   "calculation",
@@ -99,14 +101,17 @@ export const ClaimCheck = Mark.create({
       ATTRIBUTES.map((name) => [
         name,
         {
-          // Only a carried check names its Answer or says it read only Citations, and only a
-          // file's check keeps what its line was judged with: a null stored on every other
-          // checked sentence would take a long Note past its size bound (#2220).
+          // Only a carried check names its Answer or says it read only Citations, only a file's
+          // check keeps what its line was judged with, and only the User's own AI gives a change
+          // and the quotes that say otherwise: a null stored on every other checked sentence
+          // would take a long Note past its size bound (#2220).
           default:
             name === "remainder" ||
             name === "fromAnswer" ||
             name === "citedOnly" ||
-            name === "judgedWith"
+            name === "judgedWith" ||
+            name === "change" ||
+            name === "otherwise"
               ? undefined
               : null,
           parseHTML: () => null,

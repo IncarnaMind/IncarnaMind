@@ -211,7 +211,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const open = async (id: keyof typeof words) => {
       await pointAndClick(window, mark(id));
       await expect(card).toBeVisible();
-      await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words[id]}”`);
+      await expect.poll(() => card.getAttribute("aria-label")).toContain(words[id]);
       await motionSettled(window);
     };
     const close = async () => {

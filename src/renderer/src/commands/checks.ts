@@ -11,7 +11,7 @@ import {
   useChecks,
 } from "../checks";
 import { chooseCitationIn, requestCitationPicker } from "../citationPick";
-import { applyCorrection, correctionAt } from "../correctionFixes";
+import { acceptChange, applyCorrection, changeAt, correctionAt } from "../correctionFixes";
 import { type ShownClaim, shownClaims } from "../editor/claimChecks";
 import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
@@ -104,6 +104,7 @@ const withContradicted = () => withClaim(contradictedAt);
 // With a model, Fix the sentence has the model write what Change to pastes in by code (#3383).
 const withCorrection = () => (noModel() ? withClaim(correctionAt) : null);
 const withFixable = () => (noModel() ? null : withClaim(fixableAt));
+const withChange = () => withClaim(changeAt);
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
 const withKeepable = () => withNothingBacking() ?? withContradicted();
 
@@ -327,6 +328,18 @@ export const checkCommands: readonly Command[] = [
     run() {
       const at = withCorrection();
       if (at) applyCorrection(at.editor, at.mindId, at.doc, at.claim);
+    },
+  },
+  {
+    id: "check.acceptChange",
+    label: "claim.acceptChange.command",
+    group: "main",
+    // One step of the Note's Undo, which brings back the check it had.
+    reversible: true,
+    when: () => withChange() !== null,
+    run() {
+      const at = withChange();
+      if (at) acceptChange(at.editor, at.mindId, at.doc, at.claim, !noModel());
     },
   },
   {

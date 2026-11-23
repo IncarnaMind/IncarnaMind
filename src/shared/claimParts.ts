@@ -7,6 +7,7 @@ import type {
   CitationAttributes,
   CitationCheckReason,
   ClaimCalculation,
+  ClaimChange,
   ClaimCheckAttributes,
   ClaimCheckBasis,
   ClaimCheckFailure,
@@ -381,6 +382,17 @@ export function readClaimCorrection(value: unknown): ClaimCorrection | null {
   return { from, choices };
 }
 
+/** A change the User's own AI gave as a mark stores it, or null when it isn't one. */
+export function readClaimChange(value: unknown): ClaimChange | null {
+  return isRecord(value) &&
+    typeof value.replace === "string" &&
+    value.replace.trim() !== "" &&
+    typeof value.with === "string" &&
+    value.with !== value.replace
+    ? { replace: value.replace, with: value.with }
+    : null;
+}
+
 function boundary(text: string, at: number): boolean {
   const before = text.charCodeAt(at - 1);
   const after = text.charCodeAt(at);
@@ -412,10 +424,11 @@ function cutQuote(quote: string, chars: number): string {
   return `${quote.slice(0, end).trimEnd()}…`;
 }
 
+/** A quote as a check's receipt stores it. */
+export const boundedQuote = (quote: string): string => cutQuote(quote, CHECK_QUOTE_CHARS_AT_MOST);
+
 const withQuote = (citation: CitationAttributes): CitationAttributes =>
-  citation.quote === null
-    ? citation
-    : { ...citation, quote: cutQuote(citation.quote, CHECK_QUOTE_CHARS_AT_MOST) };
+  citation.quote === null ? citation : { ...citation, quote: boundedQuote(citation.quote) };
 
 const boundedCorrection = (correction: ClaimCorrection): ClaimCorrection => ({
   ...correction,

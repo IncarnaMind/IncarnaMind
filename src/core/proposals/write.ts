@@ -91,7 +91,15 @@ import {
   unescapeNames,
   unnameRemovals,
 } from "../edits/prompt";
-import { diffSteps, hunksOf, type KeepsLater, type Step, splitWords } from "./diff";
+import {
+  diffSteps,
+  hunksOf,
+  JOINED_CHARS,
+  type KeepsLater,
+  REWRITTEN_SHARE,
+  type Step,
+  splitWords,
+} from "./diff";
 import {
   CITING,
   type CitingNodes,
@@ -1946,7 +1954,7 @@ function joinsAcross(tokens: readonly OldToken[]) {
       kept
         .map((token) => token.text ?? "")
         .join("")
-        .replace(/\s+/g, "").length <= 3
+        .replace(/\s+/g, "").length <= JOINED_CHARS
     );
   };
 }
@@ -1978,9 +1986,6 @@ const noteCitation = (into: Set<string>, token: { key: string }) => {
 
 const droppedOf = (notes: CitationNotes) =>
   [...notes.removed].filter((marker) => !notes.added.has(marker)).length;
-
-// DESIGN.md › AI edits: "about 40% or more of a paragraph's words".
-const REWRITTEN_SHARE = 0.4;
 
 /**
  * About 40% or more of the paragraph's words changed: written anew, read as

@@ -53,8 +53,8 @@ const LANGUAGES = {
     heading: "Needs a look · Not found",
     mark: "Sentence check: Needs a look · Not found",
     needLook: "2 need a look",
-    cut: "Cut it",
-    keep: "Keep as my view",
+    cut: "Cut the sentence",
+    keep: "Keep as written",
     searchAll: "Search all Documents",
     chooseCitation: "Choose the Citation…",
     findSources: "Find sources…",
@@ -70,7 +70,7 @@ const LANGUAGES = {
     mark: "句子核对：需要留意：未找到",
     needLook: "2 句需要留意",
     cut: "删除这句",
-    keep: "保留为我的观点",
+    keep: "保留原句",
     searchAll: "搜索全部文档",
     chooseCitation: "选择引用…",
     findSources: "查找资料…",
@@ -451,7 +451,7 @@ test("Cut it and Keep as my view are reached and run with the keyboard alone: �
   await clickEndOf(window, lines.nth(0));
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Cut it");
+  await window.keyboard.type("Cut the sentence");
   const cut = palette.locator('[data-key="command:check.cutSentence"]');
   await expect(cut).toHaveAttribute("aria-selected", "true");
   await window.keyboard.press("Enter");
@@ -465,7 +465,7 @@ test("Cut it and Keep as my view are reached and run with the keyboard alone: �
 
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Keep as my view");
+  await window.keyboard.type("Keep as written");
   await expect(palette.locator('[data-key="command:check.keepAsView"]')).toHaveAttribute(
     "aria-selected",
     "true",
@@ -520,7 +520,7 @@ test("Cut it in a paragraph with footnotes takes out exactly the sentence, its o
 
   // The sentence between the footnotes goes with its own footnote and nothing else.
   await cursorIn(editor, NOTHING);
-  await runCommand(window, "check.cutSentence", "Cut it");
+  await runCommand(window, "check.cutSentence", "Cut the sentence");
   await expect.poll(() => paragraphOf(editor)).toBe(`${ELSEWHERE}[${FIRST}] ${ALONE}`);
   await expect(marks).toHaveCount(2);
   await focusSettled(window, editor);

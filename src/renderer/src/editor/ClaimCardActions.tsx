@@ -1,5 +1,6 @@
 import { type ReactNode, useId } from "react";
 import type { CommandId } from "../../../shared/commands";
+import { CheckIcon } from "../components/icons";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { rowActionButtonClass } from "../components/sidebarRows";
 import { menuItemClass, menuItemUnavailableClass } from "../components/ui";
@@ -20,6 +21,7 @@ export function CardButtons({ buttons }: { buttons: readonly CardAction[] }) {
             key={action.key}
             type="button"
             data-testid={action.testId}
+            aria-keyshortcuts={action.keys}
             className={`citation-card-action ${index === 0 && action.primary ? "citation-card-action--primary" : ""}`}
             disabled={action.disabled}
             onClick={action.onClick}
@@ -53,6 +55,8 @@ export function CardMenu({
 }) {
   const t = useT();
   if (actions.length === 0 && about.length === 0 && !findSources) return null;
+  // Where a row ticks, every row keeps the tick's room, so their words start in one line.
+  const ticks = actions.some((action) => action.checked !== undefined);
   const here: Partial<Record<CommandId, () => void>> | undefined = findSources
     ? { "check.findSources": findSources }
     : undefined;
@@ -72,7 +76,9 @@ export function CardMenu({
                 <button
                   key={action.key}
                   type="button"
-                  role="menuitem"
+                  {...(action.checked === undefined
+                    ? { role: "menuitem" }
+                    : { role: "menuitemcheckbox", "aria-checked": action.checked })}
                   data-testid={action.testId}
                   aria-disabled={action.disabled || undefined}
                   className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
@@ -82,6 +88,11 @@ export function CardMenu({
                     action.onClick();
                   }}
                 >
+                  {ticks && (
+                    <span className="claim-menu-tick" aria-hidden="true">
+                      {action.checked && <CheckIcon className="claim-menu-tick-icon" />}
+                    </span>
+                  )}
                   <span className="flex-1">{action.label}</span>
                 </button>
               ))

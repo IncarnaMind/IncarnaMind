@@ -7984,6 +7984,12 @@ export interface ClaimCorrection {
   choices: ClaimCorrectionChoice[];
 }
 
+/** Words of a checked sentence and what to write in their place. */
+export interface ClaimChange {
+  replace: string;
+  with: string;
+}
+
 /** UTF-16 offsets into the checked sentence; end is exclusive. */
 export interface ClaimPartSpan {
   start: number;
@@ -8481,6 +8487,16 @@ export interface ClaimCheckBasis {
   evidence: CitationAttributes | null;
   /** A confirmed contradiction's correction; absent for every other result. */
   correction?: ClaimCorrection;
+  /**
+   * The change the User's own AI gave with a verdict that needs a look (#3715): its words in place
+   * of `replace`, which occurs exactly once in `text`. Absent for every other result.
+   */
+  change?: ClaimChange;
+  /**
+   * The quotes of its Citations that the User's own AI said say otherwise than the sentence, as
+   * the Citations hold them (#3715); the others say so. Absent where it named none.
+   */
+  otherwise?: string[];
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */
   says: string | null;
   /** "unsupported": why. */

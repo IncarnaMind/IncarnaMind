@@ -7,7 +7,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
-import { partWithResult, resultFromParts } from "../../../shared/claimParts";
+import { boundedQuote, partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -18,6 +18,7 @@ import {
   type CheckedVersion,
   type CheckWorking,
   type Citation,
+  type ClaimChange,
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckResult,
@@ -79,6 +80,10 @@ export interface JudgedSentence {
    */
   worked?: Worked | null;
   explanation: string | null;
+  /** Of `evidence`, the Citations whose quotes the agent said say otherwise than the sentence. */
+  otherwise?: readonly Citation[];
+  /** The change the agent gave, kept only where its verdict needs one and its words are once in the sentence. */
+  change?: ClaimChange | null;
 }
 
 export interface CheckTask {
@@ -104,6 +109,27 @@ export interface LandedCheck {
   /** Supported or contradicted on no Citation IncarnaMind could confirm: marked Not checked. */
   unconfirmed: number[];
   unreported: number[];
+  /** A change given where the verdict needs none, or whose words aren't in the sentence exactly once: not kept. */
+  unchanged: number[];
+}
+
+/** The verdicts a change is for: words of the sentence the quotes say otherwise of. */
+const CHANGED: ReadonlySet<JudgedVerdict> = new Set([
+  "overstated",
+  "partly-supported",
+  "contradicted",
+]);
+
+/** The change a mark keeps: for a verdict that takes one, whose words are in the sentence exactly once. */
+function changeOf(
+  judged: JudgedSentence,
+  result: ClaimCheckResult,
+  text: string,
+): ClaimChange | null {
+  const { change } = judged;
+  if (!change || !CHANGED.has(judged.verdict) || result.verdict === "not-checked") return null;
+  const at = text.indexOf(change.replace);
+  return at >= 0 && at === text.lastIndexOf(change.replace) ? change : null;
 }
 
 /**
@@ -357,6 +383,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
         const stillOpen = (sentence: Line) =>
           open.some((each) => each.element === sentence.element && each.from === sentence.from);
         const unconfirmed: number[] = [];
+        const unchanged: number[] = [];
         const reported = new Set<number>();
         let marked = 0;
         for (const each of judged) {
@@ -419,12 +446,23 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             // As a file's check records it: a row's verdict stands only while the row reads the same.
             ...(verification && { judgedWith: judgedWithOf(sentence, verification) }),
           };
-          markSentence(
-            sentence.element,
-            sentence.from,
-            sentence.to,
-            options.withResult(mark, result, at, blocks, mindId, sentence.said),
-          );
+          const change = values === null ? changeOf(each, result, sentence.text) : null;
+          if (each.change && !change) unchanged.push(each.n);
+          const otherwise =
+            result.verdict === "not-checked"
+              ? []
+              : [
+                  ...new Set(
+                    (each.otherwise ?? [])
+                      .filter((citation) => evidence.includes(citation))
+                      .map((citation) => boundedQuote(citation.quote)),
+                  ),
+                ];
+          markSentence(sentence.element, sentence.from, sentence.to, {
+            ...options.withResult(mark, result, at, blocks, mindId, sentence.said),
+            ...(change && { change }),
+            ...(otherwise.length > 0 && { otherwise }),
+          });
           marked++;
         }
         return {
@@ -435,6 +473,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             unreported: sentences.flatMap((sentence, index) =>
               reported.has(index + 1) || !stillOpen(sentence) ? [] : [index + 1],
             ),
+            unchanged,
           },
         };
       });

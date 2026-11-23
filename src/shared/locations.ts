@@ -326,6 +326,20 @@ export function formatLocation(
   }
 }
 
+/**
+ * Who said a Transcript's quote, as `formatLocation` names them before the time; null for a
+ * Location that names no one. A check card says it first, then the Document, then the time.
+ */
+export function locationSpeaker(
+  location: CitationLocation,
+  t: Translate,
+  { speakers = null, quote }: SpeakerWording = {},
+): string | null {
+  if (location.kind !== "time" || !location.speaker) return null;
+  const part = partStartOf(speakers, location.from, location.speaker, quote);
+  return part === null ? null : shownSpeaker(speakers, part, location.speaker, t);
+}
+
 /** "p. 68 · page 69 of the PDF" for a page that calls itself something other than its number in the PDF; null otherwise. */
 export function formatLocationWithPdf(location: CitationLocation, t: Translate): string | null {
   if (location.kind !== "page" || !location.printed) return null;

@@ -37,6 +37,7 @@ import {
   partCitations,
   readCheckedVersions,
   readClaimCalculation,
+  readClaimChange,
   readClaimCorrection,
   readClaimParts,
   readClaimScope,
@@ -199,6 +200,10 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
   const read = readOf(value.read);
   const recordCites = recordCitesOf(value.recordCites);
   const correction = readClaimCorrection(value.correction);
+  const change = readClaimChange(value.change);
+  const otherwise = Array.isArray(value.otherwise)
+    ? value.otherwise.filter((quote): quote is string => typeof quote === "string")
+    : [];
   const check: ClaimCheckAttributes = {
     id,
     request: text(value.request) ?? "",
@@ -211,6 +216,8 @@ function readCheckBasis(value: unknown): ClaimCheckBasis | null {
     text: text(value.text) ?? "",
     evidence: isRecord(value.evidence) ? (value.evidence as unknown as CitationAttributes) : null,
     ...(state === "contradicted" && correction && { correction }),
+    ...(change && { change }),
+    ...(otherwise.length > 0 && { otherwise }),
     says: text(value.says),
     unsupported: readUnsupportedReason(value.unsupported),
     calculation: readClaimCalculation(value.calculation),

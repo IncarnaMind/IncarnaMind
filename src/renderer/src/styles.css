@@ -6892,10 +6892,10 @@
     border-radius: 4px;
     pointer-events: none;
   }
-  /* A claim card fits the room its place measured: a list of record cites in it scrolls in what is left. */
+  /* A claim card fits the room its place measured: past it, its quotes scroll (#3715). */
   .claim-card {
     max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
-    overflow-y: auto;
+    overflow: hidden;
   }
   /*
    * A sentence's check card (#2869): the verdict, the sentence, why, one quote, what to do, in one
@@ -7000,10 +7000,6 @@
     text-align: start;
     white-space: pre-wrap;
     overflow-wrap: break-word;
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
   }
   .claim-quote-menu {
     position: absolute;
@@ -7018,9 +7014,7 @@
   /* The quote on a card of one part: the same words, set as a part's are, and they open the page. */
   .claim-card .citation-card-quote blockquote,
   .claim-quote-open {
-    max-height: 10rem;
     margin: 0;
-    overflow-y: auto;
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
@@ -7457,6 +7451,206 @@
     .citation-card-action {
       white-space: nowrap;
     }
+  }
+
+  /*
+   * The check card in the order a person decides in (#3715): the verdict and what is wrong at its
+   * top, the quotes in groups by what they do, then what the sentence becomes and what to press.
+   * Taller than its room, only the quotes scroll, ruled off from the top and the foot.
+   */
+  .claim-card {
+    gap: 12px;
+
+    .citation-badge {
+      min-height: 18px;
+      padding-right: 28px;
+      font-size: var(--text-meta);
+      line-height: 16px;
+    }
+  }
+  .claim-card-top,
+  .claim-card-end {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .claim-card-scroll {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+
+    &[data-scrolls] {
+      margin: 0 -16px;
+      padding: 8px 16px;
+      border-top: 1px solid var(--color-rule);
+      border-bottom: 1px solid var(--color-rule);
+    }
+  }
+  .claim-card-scroll:empty,
+  .claim-card-end:empty {
+    display: none;
+  }
+  /* The verdict's mark in its square, as the margin draws it. */
+  .claim-badge-mark {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--check-wash);
+    color: var(--check-ink);
+
+    .citation-badge-icon {
+      width: 12px;
+      height: 12px;
+    }
+    &[data-check="contradicted"] {
+      background: var(--color-sheet);
+      box-shadow: inset 0 0 0 1.5px var(--color-danger);
+    }
+    &[data-check="supported"],
+    &[data-leaning] {
+      background: none;
+    }
+  }
+  .claim-card-problem {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+    color: var(--color-ink);
+    overflow-wrap: break-word;
+  }
+  .claim-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .claim-quote + .claim-quote {
+      margin-top: 4px;
+    }
+  }
+  .claim-group-label,
+  .claim-folded-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-meta);
+    line-height: 16px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
+  .claim-group-label {
+    align-self: flex-start;
+    border-radius: 3px;
+  }
+  .claim-group-icon {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    color: var(--check-ink);
+  }
+  .claim-group-count {
+    font-weight: 400;
+    color: var(--color-ink-meta);
+  }
+  .claim-quotes-folded {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    font-size: var(--text-meta);
+    line-height: 16px;
+  }
+  /* A quote's Location line: who said it, the Document, which gives way first, and the place. */
+  .claim-source-line {
+    flex-wrap: nowrap;
+    white-space: nowrap;
+
+    & > .meta-part {
+      flex: none;
+    }
+    & > .meta-part:has(> .claim-source-name) {
+      flex: 0 1 auto;
+    }
+    .claim-card-cited {
+      display: inline-flex;
+      flex-shrink: 0;
+      width: auto;
+      margin: 0;
+      padding: 0;
+    }
+  }
+  .claim-source-who {
+    color: var(--color-ink-secondary);
+  }
+  .claim-source-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .claim-source-place {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .claim-card-none,
+  .claim-card-signed {
+    font-size: var(--text-meta);
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  /* What the sentence becomes, drawn as a change waiting in the Note is (DESIGN.md, AI edits). */
+  .claim-change {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .claim-change-title {
+    font-size: var(--text-meta);
+    line-height: 16px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
+  .claim-change-text {
+    color: var(--color-ink);
+    overflow-wrap: break-word;
+
+    del {
+      color: var(--color-ink-meta);
+      text-decoration: line-through 1px var(--color-ink-meta);
+    }
+    ins {
+      color: var(--color-ink-answer);
+      text-decoration: underline 1px var(--color-accent);
+      text-decoration-skip-ink: none;
+      text-underline-offset: 4px;
+    }
+  }
+  .claim-change-was {
+    overflow: hidden;
+    font-size: var(--text-meta);
+    line-height: 20px;
+    color: var(--color-ink-meta);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* A row of a card's ⋯ that ticks keeps every row's words in one line. */
+  .claim-menu-tick {
+    display: inline-flex;
+    flex: none;
+    width: 14px;
+    color: var(--color-ink-secondary);
+  }
+  .claim-menu-tick-icon {
+    width: 14px;
+    height: 14px;
   }
   .citation-card-action--primary {
     background: var(--color-ink);

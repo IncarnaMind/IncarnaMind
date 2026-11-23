@@ -26,6 +26,7 @@ import {
   markShownFor,
   motionSettled,
   newMind,
+  openCardMenu,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -285,25 +286,28 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(sourceCard.getByTestId("claim-part-more")).toHaveText(
             translate(language, "claim.parts.more", { count: "1" }),
           );
-          const toggle = sourceCard.getByTestId("sign-off-toggle");
-          await expect(toggle).toHaveCount(1);
-          await expect(toggle).toHaveText(translate(language, "signOff.action"));
-          await pointAndClick(window, toggle);
+          // "Checked by me" is a row of the card's ⋯ that ticks (#3715).
+          const signRow = async (ticked: boolean) => {
+            const row = (await openCardMenu(window, sourceCard)).getByTestId("sign-off-toggle");
+            await expect(row).toHaveText(translate(language, "signOff.action"));
+            await expect(row).toHaveAttribute("aria-checked", String(ticked));
+            return row;
+          };
+          await pointAndClick(window, await signRow(false));
           // It signs every quote, and opens the one folded so the User sees what they signed.
-          await expect(toggle).toHaveAttribute("aria-pressed", "true");
-          await expect(toggle).toBeFocused();
+          await expect(sourceCard.getByTestId("claim-signed")).toBeVisible();
           await expect(receipts).toHaveCount(2);
           await screenshot(window, `opinions-part-signoff-${language}-${width}`);
           // A second press takes it back from both.
-          await pointAndClick(window, toggle);
-          await expect(toggle).toHaveAttribute("aria-pressed", "false");
-          await pointAndClick(window, toggle);
-          await expect(toggle).toHaveAttribute("aria-pressed", "true");
+          await pointAndClick(window, await signRow(true));
+          await expect(sourceCard.getByTestId("claim-signed")).toHaveCount(0);
+          await pointAndClick(window, await signRow(false));
+          await expect(sourceCard.getByTestId("claim-signed")).toBeVisible();
           await pointAndClick(window, window.getByTestId("undo-action"));
           await expect(sourceCard).toHaveCount(0);
           await markShownFor(window, window.getByTestId("claim-mark"));
           await pointAndClick(window, window.getByTestId("claim-mark"));
-          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          await expect(sourceCard.getByTestId("claim-signed")).toHaveCount(0);
           // A quote's own menu still signs it alone, and says so on that quote.
           await pointAndClick(window, receipts.nth(0), { button: "right" });
           const humanMark = window.getByRole("menuitemcheckbox", {
@@ -315,14 +319,14 @@ for (const language of ["en", "zh-CN"] as const) {
             "data-state",
             "checked",
           );
-          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          await expect(sourceCard.getByTestId("claim-signed")).toHaveCount(0);
           await receipts.nth(0).getByTestId("claim-part-citation").focus();
           await runCommand(window, "citation.signOffRemove", translate(language, "signOff.action"));
           await window.keyboard.press("Escape");
           await expect(sourceCard).toHaveCount(0);
           await markShownFor(window, window.getByTestId("claim-mark"));
           await pointAndClick(window, window.getByTestId("claim-mark"));
-          await expect(toggle).toHaveAttribute("aria-pressed", "false");
+          await expect(sourceCard.getByTestId("claim-signed")).toHaveCount(0);
           await expect(receipts.nth(0).getByTestId("sign-off-line")).toHaveCount(0);
           expect(await partsOfCheck(window, "multisource-check")).toEqual(sourceParts);
           await expect(sourceCard).toHaveAttribute("data-check", "supported");

@@ -305,7 +305,7 @@ for (const [language, width] of [
     const receipts = card.getByTestId("claim-part-receipt");
     await expect(receipts).toHaveCount(1);
     await expect(receipts.first().getByTestId("claim-part-citation")).toHaveText(words.quotes[2]);
-    await expect(receipts.first().locator(".claim-part-source")).toContainText(words.page(3));
+    await expect(receipts.first().locator(".claim-quote-where")).toContainText(words.page(3));
     // Two buttons, the first two actions this card has had (a cited sentence whose part found a
     // nearest Passage: Fix the sentence, Remove the mark), and one ⋯.
     const buttons = card.locator(".citation-card-actions button");
@@ -365,21 +365,24 @@ for (const [language, width] of [
       await expect(rows).toHaveCount(1);
     }
 
-    // One "Checked by me": it signs every Citation of the sentence and opens the folded part in the
-    // same press; a second press takes it back.
-    const sign = card.getByTestId("sign-off-toggle");
-    await expect(sign).toHaveCount(1);
-    await expect(sign).toHaveText(t("signOff.action"));
-    await pointAndClick(window, sign);
-    await expect(sign).toHaveAttribute("aria-pressed", "true");
+    // One "Checked by me", a row of the ⋯ that ticks (#3715): it signs every Citation of the
+    // sentence and opens the folded part in the same press; a second press takes it back.
+    const signRow = async (ticked: boolean) => {
+      const row = (await openCardMenu(window, card)).getByTestId("sign-off-toggle");
+      await expect(row).toHaveText(t("signOff.action"));
+      await expect(row).toHaveAttribute("aria-checked", String(ticked));
+      return row;
+    };
+    await pointAndClick(window, await signRow(false));
+    await expect(card.getByTestId("claim-signed")).toBeVisible();
     await expect(rows).toHaveCount(2);
     await expect(window.getByTestId("undo-line")).toContainText(
       t("signOff.addedCount", { count: 3 }),
     );
     await expect(card.getByTestId("sign-off-line")).toHaveCount(0);
     await screenshot(window, `simpler-signed-${language}-${width}`);
-    await pointAndClick(window, sign);
-    await expect(sign).toHaveAttribute("aria-pressed", "false");
+    await pointAndClick(window, await signRow(true));
+    await expect(card.getByTestId("claim-signed")).toHaveCount(0);
     // A quote's own menu still signs it alone, and that quote says so.
     await pointAndClick(window, receipts.first(), { button: "right" });
     await pointAndClick(
@@ -390,7 +393,7 @@ for (const [language, width] of [
       "data-state",
       "checked",
     );
-    await expect(sign).toHaveAttribute("aria-pressed", "false");
+    await expect(card.getByTestId("claim-signed")).toHaveCount(0);
 
     // About this check, under ⋯: where it looked, the model and the time; the arrow keys reach it.
     const menu = await openCardMenu(window, card);
@@ -509,8 +512,8 @@ for (const [language, width] of [
     await markShownFor(window, window.getByTestId("claim-mark"));
     await pointAndClick(window, window.getByTestId("claim-mark"));
     await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.supported"));
-    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${text}”`);
-    await expect(card.getByTestId("claim-sentence-mark")).toHaveCount(0);
+    // The sentence isn't repeated: the Note outlines it while its card is open (#3715).
+    await expect(card.getByTestId("claim-sentence")).toHaveCount(0);
     const receipts = card.getByTestId("claim-part-receipt");
     await expect(receipts).toHaveCount(1);
     await expect(receipts.first().getByTestId("claim-part-already-chip")).toHaveText("1");
@@ -521,7 +524,6 @@ for (const [language, width] of [
     await expect(card.locator(".citation-card-actions")).toHaveCount(0);
     for (const line of ["claim-checked-in", "claim-checked-by", "claim-limit", "claim-reason"])
       await expect(card.getByTestId(line)).toHaveCount(0);
-    await expect(card.getByTestId("sign-off-toggle")).toHaveCount(1);
     await nothingClipped(window, card);
     await screenshot(window, `simpler-fine-${language}-${width}`);
     // The count opens the other quote, and folds it again, keeping the focus.
@@ -589,7 +591,7 @@ for (const [language, width] of [
       }, words);
       await window.keyboard.press("ControlOrMeta+Shift+K");
       await expect(card).toBeVisible();
-      await expect(card.getByTestId("claim-sentence")).toContainText(words.slice(0, 12));
+      await expect.poll(() => card.getAttribute("aria-label")).toContain(words.slice(0, 12));
       await motionSettled(window);
     };
     const close = async () => {

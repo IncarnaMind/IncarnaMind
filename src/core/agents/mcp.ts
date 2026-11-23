@@ -617,7 +617,7 @@ export function createAgentServer(
     {
       title: "Hand back your check of a Note",
       description:
-        "Hand back your result for each sentence check_mind_yourself gave. IncarnaMind confirms each Citation or run and marks the Note for the User; a supported or contradicted result with neither is marked Not checked.",
+        "Hand back your result for each sentence check_mind_yourself gave. IncarnaMind confirms each Citation or run and marks the Note for the User; a supported or contradicted result with neither is marked Not checked. For a sentence that needs a look, the User sees which quotes say otherwise and the change you give, to accept or not.",
       inputSchema: z.object({
         mindId: z.string(),
         task: z.string().describe("The task check_mind_yourself gave."),
@@ -626,6 +626,25 @@ export function createAgentServer(
             n: z.number().int(),
             verdict: z.enum(OWN_VERDICT_WORDS),
             cites: z.array(z.string()).optional().describe("The [cite:…] it rests on."),
+            otherwise: z
+              .array(z.string())
+              .optional()
+              .describe(
+                "Of its [cite:…], each one whose quote says otherwise than the sentence, a contradicting one too.",
+              ),
+            change: z
+              .object({
+                replace: z
+                  .string()
+                  .describe(
+                    "The sentence's own words to change, copied exactly, as few as will do.",
+                  ),
+                with: z.string().describe("The words to put in their place."),
+              })
+              .optional()
+              .describe(
+                "For an overstated, partly supported or contradicted sentence, the change that makes it state what its quotes say of its own subject; none where they don't say it.",
+              ),
             run: z.string().optional().describe("Or the id of a run_analysis result it rests on."),
             working: z
               .object({

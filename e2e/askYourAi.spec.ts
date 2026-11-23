@@ -185,7 +185,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await window.keyboard.press("Space");
     const card = window.getByTestId("claim-card");
     const ask = card.getByTestId("claim-ask-agent");
-    await expect(ask).toHaveText("Ask Claude Code");
+    await expect(ask).toHaveText("Ask Claude Code to fix it");
     await expect(ask).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(card).toBeHidden();

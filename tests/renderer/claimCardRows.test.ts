@@ -320,7 +320,7 @@ describe.each(["en", "zh-CN"] as const)("a part's reason (%s)", (language) => {
     ]);
   });
 
-  // protects=a one-part card whose check judged a Passage about it with nothing kept to quote, and gave no reason, says the check gave no reason, as such a part does, and one that found nothing says so (#2869); fails_when=such a card has no reason line or says it wasn't found; no_claim=the wording of a card with a reason.
+  // protects=a one-part card whose check judged a Passage about it with nothing kept to quote, and gave no reason, says the check gave no reason, as such a part does, and one that found nothing says no Passage was found where it looked (#2869, #3715); fails_when=such a card has no reason line or says it wasn't found; no_claim=the wording of a card with a reason.
   test.each([
     { found: true, says: "claim-why" },
     { found: false, says: "claim-nothing" },
@@ -337,9 +337,9 @@ describe.each(["en", "zh-CN"] as const)("a part's reason (%s)", (language) => {
     expect(line?.textContent).toBe(
       found
         ? t("claim.unsupported.noReason")
-        : t("claim.unsupported.notFound", { scope: t("composer.scope.all") }),
+        : t("claim.noPassage", { scope: t("composer.scope.all") }),
     );
-    expect(line?.className).toBe("claim-card-says");
+    expect(line?.className).toBe(found ? "claim-card-problem" : "meta-line claim-card-none");
   });
 });
 

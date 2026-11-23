@@ -680,6 +680,8 @@ const HOUR_MS = 3_600_000;
 const SUMMARY_CHARS = 300;
 /** The longest sentence of a search result a result's text is centred on, and of a quote given back. */
 const READY_QUOTE_CHARS = 300;
+/** The longest explanation of a check's result kept: one sentence, which the card shows whole. */
+const EXPLANATION_CHARS = 1_000;
 
 // ---------------------------------------------------------------------------
 // What it needs
@@ -3478,10 +3480,20 @@ export function createAgentAccess(
           if (!isRecord(each) || typeof each.n !== "number" || !Number.isInteger(each.n)) return [];
           const verdict = OWN_VERDICTS[each.verdict as OwnVerdict];
           if (verdict === undefined) return [];
-          const cites: unknown[] = Array.isArray(each.cites) ? each.cites : [];
-          const cited = cites.flatMap((cite) =>
-            typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
-          );
+          const tokens = (given: unknown): Citation[] =>
+            (Array.isArray(given) ? given : []).flatMap((cite: unknown) =>
+              typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
+            );
+          const otherwise = tokens(each.otherwise);
+          const named = tokens(each.cites);
+          const cited = [...named, ...otherwise.filter((citation) => !named.includes(citation))];
+          const change =
+            isRecord(each.change) &&
+            typeof each.change.replace === "string" &&
+            typeof each.change.with === "string" &&
+            each.change.replace !== ""
+              ? { replace: each.change.replace, with: each.change.with }
+              : null;
           const working = isRecord(each.working)
             ? workedFrom(each.working, citationOfToken, cited)
             : undefined;
@@ -3508,8 +3520,10 @@ export function createAgentAccess(
               ...(run !== undefined && { worked: run }),
               explanation:
                 typeof each.explanation === "string" && each.explanation.trim() !== ""
-                  ? clip(each.explanation.trim(), READY_QUOTE_CHARS)
+                  ? clip(each.explanation.trim(), EXPLANATION_CHARS)
                   : null,
+              otherwise,
+              change,
             },
           ];
         });
@@ -3517,11 +3531,16 @@ export function createAgentAccess(
         // A report on sentences that changed since is refused, and the ask stands, as the refusal
         // tells the agent to take them again: the User may go on writing while their AI checks.
         if (!landed.ok) throw notJudged(landed.reason, mind);
-        const { marked, unconfirmed, unreported } = landed.value;
+        const { marked, unconfirmed, unreported, unchanged } = landed.value;
         // Told to report again what didn't land, the agent keeps the ask until nothing is left.
-        if (unconfirmed.length === 0 && unreported.length === 0) {
-          deps.askedChecks.end(pairing.id, mind.id);
-        }
+        const again = unconfirmed.length > 0 || unreported.length > 0;
+        if (!again) deps.askedChecks.end(pairing.id, mind.id);
+        const lines = [
+          ...(again ? [t("agents.check.reportAgain"), ...workings] : []),
+          ...(unchanged.length > 0
+            ? [t("agents.check.changeNotKept", { sentences: unchanged.join(", ") })]
+            : []),
+        ];
         return {
           result: {
             mindId: mind.id,
@@ -3529,10 +3548,7 @@ export function createAgentAccess(
             marked,
             unconfirmed,
             unreported,
-            next:
-              unconfirmed.length > 0 || unreported.length > 0
-                ? [t("agents.check.reportAgain"), ...workings].join("\n")
-                : null,
+            next: lines.length > 0 ? lines.join("\n") : null,
           },
           count: marked,
           documentIds: [

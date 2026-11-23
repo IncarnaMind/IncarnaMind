@@ -1494,8 +1494,20 @@ export const en = {
   "claim.currencyClause.noSource": "The Document states the currency: {quote}",
   "claim.openCitation": "Open citation {number}",
   "claim.cutUnsupported": "Cut the unsupported part",
-  "claim.keepAsView": "Keep as my view",
+  "claim.keepAsView": "Keep as written",
   "claim.keptAsView": "Kept as your view",
+  // The clearer check card (#3715).
+  "claim.acceptChange.command": "Accept the check’s change",
+  "claim.acceptChange": "Accept change",
+  "claim.changeAccepted": "Accepted the change",
+  "claim.change.title": "Suggested change",
+  "claim.askToFix": "Ask {agent} to fix it",
+  "claim.group.otherwise": "Says otherwise",
+  "claim.group.so": "Says so",
+  "claim.quotes.show": "Show quotes",
+  "claim.quotes.fold": "Fold the quotes to one line",
+  "claim.noPassage": "No Passage found in “{scope}”",
+  "claim.noPassage.more": "No Passage found in “{scope}” or {count} more",
   "signOff.action": "Checked by me",
   "signOff.mine": "Checked by you · {time}",
   "signOff.theirs": "Checked by {name} · {time}",
@@ -1510,7 +1522,7 @@ export const en = {
   "signOff.keywords": "sign off reviewed checked by me verify tick",
   "signOff.count.mine": "{count} checked by you",
   "signOff.count.changed": "{count} changed since you checked",
-  "claim.cutSentence": "Cut it",
+  "claim.cutSentence": "Cut the sentence",
   "claim.cutSentence.keywords": "delete remove sentence unsupported",
   "claim.cutSentence.done": "Cut the sentence",
   "claim.cutSentence.moved":
@@ -8741,6 +8753,8 @@ export const en = {
     "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those. To judge the sentences again yourself, call check_mind_yourself with again: true and hand your results to report_check: a verdict only in your reply leaves the note’s marks as they are.",
   "agents.check.reportAgain":
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
+  "agents.check.changeNotKept":
+    "No change was kept for sentence {sentences}: give a change only for an overstated, partly supported or contradicted sentence, with words to replace that occur in it exactly once. Report that sentence again to give one.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
   // A note an outside agent wrote or changed, said where the Library's work shows (#3371).

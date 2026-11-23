@@ -219,7 +219,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect.poll(caretIn).toContain(CONTRADICTED);
   await pointAndClick(window, done.getByTestId("verify-unsupported"));
   await expect.poll(caretIn).toContain(UNSUPPORTED);
-  expect(await paletteOffers(window, "check.keepAsView", "Keep as my view")).toBe(1);
+  expect(await paletteOffers(window, "check.keepAsView", "Keep as written")).toBe(1);
   expect(await paletteOffers(window, "check.chooseCitation", "Choose the Citation")).toBe(0);
 
   // Editing a claim makes its check need a re-check, as Check against Documents' do: a row of its own.
