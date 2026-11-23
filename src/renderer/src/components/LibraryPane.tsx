@@ -67,6 +67,7 @@ import { LibrarySection } from "./library/LibrarySection";
 import { MeetingHits } from "./library/MeetingHits";
 import { OrganizeLines } from "./library/OrganizeLines";
 import { OrganizeReviewPage } from "./library/OrganizeReviewPage";
+import { ReviewAttentionTarget } from "./library/ReviewAttentionTarget";
 import { useFittingColumns } from "./library/useFittingColumns";
 import { ProblemLine } from "./ProblemLine";
 import { ReferenceImportPanel } from "./ReferenceImportPanel";
@@ -103,7 +104,6 @@ export function LibraryPane() {
   const linkedFolders = useAppStore((state) => state.linkedFolders);
   const tagFilter = useAppStore(useShallow((state) => state.tagFilter));
   const request = useAppStore((state) => state.libraryFilter);
-  const reviewTarget = useAppStore((state) => state.reviewTarget);
   const findingSources = useFindSources((state) => state.open);
   const [search, setSearch] = useState("");
   /** The format, year, status and Folder filters' choices; the Tags filter is the store's, shared with the sidebar. */
@@ -316,56 +316,6 @@ export function LibraryPane() {
     const visible = new Set(shownIds);
     held.keepOnly((ref) => visible.has(ref.id));
   }, [shownIds]);
-  // The row may hide behind the search, a filter or a folded section: clear what hides it before
-  // the reveal looks, which gives up after 120 frames (#2308).
-  useEffect(() => {
-    if (reviewTarget === null) return;
-    useAppStore.setState({ reviewTarget: null });
-    useOrganizeReview.setState({ open: false });
-    setSearch("");
-    setFacetFilter((current) => (isFiltering(current) ? {} : current));
-    if (useAppStore.getState().tagFilter.length > 0) useAppStore.getState().setTagFilter([]);
-    const folds = useLibraryFolds.getState();
-    const folderId = folderOf(reviewTarget);
-    if (folderId === null) {
-      folds.setOpen(NOT_IN_A_FOLDER, true);
-      folds.showAll(NOT_IN_A_FOLDER);
-    } else {
-      const chain: string[] = [];
-      const seen = new Set<string>();
-      let at: string | null = folderId;
-      while (at !== null && !seen.has(at)) {
-        const folder = folders.find((each) => each.id === at);
-        if (!folder) break;
-        seen.add(at);
-        chain.unshift(at);
-        at = folder.parentId;
-      }
-      const [top] = chain;
-      if (top !== undefined) {
-        folds.setOpen(top, true);
-        folds.showAll(top);
-      }
-      for (const each of chain) {
-        folds.setSubOpen(each, true);
-        folds.showAll(each);
-      }
-    }
-    const id = reviewTarget;
-    const within = `[data-document-id="${CSS.escape(id)}"]`;
-    let frames = 0;
-    const reveal = () => {
-      const row = page.current?.querySelector<HTMLElement>(within);
-      if (row) {
-        row.scrollIntoView({ block: "center" });
-        useSelection.getState().choose("library", { kind: "document", id });
-        row.querySelector<HTMLElement>("[data-row-main]")?.focus({ preventScroll: true });
-        return;
-      }
-      if (frames++ < 120) requestAnimationFrame(reveal);
-    };
-    requestAnimationFrame(reveal);
-  }, [reviewTarget, folders, folderOf]);
   const selectingMany = useSelection(
     (state) => state.surface === "library" && state.items.length > 1,
   );
@@ -423,11 +373,11 @@ export function LibraryPane() {
 
   const sectionKeys = sections.map((section) => section.key);
   const allFolded = sectionKeys.length > 0 && sectionKeys.every((key) => folded.has(key));
-  const clearNarrowing = () => {
+  const clearNarrowing = useCallback(() => {
     setSearch("");
     setFacetFilter({});
     useAppStore.getState().setTagFilter([]);
-  };
+  }, []);
   const meetingHits = meetingHitsOf(inside.matches, allDocuments, minds);
   const emptyLibrary = documents.length === 0 && meetingHits.length === 0;
   const nothingMatches =
@@ -622,6 +572,13 @@ export function LibraryPane() {
           </div>
         )}
       </div>
+      <ReviewAttentionTarget
+        page={page}
+        folders={folders}
+        folderOf={folderOf}
+        narrowing={narrowing}
+        clearNarrowing={clearNarrowing}
+      />
     </section>
   );
 }
