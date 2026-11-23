@@ -10,7 +10,7 @@ import { CITATION_NODE } from "../../core/api";
 import { parseQuotedWords } from "../../shared/citations";
 import { differsOnlyInMarks } from "../../shared/quoteMarks";
 import { findQuote } from "../../shared/quoteMatch";
-import { checkAgain, fixesFree, restoreCheck } from "./checks";
+import { checkAgain, checkRestorer, fixesFree } from "./checks";
 import { underReview } from "./editor/changePlacement";
 import { placeInSentence, type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
@@ -82,6 +82,7 @@ export function applyCitationWording(
     useNotices.getState().showError(new Error(translateNow("error.check.partChanged")));
     return false;
   }
+  const restore = checkRestorer(editor, fix.claim, fix.claim.check);
   const tr = editor.state.tr.insertText(fix.wording, fix.from, fix.to);
   const at = tr.mapping.map(fix.citation);
   tr.setNodeMarkup(at, undefined, {
@@ -101,13 +102,7 @@ export function applyCitationWording(
       if (again) await checkAgain(editor, mindId, doc, again);
     })();
   };
-  offerEditorUndo(
-    editor,
-    (t) => t("citation.usedDocumentWording"),
-    undefined,
-    () => restoreCheck(editor, fix.claim, fix.claim.check),
-    recheck,
-  );
+  offerEditorUndo(editor, (t) => t("citation.usedDocumentWording"), undefined, restore, recheck);
   recheck();
   return true;
 }

@@ -22,7 +22,7 @@ import {
 import { overlapsCitation } from "../../shared/citationOverlap";
 import { checkedCitation } from "../../shared/claimParts";
 import { INLINE_NODE } from "../../shared/sentences";
-import { checkAgain, fixesFree, restoreCheck } from "./checks";
+import { checkAgain, checkRestorer, fixesFree } from "./checks";
 import { core } from "./core";
 import { citationsOf } from "./editor/alreadyCited";
 import { underReview } from "./editor/changePlacement";
@@ -236,6 +236,9 @@ export function recordCorrections(
 
 function apply(editor: Editor, mindId: string, doc: Y.Doc, plans: CorrectionPlan[]): number {
   const edits = plans.flatMap((plan) => plan.edits);
+  const restorers = new Map(
+    plans.map((plan) => [plan.claim.check.id, checkRestorer(editor, plan.claim, plan.claim.check)]),
+  );
   const tr = editor.state.tr;
   if (!writeCorrections(tr, plans)) return 0;
   asOneStep(editor, () => editor.view.dispatch(tr));
@@ -262,7 +265,7 @@ function apply(editor: Editor, mindId: string, doc: Y.Doc, plans: CorrectionPlan
         : t("claim.correction.doneMany", { count: edits.length }),
     undefined,
     () => {
-      for (const plan of corrected) restoreCheck(editor, plan.claim, plan.claim.check);
+      for (const plan of corrected) restorers.get(plan.claim.check.id)?.();
     },
     recheck,
   );

@@ -63,7 +63,7 @@ export type PlacedChange =
   | { ok: true; change: ClaimChange; edits: ChangeEdit[] }
   | { ok: false; why: ChangeRefused };
 
-const refused = (why: ChangeRefused): PlacedChange => ({ ok: false, why });
+export const refused = (why: ChangeRefused): PlacedChange => ({ ok: false, why });
 
 /** Where each token of `tokens` starts in their text, and where the last ends. */
 function offsetsOf(tokens: readonly string[]): number[] {

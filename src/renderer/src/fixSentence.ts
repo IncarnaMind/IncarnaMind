@@ -7,11 +7,6 @@
  * no rewrite.
  */
 import type { Editor } from "@tiptap/core";
-import {
-  absolutePositionToRelativePosition,
-  relativePositionToAbsolutePosition,
-  ySyncPluginKey,
-} from "@tiptap/y-tiptap";
 import type * as Y from "yjs";
 import type { ClaimCheckAttributes } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
@@ -21,6 +16,7 @@ import { citationsOf } from "./editor/alreadyCited";
 import { appliedLineIn, appliedLineKey } from "./editor/appliedEditLine";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { type UndoStep, undoStackOf } from "./editor/editorUndo";
+import { keptPlace } from "./editor/keptPlace";
 import { requestEdit } from "./editWithAi";
 import { flushMindUpdates } from "./mindCopies";
 import { useNotices } from "./notices";
@@ -81,17 +77,6 @@ export function fixInstructionOf(editor: Editor, claim: ShownClaim): string | nu
         ]
       : []),
   ].join(" ");
-}
-
-/** A place in the editor that stays with the words around it while the edit writes over the sentence. */
-function keptPlace(editor: Editor, position: number): () => number | null {
-  const binding = ySyncPluginKey.getState(editor.state)?.binding;
-  if (!binding) return () => null;
-  const relative = absolutePositionToRelativePosition(position, binding.type, binding.mapping);
-  return () =>
-    editor.isDestroyed
-      ? null
-      : relativePositionToAbsolutePosition(binding.doc, binding.type, relative, binding.mapping);
 }
 
 /** How a fix ended: its new sentence Supported, still needing a look, or not made. */

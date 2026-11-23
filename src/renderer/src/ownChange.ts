@@ -8,10 +8,15 @@ import type { Mark } from "@tiptap/pm/model";
 import type * as Y from "yjs";
 import { CLAIM_CHECK_MARK, GENERATED_MARK } from "../../core/api";
 import type { MessageKey } from "../../shared/i18n";
-import { checkAgain, restoreCheck, useChecks } from "./checks";
+import { checkAgain, checkRestorer, useChecks } from "./checks";
 import { core } from "./core";
 import { blockIdAt } from "./correctionFixes";
-import { type ChangeRefused, type PlacedChange, placeChange } from "./editor/changePlacement";
+import {
+  type ChangeRefused,
+  type PlacedChange,
+  placeChange,
+  refused,
+} from "./editor/changePlacement";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { useEdits } from "./editWithAi";
@@ -19,8 +24,6 @@ import { checksHandedFile } from "./handedFiles";
 import { translateNow } from "./i18n";
 import { flushMindUpdates } from "./mindCopies";
 import { useNotices } from "./notices";
-
-const refused = (why: ChangeRefused): PlacedChange => ({ ok: false, why });
 
 /**
  * Whether the change of `claim`'s check can be made now, and where: the one test the card, ⌘K and
@@ -89,6 +92,7 @@ export function acceptChange(
     checked ??= node.marks.find((mark) => mark.type === checkType);
     return checked === undefined;
   });
+  const restore = checkRestorer(editor, claim, claim.check);
   for (const edit of [...placed.edits].reverse()) {
     if (edit.text === "") {
       tr.delete(edit.from, edit.to);
@@ -113,13 +117,7 @@ export function acceptChange(
       );
     rechecks.set(mindId, next);
   };
-  offerEditorUndo(
-    editor,
-    (t) => t("claim.changeAccepted"),
-    undefined,
-    () => restoreCheck(editor, claim, claim.check),
-    again,
-  );
+  offerEditorUndo(editor, (t) => t("claim.changeAccepted"), undefined, restore, again);
   again();
   const first = placed.edits[0];
   const blockId = first ? blockIdAt(editor.state.doc, tr.mapping.map(first.from, -1)) : null;

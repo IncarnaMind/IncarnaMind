@@ -28,7 +28,7 @@ import { figureNumber } from "../../shared/formula";
 import type { MessageKey } from "../../shared/i18n";
 import { inlineRange } from "../../shared/inlineText";
 import { comparableSentence, INLINE_NODE, sentenceSpans } from "../../shared/sentences";
-import { checkAgain, fixesFree, restoreCheck } from "./checks";
+import { checkAgain, checkRestorer, fixesFree } from "./checks";
 import { makeMine } from "./editor/aiText";
 import { citationsOf } from "./editor/alreadyCited";
 import { underReview } from "./editor/changePlacement";
@@ -428,6 +428,7 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
     return;
   }
   const earlier = claim.check;
+  const restore = checkRestorer(editor, claim, earlier);
   asOneStep(editor, () => {
     editor.view.dispatch(editor.state.tr.insertText(fix.shown, place.from, place.to));
   });
@@ -442,7 +443,7 @@ export function applyFigure(editor: Editor, mindId: string, doc: Y.Doc, claim: S
     editor,
     (t) => t("claim.useFigure.done", { figure: fix.shown }),
     undefined,
-    () => restoreCheck(editor, claim, earlier),
+    restore,
     recheck,
   );
   recheck();

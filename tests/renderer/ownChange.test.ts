@@ -1,6 +1,6 @@
 import { Editor, type JSONContent } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
-import { prosemirrorToYXmlFragment } from "@tiptap/y-tiptap";
+import { prosemirrorToYXmlFragment, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { DOMParser } from "linkedom";
 import { beforeEach, describe, expect, onTestFinished, test, vi } from "vitest";
 import * as Y from "yjs";
@@ -273,6 +273,34 @@ describe("Accept writes the change and keeps every Citation and figure where it 
 
     expect(textOf(editor)).toBe(`Growth was ${INLINE_NODE} in Q4.`);
     expect(nodesOf(editor)).toEqual([figure.type]);
+  });
+});
+
+describe("Undo of Accept brings back the check where the sentence is then", () => {
+  test("after another writer added a paragraph before it: on its words, and nowhere else", () => {
+    const text = "The pontoon takes two boats at a time.";
+    const attrs = overstated(text, { replace: "two boats", with: "one boat" });
+    const { editor, doc } = editorWith([marked(text, attrs)]);
+
+    expect(acceptChange(editor, MIND, doc, claim(editor), false)).toBe(true);
+    expect(claim(editor).shown.state).toBe("needs-recheck");
+
+    // Someone else, in another window, adds a paragraph before it: not a step of this Undo.
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(doc));
+    const added = new Y.XmlElement("paragraph");
+    added.insert(0, [new Y.XmlText("The harbour office opens at nine.")]);
+    other.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [added]);
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, Y.encodeStateVector(doc)));
+    other.destroy();
+
+    yUndoPluginKey.getState(editor.state)?.undoManager.undo();
+
+    const back = shownClaims(editor.state);
+    expect(back).toHaveLength(1);
+    expect(back[0]?.sentence.text).toBe(text);
+    expect(back[0]?.shown.state).toBe("unsupported");
+    expect(back[0]?.check.change).toEqual({ replace: "two boats", with: "one boat" });
   });
 });
 
