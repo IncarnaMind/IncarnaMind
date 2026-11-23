@@ -19,11 +19,12 @@ import {
 
 /*
  * A check card that opened with nothing in it takes its height from what lands in it, once, when
- * it has stopped landing, then holds it (#2313). It hangs from its foot: the Check in the foot never moves, in any frame, and
- * only the card's top edge goes up, as far as the window's margin above its badge. When there was
- * no room above and the card sits below its badge, the only room is the gap it is placed at, which
- * it keeps, so what lands scrolls in the body it had. It never covers the badge. Nothing animates
- * the growth. Each test attaches the card's two stills, before and after.
+ * it has stopped landing, then holds it (#2313). From the badge at the Note's top right (#3677) it
+ * opens down and hangs from its top edge: the edge under the badge never moves, in any frame, and
+ * only its foot goes down, as far as the window's margin. From a badge at a page's foot it opens up
+ * and hangs from its foot: the Check in the foot never moves, and only its top edge goes up, as far
+ * as the window's margin. It never covers the badge. Nothing animates the growth. Each test
+ * attaches the card's two stills, before and after.
  */
 
 const TIDES = buildPdf([{ lines: ["Harbour times", "Harbours publish times of high water."] }]);
@@ -173,11 +174,12 @@ for (const language of ["en", "zh-CN"] as const) {
         await setWindowSize(app, window, width, 900);
         await addDocuments(window, [join(sources, "Tides.pdf")]);
         await newMind(window);
-        // No room above the badge, as in a short pane: the card is placed below it.
-        if (placement === "below") {
+        // A badge at a page's foot, as a Note without its controls at the top has it: the card is
+        // placed above it.
+        if (placement === "above") {
           await window.addStyleTag({
             content:
-              ".check-badge-place { position: fixed !important; top: 72px !important; right: 40px !important; }",
+              ".check-badge-place { position: fixed !important; top: auto !important; bottom: 72px !important; right: 40px !important; }",
           });
         }
         const card = await checkCard(window);
@@ -220,15 +222,21 @@ for (const language of ["en", "zh-CN"] as const) {
           )
           .join("  >  ");
         for (const shift of shifts) {
-          expect(shift.test, `the Check shifted: ${trail}`).not.toBe("badge-check-mind");
+          if (placement === "above")
+            expect(shift.test, `the Check shifted: ${trail}`).not.toBe("badge-check-mind");
           if (shift.inside)
             expect(overlap(shift.current, badgeNow), `the card covered its badge: ${trail}`).toBe(
               false,
             );
         }
-        expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
-        // Only its top edge moved.
-        expect(grown[1] + grown[3]).toBeCloseTo(rest.card[1] + rest.card[3], 0);
+        if (placement === "above") {
+          expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
+          // Only its top edge moved.
+          expect(grown[1] + grown[3]).toBeCloseTo(rest.card[1] + rest.card[3], 0);
+        } else {
+          // Only its foot moved.
+          expect(grown[1]).toBeCloseTo(rest.card[1], 0);
+        }
         if (placement === "above") {
           expect(grown[3], "the card grew").toBeGreaterThan(rest.card[3] + 20);
           expect(grown[1], "within the window's margin").toBeGreaterThanOrEqual(8 - 0.5);
@@ -239,12 +247,16 @@ for (const language of ["en", "zh-CN"] as const) {
           ).toBe(true);
           await expect(card.getByTestId("health-toCheck")).toBeVisible();
         } else {
-          // Below its badge the only room is the gap it is placed at, which it keeps: what lands
-          // scrolls in the body it had.
-          expect(grown[3], "the card didn't grow").toBeCloseTo(rest.card[3], 0);
+          // Opening down, its foot went down to show all that landed.
+          expect(grown[3], "the card grew").toBeGreaterThan(rest.card[3] + 20);
+          expect(grown[1] + grown[3], "within the window's margin").toBeLessThanOrEqual(
+            900 - 8 + 0.5,
+          );
           expect(
-            await body.evaluate((element) => element.scrollHeight > element.clientHeight + 1),
+            await body.evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
+            `the body hides rows: ${trail}`,
           ).toBe(true);
+          await expect(card.getByTestId("health-toCheck")).toBeVisible();
         }
 
         // Held from then on: more landing leaves the card as it is.
@@ -252,7 +264,8 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(card.getByTestId("health-look")).toContainText("6");
         await motionSettled(window);
         expect(same(await boxOf(card), grown)).toBe(true);
-        expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
+        if (placement === "above")
+          expect(same(await boxOf(card.getByTestId("badge-check-mind")), rest.check)).toBe(true);
         await app.close();
       });
     }

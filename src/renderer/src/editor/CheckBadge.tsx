@@ -576,8 +576,9 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  // With the Note's own controls at its top right (#3677), the card opens down from there.
-  const fromTop = anchor?.closest(".note-head-badge") != null;
+  // From a badge at the Note's top right (#3677) the card opens down, hanging from its top edge;
+  // from one at a page's foot it opens up, hanging from its foot.
+  const fromTop = anchor !== null && anchor.getBoundingClientRect().top < window.innerHeight / 2;
   // The card takes its first paint's height, so what lands later never moves what is above it;
   // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
@@ -601,8 +602,9 @@ function BadgeFrame({
       return;
     }
     // A card that opened with nothing in it has nothing to move: what lands in it sets its height,
-    // once, when it has stopped landing (#2313). Under its badge it keeps the body it had at
-    // once, so what lands never covers the badge.
+    // once, when it has stopped landing (#2313). Hanging from its foot under its badge it keeps
+    // the body it had at once, so what lands never covers the badge; opening down from a badge at
+    // the Note's top right (#3677), its foot goes down instead.
     const content = element.firstElementChild;
     if (!content || !anchor) return;
     const rest = element.offsetHeight;
@@ -612,7 +614,7 @@ function BadgeFrame({
     const hold = () => {
       watching.disconnect();
       window.clearTimeout(settle);
-      setHeldHeight(firstHeightOf(element, anchor, rest));
+      setHeldHeight(firstHeightOf(element, anchor, rest, fromTop));
     };
     // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
     const touched = () => {
@@ -620,7 +622,7 @@ function BadgeFrame({
     };
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
-      if (isBelowOf(element, anchor)) {
+      if (!fromTop && isBelowOf(element, anchor)) {
         watching.disconnect();
         flushSync(() => setHeldHeight(rest));
         return;
@@ -639,7 +641,7 @@ function BadgeFrame({
       card?.removeEventListener("pointerenter", touched);
       card?.removeEventListener("focusin", touched);
     };
-  }, [open, heldHeight, anchor]);
+  }, [open, heldHeight, anchor, fromTop]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);

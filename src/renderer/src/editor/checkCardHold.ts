@@ -27,6 +27,11 @@ export interface HeldRoom {
   chrome: number;
   /** The badge the card hangs from. */
   badge: { top: number; bottom: number };
+  /**
+   * The window's height, for a card that opens down from a badge at the Note's top right (#3677):
+   * it hangs from its top edge instead, and only its foot goes down.
+   */
+  downTo?: number;
 }
 
 /**
@@ -37,7 +42,10 @@ export interface HeldRoom {
  * would have the card placed again, with its foot moved: the body stays as it was. What doesn't
  * fit stays in the body, which scrolls.
  */
-export function firstHeight({ natural, rest, card, chrome, badge }: HeldRoom): number {
+export function firstHeight({ natural, rest, card, chrome, badge, downTo }: HeldRoom): number {
+  if (downTo !== undefined) {
+    return Math.max(0, Math.min(natural, downTo - CARD_MARGIN - card.top - chrome));
+  }
   if (isBelow(card, badge)) return rest;
   return Math.max(0, Math.min(natural, card.bottom - CARD_MARGIN - chrome));
 }
@@ -52,8 +60,16 @@ export function isBelowOf(body: HTMLElement, badge: Element): boolean {
   return card !== undefined && isBelow(card, badge.getBoundingClientRect());
 }
 
-/** `firstHeight` for the body as it is laid out now, under the badge it hangs from. */
-export function firstHeightOf(body: HTMLElement, badge: Element, rest: number): number {
+/**
+ * `firstHeight` for the body as it is laid out now, under the badge it hangs from; `down` for a
+ * card that opens down from its badge.
+ */
+export function firstHeightOf(
+  body: HTMLElement,
+  badge: Element,
+  rest: number,
+  down = false,
+): number {
   const element = body.closest<HTMLElement>(".check-card");
   if (!element) return body.offsetHeight;
   return firstHeight({
@@ -63,5 +79,6 @@ export function firstHeightOf(body: HTMLElement, badge: Element, rest: number): 
     // Its scroll height, not its box: a body taller than the room has already clamped the card.
     chrome: element.scrollHeight - body.offsetHeight,
     badge: badge.getBoundingClientRect(),
+    ...(down && { downTo: window.innerHeight }),
   });
 }
