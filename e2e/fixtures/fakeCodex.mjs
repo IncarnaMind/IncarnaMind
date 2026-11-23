@@ -66,9 +66,27 @@ for (let at = 0; at < args.length; at++) {
 }
 const setting = (key) => settings.get(`mcp_servers.incarnamind.${key}`);
 
+/** What Codex gives every server it starts, besides the variables `env_vars` names. */
+const BASE_ENV =
+  process.platform === "win32"
+    ? [
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "SystemRoot",
+        "COMSPEC",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+      ]
+    : ["PATH", "HOME", "TMPDIR", "LANG", "USER", "LOGNAME"];
+
 /** IncarnaMind's server, started as Codex starts one: its own process group, the named variables only. */
 async function server() {
-  const env = { PATH: process.env.PATH ?? "" };
+  const env = {};
+  for (const name of BASE_ENV) if (process.env[name] !== undefined) env[name] = process.env[name];
   for (const name of setting("env_vars") ?? []) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }

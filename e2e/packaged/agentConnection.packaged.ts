@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { agentSocketPath } from "../../src/core/agents/socket";
 import type { AgentLaunch } from "../../src/core/api";
@@ -14,7 +14,7 @@ import {
   modernAgentClient,
   redactAgentKeys,
 } from "../../tests/helpers/agentClients";
-import { acceptPlainTextKeys, coreOf, dismissChatSetup, setWindowSize } from "../app";
+import { acceptPlainTextKeys, coreOf, dismissChatSetup, setWindowSize, writeNote } from "../app";
 import { launchPackaged, packagedExecutable, packagedLogLines } from "./app";
 
 test.use({ trace: "off" });
@@ -297,3 +297,121 @@ for (const [protocol, documents] of [
     }
   });
 }
+
+/** Whether a process with this id is still running. */
+const running = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/*
+ * A check pressed with no model set up runs on the User's own Codex in the background (#3639): the
+ * packaged app finds `codex` on the login shell's PATH and starts it, and Codex starts the packaged
+ * shim from the settings it was given. A Node script stands in for Codex (e2e/fixtures/fakeCodex.mjs),
+ * starting the shim in a process group of its own as Codex does. Its marks land through the shim,
+ * and Stop ends Codex and the shim on each system: the process group on macOS and Linux, the
+ * process tree on Windows.
+ */
+test("a check on the User's own Codex lands through the packaged shim, and Stop ends Codex and the shim", async () => {
+  expect(existsSync(packagedExecutable)).toBe(true);
+  const home = await mkdtemp(
+    join(process.platform === "win32" ? tmpdir() : "/tmp", "incarnamind-codex-home-"),
+  );
+  const data = await mkdtemp(join(tmpdir(), "incarnamind-codex-data-"));
+  const sources = await mkdtemp(join(tmpdir(), "incarnamind-codex-sources-"));
+  const bin = await mkdtemp(join(tmpdir(), "incarnamind-codex-bin-"));
+  folders = [home, data, sources, bin];
+  dataFolder = data;
+  const fake = join(__dirname, "..", "fixtures", "fakeCodex.mjs");
+  if (process.platform === "win32") {
+    await writeFile(join(bin, "codex.cmd"), `@"${process.execPath}" "${fake}" %*\r\n`);
+  } else {
+    await writeFile(join(bin, "codex"), `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+    await chmod(join(bin, "codex"), 0o755);
+  }
+  const mode = join(bin, "mode");
+  const file = join(sources, "Tides.md");
+  await writeFile(file, "Spring tides happen at new moon and full moon.");
+  const app = await test.step(
+    "Launch the packaged app with a stand-in codex on its PATH",
+    () =>
+      launchPackaged(home, data, {
+        testHooks: true,
+        env: {
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          INCARNAMIND_TEST_OWN_AI_MODE_FILE: mode,
+        },
+      }),
+    { box: true },
+  );
+  try {
+    const window = await app.firstWindow();
+    await setWindowSize(app, window, 900, 700);
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    const core = await coreOf(window);
+    const folder = await core.evaluate((bridge) =>
+      bridge.createLibraryGroup({ name: "Coast", description: "Tides" }),
+    );
+    const added = await core.evaluate(
+      (bridge, input) => bridge.addDocuments([input.file], { groupId: input.folder }),
+      { file, folder: folder.id },
+    );
+    await expect
+      .poll(async () =>
+        (await core.evaluate((bridge) => bridge.listDocuments()))
+          .filter((document) => added.added.includes(document.id))
+          .map((document) => document.status),
+      )
+      .toEqual(["ready"]);
+    await core.evaluate((bridge) => bridge.setAgentsEnabled(true));
+    const codex = await core.evaluate(
+      (bridge, id) =>
+        bridge.connectAgent({ name: "ChatGPT app and Codex", client: "codex", folderIds: [id] }),
+      folder.id,
+    );
+    const mindId = await writeNote(
+      window,
+      "Tide notes",
+      [{ text: "Spring tides happen at new moon and full moon." }],
+      { folderId: folder.id },
+    );
+    const reported = async () =>
+      (await core.evaluate((bridge, id) => bridge.listAgentActivity(id), codex.pairing.id)).some(
+        (activity) => activity.tool === "report_check" && activity.outcome === "done",
+      );
+
+    await test.step("A check lands through the packaged shim", async () => {
+      await writeFile(mode, "check");
+      expect(await core.evaluate((bridge, id) => bridge.checkWithOwnAi(id), mindId)).toMatchObject({
+        kind: "started",
+      });
+      await expect.poll(reported, { timeout: 60_000 }).toBe(true);
+    });
+
+    await test.step("Stop ends Codex and the shim it started", async () => {
+      await writeFile(mode, "wait");
+      // Another Note: the first one's run may not have ended yet, and a Note runs one at a time.
+      const other = await writeNote(
+        window,
+        "Tide notes, second draft",
+        [{ text: "Neap tides come at the quarter moons." }],
+        { folderId: folder.id },
+      );
+      expect(await core.evaluate((bridge, id) => bridge.checkWithOwnAi(id), other)).toMatchObject({
+        kind: "started",
+      });
+      await expect.poll(() => existsSync(join(bin, "pids")), { timeout: 60_000 }).toBe(true);
+      const pids = (await readFile(join(bin, "pids"), "utf8")).split(" ").map(Number);
+      expect(pids.filter(running)).toEqual(pids);
+      await core.evaluate((bridge, id) => bridge.stopOwnAiCheck(id), other);
+      await expect.poll(() => pids.filter(running), { timeout: 10_000 }).toEqual([]);
+    });
+  } finally {
+    await app.close();
+  }
+});
