@@ -29,8 +29,15 @@ export function changedSentence(text: string, change: ClaimChange): string | nul
   return text.slice(0, at) + change.with + text.slice(at + change.replace.length);
 }
 
-/** The sentence's words alone: a Citation, and the space before it, are no words of it. */
-const shown = (text: string) => text.replace(new RegExp(`\\s*${INLINE_NODE}`, "gu"), "").trim();
+/**
+ * The sentence's words alone: a Citation, and the space it stood in before its stop, are no words
+ * of it; a sentence's text leaves its Citations out, keeping that space.
+ */
+const shown = (text: string) =>
+  text
+    .replace(new RegExp(`\\s*${INLINE_NODE}`, "gu"), "")
+    .replace(/\s+(?=[.,;:!?。，；：！？])/gu, "")
+    .trim();
 
 /** Where a clause starts, after the comma or semicolon that ends the one before. */
 const CLAUSE_BREAK = /[,;，；]\s*/g;

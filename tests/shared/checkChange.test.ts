@@ -60,6 +60,15 @@ describe("a check's change on its card (#3715)", () => {
         { kind: "kept", text: " passengers in 2025." },
       ],
     });
+    // A sentence's text leaves its Citation out but keeps the space it stood in.
+    const spaced = changeView("Kestrel Ferries carried 48,200 passengers in 2025 .", {
+      replace: "48,200",
+      with: "42,800",
+    });
+    expect(spaced?.kind === "words" ? spaced.runs.at(-1) : null).toEqual({
+      kind: "kept",
+      text: " passengers in 2025.",
+    });
   });
 
   // protects=a sentence written anew reads as a rewritten paragraph does in the Note: the old one on its own line, then the new; fails_when=a change of most of its words is drawn word by word
