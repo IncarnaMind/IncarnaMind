@@ -7557,6 +7557,8 @@ export const en = {
   "meetings.fill.notMentioned": "Not mentioned in the call.",
   "meetings.fill.reference.above": "{topic} — see above",
   "meetings.fill.reference.below": "{topic} — see below",
+  "meetings.fill.stop": "Stop",
+  "meetings.fill.problem.userStopped": "you stopped the notes",
   "meetings.fill.problem.stopped": "IncarnaMind closed before they were done",
   "meetings.fill.problem.localMode":
     "“Keep everything on this computer” is on, and this note’s model isn’t on this computer",

@@ -23,6 +23,7 @@ const REASONS = {
   empty: "meetings.fill.problem.empty",
   unchecked: "meetings.fill.problem.unchecked",
   stopped: "meetings.fill.problem.stopped",
+  "user-stopped": "meetings.fill.problem.userStopped",
   "local-mode": "meetings.fill.problem.localMode",
   "not-allowed": "meetings.fill.problem.notAllowed",
   "no-model": "meetings.fill.problem.noModel",
@@ -219,6 +220,15 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         role="status"
         className=""
         details={fill.state === "filling" ? telling : []}
+        action={
+          meeting.kind === "meeting" && fill.state === "filling"
+            ? {
+                label: t("meetings.fill.stop"),
+                testId: "meeting-fill-stop",
+                onClick: () => void useMeetings.getState().stopNotes(meeting.id),
+              }
+            : undefined
+        }
       >
         <span className={fill.state === "filling" || waiting ? "answer-writing" : undefined}>
           {text}

@@ -12397,6 +12397,7 @@ export interface MeetingFill {
  * - "empty": the model's reply held nothing to add;
  * - "unchecked": none of what the model wrote could be checked against the Transcript;
  * - "stopped": IncarnaMind closed while they were being filled in;
+ * - "user-stopped": the User stopped preparing the notes;
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
@@ -12410,6 +12411,7 @@ export interface MeetingFillProblem {
     | "model"
     | "empty"
     | "unchecked"
+    | "user-stopped"
     | "stopped"
     | "local-mode"
     | "not-allowed"
@@ -15817,6 +15819,7 @@ export interface CoreApi {
    * on Try again. The model is the Answers one the User chose; nothing asks first.
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
+  stopMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
   /** Whether the selected AI route can start a new quote review for this saved Meeting. */
   canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
@@ -16816,6 +16819,7 @@ const methods: Record<CoreApiMethod, true> = {
   getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
+  stopMeetingNotes: true,
   retryMeetingSummary: true,
   canReviewMeetingSummaryCandidates: true,
   reviewMeetingSummaryCandidates: true,

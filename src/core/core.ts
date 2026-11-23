@@ -2372,7 +2372,8 @@ export function createCore(adapters: CoreAdapters): Core {
     defaultModel: () => settings.get().user.chatModel,
     readsImages: (choice) => chat.readsImages(choice),
     readiness: async (choice) => chat.readiness(await chat.answeringModel(choice)),
-    prepareModel: (choice, thinking) => chat.prepareModel(choice, "chat", thinking),
+    prepareModel: (choice, thinking, options) =>
+      chat.prepareModel(choice, "chat", thinking, options),
     // A Meeting's notes read up to FILL_PARTS_AT_ONCE parts at once and each sets its whole reply
     // aside: under a cap that can't hold them the notes keep the room every call has, where a
     // wider one would be refused. The prompt is counted as long as the reply, far above a part's.
@@ -2414,14 +2415,15 @@ export function createCore(adapters: CoreAdapters): Core {
         flow,
         adapters.answerPaths,
       ),
-    async prepareQuickModel(answers, prepared, own = false) {
+    async prepareQuickModel(answers, prepared, own = false, preparation) {
       const quick = own ? null : chat.quickTasksModel(answers);
       // An Answer on this computer keeps its small calls there too.
       const stayHere =
         !quick ||
         (prepared.provider.service === null && chat.describeModel(quick)?.service !== null);
       // Even the Answers model is prepared again: as the Answer's it thinks, and that fills a small call.
-      return (await chat.prepareModel(stayHere ? answers : quick, "chat", "off")).model;
+      return (await chat.prepareModel(stayHere ? answers : quick, "chat", "off", preparation))
+        .model;
     },
     documents: {
       searchableCount: (documentIds) => documents.searchableCount(documentIds ?? undefined),
@@ -6083,6 +6085,7 @@ export function createCore(adapters: CoreAdapters): Core {
   }
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
+    localOnly: () => embedding.localOnly(),
     notesAgentId: () => settings.get().device.meetingNotesAgentId,
     content,
     meetings,
@@ -6109,6 +6112,20 @@ export function createCore(adapters: CoreAdapters): Core {
       }
       const choice = await chat.answeringModel(modelInUseIn(mindId) ?? undefined);
       const readiness = await chat.readiness(choice);
+      // Filling in never asks: a service the User hasn't allowed yet waits for an Answer to ask.
+      if (
+        (readiness.ready && readiness.consent === "needed") ||
+        (!readiness.ready && readiness.reason === "consent-declined")
+      ) {
+        const service = readiness.provider.service?.name ?? readiness.provider.kind;
+        return {
+          problem: {
+            kind: "not-allowed",
+            message: reasonAlone(language, "meetings.fill.problem.notAllowed", { service }),
+            service,
+          },
+        };
+      }
       if (!readiness.ready) {
         const agent =
           readiness.reason === "no-provider"
@@ -6128,19 +6145,8 @@ export function createCore(adapters: CoreAdapters): Core {
                 },
         };
       }
-      // Filling in never asks: a service the User hasn't allowed yet waits for an Answer to ask.
-      if (readiness.consent === "needed") {
-        const service = readiness.provider.service?.name ?? readiness.provider.kind;
-        return {
-          problem: {
-            kind: "not-allowed",
-            message: reasonAlone(language, "meetings.fill.problem.notAllowed", { service }),
-            service,
-          },
-        };
-      }
       const model = { providerId: readiness.provider.id, modelId: readiness.modelId };
-      const prepared = await chat.prepareModel(model);
+      const prepared = await chat.prepareModel(model, "chat", undefined, { background: true });
       return {
         model,
         local: chat.metered(model)?.billing === "free",
@@ -6170,6 +6176,7 @@ export function createCore(adapters: CoreAdapters): Core {
           model,
         },
         signal,
+        { background: true },
       );
       return result.verdict === "supported";
     },
@@ -6210,8 +6217,8 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   transcriptSaved = (meetingId) => meetingFill.transcriptSaved(meetingId);
   transcriptWritten = (meetingId) => meetingFill.transcriptWritten(meetingId);
-  for (const meetingId of writtenAtStart.splice(0)) meetingFill.transcriptWritten(meetingId);
   meetingFill.resume();
+  for (const meetingId of writtenAtStart.splice(0)) meetingFill.transcriptWritten(meetingId);
   /**
    * The line typed in the call-help panel's field and not sent, by Meeting (#2925): in memory only,
    * as the User's half-typed text, so the panel going or the recording stopping never drops it.
@@ -9423,6 +9430,7 @@ export function createCore(adapters: CoreAdapters): Core {
       liveSummaries.retry(meeting);
       return meetings.get(meeting.id);
     },
+    stopMeetingNotes: async (meetingId) => meetingFill.stop(meetings.get(meetingId).id),
     fillMeetingNotes: async (meetingId) => meetingFill.retry(meetings.get(meetingId).id),
     undoMeetingFill: async (meetingId) => meetingFill.undo(meetings.get(meetingId).id),
     followMeetingFillUndo: async (input) => {

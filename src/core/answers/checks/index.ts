@@ -269,7 +269,7 @@ export interface ChecksOptions
       choice: ChatModelChoice | undefined,
       flow: CheckFlow,
       thinking?: typeof JUDGING_THINKS,
-      options?: { sends?: readonly DataKind[] },
+      options?: { sends?: readonly DataKind[]; background?: boolean },
     ): Promise<PreparedChatModel>;
     modelShape(
       choice: ChatModelChoice | undefined,
@@ -805,7 +805,7 @@ export function createChecks(options: ChecksOptions) {
     choice: ChatModelChoice | null,
     flow: CheckFlow,
     prepared: PreparedChatModel,
-    sent?: { sends?: readonly DataKind[] },
+    sent?: { sends?: readonly DataKind[]; background?: boolean },
   ): Promise<PreparedChatModel> {
     if (!prepared.provider.service) return prepared;
     const thinks = await chat.prepareModel(choice ?? undefined, flow, JUDGING_THINKS, sent);
@@ -816,6 +816,7 @@ export function createChecks(options: ChecksOptions) {
   async function prepare(
     choice: ChatModelChoice | null,
     flow: CheckFlow = "checks",
+    preparation?: { background?: boolean },
   ): Promise<
     | { ok: true; prepared: PreparedChatModel }
     | {
@@ -829,14 +830,15 @@ export function createChecks(options: ChecksOptions) {
       return { ok: false, result: { kind: "local-mode" } };
     }
     try {
-      const prepared = await chat.prepareModel(choice ?? undefined, flow);
-      return { ok: true, prepared: await thinksToJudge(choice, flow, prepared) };
+      const prepared = await chat.prepareModel(choice ?? undefined, flow, undefined, preparation);
+      return { ok: true, prepared: await thinksToJudge(choice, flow, prepared, preparation) };
     } catch (error) {
       if (error instanceof ChatNotReadyError) {
         return { ok: false, result: { kind: "not-ready", readiness: error.readiness } };
       }
       if (error instanceof LocalModeError) return { ok: false, result: { kind: "local-mode" } };
       if (error instanceof ConsentDeclinedError) {
+        if (preparation?.background) throw error;
         const now = await chat.readiness(choice ?? undefined, flow);
         return {
           ok: false,
@@ -1622,9 +1624,13 @@ export function createChecks(options: ChecksOptions) {
     startWatching: () => watch.start(),
 
     /** `signal` stops the check, for a caller in the core; the API's callers can't pass one. */
-    async checkClaim(input: unknown, signal?: AbortSignal): Promise<ClaimCheckResult> {
+    async checkClaim(
+      input: unknown,
+      signal?: AbortSignal,
+      preparation?: { background: boolean },
+    ): Promise<ClaimCheckResult> {
       const parsed = parseClaim(input);
-      const ready = await prepare(parsed.model ?? options.defaultModel());
+      const ready = await prepare(parsed.model ?? options.defaultModel(), "checks", preparation);
       if (!ready.ok) {
         const { result } = ready;
         if (result.kind === "not-ready") throw new ChatNotReadyError(result.readiness);

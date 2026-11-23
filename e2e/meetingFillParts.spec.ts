@@ -73,7 +73,9 @@ test("a long call's line says which part the note is on", async () => {
       const shown = new RegExp(pattern);
       let last = "";
       new MutationObserver(() => {
-        const text = document.querySelector('[data-testid="meeting-fill-line"]')?.textContent ?? "";
+        const text =
+          document.querySelector('[data-testid="meeting-fill-line"] .answer-writing')
+            ?.textContent ?? "";
         const found = text === last ? null : shown.exec(text);
         last = text;
         if (found) {
