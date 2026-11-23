@@ -63,16 +63,27 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
       const names = namesOf(element);
       const start = performance.now();
       const steps: number[] = [];
-      const settled = leastGivenUp(
-        Math.max(0, STEPS.indexOf(element.dataset.hide ?? "")),
-        STEPS.length - 1,
-        (step) => {
-          steps.push(step);
-          element.dataset.hide = STEPS[step] ?? "";
-          if (step === STEPS.length - 1) return true;
-          return !names.some((name) => isCut(name, step === NARROWEST ? A_FEW_LETTERS : 0));
-        },
-      );
+      const fits = (step: number) => {
+        steps.push(step);
+        element.dataset.hide = STEPS[step] ?? "";
+        if (step === STEPS.length - 1) return true;
+        return !names.some((name) => isCut(name, step === NARROWEST ? A_FEW_LETTERS : 0));
+      };
+      let settled: number;
+      if (element.dataset.hide !== undefined) {
+        settled = leastGivenUp(Math.max(0, STEPS.indexOf(element.dataset.hide)), STEPS.length-1, fits);
+      } else if (fits(0)) {
+        settled = 0;
+      } else {
+        let low = 0;
+        let high = STEPS.length - 1;
+        while (high - low > 1) {
+          const middle = Math.floor((low + high)/2);
+          if (fits(middle)) high = middle;
+          else low = middle;
+        }
+        settled = high;
+      }
       element.dataset.hide = STEPS[settled] ?? "";
       widths = widthsOf(element);
       performance.mark("review:fit-" + steps.join(",") + "-ms-" + Math.round(performance.now()-start));
