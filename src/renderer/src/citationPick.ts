@@ -17,7 +17,7 @@ import {
   type TabItem,
   type WindowLayout,
 } from "../../core/api";
-import { checkAgain, fixesFree, restoreCheck } from "./checks";
+import { checkAgain, checkRestorer, fixesFree } from "./checks";
 import { citationAttributesOf } from "./citedSelection";
 import { citationInsertionPoint } from "./editor/citationInsertion";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
@@ -189,6 +189,7 @@ export async function citeChosenWords(
   if (!type) return false;
   const at = citationInsertionPoint(editor.state.doc, claim.sentence.from, claim.sentence.to);
   const earlier = claim.check;
+  const restore = checkRestorer(editor, claim, earlier);
   asOneStep(editor, () =>
     editor.view.dispatch(
       editor.state.tr.insert(at, type.create(citationAttributesOf(cited, document))),
@@ -199,13 +200,7 @@ export async function citeChosenWords(
     const again = shownClaims(editor.state).find((each) => each.check.id === earlier.id);
     if (again) void checkAgain(editor, pick.mindId, doc, again, true);
   };
-  offerEditorUndo(
-    editor,
-    (t) => t("claim.chosenCitation.done"),
-    undefined,
-    () => restoreCheck(editor, claim, earlier),
-    recheck,
-  );
+  offerEditorUndo(editor, (t) => t("claim.chosenCitation.done"), undefined, restore, recheck);
   recheck();
   return true;
 }

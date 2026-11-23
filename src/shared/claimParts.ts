@@ -412,10 +412,11 @@ function cutQuote(quote: string, chars: number): string {
   return `${quote.slice(0, end).trimEnd()}…`;
 }
 
+/** A quote as a check's receipt stores it. */
+export const boundedQuote = (quote: string): string => cutQuote(quote, CHECK_QUOTE_CHARS_AT_MOST);
+
 const withQuote = (citation: CitationAttributes): CitationAttributes =>
-  citation.quote === null
-    ? citation
-    : { ...citation, quote: cutQuote(citation.quote, CHECK_QUOTE_CHARS_AT_MOST) };
+  citation.quote === null ? citation : { ...citation, quote: boundedQuote(citation.quote) };
 
 const boundedCorrection = (correction: ClaimCorrection): ClaimCorrection => ({
   ...correction,

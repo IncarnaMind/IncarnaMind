@@ -400,9 +400,13 @@ for (const language of ["en", "zh-CN"] as const) {
       const actions = card.locator("button:visible");
       const count = await actions.count();
       expect(count, "the card has an action").toBeGreaterThan(0);
-      // A card with nothing under a ⋯, as Not checked, has none.
-      const start = (await card.getByTestId("check-menu").count()) > 0 ? 1 : 0;
-      if (start === 1) await expect(actions.first()).toHaveAttribute("data-testid", "check-menu");
+      // A card with nothing under a ⋯, as Not checked, has none. A group's label, as "Says
+      // otherwise", is reached by Tab but the focus starts on its quote (#3715).
+      const ids = await actions.evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("data-testid")),
+      );
+      const start = ids.findIndex((id) => id !== "check-menu" && id !== "claim-group-label");
+      if (start > 0) await expect(actions.first()).toHaveAttribute("data-testid", "check-menu");
       const firstName =
         "name" in state
           ? state.name
@@ -439,9 +443,9 @@ for (const language of ["en", "zh-CN"] as const) {
         await expect(actions.nth((start + at) % count)).toBeFocused();
       }
       // Shift+Tab goes back through them: from the ⋯, or the first, it wraps to the last.
-      if (start === 1) {
+      for (let at = start - 1; at >= 0; at--) {
         await window.keyboard.press("Shift+Tab");
-        await expect(actions.first()).toBeFocused();
+        await expect(actions.nth(at)).toBeFocused();
       }
       await window.keyboard.press("Shift+Tab");
       await expect(actions.last()).toBeFocused();

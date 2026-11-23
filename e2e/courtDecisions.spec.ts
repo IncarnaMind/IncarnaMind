@@ -58,7 +58,7 @@ const WORDS = {
   en: {
     title: "This cites a court decision.",
     body: "IncarnaMind can’t check that this case exists or says this. Check it in your legal research service before you rely on it.",
-    nothing: "I didn’t find this in “All Documents”.",
+    nothing: "No passage found in “All Documents”",
     unchecked:
       "Not checked: the cited case isn’t in your Documents. Check it in your legal research service before you rely on it.",
     held: (document: string, location: string) =>
@@ -68,7 +68,7 @@ const WORDS = {
   "zh-CN": {
     title: "本句引用了法院判决。",
     body: "IncarnaMind 无法核对该判决是否存在、是否这样说。依赖前请在你的法律数据库中查证。",
-    nothing: "未在“全部文档”中找到。",
+    nothing: "未在“全部文档”中找到相关段落",
     unchecked: "未核对：引用的判决不在你的文档中。依赖前请在你的法律数据库中查证。",
     held: (document: string, location: string) =>
       `已在你保存的判决书中找到引文（${document}，${location}）。未核对是否已被推翻或修改。依赖前请在你的法律数据库中查证。`,

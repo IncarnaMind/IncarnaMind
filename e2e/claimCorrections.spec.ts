@@ -228,7 +228,7 @@ for (const [language, width] of [
     await pointAndClick(window, marks.nth(0));
     const correct = card.getByTestId("claim-correct");
     await expect(correct).toHaveText(translate(language, "claim.correction", { wording: "38.6%" }));
-    // The fix first, then Keep as my view; Open the page is first under the card's ⋯ (#2869).
+    // The fix first, then Keep as written; Open the page is first under the card's ⋯ (#2869).
     const actions = card.locator(".citation-card-actions button");
     await expect(actions).toHaveCount(2);
     await expect(actions.nth(0)).toHaveAttribute("data-testid", "claim-correct");
@@ -277,7 +277,7 @@ for (const [language, width] of [
     await pointAndClick(window, window.getByTestId("undo-action"));
 
     await pointAndClick(window, marks.nth(3));
-    // A check without a correction keeps what it offered before: Keep as my view, and Open the
+    // A check without a correction keeps what it offered before: Keep as written, and Open the
     // page under the card's ⋯.
     await expect(card.getByTestId("claim-correct")).toHaveCount(0);
     await expect(card.getByTestId("claim-keep")).toBeVisible();

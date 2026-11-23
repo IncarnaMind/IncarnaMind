@@ -18,6 +18,7 @@ import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
 import { fixableAt, fixSentence } from "../fixSentence";
 import { startMindCheck } from "../mindCheck";
+import { acceptChange, changeAt } from "../ownChange";
 import { readableNow } from "../readableDocuments";
 import {
   applyDocumentWording,
@@ -104,6 +105,10 @@ const withContradicted = () => withClaim(contradictedAt);
 // With a model, Fix the sentence has the model write what Change to pastes in by code (#3383).
 const withCorrection = () => (noModel() ? withClaim(correctionAt) : null);
 const withFixable = () => (noModel() ? null : withClaim(fixableAt));
+const withChange = () => {
+  const note = noteHandle.current;
+  return note ? withClaim((editor) => changeAt(editor, note.mindId)) : null;
+};
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
 const withKeepable = () => withNothingBacking() ?? withContradicted();
 
@@ -330,8 +335,20 @@ export const checkCommands: readonly Command[] = [
     },
   },
   {
+    id: "check.acceptChange",
+    label: "claim.acceptChange.command",
+    group: "main",
+    // One step of the Note's Undo, which brings back the check it had.
+    reversible: true,
+    when: () => withChange() !== null,
+    run() {
+      const at = withChange();
+      if (at) acceptChange(at.editor, at.mindId, at.doc, at.claim, !noModel());
+    },
+  },
+  {
     id: "check.keepAsView",
-    label: "claim.keepAsView",
+    label: "claim.keepAsWritten",
     group: "main",
     reversible: true,
     when: () => withKeepable() !== null,

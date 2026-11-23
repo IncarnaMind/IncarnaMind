@@ -11,6 +11,10 @@ const useHanded = create<{ byMind: Readonly<Record<string, HandedFileOfMind | nu
   byMind: {},
 }));
 
+/** Whether a Note checks a file an outside agent handed over, as its page last read it. */
+export const checksHandedFile = (mindId: string): boolean =>
+  (useHanded.getState().byMind[mindId] ?? null) !== null;
+
 /** The version each Note's handed-over file was read at: one read for every part of its page. */
 const readAt = new Map<string, string>();
 
