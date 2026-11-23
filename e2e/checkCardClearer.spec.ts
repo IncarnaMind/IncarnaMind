@@ -328,6 +328,13 @@ for (const lang of ["en", "zh-CN"] as const) {
       await expect(groups).toHaveCount(0);
       await pointAndClick(window, folded.getByTestId("claim-show-quotes"));
       await expect(groups).toHaveCount(2);
+      // From the keyboard the focus stays in the card: on Show quotes, then on the first label.
+      const label = groups.nth(0).getByTestId("claim-group-label");
+      await label.focus();
+      await window.keyboard.press("Enter");
+      await expect(folded.getByTestId("claim-show-quotes")).toBeFocused();
+      await window.keyboard.press("Enter");
+      await expect(label).toBeFocused();
 
       // Checked by me is a row of the ⋯ that ticks, and the card says it once set.
       await pointAndClick(window, card.getByTestId("check-menu"));

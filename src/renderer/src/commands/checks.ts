@@ -17,6 +17,7 @@ import { selectionForEdit } from "../editor/editSelection";
 import { checkOpinion, opinionAt } from "../editor/opinionChecks";
 import { useFindSources } from "../findSources";
 import { fixableAt, fixSentence } from "../fixSentence";
+import { checksHandedFile } from "../handedFiles";
 import { startMindCheck } from "../mindCheck";
 import { readableNow } from "../readableDocuments";
 import {
@@ -104,7 +105,11 @@ const withContradicted = () => withClaim(contradictedAt);
 // With a model, Fix the sentence has the model write what Change to pastes in by code (#3383).
 const withCorrection = () => (noModel() ? withClaim(correctionAt) : null);
 const withFixable = () => (noModel() ? null : withClaim(fixableAt));
-const withChange = () => withClaim(changeAt);
+// As on its card, a handed-over file's Note offers no change to accept: its words are the file's.
+const withChange = () => {
+  const at = withClaim(changeAt);
+  return at && !checksHandedFile(at.mindId) ? at : null;
+};
 const withNothingBacking = () => withUnsupported() ?? withNotFound();
 const withKeepable = () => withNothingBacking() ?? withContradicted();
 

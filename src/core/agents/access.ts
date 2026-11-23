@@ -81,6 +81,7 @@ import {
   type Citation,
   type CitationLocation,
   type CitationRecheck,
+  type ClaimChange,
   type Effect,
   type LibrarySource,
   type Mind,
@@ -519,6 +520,10 @@ export interface AgentReportInput {
       figure: string;
     };
     explanation?: string;
+    /** Of `cites`, each one whose quote says otherwise than the sentence (#3715). */
+    otherwise?: string[];
+    /** The change that makes the sentence state what its quotes say (#3715). */
+    change?: ClaimChange;
   }[];
 }
 

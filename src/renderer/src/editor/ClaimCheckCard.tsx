@@ -1342,16 +1342,14 @@ export function ClaimCard({
     partsShown && !(rows.length === 1 && onlyRow && coversSentence(check.text, onlyRow.part.span));
   const folded = useQuotesFolded();
   const ownChange = checking || fileOnly ? null : changeToAccept(editor, claim);
-  const soleChoice = !ownChange && sole?.correction.choices.length === 1 ? sole : null;
+  const [onlyChoice] =
+    !ownChange && sole?.correction.choices.length === 1 ? sole.correction.choices : [];
   const shownChange =
     ownChange ??
-    (soleChoice
-      ? {
-          replace: soleChoice.correction.from,
-          with: soleChoice.correction.choices[0]?.wording ?? "",
-        }
-      : null);
+    (sole && onlyChoice ? { replace: sole.correction.from, with: onlyChoice.wording } : null);
   const changeShown = shownChange ? changeView(claim.sentence.text, shownChange) : null;
+  // A correction the card can't draw as a change keeps its own button.
+  const soleChoice = changeShown && !ownChange ? sole : null;
   const accept = changeShown
     ? ownChange
       ? onAccept
@@ -1422,7 +1420,7 @@ export function ClaimCard({
   );
   // Where the User's own AI is asked first, Search all Documents is on the line that says no
   // Passage was found, not a button (#3715).
-  const searchOnLine = nothingFound && searchesAll && askFirst && ask.length > 0;
+  const searchOnLine = nothingFound && !partsShown && searchesAll && askFirst && ask.length > 0;
   // Its Answer's judgement read only its Citations: a check in the Note searches for the rest
   // first, before its words are changed to what a Citation says (#2809).
   const searchFirst = state === "unsupported" && check.citedOnly === true && fixes;

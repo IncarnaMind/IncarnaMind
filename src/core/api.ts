@@ -447,8 +447,13 @@ export interface CreateMindInput {
  *   title; the Blocks after it, up to the next, are that tab. An older editor would drop the Block
  *   when it saves the Note, running its tabs together, so it opens these Notes read-only. Older
  *   content is version 61 content as it is: a Note without the Block is one tab.
+ * - 63: a sentence's check by the User's own AI may keep the change it gave (`change`, its
+ *   `replace` and `with`) and which of its quotes say otherwise (`otherwise`, #3715). An older
+ *   editor would drop both when it saves the Note, and the card would offer no change and group
+ *   no quote, so it opens these Notes read-only. Older content is version 62 content as it is: a
+ *   check without them gives no change and names no roles.
  */
-export const CONTENT_SCHEMA_VERSION = 62;
+export const CONTENT_SCHEMA_VERSION = 63;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content

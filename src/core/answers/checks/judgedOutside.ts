@@ -7,7 +7,12 @@
  */
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
-import { boundedQuote, partWithResult, resultFromParts } from "../../../shared/claimParts";
+import {
+  boundedQuote,
+  partWithResult,
+  readClaimChange,
+  resultFromParts,
+} from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -126,7 +131,7 @@ function changeOf(
   result: ClaimCheckResult,
   text: string,
 ): ClaimChange | null {
-  const { change } = judged;
+  const change = readClaimChange(judged.change);
   if (!change || !CHANGED.has(judged.verdict) || result.verdict === "not-checked") return null;
   const at = text.indexOf(change.replace);
   return at >= 0 && at === text.lastIndexOf(change.replace) ? change : null;

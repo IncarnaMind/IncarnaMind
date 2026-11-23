@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { create } from "zustand";
 import { useLanguage, useT } from "../i18n";
 import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
@@ -12,6 +12,17 @@ export const useQuotesFolded = (): boolean => useFolded((state) => state.folded)
 export const setQuotesFolded = (folded: boolean): void => useFolded.setState({ folded });
 
 const LABEL = { otherwise: "claim.group.otherwise", so: "claim.group.so" } as const;
+
+/** A press that folds or shows the quotes from the focused control: the one in its place takes the focus. */
+let focusPassing = false;
+const passFocus = (from: Element | null) => {
+  focusPassing = from?.contains(document.activeElement) === true;
+};
+const takeFocus = (element: HTMLElement | null | undefined) => {
+  if (!focusPassing || !element) return;
+  focusPassing = false;
+  element.focus();
+};
 
 function GroupIcon({ role, mark }: { role: QuoteRole; mark: ClaimMarkState }) {
   return (
@@ -42,6 +53,8 @@ export function QuoteGroupView({
 }) {
   const t = useT();
   const language = useLanguage();
+  const label = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => takeFocus(label.current), []);
   return (
     <section
       className={`claim-group ${role === "so" ? "citation-card--found" : ""}`}
@@ -50,12 +63,16 @@ export function QuoteGroupView({
     >
       {role && (
         <button
+          ref={label}
           type="button"
           className="claim-group-label"
           data-testid="claim-group-label"
           aria-expanded={true}
           title={t("claim.quotes.fold")}
-          onClick={onFold}
+          onClick={(event) => {
+            passFocus(event.currentTarget);
+            onFold();
+          }}
         >
           <GroupIcon role={role} mark={mark} />
           {t(LABEL[role])}
@@ -83,8 +100,10 @@ export function FoldedQuotes({
 }) {
   const t = useT();
   const language = useLanguage();
+  const line = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => takeFocus(line.current?.querySelector("button")), []);
   return (
-    <p className="claim-quotes-folded" data-testid="claim-quotes-folded">
+    <p ref={line} className="claim-quotes-folded" data-testid="claim-quotes-folded">
       {groups.map(({ role, count }) => (
         <span
           key={role}
@@ -98,7 +117,14 @@ export function FoldedQuotes({
           </span>
         </span>
       ))}
-      <QuoteLink testId="claim-show-quotes" expanded={false} onClick={onShow}>
+      <QuoteLink
+        testId="claim-show-quotes"
+        expanded={false}
+        onClick={() => {
+          passFocus(line.current);
+          onShow();
+        }}
+      >
         {t("claim.quotes.show")}
       </QuoteLink>
     </p>

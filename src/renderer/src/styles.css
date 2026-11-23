@@ -6892,10 +6892,14 @@
     border-radius: 4px;
     pointer-events: none;
   }
-  /* A claim card fits the room its place measured: past it, its quotes scroll (#3715). */
+  /*
+   * A claim card fits the room its place measured: past it, its quotes scroll (#3715), and the card
+   * itself only where what is wrong and its buttons alone are taller than the room.
+   */
   .claim-card {
     max-height: min(calc(100vh - 16px), var(--card-room, 100vh));
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   /*
    * A sentence's check card (#2869): the verdict, the sentence, why, one quote, what to do, in one
@@ -7495,14 +7499,10 @@
   .claim-card-end:empty {
     display: none;
   }
-  /* A card of several parts opens its folded parts under its buttons, so it scrolls whole. */
-  .claim-card[data-parts] {
-    overflow-y: auto;
-
-    .claim-card-scroll {
-      flex: none;
-      overflow: visible;
-    }
+  /* A card of IncarnaMind's own check opens its folded parts under its buttons, so it scrolls whole. */
+  .claim-card[data-parts] .claim-card-scroll {
+    flex: none;
+    overflow: visible;
   }
   /* The verdict's mark in its square, as the margin draws it. */
   .claim-badge-mark {

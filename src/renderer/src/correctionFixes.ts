@@ -350,6 +350,9 @@ export function changeAt(editor: Editor): ShownClaim | null {
   );
 }
 
+/** Each Note's last check again after an accepted change: a check still running turns the next away. */
+const rechecks = new Map<string, Promise<void>>();
+
 /**
  * Writes the change the User's own AI gave over its words, as AI text by that agent, with one Undo
  * (#3715). With a model set up in IncarnaMind the sentence is checked again like any edit; with
@@ -399,11 +402,16 @@ export function acceptChange(
   asOneStep(editor, () => editor.view.dispatch(tr));
   const again = () => {
     if (!recheck) return;
-    void (async () => {
-      await flushMindUpdates(mindId);
-      const now = shownClaims(editor.state).find((each) => each.check.id === claim.check.id);
-      if (now) await checkAgain(editor, mindId, doc, now);
-    })();
+    const next = (rechecks.get(mindId) ?? Promise.resolve())
+      .then(async () => {
+        await flushMindUpdates(mindId);
+        const now = shownClaims(editor.state).find((each) => each.check.id === claim.check.id);
+        if (now) await checkAgain(editor, mindId, doc, now);
+      })
+      .catch((error: unknown) =>
+        console.error("A sentence couldn't be checked again after its change.", error),
+      );
+    rechecks.set(mindId, next);
   };
   offerEditorUndo(
     editor,
