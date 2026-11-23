@@ -144,9 +144,9 @@ export function citedTextKept(
   });
 }
 
-/** What a Citation needs of a live Document: whether it is there, and the name to show for it. */
+/** What a Citation needs of a live Document: whether it is there, its name, and a web page's address. */
 export type LiveDocument = Pick<Document, "id" | "contentHash"> &
-  Partial<Pick<Document, "name" | "title" | "speakers">>;
+  Partial<Pick<Document, "name" | "title" | "speakers" | "web">>;
 
 /** A list of Documents by ID, and by content: one of each content's copies, the same each time. */
 interface DocumentIndex {
@@ -192,6 +192,19 @@ export function liveDocumentOf(
     (own === null ? undefined : byId.get(own)) ??
     (attributes.contentHash ? byContent.get(attributes.contentHash) : undefined)
   );
+}
+
+/**
+ * The address of the web page a Citation's live Document is (`CitationState.documentId`), else
+ * null: its footnote names it, and two pages with the same text at two addresses are two sources.
+ * The Note's numbers and every export take it from here, so they key a footnote alike.
+ */
+export function citedAddress(
+  documentId: string | null,
+  documents: readonly LiveDocument[] | null,
+): string | null {
+  if (documentId === null || documents === null) return null;
+  return indexOf(documents).byId.get(documentId)?.web?.address ?? null;
 }
 
 type Named = Partial<Pick<CitationAttributes, "documentId" | "contentHash" | "documentName">>;
@@ -708,6 +721,7 @@ export function citationSubject(
     contentHash: attributes.contentHash ?? null,
     location: citationLocation(attributes),
     unverified: state.check !== "found",
+    link: citedAddress(state.documentId, documents),
   };
 }
 

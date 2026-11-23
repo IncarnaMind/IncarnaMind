@@ -11,6 +11,7 @@ import {
   citationSource,
   citationState,
   citationSubject,
+  citedAddress,
   citedLocation,
   citedTextKept,
   closestWordsMessage,
@@ -1058,6 +1059,29 @@ describe("What makes two Citations one footnote (#2292)", () => {
     expect(keyOf(bare)).toBe(keyOf(bare));
     expect(keyOf({ ...bare, documentId: "doc-2" })).not.toBe(keyOf(bare));
     expect(keyOf(bare)).not.toBe(keyOf());
+  });
+
+  test("two web pages with one text at two addresses are two footnotes, as the Note and the export key them", () => {
+    const web = (address: string) => ({
+      address,
+      origin: "user" as const,
+      siteName: "Tide Wiki",
+      author: null,
+      published: null,
+      fetchedAt: "2026-10-01T00:00:00Z",
+      versions: [],
+      picturesLeftOut: 0,
+      look: null,
+    });
+    const documents = [
+      { id: "page-a", contentHash: "v1", web: web("https://tides.example/a") },
+      { id: "page-b", contentHash: "v1", web: web("https://tides.example/b") },
+    ];
+    const ofA = citationSubject(citation({ documentId: "page-a" }), { documents });
+    const ofB = citationSubject(citation({ documentId: "page-b" }), { documents });
+    expect(ofA.link).toBe("https://tides.example/a");
+    expect(citedAddress("page-a", documents)).toBe(ofA.link);
+    expect(footnoteSubjectKey(ofA)).not.toBe(footnoteSubjectKey(ofB));
   });
 
   test("one text at two addresses is two footnotes", () => {
