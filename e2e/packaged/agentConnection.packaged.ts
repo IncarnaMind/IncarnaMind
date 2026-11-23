@@ -316,7 +316,7 @@ const running = (pid: number) => {
  * and Stop ends Codex and the shim on each system: the process group on macOS and Linux, the
  * process tree on Windows.
  */
-test("a check on the User's own Codex lands through the packaged shim, and Stop ends Codex and the shim", async () => {
+test("a check on the User's own Codex lands through the packaged shim, from a temporary folder with an & in its name, and Stop ends Codex and the shim", async () => {
   expect(existsSync(packagedExecutable)).toBe(true);
   const home = await mkdtemp(
     join(process.platform === "win32" ? tmpdir() : "/tmp", "incarnamind-codex-home-"),
@@ -334,6 +334,10 @@ test("a check on the User's own Codex lands through the packaged shim, and Stop 
     await chmod(join(bin, "codex"), 0o755);
   }
   const mode = join(bin, "mode");
+  // A temporary folder whose name holds an &, which Windows' cmd.exe acts on: the run's folder is
+  // in it, so every path Codex is given carries one, through npm's codex.cmd and its %*.
+  const temp = join(home, "Temp", "Tom&Jerry");
+  await mkdir(temp, { recursive: true });
   const file = join(sources, "Tides.md");
   await writeFile(file, "Spring tides happen at new moon and full moon.");
   const app = await test.step(
@@ -344,6 +348,9 @@ test("a check on the User's own Codex lands through the packaged shim, and Stop 
         env: {
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
           INCARNAMIND_TEST_OWN_AI_MODE_FILE: mode,
+          TMPDIR: temp,
+          TMP: temp,
+          TEMP: temp,
         },
       }),
     { box: true },

@@ -79,12 +79,15 @@ export function createOwnAi({
   command = "claude",
   codexCommand = "codex",
   conversations,
+  runMs = RUN_MS,
   stallMs = STALL_MS,
   compactMs = COMPACT_MS,
 }: {
   command?: string | null;
   codexCommand?: string | null;
   conversations?: string;
+  /** How long a run may take before it is stopped. */
+  runMs?: number;
   /** How long a run may send nothing before it is stopped as stalled. */
   stallMs?: number;
   /** How long a compaction may last before the run is stopped. */
@@ -104,7 +107,7 @@ export function createOwnAi({
     if (path === null || request.conversation || request.tools === "all") {
       return { kind: "failed", reason: "unsupported" };
     }
-    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(RUN_MS)]);
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(runMs)]);
     try {
       const end = await runCodex({
         path,
@@ -187,7 +190,7 @@ export function createOwnAi({
       const compactionOver = new AbortController();
       const signal = AbortSignal.any([
         request.signal,
-        AbortSignal.timeout(RUN_MS),
+        AbortSignal.timeout(runMs),
         compactionOver.signal,
       ]);
       const { conversation } = request;

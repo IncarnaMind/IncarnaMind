@@ -9,7 +9,13 @@
 // its own and its server's process ids beside the mode file; "outside" asks for a command of its
 // own; "unreadable" prints a line that isn't JSON; "limit" ends as a plan's limit does; "late"
 // exits before its turn starts; "old" is 0.169.0; "signed-out" isn't signed in; "extra-tool" offers
-// a tool of its own in the preflight.
+// a tool of its own in the preflight; "renamed" no longer knows the feature shell_snapshot, as a
+// later Codex might; "bad-catalog" prints a catalog that isn't one; "other-tool" and "other-server"
+// call an IncarnaMind Tool it wasn't allowed, or another server's; "early-item" prints an item
+// before its turn starts; "resources" lists Codex's resources first, then checks; "stall" goes
+// silent after its turn starts; "slow" thinks for ever.
+//
+// Like Codex 0.170.0, it refuses a feature it doesn't know.
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -46,8 +52,23 @@ const CATALOG = {
   })),
 };
 if (args[0] === "debug" && args[1] === "models" && args[2] === "--bundled") {
-  say(CATALOG);
+  if (mode === "bad-catalog") console.log("not a catalog");
+  else say(CATALOG);
   process.exit(0);
+}
+
+/** The features this stand-in knows: those Codex 0.170.0's `codex features list` names that the run uses, and more. */
+const FEATURES = new Set(
+  "agent_message_board agent_message_board_mcp analytics_plan_history api_key_cyber_access_programs api_key_model_discovery app_server_websocket_compression apply_patch_streaming_events apps apps_early_resource_discovery artifact async_compaction async_compaction_root_only auth_elicitation background_paginated_rollout_migration bedrock_setup_wizard browser_annotation_api browser_use browser_use_external browser_use_full_cdp_access chronicle cli_daybreak cli_resume_account_check code_mode code_mode_host code_mode_host_grpc code_mode_host_output_truncation code_mode_interrupt code_mode_only code_mode_only_strict_3p_tools code_mode_prewarm code_mode_tool_search codex_apps_mcp_2026_07_28 command_sessions_world_state compaction_image_budget computer_use concurrent_reasoning_summaries content_item_kinds context_management credential_masking critical_path_timing current_time_reminder cwd_relative_turn_diffs daemon_auto_start daybreak_program_propagation default_mode_request_user_input defer_mailbox_preemption deferred_executor deferred_tool_world_state enable_mcp_apps enable_request_compression exec_permission_approvals executed_tool_call_metadata executor_capability_discovery executor_capability_discovery_v2 external_agent_memory_import fast_mode gateway_setup_wizard gcp_setup_wizard goals guardian_approval hooks image_generation in_app_browser in_app_chat in_app_dictation in_app_local_automation in_app_updates in_app_voice local_thread_store_compression memories multi_agent multi_agent_v2 plugin_sharing plugins remote_plugin request_permissions_tool shell_snapshot shell_snapshot_v2 shell_tool skill_mcp_dependency_install skill_search sleep_tool tool_suggest unified_exec use_agent_identity view_image workspace_dependencies".split(
+    " ",
+  ),
+);
+if (mode === "renamed") FEATURES.delete("shell_snapshot");
+for (let at = 0; at < args.length; at++) {
+  if ((args[at] === "--disable" || args[at] === "--enable") && !FEATURES.has(args[at + 1])) {
+    console.error(`Error: Unknown feature flag: ${args[at + 1]}`);
+    process.exit(1);
+  }
 }
 
 /** The `-c key=value` settings, each value as TOML gives a string, list or other value. */
@@ -173,11 +194,18 @@ let prompt = "";
 process.stdin.setEncoding("utf8");
 for await (const chunk of process.stdin) prompt += chunk;
 if (mode === "late") {
-  console.error("Error: unknown configuration field");
+  console.error("Error: unknown configuration field `sqlite_homes` in -c/--config override");
   process.exit(1);
 }
 const started = await server();
 say({ type: "thread.started", thread_id: "00000000-0000-7000-8000-000000000000" });
+if (mode === "early-item") {
+  say({
+    type: "item.completed",
+    item: { id: "item_early", type: "agent_message", text: "Early." },
+  });
+  setInterval(() => undefined, 1000);
+}
 say({ type: "turn.started" });
 let item = 0;
 const message = (text) =>
@@ -200,6 +228,29 @@ if (mode === "wait") {
 } else if (mode === "unreadable") {
   process.stdout.write("Codex says hello\n");
   setInterval(() => undefined, 1000);
+} else if (mode === "other-tool" || mode === "other-server") {
+  const tool = mode === "other-tool" ? "create_mind" : "search";
+  const server = mode === "other-tool" ? "incarnamind" : "elsewhere";
+  say({
+    type: "item.started",
+    item: {
+      id: `item_${item++}`,
+      type: "mcp_tool_call",
+      server,
+      tool,
+      arguments: {},
+      status: "in_progress",
+    },
+  });
+  setInterval(() => undefined, 1000);
+} else if (mode === "stall") {
+  setInterval(() => undefined, 1000);
+} else if (mode === "slow") {
+  setInterval(
+    () =>
+      say({ type: "item.completed", item: { id: `item_${item++}`, type: "reasoning", text: "" } }),
+    100,
+  );
 } else if (mode === "limit") {
   say({ type: "error", message: "You’ve hit your usage limit. Try again later." });
   say({ type: "turn.failed", error: { message: "You’ve hit your usage limit. Try again later." } });
@@ -214,6 +265,17 @@ if (mode === "wait") {
     say({ type: "item.completed", item: { ...call, status: "completed" } });
     return result;
   };
+  if (mode === "resources") {
+    const call = {
+      id: `item_${item++}`,
+      type: "mcp_tool_call",
+      server: "codex",
+      tool: "list_mcp_resources",
+      arguments: {},
+    };
+    say({ type: "item.started", item: { ...call, status: "in_progress" } });
+    say({ type: "item.completed", item: { ...call, status: "completed" } });
+  }
   const given = await use("check_mind_yourself", { mindId });
   await use("report_check", {
     mindId,

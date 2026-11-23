@@ -91,8 +91,16 @@ const FEATURES_OFF = [
   "in_app_local_automation",
 ];
 
-/** A value of Codex's `-c key=value`, which it reads as TOML: a JSON string or array is one. */
-const toml = (value: string | readonly string[]) => JSON.stringify(value);
+/**
+ * A value of Codex's `-c key=value`, which it reads as TOML: a JSON string or array is one. What
+ * Windows' cmd.exe acts on is written as a TOML escape, so a path holding `&` or `%` reaches Codex
+ * whole through npm's `codex.cmd`, whose `%*` reads the command line a second time.
+ */
+const toml = (value: string | readonly string[]) =>
+  JSON.stringify(value).replace(
+    /[&|<>^%!()]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 
 /** A path names Codex's copy inside an app (ChatGPT.app's, or a Windows app's), which IncarnaMind never starts. */
 const inApp = (path: string) =>
@@ -266,7 +274,10 @@ function overrides(
   ];
 }
 
-/** The Tools a preflight's input list offers the model, by namespace. */
+/**
+ * The Tools a preflight's input list offers the model, by namespace; null where it can't be read,
+ * or where an item of another kind carries tools, which this reading wouldn't count.
+ */
 function toolsOffered(printed: string): string[] | null {
   let items: unknown;
   try {
@@ -277,7 +288,10 @@ function toolsOffered(printed: string): string[] | null {
   if (!Array.isArray(items)) return null;
   const names: string[] = [];
   for (const item of items.map(object)) {
-    if (item.type !== "additional_tools") continue;
+    if (item.type !== "additional_tools") {
+      if ("tools" in item) return null;
+      continue;
+    }
     if (!Array.isArray(item.tools)) return null;
     for (const space of item.tools.map(object)) {
       if (!Array.isArray(space.tools)) {
@@ -324,9 +338,15 @@ async function preflight(
       return printed.kind === "exited" && printed.code === 0 ? toolsOffered(printed.stdout) : null;
     }),
   );
-  return offered.every(
-    (names) => names !== null && JSON.stringify([...names].sort()) === JSON.stringify(expected),
+  const unexpected = offered.find(
+    (names) => names === null || JSON.stringify([...names].sort()) !== JSON.stringify(expected),
   );
+  if (unexpected === undefined) return true;
+  console.info(
+    "Codex's preflight didn't list the check's Tools alone; the check goes by its link. It listed:",
+    unexpected === null ? "(nothing it could read)" : [...unexpected].sort().join(" "),
+  );
+  return false;
 }
 
 export interface CodexRun {
@@ -369,9 +389,6 @@ export async function runCodex(run: CodexRun): Promise<CodexEnd> {
       return { kind: "failed", reason: "unsupported" };
     }
     if (!(await preflight(run.path, folder, run.server, run.tools, run.instructions, defaults))) {
-      console.info(
-        "Codex's preflight didn't list the check's Tools alone; the check goes by its link.",
-      );
       return { kind: "failed", reason: "unsupported" };
     }
     run.signal.throwIfAborted();
@@ -405,13 +422,20 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
   let reply = "";
   let notice = "";
   let toldHeard = 0;
+  // What it printed on its error stream, for the log when it ends before its turn: never the grant.
+  let errors = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    if (errors.length < MAX_LOGGED_STDERR) errors += chunk.toString("utf8");
+  });
   // The calls of IncarnaMind's Tools under way: the run waits on them silently.
   const calls = new Set<string>();
   const allowed = (item: Record<string, unknown>) =>
     item.type === "mcp_tool_call" &&
-    item.server === SERVER &&
     typeof item.tool === "string" &&
-    run.tools.includes(item.tool);
+    ((item.server === SERVER && run.tools.includes(item.tool)) ||
+      // Codex's resource operations come as calls of its own server, or of the one they ask;
+      // they reach only IncarnaMind's, which serves no resources.
+      (RESOURCE_TOOLS.includes(item.tool) && (item.server === "codex" || item.server === SERVER)));
   try {
     return await readJsonLines<CodexEnd>(child, {
       agent: "Codex",
@@ -458,7 +482,7 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
             );
         }
         const item = object(message.item);
-        if (!begun) throw new OutsideError("outside", "an item before its turn started");
+        if (!begun) throw new OutsideError("unreadable", "an item before its turn started");
         if (item.type === "agent_message") {
           if (message.type === "item.completed" && typeof item.text === "string") {
             reply = item.text;
@@ -489,17 +513,31 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
       },
     });
   } catch (error) {
+    // Ended before its turn started (settings this Codex didn't take, a server that didn't start,
+    // something it printed that no turn of a check shows): nothing reached the model, so the check
+    // goes by its link.
+    if (!begun && !run.signal.aborted && !(error instanceof StalledError)) {
+      console.info(
+        "Codex ended before its turn started; the check goes by its link.",
+        error instanceof Error ? error.message : "",
+        redacted(errors.slice(0, MAX_LOGGED_STDERR), run.server.env),
+      );
+      return { kind: "failed", reason: "unsupported" };
+    }
     if (error instanceof OutsideError) {
       console.warn(error.message);
       return { kind: "failed", reason: error.reason };
     }
     if (error instanceof UnreadableLineError) return { kind: "failed", reason: "unreadable" };
-    // Ended before its turn started (settings this Codex didn't take, a server that didn't
-    // start): nothing reached the model, so the check goes by its link.
-    if (!begun && !run.signal.aborted && !(error instanceof StalledError)) {
-      console.info("Codex ended before its turn started; the check goes by its link.");
-      return { kind: "failed", reason: "unsupported" };
-    }
     throw error;
   }
 }
+
+/** As much of Codex's error stream as the log keeps of a run that ended before its turn. */
+const MAX_LOGGED_STDERR = 600;
+
+/** `text` with every value of the server's variables, the grant among them, taken out. */
+const redacted = (text: string, env: Record<string, string>) =>
+  Object.values(env)
+    .filter((value) => value.length >= 8)
+    .reduce((kept, value) => kept.split(value).join("[hidden]"), text);
