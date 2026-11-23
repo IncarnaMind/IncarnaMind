@@ -15,7 +15,7 @@ import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
 import { SelectionMenu } from "../../viewer/SelectionMenu";
 import { type SelectionReader, SelectionReaderContext } from "../../viewer/selectedText";
-import { type ViewerFrame, ViewerFrameContext, ViewerHeader } from "../../viewer/ViewerHeader";
+import { DocumentToolbar, type ViewerFrame, ViewerFrameContext } from "../../viewer/ViewerHeader";
 import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
 /** How far the User scrolls a preview, at least, to keep it: the jump to the quote doesn't count. */
@@ -298,24 +298,21 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                     inPlace ? "h-9 flex-1 shrink-0 overflow-hidden" : "flex-1"
                   }`}
                 >
-                  {!document ? (
-                    <>
-                      <ViewerHeader />
+                  <DocumentToolbar key={documentId}>
+                    {!document ? (
                       <DocumentRemoved quote={target.quote} unlinked={unlinked} />
-                    </>
-                  ) : (
-                    // Keyed, so another Document, or a new read of its file, starts afresh (the last one
-                    // goes at once). While its view loads, the header alone: the page comes a moment later.
-                    <Suspense key={fileKey} fallback={<ViewerHeader />}>
-                      <SelectionReaderContext.Provider value={lendReader}>
-                        {citedVersion && document.contentHash !== citedVersion ? (
-                          <CitedVersionView document={document} target={target} />
-                        ) : (
-                          <DocumentView document={document} target={target} />
-                        )}
-                      </SelectionReaderContext.Provider>
-                    </Suspense>
-                  )}
+                    ) : (
+                      <Suspense key={fileKey} fallback={null}>
+                        <SelectionReaderContext.Provider value={lendReader}>
+                          {citedVersion && document.contentHash !== citedVersion ? (
+                            <CitedVersionView document={document} target={target} />
+                          ) : (
+                            <DocumentView document={document} target={target} />
+                          )}
+                        </SelectionReaderContext.Provider>
+                      </Suspense>
+                    )}
+                  </DocumentToolbar>
                   {document && reader && (
                     <SelectionMenu document={document} section={section} reader={reader} />
                   )}
