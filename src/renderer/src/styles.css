@@ -2863,34 +2863,6 @@
       }
     }
   }
-  .note-ask-quote {
-    padding: 8px 12px 0 11px;
-  }
-  .note-ask-quote > .question-skill {
-    max-width: 100%;
-  }
-  .note-ask-conversation {
-    max-height: 30vh;
-    overflow: auto;
-    padding-block: 8px;
-    border-top: 1px solid var(--color-rule);
-    font-family: var(--font-sans);
-    font-size: var(--text-ui);
-    line-height: var(--text-ui--line-height);
-  }
-  .note-ask-turn + .note-ask-turn {
-    margin-top: 12px;
-  }
-  .note-ask-request {
-    margin: 0;
-    color: var(--color-ink);
-  }
-  .note-ask-turn-quote,
-  .note-ask-reply,
-  .note-ask-empty {
-    margin: 0;
-    color: var(--color-ink-meta);
-  }
   /*
    * The Note's conversation as a column (#3677): the request as a bubble, the steps folded to one
    * line, the reply in full, the Note's one input at its foot.
@@ -2910,14 +2882,6 @@
       border-left: 0;
       border-bottom-left-radius: 8px;
       box-shadow: var(--shadow-popover);
-    }
-  }
-  /* For comparison only: the column in place of the Note, above its input. */
-  .mind-tab-row[data-column-in-place] .note-column-over-slot {
-    left: 0;
-    > .note-column {
-      width: 100%;
-      box-shadow: none;
     }
   }
   .note-column {
@@ -3038,10 +3002,6 @@
   }
   .note-column-notice {
     text-align: center;
-  }
-  .note-column-undo {
-    font-weight: 600;
-    color: var(--color-accent);
   }
   .note-column-reply {
     display: flex;
@@ -3261,25 +3221,6 @@
     flex-direction: column;
     gap: 4px;
     padding: 8px 12px 12px;
-  }
-  .note-column-model-row {
-    display: flex;
-  }
-  .note-column-model {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 24px;
-    margin: 0;
-    padding: 0 6px;
-    border-radius: 6px;
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--color-ink-meta);
-  }
-  .note-column-model--button:hover {
-    background: var(--color-hover);
-    color: var(--color-ink);
   }
   .note-column-model-item {
     display: flex;
