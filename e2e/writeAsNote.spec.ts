@@ -205,7 +205,7 @@ for (const language of LANGUAGES) {
 
   for (const width of WIDTHS) {
     test(`Add to note never targets the example, and Add to “{note}” shows only for the User's own note, at ${width} px (${language})`, async () => {
-      const { app, window } = await start(language, width, { examples: true });
+      const { window } = await start(language, width, { examples: true });
       const example = await exampleTaken(window);
 
       const answer = await askInAssistant(window, w.question);
@@ -247,8 +247,6 @@ for (const language of LANGUAGES) {
       await expect(example.tab).not.toHaveAttribute("aria-selected", "true");
       await pointAndClick(window, example.tab);
       await expect(example.editor).not.toContainText(opening);
-
-      await app.close();
     });
   }
 }
