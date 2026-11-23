@@ -14,6 +14,14 @@ function page(enough: number) {
 }
 
 describe("the columns a page gives up for its names", () => {
+  test("on opening the Library, finds every width in at most four measurements", () => {
+    for (let enough = 0; enough <= 7; enough++) {
+      const { asked, fits } = page(enough);
+      expect(leastGivenUp(null, 6, fits)).toBe(Math.min(enough, 6));
+      expect(asked.length).toBeLessThanOrEqual(enough === 0 ? 1 : 4);
+    }
+  });
+
   test("none, when the names fit: one measure", () => {
     const { asked, fits } = page(0);
     expect(leastGivenUp(0, 6, fits)).toBe(0);
