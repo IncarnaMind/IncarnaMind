@@ -1,139 +1,47 @@
 name: CI
 
-# Every pull request: typecheck, lint, the unit tests, and the smoke specs it adds or changes.
-# Nightly (nightly.yml) and a release (release.yml) run this file with every smoke spec.
+# Probe for #3697, not for main: the Nightly's smoke shard 9 of 10, six times at once, each run as
+# the Nightly runs it, with the press times of selectAcrossCitation.spec.ts in the log.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    # A change to ADRs or pictures only runs nothing. Every other document runs: unit tests read
-    # the READMEs, CONTEXT.md and the guides in docs/ as text.
-    paths:
-      - "**"
-      - "!docs/adr/**"
-      - "!docs/images/**"
-  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  # onnxruntime-node's install script downloads its CUDA libraries on Linux x64. The app runs
-  # the embedding model on the CPU, so skip them.
   ONNXRUNTIME_NODE_INSTALL: skip
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  group: ci-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  typecheck:
-    name: Typecheck and lint
-    if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck && npm run lint
-
-  # Eight shards that run at once: as one job the unit tests take about an hour. A pull
-  # request runs the tests its changes reach in Vitest's import graph; the nightly run and a
-  # release run them all.
-  unit:
-    name: Unit tests (${{ matrix.shard }}/8)
-    if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    steps:
-      # The merge commit and its first parent, main, so the change is what this pull request adds.
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      # tests/main/sandbox.test.ts runs the OS sandbox, which needs bubblewrap, socat and ripgrep,
-      # and unprivileged user namespaces, which Ubuntu 24.04 restricts through AppArmor.
-      - uses: ./.github/actions/apt-install
-        with:
-          packages: bubblewrap socat ripgrep
-      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Vitest's --changed doesn't follow a change to the dependencies, the tests' own setup or CI,
-      # nor to a Markdown file, which a test reads as text and never imports.
-      - env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          only=()
-          if [ "$EVENT" = pull_request ] && ! git diff --name-only HEAD^1 HEAD \
-            | grep -qE '^(package(-lock)?\.json|vitest\.config\.ts|tests/setup/|\.github/workflows/ci\.yml)|\.md$'; then
-            only=(--changed=HEAD^1 --passWithNoTests)
-          fi
-          npm test -- --shard=${{ matrix.shard }}/8 "${only[@]}"
-          # This test reads the screens and the audit's scripts as text, which --changed doesn't
-          # follow (#2680).
-          if [ "$EVENT" = pull_request ] && [ "${{ matrix.shard }}" = 1 ] \
-            && git diff --name-only HEAD^1 HEAD | grep -qE '^(src/renderer/|e2e/audit/)'; then
-            npm test -- tests/scripts/auditTestIds.test.ts
-          fi
-          # And this one reads all of src and eval as text, for a check, comment or assistant's
-          # change read by the mark's bare name (#3024).
-          if [ "$EVENT" = pull_request ] && [ "${{ matrix.shard }}" = 1 ] \
-            && git diff --name-only HEAD^1 HEAD | grep -qE '^(src|eval)/'; then
-            npm test -- tests/shared/keyedMarkReaders.test.ts
-          fi
-
-  # A pull request's own specs (scripts/smoke-shard.mjs); every spec when the nightly run or a
-  # release calls this file.
   smoke-plan:
     name: Smoke specs to run
-    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     outputs:
       specs: ${{ steps.plan.outputs.specs }}
       count: ${{ steps.plan.outputs.count }}
       shards: ${{ steps.plan.outputs.shards }}
     steps:
-      # The merge commit and its first parent, main, so the diff is what this pull request adds.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - id: plan
-        env:
-          EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
-            git diff --name-only HEAD^1 HEAD | node scripts/smoke-shard.mjs plan >> "$GITHUB_OUTPUT"
-          else
-            node scripts/smoke-shard.mjs plan --all >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/smoke-shard.mjs plan --all >> "$GITHUB_OUTPUT"
           grep '^count=' "$GITHUB_OUTPUT"
 
   smoke:
-    name: Smoke tests (${{ matrix.shard }}/${{ needs.smoke-plan.outputs.count }}, Linux)
+    name: Smoke tests (${{ matrix.shard }}/${{ needs.smoke-plan.outputs.count }}, Linux, attempt ${{ matrix.attempt }})
     needs: smoke-plan
-    if: needs.smoke-plan.outputs.count != '0'
     runs-on: ubuntu-latest
-    # A full shard's specs take about 16 minutes; the rest is for a slow package mirror.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.smoke-plan.outputs.shards) }}
+        shard: [9]
+        attempt: [1, 2, 3, 4, 5, 6]
     env:
       SMOKE_SPECS: ${{ needs.smoke-plan.outputs.specs }}
     steps:
@@ -143,7 +51,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Electron's download from GitHub's releases fails now and then (a 500).
       - name: Make sure Electron is installed
         run: |
           for attempt in 1 2 3; do
@@ -151,21 +58,14 @@ jobs:
             sleep 20
           done
           exit 1
-      # Analyses run only in Chromium's sandbox (ADR-0023), whose helper starts on the runner only
-      # as root's and setuid.
       - name: Let Electron's sandbox start
         run: |
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-      # The runner has no Chinese face, so a printed PDF would hold no Chinese for the export specs
-      # to read back.
       - uses: ./.github/actions/apt-install
         with:
           packages: fonts-noto-cjk
-      # One virtual display for each of the two workers: windows on one display take the keyboard
-      # focus from each other and share its clipboard.
       - name: Run the specs
-        # With no files named, Playwright runs every spec, so a failed or empty selection stops here.
         run: |
           specs=$(node scripts/smoke-shard.mjs ${{ matrix.shard }} ${{ needs.smoke-plan.outputs.count }})
           test -n "$specs"
@@ -175,12 +75,11 @@ jobs:
             for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X$number" ] && break; sleep 0.2; done
             test -S "/tmp/.X11-unix/X$number"
           done
-          DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99 npm run test:smoke -- --workers=2 $specs
-      # The feel check's frames stay on disk without ffmpeg, and are too many to upload.
+          DISPLAY=:98 INCARNAMIND_DISPLAYS=:98,:99 npm run test:smoke -- --workers=2 --reporter=github,list,./scripts/probe-press-times.mjs $specs
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: smoke-results-${{ matrix.shard }}
+          name: smoke-results-${{ matrix.shard }}-attempt-${{ matrix.attempt }}
           path: |
             test-results/
             !test-results/feel/
