@@ -11,11 +11,13 @@ import {
   acceptPlainTextKeys,
   catchCopies,
   createDataFolder,
+  expectHomeInFront,
   frontMind,
   interceptOpenDialog,
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
+  openExample,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -250,6 +252,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, ai.getByTestId("setup-next"));
     await pointAndClick(window, (await atStep("meetings")).getByTestId("setup-skip"));
     await expect(panel).toHaveCount(0);
+    await expectHomeInFront(window);
+    await openExample(window);
 
     // 2. Get started: the User adds their files with its own press; every one of the 40 is read.
     const card = window.getByTestId("first-open-steps");

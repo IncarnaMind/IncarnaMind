@@ -11,6 +11,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -222,6 +223,7 @@ for (const [language, question, count] of [
   // protects=with one Document of the User's and the example's two, “the two main documents” sees one, the User's own, and never the example's two or a Library of three (#1942, #1333); fails_when=the reply asks which two among the example's Documents, or says the Library holds three; no_claim=how a real model words it (the hand test on Claude Haiku 5.5).
   test(`in ${language === "en" ? "English" : "Chinese"}, “the two main documents” sees the User's one, not the example's two (#1942)`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
+    await openExample(window);
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);

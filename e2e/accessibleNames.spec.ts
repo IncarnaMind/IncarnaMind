@@ -3,7 +3,9 @@ import { offeredSettingsPages } from "../src/renderer/src/settingsPages";
 import {
   askInAssistant,
   createDataFolder,
+  expectHomeInFront,
   launchApp,
+  openExample,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -70,8 +72,11 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`every control on the first screens, an Answer and each Settings page has a name (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
     await setWindowSize(app, window, 1440, 900);
-    await expect(window.getByTestId("first-open-steps")).toBeVisible();
+    await expectHomeInFront(window);
     await setLanguage(window, language);
+    await expectNamed(window, "Home on the first run");
+    await openExample(window);
+    await expect(window.getByTestId("first-open-steps")).toBeVisible();
     await expectNamed(window, "the first open");
 
     await useLocalChatModel(window);

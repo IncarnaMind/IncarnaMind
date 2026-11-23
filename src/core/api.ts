@@ -3761,13 +3761,13 @@ export interface DeviceSettings {
   sidebarHidden: boolean;
   /** The User dismissed the sidebar's line saying the app runs without its sandbox (#1179). */
   sandboxNoticeDismissed: boolean;
-  /** The app has opened on this device before: from its second launch it opens on Home. */
+  /** The app has opened on this device before. */
   openedBefore: boolean;
   /** The "Get started" checklist's progress on this device (see `GettingStarted`). */
   gettingStarted: GettingStarted;
   /**
    * What the User works on, as the first run's setup asked it (#3296), first pick first: it
-   * chooses the example the window opens on and Get started's words. Empty: not said.
+   * chooses the example made first and Get started's words. Empty: not said.
    */
   work: WorkKind[];
   /** The first run's setup was finished or skipped through on this device: it never shows again. */

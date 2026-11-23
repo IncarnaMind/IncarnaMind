@@ -9,8 +9,10 @@ import {
   askFirstQuestion,
   createDataFolder,
   exampleRow,
+  expectHomeInFront,
   frontMindName,
   launchApp,
+  openExample,
   openInAppModel,
   openSettings,
   removeDataFolder,
@@ -186,12 +188,15 @@ test("a fresh profile opens on the setup: two picks, sent once, lead to their ex
     await again.getByTestId("setup-next").click();
 
     await skipTheRest(window);
-    // The first pick's example opens with Get started in that work's words; both are listed.
-    await expect(frontMindName(window)).toHaveText(EXAMPLE_SETS.contracts.en.title);
+    // Home is in front; both examples are listed, the first pick's first, and it opens with Get
+    // started in that work's words.
+    await expectHomeInFront(window);
     await expect(exampleRow(window)).toHaveText([
       EXAMPLE_SETS.contracts.en.title,
       EXAMPLE_SETS.papers.en.title,
     ]);
+    await openExample(window);
+    await expect(frontMindName(window)).toHaveText(EXAMPLE_SETS.contracts.en.title);
     const card = window.getByTestId("first-open-steps");
     await expect(card.getByTestId("first-open-step")).toHaveText([
       /Add your files/,
@@ -233,6 +238,8 @@ test("Skip on every step: nothing set, the setup gone for good, and the first Qu
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   await skipTheRest(window);
 
+  await expectHomeInFront(window);
+  await openExample(window);
   await expect(frontMindName(window)).toHaveText(EXAMPLE_SETS.credit.en.title);
   await expect(window.getByTestId("first-open-steps").getByTestId("first-open-step")).toHaveText([
     /Add your Documents/,
@@ -350,6 +357,7 @@ test("Settings › AI with nothing set: Your AI, then the quiet row, whose press
   test.setTimeout(120_000);
   const { app: launched, window } = await launchApp(dataDir, { ...STAND_INS, examples: true });
   app = launched;
+  await openExample(window);
   const settings = await openSettings(window, "ai");
   for (const [language, width] of [
     ["en", 1440],

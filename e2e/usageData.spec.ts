@@ -10,6 +10,7 @@ import {
   launchApp,
   leaveFirstOpen,
   newMind,
+  openExample,
   openPrivacySettings,
   pointAndClick,
   removeDataFolder,
@@ -74,6 +75,7 @@ const releaseOptions = () => ({
 
 test("a release build asks after the first Answer to the User's own Question, sends nothing when declined, and only what is declared once allowed", async () => {
   const { app, window } = await launchApp(dataDir, releaseOptions());
+  await openExample(window);
 
   // A first run asks nothing before the example, nor does an Answer that fails.
   const card = window.getByTestId("usage-data-card");
@@ -154,6 +156,7 @@ test("a release build asks after the first Answer to the User's own Question, se
 
 test("a release waits for the steps: with them open the card comes at the next launch (#123)", async () => {
   const first = await launchApp(dataDir, releaseOptions());
+  await openExample(first.window);
   await useLocalChatModel(first.window);
   await askInAssistant(first.window, "Where does tea come from?");
   await expect(first.window.getByTestId("first-open-steps")).toBeVisible();
@@ -206,6 +209,7 @@ test("a test build says so from the first run, in the sidebar, with the switch, 
     usageData: { host: posthog.host, testerBuild: true },
     examples: true,
   });
+  await openExample(window);
 
   const card = window.getByTestId("usage-data-card");
   await expect(card).toBeVisible();

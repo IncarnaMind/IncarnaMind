@@ -17,6 +17,7 @@ import {
   markSteps,
   nameMind,
   newMind,
+  openExample,
   openPageMenu,
   pointAndClick,
   removeDataFolder,
@@ -115,8 +116,9 @@ async function noteWithText(window: Page, name: string) {
   await nameMind(window, name);
 }
 
-/** The example's Mind id and tab, from the note the app opens on. */
+/** The example's Mind id and tab, once it is opened from its row. */
 async function exampleTaken(window: Page) {
+  await openExample(window);
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   const mindId = await frontMind(window).getAttribute("data-mind-id");
   return {

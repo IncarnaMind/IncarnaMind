@@ -13,6 +13,7 @@ import {
   nameMind,
   newMind,
   openDocumentAt,
+  openExample,
   placeAssistant,
   pointAndClick,
   removeDataFolder,
@@ -879,6 +880,7 @@ for (const language of LANGUAGES) {
   test(`a Citation's page opened beside the Note leaves every tab reachable, a hidden one showing it is there, at 1,600, 1,440 and 900 px (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await expect(window.getByTestId("mind-pane")).toBeVisible();
@@ -936,6 +938,7 @@ for (const language of LANGUAGES) {
   test(`with 3 and 5 tabs and the Note between them, a Citation's page beside it leaves a readable name on each side that hides tabs, at 1,440 and 900 px (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await expect(window.getByTestId("mind-pane")).toBeVisible();
@@ -986,6 +989,7 @@ for (const language of LANGUAGES) {
   test(`in a group narrowed to its least width, the strip comes to rest with the Note between hidden tabs in view, and holds still when the User scrolls away (${language}) (#2244)`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await expect(window.getByTestId("mind-pane")).toBeVisible();

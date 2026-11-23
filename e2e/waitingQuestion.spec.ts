@@ -7,6 +7,7 @@ import {
   createDataFolder,
   launchApp,
   newMind,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -302,6 +303,7 @@ for (const language of ["en", "zh-CN"] as const) {
       home: sources,
       ollama: "http://127.0.0.1:9",
     });
+    await openExample(window);
     try {
       await setWindowSize(app, window, 900, 700);
       await setLanguage(window, language);

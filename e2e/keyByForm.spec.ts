@@ -12,6 +12,7 @@ import {
   fakeChatRequests,
   interceptOpenDialog,
   launchApp,
+  openExample,
   pasteText,
   pointAndClick,
   removeDataFolder,
@@ -69,6 +70,7 @@ for (const { key, name, service, presses } of [
       examples: true,
       ollama: "http://127.0.0.1:9",
     });
+    await openExample(window);
     try {
       await setWindowSize(app, window, 1440, 900);
       await acceptPlainTextKeys(window);

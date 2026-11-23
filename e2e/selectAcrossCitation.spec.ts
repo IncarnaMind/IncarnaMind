@@ -5,6 +5,7 @@ import {
   createDataFolder,
   launchApp,
   leaveFirstOpen,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -279,6 +280,7 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const paused of [true, false] as const) {
       test(`a Shift-press after a Citation, or on it, extends the selection through it (${language}, ${width}px, ${paused ? "after the menu shows" : "at once"})`, async () => {
         const { app, window } = await launchApp(dataDir, { examples: true });
+        await openExample(window);
         try {
           await setWindowSize(app, window, width, 900);
           await setLanguage(window, language);
@@ -400,6 +402,7 @@ for (const language of ["en", "zh-CN"] as const) {
 for (const language of ["en", "zh-CN"] as const) {
   test(`a Shift-press before the selection keeps its far end, and one in another table cell selects cells (${language})`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true });
+    await openExample(window);
     try {
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);

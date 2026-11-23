@@ -13,6 +13,7 @@ import {
   markSteps,
   mindNode,
   newMind,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -204,6 +205,7 @@ test("the bar of changes waiting never shows for what the User's own Question is
 
 test("the first-run guide keeps the band's padding, so a Writing line shows above its first line and over no text", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 900, 800);
   await dismissChatSetup(window);
   const exampleId = await frontMind(window).getAttribute("data-mind-id");

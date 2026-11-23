@@ -1,5 +1,12 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { createDataFolder, launchApp, removeDataFolder, setLanguage, setWindowSize } from "./app";
+import {
+  createDataFolder,
+  launchApp,
+  openExample,
+  removeDataFolder,
+  setLanguage,
+  setWindowSize,
+} from "./app";
 
 /**
  * The example Mind follows a change of interface language while nobody has
@@ -28,6 +35,7 @@ async function pointAndClick(window: Page, target: Locator): Promise<void> {
 
 test("switching the interface to Chinese and back swaps the untouched example, its check, its Answer and its Documents", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   const title = window.getByTestId("mind-editor").locator("h1");
   await expect(title).toHaveText("Draft: credit committee paper");

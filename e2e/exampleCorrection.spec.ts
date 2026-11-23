@@ -7,6 +7,7 @@ import {
   launchApp,
   leaveText,
   motionSettled,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -43,6 +44,7 @@ for (const [language, width] of [
   test(`the example's ≠ card fixes its figure, with Undo and Redo (${language}, ${width}px)`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir, { examples: true });
+    await openExample(window);
     await setWindowSize(app, window, width, 900);
     const title = window.getByTestId("mind-editor").locator("h1");
     await expect(title).toHaveText("Draft: credit committee paper");

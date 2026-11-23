@@ -6,6 +6,7 @@ import {
   frontMind,
   launchApp,
   markSteps,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -82,6 +83,7 @@ async function expectCitedPage(
 
 test("an English Conversation's Citations open their original pages after the interface language becomes Chinese, and after a restart (#1794)", async () => {
   const first = await launchApp(dataDir, { examples: true });
+  await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
   const answer = await askReady(first.window);
   await first.window.keyboard.press("Escape");
@@ -127,6 +129,7 @@ test("an English Conversation's Citations open their original pages after the in
 
 test("a Chinese Conversation's Citations open their original pages after the interface language becomes English, and after a restart (#1794)", async () => {
   const first = await launchApp(dataDir, { examples: true });
+  await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
   await setLanguage(first.window, "zh-CN");
   await expect(mindTitle(first.window)).toHaveText("授信委员会报告（草稿）", { timeout: 30_000 });
@@ -174,6 +177,7 @@ test("a Chinese Conversation's Citations open their original pages after the int
 
 test("a Citation copied from the example's Answer into a Mind opens its original page after the interface language becomes Chinese (#1830)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   const answer = await askReady(window);
   await pointAndClick(window, answer.getByTestId("answer-write-note"));

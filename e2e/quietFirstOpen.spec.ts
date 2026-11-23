@@ -6,10 +6,12 @@ import {
   acceptPlainTextKeys,
   assistantAnswers,
   createDataFolder,
+  expectHomeInFront,
   launchApp,
   leaveFirstOpen,
   makeTagOnDocument,
   newMind,
+  openExample,
   openPageMenu,
   pointAndClick,
   removeDataFolder,
@@ -31,17 +33,14 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("a first open shows the example page in its one tab, with no assistant and a slim sidebar (#123)", async () => {
+test("a first open shows Home with no assistant and a slim sidebar, and the example page opens from its row (#123)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 900);
   const sidebar = window.getByTestId("sidebar");
-  await expect(window.getByTestId("mind-pane")).toBeVisible();
-
-  await expect(window.getByTestId("tab-title")).toHaveCount(1);
-  await expect(window.getByTestId("tab-title")).toHaveText("Draft: credit committee paper");
+  await expectHomeInFront(window);
+  await expect(window.getByTestId("mind-pane")).toHaveCount(0);
+  await expect(window.getByRole("tab")).toHaveCount(1);
   await expect(window.getByTestId("assistant")).toBeHidden();
-  await expect(window.getByTestId("ask-pill")).toBeVisible();
-  await expect(window.getByTestId("ask-pill")).toContainText("Ask anything");
 
   await expect(sidebar.getByTestId("open-library")).toHaveCount(0);
   await expect(sidebar.getByTestId("folders-section")).toHaveCount(0);
@@ -62,6 +61,14 @@ test("a first open shows the example page in its one tab, with no assistant and 
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
   await expect(window.getByTestId("mind-count-button")).toHaveCount(0);
 
+  await openExample(window);
+  await expect(window.getByTestId("mind-pane")).toBeVisible();
+  await expect(window.getByTestId("mind-tab")).toHaveCount(1);
+  await expect(window.getByTestId("mind-tab")).toHaveText("Draft: credit committee paper");
+  await expect(window.getByTestId("assistant")).toBeHidden();
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
+  await expect(window.getByTestId("ask-pill")).toContainText("Ask anything");
+
   await useLocalChatModel(window);
   await window.getByTestId("ask-pill").click();
   await expect(window.getByTestId("assistant")).toBeVisible();
@@ -72,6 +79,7 @@ test("a first open shows the example page in its one tab, with no assistant and 
 
 test("the quiet first open keeps the example's marks to its margin, but a check the User asks for shows the badge and its card (#909)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
   await expect(window.getByTestId("check-badge")).toHaveCount(0);
@@ -89,10 +97,13 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
 test("the tab strip shows its one tab from the start, and the Library comes with the User's first Note or Document (#123, #2376)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("tab-list")).toBeVisible();
-  await expect(window.getByTestId("tab-title")).toHaveCount(1);
+  await expect(window.getByRole("tab")).toHaveCount(1);
+  await openExample(window);
+  await expect(window.getByTestId("tab-list")).toBeVisible();
+  await expect(window.getByTestId("mind-tab").getByTestId("tab-title")).toHaveCount(1);
   await newMind(window);
   await expect(window.getByTestId("tab-list")).toBeVisible();
-  await expect(window.getByTestId("tab-title")).toHaveCount(2);
+  await expect(window.getByTestId("mind-tab").getByTestId("tab-title")).toHaveCount(2);
 
   // A Note of the User's own brings the Library too, even while the steps still show.
   const sidebar = window.getByTestId("sidebar");
@@ -112,29 +123,32 @@ test("the tab strip shows its one tab from the start, and the Library comes with
 
 test("the tab strip stays when a second tab is closed again", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await newMind(window);
-  await expect(window.getByTestId("tab-title")).toHaveCount(2);
+  await expect(window.getByTestId("mind-tab").getByTestId("tab-title")).toHaveCount(2);
   await window.locator('[role="tab"][aria-selected="true"]').getByTestId("tab-close").click();
-  await expect(window.getByTestId("tab-title")).toHaveCount(1);
+  await expect(window.getByTestId("mind-tab").getByTestId("tab-title")).toHaveCount(1);
   await expect(window.getByTestId("tab-list")).toBeVisible();
   await app.close();
 });
 
 test("the page menu's Rename names the example in its tab while the first open's steps show", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.rename"));
   const field = window.getByTestId("tab-rename");
   await expect(field).toBeFocused();
   await field.fill("Credit paper");
   await field.press("Enter");
-  await expect(window.getByTestId("tab-title")).toHaveText("Credit paper");
+  await expect(window.getByTestId("mind-tab").getByTestId("tab-title")).toHaveText("Credit paper");
   await app.close();
 });
 
 test("a file the first open can't take still says so in the footer, though its other news waits (#123)", async () => {
   await writeFile(join(sources, "Archive.zip"), "not a document");
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   const sidebar = window.getByTestId("sidebar");
   await expect(window.getByTestId("mind-pane")).toBeVisible();
   await expect(sidebar.getByTestId("sidebar-status")).toHaveCount(0);
@@ -159,6 +173,7 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   const sidebar = window.getByTestId("sidebar");
   const line = sidebar.getByTestId("tagging-waiting");
@@ -218,6 +233,7 @@ test("Tagging stopped for the User's own files shows in the footer on the first 
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await useLocalChatModel(window);
   await window.evaluate(async () => {
@@ -247,6 +263,7 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
   const limited = join(sources, "Harbour notes.md");
   await writeFile(limited, "# Harbour notes\n\nThe invoice server was rate-limited.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await acceptPlainTextKeys(window);
   await window.evaluate(async () => {
@@ -273,6 +290,7 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
 
 test("a Mind of one's own made on the first open is listed under Notes, never under Examples (#123, #1942)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   const sidebar = window.getByTestId("sidebar");
   await expect(sidebar.getByTestId("not-in-a-folder-title")).toHaveText("Examples");
   await newMind(window);
@@ -291,6 +309,7 @@ test("a Mind of one's own made on the first open is listed under Notes, never un
 
 test("the assistant comes with the first Question, and stays after a restart (#123)", async () => {
   const first = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(first.window);
   await useLocalChatModel(first.window);
   await first.window.keyboard.press("ControlOrMeta+j");
   await expect(first.window.getByTestId("assistant")).toBeVisible();
@@ -309,6 +328,7 @@ test("the assistant comes with the first Question, and stays after a restart (#1
 
 test("the quiet first open holds at 1,100 px in Chinese (#123)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await setWindowSize(app, window, 1100, 720);
   await setLanguage(window, "zh-CN");
   const pill = window.getByTestId("ask-pill");
@@ -324,6 +344,7 @@ test("the quiet first open holds at 1,100 px in Chinese (#123)", async () => {
 
 test("File > Export names the Mind in front and exports it from the first open (#123)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await expect(window.getByTestId("tab-list")).toBeVisible();
   await useOutputLocation(window, sources);
   const item = () =>

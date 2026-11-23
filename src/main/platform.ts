@@ -634,7 +634,7 @@ const decisionReadsByDefault =
 
 /**
  * Whether a fresh profile opens on the first run's setup (#3296): always, but in a test build only
- * with this test-only launch flag, so the specs that open on the example still do.
+ * with this test-only launch flag, so the specs that need the example made at once get it.
  */
 const setupOnFirstRun =
   import.meta.env.MODE !== "test" || process.env.INCARNAMIND_TEST_FIRST_RUN_SETUP === "1";
