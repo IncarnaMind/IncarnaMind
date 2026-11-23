@@ -678,6 +678,25 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
         progress: (step) => steps.push(step),
         signal,
       });
+    /** The run's end, or "still running" once `ms` pass: a run that wouldn't end fails at once. */
+    const within = async (options: { stallMs: number; compactMs?: number }, ms: number) => {
+      const stop = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const running = run(options, [], stop.signal);
+      // Stopped below once the test is over: that it then rejects is no failure of the test.
+      running.catch(() => undefined);
+      try {
+        return await Promise.race([
+          running,
+          new Promise((resolve) => {
+            timer = setTimeout(() => resolve("still running"), ms);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        stop.abort();
+      }
+    };
     const compactionSteps = (steps: unknown[]) =>
       steps.filter((step) => ["compacting", "compacted"].includes((step as { kind: string }).kind));
     /** Prints `lines` after `ms`, then ticks as it thinks for `ticksFor` ms, then answers. */
@@ -722,7 +741,8 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           setTimeout(() => {}, 60_000);`,
         ),
       });
-      await expect(run({ stallMs: 1_000, compactMs: 4_000 })).resolves.toEqual({
+      // A compaction left open after its end would hold the run with no bound.
+      await expect(within({ stallMs: 1_000, compactMs: 4_000 }, 6_000)).resolves.toEqual({
         kind: "failed",
         reason: "stalled",
       });
@@ -767,24 +787,10 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           `setInterval(() => console.log(JSON.stringify(${JSON.stringify(compacting)})), 300);`,
         ),
       });
-      const stop = new AbortController();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      // A run the bound doesn't end fails here at once, rather than waiting out the test's limit.
-      const unended = new Promise((resolve) => {
-        timer = setTimeout(() => resolve("still running"), 8_000);
+      await expect(within({ stallMs: 60_000, compactMs: 1_500 }, 8_000)).resolves.toEqual({
+        kind: "failed",
+        reason: "compaction",
       });
-      const running = run({ stallMs: 60_000, compactMs: 1_500 }, [], stop.signal);
-      // Stopped below once the test is over: that it then rejects is no failure of the test.
-      running.catch(() => undefined);
-      try {
-        await expect(Promise.race([running, unended])).resolves.toEqual({
-          kind: "failed",
-          reason: "compaction",
-        });
-      } finally {
-        clearTimeout(timer);
-        stop.abort();
-      }
     }, 15_000);
   });
 
