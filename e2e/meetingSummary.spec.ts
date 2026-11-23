@@ -503,6 +503,15 @@ for (const language of ["en", "zh-CN"] as const) {
         "",
       ]);
       await reopened.window.keyboard.press("ControlOrMeta+a");
+      await reopened.window.keyboard.press("ArrowLeft");
+      await reopened.window.keyboard.press("Enter");
+      await expect(savedOverview.locator(":scope > p")).toHaveText([
+        "",
+        words.overview,
+        words.addition,
+        "",
+      ]);
+      await reopened.window.keyboard.press("ControlOrMeta+a");
       await reopened.window.keyboard.press("Backspace");
       await expect(savedOverview).toHaveText("");
       await expect
