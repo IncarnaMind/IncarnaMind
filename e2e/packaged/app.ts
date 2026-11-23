@@ -25,7 +25,15 @@ export async function launchPackaged(
     speech,
     testHooks,
     documents,
-  }: { speech?: string; testHooks?: boolean; documents?: boolean } = {},
+    extraArgs = [],
+    extraEnv,
+  }: {
+    speech?: string;
+    testHooks?: boolean;
+    documents?: boolean;
+    extraArgs?: readonly string[];
+    extraEnv?: Record<string, string | undefined>;
+  } = {},
 ): Promise<ElectronApplication> {
   const temp = join(home, "Temp");
   await mkdir(temp, { recursive: true });
@@ -34,6 +42,7 @@ export async function launchPackaged(
     executablePath: packagedExecutable,
     args: [
       "--use-mock-keychain",
+      ...extraArgs,
       ...(speech
         ? [
             // Chromium's fake microphone plays this file; its audio service reads it only unsandboxed.
@@ -51,6 +60,7 @@ export async function launchPackaged(
       TEMP: temp,
       INCARNAMIND_DATA_DIR: data,
       INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
+      ...extraEnv,
     }),
   });
   // A release build opens a fresh profile on the first run's setup: these specs start past it.

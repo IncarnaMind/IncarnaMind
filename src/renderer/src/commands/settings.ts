@@ -1,4 +1,5 @@
 import { useCallHelpOffer } from "../callHelpOffer";
+import { claudeCodeInstallOfferedNow } from "../claudeCodeInstall";
 import { showOutputLocationSetting } from "../outputFiles";
 import { settingsPageOfferedNow } from "../settingsOffered";
 import { offeredSettingsPages, settingsPageLabels } from "../settingsPages";
@@ -124,6 +125,16 @@ export const settingsPageCommands: readonly Command[] = [
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openSettings("ai", "disconnect-all-agents"),
+  },
+  {
+    id: "settings.installClaudeCode",
+    assistant: { never: "keys" },
+    label: "agents.install.action",
+    keywords: ["settings.title", "settings.pages.ai"],
+    group: "open",
+    reversible: true,
+    when: claudeCodeInstallOfferedNow,
+    run: () => useAppStore.getState().openSettings("ai"),
   },
   {
     id: "settings.setUpStepByStep",

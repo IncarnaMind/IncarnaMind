@@ -27,7 +27,13 @@ import {
   type Transcriber,
   type UsageDataSender,
 } from "../core";
-import type { SystemCalendar } from "../core/adapters";
+import type {
+  ClaudeCodeAdapterInstallResult,
+  ClaudeCodeAuthCheck,
+  ClaudeCodeInstaller,
+  ClaudeCodeSignInResult,
+  SystemCalendar,
+} from "../core/adapters";
 import { runAnalysis } from "../core/analysis";
 import type { SandboxProblem } from "../core/api";
 import { calendarStandIns, GOOGLE_CALENDAR, MICROSOFT_CALENDAR } from "../core/calendars/endpoints";
@@ -55,6 +61,7 @@ import { createAgentSkillFiles } from "./agentSkillFiles";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCanvasFiles } from "./canvasFiles";
 import { createCitedPageCapture } from "./citedPageCapture";
+import { createClaudeCodeInstaller } from "./claudeCodeInstaller";
 import { createSentryCrashReporter } from "./crashReports";
 import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
@@ -961,6 +968,59 @@ function chatGptTestProfile(log: Logger, cipher: SecretCipher): CoreAdapters["ch
   };
 }
 
+function testClaudeCodeInstaller(origin: string | undefined, home: string): ClaudeCodeInstaller {
+  const localBinary = join(
+    home,
+    ".local",
+    "bin",
+    process.platform === "win32" ? "claude.exe" : "claude",
+  );
+  const display = process.platform === "win32" ? "%USERPROFILE%\\.local\\bin" : "~/.local/bin";
+  if (!origin) {
+    return {
+      installDirectoryDisplay: display,
+      findBinary: async () => (existsSync(localBinary) ? localBinary : null),
+      install: async () => ({ kind: "failed", reason: "network" }),
+      startSignIn: async () => ({ kind: "failed" }),
+      checkAuth: async () => ({ kind: "missing" }),
+    };
+  }
+  const base = origin.replace(/\/$/, "");
+  return {
+    installDirectoryDisplay: display,
+    async findBinary() {
+      const response = await fetch(`${base}/find`);
+      const data = (await response.json()) as { binary?: string | null };
+      return typeof data.binary === "string" ? data.binary : null;
+    },
+    async install({ signal, onStage }) {
+      onStage?.("downloading");
+      try {
+        const response = await fetch(`${base}/install`, { method: "POST", signal });
+        const data = (await response.json()) as ClaudeCodeAdapterInstallResult & {
+          stage?: "installing";
+        };
+        if (data.stage === "installing") onStage?.("installing");
+        return data;
+      } catch {
+        return signal.aborted ? { kind: "cancelled" } : { kind: "failed", reason: "network" };
+      }
+    },
+    async startSignIn({ signal }) {
+      try {
+        const response = await fetch(`${base}/sign-in`, { method: "POST", signal });
+        return (await response.json()) as ClaudeCodeSignInResult;
+      } catch {
+        return signal.aborted ? { kind: "cancelled" } : { kind: "failed" };
+      }
+    },
+    async checkAuth() {
+      const response = await fetch(`${base}/auth`);
+      return (await response.json()) as ClaudeCodeAuthCheck;
+    },
+  };
+}
+
 /** Builds the core's adapters, with the log the core writes to. Call after `app` is ready. */
 export async function createElectronAdapters(log: Logger): Promise<CoreAdapters> {
   const dataDir = app.getPath("userData");
@@ -1108,15 +1168,25 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
     summarizeWithMeetingAgent,
     ...(import.meta.env.MODE !== "test"
-      ? { ownAi: createOwnAi({ conversations: join(dataDir, "Own AI conversations") }) }
-      : testOwnAi
-        ? {
+      ? {
+          ownAi: createOwnAi({ conversations: join(dataDir, "Own AI conversations") }),
+          claudeCodeInstaller: createClaudeCodeInstaller({
+            home: homeFolder(),
+            fetch: (input, init) => net.fetch(input, init),
+          }),
+        }
+      : {
+          ...(testOwnAi && {
             ownAi: createOwnAi({
               command: testOwnAi,
               conversations: join(dataDir, "Own AI conversations"),
             }),
-          }
-        : {}),
+          }),
+          claudeCodeInstaller: testClaudeCodeInstaller(
+            process.env.INCARNAMIND_TEST_CLAUDE_INSTALLER,
+            homeFolder(),
+          ),
+        }),
     transcriber: fakeTranscriber
       ? recordingSent(createUtilityProcessTranscriber({ fake: fakeTranscriber }))
       : createUtilityProcessTranscriber(),

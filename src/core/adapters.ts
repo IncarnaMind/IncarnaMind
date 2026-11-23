@@ -1616,6 +1616,11 @@ export interface CoreAdapters {
    * Absent (a host that can't start programs, tests that aren't about it): a check asks by the link.
    */
   ownAi?: OwnAiRunner;
+  /**
+   * Downloads and runs Anthropic's official Claude Code installer on explicit User press (#3638).
+   * Absent on hosts that cannot install local programs; nothing is downloaded without a press.
+   */
+  claudeCodeInstaller?: ClaudeCodeInstaller;
   summarizeWithMeetingAgent?(request: {
     purpose?: "candidate-review" | "call-help" | "meeting-brief";
     client: "claude-code" | "codex";
@@ -1739,4 +1744,46 @@ export interface OwnAiRunner {
    * the agent couldn't be asked, so its own sweep deletes the transcript later.
    */
   purge(key: string): Promise<boolean>;
+}
+
+export type ClaudeCodeAdapterInstallResult =
+  | { kind: "installed"; binaryPath: string }
+  | { kind: "already-installed"; binaryPath: string }
+  | { kind: "cancelled" }
+  | { kind: "failed"; reason: "network" | "checksum" | "unsupported" | "failed"; detail?: string };
+
+export type ClaudeCodeSignInResult =
+  | { kind: "signed-in" }
+  | { kind: "no-plan" }
+  | { kind: "cancelled" }
+  | { kind: "failed"; detail?: string };
+
+export type ClaudeCodeAuthCheck =
+  | { kind: "signed-in" }
+  | { kind: "signed-out" }
+  | { kind: "no-plan" }
+  | { kind: "missing" }
+  | { kind: "unknown" };
+
+/**
+ * Host capability that installs Anthropic's official Claude Code binary into the User's folder
+ * and launches Anthropic's own browser sign-in without ever seeing credentials (#3638).
+ */
+export interface ClaudeCodeInstaller {
+  /** Display folder where Anthropic's installer places the launcher (`~/.local/bin`, `%USERPROFILE%\.local\bin`). */
+  readonly installDirectoryDisplay: string;
+  /** Returns the existing `claude` executable path if already installed, without starting it. */
+  findBinary(): Promise<string | null>;
+  /**
+   * Downloads and runs Anthropic's unmodified installer over HTTPS with no admin elevation.
+   * Aborting `signal` kills the installer process tree and cleans up partial downloads.
+   */
+  install(options: {
+    signal: AbortSignal;
+    onStage?(stage: "downloading" | "installing"): void;
+  }): Promise<ClaudeCodeAdapterInstallResult>;
+  /** Launches `claude auth login` so the User signs in directly with Anthropic in their browser. */
+  startSignIn(options: { signal: AbortSignal }): Promise<ClaudeCodeSignInResult>;
+  /** Checks whether Claude Code is signed in (`claude auth status --json`) without reading secrets. */
+  checkAuth(): Promise<ClaudeCodeAuthCheck>;
 }

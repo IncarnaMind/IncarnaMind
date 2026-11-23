@@ -1843,7 +1843,7 @@ export const en = {
   "checks.acceptAndCheck": "Accept all and check",
   "checks.problem.local-mode": "Not checked: “Keep everything on this computer” is on.",
   "checks.problem.chooseModel": "Choose a model",
-  "checks.problem.no-provider": "Checking needs an AI model",
+  "checks.problem.no-provider": "Checking needs your AI",
   "checks.tryAgain": "Try again",
   "checks.problem.failed": "Couldn’t check",
   "checks.problem.no-folder": "Nothing to check against: this note isn’t in a Folder.",
@@ -3609,7 +3609,7 @@ export const en = {
   "providers.local.runningAway": "{provider} answers at {address}.",
   "providers.ollama.get": "Get Ollama",
 
-  "providers.readiness.no-provider": "Asking needs an AI model",
+  "providers.readiness.no-provider": "Asking needs your AI",
   "providers.readiness.missing-api-key":
     "No API key for {service} on this device. Add it in Settings.",
   "providers.readiness.api-key-unreadable":
@@ -8657,6 +8657,58 @@ export const en = {
   "consent.flow.hosted-agents": "Your AI, run in the background",
   "consent.flow.hosted-agents.purpose":
     "start your own AI on this computer when you press Check or ask at the bottom of a note",
+  "consent.flow.agent-install": "Install Claude Code",
+  "consent.flow.agent-install.purpose":
+    "download and install Claude Code from Anthropic into your user folder",
+  "consent.data.installer-request":
+    "Your operating system and architecture, sent to Anthropic to download Claude Code",
+  "agents.install.action": "Install Claude Code",
+  "agents.install.connectYourAi": "Connect your AI",
+  "agents.install.disclosure":
+    "Downloads and installs Claude Code from Anthropic into your user folder.",
+  "agents.install.firstRun.title": "Claude Code",
+  "agents.install.firstRun.detail":
+    "Runs checks in the background and keeps one conversation per note. Downloads and installs Claude Code from Anthropic into your user folder.",
+  "agents.install.settings.title": "Install Claude Code for background work",
+  "agents.install.settings.detail":
+    "Check notes in the background and keep one conversation per note. Downloads and installs Claude Code from Anthropic into your user folder.",
+  "agents.install.jobs.title": "Background note checks",
+  "agents.install.jobs.detail": "Needs a command-line AI or a model in IncarnaMind.",
+  "agents.install.checks.detail":
+    "Connect an AI you already use, or install Claude Code to check notes in the background.",
+  "agents.install.progress.title": "Installing Claude Code…",
+  "agents.install.progress.detail":
+    "Running Anthropic’s installer into {directory}. This usually takes under a minute.",
+  "agents.install.progress.cancel": "Cancel",
+  "agents.install.signIn.title": "Sign in to Claude Code in your browser",
+  "agents.install.signIn.detail":
+    "Claude Code is installed. Finish signing in with Anthropic in the browser window that opened. IncarnaMind never sees or handles your sign-in.",
+  "agents.install.signIn.notYet":
+    "Sign-in hasn’t finished yet. Finish signing in in your browser, then try again.",
+  "agents.install.signIn.done": "I’ve signed in",
+  "agents.install.signIn.reopen": "Open sign-in again",
+  "agents.install.failed.title": "Couldn’t install Claude Code",
+  "agents.install.failed.network":
+    "Couldn’t reach Anthropic’s installer. Check your internet connection and try again, or follow Anthropic’s own instructions.",
+  "agents.install.failed.checksum":
+    "The installer’s verification check didn’t match. Try again, or follow Anthropic’s own instructions.",
+  "agents.install.failed.unsupported":
+    "Anthropic’s installer doesn’t support this computer. Follow Anthropic’s own instructions.",
+  "agents.install.failed.localMode":
+    "“Keep everything on this computer” is on, so nothing was downloaded. Turn it off to install Claude Code.",
+  "agents.install.failed.generic":
+    "Anthropic’s installer didn’t finish. Try again, or follow Anthropic’s own instructions.",
+  "agents.install.failed.retry": "Try again",
+  "agents.install.failed.guide": "Anthropic’s setup guide ↗",
+  "agents.install.noPlan.title": "Your Anthropic plan doesn’t include Claude Code.",
+  "agents.install.noPlan.detail.named":
+    "You can set up a model in IncarnaMind, or keep asking through {agent}.",
+  "agents.install.noPlan.detail.desktop":
+    "You can set up a model in IncarnaMind, or keep asking through your desktop app.",
+  "agents.install.noPlan.setUpModel": "Set up a model in IncarnaMind",
+  "agents.install.noPlan.keepAsking.named": "Keep asking through {agent}",
+  "agents.install.noPlan.keepAsking.desktop": "Keep asking through your desktop app",
+  "agents.install.noPlan.tryOther": "Try another account",
   "consent.data.scoped-passages":
     "For sorting, the names, kinds and opening text of waiting Documents, their version and the names and ids of available Folders and Tags. Passages from Documents in the chosen Folders, each with its Document’s name and internal id, its location and its own internal id; when it reads around a passage, the internal ids of the passages next to it; for a search, which page of results it is and whether more follow; and what IncarnaMind works out for it on this computer from numbers it quotes, or with code over a sheet or CSV file in those Folders (the figures, tables and printed text the code gives)",
   "consent.data.scoped-minds":

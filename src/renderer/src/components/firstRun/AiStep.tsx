@@ -237,7 +237,7 @@ export function AiStep({ place }: { place: StepPlace }) {
         </>
       }
     >
-      <AgentWays clients={clients} pairings={pairings ?? []} />
+      <AgentWays clients={clients} pairings={pairings ?? []} onSetUpModel={openInApp} />
       {inApp ? (
         <>
           <h2 id="setup-in-app" className="-mb-2 text-ui font-semibold text-ink">

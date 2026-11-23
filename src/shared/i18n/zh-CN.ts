@@ -1763,7 +1763,7 @@ export const zhCN = {
   "checks.acceptAndCheck": "全部接受并核对",
   "checks.problem.local-mode": "未核对：已开启“所有内容都留在这台电脑上”。",
   "checks.problem.chooseModel": "选择模型",
-  "checks.problem.no-provider": "核对需要 AI 模型",
+  "checks.problem.no-provider": "核对需要连接你的 AI",
   "checks.tryAgain": "重试",
   "checks.problem.failed": "没能核对",
   "checks.problem.no-folder": "没有可对照的文档：这篇笔记不在文件夹中。",
@@ -3435,7 +3435,7 @@ export const zhCN = {
   "providers.local.runningAway": "{address} 上的 {provider} 有响应。",
   "providers.ollama.get": "下载 Ollama",
 
-  "providers.readiness.no-provider": "提问需要 AI 模型",
+  "providers.readiness.no-provider": "提问需要连接你的 AI",
   "providers.readiness.missing-api-key": "这台设备上没有 {service} 的 API 密钥。请在设置中添加。",
   "providers.readiness.api-key-unreadable":
     "无法读取这台设备上保存的 {service} API 密钥。请重新输入。",
@@ -8163,6 +8163,53 @@ export const zhCN = {
   "consent.flow.hosted-agents": "在后台运行你的 AI",
   "consent.flow.hosted-agents.purpose":
     "在你点“核对”或在笔记底部提问时，在这台电脑上启动你自己的 AI",
+  "consent.flow.agent-install": "安装 Claude Code",
+  "consent.flow.agent-install.purpose": "从 Anthropic 下载并安装 Claude Code 到你的用户文件夹",
+  "consent.data.installer-request":
+    "此电脑的操作系统与架构信息，发送给 Anthropic 以下载 Claude Code",
+  "agents.install.action": "安装 Claude Code",
+  "agents.install.connectYourAi": "连接你的 AI",
+  "agents.install.disclosure": "从 Anthropic 下载并安装 Claude Code 到你的用户文件夹。",
+  "agents.install.firstRun.title": "Claude Code",
+  "agents.install.firstRun.detail":
+    "可在后台核对，并为每篇笔记保持独立对话。从 Anthropic 下载并安装 Claude Code 到你的用户文件夹。",
+  "agents.install.settings.title": "安装 Claude Code 以在后台运行",
+  "agents.install.settings.detail":
+    "可在后台核对笔记，并为每篇笔记保持独立对话。从 Anthropic 下载并安装 Claude Code 到你的用户文件夹。",
+  "agents.install.jobs.title": "后台核对笔记",
+  "agents.install.jobs.detail": "需要命令行 AI，或在 IncarnaMind 里设置 AI 模型。",
+  "agents.install.checks.detail": "连接你已经在用的 AI，或安装 Claude Code 在后台核对笔记。",
+  "agents.install.progress.title": "正在安装 Claude Code…",
+  "agents.install.progress.detail":
+    "正在运行 Anthropic 安装程序并安装到 {directory}，通常不到一分钟。",
+  "agents.install.progress.cancel": "取消",
+  "agents.install.signIn.title": "请在浏览器中登录 Claude Code",
+  "agents.install.signIn.detail":
+    "Claude Code 已安装。请在刚打开的浏览器页面完成 Anthropic 登录。IncarnaMind 不会接触或保存你的登录信息。",
+  "agents.install.signIn.notYet": "尚未检测到登录完成。请在浏览器中完成登录后重试。",
+  "agents.install.signIn.done": "我已登录",
+  "agents.install.signIn.reopen": "重新打开登录页",
+  "agents.install.failed.title": "无法安装 Claude Code",
+  "agents.install.failed.network":
+    "无法连接 Anthropic 安装服务。请检查网络后重试，或按 Anthropic 官方说明安装。",
+  "agents.install.failed.checksum": "安装程序校验未通过。请重试，或按 Anthropic 官方说明安装。",
+  "agents.install.failed.unsupported":
+    "Anthropic 安装程序不支持此电脑。请按 Anthropic 官方说明安装。",
+  "agents.install.failed.localMode":
+    "已开启“所有内容都留在这台电脑上”，未进行下载。关闭后即可安装 Claude Code。",
+  "agents.install.failed.generic":
+    "Anthropic 安装程序未能完成。请重试，或按 Anthropic 官方说明安装。",
+  "agents.install.failed.retry": "重试",
+  "agents.install.failed.guide": "Anthropic 安装指南 ↗",
+  "agents.install.noPlan.title": "你当前的 Anthropic 套餐不包含 Claude Code。",
+  "agents.install.noPlan.detail.named":
+    "你可以在 IncarnaMind 里设置 AI 模型，或继续通过 {agent} 提问。",
+  "agents.install.noPlan.detail.desktop":
+    "你可以在 IncarnaMind 里设置 AI 模型，或继续通过桌面应用提问。",
+  "agents.install.noPlan.setUpModel": "在 IncarnaMind 里设置 AI 模型",
+  "agents.install.noPlan.keepAsking.named": "继续通过 {agent} 提问",
+  "agents.install.noPlan.keepAsking.desktop": "继续通过桌面应用提问",
+  "agents.install.noPlan.tryOther": "换一个账号",
   "consent.data.scoped-passages":
     "整理时会读取待整理文档的名称、类型、开头的文字和版本，以及可选文件夹和标签的名称和内部 ID。所选文件夹中文档的段落，每段连同文档名称和内部 ID、位置及该段的内部 ID；读取某段前后内容时，还会发送相邻段落的内部 ID；搜索时还会发送结果的页码和是否还有更多；以及 IncarnaMind 在这台电脑上为它推算的结果：根据它引用的数字推算，或用代码处理这些文件夹中的表格或 CSV 文件（代码给出的数字、表格和打印的文字）",
   "consent.data.scoped-minds":

@@ -8,7 +8,7 @@
  */
 import { constants } from "node:fs";
 import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
@@ -132,9 +132,19 @@ const runnable = async (path: string) =>
     () => false,
   ));
 
-/** Whether the login shell's PATH holds `command`, as a terminal would find it, looked up without starting it. */
-async function onPath(command: string): Promise<boolean> {
-  if (isAbsolute(command)) return runnable(command);
+/** Default user-folder location where Anthropic's official Claude Code installer places the launcher. */
+function localClaudePath(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || homedir();
+  return join(home, ".local", "bin", process.platform === "win32" ? "claude.exe" : "claude");
+}
+
+/** Resolves `command` on the login shell's PATH, falling back to `~/.local/bin/claude` for freshly installed Claude Code. */
+async function resolveCommand(command: string): Promise<string | null> {
+  if (isAbsolute(command)) return (await runnable(command)) ? command : null;
+  if (command === "claude") {
+    const local = localClaudePath();
+    if (await runnable(local)) return local;
+  }
   const environment = await processes.environment();
   const value = (name: string) =>
     Object.entries(environment).find(([key]) => key.toUpperCase() === name)?.[1] ?? "";
@@ -143,9 +153,17 @@ async function onPath(command: string): Promise<boolean> {
       ? (value("PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").map((ext) => `${command}${ext}`)
       : [command];
   for (const folder of value("PATH").split(delimiter).filter(Boolean)) {
-    for (const name of names) if (await runnable(join(folder, name))) return true;
+    for (const name of names) {
+      const candidate = join(folder, name);
+      if (await runnable(candidate)) return candidate;
+    }
   }
-  return false;
+  return null;
+}
+
+/** Whether the login shell's PATH holds `command`, as a terminal would find it, looked up without starting it. */
+async function onPath(command: string): Promise<boolean> {
+  return (await resolveCommand(command)) !== null;
 }
 
 /**
@@ -177,7 +195,8 @@ export function createOwnAi({
 
     async purge(key) {
       const folder = folderOf(key);
-      const purged = await short(command, ["purge", folder, "--yes"]);
+      const executable = (await resolveCommand(command)) ?? command;
+      const purged = await short(executable, ["purge", folder, "--yes"]);
       await rm(folder, { recursive: true, force: true, maxRetries: 3 });
       if (purged.kind !== "exited") return false;
       // No transcript for the folder is an error to `claude purge`, and nothing to delete.
@@ -185,7 +204,8 @@ export function createOwnAi({
     },
 
     async status(): Promise<OwnAiStatus> {
-      const version = await short(command, ["--version"]);
+      const executable = (await resolveCommand(command)) ?? command;
+      const version = await short(executable, ["--version"]);
       if (version.kind === "no-answer") return { kind: "unknown" };
       if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
       const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
@@ -193,7 +213,7 @@ export function createOwnAi({
         return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
       }
       // 0 signed in, 1 not: anything else says nothing about the sign-in.
-      const signedIn = await short(command, ["auth", "status"]);
+      const signedIn = await short(executable, ["auth", "status"]);
       if (signedIn.kind === "exited" && signedIn.code === 0) return { kind: "ready" };
       if (signedIn.kind === "exited" && signedIn.code === 1) return { kind: "signed-out" };
       return { kind: "unknown" };
@@ -271,8 +291,9 @@ export function createOwnAi({
           }),
           { mode: 0o600 },
         );
+        const executable = (await resolveCommand(command)) ?? command;
         const result = await runClaudeCodeTurn({
-          command,
+          command: executable,
           cwd,
           scratch,
           systemPrompt: request.instructions,

@@ -1,5 +1,10 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentClient, AgentPairing, AgentSettings, LibraryGroup } from "../../../../core/api";
+import {
+  resetClaudeCodeInstall,
+  useClaudeCodeInstallAvailability,
+  useClaudeCodeInstallState,
+} from "../../claudeCodeInstall";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { noModelSetUp } from "../../noModelSetUp";
@@ -24,6 +29,7 @@ import {
   useAgentsNeedingRepair,
 } from "./AllAgentsActions";
 import { clientName, clientNote, setupWords } from "./agentWords";
+import { ClaudeCodeInstallRow } from "./ClaudeCodeInstallRow";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 import { type AgentChoice, useAgentConnection } from "./ConnectAgentFields";
 
@@ -88,10 +94,20 @@ export function useAgentsRead(): AgentsRead {
   useEffect(() => {
     read();
     list();
-    return core.on("agents.changed", (next) => {
+    const offAgents = core.on("agents.changed", (next) => {
       setFailed(false);
       setSettings(next);
+      list();
     });
+    const offInstall = core.on("claudeCodeInstall.changed", (next) => {
+      if (next.kind === "awaiting-sign-in" || next.kind === "signed-in" || next.kind === "idle") {
+        list();
+      }
+    });
+    return () => {
+      offAgents();
+      offInstall();
+    };
   }, [read, list]);
   const retry = () => {
     if (failed) read();
@@ -133,8 +149,11 @@ export function YourAiSection({
   const language = useLanguage();
   const reportError = useAppStore((state) => state.reportError);
   const openSettings = useAppStore((state) => state.openSettings);
+  const openSetup = useAppStore((state) => state.openSetup);
   const folders = useAppStore((state) => state.library?.groups ?? NO_FOLDERS);
   const noModel = useAppStore((state) => noModelSetUp(state.chatReadiness));
+  const installAvailability = useClaudeCodeInstallAvailability();
+  const installState = useClaudeCodeInstallState();
   const [connecting, setConnecting] = useState<AgentClient | null>(null);
   const connection = useAgentConnection();
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
@@ -145,8 +164,40 @@ export function YourAiSection({
 
   const connected = settings?.pairings ?? NO_PAIRINGS;
   const repair = useAgentsNeedingRepair(connected);
+  const hasClaudeCodePairing = connected.some((each) => each.client === "claude-code");
   // Open while nothing at all is set up; otherwise one row unfolds it.
   const listed = (connected.length === 0 && noModel) || addingAnother;
+
+  const openClaudeCodeConnect = useCallback(() => {
+    const claudeCode = clients?.find((each) => each.id === "claude-code");
+    if (claudeCode) {
+      connection.clearProblem();
+      setConnecting(claudeCode);
+    }
+  }, [clients, connection]);
+
+  const handedOffSignIn = useRef(false);
+  useEffect(() => {
+    if (installState.kind === "signed-in" && !handedOffSignIn.current && !hasClaudeCodePairing) {
+      const claudeCode = clients?.find((each) => each.id === "claude-code");
+      if (claudeCode) {
+        handedOffSignIn.current = true;
+        connection.clearProblem();
+        setConnecting(claudeCode);
+      }
+    } else if (installState.kind !== "signed-in") {
+      handedOffSignIn.current = false;
+    }
+  }, [installState.kind, hasClaudeCodePairing, clients, connection]);
+
+  const keepDesktop = useCallback(() => {
+    if (connected.some((each) => each.client === "claude-desktop")) return;
+    const desktop = clients?.find((each) => each.id === "claude-desktop");
+    if (desktop) {
+      connection.clearProblem();
+      setConnecting(desktop);
+    }
+  }, [clients, connected, connection]);
 
   useEffect(() => {
     if (addingAnother) list.current?.querySelector<HTMLInputElement>("input")?.focus();
@@ -176,7 +227,14 @@ export function YourAiSection({
     setSkillLeft([]);
     setConnecting(null);
     setAddingAnother(false);
+    if (client.id === "claude-code") void resetClaudeCodeInstall();
   };
+
+  const showInstallRow =
+    !hasClaudeCodePairing &&
+    installAvailability?.supported === true &&
+    (!installAvailability.cliAgentPresent ||
+      (installState.kind !== "idle" && installState.kind !== "signed-in"));
 
   const clientRow = (client: AgentClient) => (
     <SettingsRow
@@ -315,6 +373,15 @@ export function YourAiSection({
                   onDisconnected={(agent, left) => setSkillLeft(skillsLeftBy([{ agent, left }]))}
                 />
               ))}
+              {showInstallRow && (
+                <ClaudeCodeInstallRow
+                  variant="settings"
+                  pairings={connected}
+                  onSignedIn={openClaudeCodeConnect}
+                  onSetUpModel={openSetup}
+                  onKeepDesktop={keepDesktop}
+                />
+              )}
               {!listed && (
                 <SettingsRowAction
                   testId="agents-connect-another"
@@ -332,6 +399,17 @@ export function YourAiSection({
             pairings={connected}
             onDisconnected={(left) => setSkillLeft(skillsLeftBy(left))}
           />
+          {!(connected.length > 0 || !listed) && showInstallRow && (
+            <SettingsGroup>
+              <ClaudeCodeInstallRow
+                variant="settings"
+                pairings={connected}
+                onSignedIn={openClaudeCodeConnect}
+                onSetUpModel={openSetup}
+                onKeepDesktop={keepDesktop}
+              />
+            </SettingsGroup>
+          )}
           {listed && clientsFailed && (
             <ProblemLine
               testId="agents-list-failed"
@@ -359,6 +437,9 @@ export function YourAiSection({
         problem={connection.problem}
         onAllow={(choice) => connecting && void allow(connecting, choice)}
         onClose={() => {
+          if (connecting?.id === "claude-code" && installState.kind === "signed-in") {
+            void resetClaudeCodeInstall();
+          }
           setConnecting(null);
           connection.clearProblem();
         }}
