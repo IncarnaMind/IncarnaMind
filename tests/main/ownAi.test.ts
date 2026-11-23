@@ -9,6 +9,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/pr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runClaudeCodeTurn } from "../../src/main/claudeCode";
 import { createOwnAi } from "../../src/main/ownAi";
 
 const launch = vi.hoisted(() => vi.fn());
@@ -656,6 +657,41 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       ),
     });
     await expect(ask()).resolves.toEqual({ kind: "failed", reason: "other" });
+  });
+
+  // protects=a streamed run IncarnaMind cut off at the limit of all it may print ends as cut off, though its end came in the same block as what passed the limit; fails_when=a run it stopped reads as finished
+  it("ends a run cut off at its limit as cut off, though its end came in the same block", async () => {
+    const piece = JSON.stringify({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "x".repeat(200) },
+      },
+    });
+    // One write: the block that passes the limit holds the run's end as well.
+    const burst = `${Array.from({ length: 50 }, () => piece).join("\n")}\n${JSON.stringify(done)}\n`;
+    useClaude({ run: session([init()], false, `process.stdout.write(${JSON.stringify(burst)});`) });
+    const scratch = await mkdtemp(join(tmpdir(), "own-ai-limit-"));
+    try {
+      const configFile = join(scratch, "mcp.json");
+      await writeFile(configFile, JSON.stringify({ mcpServers: {} }));
+      const turn = (maxResponseBytes: number) =>
+        runClaudeCodeTurn({
+          cwd: scratch,
+          scratch,
+          systemPrompt: INSTRUCTIONS,
+          prompt: "Check the note.",
+          signal: new AbortController().signal,
+          maxResponseBytes,
+          partial: true,
+          server: { configFile, name: "incarnamind", tools: "all" },
+        });
+      await expect(turn(100_000)).resolves.toMatchObject({ type: "result", subtype: "success" });
+      await expect(turn(1_000)).rejects.toThrow("printed more than IncarnaMind reads");
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
   });
 
   // protects=what the run says to the User between its calls, and each call as it starts, reach IncarnaMind as they come, and so does that it sent anything, at most once a second; fails_when=the line can only show a call once it has ended, or can't tell a silent run from a busy one
