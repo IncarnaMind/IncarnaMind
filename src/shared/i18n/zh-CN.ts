@@ -6877,6 +6877,7 @@ export const zhCN = {
   "meetings.record": "录制会议",
   "meetings.record.keywords": "录音 会议 通话 转写 记录 luzhi huiyi lu yin zhuanxie tonghua",
   "meetings.hint.agenda": "写下议程，或想讨论的任何内容…",
+  "meetings.hint.notes": "写下会议笔记…",
   "meetings.audio.both": "我和对方",
   "meetings.audio.me": "只有我",
   "meetings.start.label": "开始会议",

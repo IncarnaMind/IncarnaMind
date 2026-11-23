@@ -45,6 +45,7 @@ test("reopening a stopped Meeting resumes its unwritten notes and Stop cancels t
     await firstTranscriptLine(first.window);
     await pointAndClick(first.window, bar.getByTestId("meeting-stop"));
     await expect(first.window.getByTestId("meeting-fill-stop")).toBeVisible();
+    await expect(first.window.getByTestId("end-hint")).toHaveText("Add your meeting notes…");
     await expect.poll(() => requested).toBe(1);
     await app.close();
     app = undefined;

@@ -556,8 +556,6 @@ function MindEditorView({
   const cursorPlaced = useRef(false);
   const placeholder = useRef({ body: "", title: "" });
   placeholder.current = { body: t("editor.placeholder"), title: t("editor.title") };
-  // A Meeting's empty Mind waits for the agenda (as in Granola), with no Question to ask yet; a
-  // voice memo's, for its note.
   const meeting = useMeetingOf(mindId);
   const meetingKind = meeting?.kind;
   const tabId = useTabPlace()?.tabId;
@@ -586,7 +584,13 @@ function MindEditorView({
   const hintText = (place: HintPlace): HintText => {
     if (place === "empty" && meetingKind) {
       return {
-        before: t(meetingKind === "memo" ? "memos.hint" : "meetings.hint.agenda"),
+        before: t(
+          meetingKind === "memo"
+            ? "memos.hint"
+            : meeting?.status === "stopped"
+              ? "meetings.hint.notes"
+              : "meetings.hint.agenda",
+        ),
         ask: "",
         after: "",
       };

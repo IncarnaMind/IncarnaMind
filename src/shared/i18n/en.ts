@@ -7279,6 +7279,7 @@ export const en = {
   "meetings.record": "Record a meeting",
   "meetings.record.keywords": "record call meeting transcribe audio notes",
   "meetings.hint.agenda": "Write the agenda, or anything you want to cover…",
+  "meetings.hint.notes": "Add your meeting notes…",
   "meetings.audio.both": "Me and them",
   "meetings.audio.me": "Only me",
   "meetings.start.label": "Start a meeting",
