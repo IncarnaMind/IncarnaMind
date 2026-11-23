@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   createDataFolder,
@@ -29,6 +29,26 @@ test.afterEach(async () => {
 });
 
 const COUNT = 2000;
+
+async function profileScroll(window: Page, scroll: () => Promise<void>): Promise<void> {
+  if (process.env.INCARNAMIND_PROFILE_LIBRARY_SCROLL !== "1") return scroll();
+  const session = await window.context().newCDPSession(window);
+  try {
+    await session.send("Profiler.enable");
+    await session.send("Profiler.start");
+    try {
+      await scroll();
+    } finally {
+      const { profile } = await session.send("Profiler.stop");
+      await test.info().attach("library-scroll-down.cpuprofile", {
+        body: Buffer.from(JSON.stringify(profile)),
+        contentType: "application/json",
+      });
+    }
+  } finally {
+    await session.detach();
+  }
+}
 
 test("scrolling the Library with 2,000 Documents", async () => {
   test.setTimeout(300_000);
@@ -78,13 +98,15 @@ test("scrolling the Library with 2,000 Documents", async () => {
   const firstName =
     (await library.getByTestId("library-document-name").first().textContent()) ?? "";
   const firstRow = library.getByTestId("library-document").filter({ hasText: firstName }).first();
-  await feel.step("scroll down", async () => {
-    const box = await library.boundingBox();
-    if (!box) throw new Error("The Library isn't showing.");
-    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    for (let turn = 0; turn < 30; turn++) await window.mouse.wheel(0, 1200);
-    await expect(firstRow).not.toBeInViewport();
-  });
+  await profileScroll(window, () =>
+    feel.step("scroll down", async () => {
+      const box = await library.boundingBox();
+      if (!box) throw new Error("The Library isn't showing.");
+      await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      for (let turn = 0; turn < 30; turn++) await window.mouse.wheel(0, 1200);
+      await expect(firstRow).not.toBeInViewport();
+    }),
+  );
   await feel.step("scroll back up", async () => {
     for (let turn = 0; turn < 30; turn++) await window.mouse.wheel(0, -1200);
     await expect(firstRow).toBeInViewport();
