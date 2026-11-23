@@ -98,6 +98,8 @@ function NoteAskBox({
   const upward = place === "upward" || slot === null;
   useEffect(listen, []);
   const working = ask?.state === "working";
+  // With no conversation yet there is nothing to open: no handle, and the box is its input row.
+  const kept = useKeptConversation(mindId, ask?.state ?? null);
 
   useEffect(() => {
     const follow = () => {
@@ -189,7 +191,9 @@ function NoteAskBox({
       carry={carry}
       line={
         upward ? (
-          <ConversationHandle mindId={mindId} line={line} open={open} onToggle={toggle} />
+          kept || ask ? (
+            <ConversationHandle mindId={mindId} line={line} open={open} onToggle={toggle} />
+          ) : null
         ) : open ? null : (
           line
         )
@@ -232,7 +236,7 @@ function NoteAskBox({
  * The box's top row with the conversation upward: the AI's line, or "Show conversation" when there
  * is none, and the chevron that opens and folds it. Open, it holds only what the conversation above
  * it doesn't: a run's words while one goes, the move to the right, and the fold; the reply and its
- * one action are in the conversation then. With no conversation yet there is nothing to open.
+ * one action are in the conversation then.
  */
 function ConversationHandle({
   mindId,
@@ -247,8 +251,6 @@ function ConversationHandle({
 }) {
   const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
-  const kept = useKeptConversation(mindId, ask?.state ?? null);
-  if (!kept && !ask) return null;
   const shownLine = open ? (ask?.state === "working" ? line : null) : line;
   return (
     <div data-testid="note-ask-handle" className="note-ask-handle">

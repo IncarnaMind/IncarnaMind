@@ -2635,6 +2635,11 @@
     gap: 8px;
     min-width: 0;
     padding: 8px var(--note-ask-end) 0 var(--note-ask-start);
+    /* The line takes the row, so its one action ends where Send ends. */
+    > .note-ask-pill {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
   }
   .note-ask-row {
     display: flex;
