@@ -34,6 +34,8 @@ import { ProposeChoice } from "./ProposeChoice";
 export interface JustSetUp {
   pairingId: string;
   result: AgentSetupResult;
+  /** True when reopening the bundle rotated an out-of-date key, revoking the old install immediately. */
+  rotated?: boolean;
 }
 
 /**
@@ -51,6 +53,8 @@ export function AgentPairingRow({
   skillInstalled,
   skillOutOfDate,
   awaitingInstall,
+  shimOutOfDate = false,
+  isBundleClient = false,
   folders,
   justSetUp,
   onUndone,
@@ -64,11 +68,15 @@ export function AgentPairingRow({
   skillOutOfDate: boolean;
   /** Its install file waits for the agent, which hasn't connected or been used (#3523). */
   awaitingInstall: boolean;
+  /** Its last connection used a legacy v1 shim without mutual verification (ADR-0036). */
+  shimOutOfDate?: boolean;
+  /** Whether this pairing's agent installs a bundle file that can be reopened to upgrade. */
+  isBundleClient?: boolean;
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;
   onUndone(): void;
-  /** The install file was made and opened again. */
-  onInstallReopened(): void;
+  /** The install file was made and opened again; `rotated` is true when an out-of-date key was replaced. */
+  onInstallReopened(rotated?: boolean): void;
   /** The agent is disconnected; `agent` is how a sentence names it. */
   onDisconnected(agent: string, left: AgentDisconnected): void;
 }) {
@@ -236,7 +244,9 @@ export function AgentPairingRow({
                   type="button"
                   data-testid="agent-install-again"
                   onClick={() =>
-                    core.openAgentInstallAgain(pairing.id).then(onInstallReopened, reportError)
+                    core
+                      .openAgentInstallAgain(pairing.id)
+                      .then(() => onInstallReopened(shimOutOfDate), reportError)
                   }
                   className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
                 >
@@ -332,9 +342,37 @@ export function AgentPairingRow({
               )}
             </span>
           )}
+          {shimOutOfDate && (
+            <span data-testid="agent-pairing-shim-old" className="block">
+              {isBundleClient ? (
+                <>
+                  {t("agents.pairing.shimOld.bundle")}
+                  {!awaitingInstall && (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <button
+                        type="button"
+                        data-testid="agent-shim-reinstall"
+                        onClick={() =>
+                          core
+                            .openAgentInstallAgain(pairing.id)
+                            .then(() => onInstallReopened(true), reportError)
+                        }
+                        className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                      >
+                        {t("agents.pairing.installAgain")}
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : (
+                t("agents.pairing.shimOld")
+              )}
+            </span>
+          )}
           {done && (
             <p data-testid="agent-setup-done" role="status" className="mt-1">
-              {doneWords(done, pairing, t)}
+              {justSetUp?.rotated ? t("agents.done.bundleRotated") : doneWords(done, pairing, t)}
               {done.kind === "wrote" && (
                 <>
                   <span aria-hidden="true"> · </span>

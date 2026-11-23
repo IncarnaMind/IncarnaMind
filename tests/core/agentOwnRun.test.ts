@@ -287,10 +287,7 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
 
     const [launch] = run.launches;
     if (!launch) throw new Error("No run was started.");
-    const after = await connectLegacyAgent(launch);
-    expect(
-      refusal(await after.callTool({ name: "search", arguments: { query: "tides" } })),
-    ).toMatch(/no longer connected|isn't connected|Connect it again/i);
+    await expect(connectLegacyAgent(launch)).rejects.toThrow(/no longer connected/);
   });
 
   // protects=a User the background can't serve keeps today's link: no runner on this host, only an agent that runs in its own app, or Claude Code not installed, which on a connection made before asks no consent for a run that can't happen; fails_when=the press does nothing, starts a run that can't work, or asks the User to allow an agent that isn't there

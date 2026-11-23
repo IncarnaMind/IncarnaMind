@@ -6217,8 +6217,10 @@ export const zhCN = {
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
   "error.agent.socketTooLong":
     "智能体无法从这个文件夹连接到 IncarnaMind：路径太长，无法建立本地连接。请改用更短的数据文件夹或临时文件夹。",
+  "error.agent.socketUntrusted":
+    "智能体无法连接到 IncarnaMind：{path} 并非仅限当前账号使用。请修正它的权限或移除它，或改用其他数据文件夹。",
   "error.agent.socketUnavailable":
-    "智能体暂时无法连接到 IncarnaMind：无法打开本地连接。请重启 IncarnaMind 或关闭另一个正在运行的窗口后再试。",
+    "智能体无法连接到 IncarnaMind：无法在 {path} 建立本地连接。请关闭另一个正在运行的 IncarnaMind 窗口，或检查该位置的权限后再试。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
@@ -8390,6 +8392,8 @@ export const zhCN = {
   "agents.pairing.skillOld.ask": "替换会丢弃你对技能文件的修改。",
   "agents.pairing.skillOld.confirm": "替换技能",
   "agents.pairing.skillOld.cancel": "保留我的",
+  "agents.pairing.shimOld": "旧版连接程序：请重新连接此智能体以更新。",
+  "agents.pairing.shimOld.bundle": "旧版连接程序：重新安装以更新",
   "agents.pairing.copySettings": "复制设置",
   "agents.pairing.copySkill": "复制技能",
   "agents.pairing.copySkill.hint": "保存为智能体技能文件夹中的 incarnamind/SKILL.md。",
@@ -8532,6 +8536,7 @@ export const zhCN = {
   "agents.connect.allow": "允许并连接",
   "agents.connect.cancel": "取消",
   "agents.done.bundle": "已打开 Claude：在其中点击“安装”完成连接。",
+  "agents.done.bundleRotated": "请安装刚打开的文件；旧安装现已停用。",
   "agents.done.link": "已打开{agent}：在其中点击“安装”完成连接。",
   "agents.done.wrote": "已添加到{agent}的设置中。在{agent}中开始一个新会话即可使用。",
   "agents.done.wrote.codex":

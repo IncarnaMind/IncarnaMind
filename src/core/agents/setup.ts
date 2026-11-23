@@ -85,10 +85,12 @@ const BUNDLE_FOLDER_PREFIX = "incarnamind-agent-";
 export interface AgentSetupOptions {
   /** Pairing (see ./index). */
   agents: {
-    settings(): { pairings: AgentPairing[]; awaitingInstall: string[] };
+    settings(): { pairings: AgentPairing[]; awaitingInstall: string[]; shimsOutOfDate: string[] };
     connect(input: unknown): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
     disconnect(pairingId: unknown): Promise<void>;
     launch(pairingId: unknown): Promise<AgentLaunch>;
+    /** Issues a new key and revokes the previous one when reinstalling an out-of-date shim (ADR-0036). */
+    rotateKey(pairingId: unknown): Promise<AgentLaunch>;
     /** How the server starts with this token, for showing settings before there is one. */
     launchFor(token: string): AgentLaunch;
     ensureReachable?(): Promise<void>;
@@ -665,13 +667,17 @@ export function createAgentSetup(options: AgentSetupOptions) {
       await options.agents.disconnect(pairingId);
     },
 
-    /** Makes the bundle of a pairing still waiting for its agent anew and opens it. */
+    /** Makes the bundle of a pairing waiting for its agent or running a legacy shim anew and opens it. */
     async openInstallAgain(pairingId: unknown): Promise<void> {
-      const { pairings, awaitingInstall } = options.agents.settings();
+      const { pairings, awaitingInstall, shimsOutOfDate } = options.agents.settings();
       const pairing = pairings.find((each) => each.id === pairingId);
       if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
-      if (!awaitingInstall.includes(pairing.id)) return;
-      await openBundle(pairing.id, await options.agents.launch(pairing.id));
+      if (clientDefinition(pairing.client)?.setup !== "bundle") return;
+      if (!awaitingInstall.includes(pairing.id) && !shimsOutOfDate.includes(pairing.id)) return;
+      const launch = shimsOutOfDate.includes(pairing.id)
+        ? await options.agents.rotateKey(pairing.id)
+        : await options.agents.launch(pairing.id);
+      await openBundle(pairing.id, launch);
     },
 
     async settingsFor(pairingId: unknown) {

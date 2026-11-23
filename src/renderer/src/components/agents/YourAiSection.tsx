@@ -263,13 +263,20 @@ export function YourAiSection({
                   skillInstalled={settings.skills.includes(pairing.id)}
                   skillOutOfDate={settings.skillsOutOfDate.includes(pairing.id)}
                   awaitingInstall={settings.awaitingInstall.includes(pairing.id)}
+                  shimOutOfDate={settings.shimsOutOfDate.includes(pairing.id)}
+                  isBundleClient={
+                    clients?.some(
+                      (each) => each.id === pairing.client && each.setup === "bundle",
+                    ) ?? false
+                  }
                   folders={folders}
                   justSetUp={justSetUp}
                   onUndone={() => setJustSetUp(null)}
-                  onInstallReopened={() =>
+                  onInstallReopened={(rotated) =>
                     setJustSetUp({
                       pairingId: pairing.id,
                       result: { kind: "opened", how: "bundle" },
+                      rotated,
                     })
                   }
                   onDisconnected={(agent, left) =>

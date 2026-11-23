@@ -121,6 +121,7 @@ describe("outside agents", () => {
       skills: [],
       skillsOutOfDate: [],
       awaitingInstall: [],
+      shimsOutOfDate: [],
     });
     const { launch, pairing } = await core.connectAgent({ name: "Codex", client: "codex" });
     expect(pairing).toMatchObject({ name: "Codex", client: "codex", folderIds: [] });
@@ -544,10 +545,7 @@ describe("outside agents", () => {
     await closed;
     expect((await core.getAgents()).pairings).toEqual([]);
 
-    const again = await connectLegacyAgent(launch);
-    const refused = await again.callTool({ name: "search", arguments: { query: "tides" } });
-    expect(refused.isError).toBe(true);
-    expect(resultText(refused)).toMatch(/no longer connected/);
+    await expect(connectLegacyAgent(launch)).rejects.toThrow(/no longer connected/);
     await expect(core.getAgentLaunch(pairing.id)).rejects.toThrow();
   });
 
@@ -1218,15 +1216,18 @@ describe("the agents' socket", () => {
     const deepData = `/Users/ada/${"Very long data folder/".repeat(5)}IncarnaMind`;
     const deepTemp = `/Users/ada/${"Very long temp folder/".repeat(6)}tmp`;
     const shortFallback = agentSocketPath(deepData, "darwin", {
+      runtimeDir: "",
       tempDir: deepTemp,
       shortDir: "/tmp",
       canUseDir: () => true,
+      uid: 501,
     });
-    expect(shortFallback).toMatch(/^\/tmp\/incarnamind-[0-9a-f]{16}\.sock$/);
+    expect(shortFallback).toMatch(/^\/tmp\/im-501\/incarnamind-[0-9a-f]{16}\.sock$/);
     expect(Buffer.byteLength(shortFallback)).toBeLessThanOrEqual(MAX_SOCKET_PATH_BYTES);
     expect(isSocketPathUsable(shortFallback)).toBe(true);
 
     const unusable = agentSocketPath(deepData, "darwin", {
+      runtimeDir: "",
       tempDir: deepTemp,
       shortDir: "/tmp",
       canUseDir: () => false,

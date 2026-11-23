@@ -299,14 +299,20 @@ const CLAUDE_CODE: AgentPairing = {
   lastUsedAt: null,
   createdAt: "2026-11-22T00:00:00.000Z",
 } as never;
-const agents = (pairings: AgentPairing[], enabled = true): AgentSettings =>
+const agents = (
+  pairings: AgentPairing[],
+  enabled = true,
+  shimsOutOfDate: string[] = [],
+  awaitingInstall: string[] = [],
+): AgentSettings =>
   ({
     enabled,
     paused: null,
     pairings,
     skills: [],
     skillsOutOfDate: [],
-    awaitingInstall: [],
+    awaitingInstall,
+    shimsOutOfDate,
   }) as never;
 
 describe("Settings › AI leads with Your AI (#3645)", () => {
@@ -317,13 +323,14 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     language = "en",
     failed = false,
     listFailed = false,
+    availableClients: readonly AgentClient[] = CLIENTS,
   ) => {
     user(readiness, false, language);
     const container = await shown(
       createElement(YourAiSection, {
         settings: failed ? null : settings,
         failed,
-        clients: listFailed ? [] : CLIENTS,
+        clients: listFailed ? [] : availableClients,
         clientsFailed: listFailed,
         // As the page's read says: connecting off with an agent connected.
         switchShown: !settings.enabled && settings.pairings.length > 0,
@@ -439,6 +446,85 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     unmount = null;
     const one = await yourAi(agents([CLAUDE_CODE]), NO_MODEL, "zh-CN");
     expect(one.part("agents-connect-another")?.textContent).toBe("连接其他智能体…");
+  });
+
+  test("a pairing that last connected with a legacy v1 shim says so, with reinstall for bundle clients", async () => {
+    const clear = async () => {
+      await unmount?.();
+      unmount = null;
+    };
+    const withBundleClient: AgentClient[] = [
+      ...CLIENTS,
+      { ...client("claude-desktop", "Claude Desktop", true), setup: "bundle" },
+    ];
+    const claudeDesktop: AgentPairing = {
+      ...CLAUDE_CODE,
+      id: "p-bundle",
+      name: "Claude Desktop",
+      client: "claude-desktop",
+    } as never;
+    const { part } = await yourAi(
+      agents([CLAUDE_CODE], true, [CLAUDE_CODE.id]),
+      NO_MODEL,
+      "en",
+      false,
+      false,
+      withBundleClient,
+    );
+    expect(part("agent-pairing-shim-old")?.textContent).toContain("Older connection helper");
+    expect(part("agent-shim-reinstall")).toBeNull();
+    await clear();
+
+    const bundle = await yourAi(
+      agents([claudeDesktop], true, [claudeDesktop.id]),
+      NO_MODEL,
+      "en",
+      false,
+      false,
+      withBundleClient,
+    );
+    expect(bundle.part("agent-pairing-shim-old")?.textContent).toContain("Older connection helper");
+    expect(bundle.part("agent-shim-reinstall")?.textContent).toBe(
+      "Open the install in Claude again",
+    );
+    await act(async () =>
+      (bundle.part("agent-shim-reinstall") as unknown as { click(): void }).click(),
+    );
+    expect(bundle.part("agent-setup-done")?.textContent).toContain(
+      "Install the file just opened; the old install stops now.",
+    );
+    await clear();
+
+    // When both awaitingInstall and shimOutOfDate apply, render only one reinstall button.
+    const both = await yourAi(
+      agents([claudeDesktop], true, [claudeDesktop.id], [claudeDesktop.id]),
+      NO_MODEL,
+      "en",
+      false,
+      false,
+      withBundleClient,
+    );
+    expect(both.part("agent-pairing-shim-old")?.textContent).toContain("Older connection helper");
+    expect(both.part("agent-install-again")?.textContent).toBe("Open the install in Claude again");
+    expect(both.part("agent-shim-reinstall")).toBeNull();
+    await clear();
+
+    const zh = await yourAi(
+      agents([claudeDesktop], true, [claudeDesktop.id]),
+      NO_MODEL,
+      "zh-CN",
+      false,
+      false,
+      withBundleClient,
+    );
+    expect(zh.part("agent-pairing-shim-old")?.textContent).toContain("旧版连接程序");
+    expect(zh.part("agent-shim-reinstall")?.textContent).toBe("在 Claude 中重新打开安装");
+    await act(async () =>
+      (zh.part("agent-shim-reinstall") as unknown as { click(): void }).click(),
+    );
+    expect(zh.part("agent-setup-done")?.textContent).toContain(
+      "请安装刚打开的文件；旧安装现已停用。",
+    );
   });
 
   test("a model in IncarnaMind, with none set up, is one quiet row that says it is optional", async () => {
