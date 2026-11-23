@@ -12,6 +12,10 @@ export interface CardAction {
   /** Never a button: Open the page, which the quote is, and Add all as Citations. */
   menuOnly?: boolean;
   disabled?: boolean;
+  /** The keys that press it, for a screen reader (`aria-keyshortcuts`). */
+  keys?: string;
+  /** A row of the card's ⋯ that ticks, as "Checked by me" (#3715): whether it is ticked now. */
+  checked?: boolean;
   onClick(): void;
   /** Drawn by a component of its own when it is a button, for what it shows beside it. */
   render?: () => ReactNode;

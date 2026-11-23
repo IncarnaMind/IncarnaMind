@@ -17,7 +17,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Y from "yjs";
 import type { MarkJSON, NodeJSON } from "../../shared/blockJson";
-import { countingMarkOf, KEYED_MARKS, keyedMarkOf, markKeyOf } from "../../shared/markKeys";
+import { countingMarksOf, KEYED_MARKS, keyedMarkOf, markKeyOf } from "../../shared/markKeys";
 import {
   ANALYSIS_TABLE_NODE,
   BLOCK_ID_ATTRIBUTE,
@@ -126,11 +126,11 @@ export function formattingOf(
   );
 }
 
-/** A run's Yjs formatting as marks in JSON: of each keyed mark, the one that counts, by name. */
+/** A run's Yjs formatting as marks in JSON: of each keyed mark, those that count, by name. */
 export function marksOfRun(attributes: FormattingAttributes | undefined): MarkJSON[] {
   return Object.entries(attributes ?? {}).flatMap(([type, value]) => {
     const keyed = keyedMarkOf(type);
-    if (keyed && type !== countingMarkOf(keyed, attributes)?.key) return [];
+    if (keyed && !countingMarksOf(keyed, attributes).some((each) => each.key === type)) return [];
     return [{ type: keyed ?? type, ...(isRecord(value) && { attrs: value }) }];
   });
 }

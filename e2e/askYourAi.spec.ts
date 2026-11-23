@@ -185,7 +185,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await window.keyboard.press("Space");
     const card = window.getByTestId("claim-card");
     const ask = card.getByTestId("claim-ask-agent");
-    await expect(ask).toHaveText("Ask Claude Code");
+    await expect(ask).toHaveText("Ask Claude Code to fix it");
     await expect(ask).toBeFocused();
     await window.keyboard.press("Enter");
     await expect(card).toBeHidden();
@@ -288,7 +288,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     // In Chinese, the same request in Chinese words.
     await setLanguage(window, "zh-CN");
     await pointAndClick(window, mark);
-    await expect(card.getByTestId("claim-ask-agent")).toHaveText("交给 Claude Code");
+    await expect(card.getByTestId("claim-ask-agent")).toHaveText("交给 Claude Code 修改");
     await pointAndClick(window, card.getByTestId("claim-ask-agent"));
     await expect(window.getByTestId("copied-line")).toHaveText(
       "已打开 Claude Code，请求已填好，在那里发送即可。",

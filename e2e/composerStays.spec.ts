@@ -520,3 +520,29 @@ test("clicking + New note and then the composer at once: what is typed, and the 
   await expect(window.getByTestId("composer-input")).toHaveValue(`${text} Thanks.`);
   await app.close();
 });
+
+for (const [language, first, rest] of [
+  ["en", "Spring tides", " at full moon?"],
+  ["zh-CN", "大潮的收入表，引用在下", "，带说明"],
+] as const) {
+  test(`a Question started immediately after opening a new Note stays in the composer when the next frame arrives (${language})`, async () => {
+    const { window } = await start(1440, 900, language);
+    await window.clock.install();
+    await window.clock.pauseAt(new Date(Date.now() + 1_000));
+    await window.keyboard.press("ControlOrMeta+t");
+    const editor = window.getByTestId("mind-editor");
+    await expect(editor).toBeFocused();
+    await window.keyboard.press("ControlOrMeta+j");
+    const composer = window.getByTestId("composer-input");
+    await expect(composer).toBeFocused();
+    await window.keyboard.type(first);
+    await window.clock.runFor(16);
+    await window.clock.resume();
+    await window.keyboard.type(rest);
+    await expect(composer).toBeFocused();
+    await expect(composer).toHaveValue(first + rest);
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("assistant-question")).toContainText(first + rest);
+    await expect(editor).toHaveText("");
+  });
+}

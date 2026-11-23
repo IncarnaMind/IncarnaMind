@@ -1022,8 +1022,9 @@ describe("outside agents", () => {
     // every page before a suggestion (#3610); 3,459 before propose_sorting took a Suggestion for
     // every Document one list answer holds (#3626); 3,455 before show_citation showed a Note, file or
     // Canvas again by its id (#3534); 3,416 before search said its ready Citation is for its own
-    // sentence only (found in #3667); 3,435 before search answered with no ready Citation at all.
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_479);
+    // sentence only (found in #3667); 3,435 before search answered with no ready Citation at all;
+    // 3,479 before report_check took a change and the quotes that say otherwise (#3715).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_617);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

@@ -22,6 +22,7 @@ import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
 import type { KeptMark } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { sentenceKey } from "../../src/shared/mindCheck";
+import { countSentence, emptyHealth } from "../../src/shared/noteHealth";
 
 /** The words each row of the check card goes by (src/renderer/src/editor/NoteHealth.tsx). */
 const ROW_KEY = {
@@ -368,6 +369,16 @@ describe("A Mind's health", () => {
     expect(health.toCheck).toHaveLength(2);
     expect(health.noCitation).toHaveLength(1);
     for (const at of health.toCheck) expect(health.noCitation).not.toContain(at);
+  });
+
+  // protects=the summary counts sentences kept as written apart from charts kept as the User's view, so its line says what the button said (#3715); fails_when=a kept chart is counted as a sentence kept as written, or a kept sentence as a chart
+  test("a kept sentence and a kept chart are counted apart", () => {
+    const health = emptyHealth();
+    const kept = { citations: [], claim: null, inTable: false, state: { kind: "kept" as const } };
+    countSentence(health, { ...kept, from: 1, text: "Online sales grew 12% in the quarter." });
+    countSentence(health, { ...kept, kind: "chart", from: 40, text: "Sales by month" });
+    expect(health.kept).toEqual([1]);
+    expect(health.keptCharts).toEqual([40]);
   });
 
   test("a kept sentence's same words elsewhere don't hide a contradicted mark (#1909)", () => {

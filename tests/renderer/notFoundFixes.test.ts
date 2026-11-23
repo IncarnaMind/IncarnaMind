@@ -784,7 +784,7 @@ describe("Keep as my view on a contradicted sentence", () => {
         (key) => key,
         (name) => name,
       ),
-    ).toBe("claim.keptAsView");
+    ).toBe("claim.keptAsWritten");
     await useUndo.getState().undo();
     expect(editor.state.doc.textContent).toBe("Two dogs.");
     expect(checkAttrsOf(editor)[0]?.kept).toBeNull();

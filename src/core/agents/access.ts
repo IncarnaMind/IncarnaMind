@@ -38,6 +38,7 @@ import {
   liveDocumentOf,
   withShownName,
 } from "../../shared/citations";
+import { CHANGE_CHARS, givenChange } from "../../shared/claimChange";
 import { formatFullDateTime } from "../../shared/dates";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { isListedMind } from "../../shared/listedMinds";
@@ -57,6 +58,7 @@ import { setTextOrigin } from "../../shared/textOrigins";
 import type { AnalysisRuntime, NamedFile, Pictures } from "../adapters";
 import type { OutsideAnswer } from "../answers";
 import type {
+  ChangeNotKept,
   CheckTask,
   Judged,
   JudgedSentence,
@@ -81,6 +83,7 @@ import {
   type Citation,
   type CitationLocation,
   type CitationRecheck,
+  type ClaimChange,
   type Effect,
   type LibrarySource,
   type Mind,
@@ -519,6 +522,10 @@ export interface AgentReportInput {
       figure: string;
     };
     explanation?: string;
+    /** Of `cites`, each one whose quote says otherwise than the sentence (#3715). */
+    otherwise?: string[];
+    /** The change that makes the sentence state what its quotes say (#3715). */
+    change?: ClaimChange;
   }[];
 }
 
@@ -680,6 +687,19 @@ const HOUR_MS = 3_600_000;
 const SUMMARY_CHARS = 300;
 /** The longest sentence of a search result a result's text is centred on, and of a quote given back. */
 const READY_QUOTE_CHARS = 300;
+/** The longest explanation of a check's result kept: one sentence, which the card shows whole. */
+const EXPLANATION_CHARS = 1_000;
+
+/** The line `next` gives for each reason a change wasn't kept, in this order. */
+const NOT_KEPT_LINES: readonly (readonly [ChangeNotKept, MessageKey])[] = [
+  ["takes-none", "agents.check.changeTakesNone"],
+  ["same", "agents.check.changeSame"],
+  ["not-once", "agents.check.changeNotOnce"],
+  ["citation", "agents.check.changeCitation"],
+  ["line-break", "agents.check.changeLineBreak"],
+  ["object", "agents.check.changeObject"],
+  ["too-long", "agents.check.changeTooLong"],
+];
 
 // ---------------------------------------------------------------------------
 // What it needs
@@ -3478,10 +3498,14 @@ export function createAgentAccess(
           if (!isRecord(each) || typeof each.n !== "number" || !Number.isInteger(each.n)) return [];
           const verdict = OWN_VERDICTS[each.verdict as OwnVerdict];
           if (verdict === undefined) return [];
-          const cites: unknown[] = Array.isArray(each.cites) ? each.cites : [];
-          const cited = cites.flatMap((cite) =>
-            typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
-          );
+          const tokens = (given: unknown): Citation[] =>
+            (Array.isArray(given) ? given : []).flatMap((cite: unknown) =>
+              typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
+            );
+          const otherwise = tokens(each.otherwise);
+          const named = tokens(each.cites);
+          const cited = [...named, ...otherwise.filter((citation) => !named.includes(citation))];
+          const change = givenChange(each.change);
           const working = isRecord(each.working)
             ? workedFrom(each.working, citationOfToken, cited)
             : undefined;
@@ -3508,8 +3532,10 @@ export function createAgentAccess(
               ...(run !== undefined && { worked: run }),
               explanation:
                 typeof each.explanation === "string" && each.explanation.trim() !== ""
-                  ? clip(each.explanation.trim(), READY_QUOTE_CHARS)
+                  ? clip(each.explanation.trim(), EXPLANATION_CHARS)
                   : null,
+              otherwise,
+              change,
             },
           ];
         });
@@ -3517,11 +3543,19 @@ export function createAgentAccess(
         // A report on sentences that changed since is refused, and the ask stands, as the refusal
         // tells the agent to take them again: the User may go on writing while their AI checks.
         if (!landed.ok) throw notJudged(landed.reason, mind);
-        const { marked, unconfirmed, unreported } = landed.value;
+        const { marked, unconfirmed, unreported, changesNotKept } = landed.value;
         // Told to report again what didn't land, the agent keeps the ask until nothing is left.
-        if (unconfirmed.length === 0 && unreported.length === 0) {
-          deps.askedChecks.end(pairing.id, mind.id);
-        }
+        const again = unconfirmed.length > 0 || unreported.length > 0;
+        if (!again) deps.askedChecks.end(pairing.id, mind.id);
+        const lines = [
+          ...(again ? [t("agents.check.reportAgain"), ...workings] : []),
+          ...NOT_KEPT_LINES.flatMap(([why, key]) => {
+            const sentences = changesNotKept.filter((each) => each.why === why).map(({ n }) => n);
+            return sentences.length > 0
+              ? [t(key, { sentences: sentences.join(", "), max: CHANGE_CHARS })]
+              : [];
+          }),
+        ];
         return {
           result: {
             mindId: mind.id,
@@ -3529,10 +3563,7 @@ export function createAgentAccess(
             marked,
             unconfirmed,
             unreported,
-            next:
-              unconfirmed.length > 0 || unreported.length > 0
-                ? [t("agents.check.reportAgain"), ...workings].join("\n")
-                : null,
+            next: lines.length > 0 ? lines.join("\n") : null,
           },
           count: marked,
           documentIds: [

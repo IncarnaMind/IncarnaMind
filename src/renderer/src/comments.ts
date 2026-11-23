@@ -94,9 +94,20 @@ function withReply(comment: MindComment, reply: CommentMessage): MindComment {
   return { ...comment, replies: [...comment.replies, reply] };
 }
 
-export function unmarkSelection(editor: Editor, place: CommentPlace): void {
+/** Takes comment `id`'s mark off its words, and leaves the other comments on them. */
+function unmarkComment(editor: Editor, place: CommentPlace, id: string): void {
   if (editor.isDestroyed) return;
-  editor.chain().focus().setTextSelection(place).unsetMark(COMMENT_MARK).run();
+  editor
+    .chain()
+    .focus()
+    .setTextSelection(place)
+    .command(({ tr, state }) => {
+      const type = state.schema.marks[COMMENT_MARK];
+      if (!type) return false;
+      tr.removeMark(place.from, place.to, type.create({ id }));
+      return true;
+    })
+    .run();
 }
 
 /**
@@ -127,13 +138,13 @@ export function saveComment(
 /**
  * Starts a comment on the selection, its card open to type. The mark and the
  * record enter the Mind when it is saved. Words already commented on open that
- * comment's thread instead: one mark holds one comment, as the text can carry.
+ * comment's thread instead.
  */
 export function commentOnSelection(editor: Editor, mindId: string, doc: Y.Doc): void {
   const { from, to, empty } = editor.state.selection;
   if (editor.isDestroyed || empty) return;
   // A comment still in the Mind opens its thread. A mark whose record is gone (a deleted
-  // comment, or Undo hasn't put it back) is not a comment: the new mark replaces it.
+  // comment, or Undo hasn't put it back) is not a comment: the new mark goes beside it.
   const touched = commentRuns(editor.state.doc).filter((run) => run.from < to && run.to > from);
   const existing = touched.find((run) => commentById(doc, run.id) !== null);
   if (existing) {
@@ -156,7 +167,7 @@ export function cancelComment(
   place: CommentPlace | null,
 ): void {
   write(doc, id, null);
-  if (place) unmarkSelection(editor, place);
+  if (place) unmarkComment(editor, place, id);
 }
 
 export function replyToComment(

@@ -211,7 +211,9 @@ for (const language of ["en", "zh-CN"] as const) {
     const open = async (id: keyof typeof words) => {
       await pointAndClick(window, mark(id));
       await expect(card).toBeVisible();
-      await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words[id]}”`);
+      // The Note outlines the sentence while its card is open, and the card names it (#3715).
+      await expect(card.getByTestId("claim-sentence")).toHaveCount(0);
+      await expect.poll(() => card.getAttribute("aria-label")).toContain(words[id]);
       await motionSettled(window);
     };
     const close = async () => {
@@ -219,7 +221,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(card).toHaveCount(0);
     };
     const inCard = async () => {
-      // Checked still: the verdict line, the sentence, and whose reading and whose check.
+      // Checked still: the verdict line, and whose reading and whose check.
       for (const [id, leaning] of [
         ["likely", "supported"],
         ["against", "contradicted"],

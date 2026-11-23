@@ -1,10 +1,14 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { paragraph, run, wordFile } from "../tests/helpers/word";
 import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
   focusSettled,
+  importWordFromMenu,
+  interceptOpenDialog,
   launchApp,
   motionSettled,
   newMind,
@@ -22,7 +26,8 @@ import {
  * Comments on selected text (#328): made from the selection menu, ⌥⌘M or ⌘K;
  * shown beside their words and in the Mind's list; replied to, edited,
  * resolved, reopened and deleted with Undo; folded into a count under a narrow
- * Mind; kept through a restart; and never over the Citation checks' gutter.
+ * Mind; kept through a restart; and never over the Citation checks' gutter. A Word
+ * file's comments on the same words each keep theirs (#2585).
  */
 
 let dataDir: string;
@@ -223,6 +228,90 @@ test("after a comment is deleted, Comment on its words makes a new one", async (
   await window.keyboard.press("ControlOrMeta+Enter");
   await expect(card(window)).toContainText("Second remark.");
   await app.close();
+});
+
+test("a Word file's comments on the same words each keep theirs: through typing, Resolve with Undo, and a restart (#2585)", async () => {
+  const files = await createDataFolder();
+  try {
+    const path = join(files, "Overlap.docx");
+    const reference = (id: number) =>
+      `<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="${id}"/></w:r>`;
+    const comment = (id: number, author: string, text: string) =>
+      `<w:comment w:id="${id}" w:author="${author}" w:date="2026-10-02T09:00:00Z"><w:p><w:r><w:annotationRef/></w:r>${run(text)}</w:p></w:comment>`;
+    await writeFile(
+      path,
+      wordFile({
+        body: paragraph(
+          `<w:commentRangeStart w:id="0"/>${run("Revenue grew ")}` +
+            `<w:commentRangeStart w:id="1"/>${run("12% in May")}` +
+            `<w:commentRangeEnd w:id="0"/>${reference(0)}` +
+            `${run(" and June.")}<w:commentRangeEnd w:id="1"/>${reference(1)}`,
+        ),
+        comments: comment(0, "Dana Kim", "Which year?") + comment(1, "Luis Ortega", "Say June."),
+      }),
+    );
+    const words = (window: Page, id: string) =>
+      expect.poll(async () =>
+        (
+          await window
+            .getByTestId("mind-editor")
+            .locator(`.comment-mark[data-comment-id="${id}"]`)
+            .allTextContents()
+        ).join(""),
+      );
+    const { app, window } = await launchApp(dataDir);
+    await setWindowSize(app, window, 1800, 900);
+    await dismissChatSetup(window);
+    await foldAssistant(window);
+    await interceptOpenDialog(app, path);
+    const dialog = await importWordFromMenu(window);
+    await pointAndClick(window, dialog.getByTestId("word-import-confirm"));
+    await expect(dialog).toBeHidden();
+
+    await words(window, "word-comment-0").toBe("Revenue grew 12% in May");
+    await words(window, "word-comment-1").toBe("12% in May and June.");
+    await expect(card(window)).toHaveCount(2);
+    await screenshot(window, "comments-overlapping");
+
+    // A card's menu is drawn as a menu, on the sheet with the popover's shadow, not as bare text.
+    await pointAndClick(window, window.getByTestId("comment-menu-word-comment-1"));
+    const menu = window.locator(".comment-menu");
+    await expect(menu).toBeVisible();
+    expect(await menu.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+    await screenshot(window, "comment-menu");
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+
+    // Typing writes the paragraph back from the editor, and both comments keep their words.
+    const editor = window.getByTestId("mind-editor");
+    await pointAndClick(window, editor.locator("p").first());
+    await window.keyboard.press("End");
+    await window.keyboard.type(" Later.");
+    await expect(editor.locator("p").first()).toHaveText(
+      "Revenue grew 12% in May and June. Later.",
+    );
+    await words(window, "word-comment-0").toBe("Revenue grew 12% in May");
+    await words(window, "word-comment-1").toBe("12% in May and June.");
+
+    // Resolving Luis's comment leaves Dana's card beside the text; Undo brings his back.
+    await pointAndClick(window, window.getByTestId("comment-resolve-word-comment-1"));
+    await expect(card(window)).toHaveCount(1);
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(card(window)).toHaveCount(2);
+    await app.close();
+
+    const restarted = await launchApp(dataDir);
+    await setWindowSize(restarted.app, restarted.window, 1800, 900);
+    await pointAndClick(restarted.window, restarted.window.getByTestId("mind-row").first());
+    await expect(restarted.window.getByTestId("mind-editor").locator("p").first()).toHaveText(
+      "Revenue grew 12% in May and June. Later.",
+    );
+    await words(restarted.window, "word-comment-0").toBe("Revenue grew 12% in May");
+    await words(restarted.window, "word-comment-1").toBe("12% in May and June.");
+    await restarted.app.close();
+  } finally {
+    await removeDataFolder(files);
+  }
 });
 
 test("the keys add a comment, a narrow Mind folds the cards into a count, and deleted words say Text removed with Undo", async () => {

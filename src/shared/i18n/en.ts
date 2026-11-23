@@ -1496,6 +1496,25 @@ export const en = {
   "claim.cutUnsupported": "Cut the unsupported part",
   "claim.keepAsView": "Keep as my view",
   "claim.keptAsView": "Kept as your view",
+  // A sentence's card keeps its words as the User wrote them (#3715); a figure keeps its view.
+  "claim.keepAsWritten": "Keep as written",
+  "claim.keptAsWritten": "Kept as written",
+  // The clearer check card (#3715).
+  "claim.acceptChange.command": "Accept the check’s change",
+  "claim.acceptChange": "Accept change",
+  "claim.changeAccepted": "Accepted the change",
+  "claim.change.inside":
+    "This change would take out a Citation or a worked-out figure, so it can’t be made here. Ask your AI to fix the sentence.",
+  "claim.change.underReview":
+    "A change waiting for you covers these words. Accept or reject it first.",
+  "claim.change.title": "Suggested change",
+  "claim.askToFix": "Ask {agent} to fix it",
+  "claim.group.otherwise": "Says otherwise",
+  "claim.group.so": "Says so",
+  "claim.quotes.show": "Show quotes",
+  "claim.quotes.fold": "Fold the quotes to one line",
+  "claim.noPassage": "No passage found in “{scope}”",
+  "claim.noPassage.more": "No passage found in “{scope}” or {count} more",
   "signOff.action": "Checked by me",
   "signOff.mine": "Checked by you · {time}",
   "signOff.theirs": "Checked by {name} · {time}",
@@ -1510,7 +1529,7 @@ export const en = {
   "signOff.keywords": "sign off reviewed checked by me verify tick",
   "signOff.count.mine": "{count} checked by you",
   "signOff.count.changed": "{count} changed since you checked",
-  "claim.cutSentence": "Cut it",
+  "claim.cutSentence": "Cut the sentence",
   "claim.cutSentence.keywords": "delete remove sentence unsupported",
   "claim.cutSentence.done": "Cut the sentence",
   "claim.cutSentence.moved":
@@ -1767,8 +1786,10 @@ export const en = {
   "health.state.cantCheck.short": "{count} can’t be checked",
   "health.state.needsCheck.short.one": "1 not checked yet",
   "health.state.needsCheck.short": "{count} not checked yet",
-  "health.kept.one": "1 kept as your view",
-  "health.kept": "{count} kept as your view",
+  "health.kept.one": "1 kept as written",
+  "health.kept": "{count} kept as written",
+  "health.keptCharts.one": "1 chart kept as your view",
+  "health.keptCharts": "{count} charts kept as your view",
   "badge.label": "{label}: {parts}",
   "badge.next": "Next",
   "badge.toCheck": "not checked yet",
@@ -8741,6 +8762,22 @@ export const en = {
     "Nothing is left to check: every sentence of this note that needs a result has one already, and checked gives them as the note’s page counts them. Answer the User from those. To judge the sentences again yourself, call check_mind_yourself with again: true and hand your results to report_check: a verdict only in your reply leaves the note’s marks as they are.",
   "agents.check.reportAgain":
     "Some sentences still have no result. Call check_mind_yourself again for those left. A supported or contradicted result needs a Citation from cite, a run_analysis result of this check, or a working whose numbers stand in their quotes and whose expression gives its figure, that IncarnaMind can confirm, and none from the User’s own working file.",
+  // Why a change given with a sentence wasn't kept (#3715). One that its verdict takes none of asks
+  // for nothing more, so that the line never reads as a reason to report a sentence otherwise.
+  "agents.check.changeTakesNone":
+    "No change was kept for sentence {sentences}: a sentence with that verdict takes none. Nothing more is needed for it.",
+  "agents.check.changeSame":
+    "No change was kept for sentence {sentences}: it writes the same words it replaces. Nothing more is needed for it.",
+  "agents.check.changeNotOnce":
+    "No change was kept for sentence {sentences}: its words to replace aren’t in the sentence exactly once. To give one, report that sentence again with the same verdict and replace copied exactly from the sentence’s words.",
+  "agents.check.changeCitation":
+    "No change was kept for sentence {sentences}: it holds a [cite:…] token. A change is the sentence’s words only, and its Citations stay where they are. To give one, report that sentence again with the same verdict and the change without the token.",
+  "agents.check.changeLineBreak":
+    "No change was kept for sentence {sentences}: it runs over a line break. A change is words of one sentence, on one line. To give one, report that sentence again with the same verdict and the change on one line.",
+  "agents.check.changeObject":
+    "No change was kept for sentence {sentences}: it holds the character that stands for a Citation or figure in the sentence. To give one, report that sentence again with the same verdict and only the words around it.",
+  "agents.check.changeTooLong":
+    "No change was kept for sentence {sentences}: it is longer than one sentence can be ({max} characters). To give one, report that sentence again with the same verdict and a change of that sentence alone.",
   // An outside agent writes a new note (#3306).
   "agents.note.writtenBy": "Written by {name}, {when}",
   // A note an outside agent wrote or changed, said where the Library's work shows (#3371).

@@ -135,7 +135,7 @@ test("a first run's example, opened from its row, is the credit paper with no mo
   await expect(card.getByTestId("claim-says")).toHaveText(
     "The Q3 results say gross margin was 38.6%, not 36.8%.",
   );
-  await expect(card.getByTestId("claim-source")).toHaveText(
+  await expect(card.getByTestId("claim-where")).toHaveText(
     "Northwind Retail · Q3 2026 results · p. 1",
   );
   await expect(card.getByTestId("claim-quote")).toHaveText(

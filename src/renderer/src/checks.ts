@@ -22,6 +22,7 @@ import {
 } from "../../core/api";
 import { overlapsCitation } from "../../shared/citationOverlap";
 import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../shared/citations";
+import { INLINE_NODE } from "../../shared/sentences";
 import { core } from "./core";
 import { citationDecision, citationsOf, partDecisions } from "./editor/alreadyCited";
 import { citationInsertionPoint } from "./editor/citationInsertion";
@@ -37,6 +38,7 @@ import {
 } from "./editor/claimChecks";
 import { asOneStep } from "./editor/editorUndo";
 import { selectionForEdit } from "./editor/editSelection";
+import { keptPlace } from "./editor/keptPlace";
 import { type BlockPlace, pendingIn, placeOnAccept, positionOf } from "./editor/proposalReview";
 import { resolveProposalsIn, useEdits } from "./editWithAi";
 import { modelInUseOf } from "./modelInUse";
@@ -327,22 +329,35 @@ export const fixesFree = (mindId: string): boolean =>
   !useEdits.getState().pending[mindId] && !useChecks.getState().running[mindId];
 
 /**
- * Puts back the check a fix took the sentence's mark from, once Undo has brought its words back:
- * every check over the sentence goes, as the re-check's may run past where the earlier one ended.
+ * What puts back the check a fix takes the sentence's mark from, once Undo has brought its words
+ * back: every check over the sentence goes, as the re-check's may run past where the earlier one
+ * ended. Made before the fix writes, it finds the sentence where it is at Undo, as others' writes
+ * may move it, and puts the check back only while the sentence reads as it did, so another
+ * sentence never takes it.
  */
-export function restoreCheck(
+export function checkRestorer(
   editor: Editor,
   claim: ShownClaim,
   earlier: ClaimCheckAttributes,
-): void {
-  restoreCheckAt(
-    editor,
-    { from: Math.min(claim.from, claim.sentence.from), to: Math.max(claim.to, claim.sentence.to) },
-    earlier,
-  );
+): () => void {
+  const from = Math.min(claim.from, claim.sentence.from);
+  const to = Math.max(claim.to, claim.sentence.to);
+  const words = editor.state.doc.textBetween(from, to, "\n", INLINE_NODE);
+  const start = keptPlace(editor, from);
+  const end = keptPlace(editor, to);
+  return () => {
+    const at = { from: start(), to: end() };
+    if (
+      at.from !== null &&
+      at.to !== null &&
+      at.from < at.to &&
+      editor.state.doc.textBetween(at.from, at.to, "\n", INLINE_NODE) === words
+    )
+      restoreCheckAt(editor, { from: at.from, to: at.to }, earlier);
+  };
 }
 
-/** `restoreCheck` over the words from `from` to `to`, as Undo has brought them back. */
+/** Puts back `earlier` over the words from `from` to `to`, as Undo has brought them back. */
 export function restoreCheckAt(
   editor: Editor,
   range: { from: number; to: number },

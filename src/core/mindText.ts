@@ -60,7 +60,7 @@ import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { withoutInertBrackets } from "../shared/inertBrackets";
 import { citationLocation } from "../shared/locations";
 import type { TableAlign } from "../shared/markdownTables";
-import { countingCheckOf, hasMarkIn, markValueOf } from "../shared/markKeys";
+import { countingCheckOf, countingMarksOf, hasMarkIn, markValueOf } from "../shared/markKeys";
 import { cutTitle } from "../shared/naming";
 import {
   isNumberingScheme,
@@ -157,8 +157,8 @@ export interface Marks {
   code: boolean;
   /** The link's target, or null. */
   link: string | null;
-  /** The comment the text is on (#328), by the record's id; absent when it is on none. */
-  comment?: string;
+  /** The comments the text is on (#328), by the records' ids; absent when it is on none. */
+  comments?: string[];
   /** Hex "RRGGBB". */
   color?: string;
   font?: string;
@@ -1267,7 +1267,9 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
   const color = readTextColor(attributeOf(attributes[TEXT_COLOR_MARK], "color"));
   const font = readTextFont(attributeOf(attributes[TEXT_FONT_MARK], "family"));
   const size = readTextSize(attributeOf(attributes[TEXT_SIZE_MARK], "size"));
-  const comment = attributeOf(markValueOf(COMMENT_MARK, attributes), "id");
+  const comments = countingMarksOf(COMMENT_MARK, attributes)
+    .map((each) => attributeOf(each.attrs, "id"))
+    .filter((id): id is string => typeof id === "string");
   const vertical = Object.hasOwn(attributes, SUPERSCRIPT_MARK)
     ? "superscript"
     : Object.hasOwn(attributes, SUBSCRIPT_MARK)
@@ -1281,7 +1283,7 @@ function marksOf(attributes: Record<string, unknown> = {}): Marks {
     highlight: Object.hasOwn(attributes, "highlight"),
     code: Object.hasOwn(attributes, "code"),
     link: link && typeof link.href === "string" && link.href !== "" ? link.href : null,
-    ...(typeof comment === "string" && { comment }),
+    ...(comments.length > 0 && { comments }),
     ...(color && { color }),
     ...(font && { font }),
     ...(size && { size }),

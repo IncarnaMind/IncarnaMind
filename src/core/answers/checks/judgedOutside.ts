@@ -7,7 +7,8 @@
  */
 import { randomUUID } from "node:crypto";
 import type * as Y from "yjs";
-import { partWithResult, resultFromParts } from "../../../shared/claimParts";
+import { type ChangeProblem, changeProblem, givenChange } from "../../../shared/claimChange";
+import { boundedQuote, partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
 import { readMindCheck, sentenceKey, writeMindCheck } from "../../../shared/mindCheck";
 import { mindScopeIn } from "../../../shared/mindScope";
@@ -18,6 +19,7 @@ import {
   type CheckedVersion,
   type CheckWorking,
   type Citation,
+  type ClaimChange,
   type ClaimCheckAttributes,
   type ClaimCheckFailure,
   type ClaimCheckResult,
@@ -79,6 +81,10 @@ export interface JudgedSentence {
    */
   worked?: Worked | null;
   explanation: string | null;
+  /** Of `evidence`, the Citations whose quotes the agent said say otherwise than the sentence. */
+  otherwise?: readonly Citation[];
+  /** The change the agent gave, kept only where its verdict takes one and its words can be (#3715). */
+  change?: ClaimChange | null;
 }
 
 export interface CheckTask {
@@ -104,6 +110,41 @@ export interface LandedCheck {
   /** Supported or contradicted on no Citation IncarnaMind could confirm: marked Not checked. */
   unconfirmed: number[];
   unreported: number[];
+  /** Each change given that wasn't kept, and why. */
+  changesNotKept: { n: number; why: ChangeNotKept }[];
+}
+
+/**
+ * Why a change given with a sentence isn't kept: its verdict takes none, its words to change
+ * aren't in the sentence exactly once, or what it holds.
+ */
+export type ChangeNotKept = "takes-none" | "not-once" | ChangeProblem;
+
+/** The verdicts a change is for: words of the sentence the quotes say otherwise of. */
+const CHANGED: ReadonlySet<JudgedVerdict> = new Set([
+  "overstated",
+  "partly-supported",
+  "contradicted",
+]);
+
+/**
+ * The change a mark keeps, or why the one given isn't kept: one for a verdict that takes one, on a
+ * sentence that isn't a chart, of the sentence's words only, whose words to change are in it once.
+ * None for a result that isn't checked: the agent is asked to report that sentence again anyway.
+ */
+function changeOf(
+  judged: JudgedSentence,
+  result: ClaimCheckResult,
+  text: string,
+  chart: boolean,
+): { change: ClaimChange } | { notKept: ChangeNotKept } | null {
+  const change = givenChange(judged.change);
+  if (!change || result.verdict === "not-checked") return null;
+  if (chart || !CHANGED.has(judged.verdict)) return { notKept: "takes-none" };
+  const problem = changeProblem(change);
+  if (problem) return { notKept: problem };
+  const at = text.indexOf(change.replace);
+  return at >= 0 && at === text.lastIndexOf(change.replace) ? { change } : { notKept: "not-once" };
 }
 
 /**
@@ -357,6 +398,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
         const stillOpen = (sentence: Line) =>
           open.some((each) => each.element === sentence.element && each.from === sentence.from);
         const unconfirmed: number[] = [];
+        const changesNotKept: LandedCheck["changesNotKept"] = [];
         const reported = new Set<number>();
         let marked = 0;
         for (const each of judged) {
@@ -419,12 +461,24 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             // As a file's check records it: a row's verdict stands only while the row reads the same.
             ...(verification && { judgedWith: judgedWithOf(sentence, verification) }),
           };
-          markSentence(
-            sentence.element,
-            sentence.from,
-            sentence.to,
-            options.withResult(mark, result, at, blocks, mindId, sentence.said),
-          );
+          const given = changeOf(each, result, sentence.text, values !== null);
+          if (given && "notKept" in given) changesNotKept.push({ n: each.n, why: given.notKept });
+          const change = given && "change" in given ? given.change : null;
+          const otherwise =
+            result.verdict === "not-checked"
+              ? []
+              : [
+                  ...new Set(
+                    (each.otherwise ?? [])
+                      .filter((citation) => evidence.includes(citation))
+                      .map((citation) => boundedQuote(citation.quote)),
+                  ),
+                ];
+          markSentence(sentence.element, sentence.from, sentence.to, {
+            ...options.withResult(mark, result, at, blocks, mindId, sentence.said),
+            ...(change && { change }),
+            ...(otherwise.length > 0 && { otherwise }),
+          });
           marked++;
         }
         return {
@@ -435,6 +489,7 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
             unreported: sentences.flatMap((sentence, index) =>
               reported.has(index + 1) || !stillOpen(sentence) ? [] : [index + 1],
             ),
+            changesNotKept,
           },
         };
       });

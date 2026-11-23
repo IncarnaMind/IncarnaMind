@@ -14,6 +14,7 @@ import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
 import { checkedWith, claimCheckShown } from "../../src/shared/claimChecks";
 import { FORMULA_VERSION } from "../../src/shared/formula";
 import { checkRows } from "../../src/shared/noteHealth";
+import { INLINE_NODE } from "../../src/shared/sentences";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
 import {
@@ -903,5 +904,109 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
     expect(done2.sentences).toEqual([]);
     expect(done2.checked?.notChecked).toBe(0);
     expect(uiClaims2.map((c) => c.shown.state)).not.toContain("needs-recheck");
+  });
+
+  // protects=the card of a sentence the agent found needs a look shows the change it gave and which of its quotes say otherwise (#3715); fails_when=a change is kept on a sentence that doesn't need one, or on words that aren't in the sentence once, or the roles are lost on the way to the Note
+  it("keeps the change and the quotes that say otherwise the agent gives with a verdict that needs a look", async () => {
+    const { core, agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        {
+          n: 1,
+          verdict: "supported",
+          cites: [twice],
+          change: { replace: "twice", with: "two times" },
+        },
+        {
+          n: 2,
+          verdict: "contradicted",
+          cites: [],
+          otherwise: [largest],
+          change: { replace: "Neap tides", with: "Spring tides" },
+          explanation: "Tides gives the largest range to spring tides, not neap tides.",
+        },
+        { n: 3, verdict: "not found", change: { replace: "Penguins", with: "Gulls" } },
+        {
+          n: 4,
+          verdict: "overstated",
+          cites: [twice],
+          change: { replace: "a fortnight", with: "a month" },
+        },
+      ]),
+    );
+    expect(reported).toMatchObject({ marked: 4, unconfirmed: [], unreported: [] });
+    // A verdict that takes no change asks for nothing more, so the line never reads as a reason to
+    // report the sentence with another verdict; words not in the sentence once ask for its words.
+    expect(reported.next?.split("\n")).toEqual([
+      "No change was kept for sentence 1, 3: a sentence with that verdict takes none. Nothing more is needed for it.",
+      "No change was kept for sentence 4: its words to replace aren’t in the sentence exactly once. To give one, report that sentence again with the same verdict and replace copied exactly from the sentence’s words.",
+    ]);
+
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const checks = new Map(
+      claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check]),
+    );
+    expect(checks.get(NEAP)?.state).toBe("contradicted");
+    expect(checks.get(NEAP)?.change).toEqual({ replace: "Neap tides", with: "Spring tides" });
+    // A quote named only as saying otherwise is a quote the verdict rests on.
+    expect(checks.get(NEAP)?.otherwise).toEqual([
+      "The range of a spring tide is the largest of the month.",
+    ]);
+    expect(checks.get(NEAP)?.parts?.[0]?.evidence.map((each) => each.quote)).toEqual([
+      "The range of a spring tide is the largest of the month.",
+    ]);
+    for (const sentence of [SPRING, PENGUINS, SOURCES]) {
+      expect(checks.get(sentence)?.change).toBeUndefined();
+      expect(checks.get(sentence)?.otherwise).toBeUndefined();
+    }
+  });
+
+  // protects=a change is the sentence's words only: one holding a Citation token, a line break, the object character or more than a sentence is refused, and the agent is told why in plain words (#3715); fails_when=such a change is kept on the mark, or is dropped without a word
+  it("refuses a change that holds a Citation token, a line break, the object character or more than a sentence, and says so", async () => {
+    const { core, agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        {
+          n: 1,
+          verdict: "overstated",
+          cites: [twice],
+          change: { replace: "every month", with: `a month ${twice}` },
+        },
+        {
+          n: 2,
+          verdict: "contradicted",
+          cites: [largest],
+          change: { replace: "Neap tides", with: "Spring\ntides" },
+        },
+        {
+          n: 3,
+          verdict: "partly supported",
+          cites: [twice],
+          change: { replace: "Penguins", with: `Gulls${INLINE_NODE}` },
+        },
+        {
+          n: 4,
+          verdict: "overstated",
+          cites: [twice],
+          change: { replace: "These notes", with: "word ".repeat(201) },
+        },
+      ]),
+    );
+    expect(reported.next?.split("\n")).toEqual([
+      "No change was kept for sentence 1: it holds a [cite:…] token. A change is the sentence’s words only, and its Citations stay where they are. To give one, report that sentence again with the same verdict and the change without the token.",
+      "No change was kept for sentence 2: it runs over a line break. A change is words of one sentence, on one line. To give one, report that sentence again with the same verdict and the change on one line.",
+      "No change was kept for sentence 3: it holds the character that stands for a Citation or figure in the sentence. To give one, report that sentence again with the same verdict and only the words around it.",
+      "No change was kept for sentence 4: it is longer than one sentence can be (1000 characters). To give one, report that sentence again with the same verdict and a change of that sentence alone.",
+    ]);
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    for (const span of claimSpans(readMind(client))) expect(span.check.change).toBeUndefined();
   });
 });

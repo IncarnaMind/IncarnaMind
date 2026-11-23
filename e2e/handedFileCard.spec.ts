@@ -140,7 +140,7 @@ for (const language of ["en", "zh-CN"] as const) {
           slides: ["Slide 1", "Slide 2", "Slide 3"],
           askAll: "Ask Claude Code to fix 2",
           asked: "Fix the 2 things IncarnaMind flagged in the file “Harbour review”.",
-          ask: "Ask Claude Code",
+          ask: "Ask Claude Code to fix it",
           handedHint:
             "Claude Code made this file for you to check: it’s never read or cited as a source until you cite it.",
           cite: "Cite this Document",
@@ -151,7 +151,7 @@ for (const language of ["en", "zh-CN"] as const) {
           slides: ["第 1 张幻灯片", "第 2 张幻灯片", "第 3 张幻灯片"],
           askAll: "交给 Claude Code 修改这 2 句",
           asked: "把 IncarnaMind 在文件“Harbour review”里标出来的 2 处改好。",
-          ask: "交给 Claude Code",
+          ask: "交给 Claude Code 修改",
           handedHint:
             "Claude Code 制作的文件，供你核对：在你将它作为引用来源之前，不会被读取或引用。",
           cite: "作为引用来源",

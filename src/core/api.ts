@@ -447,8 +447,14 @@ export interface CreateMindInput {
  *   title; the Blocks after it, up to the next, are that tab. An older editor would drop the Block
  *   when it saves the Note, running its tabs together, so it opens these Notes read-only. Older
  *   content is version 61 content as it is: a Note without the Block is one tab.
+ * - 63: a sentence's check by the User's own AI may keep the change it gave (`change`, its
+ *   `replace` and `with`) and which of its quotes say otherwise (`otherwise`, #3715). An older
+ *   editor writes the sentence's text again without both on any edit there, a word made bold
+ *   too, and its card then offers no change and groups no quote, so it opens these Notes
+ *   read-only. Older content is version 62 content as it is: a check without them gives no
+ *   change and names no roles.
  */
-export const CONTENT_SCHEMA_VERSION = 62;
+export const CONTENT_SCHEMA_VERSION = 63;
 
 /**
  * The key, in the Mind's settings map (`MIND_SETTINGS_FIELD`), of the content
@@ -7989,6 +7995,12 @@ export interface ClaimCorrection {
   choices: ClaimCorrectionChoice[];
 }
 
+/** Words of a checked sentence and what to write in their place. */
+export interface ClaimChange {
+  replace: string;
+  with: string;
+}
+
 /** UTF-16 offsets into the checked sentence; end is exclusive. */
 export interface ClaimPartSpan {
   start: number;
@@ -8486,6 +8498,16 @@ export interface ClaimCheckBasis {
   evidence: CitationAttributes | null;
   /** A confirmed contradiction's correction; absent for every other result. */
   correction?: ClaimCorrection;
+  /**
+   * The change the User's own AI gave with a verdict that needs a look (#3715): its words in place
+   * of `replace`, which occurs exactly once in `text`. Absent for every other result.
+   */
+  change?: ClaimChange;
+  /**
+   * The quotes of its Citations that the User's own AI said say otherwise than the sentence, as
+   * the Citations hold them (#3715); the others say so. Absent where it named none.
+   */
+  otherwise?: string[];
   /** "supported" and "contradicted": what the Document says, in one plain sentence. */
   says: string | null;
   /** "unsupported": why. */
