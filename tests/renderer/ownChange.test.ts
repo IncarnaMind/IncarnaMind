@@ -260,6 +260,25 @@ describe("Accept writes the change and keeps every Citation and figure where it 
     expect(nodesOf(editor)).toEqual([CITATION_NODE]);
   });
 
+  // protects=a change whose only difference beside a Citation is the spacing the sentence's text has where the Citation stands is written, the Citation kept; fails_when=the whole change is refused for a space
+  test("a change that writes one space where a mid-sentence Citation leaves two is written, the Citation kept", () => {
+    const text = "Kestrel Ferries carried 48,200  passengers in 2025.";
+    const attrs = overstated(text, { replace: "48,200  passengers", with: "42,800 passengers" });
+    const { editor, doc } = editorWith([
+      marked("Kestrel Ferries carried 48,200 ", attrs),
+      citation,
+      marked(" passengers in 2025.", attrs),
+    ]);
+    expect(claim(editor).sentence.text).toBe(text);
+
+    expect(acceptChange(editor, MIND, doc, claim(editor), false)).toBe(true);
+
+    expect(textOf(editor)).toBe(
+      `Kestrel Ferries carried 42,800 ${INLINE_NODE} passengers in 2025.`,
+    );
+    expect(generatedText(editor)).toEqual(["42,800"]);
+  });
+
   test("a change beside a worked-out figure keeps the figure", () => {
     const text = "Growth was 20.0% in Q3.";
     const attrs = overstated(text, { replace: "20.0% in Q3", with: "20.0% in Q4" });
@@ -340,6 +359,32 @@ describe("a change that can't be written is never offered", () => {
       expect(errors()).toEqual(["claim.change.inside"]);
     },
   );
+
+  test("words written right after a waiting change stay apart from it", () => {
+    const text = "The pontoon takes two boats at a time.";
+    const attrs = overstated(text, {
+      replace: "boats at a time",
+      with: "boats, at most, at a time",
+    });
+    const { editor, doc } = editorWith([
+      marked("The pontoon takes two ", attrs),
+      marked("boats", attrs, [
+        { type: PROPOSAL_INSERT_MARK, attrs: { id: "change", request: "request" } },
+      ]),
+      marked(" at a time.", attrs),
+    ]);
+
+    expect(acceptChange(editor, MIND, doc, claim(editor), false)).toBe(true);
+
+    const waiting: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.isText && node.marks.some((mark) => mark.type.name === PROPOSAL_INSERT_MARK))
+        waiting.push(node.text ?? "");
+      return true;
+    });
+    expect(waiting).toEqual(["boats"]);
+    expect(textOf(editor)).toBe("The pontoon takes two boats, at most, at a time.");
+  });
 
   test("a change waiting for the User over the words: refused, and says so", () => {
     const text = "The pontoon takes two boats at a time.";

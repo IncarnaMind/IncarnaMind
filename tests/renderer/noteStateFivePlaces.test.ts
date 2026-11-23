@@ -40,6 +40,7 @@ const health = (parts: Partial<NoteHealth>): NoteHealth => ({
   edited: [],
   checking: [],
   kept: [],
+  keptCharts: [],
   tableCells: [],
   noCitation: [],
   ownNotes: [],

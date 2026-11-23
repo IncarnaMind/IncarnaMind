@@ -409,8 +409,9 @@ test("⌘↩ makes the change, and at 900 × 600 the buttons stay in view", asyn
 
 /**
  * Claude Code writes a Note whose sentences carry their Citations, as an AI-written Note does, and
- * checks it: one change rewrites a sentence up to the stop after its Citation, the other would take
- * a Citation out with the words around it.
+ * checks it: one change rewrites a sentence up to the stop after its Citation, one writes a single
+ * space where a mid-sentence Citation leaves two in the sentence's text, and one would take a
+ * Citation out with the words around it.
  */
 async function citedAndChecked(launch: AgentLaunch): Promise<string> {
   const agent = await claudeCode(launch);
@@ -433,6 +434,7 @@ async function citedAndChecked(launch: AgentLaunch): Promise<string> {
       "The pontoon takes one boat at a time until its second arm is built in 2027.",
     );
     const carried = await cite("passengers 2025", TEXT.en.q.carried);
+    const fare = await cite("adult single fare", "The adult single fare stays at £4 through 2026.");
     const made = await agent.callTool({
       name: "create_mind",
       arguments: {
@@ -440,6 +442,7 @@ async function citedAndChecked(launch: AgentLaunch): Promise<string> {
         markdown: [
           `The pontoon takes two boats at a time ${pontoon}.`,
           `Kestrel Ferries carried 48,200 ${carried} passengers in 2025.`,
+          `The adult single fare stays at £5 ${fare} through 2026.`,
         ].join("\n\n"),
       },
     });
@@ -447,9 +450,15 @@ async function citedAndChecked(launch: AgentLaunch): Promise<string> {
     const { task, sentences } = (
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
     ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
-    const [boats, ferries] = sentences;
-    if (!boats || !ferries) throw new Error("The check gave fewer sentences than written.");
-    const from = ferries.text.indexOf("48,200");
+    const [boats, ferries, fares] = sentences;
+    if (!boats || !ferries || !fares)
+      throw new Error("The check gave fewer sentences than written.");
+    // As the sentence's text reads with its Citation left out: two spaces where it stood.
+    const carriedWords = ferries.text.slice(
+      ferries.text.indexOf("48,200"),
+      ferries.text.indexOf("passengers") + 10,
+    );
+    const fareWords = fares.text.slice(fares.text.indexOf("£5"), fares.text.indexOf("2026") + 4);
     const reported = await agent.callTool({
       name: "report_check",
       arguments: {
@@ -470,8 +479,15 @@ async function citedAndChecked(launch: AgentLaunch): Promise<string> {
             n: ferries.n,
             verdict: "contradicted",
             cites: [carried],
-            change: { replace: ferries.text.slice(from), with: "42,800 passengers in 2025." },
+            change: { replace: carriedWords, with: "42,800 passengers" },
             explanation: "The annual report says 42,800 passengers in 2025, not 48,200.",
+          },
+          {
+            n: fares.n,
+            verdict: "contradicted",
+            cites: [fare],
+            change: { replace: fareWords, with: "£4" },
+            explanation: "The annual report says the adult single fare stays at £4.",
           },
         ],
       },
@@ -483,7 +499,7 @@ async function citedAndChecked(launch: AgentLaunch): Promise<string> {
   }
 }
 
-// protects=Accept is offered only where the change can be written: up to the stop after a Citation it is written around it, the Citation kept just before the stop; one that would take out a Citation is never offered, the card leads with asking the AI, and ⌘↩ there is left to the page; fails_when=Accept shows where it can't work, the Citation moves or goes, or ⌘↩ is swallowed on a card with no Accept
+// protects=Accept is offered only where the change can be written: up to the stop after a Citation it is written around it, the Citation kept just before the stop; a single space where a mid-sentence Citation leaves two is no change to its place; one that would take out a Citation is never offered, the card leads with asking the AI, and ⌘↩ there is left to the page; fails_when=Accept shows where it can't work, is refused for a space, the Citation moves or goes, or ⌘↩ is swallowed on a card with no Accept
 test("Accept writes around a sentence's Citation, and isn't offered where the change would take one out", async () => {
   test.setTimeout(180_000);
   const { app, window } = await launchApp(dataDir, { home });
@@ -495,12 +511,21 @@ test("Accept writes around a sentence's Citation, and isn't offered where the ch
     await openNote(window, mindId);
     const editor = frontMind(window).getByTestId("mind-editor");
     const lines = editor.locator(":scope > p");
+    /** A line's words before its Citation. */
+    const beforeCitation = (line: Locator) =>
+      line.evaluate((each) => {
+        const chip = each.querySelector('[data-testid="citation"]');
+        const range = document.createRange();
+        range.setStart(each, 0);
+        if (chip) range.setEndBefore(chip);
+        return range.toString().trim();
+      });
 
     // Taking the Citation out with the words around it: no change on the card, and Ask leads.
-    const ferries = await openCard(window, "Kestrel Ferries carried");
-    await expect(ferries.getByTestId("claim-change")).toHaveCount(0);
-    await expect(ferries.getByTestId("claim-accept-change")).toHaveCount(0);
-    const buttons = ferries.locator(".citation-card-actions button");
+    const fares = await openCard(window, "The adult single fare");
+    await expect(fares.getByTestId("claim-change")).toHaveCount(0);
+    await expect(fares.getByTestId("claim-accept-change")).toHaveCount(0);
+    const buttons = fares.locator(".citation-card-actions button");
     await expect(buttons.first()).toHaveText(TEXT.en.labels.ask);
     // ⌘↩ on a card with no Accept is the page's, not the card's.
     await window.evaluate(() => {
@@ -515,9 +540,17 @@ test("Accept writes around a sentence's Citation, and isn't offered where the ch
     expect(
       await window.evaluate(() => (globalThis as unknown as { keptKey?: boolean }).keptKey),
     ).toBe(true);
-    await expect(lines.nth(1)).toContainText("48,200");
+    await expect(lines.nth(2)).toContainText("£5");
     await window.keyboard.press("Escape");
+    await expect(fares).toBeHidden();
+
+    // One space where the Citation leaves two: written, the Citation kept after the new figure.
+    const ferries = await openCard(window, "Kestrel Ferries carried");
+    await pointAndClick(window, ferries.getByTestId("claim-accept-change"));
     await expect(ferries).toBeHidden();
+    await expect(lines.nth(1)).toContainText("42,800");
+    await expect(lines.nth(1).getByTestId("citation")).toHaveCount(1);
+    expect(await beforeCitation(lines.nth(1))).toBe("Kestrel Ferries carried 42,800");
 
     // Up to the stop after its Citation: written around it, the Citation kept before the stop.
     const boats = await openCard(window, "The pontoon takes");
@@ -526,17 +559,12 @@ test("Accept writes around a sentence's Citation, and isn't offered where the ch
     await expect(boats).toBeHidden();
     await expect(lines.nth(0)).toContainText("The pontoon takes one boat at a time until 2027");
     await expect(lines.nth(0).getByTestId("citation")).toHaveCount(1);
-    const beforeCitation = await lines.nth(0).evaluate((line) => {
-      const chip = line.querySelector('[data-testid="citation"]');
-      const range = document.createRange();
-      range.setStart(line, 0);
-      if (chip) range.setEndBefore(chip);
-      return range.toString().trim();
-    });
-    expect(beforeCitation).toBe("The pontoon takes one boat at a time until 2027");
+    expect(await beforeCitation(lines.nth(0))).toBe(
+      "The pontoon takes one boat at a time until 2027",
+    );
     await expect(
       frontMind(window).locator('[data-testid="claim-mark"][data-check="needs-recheck"]'),
-    ).toHaveCount(1);
+    ).toHaveCount(2);
   } finally {
     await app.close();
   }

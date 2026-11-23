@@ -411,6 +411,40 @@ describe("Fix the sentence", () => {
     ]);
   });
 
+  // protects=Undo of the fix puts the old check back where the sentence is then and only on its own words, as the card's other fixes do (#3715); fails_when=another window's paragraph before it moves the check onto other words, or the old check lands on words that changed since
+  test("after another writer added a paragraph before it, Undo puts the old check back on the sentence and nowhere else", async () => {
+    const { editor, doc } = editorWith([
+      {
+        type: "paragraph",
+        attrs: { id: "one" },
+        content: [marked(LATE, contradicted("late", LATE))],
+      },
+    ]);
+    edits.rewrite = "The terminal opened six months later than planned.";
+    answerWith(editor, "supported");
+    expect(await fixSentence(editor, "mind", doc, claim(editor, "late"))).toBe("fixed");
+
+    // Someone else, in another window, adds a paragraph before it: not a step of this Undo.
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(doc));
+    const added = new Y.XmlElement("paragraph");
+    added.insert(0, [new Y.XmlText("The harbour office opens at nine.")]);
+    other.getXmlFragment(MIND_CONTENT_FIELD).insert(0, [added]);
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(other, Y.encodeStateVector(doc)));
+    other.destroy();
+
+    editor.commands.undo();
+
+    expect(editor.state.doc.textContent).toBe(`The harbour office opens at nine.${LATE}`);
+    expect(
+      shownClaims(editor.state).map((each) => [
+        each.check.id,
+        each.sentence.text,
+        each.shown.state,
+      ]),
+    ).toEqual([["late", LATE, "contradicted"]]);
+  });
+
   test("tried again after a failure, runs the whole fix: the new check, its Citation and Undo to the old check", async () => {
     const { editor, doc } = editorWith([
       {
