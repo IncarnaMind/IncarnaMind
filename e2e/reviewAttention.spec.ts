@@ -182,6 +182,15 @@ async function pressReview(
       { timeout: 5_000 },
     )
     .not.toBeNull();
+  await window.evaluate(async () => {
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  });
+  console.log("[2586-fit]", JSON.stringify(await window.evaluate(() => {
+    const press = (window as unknown as {__reviewPress: Press}).__reviewPress;
+    return {clicked:press.clicked,shown:press.shown,marks:performance.getEntriesByType("mark")
+      .filter(m=>m.name.startsWith("review:")&&m.startTime>=(press.clicked ?? Infinity))
+      .map(m=>[m.name,Math.round(m.startTime-(press.clicked ?? 0))])};
+  })));
   console.log("[2586-review]", await window.evaluate(() => (window as unknown as { __reviewPress: {measure:()=>unknown} }).__reviewPress.measure()));
   return window.evaluate(() => {
     const record = (window as unknown as { __reviewPress?: Press }).__reviewPress;

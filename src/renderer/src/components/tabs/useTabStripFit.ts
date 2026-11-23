@@ -70,6 +70,7 @@ export function useTabStripFit(
     let restedAt = 0;
 
     const place = (reveal: boolean, afterScroll = false, keep = -1) => {
+      performance.mark("review:strip-start");
       const tabs = Array.from(element.querySelectorAll<HTMLElement>(':scope > [role="tab"]'));
       const shown = tabs.findIndex((tab) => tab.dataset.tabId === shownId);
       const was = element.scrollLeft;
@@ -152,6 +153,7 @@ export function useTabStripFit(
       if (hiding > 0) band.dataset.fit = "cut";
       setHidden((current) => (current === hiding ? current : hiding));
       restedAt = element.scrollLeft;
+      performance.mark("review:strip-done");
       if (reveal) following = true;
       else if (afterScroll)
         following = shown < 0 || (shown >= result.first && shown <= result.last);

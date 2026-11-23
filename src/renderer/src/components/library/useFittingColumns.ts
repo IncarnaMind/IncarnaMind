@@ -60,6 +60,7 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
     let widths = "";
     let words = "";
     const fitColumns = () => {
+      performance.mark("review:columns-start");
       const names = namesOf(element);
       const settled = leastGivenUp(
         Math.max(0, STEPS.indexOf(element.dataset.hide ?? "")),
@@ -72,16 +73,20 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
       );
       element.dataset.hide = STEPS[settled] ?? "";
       widths = widthsOf(element);
+      performance.mark("review:columns-done-" + settled);
       words = names.map((name) => name.textContent).join("\n");
     };
-    fitColumns();
+    let firstSize = true;
     let frame = 0;
     const later = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(fitColumns);
     };
     const resized = new ResizeObserver(() => {
-      if (widthsOf(element) !== widths) later();
+      if (firstSize) {
+        firstSize = false;
+        fitColumns();
+      } else if (widthsOf(element) !== widths) later();
     });
     resized.observe(element);
     for (const child of element.children) resized.observe(child);
