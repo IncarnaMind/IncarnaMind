@@ -269,6 +269,8 @@ export function createOwnAi({
             }
             if (message.type === "stream_event") {
               const event = object(message.event);
+              // Claude Code asks the model again only once each call it sent is answered or dropped.
+              if (event.type === "message_start") running.clear();
               // A call stops the run as it starts, not once it has been written whole.
               if (event.type === "content_block_start") {
                 if (!begun) throw new StrayRunError("a reply before its start");

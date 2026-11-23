@@ -598,26 +598,35 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       type: "user",
       message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "Found." }] },
     };
+    // It ticks as it thinks until the call goes out, so only the wait on the call is silent.
+    const thinking = JSON.stringify({ type: "system", subtype: "thinking_tokens" });
     useClaude({
-      run: session(
-        [init(), call("mcp__incarnamind__search")],
-        false,
-        `setTimeout(() => {
-          console.log(JSON.stringify(${JSON.stringify(answered)}));
-          console.log(JSON.stringify(${JSON.stringify(done)}));
-        }, 1500);`,
-      ),
+      run: `
+        const ticks = setInterval(() => console.log(${JSON.stringify(thinking)}), 100);
+        ${session(
+          [init(), call("mcp__incarnamind__search")],
+          false,
+          `clearInterval(ticks);
+          setTimeout(() => {
+            console.log(JSON.stringify(${JSON.stringify(answered)}));
+            console.log(JSON.stringify(${JSON.stringify(done)}));
+          }, 2500);`,
+        )}
+      `,
     });
-    await expect(ask(undefined, 500)).resolves.toEqual({ kind: "finished", reply: "Checked." });
+    await expect(ask(undefined, 1_000)).resolves.toEqual({ kind: "finished", reply: "Checked." });
     useClaude({
-      run: session(
-        [init(), call("mcp__incarnamind__search"), answered],
-        false,
-        "setTimeout(() => {}, 60_000);",
-      ),
+      run: `
+        const ticks = setInterval(() => console.log(${JSON.stringify(thinking)}), 100);
+        ${session(
+          [init(), call("mcp__incarnamind__search"), answered],
+          false,
+          "clearInterval(ticks); setTimeout(() => {}, 60_000);",
+        )}
+      `,
     });
-    await expect(ask(undefined, 500)).resolves.toEqual({ kind: "failed", reason: "stalled" });
-  });
+    await expect(ask(undefined, 1_000)).resolves.toEqual({ kind: "failed", reason: "stalled" });
+  }, 15_000);
 
   // protects=a run's words as they come don't count towards the size limit of its whole messages, which still stops one too long; fails_when=a long streamed reply fails, or a run prints without bound
   it("bounds what a run prints by its whole messages", async () => {
