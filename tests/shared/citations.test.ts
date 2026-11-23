@@ -16,6 +16,7 @@ import {
   closestWordsMessage,
   fetchedAgainOn,
   footnoteSubjectKey,
+  liveDocumentOf,
   needsRecheck,
   newVersionCitation,
   parseQuotedWords,
@@ -281,18 +282,23 @@ describe("A Citation's badge", () => {
     );
   });
 
-  test("finds its Document by ID first, else the first in the list with the same content", () => {
+  test("finds its Document by ID first, else one of its copies, the same one whatever their order", () => {
     const documents = [
       { id: "rivers", contentHash: "xyz" },
       { id: "tides-copy", contentHash: "abc" },
       { id: "tides-again", contentHash: "abc" },
-      { id: "tides", contentHash: "abc" },
+      { id: "tides-b", contentHash: "abc" },
     ];
-    expect(citationState(found, documents).documentId).toBe("tides");
-    expect(citationState({ ...found, documentId: "gone" }, documents).documentId).toBe(
-      "tides-copy",
+    expect(citationState({ ...found, documentId: "tides-b" }, documents).documentId).toBe(
+      "tides-b",
     );
-    expect(citationState({ ...found, documentId: null }, documents).documentId).toBe("tides-copy");
+    expect(citationState({ ...found, documentId: "gone" }, documents).documentId).toBe(
+      "tides-again",
+    );
+    expect(
+      citationState({ ...found, documentId: "gone" }, [...documents].reverse()).documentId,
+    ).toBe("tides-again");
+    expect(citationState({ ...found, documentId: null }, documents).documentId).toBe("tides-again");
     // A Document with no content yet is no match for a Citation that doesn't say its content.
     expect(
       citationState({ ...found, documentId: "gone", contentHash: "" }, [
@@ -1021,7 +1027,7 @@ describe("What makes two Citations one footnote (#2292)", () => {
   const keyOf = (over: Partial<CitationAttributes> = {}) =>
     footnoteSubjectKey(citationSubject(citation(over), { documents: null }));
 
-  test("the Document and version, the place and the check make the key", () => {
+  test("the file's content, the place and the check make the key", () => {
     expect(keyOf()).toBe(keyOf());
     expect(keyOf()).toBe(
       footnoteSubjectKey({
@@ -1032,13 +1038,54 @@ describe("What makes two Citations one footnote (#2292)", () => {
       }),
     );
     for (const other of [
-      { documentId: "doc-2" },
       { contentHash: "v2" },
       { pageFrom: 3, pageTo: 3 },
       { check: "not-found" as const },
     ]) {
       expect(keyOf(other)).not.toBe(keyOf());
     }
+  });
+
+  test("identical copies of one file at one place with one check are one footnote; at two places, two", () => {
+    expect(keyOf({ documentId: "doc-2" })).toBe(keyOf());
+    expect(keyOf({ documentId: "doc-2", pageFrom: 3, pageTo: 3 })).not.toBe(keyOf());
+    expect(keyOf({ documentId: "doc-2", contentHash: "v2" })).not.toBe(keyOf());
+    expect(keyOf({ documentId: "doc-2", check: "not-found" })).not.toBe(keyOf());
+  });
+
+  test("a Citation with no content hash is its Document's", () => {
+    const bare = { contentHash: undefined };
+    expect(keyOf(bare)).toBe(keyOf(bare));
+    expect(keyOf({ ...bare, documentId: "doc-2" })).not.toBe(keyOf(bare));
+    expect(keyOf(bare)).not.toBe(keyOf());
+  });
+
+  test("one text at two addresses is two footnotes", () => {
+    const page = (link: string) =>
+      footnoteSubjectKey({
+        documentId: null,
+        contentHash: "v1",
+        location: null,
+        unverified: false,
+        link,
+      });
+    expect(page("https://example.org/a")).not.toBe(page("https://example.org/b"));
+  });
+
+  test("the same file twice, one copy in Recently deleted or deleted: a Citation of either copy is one found footnote", () => {
+    const documents = [{ id: "doc-2", contentHash: "v1" }];
+    const ofDeleted = citationSubject(citation(), { documents });
+    const ofLive = citationSubject(citation({ documentId: "doc-2" }), { documents });
+    expect(ofDeleted.unverified).toBe(false);
+    expect(footnoteSubjectKey(ofDeleted)).toBe(footnoteSubjectKey(ofLive));
+  });
+
+  test("a Citation whose copy is gone opens the same live copy whichever order the copies are listed in", () => {
+    const gone = { documentId: "doc-0", contentHash: "v1" };
+    const a = { id: "doc-a", contentHash: "v1", name: "Survey" };
+    const b = { id: "doc-b", contentHash: "v1", name: "Survey copy" };
+    expect(liveDocumentOf(gone, [b, a])?.id).toBe("doc-a");
+    expect(liveDocumentOf(gone, [a, b])?.id).toBe("doc-a");
   });
 
   test("a Document removed since makes a found and a not-found Citation one unverified footnote", () => {

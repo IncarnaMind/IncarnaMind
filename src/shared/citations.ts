@@ -148,7 +148,7 @@ export function citedTextKept(
 export type LiveDocument = Pick<Document, "id" | "contentHash"> &
   Partial<Pick<Document, "name" | "title" | "speakers">>;
 
-/** A list of Documents by ID and by content: the first in the list with each. */
+/** A list of Documents by ID, and by content: one of each content's copies, the same each time. */
 interface DocumentIndex {
   byId: ReadonlyMap<string, LiveDocument>;
   byContent: ReadonlyMap<string, LiveDocument>;
@@ -168,7 +168,10 @@ function indexOf(documents: readonly LiveDocument[]): DocumentIndex {
     const byContent = new Map<string, LiveDocument>();
     for (const document of documents) {
       if (!byId.has(document.id)) byId.set(document.id, document);
-      if (document.contentHash && !byContent.has(document.contentHash)) {
+      // Of identical copies, the one whose id sorts first, whatever order the list came in, so
+      // a Citation whose own copy is gone names the same copy each time.
+      const held = document.contentHash ? byContent.get(document.contentHash) : undefined;
+      if (document.contentHash && (!held || document.id < held.id)) {
         byContent.set(document.contentHash, document);
       }
     }
@@ -669,15 +672,16 @@ export interface FootnoteSubject {
 }
 
 /**
- * What makes two Citations one footnote in an export (#1381, #1552): the same Document and
- * version, at the same place, with the same check. A later Citation with this key repeats the
- * first's footnote number, in a Word file and on screen alike (#2292). The place is its own
- * values, not the words it prints as: two places that read alike are still two places.
+ * What makes two Citations one footnote in an export (#1381, #1552): the same file, byte for byte,
+ * at the same place, with the same check. A later Citation with this key repeats the first's
+ * footnote number, in a Word file and on screen alike (#2292), so identical copies of one file,
+ * two Documents, are one source; its footnote names the copy the Note cites first. A Citation
+ * with no content hash is its Document's. The place is its own values, not the words it prints
+ * as: two places that read alike are still two places.
  */
 export function footnoteSubjectKey(subject: FootnoteSubject): string {
   return [
-    subject.documentId ?? "",
-    subject.contentHash ?? "",
+    subject.contentHash ? `content:${subject.contentHash}` : `document:${subject.documentId ?? ""}`,
     subject.location ? JSON.stringify(subject.location) : "",
     subject.unverified ? "unverified" : "verified",
     subject.link ?? "",

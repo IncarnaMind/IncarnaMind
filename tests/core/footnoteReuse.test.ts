@@ -677,6 +677,23 @@ describe("the writer's notes", () => {
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1]);
   });
 
+  test("identical copies of one file are one source: one note, named for the copy the Note cites first", () => {
+    const copy = (id: string): CitedWork => ({ ...work(id), contentHash: "same-bytes" });
+    const notesOf = (first: string, second: string) =>
+      render([
+        paragraph(
+          cited(`${first}, p. 2`, false, { work: copy(first) }),
+          words(" and "),
+          cited(`${second}, p. 2`, false, { work: copy(second) }),
+        ),
+      ]);
+    const one = notesOf("Survey", "Survey copy");
+    expect(Object.values(one.footnotes)).toEqual(["Survey, p. 2"]);
+    expect(crossReferences(one.document).results.map((each) => each.shows)).toEqual([1]);
+    const other = notesOf("Survey copy", "Survey");
+    expect(Object.values(other.footnotes)).toEqual(["Survey copy, p. 2"]);
+  });
+
   test("a citation style's own form for a repeat is a note of its own; the same form again is a reference", () => {
     const { document, footnotes, count } = render([
       paragraph(

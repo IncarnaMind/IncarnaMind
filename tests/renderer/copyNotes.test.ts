@@ -79,8 +79,8 @@ describe("copying Citations as text", () => {
     });
     const copied = copiedText(
       fragmentOf(
-        paragraph(text("First"), cite(2, "gone-1")),
-        paragraph(text("Second"), cite(2, "gone-2")),
+        paragraph(text("First"), cite(2, "gone-1", "h-gone-1")),
+        paragraph(text("Second"), cite(2, "gone-2", "h-gone-2")),
         paragraph(text("Third"), version("h3")),
       ),
       schema,
@@ -89,6 +89,19 @@ describe("copying Citations as text", () => {
     expect(copied).toBe(
       "First[1]\n\nSecond[2]\n\nThird[3]\n\nSources\n[1] Tides, p. 2\n[2] Tides, p. 2\n[3] Tides, p. 2",
     );
+  });
+
+  test("identical copies of one file at one place take one number, the copies deleted or not", () => {
+    const copied = copiedText(
+      fragmentOf(
+        paragraph(text("First"), cite(2, "tides")),
+        paragraph(text("Second"), cite(2, "tides-copy")),
+        paragraph(text("Third"), cite(2, "tides-deleted")),
+      ),
+      schema,
+      { ...context, documents: [...context.documents, { id: "tides-copy", contentHash: "h1" }] },
+    );
+    expect(copied).toBe("First[1]\n\nSecond[1]\n\nThird[1]\n\nSources\n[1] Tides, p. 2");
   });
 
   test("in Chinese", () => {
