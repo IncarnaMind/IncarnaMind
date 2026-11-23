@@ -706,7 +706,8 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       "doesn't count a compacting line %s",
       async (_name, after) => {
         useClaude({ run: stream(after, "setTimeout(() => {}, 60_000);") });
-        await expect(run({ stallMs: 1_000 })).resolves.toEqual({
+        // A compaction it wrongly counted would end at its bound, with another reason, not hang.
+        await expect(run({ stallMs: 1_000, compactMs: 4_000 })).resolves.toEqual({
           kind: "failed",
           reason: "stalled",
         });
@@ -722,12 +723,11 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
           `setInterval(() => console.log(JSON.stringify(${JSON.stringify(compacting)})), 300);`,
         ),
       });
-      const begun = Date.now();
-      await expect(run({ stallMs: 60_000, compactMs: 1_500 })).resolves.toEqual({
-        kind: "failed",
-        reason: "compaction",
-      });
-      expect(Date.now() - begun).toBeLessThan(10_000);
+      // A run the bound doesn't end fails here at once, rather than waiting out the test's limit.
+      const unended = new Promise((resolve) => setTimeout(() => resolve("still running"), 8_000));
+      await expect(
+        Promise.race([run({ stallMs: 60_000, compactMs: 1_500 }), unended]),
+      ).resolves.toEqual({ kind: "failed", reason: "compaction" });
     }, 15_000);
   });
 
