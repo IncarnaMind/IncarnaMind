@@ -29,7 +29,8 @@ const ENGLISH_LINES = [
 const KOREAN_LINES = [
   "배송비는 증가했습니다. 7",
   "월부터 물류비가 감소했습니다.",
-  "가나다라마",
+  // Wrapped where it reaches the line's measure, so its Hangul runs on into the next line.
+  "가나다라마가나다라마가나다라마가나다라마",
   "바사아자차",
 ];
 

@@ -4,11 +4,11 @@
  * over the page carrying its headings on, and each row one claim, said with its columns' headings.
  */
 import * as Y from "yjs";
-import { BLOCK_ID_ATTRIBUTE, type DocumentText, type ScannedText } from "../../api";
+import { BLOCK_ID_ATTRIBUTE, type ScannedText } from "../../api";
 import type { PagePart } from "../../documents/extract";
 import { findTables, scannedRows, type TableGrid } from "../../documents/tables";
 import type { NodeJSON } from "../blocks";
-import { paragraphsOf } from "./claims";
+import { type DocumentPage, paragraphsOf } from "./claims";
 import { type SelectedSentence, wordsOf } from "./sentences";
 
 /** A Block the PDF's text makes, with the page of each of its rows (one for a paragraph). */
@@ -37,7 +37,7 @@ function scannedParts(page: ScannedText["pages"][number]): PagePart[] | null {
 
 /** The Blocks a PDF's text makes: its paragraphs, and its tables where its pages have them. */
 export function documentBlocks(
-  pages: DocumentText["pages"],
+  pages: readonly DocumentPage[],
   tables: ReadonlyMap<number, PagePart[]>,
   scanned: ScannedText["pages"],
 ): DocumentBlock[] {

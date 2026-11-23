@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import {
-  isWrappedLine,
   joinCjkLineWraps,
   joinPrintedLines,
   onlyCjkLineWrapChange,
@@ -84,58 +83,208 @@ describe("CJK PDF line wraps", () => {
 });
 
 describe("a line the page ended itself", () => {
-  const line = (text: string, right: number, size = 11) => ({ text, right, size });
+  /** Lines set one under the other at the left margin, in 11 pt unless given, each ending at `right`. */
+  const page = (...lines: { text: string; right: number; size?: number; left?: number }[]) => {
+    let baseline = 760;
+    return lines.map(({ text, right, size = 11, left = 72 }) => {
+      const line = { text, right, size, left, baseline };
+      baseline -= Math.round(size * 1.6);
+      return line;
+    });
+  };
+  const line = (text: string, right: number, size = 11, left = 72) => ({ text, right, size, left });
 
-  test("a heading ends short of the line under it, which a wrapped line never does", () => {
-    expect(
-      isWrappedLine(
-        line("北桥社区信托志愿者手册", 193),
-        line("志愿者每次值班前都要在前台签到。", 248),
-      ),
-    ).toBe(false);
+  // protects=a title and headings with no full stop keep their lines though each is the size of the text and longer than the line under it (#3288); fails_when=a line is judged by whether the line under it reaches farther, so a title runs into a shorter heading
+  test("a line well short of where its block's lines end was ended by the page, whatever the line under it", () => {
+    const report = [
+      "老旧小区加装电梯情况报告",
+      "概述",
+      "全市今年共有一百八十六个老旧小区申请加装电梯，其中已经完工的有七十四个。",
+      "主要发现",
+      "晚间平均每小时到馆的有四十六人，下午为三十一人，周末的人数高于工作日，需要",
+      "继续观察到年底，再决定是否推广。",
+      "建议",
+      "继续试行延长开放时间，并在明年第一季度复查到馆人数，公布每个社区的结果。",
+    ];
+    const { text, kept } = joinPrintedLines(
+      page(...report.map((each) => line(each, 72 + [...each].length * 11))),
+    );
+    expect(joinCjkLineWraps(text, kept).split("\n")).toEqual([
+      report[0],
+      report[1],
+      report[2],
+      report[3],
+      `${report[4]}${report[5]}`,
+      report[6],
+      report[7],
+    ]);
   });
 
-  test("a wrapped line's next line stays under where it ended", () => {
-    expect(
-      isWrappedLine(
-        line("志愿者每次值班前都要在前台签到，并由", 270),
-        line("值班组长复核当天的记录。", 204),
+  // protects=a line that reaches its block's edge is wrapped though the next line reaches farther, so a sentence is not cut (#3288); fails_when=the next line reaching farther than the line before keeps the break, as "增加一⏎倍" was kept
+  test("a line that reaches its measure is wrapped, though the line under it reaches farther", () => {
+    const { text, kept } = joinPrintedLines(
+      page(
+        line("在西元二〇三〇年前，使农村的生产力与小规模粮食生产者的收入增加一", 531, 10),
+        line("倍，尤其是妇女、原住民、家族式农夫、牧民与渔夫，包括让他们有安全及公", 542.5, 10),
+        line("平的土地、生产资源、知识、财务服务、市场、增值机会以及非农业就业机会", 542.5, 10),
+        line("的管道。", 242, 10),
       ),
-    ).toBe(true);
+    );
+    expect(joinCjkLineWraps(text, kept)).toBe(
+      "在西元二〇三〇年前，使农村的生产力与小规模粮食生产者的收入增加一倍，尤其是妇女、原住民、家族式农夫、牧民与渔夫，包括让他们有安全及公平的土地、生产资源、知识、财务服务、市场、增值机会以及非农业就业机会的管道。",
+    );
   });
 
-  test("a heading in a size of its own is no wrap, however far it reaches", () => {
-    expect(
-      isWrappedLine(
+  // protects=a paragraph the PDF wrapped stays one, however short its last line (#3288); fails_when=the measure is taken from the last line or a line short of the edge by a character is kept
+  test("the lines of a wrapped paragraph are joined, its last line short", () => {
+    const { text, kept } = joinPrintedLines(
+      page(
+        line("志愿者每次值班前都要在前台签到，并由值班组长复核当天", 400),
+        line("的记录，记录保存至少三年，期间任何人都不得修改或删", 389),
+        line("除。", 94),
+      ),
+    );
+    expect(joinCjkLineWraps(text, kept)).toBe(
+      "志愿者每次值班前都要在前台签到，并由值班组长复核当天的记录，记录保存至少三年，期间任何人都不得修改或删除。",
+    );
+  });
+
+  // protects=text set beside a figure is wrapped at the figure, not cut where it ends short of the column (#3288); fails_when=lines narrowed by a figure are measured against the full column and each keeps its break
+  test("lines set beside a figure are measured where they end together", () => {
+    const { text, kept } = joinPrintedLines(
+      page(
+        line("自二〇二〇年以来，软件和硬件的进步大大降低了成本，以", 342.4, 12, 43.5),
+        line("至于在二〇二三年，训练一个百亿参数的模型的计算成", 342.4, 12, 43.5),
+        line("本为七万多小时，而在二〇二〇年，训练一个", 342.4, 12, 43.5),
+        line(
+          "十五亿参数的模型的成本在八万美元到一百六十万美元之间，自那以来大量资金",
+          552.7,
+          12,
+          43.5,
+        ),
+        line(
+          "投入到越来越大的模型中，例如训练一个五千亿参数的模型花费了八百万美元",
+          552.7,
+          12,
+          43.5,
+        ),
+        line("以上。", 79.5, 12, 43.5),
+      ),
+    );
+    expect(joinCjkLineWraps(text, kept)).not.toContain("\n");
+  });
+
+  // protects=a line that nothing around it measures, beside a figure or a formula, is judged by the line under it as before, so no sentence is cut where the page gives no measure (#3288); fails_when=a short block is measured against lines of its column far from it and its wrapped line is kept apart
+  test("a line nothing around it measures is judged by the line under it, as before", () => {
+    const at = (text: string, right: number, baseline: number) => ({
+      text,
+      right,
+      size: 12,
+      left: 43.5,
+      baseline,
+    });
+    const full = "近端策略优化等基于人类反馈的强化学习算法被广泛用于进一步微调一个大语言模型，";
+    const { text, kept } = joinPrintedLines([
+      at(full, 552.7, 760),
+      at(full, 552.7, 744),
+      at("的问题。", 91.5, 728),
+      at("考虑到这一点，我们可以从函数的局部极小值的初始估", 342.4, 600),
+      at("计出发，并考虑如下序列使得", 289, 584),
+    ]);
+    expect(joinCjkLineWraps(text, kept)).toContain("初始估计出发");
+  });
+
+  // protects=a sentence that runs from the foot of the left column into the head of the right one is a wrap, as the line before reaches its column's edge, so it stays whole (#3288); fails_when=the jump to the next column keeps the break and cuts the sentence, as "门口⏎设置。" was cut
+  test("a sentence the page carries from one column's foot to the next column's head stays whole", () => {
+    const at = (text: string, right: number, left: number, baseline: number) => ({
+      text,
+      right,
+      size: 9.5,
+      left,
+      baseline,
+    });
+    const { text, kept } = joinPrintedLines([
+      at("屋顶绿化单位面积成本最高，但顶层住户室内气温平均", 279, 51, 172.9),
+      at("下降两度左右。行道树需要两个夏季才能形成树荫，但树下", 280.6, 51, 159.9),
+      at("路面降温最明显。", 127, 51, 146.9),
+      at("喷雾降温设施可使周边五米内气温降低最多三度，但每", 280.6, 51, 127.9),
+      at("套每小时耗水约四十五升。居民希望在公交站和菜市场门口", 281.8, 51, 114.9),
+      at("设置。", 336.1, 307.6, 594.3),
+      at("对一千二百六十名居民的问卷显示，老城区有近半数的受访者", 543.2, 307.6, 581.3),
+    ]);
+    expect(joinCjkLineWraps(text, kept)).toContain("居民希望在公交站和菜市场门口设置。");
+  });
+
+  // protects=a wrapped paragraph in a second column stays joined, judged by its own lines and not the page's widest (#3288); fails_when=a column that ends short of the page's widest line has every wrapped line kept apart
+  test("a second column's wrapped lines are joined", () => {
+    const left = page(
+      line("左栏的第一行文字在这里换行并且继续写到", 200),
+      line("下一行，直到这一段结束为止。", 150),
+    );
+    const right = page(
+      line("右栏的文字很长，一直排到页面最右边这里换", 520, 11, 300),
+      line("行继续。", 380, 11, 300),
+    );
+    const { text, kept } = joinPrintedLines([...left, ...right]);
+    expect(joinCjkLineWraps(text, kept)).toBe(
+      "左栏的第一行文字在这里换行并且继续写到下一行，直到这一段结束为止。\n右栏的文字很长，一直排到页面最右边这里换行继续。",
+    );
+  });
+
+  test("a heading in a size of its own keeps its break, however far it reaches", () => {
+    const { text, kept } = joinPrintedLines(
+      page(
         line("北桥社区信托志愿者手册的说明与使用", 400, 16),
         line("志愿者每次值班前都要在前台签到。", 280),
       ),
-    ).toBe(false);
+    );
+    expect(joinCjkLineWraps(text, kept)).toBe(
+      "北桥社区信托志愿者手册的说明与使用\n志愿者每次值班前都要在前台签到。",
+    );
   });
 
-  test("beside Hangul, Latin or a number only the size tells, and a wrap may reach farther", () => {
-    expect(
-      isWrappedLine(
-        line("배송비는 증가했습니다. 7", 226),
-        line("월부터 물류비가 감소했습니다.", 248),
+  // protects=before a Latin word, a number or Hangul the page can only break before the whole word, so a line short by that word is still wrapped (#3288); fails_when=a ragged line before a long word is kept apart and cuts its sentence
+  test("before a Latin word, a number or Hangul, the word the page couldn't fit is room it left", () => {
+    const latin = joinPrintedLines(
+      page(
+        line("这项议程由联合国于二〇一五年提出，又称", 72 + 19 * 11),
+        line(
+          "Sustainable Development Goals，共有十七项目标，涵盖贫困、饥饿与健康等。",
+          72 + 25 * 11,
+        ),
+        line("各国须在期限前完成。", 72 + 10 * 11),
       ),
-    ).toBe(true);
+    );
+    expect(joinCjkLineWraps(latin.text, latin.kept)).toBe(
+      "这项议程由联合国于二〇一五年提出，又称Sustainable Development Goals，共有十七项目标，涵盖贫困、饥饿与健康等。\n各国须在期限前完成。",
+    );
+    const hangul = joinPrintedLines(
+      page(line("배송비는 증가했습니다. 7", 226), line("월부터 물류비가 감소했습니다.", 248)),
+    );
+    expect(joinCjkLineWraps(hangul.text, hangul.kept)).toBe(
+      "배송비는 증가했습니다. 7 월부터 물류비가 감소했습니다.",
+    );
   });
 
-  test("a blank line is no wrap", () => {
-    expect(isWrappedLine(line("甲", 80), line("", 0))).toBe(false);
-  });
-
-  test("a heading no wider than its sentence, in the same size, cannot be told from a wrap", () => {
-    expect(isWrappedLine(line("北桥社区信托志愿者手册", 193), line("请勿吸烟。", 120))).toBe(true);
+  test("a line set at an angle has no edges to measure, and only its size tells", () => {
+    const tilted = (text: string, size: number) => ({ text, size, right: 0 });
+    expect(
+      joinPrintedLines([tilted("志愿者手册", 20), tilted("志愿者每次值班前都要在前台签到。", 11)])
+        .text,
+    ).toBe("志愿者手册\n志愿者每次值班前都要在前台签到。");
+    expect(
+      joinPrintedLines([tilted("志愿者每次值班前都要", 11), tilted("在前台签到。", 11)]).text,
+    ).toBe("志愿者每次值班前都要在前台签到。");
   });
 
   test("the page's text names the newline it ended itself, and the wider join keeps that break", () => {
-    const { text, kept } = joinPrintedLines([
-      line("北桥社区信托志愿者手册", 193),
-      line("志愿者每次值班前都要在前台签到，并由", 270),
-      line("值班组长复核当天的记录。", 204),
-    ]);
+    const { text, kept } = joinPrintedLines(
+      page(
+        line("北桥社区信托志愿者手册", 193),
+        line("志愿者每次值班前都要在前台签到，并由", 270),
+        line("值班组长复核当天的记录。", 204),
+      ),
+    );
     expect(text).toBe(
       "北桥社区信托志愿者手册\n志愿者每次值班前都要在前台签到，并由值班组长复核当天的记录。",
     );
@@ -147,24 +296,25 @@ describe("a line the page ended itself", () => {
   });
 
   test("a kept break is one newline, not every line that reads the same", () => {
-    const { text, kept } = joinPrintedLines([
-      line("7", 92, 20),
-      line("月是单位。", 127, 11),
-      line("7", 83, 11),
-      line("月起收入增长。", 149, 11),
-    ]);
-    expect(text).toBe("7\n月是单位。\n7\n月起收入增长。");
-    expect([...kept]).toEqual([1]);
-    expect(joinCjkLineWraps(text, kept)).toBe("7\n月是单位。\n7月起收入增长。");
+    const { text, kept } = joinPrintedLines(
+      page(
+        line("7", 92, 20),
+        line("月是单位。", 127),
+        line("本季度收入较上年增长，自7", 72 + 13 * 11),
+        line("月起收入增长。", 149),
+      ),
+    );
+    expect(text).toBe("7\n月是单位。\n本季度收入较上年增长，自7\n月起收入增长。");
+    expect([...kept]).toEqual([1, 7]);
+    expect(joinCjkLineWraps(text, kept)).toBe(
+      "7\n月是单位。\n本季度收入较上年增长，自7月起收入增长。",
+    );
   });
 
   test("a repeated line beside a blank line keeps only the break the page chose there", () => {
-    const { text, kept } = joinPrintedLines([
-      line("7", 92, 20),
-      line("", 0),
-      line("7", 83, 11),
-      line("月", 94, 11),
-    ]);
+    const { text, kept } = joinPrintedLines(
+      page(line("7", 92, 20), line("", 0), line("7", 83), line("月", 94)),
+    );
     expect(joinCjkLineWraps(text, kept)).toBe("7\n\n7月");
   });
 });

@@ -6,7 +6,9 @@
  * ends a sentence, or a line well short of the page's width, with no closing
  * mark, is followed by one that starts afresh: a heading, a title, a byline.
  * A short numbered heading is a paragraph of its own, unless the line
- * before it stops mid-sentence.
+ * before it stops mid-sentence. Beside CJK text, a PDF page's stored text
+ * has joined the lines the page wrapped already, so each break left there
+ * ends a paragraph.
  *
  * The model is shown the sentences numbered, in batches, and decides of
  * each whether it makes a claim; the sentences stay exactly as the document
@@ -14,7 +16,10 @@
  */
 
 import { isRecord } from "../../../shared/record";
+import { isSpaceless } from "../../../shared/text";
+import type { Anchor } from "../../../shared/units";
 import type { ClaimPartPlan, DocumentText } from "../../api";
+import { hasPrintedLines } from "../../documents/deposition";
 import { replyJson } from "../judge";
 
 /** A paragraph of the document, and the page it is on. */
@@ -29,8 +34,9 @@ export interface DocumentParagraph {
 const ENDS = /[.!?。！？…:：;；"”’)）\]】」』]$/u;
 /**
  * A line that starts afresh: a capital, a figure or an opening mark. CJK text
- * wraps anywhere, so a CJK line goes on with the one before it unless that
- * one ends a sentence or the line is a numbered heading.
+ * wraps anywhere, so where its lines are as read (a scan, plain text), a CJK
+ * line goes on with the one before it unless that one ends a sentence or the
+ * line is a numbered heading.
  */
 const STARTS = /^[\p{Lu}\p{N}"“‘(（[【「『•·–—-]/u;
 /** A numbered heading: "2 Costs", "3.1 Roof", "二、", "（一）". */
@@ -62,14 +68,27 @@ function fullWidth(lines: readonly string[]): number {
   return widths[Math.floor(widths.length / 4)] ?? 0;
 }
 
+/** A Unit of the document; with its anchors, where they may name a deposition's printed lines. */
+export type DocumentPage = DocumentText["pages"][number] & { anchors?: Anchor[] | null };
+
+/**
+ * Whether the Unit is a PDF's page as pdf.js read it, whose stored text keeps a break beside CJK
+ * text only where the page ended the line (../../documents/lineWrap). A scanned page's rows and a
+ * deposition's numbered lines are their layout, joined by none of that.
+ */
+const readsPageBreaks = (unit: DocumentPage): boolean =>
+  unit.kind === "page" && !unit.label?.scan && !hasPrintedLines(unit);
+
 /** The paragraphs of a document's text, in order. */
-export function paragraphsOf(pages: DocumentText["pages"]): DocumentParagraph[] {
+export function paragraphsOf(pages: readonly DocumentPage[]): DocumentParagraph[] {
   const paragraphs: DocumentParagraph[] = [];
-  for (const { page, text } of pages) {
+  for (const unit of pages) {
+    const { page, text } = unit;
     const lines = text
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line !== "");
+    const pageBreaks = readsPageBreaks(unit);
     const full = fullWidth(lines);
     let current = "";
     let lineCount = 0;
@@ -90,7 +109,13 @@ export function paragraphsOf(pages: DocumentText["pages"]): DocumentParagraph[] 
         next !== undefined &&
         (STARTS.test(next) || HEADING.test(line)) &&
         !MID_SENTENCE.test(line);
-      if (next === undefined || ENDS.test(line) || alone) end();
+      // A heading with no full stop is told from its sentence only by where the page ended its
+      // line (#3288).
+      const kept =
+        pageBreaks &&
+        next !== undefined &&
+        (isSpaceless([...line].at(-1) ?? "") || isSpaceless([...next][0] ?? ""));
+      if (next === undefined || ENDS.test(line) || alone || kept) end();
     });
   }
   return paragraphs;

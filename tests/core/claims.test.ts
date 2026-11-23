@@ -67,16 +67,19 @@ describe("A PDF's lines become paragraphs", () => {
     ]);
   });
 
-  test("Chinese runs on across lines with no space, until a sentence ends or a heading starts", () => {
+  test("Chinese read from a scan runs on across lines with no space, until a sentence ends or a heading starts", () => {
     const paragraphs = paragraphsOf([
-      page(
-        1,
-        "老年人持卡乘车继续免费。第三季度共处理乘客投诉1,250",
-        "件。",
-        "二、库存情况",
-        "萧山冷链仓有机鲜牛奶库存量为4200，高于3000的安全库存。",
-        "三、供货说明我公司供应的有机鲜牛奶保质期为7天。双方约定的结算周期为月结30天。",
-      ),
+      {
+        ...page(
+          1,
+          "老年人持卡乘车继续免费。第三季度共处理乘客投诉1,250",
+          "件。",
+          "二、库存情况",
+          "萧山冷链仓有机鲜牛奶库存量为4200，高于3000的安全库存。",
+          "三、供货说明我公司供应的有机鲜牛奶保质期为7天。双方约定的结算周期为月结30天。",
+        ),
+        label: { scan: { reader: "PP-OCRv5 mobile/2" } },
+      },
     ]);
     // A section a PDF ran into its heading's line is text, not a heading.
     expect(paragraphs.map((each) => [each.text, each.heading])).toEqual([
@@ -85,6 +88,43 @@ describe("A PDF's lines become paragraphs", () => {
       ["萧山冷链仓有机鲜牛奶库存量为4200，高于3000的安全库存。", false],
       ["三、供货说明我公司供应的有机鲜牛奶保质期为7天。双方约定的结算周期为月结30天。", false],
     ]);
+  });
+});
+
+describe("A Chinese heading with no full stop (#3288)", () => {
+  const REPORT = [
+    "老旧小区加装电梯情况报告",
+    "概述",
+    "全市今年共有一百八十六个老旧小区申请加装电梯，其中已经完工的有七十四个。",
+    "主要发现",
+    "晚间平均每小时到馆的有四十六人，下午为三十一人，周末的人数高于工作日，需要继续观察到年底，再决定是否推广。",
+    "建议",
+    "继续试行延长开放时间，并在明年第一季度复查到馆人数，公布每个社区的结果。",
+  ];
+
+  // protects=on a PDF's page the stored text has joined the lines the page wrapped, so each break left beside Chinese text ends a paragraph and no claim starts with a heading (#3288); fails_when=a Chinese line with no full stop runs on into the next one, as a heading into its sentence
+  test("on a PDF's page, each line the stored text keeps beside Chinese text is a paragraph", () => {
+    expect(paragraphsOf([page(1, ...REPORT)]).map((each) => each.text)).toEqual(REPORT);
+  });
+
+  // protects=a scanned page's rows and a deposition's numbered lines are their layout, which the reader never joined, so their Chinese lines still run on (#3288); fails_when=every row of a scan or a deposition becomes a paragraph of its own
+  test("a scanned page's rows and a deposition's lines still run on", () => {
+    const scanned = { ...page(1, ...REPORT), label: { scan: { reader: "PP-OCRv5 mobile/2" } } };
+    const text = REPORT.join("\n");
+    const deposition = {
+      ...page(2, ...REPORT),
+      anchors: REPORT.map((line, index) => {
+        const start = text.indexOf(line);
+        return { start, end: start + line.length, target: `deposition:line:1:${index + 1}` };
+      }),
+    };
+    for (const unit of [scanned, deposition]) {
+      expect(paragraphsOf([unit]).map((each) => each.text)).toEqual([
+        "老旧小区加装电梯情况报告概述全市今年共有一百八十六个老旧小区申请加装电梯，其中已经完工的有七十四个。",
+        "主要发现晚间平均每小时到馆的有四十六人，下午为三十一人，周末的人数高于工作日，需要继续观察到年底，再决定是否推广。",
+        "建议继续试行延长开放时间，并在明年第一季度复查到馆人数，公布每个社区的结果。",
+      ]);
+    }
   });
 });
 

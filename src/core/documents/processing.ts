@@ -89,9 +89,12 @@ import type { PictureProblem } from "./web/pictures";
  * page larger than A4 with its own text is no longer read from its picture).
  * 30: #3412 (a workbook's formula that saved no result keeps its cell's number
  * format). 31: #3657 (a Markdown, RTF or HTML file with no headings numbers its
- * paragraphs, so a quote's Location names them).
+ * paragraphs, so a quote's Location names them). 32: #3288 (a PDF line beside
+ * CJK text that stops well short of where its block's lines end, such as a
+ * title or a heading with no full stop, keeps its break; one that reaches it
+ * is joined, whatever the line under it).
  */
-export const PROCESSING_VERSION = 31;
+export const PROCESSING_VERSION = 32;
 
 /**
  * Per kind, the oldest version whose Passages and Units are still what this
@@ -151,9 +154,12 @@ export const PROCESSING_VERSION = 31;
  * with no headings numbers its paragraphs in its Units' anchors, so a new
  * Citation of it names its paragraph; its text and Passages come out as they
  * were, and a Citation made before keeps the whole file as its Location (#3657).
+ * Version 32 only PDFs', whose breaks beside CJK text are judged by where each
+ * line ends against its block's lines: a title or a heading keeps its break,
+ * and a wrapped line cut before is joined (#3288).
  */
 export const CURRENT_SINCE: Readonly<Record<DocumentKind, number>> = {
-  pdf: 27,
+  pdf: 32,
   text: 5,
   markdown: 31,
   docx: 27,

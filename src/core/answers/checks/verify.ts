@@ -68,6 +68,7 @@ import { createElement } from "../blocks";
 import { answerTemperature } from "../engine";
 import { markdownToBlocks } from "../markdown";
 import type { ClaimCheckRequest } from "./claimCheck";
+import type { DocumentPage } from "./claims";
 import { claimsAmong } from "./findClaims";
 import type { NotAskedReason } from "./mindCheck";
 import { recordOpinions } from "./opinions";
@@ -118,6 +119,12 @@ const NO_OPTIONS: UnaskedOptions = {};
 function within(check: CheckScope, reach: ReadonlySet<string>): CheckScope {
   const documentIds = (check.scope.documentIds ?? [...reach]).filter((id) => reach.has(id));
   return { ...check, scope: { ...check.scope, documentIds } };
+}
+
+/** The pages, each with the anchors its stored Unit has, which name a deposition's printed lines. */
+function withAnchors(pages: DocumentText["pages"], units: readonly UnitText[]): DocumentPage[] {
+  const anchors = new Map(units.map((unit) => [unit.page, unit.anchors ?? null]));
+  return pages.map((page) => ({ ...page, anchors: anchors.get(page.page) ?? null }));
 }
 
 /** A file Word import takes, or refuses with its reason (an older .doc, macros). */
@@ -887,7 +894,7 @@ export function createVerify(options: VerifyOptions) {
       : slides
         ? slideBlocks(slides)
         : documentBlocks(
-            text.pages,
+            withAnchors(text.pages, options.readUnits(document.id).units),
             await options.readTables(document.id),
             options.readScanned(document.id).pages,
           );
