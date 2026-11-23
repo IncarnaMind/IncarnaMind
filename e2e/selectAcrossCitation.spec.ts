@@ -1,4 +1,6 @@
+import { writeFile } from "node:fs/promises";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import {
   createDataFolder,
   launchApp,
@@ -158,6 +160,120 @@ const afterCharacter = (window: Page) =>
     return { x: rect.right + 2, y: rect.y + rect.height / 2, char: text[index] as string };
   });
 
+interface PageRecord {
+  entries: object[];
+  snapshot: () => object;
+  stop: () => void;
+}
+type Recording = typeof globalThis & { atOnceRecord?: PageRecord };
+
+/**
+ * Starts recording in the page what a test can see of the presses that follow: each pointer,
+ * mouse and Shift event with its time, target and phase, each selection change, and as each
+ * passes, the browser's and the editor's selection and whether a Citation's card is open. Read
+ * only when the test fails (`attachRecord`): the at-once press has failed only in the Nightly,
+ * whose trace holds no page (#3697).
+ */
+const startRecord = (window: Page) =>
+  window.evaluate(() => {
+    const started = performance.now();
+    const since = (time: number) => Math.round((time - started) * 10) / 10;
+    const name = (node: Node | null): string => {
+      if (!node) return "none";
+      if (node instanceof Text) return `${name(node.parentNode)} "${node.data.slice(0, 16)}"`;
+      if (!(node instanceof Element)) return node.nodeName;
+      const id = node.getAttribute("data-testid");
+      const classes = [...node.classList].slice(0, 3).join(".");
+      return `${node.tagName.toLowerCase()}${id ? `[${id}]` : ""}${classes ? `.${classes}` : ""}`;
+    };
+    const root = document.querySelector('[data-testid="mind-pane"] [data-testid="mind-editor"]');
+    // Reads only what needs no layout, so recording forces none the page wouldn't do itself.
+    const snapshot = () => {
+      const chosen = getSelection();
+      const citation = document.querySelector('[data-testid="citation"]');
+      const selected = (root as (Element & { editor?: Editor }) | null)?.editor?.state.selection;
+      return {
+        anchor: chosen?.anchorNode ? `${name(chosen.anchorNode)} @${chosen.anchorOffset}` : "none",
+        head: chosen?.focusNode ? `${name(chosen.focusNode)} @${chosen.focusOffset}` : "none",
+        covers: citation !== null && (chosen?.containsNode(citation, true) ?? false),
+        editor: selected
+          ? {
+              anchor: selected.anchor,
+              head: selected.head,
+              kind: "node" in selected ? "node" : selected.empty ? "caret" : "range",
+            }
+          : null,
+        card: document.querySelector('[data-testid="citation-card"]') !== null,
+      };
+    };
+    const entries: object[] = [];
+    const keep = (entry: object) => {
+      if (entries.length < 1000) entries.push({ ...entry, ...snapshot() });
+    };
+    const heard = (phase: "capture" | "bubble") => (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key !== "Shift") return;
+      keep({
+        type: event.type,
+        phase,
+        at: since(event.timeStamp),
+        handled: since(performance.now()),
+        target: name(event.target instanceof Node ? event.target : null),
+        ...(event instanceof MouseEvent && {
+          x: event.clientX,
+          y: event.clientY,
+          buttons: event.buttons,
+          detail: event.detail,
+          shift: event.shiftKey,
+        }),
+        ...(phase === "bubble" && { prevented: event.defaultPrevented }),
+      });
+    };
+    const capture = heard("capture");
+    const bubble = heard("bubble");
+    const changed = (event: Event) => keep({ type: event.type, at: since(event.timeStamp) });
+    const types = [
+      "pointerdown",
+      "pointermove",
+      "pointerup",
+      "mousedown",
+      "mousemove",
+      "mouseup",
+      "click",
+      "dblclick",
+      "keydown",
+      "keyup",
+    ];
+    for (const type of types) {
+      addEventListener(type, capture, true);
+      addEventListener(type, bubble);
+    }
+    document.addEventListener("selectionchange", changed);
+    const stop = () => {
+      for (const type of types) {
+        removeEventListener(type, capture, true);
+        removeEventListener(type, bubble);
+      }
+      document.removeEventListener("selectionchange", changed);
+    };
+    (globalThis as Recording).atOnceRecord = { entries, snapshot, stop };
+  });
+
+/** Attaches the page's record of the presses to the failed test's report. */
+async function attachRecord(window: Page): Promise<void> {
+  const record = await window.evaluate(() => {
+    const recording = (globalThis as Recording).atOnceRecord;
+    if (!recording) return null;
+    recording.stop();
+    const end = { ...recording.snapshot(), text: String(getSelection()?.toString()) };
+    return { entries: recording.entries, end };
+  });
+  if (!record) return;
+  // A file, not a body: CI keeps a failed test's folder, where the list reporter names it.
+  const path = test.info().outputPath("at-once-record.json");
+  await writeFile(path, JSON.stringify(record, null, 2));
+  await test.info().attach("at-once-record", { path, contentType: "application/json" });
+}
+
 for (const language of ["en", "zh-CN"] as const) {
   for (const width of [1600, 900] as const) {
     for (const paused of [true, false] as const) {
@@ -181,6 +297,7 @@ for (const language of ["en", "zh-CN"] as const) {
           const beyond = await afterCharacter(window);
           if (!beyond) throw new Error("No character after the Citation.");
 
+          if (!paused) await startRecord(window);
           // Double-click the word; a person's pause is the selection menu showing.
           await window.mouse.dblclick(word.x, word.y);
           if (paused) {
@@ -265,6 +382,13 @@ for (const language of ["en", "zh-CN"] as const) {
           await window.clock.runFor(400);
           await expect(window.getByTestId("citation-card")).toHaveCount(1);
           await window.clock.resume();
+        } catch (error) {
+          if (!paused) {
+            await attachRecord(window).catch((problem: unknown) =>
+              console.warn(`The record of the at-once presses was not kept: ${problem}`),
+            );
+          }
+          throw error;
         } finally {
           await app.close();
         }
