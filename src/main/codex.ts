@@ -54,8 +54,14 @@ const TOOL_FIELDS = {
   supports_search_tool: false,
 };
 
-/** Codex 0.170.0's features that would give the model a tool, an app or a hook. */
+/**
+ * Codex 0.170.0's features that would give the model a tool, an app or a hook, or leave something
+ * behind: a shell snapshot, written into the User's Codex folder, holds Codex's environment and so
+ * the grant; a daemon would outlive the run.
+ */
 const FEATURES_OFF = [
+  "shell_snapshot",
+  "daemon_auto_start",
   "shell_tool",
   "unified_exec",
   "apps",
