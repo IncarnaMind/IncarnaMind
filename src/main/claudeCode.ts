@@ -213,6 +213,8 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     let sent = false;
     for await (const line of lines) {
       signal.throwIfAborted();
+      // Lines read before the output passed its limit still come once it is stopped: none counts.
+      if (tooMuch) break;
       const msg = parseLine(line);
       if (msg.type !== "stream_event") bytes += Buffer.byteLength(line);
       if (bytes > turn.maxResponseBytes) {
