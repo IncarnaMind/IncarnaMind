@@ -1,4 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { SourceMap } from "node:module";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -127,6 +129,17 @@ async function pressReview(
     const held = window as unknown as { __reviewPress?: Press };
     const record: Press = { clicked: null, shown: null, selected: null };
     held.__reviewPress = record;
+    const frames:number[]=[];
+    const longTasks:number[][]=[];
+    const observer=new PerformanceObserver(list=>{
+      for(const task of list.getEntries())longTasks.push([Math.round(task.startTime),Math.round(task.duration)]);
+    });
+    observer.observe({type:"longtask"});
+    let selectedDom:number|null=null;
+    const selected = () => document.querySelector(`[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`);
+    const mutations = new MutationObserver(()=>{if(record.clicked!==null&&selectedDom===null&&selected())selectedDom=performance.now();});
+    mutations.observe(document.body,{subtree:true,attributes:true,attributeFilter:["aria-selected"],childList:true});
+    Object.assign(record,{measure:()=>({frames,longTasks,selectedDom,clicked:record.clicked,shown:record.shown,stages:performance.getEntriesByType("mark").filter(m=>m.name.startsWith("review:") && m.startTime >= (record.clicked ?? Infinity) && m.startTime <= (record.shown ?? Infinity)).map(m=>[m.name.slice(7),Math.round(m.startTime)])})});
     document.addEventListener(
       "click",
       (event) => {
@@ -137,11 +150,12 @@ async function pressReview(
       true,
     );
     const look = () => {
+      if(record.clicked!==null) frames.push(Math.round(performance.now()));
       if (record.clicked !== null && record.shown === null) {
         const row = document.querySelector<HTMLElement>(
           `[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`,
         );
-        if (row) {
+        if (row?.checkVisibility() && row.querySelector("[data-row-main]") === document.activeElement) {
           const box = row.getBoundingClientRect();
           const view = row
             .closest<HTMLElement>('[data-testid="library"]')
@@ -149,6 +163,7 @@ async function pressReview(
             ?.getBoundingClientRect();
           if (!view || (box.bottom > view.top && box.top < view.bottom)) {
             record.shown = performance.now();
+            observer.disconnect();mutations.disconnect();
             record.selected = wanted;
           }
         }
@@ -167,6 +182,7 @@ async function pressReview(
       { timeout: 5_000 },
     )
     .not.toBeNull();
+  console.log("[2586-review]", await window.evaluate(() => (window as unknown as { __reviewPress: {measure:()=>unknown} }).__reviewPress.measure()));
   return window.evaluate(() => {
     const record = (window as unknown as { __reviewPress?: Press }).__reviewPress;
     return {
@@ -174,6 +190,67 @@ async function pressReview(
       selected: record?.selected ?? null,
     };
   });
+}
+
+async function profileReview(window: Page, expected: string) {
+  const cdp = await window.context().newCDPSession(window);
+  try {
+    await cdp.send("Emulation.setCPUThrottlingRate", {rate:2});
+    await cdp.send("Performance.enable");
+    await cdp.send("Profiler.enable");
+    const metrics = await cdp.send("Performance.getMetrics");
+    const origin = metrics.metrics.find(metric => metric.name === "NavigationStart");
+    if (!origin) throw new Error("Missing navigation clock");
+    type TimelineEvent = { name: string; ph: string; ts: number; dur?: number; tid: number; };
+    const timeline: TimelineEvent[] = [];
+    cdp.on("Tracing.dataCollected", ({ value }) => {
+      for (const event of value as TimelineEvent[]) if (event.ph === "X" && (event.dur ?? 0) >= 1000) timeline.push(event);
+    });
+    const complete = new Promise<void>(resolve => cdp.once("Tracing.tracingComplete", () => resolve()));
+    await cdp.send("Tracing.start", {categories:"devtools.timeline,toplevel,blink.user_timing"});
+    await cdp.send("Profiler.start");
+    await newMind(window);
+    const result = await pressReview(window, expected);
+    const {profile} = await cdp.send("Profiler.stop");
+    await cdp.send("Tracing.end");
+    await complete;
+    const bounds = await window.evaluate(() => (window as unknown as {__reviewPress: Press}).__reviewPress);
+    const start = origin.value * 1e6 + (bounds.clicked ?? 0) * 1e3;
+    const stop = origin.value * 1e6 + (bounds.shown ?? 0) * 1e3;
+    console.log("[2586-timeline]", JSON.stringify({ms:result.ms,events:timeline.filter(e=>e.ts<stop && e.ts+(e.dur ?? 0)>start).map(e=>[e.name,Math.round((e.ts-start)/1000),Math.round((e.dur ?? 0)/1000),e.tid])}));
+    const sources = new Map<string, SourceMap>();
+    const frames = new Map<number, string>();
+    const parents = new Map<number, number>();
+    for (const node of profile.nodes) {
+      const frame = node.callFrame;
+      if (frame.url.startsWith("file:") && frame.url.endsWith(".js") && !sources.has(frame.url)) {
+        const contents = await readFile(fileURLToPath(frame.url) + ".map","utf8").catch(() => null);
+        if (contents) sources.set(frame.url, new SourceMap(JSON.parse(contents)));
+      }
+      const source = sources.get(frame.url)?.findEntry(frame.lineNumber, frame.columnNumber);
+      frames.set(node.id, source && "originalSource" in source ? source.originalSource.split("/").slice(-2).join("/") + ":" + (source.originalLine + 1) : frame.functionName || frame.url.split("/").pop() || "(anonymous)");
+      for (const child of node.children ?? []) parents.set(child,node.id);
+    }
+    let time = profile.startTime;
+    const totals = new Map<string,number>();
+    for (const [index, delta] of (profile.timeDeltas ?? []).entries()) {
+      time += delta;
+      if (time < start || time > stop) continue;
+      let node = profile.samples?.[index];
+      const path = [];
+      while (node !== undefined && path.length < 12) {
+        path.push(frames.get(node));
+        node = parents.get(node);
+      }
+      const key = path.join(" ← ");
+      totals.set(key, (totals.get(key) ?? 0) + delta);
+    }
+    console.log("[2586-cpu]", JSON.stringify({ms:result.ms,sampledMs:[...totals.values()].reduce((a,b)=>a+b,0)/1000,hot:[...totals].sort((a,b)=>b[1]-a[1]).slice(0,15)}));
+    return result;
+  } finally {
+    await cdp.send("Emulation.setCPUThrottlingRate", {rate:1});
+    await cdp.detach();
+  }
 }
 
 /** Confirms what waits in the Review, from the Library's top, so nothing waits any more. */
@@ -299,8 +376,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     expect(await clipped()).toBe(false);
     expect(await nameCut()).toBe(true);
     await screenshot(window, "review-attention-en-900-status");
-    await newMind(window);
-    const third = await pressReview(window, thirdId);
+    const third = await profileReview(window, thirdId);
     expect(third.selected).toBe(thirdId);
     expect(third.ms).toBeGreaterThanOrEqual(0);
     expect(third.ms).toBeLessThan(100);
@@ -311,8 +387,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await setLanguage(window, "zh-CN");
     await expect(header).toHaveText("4 个文档未整理：额度已用完 · 充值");
     await screenshot(window, "review-attention-zh-900-status");
-    await newMind(window);
-    const fourth = await pressReview(window, fourthId);
+    const fourth = await profileReview(window, fourthId);
     expect(fourth.selected).toBe(fourthId);
     expect(fourth.ms).toBeGreaterThanOrEqual(0);
     expect(fourth.ms).toBeLessThan(100);

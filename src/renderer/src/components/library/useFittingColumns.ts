@@ -61,10 +61,13 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
     let words = "";
     const fitColumns = () => {
       const names = namesOf(element);
+      const start = performance.now();
+      const steps: number[] = [];
       const settled = leastGivenUp(
         Math.max(0, STEPS.indexOf(element.dataset.hide ?? "")),
         STEPS.length - 1,
         (step) => {
+          steps.push(step);
           element.dataset.hide = STEPS[step] ?? "";
           if (step === STEPS.length - 1) return true;
           return !names.some((name) => isCut(name, step === NARROWEST ? A_FEW_LETTERS : 0));
@@ -72,6 +75,7 @@ export function useFittingColumns(page: RefObject<HTMLElement | null>): void {
       );
       element.dataset.hide = STEPS[settled] ?? "";
       widths = widthsOf(element);
+      performance.mark("review:fit-" + steps.join(",") + "-ms-" + Math.round(performance.now()-start));
       words = names.map((name) => name.textContent).join("\n");
     };
     fitColumns();
