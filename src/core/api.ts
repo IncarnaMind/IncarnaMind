@@ -6438,6 +6438,11 @@ export interface ExternalService {
   name: string;
   /** The catalog entry for this service when another API shares the provider, such as reranking. */
   catalogId?: string;
+  /**
+   * For a connected agent: the client its pairing was set up for, so the consent it is asked for
+   * says what that agent does (#3639).
+   */
+  agentClient?: string;
 }
 
 export interface ChatProvider {

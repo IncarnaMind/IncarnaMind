@@ -20,7 +20,6 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
 import { dirname } from "node:path";
-import { agentServiceId } from "../../shared/agentConnection";
 import {
   AGENT_SOCKET_ENV,
   AGENT_TOKEN_ENV,
@@ -123,7 +122,7 @@ const LEGACY_SHIMS_KEY = "agentLegacyShims";
 const secretName = (pairingId: string) => `agent-pairing:${pairingId}`;
 /** How a pairing is named as a service of the "agents" and "hosted-agents" data flows. */
 export const serviceOf = (pairing: { id: string; name: string }): ExternalService => ({
-  id: agentServiceId(pairing.id),
+  id: `agent:${pairing.id}`,
   name: pairing.name,
 });
 /** The activity kept per pairing; older calls go. */

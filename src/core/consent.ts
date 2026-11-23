@@ -109,6 +109,7 @@ export function createConsent(
         id: service.id,
         name: service.name,
         ...(service.catalogId ? { catalogId: service.catalogId } : {}),
+        ...(service.agentClient ? { agentClient: service.agentClient } : {}),
       },
       sends,
     };

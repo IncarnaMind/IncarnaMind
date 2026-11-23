@@ -68,19 +68,24 @@ export const ownAiClientOf = (pairing: AgentPairing): OwnAiClient | null =>
 
 export function createOwnAiChecks(options: OwnAiChecksOptions) {
   const running = new Map<string, { pairing: AgentPairing; stop: AbortController }>();
+  /** A press still deciding how the check goes, by Note: a second press waits for its answer. */
+  const pressing = new Map<string, Promise<OwnAiCheckStart>>();
 
   /**
    * The first agent that can run the check in the background, in the order the Ask pill lists
-   * them (`pairingId`: that one only): its command on this computer, its consent given, and ready.
-   * One that isn't goes on to the next, except a Claude Code that can't run now, which says why.
+   * them (`pairingId`: that one only), passing over those `tried`: its command on this computer,
+   * its consent given, and ready. One that isn't goes on to the next, except a Claude Code that
+   * can't run now, which says why.
    */
   async function pick(
     runner: OwnAiRunner,
     mindId: string,
     pairingId: string | undefined,
+    tried: ReadonlySet<string>,
   ): Promise<{ pairing: AgentPairing; client: OwnAiClient } | OwnAiCheckStart> {
     for (const pairing of options.askable(mindId)) {
       if (pairingId !== undefined && pairing.id !== pairingId) continue;
+      if (tried.has(pairing.id)) continue;
       const client = ownAiClientOf(pairing);
       if (!client) continue;
       // An agent that isn't on this computer can't run: no consent to ask for.
@@ -103,19 +108,48 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
   }
 
   async function check(mindId: string, pairingId?: string): Promise<OwnAiCheckStart> {
-    const { runner } = options;
+    // Another press is still deciding: this one goes as it goes, so no line waits for an end
+    // that never comes.
+    const deciding = pressing.get(mindId);
+    if (deciding) return deciding;
     const already = running.get(mindId);
     if (already) return { kind: "started", pairing: already.pairing };
-    if (!runner) return { kind: "link" };
-    const picked = await pick(runner, mindId, pairingId);
-    if ("kind" in picked) return picked;
-    const { pairing, client } = picked;
-    // Another press may have started a run while this one waited: it names the agent running.
-    const meanwhile = running.get(mindId);
-    if (meanwhile) return { kind: "started", pairing: meanwhile.pairing };
-    // The consent can wait as long as the User does: what it found may no longer hold.
-    if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
+    const press = decide(mindId, pairingId);
+    pressing.set(mindId, press);
+    try {
+      return await press;
+    } finally {
+      pressing.delete(mindId);
+    }
+  }
 
+  async function decide(mindId: string, pairingId: string | undefined): Promise<OwnAiCheckStart> {
+    const { runner } = options;
+    if (!runner) return { kind: "link" };
+    const tried = new Set<string>();
+    for (;;) {
+      const picked = await pick(runner, mindId, pairingId, tried);
+      if ("kind" in picked) return picked;
+      const { pairing, client } = picked;
+      // The consent can wait as long as the User does: what it found may no longer hold.
+      if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
+      const start = await launch(runner, mindId, pairing, client);
+      if (start.kind !== "link") return start;
+      // An agent that can't be held to IncarnaMind's Tools here gives way to the next.
+      tried.add(pairing.id);
+    }
+  }
+
+  /**
+   * Starts the run, settled once the request is about to reach the agent's model, or once the run
+   * ended before: "link" when the agent can't be held to IncarnaMind's Tools as it is.
+   */
+  function launch(
+    runner: OwnAiRunner,
+    mindId: string,
+    pairing: AgentPairing,
+    client: OwnAiClient,
+  ): Promise<OwnAiCheckStart> {
     const stop = new AbortController();
     const signal = AbortSignal.any([options.lifetime, stop.signal]);
     running.set(mindId, { pairing, stop });
@@ -124,7 +158,6 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
     let lost: OwnAiCheckProblem | null = null;
     let begun = false;
     let told: (start: OwnAiCheckStart) => void = () => undefined;
-    // Settled once the request is about to reach the agent's model, or once the run ended before.
     const start = new Promise<OwnAiCheckStart>((resolve) => {
       told = resolve;
     });

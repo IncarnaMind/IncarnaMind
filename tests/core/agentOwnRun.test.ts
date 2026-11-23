@@ -650,6 +650,71 @@ describe("a Check run on the User's own Codex in the background (#3639)", () => 
     expect(run.statuses).toEqual(["claude-code"]);
   });
 
+  /** Claude Code runs the check; Codex ends before its start, once `gate` lets it, as a failed preflight does. */
+  const preflightFails = (
+    installed: readonly OwnAiClient[],
+    gate: Promise<void> = Promise.resolve(),
+  ) => {
+    const runs: OwnAiClient[] = [];
+    const adapter: OwnAiRunner = {
+      installed: async (client) => installed.includes(client),
+      status: async () => ({ kind: "ready" }),
+      purge: async () => true,
+      async run(request) {
+        runs.push(request.client);
+        if (request.client === "codex") {
+          await gate;
+          return { kind: "failed", reason: "unsupported" };
+        }
+        request.started?.();
+        return checks(await connectLegacyAgent(request.server), request);
+      },
+    };
+    return { adapter, runs };
+  };
+
+  // protects=a Codex whose preflight fails gives way to the next agent that can run the check in the background, as one not on this computer does; fails_when=the press goes by the link though Claude Code would have run it
+  it("goes on to Claude Code when Codex's preflight fails", async () => {
+    const run = preflightFails(["codex", "claude-code"]);
+    const { core, mindId, claude, ended } = await written(run.adapter, { codex: true });
+    expect(await core.checkWithOwnAi(mindId)).toMatchObject({
+      kind: "started",
+      pairing: { id: claude.pairing.id },
+    });
+    expect((await ended())?.outcome).toBe("landed");
+    expect(run.runs).toEqual(["codex", "claude-code"]);
+  });
+
+  // protects=a second press while the first still waits on Codex's start gets the first press's answer, so a line never says checking for a run that went by the link, as the card's Check again would press it; fails_when=the second press is told a run started and its line waits for an end that never comes
+  it("gives a second press the first one's answer while Codex starts", async () => {
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const run = preflightFails(["codex"], gate);
+    const { core, mindId, ends } = await written(run.adapter, { codex: true });
+    const first = core.checkWithOwnAi(mindId);
+    await expect.poll(() => run.runs.length).toBe(1);
+    const second = core.checkWithOwnAi(mindId);
+    open();
+    expect(await Promise.all([first, second])).toEqual([{ kind: "link" }, { kind: "link" }]);
+    expect(run.runs).toEqual(["codex"]);
+    expect(ends).toEqual([]);
+  });
+
+  // protects=the consent asked for a Codex connection made before names the client, so the dialog shows the sentence on the User's own instructions file with the rest, never after it; fails_when=the dialog can be answered before it says what Codex reads
+  it("asks consent for a Codex connection naming its client", async () => {
+    const { core, mindId, dataDir } = await written(runner().adapter, { codex: true });
+    madeBefore(dataDir);
+    const asked: (string | undefined)[] = [];
+    core.on("consent.requested", (request) => {
+      asked.push(request.flow.service.agentClient);
+      void core.respondToConsent(request.requestId, false);
+    });
+    await core.checkWithOwnAi(mindId);
+    expect(asked[0]).toBe("codex");
+  });
+
   // protects=connecting Codex agrees to its check alone, as its connect sheet says: the check runs with no dialog, and a request typed at a Note's foot would still ask; fails_when=connecting Codex counts as the consent to kinds its sheet never named
   it("takes connecting Codex as the consent to its check, and no more", async () => {
     const { core, chatgpt } = await written(runner().adapter, { codex: true });
