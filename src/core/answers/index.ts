@@ -738,6 +738,7 @@ export interface AnswersOptions {
   prepareModel(
     choice: ChatModelChoice,
     thinking: "off" | "summary" | ThinkingKind,
+    options?: { background?: boolean },
   ): Promise<PreparedChatModel>;
   /**
    * Whether the monthly cap can set aside replies of `outputTokens` on this model, for a Run whose
@@ -777,6 +778,7 @@ export interface AnswersOptions {
     answers: ChatModelChoice,
     prepared: PreparedChatModel,
     own?: boolean,
+    options?: { background?: boolean },
   ): Promise<PreparedChatModel["model"]>;
   /** Whether this model writes the Answer, then cites it, in the Tool loop, in this flow (#489). */
   writesThenCites?(prepared: PreparedChatModel, flow: AnswerFlow): boolean;
@@ -2864,8 +2866,9 @@ export function createAnswers(options: AnswersOptions) {
       const thinking = help ? "off" : (input.thinking ?? (input.task ? "task" : "answer"));
       let fallbackReadsPictures = true;
       const helpModel = help ? (options.helpModel?.(model) ?? null) : null;
+      const preparation = { background: input.outputKind === "meeting-fill" };
       try {
-        prepared = await options.prepareModel(model, thinking);
+        prepared = await options.prepareModel(model, thinking, preparation);
         if (!finished) replyEnded = options.repliesOut?.begin(prepared.provider.id) ?? replyEnded;
         if (helpModel) {
           try {
@@ -3324,13 +3327,15 @@ export function createAnswers(options: AnswersOptions) {
               ids,
               prepared,
               rewriting: () => {
-                rewriting ??= options.prepareModel(model, "off").catch((error: unknown) => {
-                  console.warn(
-                    `edit_mind's rewrite couldn't be asked of ${prepared.provider.kind}/${prepared.modelId} without thinking, so it thinks:`,
-                    error,
-                  );
-                  return prepared;
-                });
+                rewriting ??= options
+                  .prepareModel(model, "off", preparation)
+                  .catch((error: unknown) => {
+                    console.warn(
+                      `edit_mind's rewrite couldn't be asked of ${prepared.provider.kind}/${prepared.modelId} without thinking, so it thinks:`,
+                      error,
+                    );
+                    return prepared;
+                  });
                 return rewriting;
               },
               ...input.assistant,
@@ -3850,7 +3855,7 @@ export function createAnswers(options: AnswersOptions) {
                     let judgeModel = prepared.model;
                     if (prepareQuick) {
                       try {
-                        judgeModel = await prepareQuick(model, prepared);
+                        judgeModel = await prepareQuick(model, prepared, false, preparation);
                       } catch (error) {
                         console.error(
                           `The quick-tasks model couldn't be used for the change-claim check: ${messageOf(error)}`,
@@ -4112,12 +4117,14 @@ export function createAnswers(options: AnswersOptions) {
         ...(thinking === "answer" && {
           modelAfter: (step: RunStep) => {
             if (!step.calls.some((call) => WORKING_TOOLS.has(call.tool))) return undefined;
-            harder ??= options.prepareModel(model, "careful").catch((error: unknown) => {
-              console.warn(
-                `The Answer's later steps couldn't be asked to think harder, so they go on as they began: ${error instanceof Error ? error.message : String(error)}`,
-              );
-              return null;
-            });
+            harder ??= options
+              .prepareModel(model, "careful", preparation)
+              .catch((error: unknown) => {
+                console.warn(
+                  `The Answer's later steps couldn't be asked to think harder, so they go on as they began: ${error instanceof Error ? error.message : String(error)}`,
+                );
+                return null;
+              });
             return harder.then((each) => {
               if (each) careful = true;
               return each?.model;
@@ -4125,8 +4132,10 @@ export function createAnswers(options: AnswersOptions) {
           },
         }),
         ...(prepareQuick && {
-          quickModel: () => prepareQuick(model, prepared),
-          ...(context.meetingFacts && { ownQuickModel: () => prepareQuick(model, prepared, true) }),
+          quickModel: () => prepareQuick(model, prepared, false, preparation),
+          ...(context.meetingFacts && {
+            ownQuickModel: () => prepareQuick(model, prepared, true, preparation),
+          }),
         }),
         documents,
         tools: [

@@ -16,6 +16,7 @@ const actions = vi.hoisted(() => {
     place,
     problems: {} as Record<string, string>,
     fillNotes: vi.fn(),
+    stopNotes: vi.fn(),
     undoFill: vi.fn(),
     showTranscript: vi.fn(),
     showMeetingNoteView: vi.fn(),
@@ -914,7 +915,7 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
       ["Telling the speakers apart…", "正在区分发言人…"],
     ],
   ] as const)(
-    "%s, Transcript %s (speakers being told apart: %s, local: %s, claims checked: %i) says what is under way, with the live dot and no actions",
+    "%s, Transcript %s (speakers being told apart: %s, local: %s, claims checked: %i) says what is under way, and can stop the running notes",
     async (state, transcriptState, separating, local, checking, en, zh, detail) => {
       const meeting = meetingOf(fillOf({ state, local, checking }));
       const transcript = meeting.transcript;
@@ -925,12 +926,32 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
       });
       const words = language === "en" ? en : zh;
       const also = detail ? (language === "en" ? detail[0] : detail[1]) : null;
-      expect(line?.textContent).toBe(also ? `${words} · ${also}` : words);
+      const label = language === "en" ? "Stop" : "停止";
+      expect(line?.textContent).toBe(
+        [words, also, state === "filling" && label].filter(Boolean).join(" · "),
+      );
       expect(line?.getAttribute("role")).toBe("status");
       expect(line?.querySelector(".answer-writing")?.textContent).toBe(words);
-      expect(line?.querySelectorAll("button")).toHaveLength(0);
+      expect(line?.querySelectorAll("button")).toHaveLength(state === "filling" ? 1 : 0);
+      if (state === "filling") {
+        await click("meeting-fill-stop");
+        expect(actions.stopNotes).toHaveBeenCalledWith(meeting.id);
+      }
     },
   );
+
+  test("stopping the notes shows a status and lets the user try again", async () => {
+    const meeting = meetingOf(
+      fillOf({ state: "failed", problem: { kind: "user-stopped", message: "" } }),
+    );
+    const line = await show(meeting);
+    expect(line?.getAttribute("role")).toBe("status");
+    expect(line?.textContent).toBe(
+      language === "en" ? "Stopped filling in the note · Try again" : "已停止补全笔记 · 重试",
+    );
+    await click("meeting-fill-again");
+    expect(actions.fillNotes).toHaveBeenCalledWith(meeting.id);
+  });
 
   // protects=a call's note filled in while its speakers are still told apart says so beside its Undo until the pass ends, as its Citations may then name who spoke (#2839); fails_when=the line hides the pass, or keeps saying it once the pass has ended; no_claim=the Citations' speakers, which tests/core/meetingFill.test.ts covers.
   test("a note filled in while its speakers are told apart says so until the pass ends", async () => {
@@ -996,18 +1017,19 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     const filling = (fill: Partial<MeetingFill>) =>
       meetingOf(fillOf({ state: "filling", part: { at: 3, of: 6 }, ...fill }));
     const line = await show(filling({}));
-    expect(line?.textContent).toBe(
+    expect(line?.querySelector(".answer-writing")?.textContent).toBe(
       language === "en" ? "Filling in the note, part 3 of 6…" : "正在补全笔记，第 3 段，共 6 段…",
     );
-    expect(line?.querySelector(".answer-writing")?.textContent).toBe(line?.textContent);
-    expect((await show(filling({ local: true })))?.textContent).toBe(
+    expect(
+      (await show(filling({ local: true })))?.querySelector(".answer-writing")?.textContent,
+    ).toBe(
       language === "en"
         ? "Filling in the note on this computer, part 3 of 6…"
         : "正在这台电脑上补全笔记，第 3 段，共 6 段…",
     );
-    expect((await show(filling({ checking: 2 })))?.textContent).toBe(
-      language === "en" ? "Checking 2 claims…" : "正在核对 2 条说法…",
-    );
+    expect(
+      (await show(filling({ checking: 2 })))?.querySelector(".answer-writing")?.textContent,
+    ).toBe(language === "en" ? "Checking 2 claims…" : "正在核对 2 条说法…");
     expect((await show({ ...filling({}), kind: "memo" }))?.textContent).not.toMatch(/3/);
   });
 

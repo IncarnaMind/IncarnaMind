@@ -767,16 +767,14 @@ describe("Meeting fact frames across provider failures and Transcript parts", ()
           (checkpoint) => checkpoint.reason === "enhance",
         ),
       ).toHaveLength(0);
-      await core.deleteMind(meeting.mindId);
+      await core.stopMeetingNotes(meeting.id);
       release();
-      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
       expect(await settledFill(core, meeting)).toMatchObject({
         state: "failed",
-        problem: { kind: "stopped" },
+        problem: { kind: "user-stopped" },
       });
-      const reopened = await connectToMind(core, meeting.mindId);
-      expect(exactly(reopened)).toEqual(before);
-      expect(mindCitations(reopened)).toEqual([]);
+      expect(exactly(client)).toEqual(before);
+      expect(mindCitations(client)).toEqual([]);
       expect(
         (await core.listCheckpoints(meeting.mindId)).checkpoints.filter(
           (checkpoint) => checkpoint.reason === "enhance",

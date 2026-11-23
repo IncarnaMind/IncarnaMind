@@ -80,6 +80,7 @@ interface MeetingsState {
   retryTranscript(meetingId: string): Promise<void>;
   /** Fills the notes in from the Transcript again (#142): Try again, or after an Undo. */
   fillNotes(meetingId: string): Promise<void>;
+  stopNotes(meetingId: string): Promise<void>;
   /**
    * Takes back what filling the notes in added (#142). `editor`: the one whose line asks, which
    * takes the fill back itself while it holds it on top.
@@ -381,6 +382,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         });
       }),
     retryTranscript: (meetingId) => attempt(meetingId, () => core.retryTranscript(meetingId)),
+    stopNotes: (meetingId) => attempt(meetingId, () => core.stopMeetingNotes(meetingId)),
     fillNotes: (meetingId) =>
       attempt(meetingId, async () => {
         // At once, before the core says it fills: ⇧⌘Z can't put the old fill back beside the new.

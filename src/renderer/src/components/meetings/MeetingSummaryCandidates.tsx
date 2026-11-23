@@ -41,6 +41,7 @@ function useCanReview(
     const stops = [
       ...(
         [
+          "meetings.changed",
           "settings.changed",
           "privacy.changed",
           "dataFlows.changed",

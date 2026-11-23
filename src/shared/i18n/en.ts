@@ -7279,6 +7279,7 @@ export const en = {
   "meetings.record": "Record a meeting",
   "meetings.record.keywords": "record call meeting transcribe audio notes",
   "meetings.hint.agenda": "Write the agenda, or anything you want to cover…",
+  "meetings.hint.notes": "Add your meeting notes…",
   "meetings.audio.both": "Me and them",
   "meetings.audio.me": "Only me",
   "meetings.start.label": "Start a meeting",
@@ -7557,6 +7558,8 @@ export const en = {
   "meetings.fill.notMentioned": "Not mentioned in the call.",
   "meetings.fill.reference.above": "{topic} — see above",
   "meetings.fill.reference.below": "{topic} — see below",
+  "meetings.fill.stop": "Stop",
+  "meetings.fill.problem.userStopped": "Stopped filling in the note",
   "meetings.fill.problem.stopped": "IncarnaMind closed before they were done",
   "meetings.fill.problem.localMode":
     "“Keep everything on this computer” is on, and this note’s model isn’t on this computer",
