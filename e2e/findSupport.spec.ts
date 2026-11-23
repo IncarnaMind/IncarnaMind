@@ -211,6 +211,9 @@ test("Check against Documents on two sentences with no Citation: one is supporte
     "2 not checked",
   );
   await screenshot(window, "check-recheck-en");
+  // The check card opens down from the badge at the Note's top right, over the Note's first lines (#3677): it closes first.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
   await pointAndClick(window, marks(window));
   await expect(card.getByTestId("claim-reason")).toHaveText(
     "The sentence has changed since it was checked.",
@@ -547,6 +550,9 @@ test("After the User accepts one change by hand and goes to another tab and back
   await checkAll(window, line, "Spring tides", "6 months.", "check-against-documents");
   const waiting = window.getByTestId("checks-waiting");
   await expect(waiting).toContainText("2 sentences with changes waiting weren’t checked");
+  // The check card opens down from the badge at the Note's top right, over the Note's first lines (#3677): it closes first.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
 
   await pointAndClick(window, line.locator("del.proposal-delete").first());
   await pointAndClick(window, window.getByTestId("change-bar").getByTestId("change-accept"));

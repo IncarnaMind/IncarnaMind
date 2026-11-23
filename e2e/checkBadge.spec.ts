@@ -98,7 +98,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked /);
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
-  // It sits at the page's bottom right, over the text, never past the Mind's pane.
+  // It sits with the Note's own controls at its top right, never past the Mind's pane (#3677).
   const pane = await window.getByTestId("mind-pane").boundingBox();
   const box = await badge.boundingBox();
   if (!pane || !box) throw new Error("The badge isn't drawn.");
@@ -200,10 +200,11 @@ test("a Note with a sentence a check cannot settle says so in the pill, in full 
   );
   const badge = window.getByTestId("check-badge");
   await expect(badge).toHaveAttribute("data-state", "checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked /);
-  await expect(badge).toContainText("1 sentence can’t be checked");
-  // At a narrow pane the words go and the caveat keeps its short form.
-  await expect(badge.locator(".check-badge-short-caveat")).toBeHidden();
+  // At rest it is its mark and its count; its words, the caveat with them, are its name (#3677).
+  await expect(badge.locator(".check-badge-quiet")).toHaveText(/^\d+$/);
+  await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
+    /^Checks: Checked .*1 sentence can’t be checked/,
+  );
   await pointAndClick(window, window.getByTestId("split-group"));
   const pages = window.locator(".mind-scroller:visible");
   await expect(pages).toHaveCount(2);
@@ -211,10 +212,13 @@ test("a Note with a sentence a check cannot settle says so in the pill, in full 
   for (const width of await pages.evaluateAll((all) => all.map((page) => page.clientWidth))) {
     expect(width).toBeLessThan(400);
   }
+  // At a narrow pane it is the same: the mark and the count, the caveat in its name.
   const narrow = window.getByTestId("check-badge").first();
+  await expect(narrow.locator(".check-badge-quiet")).toBeVisible();
   await expect(narrow.locator(".check-badge-words")).toBeHidden();
-  await expect(narrow.locator(".check-badge-short-caveat")).toBeVisible();
-  await expect(narrow).toContainText("1 can’t be checked");
+  await expect(narrow.getByTestId("check-badge-open")).toHaveAccessibleName(
+    /1 sentence can’t be checked/,
+  );
   await screenshot(window, "check-badge-caveat-narrow");
   await app.close();
 });
@@ -235,9 +239,13 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   await setLanguage(window, "zh-CN");
   await expect(open).toHaveAccessibleName("核对结果：1 句未核对");
   await expect(words).toHaveText("1 句未核对");
-  await expect(words).toBeVisible();
+  // At rest the words are its name and tooltip; it shows its mark and its count (#3677).
+  await expect(words).toBeHidden();
+  await expect(open).toHaveAttribute("title", "核对结果：1 句未核对");
+  const count = window.getByTestId("check-badge").locator(".check-badge-quiet");
+  await expect(count).toHaveText("1");
   await setWindowSize(app, window, 1100, 720);
-  await expect(words).toBeVisible();
+  await expect(count).toBeVisible();
   await setWindowSize(app, window, 1440, 900);
   // The Mind beside itself in a narrower window: each page under 400 px keeps the mark, not the words.
   await pointAndClick(window, window.getByTestId("split-group"));

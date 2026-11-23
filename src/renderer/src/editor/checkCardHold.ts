@@ -82,3 +82,22 @@ export function firstHeightOf(
     ...(down && { downTo: window.innerHeight }),
   });
 }
+
+/**
+ * The part of the Note's pane a sentence Next goes to can be read in: the pane, less what the
+ * check card covers of the text when it stays open over it. The card at the Note's top right
+ * (#3677) leaves the room under it; one at a page's foot, the room above it.
+ */
+export function roomBeside(
+  pane: { top: number; bottom: number },
+  card: { top: number; bottom: number; left: number; right: number } | null,
+  text: { left: number; right: number },
+): { top: number; bottom: number } {
+  if (!card || card.left >= text.right || card.right <= text.left) return pane;
+  if (card.bottom <= pane.top || card.top >= pane.bottom) return pane;
+  const below = pane.bottom - Math.max(pane.top, card.bottom);
+  const above = Math.min(pane.bottom, card.top) - pane.top;
+  return below >= above
+    ? { top: Math.max(pane.top, card.bottom), bottom: pane.bottom }
+    : { top: pane.top, bottom: Math.min(pane.bottom, card.top) };
+}
