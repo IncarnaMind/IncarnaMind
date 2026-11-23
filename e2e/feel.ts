@@ -99,7 +99,14 @@ function excuses(known: Known, problem: Problem): boolean {
 
 interface FeelEntries {
   shifts: { at: number; value: number; moved: string[] }[];
-  events: { at: number; duration: number; on: string }[];
+  events: {
+    at: number;
+    duration: number;
+    on: string;
+    inputDelay: number;
+    processing: number;
+    presentation: number;
+  }[];
   longTasks: { at: number; duration: number }[];
   take(): void;
 }
@@ -203,6 +210,9 @@ async function observe(window: Page): Promise<void> {
         feel.events.push({
           at: event.startTime,
           duration: event.duration,
+          inputDelay: event.processingStart - event.startTime,
+          processing: event.processingEnd - event.processingStart,
+          presentation: event.duration - (event.processingEnd - event.startTime),
           on: `${event.name} on ${nearest?.on ?? "(a target from before the check began)"}`,
         });
       }
@@ -307,6 +317,9 @@ export async function feelOf(window: Page, flow: string): Promise<Feel> {
     );
     const input = slowest?.duration ?? null;
     const longTasks = entries.longTasks.map((task) => task.duration);
+    if (slowest && flow === "first-open") {
+      console.info("RC3_PAINT", JSON.stringify({ step: name, ...slowest }));
+    }
     steps.push({
       name,
       shifts,

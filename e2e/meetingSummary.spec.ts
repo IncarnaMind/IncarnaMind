@@ -489,6 +489,37 @@ for (const language of ["en", "zh-CN"] as const) {
       const savedOverview = focused.getByTestId("meeting-summary-text");
       const quoteReview = focused.getByTestId("meeting-summary-candidates");
       await expect(quoteReview).toBeVisible();
+      const caretLog = await savedOverview.evaluateHandle((element) => {
+        const records: {
+          event: string;
+          t: number;
+          paragraph: number;
+          offset: number | undefined;
+          pm: number | undefined;
+        }[] = [];
+        const root = element as typeof element & {
+          editor?: { state: { selection: { from: number } } };
+        };
+        const capture = (event: Event) => {
+          const selection = document.getSelection();
+          const text = selection?.focusNode;
+          const paragraph =
+            text && Array.from(element.children).findIndex((child) => child.contains(text));
+          records.push({
+            event: event.type + (event instanceof KeyboardEvent ? " " + event.key : ""),
+            t: performance.now(),
+            paragraph: paragraph ?? -1,
+            offset: selection?.focusOffset,
+            pm: root.editor?.state.selection.from,
+          });
+        };
+        const types = ["focusin", "selectionchange", "keydown", "keyup", "beforeinput", "input"];
+        for (const type of types) document.addEventListener(type, capture, true);
+        return () => {
+          for (const type of types) document.removeEventListener(type, capture, true);
+          return records;
+        };
+      });
       await savedOverview
         .locator("p")
         .first()
@@ -497,6 +528,7 @@ for (const language of ["en", "zh-CN"] as const) {
         process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End",
       );
       await reopened.window.keyboard.press("Enter");
+      console.info("RC3_CARET", JSON.stringify(await caretLog.evaluate((read) => read())));
       await expect(savedOverview.locator(":scope > p")).toHaveText([
         words.overview,
         words.addition,
