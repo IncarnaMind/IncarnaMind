@@ -807,6 +807,13 @@ test("five changes in one paragraph get one Restore original; with a middle one 
   const { editor, paragraphs } = await mindWith(window, [HARBOURS]);
   const note = paragraphs.first();
 
+  console.log("[2586-wrapped-note]", JSON.stringify(await note.evaluate((paragraph) => {
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    const rect = (r: DOMRect) => ({ x: r.x, y: r.y, w: r.width, h: r.height });
+    return { window: [innerWidth, innerHeight], paragraph: rect(paragraph.getBoundingClientRect()),
+      font: getComputedStyle(paragraph).font, lines: [...range.getClientRects()].map(rect) };
+  })));
   await slideSelect(window, note, HARBOURS);
   await askToChange(window, "replace harbour office with port authority");
   await expect(note).toHaveText(AUTHORITIES);
