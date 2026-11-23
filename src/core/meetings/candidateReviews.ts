@@ -45,6 +45,7 @@ interface Options {
   language(): Language;
   extract(documentId: string): Promise<void>;
   readTranscript(documentId: string): Promise<Uint8Array>;
+  transcriptIsFinishing(meetingId: string): boolean;
   pendingSpeakers(meetingId: string): Promise<void> | null;
   closed(): boolean;
   failed(meetingId: string, error: unknown): void;
@@ -59,6 +60,7 @@ export function createMeetingCandidateReview({
   language,
   extract,
   readTranscript,
+  transcriptIsFinishing,
   pendingSpeakers,
   closed,
   failed,
@@ -214,6 +216,7 @@ export function createMeetingCandidateReview({
       !documentId ||
       meeting.status !== "stopped" ||
       meeting.transcript?.state !== "saved" ||
+      transcriptIsFinishing(meetingId) ||
       meeting.summary?.state !== "ready"
     )
       return "not-ready";

@@ -142,6 +142,15 @@ test("the open review shows when it is waiting for speakers and when the AI is c
   await act(() => pending.resolve([]));
 });
 
+test("the quote review becomes available when the final Transcript is ready", async () => {
+  api.eligible.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  await show(fresh);
+  expect(disclosure()).toBeNull();
+  await act(() => api.listeners.get("meetings.changed")?.());
+  expect(disclosure()).not.toBeNull();
+  expect(api.review).not.toHaveBeenCalled();
+});
+
 test("the newest access answer controls first-open; cached quotes stay local after a route is revoked", async () => {
   const initial = Promise.withResolvers<boolean>();
   api.eligible.mockReturnValueOnce(initial.promise).mockResolvedValueOnce(false);

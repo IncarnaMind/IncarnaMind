@@ -7004,6 +7004,7 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const candidateReviews = createMeetingCandidateReview({
+    transcriptIsFinishing: (meetingId) => transcripts?.isFinishing(meetingId) ?? false,
     pendingSpeakers: (meetingId) => transcripts?.pendingSpeakers(meetingId) ?? null,
     meetings,
     documents,

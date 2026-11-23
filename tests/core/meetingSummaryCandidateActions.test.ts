@@ -90,11 +90,8 @@ const generatedDecision = { id: 1, kind: "decision", status: "active", text: rel
 
 type SummaryAdapter = NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>;
 
-async function recordPair(
-  review: SummaryAdapter = async () => JSON.stringify([[question, reply]]),
-  speakerSeparator?: CoreAdapters["speakerSeparator"],
-) {
-  const model = awaitingAgent(async (request) => {
+function candidateModel(review: SummaryAdapter) {
+  return awaitingAgent(async (request) => {
     if (request.purpose === "candidate-review") return review(request);
     return JSON.stringify(
       request.prompt.includes(reply)
@@ -102,6 +99,13 @@ async function recordPair(
         : { summary: release, changes: [{ ...generatedDecision, id: null, quote: release }] },
     );
   });
+}
+
+async function recordPair(
+  review: SummaryAdapter = async () => JSON.stringify([[question, reply]]),
+  speakerSeparator?: CoreAdapters["speakerSeparator"],
+) {
+  const model = candidateModel(review);
   const fixture = await record([release, question, reply], model, speakerSeparator);
   const { core, meeting, push } = fixture;
   try {
@@ -121,7 +125,9 @@ async function recordPair(
     await vi.waitFor(async () =>
       expect((await core.listMeetings())[0]?.summary?.state).toBe("ready"),
     );
-    expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(true);
+    await vi.waitFor(async () =>
+      expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(true),
+    );
     expect(await core.getMeetingSummaryCandidates(meeting.id)).toEqual([]);
     expect((await core.listMeetings())[0]?.summary?.candidatesReviewed).toBeUndefined();
     expect(model).toHaveBeenCalledTimes(2);
@@ -360,6 +366,59 @@ test("a changed Transcript removes review access without leaking original lines 
     expect(JSON.stringify(snapshot?.summary)).not.toContain(reply);
     expect(model).toHaveBeenCalledTimes(3);
   } finally {
+    core.close();
+  }
+});
+
+test("a candidate review becomes available only after the final Transcript version has been registered", async () => {
+  const processing = await import("../../src/core/documents/processor");
+  const create = processing.createProcessor;
+  let hold = false;
+  let publish: (() => void) | undefined;
+  const processor = vi.spyOn(processing, "createProcessor").mockImplementation((handlers, report) =>
+    create(
+      {
+        ...handlers,
+        onResult(job, result) {
+          if (hold && job.kind === "transcript") publish = () => handlers.onResult(job, result);
+          else handlers.onResult(job, result);
+        },
+      },
+      report,
+    ),
+  );
+  const model = candidateModel(async () => "[]");
+  const { core, meeting, push } = await record([release, question, reply], model);
+  try {
+    push(2500);
+    await vi.waitFor(async () =>
+      expect((await core.listMeetings())[0]?.summary?.items).toEqual([generatedDecision]),
+    );
+    hold = true;
+    push(4000);
+    await until(core, meeting.id, (transcript) => transcript.lines >= 3);
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    await vi.waitFor(() => expect(publish).toBeDefined());
+    await vi.waitFor(async () =>
+      expect((await core.listMeetings())[0]?.summary?.state).toBe("ready"),
+    );
+    expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(false);
+    await expect(core.reviewMeetingSummaryCandidates(meeting.id)).rejects.toMatchObject({
+      wording: { key: "error.meeting.summaryCandidateReviewNotReady" },
+    });
+    expect(model.mock.calls.some(([input]) => input.purpose === "candidate-review")).toBe(false);
+    hold = false;
+    publish?.();
+    await vi.waitFor(async () =>
+      expect(await core.canReviewMeetingSummaryCandidates(meeting.id)).toBe(true),
+    );
+    expect(await core.reviewMeetingSummaryCandidates(meeting.id)).toEqual([]);
+    expect(model.mock.calls.filter(([input]) => input.purpose === "candidate-review")).toHaveLength(
+      1,
+    );
+  } finally {
+    processor.mockRestore();
     core.close();
   }
 });
