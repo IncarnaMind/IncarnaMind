@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ConsentRequest } from "../../../core/api";
 import { CHATGPT_SERVICE } from "../../../core/providers/chatgpt/service";
+import { agentServiceId } from "../../../shared/agentConnection";
 import { core } from "../core";
 import { dataKindKey } from "../dataKinds";
 import { useGap, useT } from "../i18n";
@@ -18,6 +19,30 @@ import {
   ruledListClass,
 } from "./ui";
 import { useModal } from "./useModal";
+
+/**
+ * Whether the request is to start the User's own Codex in the background (#3639): the pairing it
+ * names was set up for Codex, which reads the User's own instructions file in those runs.
+ */
+function useCodexRun(request: ConsentRequest | undefined): boolean {
+  const serviceId = request?.flow.id === "hosted-agents" ? request.flow.service.id : null;
+  const [codex, setCodex] = useState<string | null>(null);
+  useEffect(() => {
+    if (serviceId === null) return;
+    let current = true;
+    core.getAgents().then(
+      ({ pairings }) => {
+        const pairing = pairings.find((each) => agentServiceId(each.id) === serviceId);
+        if (current && pairing?.client === "codex") setCodex(serviceId);
+      },
+      (error: unknown) => useAppStore.getState().reportError(error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [serviceId]);
+  return serviceId !== null && codex === serviceId;
+}
 
 /**
  * Asks before data leaves the machine: the core raises a consent request
@@ -63,6 +88,7 @@ export function ConsentDialog() {
     }
   };
 
+  const codexRun = useCodexRun(request);
   const service = request?.flow.service.name ?? "";
   const purpose = request ? t(`consent.flow.${request.flow.id}.purpose`) : "";
   const isFirstAsk = request !== undefined && request.newKinds.length === request.flow.sends.length;
@@ -108,6 +134,11 @@ export function ConsentDialog() {
           {request.flow.service.id === CHATGPT_SERVICE.id && (
             <p data-testid="consent-chatgpt-note" className={dialogTextClass}>
               {t("chatgpt.consent.note")}
+            </p>
+          )}
+          {codexRun && (
+            <p data-testid="consent-codex-note" className={dialogTextClass}>
+              {t("agents.connect.codexInstructions")}
             </p>
           )}
           <p className={hintClass}>

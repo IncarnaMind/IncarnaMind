@@ -27,6 +27,7 @@ import {
   keyIdInput,
   serverProofInput,
 } from "../../shared/agentSocket";
+import { agentServiceId } from "../../shared/agentConnection";
 import type { Logger } from "../adapters";
 import {
   AGENT_TOOLS,
@@ -104,7 +105,15 @@ export const HOSTED_FLOW_SENDS: readonly DataKind[] = [
 ];
 
 /** The agents IncarnaMind can start for a check, by the client their pairing was set up for. */
-export const HOSTED_CLIENTS: readonly string[] = ["claude-code"];
+export const HOSTED_CLIENTS: readonly string[] = ["claude-code", "codex"];
+
+/**
+ * What connecting each of them agrees to, by the line its connect sheet shows: Codex's names the
+ * check alone, so a request typed at a Note's foot still asks (#3639).
+ */
+const HOSTED_UNNAMED: Readonly<Record<string, readonly DataKind[]>> = {
+  codex: ["note-requests", "selection"],
+};
 
 /** The device setting that turns connecting agents on. */
 const ENABLED_KEY = "agentsEnabled";
@@ -114,7 +123,7 @@ const LEGACY_SHIMS_KEY = "agentLegacyShims";
 const secretName = (pairingId: string) => `agent-pairing:${pairingId}`;
 /** How a pairing is named as a service of the "agents" and "hosted-agents" data flows. */
 export const serviceOf = (pairing: { id: string; name: string }): ExternalService => ({
-  id: `agent:${pairing.id}`,
+  id: agentServiceId(pairing.id),
   name: pairing.name,
 });
 /** The activity kept per pairing; older calls go. */
@@ -996,6 +1005,7 @@ export function createAgents(options: AgentsOptions) {
       options.consent.choose(
         HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
         serviceOf({ id, name }),
+        HOSTED_UNNAMED[client ?? ""],
       );
       changed();
       return { pairing: requirePairing(id), launch: launchFor(token) } satisfies ConnectedAgent;

@@ -4,3 +4,6 @@ export const SHOW_AGENT_CONNECTION = true;
 export const SHOW_CLAUDE_APP_SETUP = false;
 
 export const SHOW_GOOGLE_PLAN_SETUP = false;
+
+/** How a pairing is named as a service of the "agents" and "hosted-agents" data flows. */
+export const agentServiceId = (pairingId: string): string => `agent:${pairingId}`;

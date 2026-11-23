@@ -328,6 +328,8 @@ export interface LaunchOptions {
    * (#3606). Without it a test build runs none, and a Check asks by the link.
    */
   ownAi?: string;
+  /** The command that stands in for the User's Codex the same way (#3639). */
+  ownCodex?: string;
   /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
@@ -434,6 +436,7 @@ export async function launchApp(
     systemCalendar,
     calendarSyncMs,
     ownAi,
+    ownCodex,
     extraEnv,
     extraArgs = [],
     trace = false,
@@ -496,6 +499,7 @@ export async function launchApp(
       contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
     INCARNAMIND_TEST_AGENT_APPS: JSON.stringify(agentApps),
     INCARNAMIND_TEST_OWN_AI: ownAi,
+    INCARNAMIND_TEST_OWN_CODEX: ownCodex,
     ...extraEnv,
   });
 

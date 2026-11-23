@@ -9063,6 +9063,11 @@ export const en = {
   // The consent to start the agent for a check in the background (#3606).
   "agents.connect.background":
     "With no AI model set up here, Check and the box at the bottom of a note run your {agent} in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key.",
+  // The consent to start Codex for a check in the background, and what it reads of its own (#3639).
+  "agents.connect.background.codex":
+    "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own ChatGPT plan or API key.",
+  "agents.connect.codexInstructions":
+    "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
@@ -9160,6 +9165,12 @@ export const en = {
   "agents.ownCheck.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
   "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
+  // A check run on Codex stopped by its watch, or ended by its service with no category (#3639).
+  "agents.ownCheck.problem.outside":
+    "{agent} stopped because it requested an action outside this check. Open the check in {agent}.",
+  "agents.ownCheck.problem.unreadable": "{agent} stopped before finishing. Open the check in {agent}.",
+  "agents.ownCheck.problem.service":
+    "{agent} stopped before finishing. Check your sign-in and usage in {agent}.",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
   "noteAsk.placeholder": "Describe a change…",
   "noteAsk.send": "Send",

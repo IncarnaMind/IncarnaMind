@@ -13267,6 +13267,12 @@ export type OwnAiCheckProblem =
   | "access"
   | "local-mode"
   | "taken-back"
+  /** It showed something other than its words, its reasoning and the check's Tools, and was stopped. */
+  | "outside"
+  /** A line of what it printed couldn't be read, and it was stopped. */
+  | "unreadable"
+  /** Its service ended the request with an error it didn't name: a sign-in or a plan's limit, say. */
+  | "service"
   | "failed";
 
 /**
