@@ -27,6 +27,7 @@ import {
   useOutputLocation,
   WORD_KEY,
 } from "./app";
+import { holdModel } from "./heldModel";
 
 /*
  * Compare Documents (#98): from "/", the + menu or ⌘K, the sheet at the foot
@@ -284,6 +285,7 @@ test("a cell reads, then shows its words as they arrive and its checked Citation
   await acceptPlainTextKeys(window);
   await bridge(window).cloudModel();
   await addSuppliers(window);
+  await holdModel(app, "holdCellFinish", true);
   const table = await makeSlowTable(window);
   const cells = table.getByTestId("comparison-cell");
   const progress = table.getByTestId("comparison-progress");
@@ -314,6 +316,8 @@ test("a cell reads, then shows its words as they arrive and its checked Citation
   }
   await expect(table.getByTestId("comparison-fill")).toHaveText("Fill 3 cells");
 
+  await holdModel(app, "holdCellFinish", false);
+
   // Filling again writes them whole: the Citation lands checked, the status line counts them.
   await pointAndClick(window, table.getByTestId("comparison-fill"));
   await expect(progress).toBeVisible();
@@ -336,6 +340,7 @@ test("in Chinese, at a narrow width and with reduced motion, a cell reads withou
   await acceptPlainTextKeys(window);
   await bridge(window).cloudModel();
   await addSuppliers(window);
+  await holdModel(app, "holdCellFinish", true);
   const sheet = await openSheetFromSlash(window);
   await typeQuestions(window, ["Termination notice (slowly)"]);
   await pointAndClick(window, sheet.getByTestId("compare-sheet-make"));
@@ -357,6 +362,7 @@ test("in Chinese, at a narrow width and with reduced motion, a cell reads withou
   expect(await window.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
     true,
   );
+  await holdModel(app, "holdCellFinish", false);
   await expect(table.getByTestId("comparison-progress")).toHaveCount(0, { timeout: 60_000 });
 });
 
