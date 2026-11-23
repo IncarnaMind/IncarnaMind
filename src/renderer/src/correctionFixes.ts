@@ -5,13 +5,14 @@
  * one from the check badge, each one step of Undo.
  */
 import type { Editor } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { Mark, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import type * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
   type Citation,
+  CLAIM_CHECK_MARK,
   type ClaimChange,
   type ClaimCheckAttributes,
   type ClaimCorrection,
@@ -379,11 +380,21 @@ export function acceptChange(
     return false;
   }
   const tr = editor.state.tr;
-  const generated = tr.doc.type.schema.marks[GENERATED_MARK];
+  const { marks } = tr.doc.type.schema;
+  const checkType = marks[CLAIM_CHECK_MARK];
+  const generated = marks[GENERATED_MARK];
+  // The check's mark isn't inclusive: words written up to the sentence's end would lose it.
+  let checked: Mark | undefined;
+  tr.doc.nodesBetween(place.from, place.to, (node) => {
+    checked ??= node.marks.find((mark) => mark.type === checkType);
+    return checked === undefined;
+  });
   if (change.with === "") tr.delete(place.from, place.to);
   else {
     tr.insertText(change.with, place.from, place.to);
-    if (generated) tr.addMark(place.from, place.from + change.with.length, generated.create());
+    const end = place.from + change.with.length;
+    if (checked) tr.addMark(place.from, end, checked);
+    if (generated) tr.addMark(place.from, end, generated.create());
   }
   asOneStep(editor, () => editor.view.dispatch(tr));
   const again = () => {
