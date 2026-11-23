@@ -2,10 +2,11 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { encodeWav, monoSamples, toPcm16 } from "../../eval/lib/wav";
 import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 import type { CoreBridge } from "../../src/core/api";
+import { listParts, meetingFolder, msOf } from "../../src/core/meetings/audioFiles";
 import { recordMeeting, startRecording, transcriptSaved, turnOf, useOutputLocation } from "../app";
 import {
   copyModelsIn,
@@ -48,6 +49,20 @@ async function oneHandoff(home: string, overlap: boolean): Promise<string> {
   const file = join(home, overlap ? "overlapping-voices.wav" : "close-voices.wav");
   await writeFile(file, encodeWav(toPcm16(mixed)));
   return file;
+}
+
+async function savedWithSpeakers(window: Page): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          const [meeting] = await core.listMeetings();
+          return meeting?.transcript?.state === "saved" && !meeting.transcript.separating;
+        }),
+      { timeout: 5 * 60_000 },
+    )
+    .toBe(true);
 }
 
 test.skip(
@@ -187,17 +202,7 @@ for (const { kind, overlap } of [
     await expect(shared.first()).toBeVisible({ timeout: HANDOFF_WAIT_MS });
     const wordsBefore = (await shared.first().innerText()).trim();
     await bar.getByTestId("meeting-stop").click();
-    await expect
-      .poll(
-        () =>
-          window.evaluate(async () => {
-            const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-            const [meeting] = await core.listMeetings();
-            return meeting?.transcript?.state === "saved" && !meeting.transcript.separating;
-          }),
-        { timeout: 5 * 60_000 },
-      )
-      .toBe(true);
+    await savedWithSpeakers(window);
     const first = lines.filter({ hasText: /created equal/i }).first();
     const second = lines.filter({ hasText: /Thursday morning/i }).first();
     await expect(turnOf(first).getByTestId("transcript-speaker")).toHaveText("Speaker 1");
@@ -208,7 +213,7 @@ for (const { kind, overlap } of [
   });
 }
 
-// protects=a Chinese line keeps its first word when it is short and a pause follows it ("对。总价是八十万元。"), through the packaged app's real speech engine and model: the stretch starts at the first speech the detector hears, not a quarter second into it (#2305); fails_when=a line reads "总价是80万元" without 对, as when the detector forgot speech shorter than a quarter second; no_claim=how well the engine hears names and numbers (#1031), the computer's sound, or English.
+// protects=each short Mandarin opening word stays with its own phrase in the saved Transcript (#2305); fails_when=an opening word is missing, misplaced, or present only on a later play; no_claim=the number of cues produced by a pause, or how well the engine recognises names and numbers (#1031).
 test("the packaged app keeps the short first word of each Chinese line", async () => {
   expect(
     existsSync(packagedExecutable),
@@ -218,7 +223,8 @@ test("the packaged app keeps the short first word of each Chinese line", async (
   dataDir = await mkdtemp(join(tmpdir(), "incarnamind-data-"));
   folders.push(home, dataDir);
   await copyModelsIn(dataDir);
-  app = await launchPackaged(home, dataDir, { speech: shortFirstWords });
+  const durationMs = msOf(monoSamples(await readFile(shortFirstWords), shortFirstWords).length);
+  app = await launchPackaged(home, dataDir, { speech: `${shortFirstWords}%noloop` });
   const window = await app.firstWindow();
 
   const start = await recordMeeting(window);
@@ -235,29 +241,55 @@ test("the packaged app keeps the short first word of each Chinese line", async (
   await expect(stopped).toHaveCount(0);
   await beside.click();
 
-  // One play of the file is its three lines. A slow runner's live text can fall behind before
-  // them; the rest is then transcribed from the recording after Stop.
-  const words = window.getByTestId("transcript-line");
-  const behind = window.getByTestId("transcript-behind");
+  const meetingId = await window.evaluate(async () => {
+    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+    return (await core.listMeetings())[0]?.id;
+  });
+  if (!meetingId) throw new Error("The recording has no Meeting.");
+  const folder = meetingFolder(dataDir, meetingId);
+  // Wait for one full play to reach disk, including when the live reader falls behind.
   await expect
-    .poll(async () => (await words.count()) >= 3 || (await behind.count()) > 0, {
-      timeout: 2 * 60_000,
-    })
-    .toBe(true);
-  if ((await words.count()) < 3) {
-    await bar.getByTestId("meeting-stop").click();
-    await transcriptSaved(window, 5 * 60_000);
-  }
-  const said = await words.allTextContents();
-  // Each line with its first word, as tests/fixtures/speech/README.md has them.
-  for (const line of [/^对[，。,.\s]*总价/, /^行[，。,.\s]*周五/, /^是[，。,.\s]*合同/]) {
-    expect(
-      said.some((each) => line.test(each)),
-      `${line} in ${said.join(" | ")}`,
-    ).toBe(true);
-  }
-  // The bug's mark: a line that starts with the words after its first one.
-  expect(said.filter((line) => /^(总价|周五|合同)/.test(line))).toEqual([]);
+    .poll(
+      () =>
+        listParts(folder)
+          .filter((part) => part.source === "microphone")
+          .reduce((ms, part) => ms + part.durationMs, 0),
+      { timeout: 2 * 60_000 },
+    )
+    .toBeGreaterThanOrEqual(durationMs);
+  await bar.getByTestId("meeting-stop").click();
+  await savedWithSpeakers(window);
+
+  // A breath can put the first word in its own cue in the same speaker's paragraph (#2305).
+  await expect(async () => {
+    const paragraphs = await window
+      .getByTestId("transcript-turn")
+      .locator("p.transcript-text")
+      .evaluateAll((elements) =>
+        elements.map((paragraph) =>
+          Array.from(
+            paragraph.querySelectorAll<HTMLElement>('[data-testid="transcript-line"]'),
+            (cue) => ({
+              text: (cue.textContent ?? "").replace(/[，。,.\s]/gu, ""),
+              start: Number(cue.dataset.start),
+              end: Number(cue.dataset.end),
+            }),
+          ),
+        ),
+      );
+    const openings = paragraphs.flatMap((cues) =>
+      cues.flatMap((cue, index) => {
+        const before = cues[index - 1];
+        // The recorded pause is 400 ms. Allow for the detector's cue boundaries, within one breath.
+        const joined =
+          before && /^[对行是]$/u.test(before.text) && cue.start - before.end <= 800
+            ? before.text + cue.text
+            : cue.text;
+        return joined.match(/^[对行是]?(?:总价|周五|合同)/u) ?? [];
+      }),
+    );
+    expect(openings, JSON.stringify(paragraphs)).toEqual(["对总价", "行周五", "是合同"]);
+  }).toPass({ timeout: 5000 });
 
   await app.close();
   app = undefined;
