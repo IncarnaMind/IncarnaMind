@@ -75,7 +75,6 @@ interface Found {
     documentId: string;
     location: string | null;
     timedText?: string;
-    cite: string | null;
   }[];
 }
 
@@ -211,11 +210,7 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
     await until(core, meeting.id, (transcript) => transcript.lines === 3);
     const found = await search(agent, "marigolds");
     expect(found).toContainEqual(
-      expect.objectContaining({
-        documentId,
-        timedText: expect.stringContaining(owner),
-        cite: expect.stringMatching(/^\[cite:/),
-      }),
+      expect.objectContaining({ documentId, timedText: expect.stringContaining(owner) }),
     );
     await core.stopMeeting(meeting.id);
   });
@@ -245,7 +240,6 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
       (each) => each.documentId === harbour.transcriptId,
     );
     expect(said?.location).toMatch(/^Me · 0:0\d$/);
-    expect(said?.cite).toMatch(/^\[cite:/);
 
     const cited = structured<{
       citations: { check: string; cite: string | null; location: string | null }[];

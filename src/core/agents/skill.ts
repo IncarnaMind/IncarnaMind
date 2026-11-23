@@ -48,6 +48,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "6044559ccbf5164ad5cad60e746eeb773b3a30c143c7fe64655c2aed1c578c42",
   "9a9c9df72e13d0ee9dbe66959fa814800e5d738aeac7087cb1a19a3cf65c811e",
   "77c8932aa3045458d597e3707ad42524ada9cb0e01b1b971d30d6bf692d6ecc1",
+  "065e724e5a37797c03c33440b84d19d7e530171e7bb020a250bfcf0f05d9683c",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -77,9 +78,9 @@ Only when the User asks to organize Documents or suggest Tags (for example, â€œæ
 
 ## To answer a question
 
-1. \`search\` with the words a Document would use (try the Document's language, and another phrasing if the first finds nothing). Each Passage comes with its Location and a ready \`cite\`.
+1. \`search\` with the words a Document would use (try the Document's language, and another phrasing if the first finds nothing). Each Passage comes with its Location and text.
 2. \`read_passages\` when a Passage is not enough: the Passages around it, or the Document from its start.
-3. \`cite\` the exact words you rely on, copied from a Passage, for any claim whose Passage came without a ready \`cite\`.
+3. \`cite\` the exact words each claim rests on, copied from a Passage, all in one call.
 4. Write your draft with a token after each claim.
 5. For an ordinary question answered in chat, run \`check_citations\` on your draft before you finish. Fix a token that is not found, and add one to, or drop, each sentence it lists as uncited. If the User asked you to write, draft or summarize something in IncarnaMind, write it as a Note with \`create_mind\` rather than stopping at \`check_citations\` and replying only in chat.
 

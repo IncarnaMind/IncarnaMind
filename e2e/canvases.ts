@@ -32,6 +32,15 @@ export async function callTool<T>(agent: Client, name: string, args: Record<stri
   return result.structuredContent as T;
 }
 
+/** The Citation token for `quote`, as an agent gets one: `search`, then `cite` of those words. */
+export async function citeFound(agent: Client, query: string, quote: string): Promise<string> {
+  const found = await callTool<{ passages: { passageId: string }[] }>(agent, "search", { query });
+  const cited = await callTool<{ citations: { cite: string | null }[] }>(agent, "cite", {
+    citations: found.passages.map(({ passageId }) => ({ passageId, quote })),
+  });
+  return cited.citations.find((each) => each.cite !== null)?.cite ?? "";
+}
+
 export async function publishCanvas(
   agent: Client,
   title: string,

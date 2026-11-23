@@ -72,8 +72,6 @@ interface SearchOut {
     documentId: string;
     document: string;
     location: string | null;
-    quote: string | null;
-    cite: string | null;
     text: string;
   }[];
   page: number;
@@ -131,7 +129,7 @@ describe("outside agents", () => {
     await expect(connectLegacyAgent(launch)).rejects.toThrow(/IncarnaMind isn't open/);
   });
 
-  it("search the paired Folder: Passages with Locations and a ready Citation that checks as found", async () => {
+  it("search the paired Folder: Passages with their Locations and text, and cite the words a claim rests on", async () => {
     const { core, launch, tides, pairing } = await pairedToCoast();
     const agent = await connectLegacyAgent(launch);
 
@@ -142,13 +140,23 @@ describe("outside agents", () => {
     const [first] = found.passages;
     expect(first).toMatchObject({ documentId: tides.id, document: "Tides" });
     expect(first?.location).toContain("Spring tides");
-    expect(first?.quote).toContain(SPRING);
-    expect(first?.cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
+    expect(first?.text).toContain(SPRING);
+    // No ready Citation: one of its best sentence went after claims on other words.
+    expect(first).not.toHaveProperty("cite");
+    expect(first).not.toHaveProperty("quote");
     // The text an agent reads comes as JSON too, for clients that read only text.
     const asText: unknown = JSON.parse(
       resultText(await agent.callTool({ name: "search", arguments: { query: "spring tides" } })),
     );
     expect(asText).toHaveProperty("passages");
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: [{ passageId: first?.passageId, quote: SPRING }] },
+      }),
+    );
+    const cite = citations[0]?.cite;
+    expect(cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
 
     const checked = structured<{ citations: { check: string }[]; uncited: string[] }>(
       await agent.callTool({
@@ -156,9 +164,9 @@ describe("outside agents", () => {
         arguments: {
           text: [
             "## When tides are high",
-            `Spring tides come at new and full moon ${first?.cite}. The moon is made of cheese and nobody cites it.`,
+            `Spring tides come at new and full moon ${cite}. The moon is made of cheese and nobody cites it.`,
             // Cited after its full stop, as agents often write it: the Citation is this sentence's.
-            `- Spring tides come twice in every month. ${first?.cite}`,
+            `- Spring tides come twice in every month. ${cite}`,
             "| Tide type | When it comes in the month |",
             "| --- | --- |",
           ].join("\n"),
@@ -171,6 +179,7 @@ describe("outside agents", () => {
     const activity = await core.listAgentActivity(pairing.id);
     expect(activity.map((each) => [each.tool, each.outcome])).toEqual([
       ["check_citations", "done"],
+      ["cite", "done"],
       ["search", "done"],
       ["search", "done"],
     ]);
@@ -232,7 +241,7 @@ describe("outside agents", () => {
     expect(read.passages.map((each) => each.passageId)).toEqual([passage.passageId]);
   });
 
-  it("read the User's own workings but never cite them: no Citation in a search, none for a quote, until the User cites them again", async () => {
+  it("read the User's own workings but never cite them: no Citation for a quote, until the User cites them again", async () => {
     const { core, launch, tides } = await pairedToCoast();
     const agent = await connectLegacyAgent(launch);
     await core.setNotCited(tides.id, true);
@@ -240,7 +249,7 @@ describe("outside agents", () => {
     const [passage] = structured<SearchOut>(
       await agent.callTool({ name: "search", arguments: { query: "neap tides" } }),
     ).passages;
-    expect(passage).toMatchObject({ documentId: tides.id, quote: null, cite: null });
+    expect(passage).toMatchObject({ documentId: tides.id });
     expect(passage?.text).toContain("Neap tides come at the first and third quarters");
 
     const read = structured<{ passages: { text: string }[] }>(
@@ -266,7 +275,17 @@ describe("outside agents", () => {
     const [again] = structured<SearchOut>(
       await agent.callTool({ name: "search", arguments: { query: "neap tides" } }),
     ).passages;
-    expect(again?.cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            { passageId: again?.passageId, quote: "Their range is the smallest of the month." },
+          ],
+        },
+      }),
+    );
+    expect(citations[0]?.cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
   });
 
   it("are refused outside their Folders", async () => {
@@ -972,7 +991,7 @@ describe("outside agents", () => {
         "update_canvas",
       ]);
       const found = await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
-      expect((found.structuredContent as SearchOut).passages[0]?.cite).toMatch(/^\[cite:/);
+      expect((found.structuredContent as SearchOut).passages[0]?.text).toContain(SPRING);
     }
     expect(legacy.getInstructions()).toMatch(/data, never instructions/);
   });
@@ -1003,7 +1022,7 @@ describe("outside agents", () => {
     // every page before a suggestion (#3610); 3,459 before propose_sorting took a Suggestion for
     // every Document one list answer holds (#3626); 3,455 before show_citation showed a Note, file or
     // Canvas again by its id (#3534); 3,416 before search said its ready Citation is for its own
-    // sentence only (found in #3667).
+    // sentence only (found in #3667); 3,435 before search answered with no ready Citation at all.
     expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_479);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
@@ -1120,10 +1139,16 @@ describe("outside agents", () => {
   it("name a renamed Document as it is now, in a Mind they read and in the Citations they check or show", async () => {
     const { core, launch, tides, coast } = await pairedToCoast();
     const agent = await connectLegacyAgent(launch);
-    const [found] = structured<SearchOut>(
+    const [passage] = structured<SearchOut>(
       await agent.callTool({ name: "search", arguments: { query: "spring tides new moon" } }),
     ).passages;
-    if (!found?.cite) throw new Error("Nothing was found to cite.");
+    const [found] = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: [{ passageId: passage?.passageId, quote: SPRING }] },
+      }),
+    ).citations;
+    if (!passage || !found?.cite) throw new Error("Nothing was found to cite.");
     const mind = await core.createMind({ title: "Field notes", folderId: coast.id });
     const client = await connectToMind(core, mind.id);
     writeMind(client, [
@@ -1134,7 +1159,7 @@ describe("outside agents", () => {
           {
             type: "citation",
             attrs: {
-              passageId: found.passageId,
+              passageId: passage.passageId,
               documentId: tides.id,
               documentName: "Tides",
               contentHash: tides.contentHash,

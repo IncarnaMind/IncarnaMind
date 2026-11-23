@@ -771,7 +771,14 @@ describe("setting an agent up", () => {
     const { pairing } = await core.setUpAgent({ client: "other", folderIds: [coast.id] });
     const agent = await connectLegacyAgent(await core.getAgentLaunch(pairing.id));
     const found = await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
-    const cite = (found.structuredContent as { passages: { cite: string }[] }).passages[0]?.cite;
+    const passageId = (found.structuredContent as { passages: { passageId: string }[] }).passages[0]
+      ?.passageId;
+    const quote = "Spring tides come at new and full moon";
+    const cited = await agent.callTool({
+      name: "cite",
+      arguments: { citations: [{ passageId, quote }] },
+    });
+    const cite = (cited.structuredContent as { citations: { cite: string }[] }).citations[0]?.cite;
     const shown = vi.fn();
     core.on("agents.citationShown", shown);
 

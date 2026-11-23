@@ -68,9 +68,22 @@ test("an agent reaches the app through the shipped shim, and cites only its Fold
       name: "search",
       arguments: { query: "spring tides new moon" },
     });
-    const passages = (found.structuredContent as { passages: { cite: string | null }[] }).passages;
+    const passages = (found.structuredContent as { passages: { passageId: string }[] }).passages;
     expect(passages.length).toBeGreaterThan(0);
-    const cite = passages[0]?.cite ?? "";
+    const cited = await agent.callTool({
+      name: "cite",
+      arguments: {
+        citations: [
+          {
+            passageId: passages[0]?.passageId,
+            quote: "Spring tides happen twice a month, at new moon and full moon",
+          },
+        ],
+      },
+    });
+    const cite =
+      (cited.structuredContent as { citations: { cite: string | null }[] }).citations[0]?.cite ??
+      "";
     expect(cite).toMatch(/^\[cite:[a-z0-9]{8}\]$/);
 
     const checked = await agent.callTool({

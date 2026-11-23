@@ -20,6 +20,7 @@ import {
 } from "./app";
 import {
   callTool,
+  citeFound,
   connectCanvasAgent,
   inCanvas,
   MOD,
@@ -59,10 +60,12 @@ const logLines = async (event: string) =>
     .split("\n")
     .filter((line) => line.includes(event));
 
+const TIDES = "Spring tides come twice a month, at new and full moon.";
+
 /** Tides.md in no Folder, which the agent given Not in a Folder reads. */
 async function withTides(window: Page): Promise<void> {
   const tides = join(sources, "Tides.md");
-  await writeFile(tides, "# Tides\n\nSpring tides come twice a month, at new and full moon.\n");
+  await writeFile(tides, `# Tides\n\n${TIDES}\n`);
   await window.evaluate(async (path) => {
     await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.addDocuments([path]);
   }, tides);
@@ -76,10 +79,7 @@ test("a Citation's marker opens its Passage beside the Canvas at the User's pres
     await dismissChatSetup(window);
     await withTides(window);
     const agent = await connectCanvasAgent(window);
-    const found = await callTool<{ passages: { cite: string | null }[] }>(agent, "search", {
-      query: "spring tides twice a month",
-    });
-    const cite = found.passages.find((each) => each.cite)?.cite ?? "";
+    const cite = await citeFound(agent, "spring tides twice a month", TIDES);
     expect(cite).toMatch(/^\[cite:[a-z0-9]+\]$/);
     const canvasId = await publishCanvas(
       agent,
@@ -237,10 +237,7 @@ test("a Canvas says it is not checked against the User's files, follows the wind
     await dismissChatSetup(window);
     await withTides(window);
     const agent = await connectCanvasAgent(window);
-    const found = await callTool<{ passages: { cite: string | null }[] }>(agent, "search", {
-      query: "spring tides twice a month",
-    });
-    const cite = found.passages.find((each) => each.cite)?.cite ?? "";
+    const cite = await citeFound(agent, "spring tides twice a month", TIDES);
     const canvasId = await publishCanvas(agent, "Tide report", report(cite, "The first draft."));
     await callTool(agent, "update_canvas", {
       canvasId,
