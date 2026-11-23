@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useState } from "react";
+import { Activity, Fragment, useEffect, useLayoutEffect, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
@@ -185,6 +185,7 @@ function TabGroup({
   const t = useT();
   const focused = useAppStore((state) => merged || state.layout?.focusedGroupId === group.id);
   const tab = activeTabOf(group);
+  const libraryTab = group.tabs.find(each => each.item.kind === "library");
   useEffect(() => {
     resumeTabCloseFocus();
     return () => forgetTabCloseFocus(group.id, group.activeTabId);
@@ -216,6 +217,13 @@ function TabGroup({
           "aria-labelledby": `tab-${tab.id}`,
         })}
       >
+        {libraryTab && (
+          <Activity mode={tab?.id === libraryTab.id ? "visible" : "hidden"}>
+            <TabPlaceContext.Provider value={{tabId:libraryTab.id,groupId:group.id}}>
+              <LibraryPane />
+            </TabPlaceContext.Provider>
+          </Activity>
+        )}
         {!tab ? (
           <NoTabOpen />
         ) : (
@@ -226,7 +234,7 @@ function TabGroup({
             ) : tab.item.kind === "figures" ? (
               <FigureScheduleTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
             ) : tab.item.kind === "library" ? (
-              <LibraryPane />
+              null
             ) : tab.item.kind === "home" ? (
               <HomePane />
             ) : tab.item.kind === "canvas" ? (

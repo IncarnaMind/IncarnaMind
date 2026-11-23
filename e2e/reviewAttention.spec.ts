@@ -155,7 +155,7 @@ async function pressReview(
         const row = document.querySelector<HTMLElement>(
           `[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`,
         );
-        if (row) {
+        if (row?.checkVisibility() && row.querySelector("[data-row-main]") === document.activeElement) {
           const box = row.getBoundingClientRect();
           const view = row
             .closest<HTMLElement>('[data-testid="library"]')
