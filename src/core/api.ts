@@ -13254,6 +13254,8 @@ export type OwnAiCheckProblem =
   | "timeout"
   /** It sent nothing for six minutes, and was stopped. */
   | "stalled"
+  /** Condensing its conversation so far didn't finish in ten minutes. */
+  | "compaction"
   | "no-marks"
   | "isolation"
   | "access"
@@ -13388,12 +13390,14 @@ export interface NoteTurnEvent {
 /**
  * What a request at a Note's foot is doing, as its line says it (#3677): a Tool call, with what it
  * names (a Note's or Document's title) and how many of that Tool's calls it has made so far; the
- * AI's own words to the User, as it writes them; or thinking, whose words the run doesn't carry.
+ * AI's own words to the User, as it writes them; thinking, whose words the run doesn't carry; or
+ * condensing its conversation so far, which it does without a word.
  */
 export type NoteDoing =
   | { kind: "call"; tool: AgentToolName; summary: string; count: number }
   | { kind: "said"; text: string }
-  | { kind: "thinking" };
+  | { kind: "thinking" }
+  | { kind: "compacting" };
 
 /**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that

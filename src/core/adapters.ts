@@ -1679,15 +1679,20 @@ export type OwnAiFailure =
   | "lost-conversation"
   /** Claude Code sent nothing for as long as a run that still works never stays quiet. */
   | "stalled"
+  /** Claude Code began compacting its conversation and didn't finish in time. */
+  | "compaction"
   | "other";
 
 /**
  * What a run is doing, as its stream says while it goes: the words it writes to the User (between
  * its Tool calls, or its reply as it comes), a Tool call it starts, or a moment of thinking, whose
  * words the stream doesn't carry; and, at most about once a second, that something came at all.
+ * Between "compacting" and "compacted", Claude Code condenses its conversation, saying nothing.
  */
 export type OwnAiProgress =
   | { kind: "heard" }
+  | { kind: "compacting" }
+  | { kind: "compacted" }
   | { kind: "said"; text: string }
   | { kind: "tool"; name: string }
   | { kind: "thinking" };

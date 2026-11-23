@@ -60,6 +60,7 @@ const PROBLEM_OF: Record<Exclude<OwnAiFailure, "lost-conversation">, NoteTurnPro
   timeout: "timeout",
   isolation: "isolation",
   stalled: "stalled",
+  compaction: "compaction",
   other: "failed",
 };
 
@@ -431,6 +432,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     // A clock that stands still while the computer sleeps: a sleep isn't the AI gone quiet.
     let heardAt = performance.now();
     let calls = 0;
+    let compacting = false;
     let quiet = false;
     const heard = () => {
       heardAt = performance.now();
@@ -442,7 +444,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const listen = () =>
       setInterval(
         () => {
-          if (quiet || over || signal.aborted || calls > 0) return;
+          if (quiet || over || signal.aborted || calls > 0 || compacting) return;
           if (performance.now() - heardAt < quietMs) return;
           quiet = true;
           tell(event({ state: "working" }));
@@ -460,6 +462,13 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (signal.aborted || over) return;
       heard();
       if (step.kind === "heard") return;
+      if (step.kind === "compacting" || step.kind === "compacted") {
+        compacting = step.kind === "compacting";
+        doing = compacting ? { kind: "compacting" } : { kind: "thinking" };
+        saidForStep = false;
+        tellWorking();
+        return;
+      }
       if (step.kind === "said") {
         written = step.text;
         if (step.text.trim().length < SAID_FROM) return;

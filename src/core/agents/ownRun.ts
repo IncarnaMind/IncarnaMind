@@ -33,6 +33,7 @@ const PROBLEM_OF: Record<OwnAiFailure, OwnAiCheckProblem> = {
   isolation: "isolation",
   "lost-conversation": "failed",
   stalled: "stalled",
+  compaction: "compaction",
   other: "failed",
 };
 

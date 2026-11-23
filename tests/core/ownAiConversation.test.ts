@@ -364,6 +364,51 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(working.slice(quiet + 1).some((turn) => !turn.quiet)).toBe(true);
   });
 
+  // protects=while the AI condenses its conversation, the line says so and not that the AI is quiet, and goes back to the run's own line after; fails_when=a compaction reads as the AI gone silent
+  it("says it condenses the conversation, not that the AI is quiet, while it does", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "compacting" });
+      await pause(1_200);
+      request.progress?.({ kind: "compacted" });
+      // Long enough for the windows to hear it, not for the quiet limit to pass.
+      await pause(300);
+      return { kind: "finished", reply: "OK." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 600 });
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "landed" });
+    const doings = turns.filter((turn) => turn.state === "working").map((turn) => turn.doing);
+    expect(doings).toContainEqual({ kind: "compacting" });
+    expect(doings.at(-1)).toEqual({ kind: "thinking" });
+    expect(turns.filter((turn) => turn.quiet)).toEqual([]);
+  });
+
+  // protects=once condensing is over, the line says the AI is quiet again when it is; fails_when=a run silent after compacting shows a line that never changes
+  it("says the AI is quiet again after condensing, when it is", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "compacting" });
+      await pause(200);
+      request.progress?.({ kind: "compacted" });
+      await pause(1_200);
+      return { kind: "finished", reply: "OK." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 600 });
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "landed" });
+    const working = turns.filter((turn) => turn.state === "working");
+    const condensed = working.findIndex((turn) => turn.doing?.kind === "compacting");
+    expect(condensed).toBeGreaterThanOrEqual(0);
+    expect(working.slice(condensed).some((turn) => turn.quiet)).toBe(true);
+  });
+
+  // protects=a compaction that didn't finish in time ends the request with its own plain reason; fails_when=it reads as the AI gone silent, or as a generic failure
+  it("ends with its own reason when condensing didn't finish", async () => {
+    const run = runner(async () => ({ kind: "failed", reason: "compaction" }));
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "failed", problem: "compaction" });
+  });
+
   // protects=while a call of the run runs in IncarnaMind, however long, the line doesn't say the AI is quiet: it waits on IncarnaMind; fails_when=the User reads that their AI is silent while IncarnaMind is the one at work
   it("doesn't say the AI is quiet while a call of it runs here", async () => {
     const held = gate();

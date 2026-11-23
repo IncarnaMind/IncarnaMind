@@ -8598,6 +8598,7 @@ export const zhCN = {
     "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
   "agents.ownCheck.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
   "agents.ownCheck.problem.stalled": "{agent} 六分钟没有回应，核对已停止。再试一次。",
+  "agents.ownCheck.problem.compaction": "{agent} 压缩对话十分钟仍未完成，核对已停止。再试一次。",
   "agents.ownCheck.problem.timeout": "{agent} 超过 15 分钟仍未完成，核对已停止。再试一次。",
   "agents.ownCheck.problem.no-marks":
     "{agent} 已结束，但没有标记这篇笔记。再试一次，或在 {agent} 中提问。",
@@ -8631,6 +8632,7 @@ export const zhCN = {
   "noteAsk.done.nothing": "{agent} 没有做任何修改。",
   "noteAsk.pill.working": "处理中",
   "noteAsk.pill.thinking": "思考中",
+  "noteAsk.pill.compacting": "正在压缩之前的对话…",
   "noteAsk.pill.quiet": "仍在等待 {agent}…",
   "noteAsk.open": "打开“{title}”",
   "noteAsk.seconds": "{count} 秒",
@@ -8665,6 +8667,7 @@ export const zhCN = {
   "noteAsk.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
   "noteAsk.problem.timeout": "{agent} 超过 15 分钟仍未完成，已停止。再试一次。",
   "noteAsk.problem.stalled": "{agent} 六分钟没有回应，已停止。再发送一次。",
+  "noteAsk.problem.compaction": "{agent} 压缩这篇笔记的对话十分钟仍未完成，已停止。再发送一次。",
   "noteAsk.problem.no-marks": "{agent} 已结束，但没有做任何修改。",
   "noteAsk.problem.isolation": "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。",
   "noteAsk.problem.access": "{agent} 已无法读取这篇笔记，已停止。",
