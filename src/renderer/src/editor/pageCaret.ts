@@ -6,7 +6,7 @@ import type { EditorView } from "@tiptap/pm/view";
  * Chromium can deliver a key before selectionchange after a click (#3414) or a native caret
  * move. Read the visible caret before commands such as opening a link or splitting a paragraph.
  */
-export function caretFromPage(view: EditorView): boolean {
+export function caretFromPage(view: EditorView, reveal = false): boolean {
   const { selection } = view.state;
   if (view.composing || !(selection instanceof TextSelection || selection instanceof AllSelection))
     return false;
@@ -21,7 +21,8 @@ export function caretFromPage(view: EditorView): boolean {
   }
   if (at < 0 || at > view.state.doc.content.size) return false;
   if (selection.empty && selection.from === at) return true;
-  view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at))));
+  const tr = view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at)));
+  view.dispatch(reveal ? tr.scrollIntoView() : tr);
   return true;
 }
 
@@ -72,7 +73,7 @@ export const PageCaret = Extension.create({
           handleKeyDown(view, event) {
             if (event.isComposing) return false;
             const moved = moveOnKey(view, event);
-            return caretFromPage(view) && moved;
+            return caretFromPage(view, moved) && moved;
           },
         },
       }),

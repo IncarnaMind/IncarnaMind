@@ -10,6 +10,7 @@ import {
   removeDataFolder,
   setWindowSize,
 } from "./app";
+import { expectDocumentEdge } from "./documentEdge";
 
 let dataDir: string;
 let home: string;
@@ -144,4 +145,35 @@ test("a Word list in Clauses or the Chinese report scheme pastes as that list, e
     .toEqual(["(a)", "(i)", "(b)", "一、", "（一）", "二、"]);
   await expect(window.getByTestId("mind-editor")).not.toContainText("(a) Rent");
   await app.close();
+});
+
+test("document-edge keys reveal the first and last lines of a long Note including from a table cell", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  try {
+    await setWindowSize(app, window, 1100, 660);
+    await dismissChatSetup(window);
+    await newMind(window);
+    const editor = window.getByTestId("mind-editor");
+    const lines = Array.from(
+      { length: 72 },
+      (_, index) => `<p>Harbour observation ${index + 1}.</p>`,
+    );
+    lines.splice(36, 0, "<table><tr><td>Port watch</td><td>Starboard watch</td></tr></table>");
+    await paste(window, lines.join(""));
+    const first = editor.getByText("Harbour observation 1.", { exact: true });
+    const last = editor.getByText("Harbour observation 72.", { exact: true });
+    const cell = editor.locator("td p").last();
+    await expect(cell).toHaveText("Starboard watch");
+    await expectDocumentEdge(window, first, last, "end");
+    await expectDocumentEdge(window, last, first, "start");
+    await expectDocumentEdge(window, cell, first, "start");
+    await expectDocumentEdge(window, cell, last, "end");
+    await window.keyboard.press("Enter");
+    const empty = editor.locator(":scope > p").last();
+    await expect(empty).toHaveText("");
+    await expectDocumentEdge(window, first, empty, "end");
+    await expectDocumentEdge(window, empty, first, "start");
+  } finally {
+    await app.close();
+  }
 });

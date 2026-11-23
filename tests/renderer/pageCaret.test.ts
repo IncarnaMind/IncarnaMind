@@ -188,6 +188,21 @@ test.each([
   },
 );
 
+test("only a handled move to a different document edge requests scrolling", () => {
+  const editor = clickedInto(LINE.indexOf("outer"));
+  vi.stubGlobal("navigator", { platform: "Linux x86_64" });
+  const scrolls = vi.fn();
+  editor.on("transaction", ({ transaction }) => {
+    if (transaction.scrolledIntoView) scrolls();
+  });
+  press(editor, "k");
+  expect(scrolls).not.toHaveBeenCalled();
+  press(editor, "End", { ctrlKey: true });
+  expect(scrolls).toHaveBeenCalledTimes(1);
+  press(editor, "End", { ctrlKey: true });
+  expect(scrolls).toHaveBeenCalledTimes(1);
+});
+
 test.each([
   ["MacIntel", "End", { ctrlKey: true }],
   ["Linux x86_64", "ArrowDown", { metaKey: true }],
