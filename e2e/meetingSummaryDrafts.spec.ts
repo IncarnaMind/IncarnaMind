@@ -9,8 +9,10 @@ import {
   launchApp,
   pointAndClick,
   removeDataFolder,
+  setWindowSize,
   sidebarFolder,
 } from "./app";
+import { expectDocumentEdge } from "./documentEdge";
 
 async function savedMeeting(dir: string) {
   const { app, window } = await launchApp(dir);
@@ -210,3 +212,40 @@ for (const operation of ["close", "quit"] as const)
       await removeDataFolder(dir);
     }
   });
+
+test("document-edge keys reveal the first line and the last empty paragraph of a long meeting summary", async () => {
+  const dir = await createDataFolder();
+  let app: ElectronApplication | undefined;
+  try {
+    const { id, mindId } = await savedMeeting(dir);
+    const opened = await launchApp(dir);
+    app = opened.app;
+    const window = opened.window;
+    await setWindowSize(app, window, 1100, 660);
+    await (await coreOf(window)).evaluate(
+      (core, id) =>
+        core.updateMeetingSummaryContent(id, null, {
+          type: "doc",
+          content: Array.from({ length: 72 }, (_, i) => ({
+            type: "paragraph",
+            content: [{ type: "text", text: `Inspection ${i + 1}.` }],
+          })),
+        }),
+      id,
+    );
+    const editor = await openMeeting(window, mindId);
+    const first = editor.locator(":scope > p").first();
+    const last = editor.locator(":scope > p").last();
+    await expect(first).toHaveText("Inspection 1.");
+    await expect(last).toHaveText("Inspection 72.");
+    await expectDocumentEdge(window, last, first, "start");
+    await expectDocumentEdge(window, first, last, "end");
+    await window.keyboard.press("Enter");
+    await expect(last).toHaveText("");
+    await expectDocumentEdge(window, first, last, "end");
+    await expectDocumentEdge(window, last, first, "start");
+  } finally {
+    await app?.close();
+    await removeDataFolder(dir);
+  }
+});

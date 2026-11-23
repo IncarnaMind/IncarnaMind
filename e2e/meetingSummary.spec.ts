@@ -121,6 +121,54 @@ async function showSpeech(window: Page, row: Locator, quote: string) {
   return sources.getByRole("listitem").filter({ hasText: quote });
 }
 
+// Run ProseMirror's real focus redraw after the native key moves the caret, before its selectionchange is read.
+function redrawAfterDocumentMove(editor: Locator, key: string) {
+  return editor.evaluateHandle((node, key) => {
+    const events = new AbortController();
+    const capture = { capture: true, signal: events.signal };
+    const browser: Window = window;
+    const schedule = browser.setTimeout;
+    let redraw: (() => void) | undefined;
+    let moving = false;
+    let ran = false;
+    node.addEventListener(
+      "focus",
+      () => {
+        browser.setTimeout = (handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+          if (redraw || delay !== 20 || typeof handler !== "function")
+            return schedule(handler, delay, ...args);
+          redraw = () => handler(...args);
+          return 0;
+        };
+      },
+      { capture: true, once: true },
+    );
+    node.addEventListener(
+      "focusin",
+      () => {
+        browser.setTimeout = schedule;
+      },
+      { once: true },
+    );
+    node.addEventListener(
+      "keydown",
+      (event) => {
+        if (event instanceof KeyboardEvent && event.key === key) moving = true;
+      },
+      capture,
+    );
+    const release = () => {
+      if (!moving || !redraw) return;
+      events.abort();
+      redraw();
+      ran = true;
+    };
+    node.ownerDocument.addEventListener("selectionchange", release, capture);
+    node.addEventListener("keyup", release, capture);
+    return () => ran;
+  }, key);
+}
+
 async function chooseSummaryModel(window: Page, route: Locator, modelId?: string): Promise<string> {
   await selectLocalChatModel(window, modelId);
   const ready = await (await coreOf(window)).evaluate((core) => core.getChatReadiness());
@@ -489,6 +537,10 @@ for (const language of ["en", "zh-CN"] as const) {
       const savedOverview = focused.getByTestId("meeting-summary-text");
       const quoteReview = focused.getByTestId("meeting-summary-candidates");
       await expect(quoteReview).toBeVisible();
+      const focusRedraw = await redrawAfterDocumentMove(
+        savedOverview,
+        process.platform === "darwin" ? "ArrowDown" : "End",
+      );
       await savedOverview
         .locator("p")
         .first()
@@ -502,10 +554,23 @@ for (const language of ["en", "zh-CN"] as const) {
         words.addition,
         "",
       ]);
+      expect(await focusRedraw.evaluate((ran) => ran())).toBe(true);
+      await focusRedraw.dispose();
+      await reopened.window.keyboard.press(
+        process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home",
+      );
+      await reopened.window.keyboard.press("Enter");
+      await expect(savedOverview.locator(":scope > p")).toHaveText([
+        "",
+        words.overview,
+        words.addition,
+        "",
+      ]);
       await reopened.window.keyboard.press("ControlOrMeta+a");
       await reopened.window.keyboard.press("ArrowLeft");
       await reopened.window.keyboard.press("Enter");
       await expect(savedOverview.locator(":scope > p")).toHaveText([
+        "",
         "",
         words.overview,
         words.addition,
