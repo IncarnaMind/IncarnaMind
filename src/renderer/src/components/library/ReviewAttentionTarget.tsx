@@ -37,8 +37,6 @@ export function ReviewAttentionTarget({
       useAppStore.setState({ reviewTarget: null });
       return true;
     };
-    if (reveal()) return;
-
     const folds = useLibraryFolds.getState();
     let folder = folderOf(id);
     const chain = new Set<string>();
@@ -53,6 +51,7 @@ export function ReviewAttentionTarget({
       folds.setSubOpen(each, true);
       if (each !== top) folds.showAll(each);
     }
+    if (reveal()) return;
 
     let frame: number;
     let attempts = 0;

@@ -576,7 +576,7 @@ export function LibraryPane() {
         page={page}
         folders={folders}
         folderOf={folderOf}
-        narrowing={narrowing}
+        narrowing={narrowing || search.length > 0}
         clearNarrowing={clearNarrowing}
       />
     </section>
