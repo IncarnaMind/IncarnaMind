@@ -158,7 +158,10 @@ function NoteAskBox({
     const fold = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node) || foot.current?.contains(target)) return;
-      if (target instanceof Element && target.closest("[popover]")) return;
+      // A menu's popover, or Show conversation at the Note's top right, which folds it itself:
+      // folding here first would have its press open it again.
+      if (target instanceof Element && target.closest("[popover], [data-conversation-toggle]"))
+        return;
       setColumnOpen(mindId, false);
     };
     document.addEventListener("pointerdown", fold, true);
@@ -347,6 +350,7 @@ export function NoteConversationButton({ mindId }: { mindId: string }) {
     <button
       type="button"
       data-testid="note-ask-conversation-toggle"
+      data-conversation-toggle=""
       aria-expanded={open}
       aria-label={t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
       title={t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}

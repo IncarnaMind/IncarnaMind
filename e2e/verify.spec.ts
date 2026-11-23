@@ -238,6 +238,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect.poll(caretIn).toContain("Some spring tides");
 
   // A claim the model refused is still not checked once it is edited: it never counts as checked.
+  // The cards stand over the Note's first lines (#3677): they close first.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
+  await expect(window.getByTestId("claim-card")).toHaveCount(0);
   const refused = editor.locator(":scope > p").filter({ hasText: REFUSED });
   await slideSelect(window, refused, "refuse");
   await window.keyboard.type("decline");
