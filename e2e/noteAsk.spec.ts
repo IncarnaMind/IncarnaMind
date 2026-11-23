@@ -172,16 +172,21 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await expect(words).toHaveText("Put the selected words in capitals.");
     const undo = box.getByTestId("note-ask-undo");
     await expect(undo).toHaveText("Undo");
-    // The line's words start where the input row's do, and its action ends where Send ends.
+    // The line's words start where the input row's do, and the top row's last control, the fold,
+    // ends where Send ends: one box, its two rows on one pair of edges.
     const edges = await box.evaluate((element) => {
       const of = (id: string) =>
         element.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect() ?? null;
       const row = element.querySelector('[data-testid="note-ask-row"]');
-      const [line, send] = [of("note-ask-pill"), of("note-ask-send")];
-      if (!row || !line || !send) return null;
+      const [line, send, fold] = [
+        of("note-ask-pill"),
+        of("note-ask-send"),
+        of("note-ask-handle-toggle"),
+      ];
+      if (!row || !line || !send || !fold) return null;
       const start =
         row.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(row).paddingLeft);
-      return { left: line.left - start, right: send.right - line.right };
+      return { left: line.left - start, right: send.right - fold.right };
     });
     expect(Math.abs(edges?.left ?? 99)).toBeLessThanOrEqual(1);
     expect(Math.abs(edges?.right ?? 99)).toBeLessThanOrEqual(1);
