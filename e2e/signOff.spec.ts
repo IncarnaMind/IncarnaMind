@@ -81,8 +81,8 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`a Citation's card marks it checked by the User, Undo takes it back, and an edit keeps it as changed (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, { examples: true });
-    await openExample(window);
     try {
+      await openExample(window);
       // A wide window in English, a narrow one in Chinese.
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
@@ -174,8 +174,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate(language, key, params);
     const { app, window } = await launchApp(dataDir, { examples: true });
-    await openExample(window);
     try {
+      await openExample(window);
       // A wide window in English, a narrow one in Chinese.
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
@@ -253,8 +253,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) =>
       translate(language, key, params);
     const { app, window } = await launchApp(dataDir, { examples: true });
-    await openExample(window);
     try {
+      await openExample(window);
       // A wide window in English, a narrow one in Chinese.
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);

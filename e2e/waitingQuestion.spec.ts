@@ -303,8 +303,8 @@ for (const language of ["en", "zh-CN"] as const) {
       home: sources,
       ollama: "http://127.0.0.1:9",
     });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 900, 700);
       await setLanguage(window, language);
       await expect(window.getByTestId("mind-editor")).toContainText(

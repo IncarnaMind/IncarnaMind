@@ -59,8 +59,8 @@ test("at first open, the Ask row says something in every frame, then the Questio
   test.setTimeout(180_000);
   const dataDir = await createDataFolder();
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 900, 900);
     // Step 1 done, as a file of theirs or a connected app makes it: step 2 is open from the first frame.
     await markSteps(window, { started: true, indexed: true });
@@ -94,8 +94,8 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(180_000);
     const dataDir = await prepared(language);
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 900, 900);
       // The press, at the first frame, and what the User sees within 100 ms of it.
       const pressed = await window.evaluate(async () => {
@@ -157,8 +157,8 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(180_000);
     const dataDir = await prepared(language);
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 900, 900);
       const stop = step(window, "question").getByTestId("first-open-ready-stop");
       await expect(window.getByTestId("first-open-ready")).toBeVisible({ timeout: 30_000 });

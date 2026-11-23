@@ -137,8 +137,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const harbours = join(sources, "Harbours.pdf");
       await writeFile(harbours, HARBOURS);
       const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-      await openExample(window);
       try {
+        await openExample(window);
         await setWindowSize(app, window, width, 900);
         await setLanguage(window, language);
         await enableLocalModel(window);
@@ -273,8 +273,8 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([notes]);
     await expect(window.getByTestId("example-section").getByTestId("mind-list-item")).toBeVisible({
@@ -328,8 +328,8 @@ test("the Examples heading's ⋯ and the keyboard open the examples' menu, and t
   const notes = join(sources, "Harbour notes.md");
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([notes]);
     const example = window.getByTestId("example-section");
@@ -434,8 +434,8 @@ for (const language of ["en", "zh-CN"] as const) {
       let ready = 0;
       const first = await createDataFolder();
       const a = await launchApp(first, { examples: true, fakeChat: true });
-      await openExample(a.window);
       try {
+        await openExample(a.window);
         await setWindowSize(a.app, a.window, width, 900);
         await setLanguage(a.window, language);
         await expectReadyDocuments(a.window, 2);
@@ -503,8 +503,8 @@ for (const language of ["en", "zh-CN"] as const) {
       // A file that could not be read: the Ask line shows the unread-files line, at one height.
       const second = await createDataFolder();
       const b = await launchApp(second, { examples: true, fakeChat: true });
-      await openExample(b.window);
       try {
+        await openExample(b.window);
         await setWindowSize(b.app, b.window, width, 900);
         await setLanguage(b.window, language);
         await expectReadyDocuments(b.window, 2);
@@ -539,8 +539,8 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
   const file = join(sources, `${name}.md`);
   await writeFile(file, "# 港口简报\n\n港口每月发布一次潮汐表，并在冬季疏浚之后更新。\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, "zh-CN");
     await window.getByTestId("add-documents-input").setInputFiles([file]);
@@ -561,8 +561,8 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
 
 test("the English example's Question shows whole on one line at 900 px (#2084)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, "en");
     await expectReadyDocuments(window, 2);
@@ -621,8 +621,8 @@ test("a file that couldn't be read says so in step 1 without changing the card's
   const damaged = join(sources, "damaged.pdf");
   await writeFile(damaged, "%PDF-1.4 this is not a PDF");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     const files = window.locator('[data-testid="first-open-step"][data-step="files"]');
     await expect(files).toHaveAttribute("data-state", "open");
     await expectReadyDocuments(window, 2);
@@ -881,8 +881,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const notes = join(sources, "Harbour notes.md");
     await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 900, 900);
       await setLanguage(window, language);
       const card = window.getByTestId("first-open-steps");
@@ -938,8 +938,8 @@ test("a folder linked on the first step ticks step 1 alone (#1574)", async () =>
     "# Harbour notes\n\nThe harbour master publishes the tide tables.\n",
   );
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     const files = step(window, "files");
     await expect(files).toHaveAttribute("data-state", "open");
@@ -962,8 +962,8 @@ test("a file dropped on the window, or added from the + menu or ⌘O, ticks step
   await writeFile(dropped, "# Dropped notes\n\nThe harbour master publishes the tide tables.\n");
   await writeFile(opened, "# Opened notes\n\nThe pilot station answers on channel 12.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([dropped]);
     await expect(step(window, "files")).toHaveAttribute("data-state", "done", {
@@ -1377,8 +1377,8 @@ for (const language of ["en", "zh-CN"] as const) {
       fakeChat: true,
       home: sources,
     });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       await acceptPlainTextKeys(window);
@@ -1494,8 +1494,8 @@ for (const language of ["en", "zh-CN"] as const) {
       fakeChat: true,
       home: sources,
     });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       await enableLocalModel(window, "fake-model-slow-check");

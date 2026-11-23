@@ -850,11 +850,10 @@ test("on a fresh install, a first checked Citation from the User's own file take
     "# Harbour notes\n\nThe harbour master publishes the tide tables every Monday morning.\n",
   );
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
-    await expect(window.getByTestId("mind-pane")).toBeVisible();
+    await expectHomeInFront(window);
     const taken: string[] = [];
     const step = async (name: string, action: () => Promise<unknown>) => {
       taken.push(name);

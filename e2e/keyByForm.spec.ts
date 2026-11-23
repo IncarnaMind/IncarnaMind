@@ -70,21 +70,22 @@ for (const { key, name, service, presses } of [
       examples: true,
       ollama: "http://127.0.0.1:9",
     });
-    await openExample(window);
     try {
+      await openExample(window);
       await setWindowSize(app, window, 1440, 900);
       await acceptPlainTextKeys(window);
       await setLanguage(window, "zh-CN");
-      let steps = 0;
+      // 1: the example, opened from its row.
+      let steps = 1;
 
-      // 1 and 2: Add files…, and the file picked in the system's dialog.
+      // 2 and 3: Add files…, and the file picked in the system's dialog.
       const files = step(window, "files");
       await expect(files).toHaveAttribute("data-state", "open");
       await interceptOpenDialog(app, file);
       await pointAndClick(window, files.getByTestId("first-open-add-files"));
       steps += 2;
 
-      // 3: Ask, the Question about the file it offers; with no AI yet, the card asks for one.
+      // 4: Ask, the Question about the file it offers; with no AI yet, the card asks for one.
       const ready = step(window, "question").getByTestId("first-open-ready");
       await expect(ready).toHaveText("提问：“项目简报”讲了什么？", { timeout: 30_000 });
       await pointAndClick(window, ready);
@@ -100,7 +101,7 @@ for (const { key, name, service, presses } of [
         "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
       );
 
-      // 4: the key, pasted.
+      // 5: the key, pasted.
       await pasteText(app, window, key);
       steps += 1;
       if (presses === 1) {
@@ -110,7 +111,7 @@ for (const { key, name, service, presses } of [
         expect(await sentWith(app, key)).toEqual([]);
         expect(await savedProviders(window)).toEqual([]);
         await expect(window.getByTestId("assistant-waiting-model")).toBeVisible();
-        // 5: Use this key.
+        // 6: Use this key.
         await pointAndClick(window, ask.getByTestId("setup-key-use"));
         steps += 1;
       }
@@ -121,7 +122,7 @@ for (const { key, name, service, presses } of [
       expect(await savedProviders(window)).toEqual([service]);
       expect(await sentWith(app, key)).toEqual([service]);
       expect(steps).toBeLessThanOrEqual(6);
-      expect(steps).toBe(4 + presses);
+      expect(steps).toBe(5 + presses);
     } finally {
       await app.close();
     }

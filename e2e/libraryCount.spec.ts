@@ -262,8 +262,8 @@ for (const language of ["en", "zh-CN"] as const) {
 
 test("with no Documents of one's own the Library counts the examples' Documents in both places", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-  await openExample(window);
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1200, 900);
     await dismissChatSetup(window);
     await setLanguage(window, "en");
