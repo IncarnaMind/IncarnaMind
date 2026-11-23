@@ -212,8 +212,9 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
     utterances: { text: string }[];
   } = JSON.parse(lastUserText(prompt));
   const said = (text: string) => utterances.some((line) => line.text.includes(text));
+  const known = (text: string) => said(text) || items.some((item) => item.text === text);
   const fixture = SUMMARY_FIXTURES.find((sample) =>
-    sample.rows.some(({ text }) => said(text) || items.some((item) => item.text === text)),
+    sample.rows.some(({ text, revision }) => known(text) || (revision && known(revision.text))),
   );
   const closing = instructions.includes("the final confirmed segment");
   const changes =
@@ -227,19 +228,18 @@ function fakeMeetingSummary({ prompt }: GenerateOptions): string | null {
         quote: string;
       })[] => {
         const prior = items.find((item) => item.text === text || item.text === revision?.text);
-        if (revision && prior?.text === text && said(revision.text))
-          return [{ id: prior.id, kind, ...revision, quote: revision.text }];
+        if (revision && said(revision.text) && prior?.text !== revision.text)
+          return [{ id: prior?.id ?? null, kind, ...revision, quote: revision.text }];
         if (prior || !said(text)) return [];
         return [{ id: null, kind, status: "active", text, quote: text }];
       },
     ) ?? [];
   return JSON.stringify({
-    summary:
-      fixture && changes.some((change) => change.id !== null)
-        ? fixture.updated
-        : (previous ??
-          fixture?.opening ??
-          "The meeting opened with a discussion of the launch date."),
+    summary: fixture?.rows.some(({ revision }) => revision && known(revision.text))
+      ? fixture.updated
+      : (previous ??
+        fixture?.opening ??
+        "The meeting opened with a discussion of the launch date."),
     changes,
     ...(closing && {
       unchanged: items
