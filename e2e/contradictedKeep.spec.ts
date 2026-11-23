@@ -50,7 +50,7 @@ const LANGUAGES = {
   },
   "zh-CN": {
     keep: "保留原句",
-    keptOne: "1 句保留原句",
+    keptOne: "已保留 1 句原文",
     kept: "已保留原句",
     contradicted: "需要留意：与文档矛盾",
     checkMind: "核对",
