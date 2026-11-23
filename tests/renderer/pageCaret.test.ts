@@ -61,9 +61,17 @@ function clickedInto(at: number | null) {
     configurable: true,
     // The page's selection as the click left it; drawing the editor's onto it changes nothing.
     value: () => ({
-      ...(at === null
-        ? { isCollapsed: false, focusNode: text, focusOffset: 0 }
-        : { isCollapsed: true, focusNode: text, focusOffset: at }),
+      get isCollapsed() {
+        return at !== null;
+      },
+      focusNode: text,
+      get focusOffset() {
+        return at ?? 0;
+      },
+      anchorNode: text,
+      modify(_alter: string, direction: string) {
+        at = direction === "left" ? 0 : LINE.length;
+      },
       rangeCount: 0,
       collapse() {},
       extend() {},
@@ -75,11 +83,11 @@ function clickedInto(at: number | null) {
   return editor;
 }
 
-function press(editor: Editor, key: string): void {
+function press(editor: Editor, key: string, shiftKey = false): void {
   const event = {
     key,
     keyCode: 0,
-    shiftKey: false,
+    shiftKey,
     altKey: false,
     ctrlKey: false,
     metaKey: key === "k",
@@ -118,4 +126,28 @@ test("Enter after a native move to the end keeps the paragraph above the new lin
   editor.commands.setTextSelection(1);
   press(editor, "Enter");
   expect(editor.state.doc.children.map((block) => block.textContent)).toEqual([LINE, ""]);
+});
+
+test.each([
+  ["ArrowLeft", 1, ["", LINE]],
+  ["ArrowRight", LINE.length + 1, [LINE, ""]],
+] as const)(
+  "after Select All, %s commits the browser’s caret before Enter",
+  (key, at, paragraphs) => {
+    const editor = clickedInto(null);
+    editor.commands.selectAll();
+    press(editor, key);
+    expect(editor.state.selection.empty).toBe(true);
+    expect(editor.state.selection.from).toBe(at);
+    press(editor, "Enter");
+    expect(editor.state.doc.children.map((node) => node.textContent)).toEqual(paragraphs);
+  },
+);
+
+test("Shift and an arrow leave extending the selection to the browser", () => {
+  const editor = clickedInto(null);
+  editor.commands.selectAll();
+  const before = editor.state.selection;
+  press(editor, "ArrowRight", true);
+  expect(editor.state.selection.eq(before)).toBe(true);
 });

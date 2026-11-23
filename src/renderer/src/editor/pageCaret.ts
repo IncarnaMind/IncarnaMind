@@ -24,6 +24,34 @@ export function caretFromPage(view: EditorView): void {
   view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(at))));
 }
 
+function collapseAll(view: EditorView, event: KeyboardEvent): boolean {
+  if (
+    !(view.state.selection instanceof AllSelection) ||
+    (event.key !== "ArrowLeft" && event.key !== "ArrowRight") ||
+    event.shiftKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    event.isComposing ||
+    view.composing ||
+    !view.hasFocus()
+  )
+    return false;
+  const shown = view.dom.ownerDocument.getSelection();
+  if (
+    !shown ||
+    shown.isCollapsed ||
+    !view.dom.contains(shown.anchorNode) ||
+    !view.dom.contains(shown.focusNode) ||
+    typeof shown.modify !== "function"
+  )
+    return false;
+  // The focus redraw can restore Select All before Chromium reports its arrow movement.
+  // Let Chromium choose the visual edge (including right-to-left text), then commit it on this key.
+  shown.modify("move", event.key === "ArrowLeft" ? "left" : "right", "character");
+  return shown.isCollapsed;
+}
+
 export const PageCaret = Extension.create({
   name: "pageCaret",
   // Before every other key handler of the editor, and the window's shortcuts after it.
@@ -33,9 +61,10 @@ export const PageCaret = Extension.create({
     return [
       new Plugin({
         props: {
-          handleKeyDown(view) {
+          handleKeyDown(view, event) {
+            const moved = collapseAll(view, event);
             caretFromPage(view);
-            return false;
+            return moved;
           },
         },
       }),
