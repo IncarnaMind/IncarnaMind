@@ -33,7 +33,7 @@ import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import type { BadgeMark } from "./badgeState";
 import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
-import { roomBeside } from "./checkCardHold";
+import { roomBeside, textUnder } from "./checkCardHold";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -318,11 +318,12 @@ export function HealthCard({
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))));
     editor.view.focus();
     const scroller = editor.view.dom.closest(".mind-scroller");
+    const card = rowsRef.current?.closest(".check-card") ?? null;
     if (scroller) {
       const caret = editor.view.coordsAtPos(at);
       const { top, bottom } = roomBeside(
         scroller.getBoundingClientRect(),
-        rowsRef.current?.closest(".check-card")?.getBoundingClientRect() ?? null,
+        card?.getBoundingClientRect() ?? null,
         editor.view.dom.getBoundingClientRect(),
       );
       scroller.scrollTop += (caret.top + caret.bottom) / 2 - (top + bottom) / 2;
@@ -330,7 +331,13 @@ export function HealthCard({
     const claim = shownClaims(editor.state).find(
       (each) => each.sentence.from <= at && at < each.sentence.to,
     );
-    if (!claim) return;
+    if (!claim) {
+      // In the Note's first lines, or a pane the card nearly fills, no scroll clears the sentence:
+      // the card makes way, and the caret stays at the sentence, where the walk goes on (#3677).
+      if (card && textUnder(editor.view.domAtPos(at).node, card.getBoundingClientRect()))
+        setCheckCardOpen(place, false);
+      return;
+    }
     setCheckCardOpen(place, false);
     if (claim.kind === "chart") {
       void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);

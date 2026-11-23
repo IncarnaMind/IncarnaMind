@@ -698,7 +698,7 @@ for (const language of ["en", "zh-CN"] as const) {
           };
           await setContent(window, [paragraph("case", both, cases)]);
           // Opened once the page's check badge shows, as a User sees it, so the card can keep clear of it.
-          const badge = window.locator(".mind-foot-badge .check-badge").first();
+          const badge = window.locator(".note-head-badge .check-badge").first();
           await expect(badge).toBeVisible();
           await markShownFor(window, window.getByTestId("claim-mark"));
           await window.getByTestId("claim-mark").click();

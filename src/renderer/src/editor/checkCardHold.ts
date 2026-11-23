@@ -101,3 +101,24 @@ export function roomBeside(
     ? { top: Math.max(pane.top, card.bottom), bottom: pane.bottom }
     : { top: pane.top, bottom: Math.min(pane.bottom, card.top) };
 }
+
+/** Whether any line of the text block that holds `node` is under `card`. */
+export function textUnder(
+  node: Node,
+  card: { top: number; bottom: number; left: number; right: number },
+): boolean {
+  const block = (node instanceof Element ? node : node.parentElement)?.closest(
+    "p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th",
+  );
+  if (!block) return false;
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  return [...range.getClientRects()].some(
+    (line) =>
+      line.width > 0 &&
+      line.left < card.right &&
+      card.left < line.right &&
+      line.top < card.bottom &&
+      card.top < line.bottom,
+  );
+}
