@@ -11,6 +11,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectBarOneRow,
+  firstTranscriptLine,
   focusSettled,
   launchApp,
   motionSettled,
@@ -23,6 +24,7 @@ import {
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
+import { holdModel, modelHeld } from "./heldModel";
 
 /**
  * The meeting's one page (#138, #2527): Notes | Transcript in the recording bar, switched in place,
@@ -162,6 +164,44 @@ const notesPlace = (editor: Locator) =>
       top: Math.round(scroller?.scrollTop ?? -1),
     };
   });
+
+// protects=choosing the next recording while a stopped meeting's first fill finishes
+// fails_when=the recorded meeting popover replaces the open New menu or is never offered on a later fill
+test("a first fill keeps the New menu open while choosing the next meeting", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      device: { meetingNoticeAccepted: true },
+    }),
+  );
+  const first = await recordMeetingNow(window);
+  await firstTranscriptLine(window);
+  await holdModel(app, "holdCite", true);
+  await first.getByTestId("meeting-stop").click();
+  await expect.poll(() => modelHeld(app), { timeout: 30_000 }).toBe(true);
+  await setLanguage(window, "zh-CN");
+  const { panel } = await notePanel(window);
+  await window.getByTestId("plus-menu").click();
+  const record = window.getByTestId("plus-record-meeting");
+  await record.hover();
+  await holdModel(app, "holdCite", false);
+  await expect(panel.getByTestId("meeting-fill-line")).toContainText(WORDS["zh-CN"].filled, {
+    timeout: 30_000,
+  });
+  await expect(record).toBeVisible();
+  await expect(panel.getByTestId("meeting-view-menu")).toBeHidden();
+  await record.click();
+  await firstTranscriptLine(window);
+  const next = await notePanel(window);
+  await next.panel.getByTestId("meeting-stop").click();
+  const details = next.panel.getByTestId("meeting-view-menu");
+  await expect(details).toBeVisible({ timeout: 30_000 });
+  await window.keyboard.press("Escape");
+  await expect(details).toBeHidden();
+  await app.close();
+});
 
 for (const language of ["en", "zh-CN"] as const) {
   // protects=during the call the bar's Notes | Transcript switches the page in place by mouse, ⌥⌘←/⌥⌘→ and ⌘K; the Transcript shows both sides' words being said before any line is finished, from a cloud service sending unfinished words; Notes comes back to its cursor and scroll; Open beside opens the Transcript in the next group (#138); fails_when=a new tab opens, the live view waits for a finished line, one side's words are missing, the notes lose their place, or the layout breaks at 900 or 1,440 px; no_claim=the real service's timing.
