@@ -135,7 +135,11 @@ async function nothingClipped(window: Page, card: Locator) {
         what: `${each.tagName} ${each.dataset.testid ?? each.className}`,
         over: each.getBoundingClientRect().right - edge.right,
         cut: each.scrollWidth - each.clientWidth,
-        clamped: each.classList.contains("claim-card-sentence"),
+        // A Document's name gives way first on its quote's Location line, whole in its title
+        // (#3715).
+        clamped:
+          each.classList.contains("claim-card-sentence") ||
+          (each.classList.contains("claim-source-name") && each.title === each.textContent),
       }))
       .filter(({ over, cut, clamped }) => over > 1 || (!clamped && cut > 1));
   });

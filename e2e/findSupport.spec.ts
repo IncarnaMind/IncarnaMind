@@ -167,7 +167,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await pointAndClick(window, unsupported);
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
-  await expect(card.getByTestId("claim-nothing")).toHaveText("No Passage found in “All Documents”");
+  await expect(card.getByTestId("claim-nothing")).toHaveText("No passage found in “All Documents”");
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
 
@@ -293,7 +293,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-check", "unsupported");
   await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
-  await expect(card.getByTestId("claim-nothing")).toHaveText("No Passage found in “All Documents”");
+  await expect(card.getByTestId("claim-nothing")).toHaveText("No passage found in “All Documents”");
 
   // Esc closes it; a click after the check opens it again, and Esc closes that too.
   await window.keyboard.press("Escape");

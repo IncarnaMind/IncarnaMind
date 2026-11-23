@@ -19,6 +19,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  tokenColor,
 } from "./app";
 
 /*
@@ -224,7 +225,11 @@ async function nothingClipped(window: Page, card: Locator) {
         what: `${each.tagName} ${each.dataset.testid ?? each.className}`,
         over: each.getBoundingClientRect().right - edge.right,
         cut: each.scrollWidth - each.clientWidth,
-        clamped: each.classList.contains("claim-card-sentence"),
+        // A Document's name gives way first on its quote's Location line, whole in its title
+        // (#3715).
+        clamped:
+          each.classList.contains("claim-card-sentence") ||
+          (each.classList.contains("claim-source-name") && each.title === each.textContent),
       }))
       .filter(({ over, cut, clamped }) => over > 1 || (!clamped && cut > 1));
   });
@@ -662,25 +667,29 @@ for (const [language, width] of [
         return { shown: element.matches(":focus-visible"), room, nearest };
       });
 
-    // The reason of a part, of a refusal, of Not found, of a court decision, of a sentence not
-    // checked yet and of a stopped read: the card's own size, in its secondary ink.
+    // The reason of a part, of a court decision, of a stopped read and of what a Passage says
+    // otherwise: the card's own size, in its secondary ink. What is wrong with a whole sentence is
+    // the line under its verdict, larger and in ink, and where no passage was found is a quiet
+    // line of its own (#3715).
     await open(words.fact);
     const reason = await style(card.getByTestId("claim-part-reason"));
     const quoted = await ringRoom(card.getByTestId("claim-part-citation"));
     expect(quoted?.shown).toBe(true);
     expect(quoted?.room, `a part's quote, nearest "${quoted?.nearest}"`).toBeGreaterThan(0);
     await close();
-    const lines: [keyof typeof others, string, string | null][] = [
-      ["refused", "claim-reason", null],
-      ["nothing", "claim-nothing", null],
-      ["court", "claim-court-decision", null],
-      ["tooMany", "claim-reason", "claim-check-now"],
-      ["budget", "claim-read-stopped", null],
-      ["differs", "claim-differs", "claim-open-quote"],
+    const problem = { fontSize: "14px", color: await tokenColor(window, "--color-ink") };
+    const quiet = { fontSize: "12px", color: await tokenColor(window, "--color-ink-meta") };
+    const lines: [keyof typeof others, string, string | null, typeof reason][] = [
+      ["refused", "claim-reason", null, problem],
+      ["nothing", "claim-nothing", null, quiet],
+      ["court", "claim-court-decision", null, reason],
+      ["tooMany", "claim-reason", "claim-check-now", problem],
+      ["budget", "claim-read-stopped", null, reason],
+      ["differs", "claim-differs", "claim-open-quote", reason],
     ];
-    for (const [id, line, control] of lines) {
+    for (const [id, line, control, expected] of lines) {
       await open(others[id].attrs.text);
-      expect(await style(card.getByTestId(line)), `${id}'s reason`).toEqual(reason);
+      expect(await style(card.getByTestId(line)), `${id}'s reason`).toEqual(expected);
       if (control) {
         const room = await ringRoom(card.getByTestId(control));
         expect(room?.shown).toBe(true);

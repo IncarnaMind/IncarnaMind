@@ -80,11 +80,15 @@ for (const [language, width] of [
     );
     await expect(card.getByTestId("claim-quote")).toBeVisible();
     await screenshot(window, `example-card-${language}-${width}`);
-    const correct = card.getByTestId("claim-correct");
-    await expect(correct).toHaveText(translate(language, "claim.correction", { wording: "38.6%" }));
+    // The fix is drawn as a change in the Note is, and Accept change makes it (#3715).
+    const change = card.getByTestId("claim-change-text");
+    await expect(change.locator("del")).toHaveText("36.8%");
+    await expect(change.locator("ins")).toHaveText("38.6%");
+    const correct = card.getByTestId("claim-accept-change");
+    await expect(correct).toHaveText(translate(language, "claim.acceptChange"));
     await expect(card.locator(".citation-card-actions button").first()).toHaveAttribute(
       "data-testid",
-      "claim-correct",
+      "claim-accept-change",
     );
     const box = await card.boundingBox();
     const actions = await card.locator(".citation-card-actions").boundingBox();

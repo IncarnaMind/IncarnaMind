@@ -11,6 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { AgentLaunch, CoreBridge } from "../src/core/api";
 import {
+  acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
@@ -112,7 +113,7 @@ const TEXT = {
       keep: "Keep as written",
       ask: "Ask Claude Code to fix it",
       signed: "Checked by me",
-      noPassage: "No Passage found in “Kestrel Bay”",
+      noPassage: "No passage found in “Kestrel Bay”",
       searchAll: "Search all Documents",
       showQuotes: "Show quotes",
     },
@@ -281,6 +282,7 @@ for (const lang of ["en", "zh-CN"] as const) {
     const T = TEXT[lang];
     const L = T.labels;
     const { app, window } = await launchApp(dataDir, { home });
+    await acceptPlainTextKeys(window);
     try {
       await dismissChatSetup(window);
       await setLanguage(window, lang);
@@ -364,6 +366,7 @@ test("⌘↩ makes the change, and at 900 × 600 the buttons stay in view", asyn
   test.setTimeout(180_000);
   const T = TEXT.en;
   const { app, window } = await launchApp(dataDir, { home });
+  await acceptPlainTextKeys(window);
   try {
     await dismissChatSetup(window);
     await setWindowSize(app, window, 900, 600);

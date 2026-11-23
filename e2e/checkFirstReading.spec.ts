@@ -236,6 +236,7 @@ for (const language of ["en", "zh-CN"] as const) {
           "claim-source",
           "claim-add-citation",
           "claim-correct",
+          "claim-accept-change",
           "claim-check-again",
         ])
           await expect(card.getByTestId(absent), absent).toHaveCount(0);

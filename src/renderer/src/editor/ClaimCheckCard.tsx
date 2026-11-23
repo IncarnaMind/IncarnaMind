@@ -217,13 +217,22 @@ const TONE: Record<ClaimMarkState, string> = {
 const NO_DECISION: CitationDecision = { kind: "none" };
 const NO_AGENTS: readonly AgentPairing[] = [];
 
-const CARD_MENU = '[data-testid="check-menu"]';
+/**
+ * What Tab reaches but the focus doesn't start on: the card's ⋯, a group's label, and the line that
+ * says no passage was found, whose Search all is not what the card leads with (#3715).
+ */
+const FOCUS_LATER =
+  '[data-testid="check-menu"], [data-testid="claim-group-label"], .claim-card-none button';
 
 /** The key of a ✓ card's one quote, whose count opens the others. */
 const FINE = "fine";
 /** The keys of a card's groups of quotes, whose counts open the rest of each (#3715). */
 const GROUPS = ["group:otherwise", "group:so", "group:"] as const;
 const NONE_OPEN: ReadonlySet<string> = new Set();
+
+/** Whether a part's span leaves out of `text` nothing but spaces and stops. */
+const coversSentence = (text: string, span: { start: number; end: number }) =>
+  !/[\p{L}\p{N}]/u.test(text.slice(0, span.start) + text.slice(span.end));
 
 /** ⌘↩ presses a card's Accept change, as it presses a change's Accept in the Note. */
 function pressAccept(card: HTMLElement | null): void {
@@ -417,7 +426,7 @@ export function ClaimMark({
   // The ⋯ is first in Tab order, on the verdict's line where it is drawn; the focus starts on the
   // card's first action after it (#2869).
   const takeFirstAction = useCallback(() => {
-    focusFirstAction(card.current, button, CARD_MENU);
+    focusFirstAction(card.current, button, FOCUS_LATER);
     setClaimFocus(place, null);
   }, [place, button]);
   useEffect(() => {
@@ -440,7 +449,7 @@ export function ClaimMark({
     const active = document.activeElement;
     const waiting = parked.current && active === button;
     if (!open || !openedByKeyboard.current || (active !== document.body && !waiting)) return;
-    focusFirstAction(card.current, button, CARD_MENU);
+    focusFirstAction(card.current, button, FOCUS_LATER);
     parked.current = document.activeElement === button;
   }, [open, state, running, button]);
   // A card already open under the mouse: the popover only takes the focus as it first shows.
@@ -1314,7 +1323,7 @@ export function ClaimCard({
     return fix ? [{ row, fix }] : [];
   });
   // A sentence of several parts keeps its rows; a verdict on the whole sentence, as the User's own
-  // AI gives one, groups its quotes instead (#3715).
+  // AI gives one on several quotes or a working, groups its quotes instead (#3715).
   const [onlyRow] = rows;
   const soleRow =
     onlyRow &&
@@ -1322,10 +1331,15 @@ export function ClaimCard({
     partRows?.length === 1 &&
     onlyRow.fold !== "opinion" &&
     onlyRow.part.span.start === 0 &&
-    onlyRow.part.span.end >= check.text.length
+    onlyRow.part.span.end >= check.text.length &&
+    (onlyRow.part.restsOnEveryQuote === true || workedOutOf(onlyRow.part) !== null)
       ? onlyRow
       : null;
   const partsShown = partRows !== undefined && soleRow === null;
+  // The Note outlines the sentence while its card is open: the card repeats it only to mark its
+  // parts (#3715).
+  const sentenceShown =
+    partsShown && !(rows.length === 1 && onlyRow && coversSentence(check.text, onlyRow.part.span));
   const folded = useQuotesFolded();
   const ownChange = checking || fileOnly ? null : changeToAccept(editor, claim);
   const soleChoice = !ownChange && sole?.correction.choices.length === 1 ? sole : null;
@@ -1556,9 +1570,10 @@ export function ClaimCard({
       ...(askFirst ? [] : asks),
     ] as (CardAction | false | null | undefined | "" | 0)[]
   ).filter((action): action is CardAction => Boolean(action));
-  // A fix that belongs to one part sits with that part when the card has another fix (#2869).
+  // A fix that belongs to one part sits with that part when the card has another fix (#2869); a
+  // part that is the whole sentence has no row of its own, so its fix leads the card's (#3715).
   const cardFix = actions.some((action) => action.primary && !action.menuOnly);
-  const fixesApart = partFixes.length >= 2 || (partFixes.length === 1 && cardFix);
+  const fixesApart = !soleRow && (partFixes.length >= 2 || (partFixes.length === 1 && cardFix));
   const { buttons, menu } = splitActions(
     fixesApart ? actions : [...partFixes.map(({ fix }) => fix), ...actions],
   );
@@ -1725,7 +1740,6 @@ export function ClaimCard({
     />
   );
 
-  // The sentence isn't repeated: the Note outlines it while the card is open (#3715).
   const problem: { text: string; testId: string } | null =
     reason !== null
       ? lineAction || sentenceStopped
@@ -2008,6 +2022,7 @@ export function ClaimCard({
       ref={rootRef}
       className={`citation-card citation-card--${TONE[mark]} claim-card`}
       style={heldHeight !== null ? { height: heldHeight } : undefined}
+      data-parts={partsShown || undefined}
       contentEditable={false}
       {...objectMenu.rowProps}
     >
@@ -2015,7 +2030,7 @@ export function ClaimCard({
         {badge}
         {cardMenu}
         {/* A checked file's row is outlined by its first cell alone: the card says the whole row. */}
-        {(partsShown || row) && (
+        {(sentenceShown || row) && (
           <ClaimSentence sentence={sentence} marks={partsShown ? marks : []} />
         )}
         {problem && (

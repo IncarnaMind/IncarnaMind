@@ -7495,6 +7495,15 @@
   .claim-card-end:empty {
     display: none;
   }
+  /* A card of several parts opens its folded parts under its buttons, so it scrolls whole. */
+  .claim-card[data-parts] {
+    overflow-y: auto;
+
+    .claim-card-scroll {
+      flex: none;
+      overflow: visible;
+    }
+  }
   /* The verdict's mark in its square, as the margin draws it. */
   .claim-badge-mark {
     display: inline-flex;
@@ -7513,7 +7522,7 @@
     }
     &[data-check="contradicted"] {
       background: var(--color-sheet);
-      box-shadow: inset 0 0 0 1.5px var(--color-danger);
+      box-shadow: inset 0 0 0 1.5px var(--check-ink);
     }
     &[data-check="supported"],
     &[data-leaning] {
