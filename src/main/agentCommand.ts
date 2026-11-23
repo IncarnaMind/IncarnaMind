@@ -7,10 +7,11 @@
 import type { ChildProcess } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Writable } from "node:stream";
 import { stopProcessTree } from "../core/execution";
+import { pathFolders } from "./agentPlaces";
 import { createLoginShellProcesses } from "./processes";
 
 export const processes = createLoginShellProcesses();
@@ -123,7 +124,7 @@ export async function findOnPath(command: string): Promise<string | null> {
     process.platform === "win32"
       ? (value("PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").map((ext) => `${command}${ext}`)
       : [command];
-  for (const folder of value("PATH").split(delimiter).filter(Boolean)) {
+  for (const folder of pathFolders(environment)) {
     for (const name of names) {
       const path = join(folder, name);
       if (await runnable(path)) return path;
