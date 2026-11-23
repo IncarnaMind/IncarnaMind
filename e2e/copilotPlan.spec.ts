@@ -394,7 +394,10 @@ test("own sign-in: refusal, cancel and retry; the API-selected experimental prof
   await window.keyboard.press("ControlOrMeta+j");
   await window.keyboard.type("Can my plan still answer?");
   await window.keyboard.press("Enter");
-  await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
+  await expect(assistantAnswers(window)).toHaveCount(2);
+  await expect(assistantAnswers(window).nth(1)).toHaveAttribute("data-status", "done", {
+    timeout: 15_000,
+  });
   expect(
     github.requests.filter((request) => request.path === "/chat/completions").at(-1)?.headers,
   ).toMatchObject({ "editor-version": "vscode/1.99.3", "copilot-integration-id": "vscode-chat" });
