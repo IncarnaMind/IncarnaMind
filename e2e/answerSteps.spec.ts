@@ -477,32 +477,43 @@ test("the wait keeps the form that fits as the steps change, and the summary kee
       await pointAndClick(window, consent.getByTestId("consent-allow"));
     }
     const answer = assistantAnswers(window).last();
-    const live = answer.getByTestId("answer-steps-live");
-    const wait = answer.getByTestId("answer-steps-wait");
-    // Thinking: the summary keeps the first row, and the wait takes the second in its own form.
-    await expect(live).toHaveAttribute("data-step", "thinking", { timeout: 30_000 });
-    const summary = live.getByTestId("answer-steps-summary");
-    await expect(summary).toBeVisible({ timeout: 30_000 });
-    // It keeps more than five of the dot's own widths: never cut to its dot.
-    const dotWidth = await live
-      .locator(".answer-steps-dot")
-      .evaluate((element) => element.getBoundingClientRect().width);
-    await expect
-      .poll(() => summary.evaluate((element) => element.getBoundingClientRect().width), {
-        timeout: 30_000,
-      })
-      .toBeGreaterThan(dotWidth * 5);
     const alone = short.replace(/^· /, "").replace(/^./, (letter) => letter.toUpperCase());
-    await expect(wait).toHaveText(alone, { timeout: 30_000 });
-    expect(await wait.evaluate((element) => element.textContent)).toBe(alone);
-    await expect(answer.getByTestId("answer-steps-wait-row")).toHaveCount(1);
-    await expect(wait).not.toContainText(MODEL_NAME);
-    await expect(answer.getByTestId("answer-steps-wait-spoken")).toHaveText(whole);
-    expect(
-      await live
-        .getByTestId("answer-writing")
-        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
-    ).toBe(true);
+    // The wait leaves as the Answer advances. Read its words and layout in the same rendered frame.
+    const layout = await window.waitForFunction(
+      (expectedWait) => {
+        const answers = document.querySelectorAll(
+          '[data-testid="assistant"] [data-testid="assistant-answer"]',
+        );
+        const answer = answers[answers.length - 1];
+        const live = answer?.querySelector(
+          '[data-testid="answer-steps-live"][data-step="thinking"]',
+        );
+        const wait = live?.querySelector('[data-testid="answer-steps-wait"]');
+        const summary = live?.querySelector('[data-testid="answer-steps-summary"]');
+        const dot = live?.querySelector(".answer-steps-dot");
+        const words = live?.querySelector('[data-testid="answer-writing"]');
+        if (!live || wait?.textContent !== expectedWait || !summary || !dot || !words) return null;
+        return {
+          summaryVisible: summary.checkVisibility({ visibilityProperty: true }),
+          summaryHasRoom:
+            summary.getBoundingClientRect().width > 5 * dot.getBoundingClientRect().width,
+          rows: live.querySelectorAll('[data-testid="answer-steps-wait-row"]').length,
+          spoken: live.querySelector('[data-testid="answer-steps-wait-spoken"]')?.textContent,
+          wordsFit: words.scrollWidth <= words.clientWidth + 1,
+        };
+      },
+      alone,
+      { timeout: 30_000 },
+    );
+    const measured = await layout.jsonValue();
+    await layout.dispose();
+    expect(measured).toEqual({
+      summaryVisible: true,
+      summaryHasRoom: true,
+      rows: 1,
+      spoken: whole,
+      wordsFit: true,
+    });
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
     // A shorter step frees the line: the wait comes back onto the first row, and the record shows it.
     await expectComeback(waits, from);
