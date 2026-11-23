@@ -24,7 +24,7 @@ import {
   type WordOrigin,
   type WordSource,
 } from "../core/api";
-import { countingMarkOf, keyedMarkOf } from "./markKeys";
+import { countingMarksOf, keyedMarkOf } from "./markKeys";
 import { targetHash } from "./proposals";
 
 /** Atoms that show nothing: they only keep their place in the text. */
@@ -280,10 +280,13 @@ function canonical(node: Y.XmlElement | Y.XmlText, rejoin = true, root = true): 
         Object.keys(run.attributes ?? {})
           .filter((mark) => !NOT_TEXT_CONTENT.has(mark))
           .flatMap((key): [string, unknown][] => {
-            // A keyed mark reads the same under its own key as under its name (#2996).
+            // A keyed mark reads the same under its own key as under its name (#2996), unless the
+            // words hold several of it, as they can comments (#2585).
             const keyed = keyedMarkOf(key);
-            if (keyed && countingMarkOf(keyed, run.attributes)?.key !== key) return [];
-            return [[keyed ?? key, sorted(run.attributes?.[key], NOT_MARK_CONTENT)]];
+            const counting = keyed ? countingMarksOf(keyed, run.attributes) : [];
+            if (keyed && !counting.some((each) => each.key === key)) return [];
+            const name = counting.length > 1 ? key : (keyed ?? key);
+            return [[name, sorted(run.attributes?.[key], NOT_MARK_CONTENT)]];
           })
           .sort(([a], [b]) => (a < b ? -1 : 1)),
       );

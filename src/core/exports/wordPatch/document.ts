@@ -337,9 +337,8 @@ export class DocumentPatch {
     const sentence =
       this.input.review.choices.commentFailedChecks && tokens.some((token) => token.sentence);
     // A comment made here needs the paragraph written again, to hold its range (#328).
-    const comment = tokens.some(
-      (token) =>
-        token.marks.comment !== null && this.input.review.renewsComment(token.marks.comment),
+    const comment = tokens.some((token) =>
+      token.marks.comments.some((id) => this.input.review.renewsComment(id)),
     );
     if (!sentence && !comment) return;
     for (let at: XmlElement | undefined = based.element; at; at = this.parents.get(at))
@@ -447,10 +446,7 @@ export class DocumentPatch {
         // its tokens then carry the comment, as the writer's do.
         const addsComment = this.input
           .tokensOf(counterpart.node)
-          .some(
-            (token) =>
-              token.marks.comment !== null && this.input.review.renewsComment(token.marks.comment),
-          );
+          .some((token) => token.marks.comments.some((id) => this.input.review.renewsComment(id)));
         if (based && !this.needsWriting(counterpart, based) && !addsComment) {
           yield { key: counterpart.node, authorship: "own" };
           continue;
@@ -473,7 +469,7 @@ export class DocumentPatch {
             key: token,
             authorship,
             sentence: token.sentence,
-            ...(token.marks.comment && { comments: [token.marks.comment] }),
+            ...(token.marks.comments.length > 0 && { comments: [...token.marks.comments] }),
           };
         }
       } else if (counterpart.kind === "table" && based) {
