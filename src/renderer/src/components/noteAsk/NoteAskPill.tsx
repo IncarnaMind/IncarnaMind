@@ -138,6 +138,7 @@ function doingOf(ask: NoteAsk, t: Translate): string {
   if (ask.quiet) return t("noteAsk.pill.quiet", { agent: ask.agent });
   if (doing === null) return t("noteAsk.pill.working");
   if (doing.kind === "thinking") return t("noteAsk.pill.thinking");
+  if (doing.kind === "compacting") return t("noteAsk.pill.compacting");
   if (doing.kind === "said") {
     const lines = doing.text
       .split(/\n/)

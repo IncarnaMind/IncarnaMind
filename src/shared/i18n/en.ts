@@ -9174,6 +9174,7 @@ export const en = {
   "noteAsk.done.nothing": "{agent} changed nothing.",
   "noteAsk.pill.working": "Working",
   "noteAsk.pill.thinking": "Thinking",
+  "noteAsk.pill.compacting": "Condensing the conversation so far",
   "noteAsk.pill.quiet": "Still waiting for {agent}…",
   "noteAsk.open": "Open “{title}”",
   "noteAsk.seconds": "{count}s",
@@ -9212,6 +9213,8 @@ export const en = {
   "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
   "noteAsk.problem.stalled":
     "{agent} stopped answering for six minutes, so it stopped. Send it again.",
+  "noteAsk.problem.compaction":
+    "{agent} spent ten minutes condensing this note’s conversation without finishing, so it stopped. Send it again.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",

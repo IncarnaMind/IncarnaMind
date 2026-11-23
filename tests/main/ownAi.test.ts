@@ -629,6 +629,108 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     await expect(ask(undefined, 1_000)).resolves.toEqual({ kind: "failed", reason: "stalled" });
   }, 15_000);
 
+  describe("a compaction (#3677)", () => {
+    // The lines Claude Code 2.1.330 printed as it compacted a conversation of 153,589 tokens.
+    const SESSION_ID = "4c942920-6f10-42e7-b505-933e4c4bc98c";
+    const status = (value: string | null, rest: Record<string, unknown> = {}) => ({
+      type: "system",
+      subtype: "status",
+      status: value,
+      session_id: SESSION_ID,
+      ...rest,
+    });
+    const started = { ...init(), session_id: SESSION_ID };
+    const compacting = status("compacting", { compact_output_chars: 0 });
+    const compacted = [
+      status(null, { compact_result: "success" }),
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        session_id: SESSION_ID,
+        compact_metadata: { trigger: "auto", pre_tokens: 153_589, post_tokens: 1_360 },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "This session is being continued…" }],
+        },
+      },
+    ];
+    const answer = { type: "assistant", message: { content: [{ type: "text", text: "OK." }] } };
+    const thinking = JSON.stringify({ type: "system", subtype: "thinking_tokens" });
+    /** Ticks as it thinks from its start until `after` is printed, then runs `then`. */
+    const stream = (after: unknown[], then: string) => `
+      const ticks = setInterval(() => console.log(${JSON.stringify(thinking)}), 100);
+      ${session(after, false, `clearInterval(ticks); ${then}`)}
+    `;
+    const run = (options: { stallMs: number; compactMs?: number }, steps: unknown[] = []) =>
+      createOwnAi(options).run({
+        client: "claude-code",
+        server: SERVER,
+        tools: TOOLS,
+        instructions: INSTRUCTIONS,
+        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        progress: (step) => steps.push(step),
+        signal: new AbortController().signal,
+      });
+
+    // protects=the silence of a compaction, which Claude Code works through without a word, doesn't count towards the stall limit, and the line hears it start and end; fails_when=a healthy run is stopped as stalled while it compacts
+    it("is work, not silence", async () => {
+      useClaude({
+        run: stream(
+          [started, status("requesting"), compacting],
+          `setTimeout(() => {
+            for (const each of ${JSON.stringify([...compacted, answer, done])}) console.log(JSON.stringify(each));
+          }, 2500);`,
+        ),
+      });
+      const steps: unknown[] = [];
+      await expect(run({ stallMs: 1_000 }, steps)).resolves.toEqual({
+        kind: "finished",
+        reply: "Checked.",
+      });
+      const said = steps.filter(
+        (step) =>
+          (step as { kind: string }).kind === "compacting" ||
+          (step as { kind: string }).kind === "compacted",
+      );
+      expect(said).toEqual([{ kind: "compacting" }, { kind: "compacted" }]);
+    }, 15_000);
+
+    // protects=only Claude Code's own status line for the run's session, after its start, starts a compaction; fails_when=a line of another session, or one before the start, keeps a dead run alive
+    it.each([
+      ["of another session", [started, { ...compacting, session_id: "another" }]],
+      ["before the run's start", [compacting, started]],
+    ])(
+      "doesn't count a compacting line %s",
+      async (_name, after) => {
+        useClaude({ run: stream(after, "setTimeout(() => {}, 60_000);") });
+        await expect(run({ stallMs: 1_000 })).resolves.toEqual({
+          kind: "failed",
+          reason: "stalled",
+        });
+      },
+      15_000,
+    );
+
+    // protects=a compaction that never ends still ends the run, with its own reason, however often it says it is compacting; fails_when=a stuck compaction holds the User until the run's 15 minutes, or a repeated line keeps it going
+    it("ends the run when it doesn't finish in time", async () => {
+      useClaude({
+        run: stream(
+          [started, compacting],
+          `setInterval(() => console.log(JSON.stringify(${JSON.stringify(compacting)})), 300);`,
+        ),
+      });
+      const begun = Date.now();
+      await expect(run({ stallMs: 60_000, compactMs: 1_500 })).resolves.toEqual({
+        kind: "failed",
+        reason: "compaction",
+      });
+      expect(Date.now() - begun).toBeLessThan(10_000);
+    }, 15_000);
+  });
+
   // protects=a run's words as they come don't count towards the size limit of its whole messages, which still stops one too long; fails_when=a long streamed reply fails, or a run prints without bound
   it("bounds what a run prints by its whole messages", async () => {
     const piece = {

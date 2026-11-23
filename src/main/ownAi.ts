@@ -34,10 +34,17 @@ const STATUS_MS = 15_000;
 /**
  * How long a run may send nothing before it is stopped as stalled. While it works it sends a tick
  * about every second as it thinks, and its words and Tool inputs as it writes them; time it waits
- * on a Tool of IncarnaMind's own doesn't count. Past Claude Code's own 5 minutes with no data, its
- * own watchdog and retry act first (#3677).
+ * on a Tool of IncarnaMind's own doesn't count, nor a compaction (`COMPACT_MS` bounds that). Past
+ * Claude Code's own 5 minutes with no data, its own watchdog and retry act first (#3677).
  */
 const STALL_MS = 6 * 60_000;
+
+/**
+ * How long Claude Code may spend compacting a conversation, saying nothing meanwhile, before the
+ * run is stopped. It compacted 153,589 tokens in 11 s in #3677's real run; a full window of a
+ * million tokens, at that pace, takes about a minute and a quarter: this is eight times that.
+ */
+const COMPACT_MS = 10 * 60_000;
 
 /** How often the core hears that the run is alive, whatever it sent. */
 const HEARD_EVERY_MS = 1_000;
@@ -150,11 +157,14 @@ export function createOwnAi({
   command = "claude",
   conversations,
   stallMs = STALL_MS,
+  compactMs = COMPACT_MS,
 }: {
   command?: string;
   conversations?: string;
   /** How long a run may send nothing before it is stopped as stalled. */
   stallMs?: number;
+  /** How long a compaction may last before the run is stopped. */
+  compactMs?: number;
 } = {}): OwnAiRunner {
   const folderOf = (key: string) => {
     if (!conversations || !/^[A-Za-z0-9-]{1,64}$/.test(key)) {
@@ -190,7 +200,12 @@ export function createOwnAi({
     },
 
     async run(request) {
-      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(RUN_MS)]);
+      const compactionOver = new AbortController();
+      const signal = AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(RUN_MS),
+        compactionOver.signal,
+      ]);
       const { conversation } = request;
       const scratch = await mkdtemp(join(tmpdir(), "incarnamind-check-"));
       const cwd = conversation ? folderOf(conversation.key) : scratch;
@@ -209,6 +224,25 @@ export function createOwnAi({
       let toldHeard = 0;
       // The calls of IncarnaMind's Tools sent and not yet answered: the run waits on them silently.
       const running = new Set<string>();
+      // A compaction, which Claude Code works through silently: between its own status lines that
+      // start and end it, in the session its start names, and no longer than `compactMs`.
+      let session: string | null = null;
+      let compacting: ReturnType<typeof setTimeout> | null = null;
+      let compactionStuck = false;
+      const compactionEnds = () => {
+        if (compacting === null) return;
+        clearTimeout(compacting);
+        compacting = null;
+        request.progress?.({ kind: "compacted" });
+      };
+      const compactionStarts = () => {
+        if (compacting !== null) return;
+        compacting = setTimeout(() => {
+          compactionStuck = true;
+          compactionOver.abort();
+        }, compactMs);
+        request.progress?.({ kind: "compacting" });
+      };
       const heardPart = (event: Record<string, unknown>) => {
         const block = object(event.content_block);
         const delta = object(event.delta);
@@ -252,7 +286,7 @@ export function createOwnAi({
           permissionMode: request.permissionMode,
           partial: true,
           stallMs,
-          busy: () => running.size > 0,
+          busy: () => running.size > 0 || compacting !== null,
           onMessage(message) {
             // A retry's notice says the AI isn't answering, rather than that it is.
             const retry = message.type === "system" && message.subtype === "api_retry";
@@ -281,6 +315,18 @@ export function createOwnAi({
               if (begun) heardPart(event);
               return;
             }
+            if (
+              message.type === "system" &&
+              (message.subtype === "status" || message.subtype === "compact_boundary")
+            ) {
+              // As Claude Code 2.1.330 says it: "compacting", then the next status (with how it went)
+              // and the boundary. A line of another session, or before the start, counts for nothing.
+              if (!begun || session === null || message.session_id !== session) return;
+              if (message.subtype === "status" && message.status === "compacting")
+                compactionStarts();
+              else compactionEnds();
+              return;
+            }
             if (message.type === "system" && message.subtype === "thinking_tokens") {
               request.progress?.({ kind: "thinking" });
               return;
@@ -299,6 +345,7 @@ export function createOwnAi({
               ) {
                 throw new StrayRunError("another server, or IncarnaMind's not connected");
               }
+              session = typeof message.session_id === "string" ? message.session_id : null;
               begun = true;
               return;
             }
@@ -338,6 +385,7 @@ export function createOwnAi({
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
         if (error instanceof ClaudeCodeStalledError) return { kind: "failed", reason: "stalled" };
+        if (compactionStuck) return { kind: "failed", reason: "compaction" };
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
         console.warn(
           "A run of the User's own AI failed:",
@@ -345,6 +393,7 @@ export function createOwnAi({
         );
         return { kind: "failed", reason: failure ?? "other" };
       } finally {
+        if (compacting !== null) clearTimeout(compacting);
         await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() =>
           console.warn("Could not remove the temporary folder of a run of the User's own AI."),
         );
