@@ -287,7 +287,9 @@ test("a Word file's comments on the same words each keep theirs: through typing,
     await pointAndClick(window, editor.locator("p").first());
     await window.keyboard.press("End");
     await window.keyboard.type(" Later.");
-    await expect(editor.locator("p").first()).toHaveText("Revenue grew 12% in May and June. Later.");
+    await expect(editor.locator("p").first()).toHaveText(
+      "Revenue grew 12% in May and June. Later.",
+    );
     await words(window, "word-comment-0").toBe("Revenue grew 12% in May");
     await words(window, "word-comment-1").toBe("12% in May and June.");
 
