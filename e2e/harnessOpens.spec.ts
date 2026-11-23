@@ -1,8 +1,9 @@
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
+import { installAgent } from "../tests/helpers/agentInstalls";
 import {
   acceptPlainTextKeys,
   agentsToConnect,
@@ -94,7 +95,7 @@ test("a launched app records what it would open, and finds only the agents the t
 
   // An agent's app the test made is found; still nothing of this computer's. A home of its own,
   // so nothing the agents connected above left in the first one counts.
-  await mkdir(join(apps, "Cursor.app"));
+  await installAgent("cursor", { applications: apps, commands: apps, home: freshHome });
   const again = await launchApp(dataDir, { home: freshHome, agentApps: [apps] });
   try {
     expect((await clients(again.window)).filter(([, installed]) => installed)).toEqual([
