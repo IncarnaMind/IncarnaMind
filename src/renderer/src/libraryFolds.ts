@@ -128,6 +128,7 @@ export const useLibraryFolds = create<LibraryFolds>()((set, get) => {
       change({ subOpen });
     },
     showAll(key) {
+      if (get().showingAll.has(key)) return;
       set({ showingAll: new Set([...get().showingAll, key]) });
     },
   };

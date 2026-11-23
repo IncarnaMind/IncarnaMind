@@ -1,6 +1,6 @@
 import type { EditorState } from "@tiptap/pm/state";
 import type { CitationAttributes, ClaimCheckPart, QuotedWords } from "../../../core/api";
-import { continuesCitation, overlapsCitation } from "../../../shared/citationOverlap";
+import { continuesCitation, overlapsCitation, sameContent } from "../../../shared/citationOverlap";
 import { parseQuotedWords, type QuotedWordsOnPage, quotedWordsAt } from "../../../shared/citations";
 import { DOESNT_HOLD } from "../../../shared/citedNow";
 import { restsOnPassage } from "../../../shared/claimParts";
@@ -111,9 +111,8 @@ function decisionFor(
   evidence: CitationAttributes,
   onPage?: QuotedWordsOnPage,
 ): CitationDecision {
-  const cited = citationsOf(state, claim).filter(
-    ({ attributes }) =>
-      attributes.documentId !== null && attributes.documentId === evidence.documentId,
+  const cited = citationsOf(state, claim).filter(({ attributes }) =>
+    sameContent(attributes, evidence),
   );
   // Replace may write "found" only where the words the sentence put in quotation marks are on
   // the Passage's page too, or the Citation's card would say they are found when nothing looked

@@ -17,9 +17,9 @@ import {
   type TabItem,
   type WindowLayout,
 } from "../../core/api";
-import { citationClosingLength } from "../../shared/citations";
 import { checkAgain, fixesFree, restoreCheck } from "./checks";
 import { citationAttributesOf } from "./citedSelection";
+import { citationInsertionPoint } from "./editor/citationInsertion";
 import { type ShownClaim, shownClaims } from "./editor/claimChecks";
 import { asOneStep, offerEditorUndo } from "./editor/editorUndo";
 import { mindEditor, whenMindEditor } from "./editor/openEditors";
@@ -187,8 +187,7 @@ export async function citeChosenWords(
   }
   const type = editor.state.schema.nodes[CITATION_NODE];
   if (!type) return false;
-  const words = editor.state.doc.textBetween(claim.sentence.from, claim.sentence.to, "\n", "￼");
-  const at = claim.sentence.to - citationClosingLength(words);
+  const at = citationInsertionPoint(editor.state.doc, claim.sentence.from, claim.sentence.to);
   const earlier = claim.check;
   asOneStep(editor, () =>
     editor.view.dispatch(

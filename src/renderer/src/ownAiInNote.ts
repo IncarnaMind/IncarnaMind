@@ -28,6 +28,8 @@ export interface NoteAsked {
   words: string;
   quote: string;
   selection: NoteSelectionBlock[] | null;
+  /** With nothing selected, the opening words of the paragraph the cursor is in; "" for none. */
+  caret?: string;
 }
 
 /** A Note's latest request at its foot, as the input and its label show it. */
@@ -37,6 +39,8 @@ export interface NoteAsk {
   agent: string;
   state: NoteTurnEvent["state"];
   doing: NoteTurnEvent["doing"];
+  /** When it was sent, ISO 8601 UTC: the line counts the seconds from it while it runs. */
+  startedAt: string | null;
   problem: NoteTurnProblem | null;
   versions: { found: string; lowest: string } | null;
   reply: string;
@@ -45,6 +49,8 @@ export interface NoteAsk {
   waiting: NoteTurnEvent["waiting"];
   made: NoteTurnEvent["made"];
   fresh: boolean;
+  /** While it works, the AI has sent nothing for a while. */
+  quiet: boolean;
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -52,6 +58,18 @@ export interface NoteAsk {
 export const useNoteAsks = create<{ byMind: Readonly<Record<string, NoteAsk>> }>(() => ({
   byMind: {},
 }));
+
+/** The Notes whose conversation shows, opened at their top right or from the line's reply. */
+export const useConversationShown = create<{ byMind: Readonly<Record<string, true>> }>(() => ({
+  byMind: {},
+}));
+
+export function showConversation(mindId: string, shown: boolean): void {
+  useConversationShown.setState((state) => {
+    const { [mindId]: _was, ...rest } = state.byMind;
+    return { byMind: shown ? { ...rest, [mindId]: true } : rest };
+  });
+}
 
 /** The turns this window asked for, whose changes it applies. */
 const askedHere = new Set<string>();
@@ -99,12 +117,21 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 function heard(event: NoteTurnEvent): void {
   const was = useNoteAsks.getState().byMind[event.mindId];
   if (was && was.turnId !== null && was.turnId !== event.turnId && was.state === "working") return;
+  // A turn that ended stays ended: nothing of it said later takes it back to working.
+  if (was?.turnId === event.turnId && was.state !== "working" && event.state === "working") return;
+  // Stopped, the request leaves nothing behind: no line, no reply (#3677).
+  if (event.state === "stopped") {
+    askedHere.delete(event.turnId);
+    put(event.mindId, null);
+    return;
+  }
   put(event.mindId, {
     turnId: event.turnId,
     pairingId: event.pairingId,
     agent: was?.agent || nameOf(event.mindId, event.pairingId),
     state: event.state,
-    doing: event.doing ?? (event.state === "working" ? (was?.doing ?? null) : null),
+    doing: event.state === "working" ? event.doing : null,
+    startedAt: event.startedAt,
     problem: event.problem,
     versions: null,
     reply: event.reply,
@@ -112,9 +139,12 @@ function heard(event: NoteTurnEvent): void {
     waiting: event.waiting,
     made: event.made,
     fresh: event.fresh,
+    quiet: event.state === "working" && event.quiet,
     asked: was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
+  // Claude Code no longer had the Note's conversation, so this request began a new one.
+  if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
   const byNote = new Map<string, NoteChangeApplied[]>();
   // A change in a Note the agent wrote applied already, with its own Undo there.
   for (const each of event.applied.filter((change) => !change.own))
@@ -159,6 +189,7 @@ export async function askInNote(
     words: asked.words,
     ...(asked.quote !== "" && { quote: asked.quote }),
     ...(asked.selection && { selection: asked.selection }),
+    ...(asked.caret && !asked.selection && { caret: asked.caret }),
   });
   if (start.kind === "link") return "link";
   const base: NoteAsk = {
@@ -167,6 +198,7 @@ export async function askInNote(
     agent: start.pairing.name,
     state: start.kind === "started" ? "working" : "failed",
     doing: null,
+    startedAt: start.kind === "started" ? new Date().toISOString() : null,
     problem: start.kind === "problem" ? start.problem : null,
     versions: start.kind === "problem" ? (start.versions ?? null) : null,
     reply: "",
@@ -174,6 +206,7 @@ export async function askInNote(
     waiting: [],
     made: [],
     fresh: false,
+    quiet: false,
     asked,
   };
   if (start.kind === "started") askedHere.add(start.turnId);
@@ -231,6 +264,19 @@ export const clearNoteAsk = (mindId: string): void => {
   if (ask && ask.state !== "working") put(mindId, null);
 };
 
+/** The opening words of the paragraph the cursor is in, with nothing selected: where to write. */
+export function caretOf(state: EditorState): string {
+  const { empty, $from } = state.selection;
+  if (!empty || $from.depth === 0) return "";
+  return state.doc
+    .child($from.index(0))
+    .textBetween(0, state.doc.child($from.index(0)).content.size, " ", "")
+    .trim()
+    .slice(0, CARET_WORDS);
+}
+
+const CARET_WORDS = 80;
+
 /**
  * An inline node in the text around a selection, as the core reads it there
  * (src/core/agents/access.ts): a line break as a space, anything else (a Citation, a footnote) as
@@ -264,3 +310,20 @@ export function selectedForRequest(
   const quote = state.doc.textBetween(from, to, " ", "").trim();
   return quote !== "" && selection.length > 0 ? { quote: quote.slice(0, 4000), selection } : null;
 }
+
+/**
+ * A reply's Citation tokens, which the AI writes as it does in a Note; a Note shows them as chips,
+ * and a reply leaves them out until it shows them as chips too.
+ */
+export const withoutCitations = (reply: string) => reply.replace(/\s?\[cite:[a-z0-9]{1,32}\]/g, "");
+
+/** The first words of a reply, as one line: its Markdown marks gone. */
+export const firstWordsOf = (reply: string): string =>
+  (
+    withoutCitations(reply)
+      .split(/\n/)
+      .map((line) => line.replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/, "").trim())
+      .find((line) => line !== "") ?? ""
+  )
+    .replace(/\*\*|__|`/g, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");

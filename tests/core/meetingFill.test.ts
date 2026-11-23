@@ -5,6 +5,7 @@
  * when no safe item survives, a quit cuts it short, or Local mode keeps it off the cloud.
  */
 import { getEventListeners } from "node:events";
+import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test, vi } from "vitest";
@@ -18,6 +19,7 @@ import type {
   MeetingFill,
   SpeakerSeparator,
 } from "../../src/core";
+import { DATABASE_FILE } from "../../src/core";
 import { CITE_RETRY_INSTRUCTIONS, QUOTE_RETRY_INSTRUCTIONS } from "../../src/core/answers/prompt";
 import type { WindowedPassage } from "../../src/core/documents/search";
 import type { FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
@@ -30,6 +32,7 @@ import {
   transcriptParts,
 } from "../../src/core/meetings/fill";
 import type { FillSection } from "../../src/core/meetings/fillPrompt";
+import { openDatabase } from "../../src/core/storage";
 import { createFakeChatModel } from "../../src/main/fakeChat";
 import { citationAttributesOf } from "../../src/shared/citations";
 import { clockTime } from "../../src/shared/clock";
@@ -719,8 +722,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=a quit while a call's notes are made during its speaker pass writes nothing; the next start says the fill stopped, as for any fill a quit cuts short, runs the pass again, and Try again fills the notes in once (#2839); fails_when=anything is written at the quit, the next start fills them in by itself or says nothing, or Try again writes twice; no_claim=the pass's labels.
-  test("a quit while a call's notes are made during its speaker pass says the fill stopped, and Try again fills them in once", async () => {
+  test("after a quit the unwritten call notes resume once during the speaker pass", async () => {
     let made = 0;
     const model = fillingModel(
       PRICING_REPLY,
@@ -730,12 +732,11 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     );
     const { separator } = fakeSeparator({ holds: new Promise<void>(() => {}), voiceOf: () => 0 });
     const keychain = createMemoryKeychain();
-    const { core, meeting, client, dataDir } = await recorded(model, NOTES, undefined, undefined, {
+    const { core, meeting, dataDir } = await recorded(model, NOTES, undefined, undefined, {
       speakerSeparator: separator,
       cloud: true,
       keychain,
     });
-    const before = shown(client);
     await vi.waitFor(() => expect(made).toBe(1));
     expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filling" });
     core.close();
@@ -757,14 +758,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       keychain,
     });
     const shownAgain = await connectToMind(reopened, meeting.mindId);
-    expect(shown(shownAgain)).toEqual(before);
-    expect(await fillOf(reopened, meeting.id)).toMatchObject({
-      state: "failed",
-      problem: { kind: "stopped" },
-    });
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(asked).toHaveLength(0);
-    await reopened.fillMeetingNotes(meeting.id);
     expect(await settledFill(reopened, meeting)).toMatchObject({ state: "filled", omitted: 0 });
     release();
     await until(reopened, meeting.id, (each) => !each.separating);
@@ -2032,8 +2026,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     },
   );
 
-  // protects=deleting the note while its notes are filled in stops the fill: nothing is written, and once Undo brings the Meeting back its line says it stopped, with Try again (#1253); fails_when=the fill writes into the deleted note, or the Meeting comes back still filling; no_claim=none beyond protects.
-  test("a note deleted while it fills in gets nothing written, and Undo brings it back saying the fill stopped", async () => {
+  test("restoring a note resumes the interrupted fill and writes it once", async () => {
     let release = () => {};
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -2054,16 +2047,14 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     release();
     await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
 
-    expect(await settledFill(core, meeting)).toMatchObject({
-      state: "failed",
-      problem: { kind: "stopped" },
-    });
-    expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    const written = shown(await connectToMind(core, meeting.mindId));
+    expect(written).not.toEqual(before);
+    expect(written.filter((line) => line.includes("45 dollars a seat"))).toHaveLength(1);
     core.close();
   });
 
-  // protects=a call's note deleted while its notes are made during its speaker pass stops them as any fill under way: brought back, it says the fill stopped, and Try again fills them in once (#1253, #2839); fails_when=the restored note fills itself in, says nothing, or Try again writes twice; no_claim=a note deleted after the notes are in, which the tests around it cover.
-  test("a call's note deleted while its notes are made comes back saying the fill stopped, and Try again fills them in once", async () => {
+  test("restoring unwritten call notes during the speaker pass resumes them once", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -2084,17 +2075,10 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
       speakerSeparator: separator,
       cloud: true,
     });
-    const before = shown(await connectToMind(core, meeting.mindId));
     await vi.waitFor(() => expect(runs).toBe(1));
     await core.deleteMind(meeting.mindId);
     reply();
     await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await settledFill(core, meeting)).toMatchObject({
-      state: "failed",
-      problem: { kind: "stopped" },
-    });
-    expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
-    await core.fillMeetingNotes(meeting.id);
     await vi.waitFor(async () =>
       expect(await fillOf(core, meeting.id)).toMatchObject({ state: "filled", omitted: 0 }),
     );
@@ -2143,8 +2127,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=notes made during a call's speaker pass and still being made once it ends say they are filling in from the start, so deleting the note then stops them as any fill under way: Undo brings it back saying the fill stopped (#2839, #1253); fails_when=the notes say they wait, or the restored note fills itself in; no_claim=none beyond protects.
-  test("notes made during a call's speaker pass and deleted after it ends come back saying the fill stopped", async () => {
+  test("restoring unwritten notes after the speaker pass resumes them", async () => {
     let release = () => {};
     const holds = new Promise<void>((resolve) => {
       release = resolve;
@@ -2174,12 +2157,9 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     await core.deleteMind(meeting.mindId);
     reply();
     await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
-    expect(await settledFill(core, meeting)).toMatchObject({
-      state: "failed",
-      problem: { kind: "stopped" },
-    });
-    expect(shown(await connectToMind(core, meeting.mindId))).toEqual(before);
-    expect(made).toBe(1);
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    expect(shown(await connectToMind(core, meeting.mindId))).not.toEqual(before);
+    expect(made).toBe(2);
     core.close();
   });
 
@@ -2233,8 +2213,37 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     core.close();
   });
 
-  // protects=quitting while the notes are filled in leaves the Mind as it was, and the next start says so with Try again; fails_when=anything half-written stays, or the Meeting says it is still filling; no_claim=none beyond protects.
-  test("a quit while it fills in leaves nothing written, and the next start says so", async () => {
+  test("an older interrupted fill without evidence it was unwritten leaves existing notes untouched", async () => {
+    const { core, meeting, client, dataDir } = await recorded(
+      fillingModel(PRICING_REPLY, { 1: MY_LINES[0] as string }),
+      NOTES,
+    );
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    const before = shown(client);
+    core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        "UPDATE meetings SET fill = json_remove(json_set(fill, '$.state', 'filling', '$.blocks', json('[]')), '$.unwritten') WHERE id = ?",
+        [meeting.id],
+      );
+    } finally {
+      db.close();
+    }
+    const calls: ModelCall[] = [];
+    const { core: reopened } = await transcribingCore(dataDir, {
+      model: fillingModel(PRICING_REPLY, {}, {}, { seen: (call) => calls.push(call) }),
+    });
+    expect(await fillOf(reopened, meeting.id)).toMatchObject({
+      state: "failed",
+      problem: { kind: "stopped" },
+    });
+    expect(shown(await connectToMind(reopened, meeting.mindId))).toEqual(before);
+    expect(calls.filter(isFill)).toHaveLength(0);
+    reopened.close();
+  });
+
+  test("stopping a resumed fill keeps the Note unchanged after another restart", async () => {
     const held = new Promise<void>(() => {});
     const model = fillingModel(
       lineFact("L1", "pricing", "The enterprise price is 45 dollars a seat [^1]."),
@@ -2249,17 +2258,240 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     );
     core.close();
 
+    let resume = () => {};
+    const pending = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let requests = 0;
     const { core: again } = await transcribingCore(dataDir, {
-      model: fillingModel("", {}),
+      model: fillingModel(
+        PRICING_REPLY,
+        { 1: MY_LINES[0] as string },
+        {},
+        {
+          held: pending,
+          seen: (call) => {
+            if (fillRun(call)) requests++;
+          },
+        },
+      ),
     });
     const reopened = await connectToMind(again, meeting.mindId);
-    expect(await fillOf(again, meeting.id)).toMatchObject({
+    await vi.waitFor(() => expect(requests).toBe(1));
+    expect(await fillOf(again, meeting.id)).toMatchObject({ state: "filling" });
+    await again.stopMeetingNotes(meeting.id);
+    resume();
+    expect(await settledFill(again, meeting)).toMatchObject({
       state: "failed",
-      problem: { kind: "stopped" },
+      problem: { kind: "user-stopped" },
     });
     expect(shown(reopened)).toEqual(before);
     again.close();
+    const { core: third } = await transcribingCore(dataDir, { model: fillingModel("", {}) });
+    expect(await fillOf(third, meeting.id)).toMatchObject({
+      state: "failed",
+      problem: { kind: "user-stopped" },
+    });
+    third.close();
   });
+
+  test("a retry immediately after Stop writes only the new run", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requests = 0;
+    const { core, meeting, client } = await recorded(
+      fillingModel(
+        PRICING_REPLY,
+        { 1: MY_LINES[0] as string },
+        {},
+        {
+          held,
+          seen: (call) => {
+            if (fillRun(call)) requests++;
+          },
+        },
+      ),
+      NOTES,
+    );
+    await vi.waitFor(() => expect(requests).toBe(1));
+    await core.stopMeetingNotes(meeting.id);
+    await core.fillMeetingNotes(meeting.id);
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({ state: "filled" });
+    expect(requests).toBe(2);
+    expect(shown(client).filter((line) => line.includes("45 dollars a seat"))).toHaveLength(1);
+    core.close();
+  });
+
+  test("a restored meeting still waiting on its transcript honors a newly chosen AI", async () => {
+    let release = () => {};
+    const holds = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { separator } = fakeSeparator({ holds, voiceOf: () => 0 });
+    let folderId = "";
+    let requests = 0;
+    const model = fillingModel(
+      PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      {
+        seen: (call) => {
+          if (fillRun(call)) requests++;
+        },
+      },
+    );
+    const { core, meeting } = await recorded(
+      model,
+      NOTES,
+      async (core) => {
+        folderId = (await core.createLibraryGroup({ name: "Project", description: "" })).id;
+      },
+      undefined,
+      {
+        cloud: true,
+        folder: () => folderId,
+        speakerSeparator: separator,
+        notesBeforeSpeakers: () => false,
+      },
+    );
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "saved" && transcript.separating,
+    );
+    expect(await fillOf(core, meeting.id)).toMatchObject({ state: "waiting" });
+    await core.deleteMind(meeting.mindId);
+    await core.setAgentsEnabled(true);
+    const { pairing } = await core.connectAgent({
+      name: "Codex",
+      client: "codex",
+      folderIds: [folderId],
+      propose: false,
+    });
+    await core.updateSettings({ device: { meetingNotesAgentId: pairing.id } });
+    await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "own-ai",
+      agentId: pairing.id,
+    });
+    expect(requests).toBe(0);
+    core.close();
+  });
+
+  test("revoking checks while a meeting reply is pending sends no claims and opens no consent dialog", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: ModelCall[] = [];
+    const said = THEIR_LINES[0] as string;
+    const reply = [
+      overview("The call covered the budget [^1]."),
+      fact("P1_budget", "budget", "The budget is approved for this year [^1].", { claim: true }),
+    ].join("\n\n");
+    let folderId: string | undefined;
+    const { core, meeting, client } = await recorded(
+      fillingModel(
+        reply,
+        { 1: said },
+        {},
+        {
+          held,
+          seen: (call) => calls.push(call),
+        },
+      ),
+      null,
+      async (core) => {
+        folderId = await callFolder(core, { "Budget.md": "The budget is approved for this year." });
+      },
+      undefined,
+      { cloud: true, folder: () => folderId },
+    );
+    const before = shown(client);
+    await vi.waitFor(() => expect(calls.some(fillRun)).toBe(true));
+    const service = (await core.listChatProviders()).find(
+      (provider) => provider.kind === "anthropic",
+    )?.service;
+    if (!service) throw new Error("Expected Anthropic to be configured");
+    await core.revokeConsent("checks", service.id);
+    release();
+    expect(await settledFill(core, meeting)).toMatchObject({
+      state: "failed",
+      problem: { kind: "not-allowed" },
+    });
+    expect(await core.listConsentRequests()).toEqual([]);
+    expect(calls.filter(isCheckRun)).toHaveLength(0);
+    expect(shown(client)).toEqual(before);
+    core.close();
+  });
+
+  test.each(["revoked", "local-mode", "own-ai"] as const)(
+    "restoring unwritten notes respects the current %s setting without another model request",
+    async (change) => {
+      let calls = 0;
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const model = fillingModel(
+        PRICING_REPLY,
+        { 1: MY_LINES[0] as string },
+        {},
+        {
+          held,
+          seen: (call) => {
+            if (fillRun(call)) calls++;
+          },
+        },
+      );
+      let folderId = "";
+      const { core, meeting } = await recorded(
+        model,
+        NOTES,
+        async (core) => {
+          folderId = (await core.createLibraryGroup({ name: "Project", description: "" })).id;
+        },
+        undefined,
+        { cloud: true, folder: () => folderId },
+      );
+      await vi.waitFor(() => expect(calls).toBe(1));
+      await core.deleteMind(meeting.mindId);
+      if (change === "revoked") {
+        const provider = (await core.listChatProviders()).find((item) => item.kind === "anthropic");
+        if (!provider?.service) throw new Error("Expected a cloud service");
+        await core.revokeConsent("chat", provider.service.id);
+      } else if (change === "local-mode") {
+        await core.setLocalOnly(true);
+      } else {
+        await core.setAgentsEnabled(true);
+        const { pairing } = await core.connectAgent({
+          name: "Codex",
+          client: "codex",
+          folderIds: [folderId],
+          propose: false,
+        });
+        await core.updateSettings({ device: { meetingNotesAgentId: pairing.id } });
+      }
+      await core.restore([{ kind: "mind", id: meeting.mindId }], { reopen: true });
+      release();
+      const fill = await settledFill(core, meeting);
+      expect(fill).toMatchObject(
+        change === "own-ai"
+          ? { state: "own-ai" }
+          : {
+              state: "off",
+              problem: { kind: change === "revoked" ? "not-allowed" : "local-mode" },
+            },
+      );
+      expect(calls).toBe(1);
+      expect(await core.listConsentRequests()).toEqual([]);
+      core.close();
+    },
+  );
 
   // protects=the notes are filled in with the model the meeting's Mind uses (its own pick, #1379), not the Answers default; a service not allowed yet is said as that, with its name, not as no model; fails_when=the default model writes them, or the line says to choose a model; no_claim=the device's last pick, which #1379's tests cover.
   test("the Mind's own model fills them in, and a service not allowed yet says so", async () => {

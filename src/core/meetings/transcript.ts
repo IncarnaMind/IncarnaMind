@@ -2032,6 +2032,10 @@ export function createTranscripts(options: TranscriptsOptions) {
       persist(state);
     },
 
+    isFinishing(meetingId: string): boolean {
+      return Boolean(states.get(meetingId)?.finishing);
+    },
+
     pendingSpeakers(meetingId: string): Promise<void> | null {
       const state = load(meetingId);
       if (state.speakers === "due") separate(state);

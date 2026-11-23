@@ -174,6 +174,8 @@ const COLUMNS =
 
 /** A Meeting's fill as stored: as the API has it, and the ids of the Blocks it added, for Undo. */
 export interface StoredFill extends FillVersion {
+  /** The initial note is still being prepared and has not entered the write to the Mind. */
+  unwritten?: true;
   refill?: Refill;
 }
 
@@ -420,7 +422,7 @@ export function createMeetings(options: MeetingsOptions) {
   function fillOf(row: MeetingRow): MeetingFill | null {
     const stored = storedFillOf(row);
     if (!stored) return null;
-    const { refill, ...latest } = stored;
+    const { refill, unwritten: _unwritten, ...latest } = stored;
     const {
       blocks,
       fingerprints: _fingerprints,

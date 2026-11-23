@@ -1512,6 +1512,7 @@ export function createAgentAccess(
       }
       throw error;
     }
+    const ended = grant?.kind === "conversation" ? grant.calling?.(tool) : undefined;
     try {
       const done = await run(pairing);
       record(
@@ -1533,6 +1534,8 @@ export function createAgentAccess(
       deps.reportError(error);
       record("failed", { problem: "failed" });
       throw new AgentRefusedError("failed", t("agents.problem.failed"));
+    } finally {
+      ended?.();
     }
   }
 
@@ -2473,7 +2476,13 @@ export function createAgentAccess(
             input?.from !== undefined
               ? readOn(reach, input.from)
               : await readStart(reach, input?.documentId);
-          return { result, count: result.passages.length, documentIds: [result.documentId] };
+          // The Document it read, by its name: what the Note's line says it is reading (#3677).
+          return {
+            result,
+            count: result.passages.length,
+            documentIds: [result.documentId],
+            summary: result.document,
+          };
         }
         // More than it reads is no reason to refuse: `previous` and `next` say how to read on (#3586).
         const around = (given: unknown, what: string) =>
@@ -2505,6 +2514,7 @@ export function createAgentAccess(
           },
           count: inRange.length,
           documentIds: [documentId],
+          summary: first.documentName,
         };
       });
     },

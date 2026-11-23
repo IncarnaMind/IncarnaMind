@@ -12397,6 +12397,7 @@ export interface MeetingFill {
  * - "empty": the model's reply held nothing to add;
  * - "unchecked": none of what the model wrote could be checked against the Transcript;
  * - "stopped": IncarnaMind closed while they were being filled in;
+ * - "user-stopped": the User stopped preparing the notes;
  * - "local-mode": "Keep everything on this computer" is on and the Mind's model isn't local;
  * - "not-allowed": the User hasn't allowed sending to the model's service yet (`service`);
  * - "no-model": no model is set up, or it needs a key or a sign-in;
@@ -12410,6 +12411,7 @@ export interface MeetingFillProblem {
     | "model"
     | "empty"
     | "unchecked"
+    | "user-stopped"
     | "stopped"
     | "local-mode"
     | "not-allowed"
@@ -13250,6 +13252,8 @@ export type OwnAiCheckProblem =
   | "plan-limit"
   | "billing"
   | "timeout"
+  /** It sent nothing for six minutes, and was stopped. */
+  | "stalled"
   | "no-marks"
   | "isolation"
   | "access"
@@ -13300,6 +13304,8 @@ export interface NoteRequestInput {
   /** The words selected, as they read: the request's context. Absent: the whole Note. */
   quote?: string;
   selection?: NoteSelectionBlock[];
+  /** With nothing selected, the opening words of the paragraph the cursor is in: where to write. */
+  caret?: string;
   /** The agent to ask; absent: the first that can run in the background. */
   pairingId?: string;
 }
@@ -13363,14 +13369,31 @@ export interface NoteTurnEvent {
   turnId: string;
   pairingId: string;
   state: "working" | "landed" | "stopped" | "failed";
-  doing: { tool: AgentToolName; summary: string } | null;
+  /** What it is doing now, as the line above the input says it; null before its first step. */
+  doing: NoteDoing | null;
   problem: NoteTurnProblem | null;
+  /** The AI's reply, as Markdown: whole at the end, and as it is written while it writes. */
   reply: string;
+  /** When the request was sent, ISO 8601 UTC: the line counts the seconds from it. */
+  startedAt: string;
   applied: NoteChangeApplied[];
   waiting: { mindId: string; title: string; count: number }[];
-  made: { title: string }[];
+  /** The Notes it wrote, to open from the line. */
+  made: { mindId: string; title: string }[];
   fresh: boolean;
+  /** While it works: the AI has sent nothing for a while, and no call of it runs here. */
+  quiet: boolean;
 }
+
+/**
+ * What a request at a Note's foot is doing, as its line says it (#3677): a Tool call, with what it
+ * names (a Note's or Document's title) and how many of that Tool's calls it has made so far; the
+ * AI's own words to the User, as it writes them; or thinking, whose words the run doesn't carry.
+ */
+export type NoteDoing =
+  | { kind: "call"; tool: AgentToolName; summary: string; count: number }
+  | { kind: "said"; text: string }
+  | { kind: "thinking" };
 
 /**
  * A request the User made of their own AI about a Note (#3419), as IncarnaMind keeps it for that
@@ -15796,6 +15819,7 @@ export interface CoreApi {
    * on Try again. The model is the Answers one the User chose; nothing asks first.
    */
   fillMeetingNotes(meetingId: string): Promise<Meeting>;
+  stopMeetingNotes(meetingId: string): Promise<Meeting>;
   retryMeetingSummary(meetingId: string): Promise<Meeting>;
   /** Whether the selected AI route can start a new quote review for this saved Meeting. */
   canReviewMeetingSummaryCandidates(meetingId: string): Promise<boolean>;
@@ -16795,6 +16819,7 @@ const methods: Record<CoreApiMethod, true> = {
   getTranscriptionModel: true,
   retryTranscript: true,
   fillMeetingNotes: true,
+  stopMeetingNotes: true,
   retryMeetingSummary: true,
   canReviewMeetingSummaryCandidates: true,
   reviewMeetingSummaryCandidates: true,

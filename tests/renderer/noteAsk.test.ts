@@ -53,8 +53,14 @@ vi.mock("../../src/renderer/src/askedChanges", async (original) => ({
   applyTurn,
 }));
 
-const { allowAndAskAgain, askFromSelection, askInNote, selectedForRequest, useNoteAsks } =
-  await import("../../src/renderer/src/ownAiInNote");
+const {
+  allowAndAskAgain,
+  askFromSelection,
+  askInNote,
+  firstWordsOf,
+  selectedForRequest,
+  useNoteAsks,
+} = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
 const { noteExtensions } = await import("../../src/renderer/src/editor/noteSchema");
 
@@ -64,12 +70,14 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   pairingId: "p1",
   state: "working",
   doing: null,
+  startedAt: "2026-11-22T10:00:00.000Z",
   problem: null,
   reply: "",
   applied: [],
   waiting: [],
   made: [],
   fresh: false,
+  quiet: false,
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {
@@ -91,8 +99,9 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(await askInNote("m1", { words: "shorter", quote: "", selection: null })).toBe("started");
     expect(bridge.asked).toEqual([{ mindId: "m1", words: "shorter" }]);
     expect(ask()).toMatchObject({ state: "working", agent: "Claude Code" });
-    tell(event({ doing: { tool: "read_mind", summary: "Ferry notes" } }));
-    expect(ask()?.doing).toEqual({ tool: "read_mind", summary: "Ferry notes" });
+    const reading = { kind: "call", tool: "read_mind", summary: "Ferry notes", count: 1 } as const;
+    tell(event({ doing: reading }));
+    expect(ask()?.doing).toEqual(reading);
     const applied = [{ mindId: "m1", request: "r1", changed: 1, added: 0, tables: 0 }];
     tell(event({ state: "landed", applied, reply: "Shorter." }));
     expect(ask()).toMatchObject({ state: "landed", changed: 1, reply: "Shorter." });
@@ -106,6 +115,27 @@ describe("the input at a Note's foot (#3627)", () => {
     tell(event({ state: "landed", applied }));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(applyTurn).toHaveBeenCalledOnce();
+  });
+
+  // protects=a request that ended stays ended, whatever of it the window hears later, and says it is quiet only while it works; fails_when=a late word puts the line back on Working with nothing to stop, or a quiet sign outlives the run
+  test("keeps an ended request ended, and its quiet sign to its run", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    tell(event({ quiet: true }));
+    expect(ask()?.quiet).toBe(true);
+    tell(event({ quiet: false }));
+    expect(ask()?.quiet).toBe(false);
+    tell(event({ quiet: true }));
+    tell(event({ state: "landed", reply: "Shorter.", quiet: true }));
+    expect(ask()).toMatchObject({ state: "landed", quiet: false });
+    tell(event({ state: "working", doing: { kind: "thinking" } }));
+    expect(ask()).toMatchObject({ state: "landed", reply: "Shorter." });
+  });
+
+  // protects=a request that had to begin a new conversation, Claude Code having lost the Note's, says so once in the window that asked; fails_when=the User never learns the AI forgot what came before
+  test("says when a request began a new conversation", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    tell(event({ state: "landed", reply: "Shorter.", fresh: true }));
+    expect(useNotices.getState().confirmation).toMatchObject({ message: "noteAsk.fresh" });
   });
 
   // protects=a request another window sent shows its line here but applies only there; fails_when=two windows apply one turn's changes
@@ -159,6 +189,16 @@ describe("the input at a Note's foot (#3627)", () => {
       message: "noteAsk.busy",
       params: { agent: "Claude Code" },
     });
+  });
+
+  // protects=the pill shows a reply's first words as the User reads them: no Markdown marks, no Citation tokens, the first line that has words; fails_when=the pill shows "**", "# " or "[cite:…]"
+  test("shows a reply's first words, its marks and Citation tokens left out", () => {
+    expect(
+      firstWordsOf("## Summary\n\n**Ten interviews** [cite:ab12cd34] say the boat is fine."),
+    ).toBe("Summary");
+    expect(firstWordsOf("- **Kofi** says the ramp is hard [cite:x9y8z7w6].\n- Mei agrees.")).toBe(
+      "Kofi says the ramp is hard.",
+    );
   });
 
   // protects=the selection a request carries: its words, and for each top-level Block the text before and after them, which the core holds a change inside to; fails_when=the core gets offsets or text it can't compare with the Note's

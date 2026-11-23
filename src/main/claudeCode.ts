@@ -40,6 +40,27 @@ export interface ClaudeCodeTurn {
   permissionMode?: "dontAsk";
   /** Each message before the result, from the first; one that throws stops the turn. */
   onMessage?(message: Record<string, unknown>): void;
+  /** The stream carries the words and each Tool call as they come (`stream_event` messages). */
+  partial?: boolean;
+  /**
+   * How long Claude Code may send nothing before the turn is stopped as stalled. A turn that
+   * still works never stays quiet that long: it sends a tick while it thinks, and with `partial`
+   * its words as it writes them.
+   */
+  stallMs?: number;
+  /**
+   * Whether it waits on a Tool of IncarnaMind's own, without a word meanwhile: that time doesn't
+   * count towards `stallMs`.
+   */
+  busy?(): boolean;
+}
+
+/** The turn sent nothing for as long as `stallMs`, and was stopped. */
+export class ClaudeCodeStalledError extends Error {
+  constructor() {
+    super("Claude Code stopped sending anything, so the request was stopped.");
+    this.name = "ClaudeCodeStalledError";
+  }
 }
 
 const SYSTEM_PROMPT_FILE = "system-prompt.txt";
@@ -89,6 +110,7 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     "--output-format",
     "stream-json",
     "--verbose",
+    ...(turn.partial ? ["--include-partial-messages"] : []),
     "--settings",
     '{"disableAllHooks":true,"disableClaudeAiConnectors":true}',
     // On Windows an npm-installed `claude.cmd` runs through cmd.exe, where a line break in an
@@ -109,11 +131,16 @@ export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<st
       // The User's CLAUDE.md files and Claude Code's memory are not IncarnaMind's to give the turn.
       CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
       CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      // A Tool input streams as it is written, so a run writing a long one isn't quiet meanwhile.
+      ...(turn.partial && { CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1" }),
     },
     processGroup: true,
   });
   return readTurn(child, turn);
 }
+
+/** How much more than `maxResponseBytes` a turn may print with its words and calls as they come. */
+const RAW_TIMES = 8;
 
 /** How long a stopped turn's output may take to close before IncarnaMind stops reading it. */
 const STOP_WAIT_MS = 5_000;
@@ -147,11 +174,36 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     kill();
     lines.close();
   };
+  // What the turn printed, its words and calls as they came left out: they repeat what the
+  // whole messages say. With them, all of it is bounded too, more loosely.
   let bytes = 0;
+  let raw = 0;
+  const rawLimit = turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes;
+  let tooMuch = false;
+  // A clock that stands still while the computer sleeps: a sleep isn't a stall.
+  let heard = performance.now();
+  let stalled = false;
   child.stdout.on("data", (chunk: Buffer) => {
-    bytes += chunk.length;
-    if (bytes > turn.maxResponseBytes) stop();
+    heard = performance.now();
+    raw += chunk.length;
+    if (raw <= rawLimit) return;
+    tooMuch = true;
+    stop();
   });
+  const { stallMs } = turn;
+  const watch =
+    stallMs === undefined
+      ? undefined
+      : setInterval(
+          () => {
+            if (turn.busy?.()) heard = performance.now();
+            if (performance.now() - heard <= stallMs) return;
+            stalled = true;
+            stop();
+          },
+          Math.min(5_000, stallMs / 4),
+        );
+  watch?.unref?.();
   signal.addEventListener("abort", stop, { once: true });
   try {
     signal.throwIfAborted();
@@ -161,7 +213,15 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
     let sent = false;
     for await (const line of lines) {
       signal.throwIfAborted();
+      // Lines read before the output passed its limit still come once it is stopped: none counts.
+      if (tooMuch) break;
       const msg = parseLine(line);
+      if (msg.type !== "stream_event") bytes += Buffer.byteLength(line);
+      if (bytes > turn.maxResponseBytes) {
+        tooMuch = true;
+        stop();
+        break;
+      }
       if (msg.type === "control_response" && !sent) {
         const control = object(msg.response);
         const settings = object(control.response);
@@ -190,17 +250,17 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
         // Before the prompt went, Claude Code ended at its start (a conversation it doesn't have,
         // say): nothing of the request was sent, and its result says why.
         if (!sent) return msg;
-        if (bytes > turn.maxResponseBytes) {
-          throw new Error("Claude Code could not complete the request.");
-        }
         // A result ends this turn even when the CLI keeps its stream open.
         return msg;
       }
       turn.onMessage?.(msg);
     }
     signal.throwIfAborted();
+    if (stalled) throw new ClaudeCodeStalledError();
+    if (tooMuch) throw new Error("Claude Code printed more than IncarnaMind reads of one request.");
     throw new Error("Claude Code could not complete the request.");
   } finally {
+    clearInterval(watch);
     signal.removeEventListener("abort", stop);
     stop();
     await drained(child, closed);

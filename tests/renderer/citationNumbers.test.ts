@@ -294,6 +294,17 @@ describe("Citations side by side with one number (#3654)", () => {
     expect(groupKeyStep(at(after), "ArrowLeft")?.selection.from).toBe(first);
     // Inside the chip, where a click may leave the caret: out to its edge.
     expect(groupKeyStep(at(first + 1), "ArrowRight")?.selection.from).toBe(after);
+    // Shift with an arrow takes the whole chip into the selection in one press, from either side,
+    // and keeps where the selection started.
+    const widened = groupKeyStep(at(first), "Shift-ArrowRight")?.selection;
+    expect([widened?.anchor, widened?.head]).toEqual([first, after]);
+    const back = groupKeyStep(at(after), "Shift-ArrowLeft")?.selection;
+    expect([back?.anchor, back?.head]).toEqual([after, first]);
+    const fromWord = state.apply(
+      state.tr.setSelection(TextSelection.create(state.doc, first - 4, first)),
+    );
+    const further = groupKeyStep(fromWord, "Shift-ArrowRight")?.selection;
+    expect([further?.anchor, further?.head]).toEqual([first - 4, after]);
     const removed = groupKeyStep(at(after), "Backspace");
     expect(removed?.doc.textContent).toBe("Slow.");
     expect(numberCitations(removed?.doc ?? state.doc)).toHaveLength(0);

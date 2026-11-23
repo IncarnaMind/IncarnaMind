@@ -26,7 +26,12 @@ import {
   type ProviderErrorKind,
 } from "../api";
 import type { WindowedPassage } from "../documents/search";
-import { InvalidInputError } from "../errors";
+import {
+  ChatNotReadyError,
+  ConsentDeclinedError,
+  ConsentNeededError,
+  InvalidInputError,
+} from "../errors";
 import type { Language } from "../language";
 import type { MindContent } from "../mindContent";
 import { inFlow } from "../timing/flows";
@@ -197,6 +202,7 @@ interface Written {
 }
 
 export interface MeetingFillOptions {
+  localOnly(): boolean;
   content: Pick<MindContent, "read" | "edit">;
   meetings: {
     get(meetingId: string): Meeting;
@@ -789,6 +795,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     route: Routed,
     signal: AbortSignal,
   ): Promise<CellAnswer> {
+    signal.throwIfAborted();
     const answer = await options.answers.answerMeetingFill({
       context,
       passages: part,
@@ -878,6 +885,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const selected = meeting.writeupTemplateId
       ? await options.writeupTemplate?.(meeting.writeupTemplateId)
       : null;
+    signal.throwIfAborted();
     if (selected?.fillUncovered === false && lines.length === 0) {
       throw new FillProblemError({
         kind: "empty",
@@ -887,6 +895,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     const mode = lines.length > 0 ? "notes" : "sections";
     const name = options.userName();
     const filling: Partial<StoredFill> = {
+      unwritten: meetings.storedFill(meeting.id)?.refill ? undefined : true,
       state: "filling",
       mode,
       local: route.local,
@@ -900,6 +909,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
     set(meeting.id, filling);
     const passages = await passagesOf(transcriptId);
+    signal.throwIfAborted();
     const asBefore =
       route.local ||
       passages.reduce((sum, passage) => sum + estimateTokens(passage.text), 0) <=
@@ -938,7 +948,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
     // still the same place in the call: the count grows, the place doesn't (#2839).
     const place = () => {
       const of = read + queue.length;
-      if (of > 1 && queue.length > 0) set(meeting.id, { part: { at: read + 1, of } });
+      if (of > 1 && queue.length > 0 && !signal.aborted)
+        set(meeting.id, { part: { at: read + 1, of } });
     };
     const send = (part: CallPart) => {
       asked += 1;
@@ -1184,6 +1195,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
         ...ledger.omittedReasons(unfinishedParts === 0),
       });
     }
+    signal.throwIfAborted();
     const stretches = stretchesOf(gaps, passages, options.said);
     set(meeting.id, {
       omitted,
@@ -1364,7 +1376,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
     };
   }
 
-  async function fill(meetingId: string): Promise<void> {
+  async function fill(meetingId: string, controller: AbortController): Promise<void> {
     const pass = told.get(meetingId) ?? null;
     const meeting = meetings.get(meetingId);
     const transcriptId = meeting.transcript?.documentId ?? null;
@@ -1375,8 +1387,19 @@ export function createMeetingFill(options: MeetingFillOptions) {
       });
       return;
     }
-    if (meeting.fill?.agentId) {
-      set(meetingId, { state: "own-ai", problem: null });
+    const stored = meetings.storedFill(meetingId);
+    const resuming = stored?.state === "waiting" && stored.unwritten;
+    if (resuming && options.localOnly()) {
+      set(meetingId, {
+        state: "off",
+        unwritten: undefined,
+        problem: { kind: "local-mode", message: alone("meetings.fill.problem.localMode") },
+      });
+      return;
+    }
+    const agentId = resuming ? options.notesAgentId() : meeting.fill?.agentId;
+    if (agentId) {
+      set(meetingId, { state: "own-ai", agentId, unwritten: undefined, problem: null });
       return;
     }
     let route: FillRoute;
@@ -1390,7 +1413,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       route = { problem: { kind: "no-model", message: alone("meetings.fill.problem.noModel") } };
     }
     // Its note went to Recently deleted meanwhile: the fill waits for it to come back (`restored`).
-    if (closed || meetings.isDeleted(meetingId)) return;
+    if (closed || controller.signal.aborted || meetings.isDeleted(meetingId)) return;
     if ("problem" in route && meeting.kind === "meeting") {
       set(
         meetingId,
@@ -1400,8 +1423,6 @@ export function createMeetingFill(options: MeetingFillOptions) {
       );
       return;
     }
-    const controller = new AbortController();
-    running.set(meetingId, controller);
     try {
       // A model on this computer would share it with the pass: it waits for the pass.
       if (pass && "model" in route && route.local) {
@@ -1425,6 +1446,8 @@ export function createMeetingFill(options: MeetingFillOptions) {
           },
         );
       }
+      // The Note and fill status are separate writes. A quit between them must not repeat the edit.
+      if (meetings.storedFill(meetingId)?.unwritten) set(meetingId, { unwritten: undefined });
       options.checkpoint(meeting.mindId);
       const { added, fingerprints, removed } = content.edit(
         meeting.mindId,
@@ -1471,19 +1494,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
               message: error instanceof Error ? error.message : String(error),
             };
       const ended = { meetingId, kind: problem.kind, message: problem.message };
-      // At a quit it is left as it was: the next start says it stopped, or starts it (`resume`).
       if (closed) {
         log.info("meeting.fillClosed", ended);
         return;
       }
       const deleted = meetings.isDeleted(meetingId);
       log.warn("meeting.fillFailed", ended);
-      // In Recently deleted it stays as it was: once back, "filling" says it stopped and
-      // "waiting" starts (`restored`).
-      if (deleted) return;
+      if (deleted || controller.signal.aborted) return;
       set(meetingId, { state: "failed", problem, part: undefined, blocks: [] });
-    } finally {
-      if (running.get(meetingId) === controller) running.delete(meetingId);
     }
   }
 
@@ -1518,6 +1536,17 @@ export function createMeetingFill(options: MeetingFillOptions) {
           signal,
         })
         .catch((error: unknown) => {
+          const service =
+            error instanceof ConsentNeededError || error instanceof ConsentDeclinedError
+              ? error.flow.service.name
+              : error instanceof ChatNotReadyError &&
+                  !error.readiness.ready &&
+                  error.readiness.reason === "consent-declined"
+                ? error.readiness.provider.service?.name
+                : undefined;
+          if (service && error instanceof Error) {
+            throw new FillProblemError({ kind: "not-allowed", service, message: error.message });
+          }
           // Not checked is not supported: it stays on the list.
           if (!signal.aborted) {
             log.warn("meeting.claimNotChecked", {
@@ -1538,16 +1567,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
     return new Set(claims.filter((_, index) => !supported[index]).map((fact) => fact.id));
   }
 
-  /** A fill asked for but not yet running: `running` is set only after the route is awaited. */
-  const starting = new Set<string>();
-
   function start(meetingId: string): void {
-    if (running.has(meetingId) || starting.has(meetingId)) return;
+    if (closed || running.has(meetingId)) return;
     if (!told.has(meetingId) && meetings.get(meetingId).transcript?.separating) {
       told.set(meetingId, speakersTold());
     }
-    starting.add(meetingId);
-    void inFlow("meeting-fill", () => fill(meetingId))
+    const controller = new AbortController();
+    running.set(meetingId, controller);
+    void inFlow("meeting-fill", () => fill(meetingId, controller))
       .catch((error: unknown) => {
         log.error("meeting.fillCrashed", {
           meetingId,
@@ -1555,23 +1582,46 @@ export function createMeetingFill(options: MeetingFillOptions) {
         });
       })
       .finally(() => {
-        starting.delete(meetingId);
+        if (running.get(meetingId) !== controller) return;
+        running.delete(meetingId);
+        if (controller.signal.aborted && !closed && !meetings.isDeleted(meetingId)) {
+          const restored = meetings.storedFill(meetingId);
+          if (restored) pickUp(meetingId, restored);
+        }
       });
   }
 
-  /** A fill no longer under way wrote nothing, and says so; one waiting for a saved Transcript starts. */
   function pickUp(meetingId: string, fill: StoredFill): void {
-    if (fill.state === "filling" && !running.has(meetingId) && !starting.has(meetingId)) {
-      set(meetingId, {
-        state: "failed",
-        problem: { kind: "stopped", message: "" },
-        part: undefined,
-        blocks: [],
-      });
-    } else if (fill.state === "waiting") {
-      const transcript = meetings.get(meetingId).transcript;
-      if (transcript?.state === "saved" && !transcript.separating) start(meetingId);
+    if (running.has(meetingId)) return;
+    if (fill.state === "filling") {
+      if (!fill.unwritten || fill.blocks.length || fill.refill) {
+        set(meetingId, {
+          state: "failed",
+          problem: { kind: "stopped", message: "" },
+          part: undefined,
+        });
+        return;
+      }
+      set(meetingId, { state: "waiting", part: undefined, checking: 0 });
+    } else if (fill.state !== "waiting") return;
+    const meeting = meetings.get(meetingId);
+    if (
+      meeting.kind === "meeting" &&
+      fill.state === "waiting" &&
+      !fill.refill &&
+      !fill.unwritten &&
+      !fill.blocks.length
+    ) {
+      set(meetingId, { unwritten: true });
     }
+    const transcript = meeting.transcript;
+    if (
+      transcript?.state === "saved" &&
+      (!transcript.separating ||
+        told.has(meetingId) ||
+        (fill.unwritten && options.startsBeforeSpeakers()))
+    )
+      start(meetingId);
   }
 
   return {
@@ -1625,8 +1675,7 @@ export function createMeetingFill(options: MeetingFillOptions) {
       if (
         original?.state === "waiting" ||
         original?.state === "filling" ||
-        running.has(meetingId) ||
-        starting.has(meetingId)
+        running.has(meetingId)
       ) {
         throw new InvalidInputError({ key: "error.meeting.templateBusy" });
       }
@@ -1659,6 +1708,26 @@ export function createMeetingFill(options: MeetingFillOptions) {
       return chosen;
     },
 
+    stop(meetingId: string): Meeting {
+      const current = meetings.get(meetingId);
+      if (
+        current.kind !== "meeting" ||
+        (current.fill?.state !== "waiting" && current.fill?.state !== "filling")
+      )
+        return current;
+      running.get(meetingId)?.abort("user-stopped");
+      return set(meetingId, {
+        state: "failed",
+        unwritten: undefined,
+        part: undefined,
+        checking: 0,
+        omitted: 0,
+        unfinishedParts: 0,
+        stretches: undefined,
+        problem: { kind: "user-stopped", message: "" },
+      });
+    },
+
     /** Try again, after a problem or an Undo. */
     retry(meetingId: string): Meeting {
       const stored = meetings.storedFill(meetingId);
@@ -1667,7 +1736,9 @@ export function createMeetingFill(options: MeetingFillOptions) {
       if (fill?.state === "failed" || fill?.state === "off" || fill?.state === "undone") {
         if (previous) meetings.setFill(meetingId, previous);
         const separating = meetings.get(meetingId).transcript?.separating === true;
-        if (separating) set(meetingId, { state: "waiting", problem: null, blocks: [] });
+        if (separating || running.get(meetingId)?.signal.aborted) {
+          set(meetingId, { state: "waiting", unwritten: undefined, problem: null, blocks: [] });
+        }
         // While a room's speakers are told apart, its notes wait for them, as at Stop: the pass's
         // end starts them (`transcriptSaved`). A call's start now, as they did at Stop.
         if (!separating || told.has(meetingId)) start(meetingId);
@@ -1726,14 +1797,14 @@ export function createMeetingFill(options: MeetingFillOptions) {
       return meetings.get(meetingId);
     },
 
-    /** At start: a fill a quit cut short wrote nothing, and says so; one waiting starts now. */
+    /** At start, pick up the notes that were still being prepared. */
     resume(): void {
       for (const { meetingId, fill } of meetings.unfinishedFills()) pickUp(meetingId, fill);
     },
 
     /** The Meeting's note went to Recently deleted (#1253): a fill under way stops, writing nothing. */
     halt(meetingId: string): void {
-      running.get(meetingId)?.abort();
+      running.get(meetingId)?.abort("deleted");
     },
 
     /** Meetings back from Recently deleted (#1253): their fills go on as after a start. */

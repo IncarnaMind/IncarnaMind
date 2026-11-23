@@ -117,7 +117,7 @@ interface Press {
 
 /**
  * Presses Review as the sidebar shows it, with the mouse, and waits until `expected`'s row is
- * selected and in view: the milliseconds from the click to that, and the row's id.
+ * selected, focused and in view: the milliseconds from the click to that, and the row's id.
  */
 async function pressReview(
   window: Page,
@@ -141,7 +141,7 @@ async function pressReview(
         const row = document.querySelector<HTMLElement>(
           `[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`,
         );
-        if (row) {
+        if (row && row.querySelector("[data-row-main]") === document.activeElement) {
           const box = row.getBoundingClientRect();
           const view = row
             .closest<HTMLElement>('[data-testid="library"]')
@@ -416,6 +416,7 @@ test("Review reaches a Document past Not in a Folder's first rows when a search 
     for (const id of [...listed, last]) {
       await library.getByTestId("library-search").fill("Nothing matches this");
       await pressReview(window, id);
+      await expect.poll(() => notSortedIds(window)).toHaveLength(9);
     }
     await expect(attentionOf(window)).toHaveCount(0);
   } finally {
