@@ -435,6 +435,64 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
+  test(`a card opened from the keyboard keeps Open under the pointer from its press to its release, and Open opens the source (${language})`, async () => {
+    const { app, window, editor } = await openThreeChips(language);
+    try {
+      // Low in the view, the card opens above its chip and grows upward from it, so a line that
+      // goes from its foot would carry Open down.
+      await editor.evaluate((dom) => {
+        const { commands } = (dom as unknown as { editor: Editor }).editor;
+        commands.insertContentAt(
+          0,
+          Array.from({ length: 40 }, () => ({
+            type: "paragraph",
+            content: [{ type: "text", text: "·" }],
+          })),
+        );
+      });
+      const card = window.getByTestId("citation-card");
+      await caretAtStart(window, editor);
+      await window.keyboard.press("Tab");
+      await expect(card).toHaveCount(1);
+      const chip = await window.getByTestId(CHIP).first().boundingBox();
+      const opened = await card.boundingBox();
+      expect(
+        chip && opened && opened.y + opened.height <= chip.y,
+        "the card opens above its chip",
+      ).toBe(true);
+      await expect(window.getByTestId("card-key-hint")).toBeVisible();
+      await motionSettled(window);
+      const open = card.getByTestId("citation-open");
+      const before = await open.boundingBox();
+      if (!before) throw new Error("The card's Open isn't drawn.");
+      await window.mouse.move(before.x + before.width / 2, before.y + before.height / 2, {
+        steps: 4,
+      });
+      await window.mouse.down();
+      // Whatever the press changes in the card (its focus, its key hint), Open stays where it was
+      // until the release, however long a person holds it.
+      await window.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      const pressed = await open.boundingBox();
+      const hint = await window.evaluate(() => {
+        const line = document.querySelector('[data-testid="card-key-hint"]');
+        return line
+          ? { shown: getComputedStyle(line).visibility !== "hidden", room: line.clientHeight }
+          : "gone";
+      });
+      await window.mouse.up();
+      expect(pressed, `Open moved under the press (the key hint: ${JSON.stringify(hint)})`).toEqual(
+        before,
+      );
+      await expect(window.getByTestId("viewer")).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
   test(`a card the pointer only rests over gives way to the keyboard's focus, and a pointer that moves takes over again (${language})`, async () => {
     test.setTimeout(240_000);
     const { app, window, editor } = await openThreeChips(language);
