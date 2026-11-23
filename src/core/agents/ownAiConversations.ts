@@ -6,7 +6,7 @@
  * each request and reply; it never reads the agent's transcript, and deletes both copies when the
  * Note is deleted for good, the connection is removed or the consent is taken back.
  */
-import type { Logger, OwnAiFailure, OwnAiProgress, OwnAiRunner } from "../adapters";
+import type { Logger, OwnAiFailure, OwnAiModel, OwnAiProgress, OwnAiRunner } from "../adapters";
 import {
   AGENT_TOOLS,
   type AgentLaunch,
@@ -159,6 +159,7 @@ function promptOf(
 }
 
 export function createOwnAiConversations(options: OwnAiConversationsOptions) {
+  let listed: Promise<OwnAiModel[]> | null = null;
   const { db } = options;
   const running = new Map<
     string,
@@ -708,9 +709,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         }));
     },
 
-    /** The models the agent offers, as it lists them. */
+    /**
+     * The models the agent offers, as it lists them: asked once, since each asking starts the
+     * agent; a list it couldn't give is asked for again next time.
+     */
     async models() {
-      return (await options.runner?.models?.()) ?? [];
+      listed ??= (options.runner?.models?.() ?? Promise.resolve([])).then((models) => {
+        if (models.length === 0) listed = null;
+        return models;
+      });
+      return listed;
     },
 
     /** Deletes the conversations of Notes deleted for good. */
