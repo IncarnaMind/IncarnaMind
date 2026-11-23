@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { captureLines } from "../captureHealth";
 import { commands } from "../commands/registry";
+import { dialogOrMenuOpen } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
 import { currentTabOf } from "../layoutSlice";
 import { canKeepAudio, useAudioSaid } from "../meetingAudioWords";
@@ -68,10 +69,10 @@ export function MeetingViewChip({ meeting, tabId }: { meeting: Meeting; tabId: s
   useEffect(() => {
     const now = filled && !wasFilled.current;
     wasFilled.current = filled;
-    if (now && inFront && !shownForFill && takeFirstShow("meeting-recorded")) {
-      shownForFill = true;
-      show({ quiet: true });
-    }
+    if (!now || !inFront || shownForFill || dialogOrMenuOpen()) return;
+    if (!takeFirstShow("meeting-recorded")) return;
+    shownForFill = true;
+    show({ quiet: true });
   }, [filled, inFront, show]);
 
   // A problem line's Details opens them here, at the popover's foot.
