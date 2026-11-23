@@ -1216,8 +1216,8 @@ for (const language of ["en", "zh-CN"] as const) {
       // Selected with the keyboard from the paragraph's end: the tail never wraps as a drag over
       // it could on a machine whose fonts break it elsewhere, and the menu opens over it the same.
       const selectTail = async () => {
-        const last = await wordsBox(note, "at last");
-        await window.mouse.click(last.right + 2, last.y);
+        const { end } = await wordsBox(note, "at last");
+        await window.mouse.click(end.x + 2, end.y);
         for (let index = 0; index < TALL_WORDS.length; index++) {
           await window.keyboard.press("Shift+ArrowLeft");
         }

@@ -106,12 +106,13 @@ async function dragOver(
 ): Promise<void> {
   await expect(layer).toContainText(words);
   if (to) await expect(to.layer).toContainText(to.words);
-  const from = await wordsBox(layer, words);
-  const end = to ? await wordsBox(to.layer, to.words) : from;
-  await window.mouse.move(from.left - 8, from.y, { steps: 4 });
-  await window.mouse.move(from.left + 1, from.y, { steps: 2 });
+  const box = await wordsBox(layer, words);
+  const start = box.start;
+  const end = to ? (await wordsBox(to.layer, to.words)).end : box.end;
+  await window.mouse.move(start.x - 8, start.y, { steps: 4 });
+  await window.mouse.move(start.x + 1, start.y, { steps: 2 });
   await window.mouse.down();
-  await window.mouse.move(end.right + 2, end.y, { steps: 12 });
+  await window.mouse.move(end.x + 2, end.y, { steps: 12 });
   await window.mouse.up();
 }
 

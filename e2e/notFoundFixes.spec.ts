@@ -131,12 +131,12 @@ async function dragAcross(window: Page, view: Locator, from: string, to: string)
   await expect(view).toContainText(to);
   await motionSettled(window);
   await expect(async () => {
-    const start = await wordsBox(view, from);
-    const end = await wordsBox(view, to);
-    await window.mouse.move(start.left - 6, start.y, { steps: 4 });
-    await window.mouse.move(start.left + 1, start.y, { steps: 2 });
+    const { start } = await wordsBox(view, from);
+    const { end } = await wordsBox(view, to);
+    await window.mouse.move(start.x - 6, start.y, { steps: 4 });
+    await window.mouse.move(start.x + 1, start.y, { steps: 2 });
     await window.mouse.down();
-    await window.mouse.move(end.right - 1, end.y, { steps: 12 });
+    await window.mouse.move(end.x - 1, end.y, { steps: 12 });
     await window.mouse.up();
     expect(
       await window.evaluate(() => getSelection()?.toString().replace(/\s+/g, " ").trim()),

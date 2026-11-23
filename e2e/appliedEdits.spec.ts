@@ -790,11 +790,11 @@ async function wordsBoxInView(window: Page, line: Locator, words: string, nth = 
 
 /** Selects the `nth` `words` of a line with one mouse drag, as a person does. */
 async function selectNth(window: Page, line: Locator, words: string, nth: number) {
-  const box = await wordsBoxInView(window, line, words, nth);
-  await window.mouse.move(box.left - 6, box.y, { steps: 4 });
-  await window.mouse.move(box.left + 1, box.y, { steps: 2 });
+  const { start, end } = await wordsBoxInView(window, line, words, nth);
+  await window.mouse.move(start.x - 6, start.y, { steps: 4 });
+  await window.mouse.move(start.x + 1, start.y, { steps: 2 });
   await window.mouse.down();
-  await window.mouse.move(box.right - 1, box.y, { steps: 12 });
+  await window.mouse.move(end.x - 1, end.y, { steps: 12 });
   await window.mouse.up();
   // After a drag, ProseMirror puts its selection back into the page in a task queued as the mouse
   // comes up; a key pressed before that task runs is undone by it.

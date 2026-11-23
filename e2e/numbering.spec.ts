@@ -111,10 +111,9 @@ const near = (value: number, expected: number, what: string) =>
   expect(Math.abs(value - expected), `${what}: ${value} is not ${expected}`).toBeLessThanOrEqual(1);
 
 async function rightClickWords(window: Page, line: Locator, words: string): Promise<void> {
-  const box = await wordsBox(line, words);
-  const x = (box.left + box.right) / 2;
-  await window.mouse.move(x, box.y, { steps: 8 });
-  await window.mouse.click(x, box.y, { button: "right" });
+  const { start } = await wordsBox(line, words);
+  await window.mouse.move(start.x + 1, start.y, { steps: 8 });
+  await window.mouse.click(start.x + 1, start.y, { button: "right" });
 }
 
 async function aaNumbering(window: Page, line: Locator, words: string): Promise<Locator> {

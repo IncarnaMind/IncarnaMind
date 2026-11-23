@@ -404,9 +404,9 @@ test("a PDF highlight selected across a page break is drawn on both pages", asyn
     [page1, "in the second quarter"],
     [page2, "of the year"],
   ] as const) {
-    const { y } = await wordsBox(line, words);
-    expect(y).toBeGreaterThan(view.y);
-    expect(y).toBeLessThan(view.y + view.height);
+    const { start, end } = await wordsBox(line, words);
+    expect(start.y).toBeGreaterThan(view.y);
+    expect(end.y).toBeLessThan(view.y + view.height);
   }
 
   await slideSelect(window, page1, "in the second quarter", {
