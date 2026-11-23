@@ -677,6 +677,42 @@ describe("the writer's notes", () => {
     expect(crossReferences(document).results.map((each) => each.shows)).toEqual([1]);
   });
 
+  test("identical copies of one file are one source: one note, named for the copy the Note cites first", () => {
+    const copy = (id: string): CitedWork => ({ ...work(id), contentHash: "same-bytes" });
+    const notesOf = (first: string, second: string) =>
+      render([
+        paragraph(
+          cited(`${first}, p. 2`, false, { work: copy(first) }),
+          words(" and "),
+          cited(`${second}, p. 2`, false, { work: copy(second) }),
+        ),
+      ]);
+    const one = notesOf("Survey", "Survey copy");
+    expect(Object.values(one.footnotes)).toEqual(["Survey, p. 2"]);
+    expect(crossReferences(one.document).results.map((each) => each.shows)).toEqual([1]);
+    const other = notesOf("Survey copy", "Survey");
+    expect(Object.values(other.footnotes)).toEqual(["Survey copy, p. 2"]);
+  });
+
+  test("two web pages with one text at two addresses have a note each", () => {
+    const page = (id: string, link: string): Inline =>
+      cited(id, false, {
+        work: { ...work(id), contentHash: "same-text" },
+        footnote: { source: `Tides, ${link}`, unverified: false, link },
+      } as Partial<Inline>);
+    const { footnotes } = render([
+      paragraph(
+        page("page-a", "https://tides.example/a"),
+        words(" and "),
+        page("page-b", "https://tides.example/b"),
+      ),
+    ]);
+    expect(Object.values(footnotes)).toEqual([
+      "Tides, https://tides.example/a",
+      "Tides, https://tides.example/b",
+    ]);
+  });
+
   test("a citation style's own form for a repeat is a note of its own; the same form again is a reference", () => {
     const { document, footnotes, count } = render([
       paragraph(

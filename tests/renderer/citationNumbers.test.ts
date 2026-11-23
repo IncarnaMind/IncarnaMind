@@ -174,6 +174,49 @@ describe("Citation numbers", () => {
     expect(numberedCitations(state).map((each) => each.number)).toEqual([1, 2, 3]);
   });
 
+  test("two web pages with the same text, cited at one place, show two numbers; two copies of one file show one", () => {
+    const page = (id: string): JSONContent => ({
+      ...placed(id, 1),
+      attrs: { ...placed(id, 1).attrs, contentHash: "same-text" },
+    });
+    const web = (address: string) => ({
+      address,
+      origin: "user" as const,
+      siteName: "Tide Wiki",
+      author: null,
+      published: null,
+      fetchedAt: "2026-10-01T00:00:00Z",
+      versions: [],
+      picturesLeftOut: 0,
+      look: null,
+    });
+    const shownWith = (addresses: [string, string] | null) => {
+      const documents = ["page-a", "page-b"].map((id, index) => ({
+        id,
+        contentHash: "same-text",
+        web: addresses ? web(addresses[index] ?? "") : null,
+      }));
+      const state = EditorState.create({
+        doc: schema.nodeFromJSON({
+          type: "doc",
+          content: [
+            paragraph("a", page("page-a"), page("page-b"), text(" and again "), page("page-b")),
+          ],
+        }),
+        plugins: [citationNumbersPlugin(undefined, () => ({ documents }))],
+      });
+      return numberedCitations(state);
+    };
+    // Side by side, the two pages are two chips with two numbers; the second cited again repeats its own.
+    const pages = shownWith(["https://tides.example/a", "https://tides.example/b"]);
+    expect(pages.map((each) => each.number)).toEqual([1, 2, 2]);
+    expect(pages[0]?.shownBy).not.toBe(pages[1]?.shownBy);
+    // Two copies of one file are one source: one number, and side by side one chip.
+    const copies = shownWith(null);
+    expect(copies.map((each) => each.number)).toEqual([1, 1, 1]);
+    expect(copies[0]?.shownBy).toBe(copies[1]?.shownBy);
+  });
+
   test("a Document removed since turns a found and a not-found mark of one place into one footnote", () => {
     const doc = schema.nodeFromJSON({
       type: "doc",

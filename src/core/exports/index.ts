@@ -11,7 +11,13 @@ import { layoutChart } from "../../shared/chartLayout";
 import { chartSvg } from "../../shared/chartSvg";
 import { seriesName } from "../../shared/charts";
 import type { ResolvedCitationStyle } from "../../shared/citationStyles";
-import { citationState, citedLocation, citedName, shownDocumentName } from "../../shared/citations";
+import {
+  citationState,
+  citedAddress,
+  citedLocation,
+  citedName,
+  shownDocumentName,
+} from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
 import { comparisonQuestionsOf } from "../../shared/comparisons";
 import { formatDate } from "../../shared/dates";
@@ -1202,10 +1208,11 @@ export function footnoteOf(
   parts.push(web.address);
   if (version)
     parts.push(t("export.citation.accessed", { date: dayOf(version.fetchedAt, language) }));
+  const address = citedAddress(state.documentId, documents);
   return {
     source: parts.join(t("export.citation.separator")),
     unverified,
-    link: web.address,
+    ...(address !== null && { link: address }),
     ...(failed && { failed }),
   };
 }

@@ -144,11 +144,11 @@ export function citedTextKept(
   });
 }
 
-/** What a Citation needs of a live Document: whether it is there, and the name to show for it. */
+/** What a Citation needs of a live Document: whether it is there, its name, and a web page's address. */
 export type LiveDocument = Pick<Document, "id" | "contentHash"> &
-  Partial<Pick<Document, "name" | "title" | "speakers">>;
+  Partial<Pick<Document, "name" | "title" | "speakers" | "web">>;
 
-/** A list of Documents by ID and by content: the first in the list with each. */
+/** A list of Documents by ID, and by content: one of each content's copies, the same each time. */
 interface DocumentIndex {
   byId: ReadonlyMap<string, LiveDocument>;
   byContent: ReadonlyMap<string, LiveDocument>;
@@ -168,7 +168,10 @@ function indexOf(documents: readonly LiveDocument[]): DocumentIndex {
     const byContent = new Map<string, LiveDocument>();
     for (const document of documents) {
       if (!byId.has(document.id)) byId.set(document.id, document);
-      if (document.contentHash && !byContent.has(document.contentHash)) {
+      // Of identical copies, the one whose id sorts first, whatever order the list came in, so
+      // a Citation whose own copy is gone names the same copy each time.
+      const held = document.contentHash ? byContent.get(document.contentHash) : undefined;
+      if (document.contentHash && (!held || document.id < held.id)) {
         byContent.set(document.contentHash, document);
       }
     }
@@ -189,6 +192,19 @@ export function liveDocumentOf(
     (own === null ? undefined : byId.get(own)) ??
     (attributes.contentHash ? byContent.get(attributes.contentHash) : undefined)
   );
+}
+
+/**
+ * The address of the web page a Citation's live Document is (`CitationState.documentId`), else
+ * null: its footnote names it, and two pages with the same text at two addresses are two sources.
+ * The Note's numbers and every export take it from here, so they key a footnote alike.
+ */
+export function citedAddress(
+  documentId: string | null,
+  documents: readonly LiveDocument[] | null,
+): string | null {
+  if (documentId === null || documents === null) return null;
+  return indexOf(documents).byId.get(documentId)?.web?.address ?? null;
 }
 
 type Named = Partial<Pick<CitationAttributes, "documentId" | "contentHash" | "documentName">>;
@@ -669,15 +685,16 @@ export interface FootnoteSubject {
 }
 
 /**
- * What makes two Citations one footnote in an export (#1381, #1552): the same Document and
- * version, at the same place, with the same check. A later Citation with this key repeats the
- * first's footnote number, in a Word file and on screen alike (#2292). The place is its own
- * values, not the words it prints as: two places that read alike are still two places.
+ * What makes two Citations one footnote in an export (#1381, #1552): the same file, byte for byte,
+ * at the same place, with the same check. A later Citation with this key repeats the first's
+ * footnote number, in a Word file and on screen alike (#2292), so identical copies of one file,
+ * two Documents, are one source; its footnote names the copy the Note cites first. A Citation
+ * with no content hash is its Document's. The place is its own values, not the words it prints
+ * as: two places that read alike are still two places.
  */
 export function footnoteSubjectKey(subject: FootnoteSubject): string {
   return [
-    subject.documentId ?? "",
-    subject.contentHash ?? "",
+    subject.contentHash ? `content:${subject.contentHash}` : `document:${subject.documentId ?? ""}`,
     subject.location ? JSON.stringify(subject.location) : "",
     subject.unverified ? "unverified" : "verified",
     subject.link ?? "",
@@ -704,6 +721,7 @@ export function citationSubject(
     contentHash: attributes.contentHash ?? null,
     location: citationLocation(attributes),
     unverified: state.check !== "found",
+    link: citedAddress(state.documentId, documents),
   };
 }
 
