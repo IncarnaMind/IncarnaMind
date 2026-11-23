@@ -50,6 +50,7 @@ import { SHOW_AGENT_CONNECTION } from "../shared/agentConnection";
 import type { AnalysisJob } from "../shared/analysis";
 import { PLOT_FONT } from "../shared/analysisWindow";
 import { agentLauncher } from "./agentLauncher";
+import { appFolders, pathFolders } from "./agentPlaces";
 import { createAgentSkillFiles } from "./agentSkillFiles";
 import { createElectronAnalysisRuntime } from "./analysis";
 import { createCanvasFiles } from "./canvasFiles";
@@ -384,8 +385,9 @@ const fakeTranscriber: FakeTranscriberOptions | undefined =
 
 /**
  * A test build finds only the agents its test set up, never this computer's own apps:
- * INCARNAMIND_TEST_AGENT_APPS (JSON) lists the folders it looks in for them, none by default.
- * Their settings folders are looked for in the test's own home folder, as always.
+ * INCARNAMIND_TEST_AGENT_APPS (JSON) lists the folders it looks in for their apps and their
+ * commands, none by default. Their programs and extensions are looked for in the test's own home
+ * folder.
  */
 const testAgentApplications: readonly string[] | undefined =
   import.meta.env.MODE === "test"
@@ -1098,7 +1100,10 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
       shimScript: join(__dirname, "agentShim.js"),
       version: app.getVersion(),
       openLink: openAgentLink,
-      ...(testAgentApplications && { applications: testAgentApplications }),
+      applications:
+        testAgentApplications ?? appFolders(process.platform, app.getPath("home"), process.env),
+      commandFolders: async () =>
+        testAgentApplications ?? pathFolders(await loginShellProcesses.environment()),
     },
     embedder: createUtilityProcessEmbedder({ fake: fakeEmbedder }),
     summarizeWithMeetingAgent,
