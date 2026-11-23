@@ -18,6 +18,7 @@ import {
   markSteps,
   nameMind,
   newMind,
+  openExample,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -305,6 +306,7 @@ for (const language of LANGUAGES) {
 
   test(`one control writes an Answer as a note: the action row's own, with no second link under it (${language})`, async () => {
     const { app, window, tides } = await start(language, true, { document: false });
+    await openExample(window);
     // Their own file, then their own Answer, in the example's Note: a first run's first Answer.
     await markSteps(window, { indexed: true });
     await expectReadyDocuments(window, 2);
