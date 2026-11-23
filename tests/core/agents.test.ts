@@ -1216,6 +1216,7 @@ describe("the agents' socket", () => {
     const deepData = `/Users/ada/${"Very long data folder/".repeat(5)}IncarnaMind`;
     const deepTemp = `/Users/ada/${"Very long temp folder/".repeat(6)}tmp`;
     const shortFallback = agentSocketPath(deepData, "darwin", {
+      runtimeDir: "",
       tempDir: deepTemp,
       shortDir: "/tmp",
       canUseDir: () => true,
@@ -1226,6 +1227,7 @@ describe("the agents' socket", () => {
     expect(isSocketPathUsable(shortFallback)).toBe(true);
 
     const unusable = agentSocketPath(deepData, "darwin", {
+      runtimeDir: "",
       tempDir: deepTemp,
       shortDir: "/tmp",
       canUseDir: () => false,

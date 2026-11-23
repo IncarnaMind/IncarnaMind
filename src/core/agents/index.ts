@@ -747,8 +747,12 @@ export function createAgents(options: AgentsOptions) {
           version: options.version,
           paired: (pairingId, connection, grant, handshakeVersion) => {
             const granted = grant === undefined ? null : grants.get(grant);
-            // A grant that ended while its connection opened lets it do nothing.
-            if (closed || granted === undefined) {
+            // A grant that ended or a pairing disconnected while its connection opened lets it do nothing.
+            if (
+              closed ||
+              granted === undefined ||
+              (pairingId !== null && grant === undefined && !findPairing(pairingId))
+            ) {
               void connection.close();
               return;
             }
@@ -1015,7 +1019,7 @@ export function createAgents(options: AgentsOptions) {
         requests.forget(pairing.id, at);
       });
       tokens.delete(pairing.id);
-      if (legacyShims.delete(pairing.id)) saveLegacyShims();
+      const removedLegacy = legacyShims.delete(pairing.id);
       options.consent.revoke("agents", serviceOf(pairing).id);
       options.consent.revoke("hosted-agents", serviceOf(pairing).id);
       changed();
@@ -1024,6 +1028,13 @@ export function createAgents(options: AgentsOptions) {
       await Promise.all(
         [...watchers].map((watcher) => watcher.disconnected(pairing.id).catch(options.reportError)),
       );
+      if (removedLegacy) {
+        try {
+          saveLegacyShims();
+        } catch (error) {
+          options.reportError(error);
+        }
+      }
     },
 
     /** Hears each connection of a pairing's agent, and each pairing disconnected. */

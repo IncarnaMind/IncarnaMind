@@ -8389,10 +8389,8 @@ export const zhCN = {
   "agents.pairing.skillOld.ask": "替换会丢弃你对技能文件的修改。",
   "agents.pairing.skillOld.confirm": "替换技能",
   "agents.pairing.skillOld.cancel": "保留我的",
-  "agents.pairing.shimOld":
-    "正在使用旧版连接程序：请重新连接这个智能体，以便它在发送密钥前先验证 IncarnaMind。",
-  "agents.pairing.shimOld.bundle":
-    "正在使用旧版连接程序：重新安装后，它会在发送密钥前先验证 IncarnaMind",
+  "agents.pairing.shimOld": "旧版连接程序：请重新连接此智能体以更新。",
+  "agents.pairing.shimOld.bundle": "旧版连接程序：重新安装以更新",
   "agents.pairing.copySettings": "复制设置",
   "agents.pairing.copySkill": "复制技能",
   "agents.pairing.copySkill.hint": "保存为智能体技能文件夹中的 incarnamind/SKILL.md。",

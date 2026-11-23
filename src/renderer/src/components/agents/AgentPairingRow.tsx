@@ -343,17 +343,23 @@ export function AgentPairingRow({
               {isBundleClient ? (
                 <>
                   {t("agents.pairing.shimOld.bundle")}
-                  <span aria-hidden="true"> · </span>
-                  <button
-                    type="button"
-                    data-testid="agent-shim-reinstall"
-                    onClick={() =>
-                      core.openAgentInstallAgain(pairing.id).then(onInstallReopened, reportError)
-                    }
-                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-                  >
-                    {t("agents.pairing.installAgain")}
-                  </button>
+                  {!awaitingInstall && (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <button
+                        type="button"
+                        data-testid="agent-shim-reinstall"
+                        onClick={() =>
+                          core
+                            .openAgentInstallAgain(pairing.id)
+                            .then(onInstallReopened, reportError)
+                        }
+                        className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                      >
+                        {t("agents.pairing.installAgain")}
+                      </button>
+                    </>
+                  )}
                 </>
               ) : (
                 t("agents.pairing.shimOld")

@@ -60,11 +60,29 @@ const isWritableFolder = (dir: string): boolean => {
   }
 };
 
-/** Whether `dir` (such as $XDG_RUNTIME_DIR) is a writable, user-owned 0700 directory. */
+/** Whether `dir` (such as $XDG_RUNTIME_DIR) passes the same trust checks as `verifyUnixDirChain` and is a writable, user-owned 0700 directory. */
 function isPrivateUserRuntimeDir(dir: string, uid: number | undefined): boolean {
   if (!isAbsolute(dir)) return false;
   try {
+    if (uid !== undefined) {
+      for (const step of prefixesFromRoot(dir)) {
+        const stepInfo = lstatSync(step);
+        if (stepInfo.isSymbolicLink() && stepInfo.uid !== 0 && stepInfo.uid !== uid) {
+          return false;
+        }
+      }
+    }
     const resolved = realpathSync(dir);
+    if (uid !== undefined) {
+      for (const step of prefixesFromRoot(resolved)) {
+        const stepInfo = lstatSync(step);
+        if (!stepInfo.isDirectory()) return false;
+        if (stepInfo.uid !== 0 && stepInfo.uid !== uid) return false;
+        if (stepInfo.uid === uid && (stepInfo.mode & 0o077) === 0) break;
+        const sticky = (stepInfo.mode & 0o1000) !== 0;
+        if ((stepInfo.mode & 0o002) !== 0 && !(stepInfo.uid === 0 && sticky)) return false;
+      }
+    }
     const info = lstatSync(resolved);
     if (!info.isDirectory()) return false;
     if (uid !== undefined && info.uid !== uid) return false;

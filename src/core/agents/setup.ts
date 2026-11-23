@@ -670,6 +670,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       const { pairings, awaitingInstall, shimsOutOfDate } = options.agents.settings();
       const pairing = pairings.find((each) => each.id === pairingId);
       if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
+      if (clientDefinition(pairing.client)?.setup !== "bundle") return;
       if (!awaitingInstall.includes(pairing.id) && !shimsOutOfDate.includes(pairing.id)) return;
       await openBundle(pairing.id, await options.agents.launch(pairing.id));
     },

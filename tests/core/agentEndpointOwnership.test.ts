@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
@@ -12,6 +12,7 @@ import {
   handshakeLine,
   parseOpeningLine,
   serverChallengeLine,
+  serverProofInput,
 } from "../../src/shared/agentSocket";
 import { translate } from "../../src/shared/i18n";
 import { agentSocketAnswers, legacyAgentClient } from "../helpers/agentClients";
@@ -305,27 +306,59 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
   it("refuses a decoy that closes immediately or replays a stale proof, with 0 key bytes sent", async () => {
     const shimPath = await buildAgentShim();
     const token = "im_secret_replay_token_never_on_the_wire";
-    const endpoint = isUnix
+    const closeEndpoint = isUnix
       ? join(await createTempDataFolder(), "decoy-close.sock")
       : `\\\\.\\pipe\\incarnamind-decoy-close-${randomBytes(8).toString("hex")}`;
 
-    const decoy = await startDecoyServer(endpoint, {
+    const closingDecoy = await startDecoyServer(closeEndpoint, {
       mode: 0o600,
       onLine: (_line, socket) => socket.end(),
     });
     try {
       const result = await probeBuiltShim(shimPath, {
-        [AGENT_SOCKET_ENV]: endpoint,
+        [AGENT_SOCKET_ENV]: closeEndpoint,
         [AGENT_TOKEN_ENV]: token,
       });
 
-      expect(decoy.received).not.toContain(token);
-      expect(decoy.received).not.toContain('"proof"');
+      expect(closingDecoy.received).not.toContain(token);
+      expect(closingDecoy.received).not.toContain('"proof"');
       const errorMessage = (result.reply?.error as { message?: string } | undefined)?.message ?? "";
       expect(errorMessage).toContain("Couldn't verify IncarnaMind");
       expect(result.stderr).not.toContain(token);
     } finally {
-      await decoy.close();
+      await closingDecoy.close();
+    }
+
+    // Replaying a genuine proof generated for a different (stale) shim nonce must also be rejected.
+    const replayEndpoint = isUnix
+      ? join(await createTempDataFolder(), "decoy-replay.sock")
+      : `\\\\.\\pipe\\incarnamind-decoy-replay-${randomBytes(8).toString("hex")}`;
+    const appNonce = "stale_app_nonce_1234567890";
+    const staleProof = createHmac("sha256", token)
+      .update(serverProofInput("previous_session_shim_nonce_123456", appNonce))
+      .digest("hex");
+    const replayDecoy = await startDecoyServer(replayEndpoint, {
+      mode: 0o600,
+      onLine: (_line, socket) => {
+        socket.write(serverChallengeLine(appNonce, [staleProof]));
+      },
+    });
+    try {
+      const result = await probeBuiltShim(shimPath, {
+        [AGENT_SOCKET_ENV]: replayEndpoint,
+        [AGENT_TOKEN_ENV]: token,
+      });
+
+      expect(replayDecoy.connections).toBe(1);
+      expect(replayDecoy.received).not.toContain(token);
+      expect(replayDecoy.received).not.toContain('"proof"');
+      expect(replayDecoy.received).not.toContain("initialize");
+      const errorMessage = (result.reply?.error as { message?: string } | undefined)?.message ?? "";
+      expect(errorMessage).toContain("Couldn't verify IncarnaMind");
+      expect(result.stderr).toContain("server proof did not match pairing key");
+      expect(result.stderr).not.toContain(token);
+    } finally {
+      await replayDecoy.close();
     }
   }, 60_000);
 
@@ -724,6 +757,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
             const makeDir = process.argv[2] === "mkdir";
             if (makeDir) fs.mkdirSync(path.dirname(target), { mode: 0o755, recursive: true });
             const server = net.createServer((s) => {
+              process.stdout.write("ACCEPTED\\n");
               s.on("data", (d) => process.stdout.write("RECEIVED:" + JSON.stringify(d.toString("utf8")) + "\\n"));
               s.end();
             });
@@ -754,6 +788,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
           expect(
             (shimRes1.reply?.error as { message?: string } | undefined)?.message ?? "",
           ).toContain("Couldn't verify IncarnaMind");
+          expect(decoy1Out).not.toContain("ACCEPTED");
           expect(decoy1Out).not.toContain("RECEIVED:");
           expect(decoy1Out).not.toContain(token);
           decoy1.kill("SIGTERM");
@@ -777,6 +812,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
           expect(
             (shimRes2.reply?.error as { message?: string } | undefined)?.message ?? "",
           ).toContain("Couldn't verify IncarnaMind");
+          expect(decoy2Out).not.toContain("ACCEPTED");
           expect(decoy2Out).not.toContain("RECEIVED:");
           expect(decoy2Out).not.toContain(token);
           decoy2.kill("SIGTERM");

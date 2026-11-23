@@ -8919,10 +8919,8 @@ export const en = {
   "agents.pairing.skillOld.ask": "Replacing discards your changes to the Skill file.",
   "agents.pairing.skillOld.confirm": "Replace Skill",
   "agents.pairing.skillOld.cancel": "Keep mine",
-  "agents.pairing.shimOld":
-    "Using an older connection helper: reconnect this agent so it verifies IncarnaMind before sending its key.",
-  "agents.pairing.shimOld.bundle":
-    "Using an older connection helper: reinstall so it verifies IncarnaMind before sending its key",
+  "agents.pairing.shimOld": "Older connection helper: reconnect this agent to update.",
+  "agents.pairing.shimOld.bundle": "Older connection helper: reinstall to update",
   "agents.pairing.copySettings": "Copy settings",
   "agents.pairing.copySkill": "Copy Skill",
   "agents.pairing.copySkill.hint": "Save as incarnamind/SKILL.md in your agent’s skills folder.",

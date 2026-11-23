@@ -926,12 +926,15 @@ export function serveConnection(
     openedPromise: Promise<OpenedAgentConnection | null>,
     handshakeVersion: 1 | 2,
   ) => {
-    Promise.all([openedPromise, options.modelReady()]).then(
-      ([opened, ready]) => {
+    socket.pause();
+    openedPromise
+      .then(async (opened) => {
         if (socket.destroyed || opened === null) {
           socket.destroy();
           return;
         }
+        const ready = await options.modelReady();
+        if (socket.destroyed) return;
         // The model's state as this connection last knew it: a server is built at its first
         // message, which may come after the state changed.
         let modelNow = ready;
@@ -950,6 +953,7 @@ export function serveConnection(
               options.reportError(new Error(`An agent's connection failed (${error.name}).`)),
           },
         );
+        socket.resume();
         options.paired(
           opened.pairingId,
           {
@@ -977,12 +981,11 @@ export function serveConnection(
           modelNow = again;
           current?.modelChanged(again);
         });
-      },
-      (error: unknown) => {
+      })
+      .catch((error: unknown) => {
         options.reportError(error);
         socket.destroy();
-      },
-    );
+      });
   };
 
   const tryReadProofLine = () => {

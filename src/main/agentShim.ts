@@ -268,9 +268,19 @@ function resolveVerifiedEndpoint(socketPath: string): {
       }
     }
     const migrated = join(parent, `im-${uid}`, name);
-    const migratedResult = verifyUnixEndpoint(migrated);
-    if (migratedResult.verdict !== "not-open") {
-      return { ...migratedResult, target: migrated };
+    if (Buffer.byteLength(migrated) <= MAX_SOCKET_PATH_BYTES) {
+      const migratedResult = verifyUnixEndpoint(migrated);
+      if (migratedResult.verdict !== "not-open") {
+        return { ...migratedResult, target: migrated };
+      }
+    } else if (parent !== "/tmp") {
+      const shortMigrated = join("/tmp", `im-${uid}`, name);
+      if (Buffer.byteLength(shortMigrated) <= MAX_SOCKET_PATH_BYTES) {
+        const shortResult = verifyUnixEndpoint(shortMigrated);
+        if (shortResult.verdict !== "not-open") {
+          return { ...shortResult, target: shortMigrated };
+        }
+      }
     }
   }
   const direct = verifyUnixEndpoint(socketPath);

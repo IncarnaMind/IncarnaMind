@@ -303,6 +303,7 @@ const agents = (
   pairings: AgentPairing[],
   enabled = true,
   shimsOutOfDate: string[] = [],
+  awaitingInstall: string[] = [],
 ): AgentSettings =>
   ({
     enabled,
@@ -310,7 +311,7 @@ const agents = (
     pairings,
     skills: [],
     skillsOutOfDate: [],
-    awaitingInstall: [],
+    awaitingInstall,
     shimsOutOfDate,
   }) as never;
 
@@ -458,23 +459,28 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
       client: "claude-desktop",
     } as never;
     const { part } = await yourAi(agents([CLAUDE_CODE], true, [CLAUDE_CODE.id]));
-    expect(part("agent-pairing-shim-old")?.textContent).toContain(
-      "Using an older connection helper",
-    );
+    expect(part("agent-pairing-shim-old")?.textContent).toContain("Older connection helper");
     expect(part("agent-shim-reinstall")).toBeNull();
     await clear();
 
     const bundle = await yourAi(agents([claudeDesktop], true, [claudeDesktop.id]));
-    expect(bundle.part("agent-pairing-shim-old")?.textContent).toContain(
-      "Using an older connection helper",
-    );
+    expect(bundle.part("agent-pairing-shim-old")?.textContent).toContain("Older connection helper");
     expect(bundle.part("agent-shim-reinstall")?.textContent).toBe(
       "Open the install in Claude again",
     );
     await clear();
 
+    // When both awaitingInstall and shimOutOfDate apply, render only one reinstall button.
+    const both = await yourAi(
+      agents([claudeDesktop], true, [claudeDesktop.id], [claudeDesktop.id]),
+    );
+    expect(both.part("agent-pairing-shim-old")?.textContent).toContain("Older connection helper");
+    expect(both.part("agent-install-again")?.textContent).toBe("Open the install in Claude again");
+    expect(both.part("agent-shim-reinstall")).toBeNull();
+    await clear();
+
     const zh = await yourAi(agents([claudeDesktop], true, [claudeDesktop.id]), NO_MODEL, "zh-CN");
-    expect(zh.part("agent-pairing-shim-old")?.textContent).toContain("正在使用旧版连接程序");
+    expect(zh.part("agent-pairing-shim-old")?.textContent).toContain("旧版连接程序");
     expect(zh.part("agent-shim-reinstall")?.textContent).toBe("在 Claude 中重新打开安装");
   });
 
