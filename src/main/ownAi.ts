@@ -1,8 +1,9 @@
 /**
  * The User's own command-line AI, run once for a job they pressed (ADR-0032): Claude Code, the
  * `claude` the login shell finds, or Codex (./codex), signed in as the User set them up.
- * IncarnaMind reads only the version `--version` prints and the exit code of their sign-in status,
- * never the agent's settings or sign-in, and only once the User's consent is given. A run gets
+ * IncarnaMind reads only the version `--version` prints and the exit code of their sign-in status
+ * (and of Codex, the model catalog and the tool list it prints for a folder of the run's own), never
+ * the agent's settings or sign-in, and only once the User's consent is given. A run gets
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
