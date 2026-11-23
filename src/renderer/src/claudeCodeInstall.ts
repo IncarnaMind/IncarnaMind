@@ -20,7 +20,9 @@ let subscribed = false;
 
 function refreshAvailability(): void {
   core.getClaudeCodeInstallAvailability().then(
-    (availability) => useStore.setState({ availability }),
+    (availability) => {
+      if (availability && typeof availability === "object") useStore.setState({ availability });
+    },
     () => undefined,
   );
 }
@@ -29,6 +31,7 @@ function ensureLoaded(): void {
   if (!subscribed) {
     subscribed = true;
     core.on("claudeCodeInstall.changed", (next) => {
+      if (!next || typeof next !== "object") return;
       useStore.setState({ state: next, loaded: true });
       if (next.kind === "awaiting-sign-in" || next.kind === "signed-in" || next.kind === "idle") {
         refreshAvailability();
@@ -41,7 +44,11 @@ function ensureLoaded(): void {
   const { loaded, availability } = useStore.getState();
   if (!loaded) {
     core.getClaudeCodeInstallState().then(
-      (state) => useStore.setState({ state, loaded: true }),
+      (state) => {
+        if (state && typeof state === "object" && "kind" in state) {
+          useStore.setState({ state, loaded: true });
+        }
+      },
       () => undefined,
     );
   }
