@@ -75,7 +75,6 @@ import {
   groupsMerged,
   type LayoutSlice,
   type TabNotice,
-  WINDOW_ID,
 } from "./layoutSlice";
 import { type LibraryBridge, mindToAskIn } from "./libraryBridges";
 import type { WordsInLine } from "./lineNames";
@@ -1246,9 +1245,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           console.error("Couldn't tell whether the first run's setup should show.", error);
           return { show: false } as const;
         });
-        // Otherwise a first run's example Mind is made, once, and is what the app opens on.
+        // Otherwise a first run's example Mind is made, once; Home is what the app opens on.
         const offered = setup.show ? null : await core.offerExamples().catch(() => null);
-        if (offered?.mindId) await startGettingStarted(offered.mindId);
+        if (offered?.mindId) await startGettingStarted();
         await get().loadLayout();
         const readAt = new Map<PushedList, number>();
         // In the store at once: the Documents' events after the reply go on top of it, while the
@@ -1302,7 +1301,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         });
         // Before the tabs are drawn, so the Mind left in front isn't drawn only to be covered.
         if (linked) showOpened({ item: linked, front: true });
-        else if (!setup.show && !offered?.mindId && launchedBefore && !reloaded) {
+        else if (!setup.show && launchedBefore && !reloaded) {
           await get().openHome({ first: true });
         }
         const read = {
@@ -1357,7 +1356,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (get().setup?.from !== "work") return;
       try {
         const lead = await core.finishFirstRunSetup(work);
-        if (lead?.mindId) await startGettingStarted(lead.mindId);
+        if (lead?.mindId) await startGettingStarted();
+        await get().openHome();
         const [settings, every, firstOpen] = await Promise.all([
           core.getSettings(),
           readEveryExample(),
@@ -2406,22 +2406,15 @@ export const useAppStore = create<AppState>()((set, get) => {
   };
 });
 
-/**
- * The checklist starts with the example Mind on a first run, which opens as
- * the only tab, before the store has loaded the settings.
- */
-async function startGettingStarted(exampleMindId: string): Promise<void> {
+/** The checklist starts with the example Mind on a first run. */
+async function startGettingStarted(): Promise<void> {
   try {
     const { device } = await core.getSettings();
     await core.updateSettings({
       device: { gettingStarted: { ...device.gettingStarted, started: true } },
     });
-    await core.changeLayout(WINDOW_ID, {
-      type: "open",
-      item: { kind: "mind", mindId: exampleMindId },
-    });
-  } catch {
-    // Then the app opens as usual, without the checklist.
+  } catch (error) {
+    console.error("Couldn't start the Get started checklist.", error);
   }
 }
 
@@ -2448,8 +2441,8 @@ export const isOwnDocument = (document: Document, examples: readonly Examples[])
   isListedDocument(document) && !isExampleDocument(document, examples);
 
 /**
- * The example a first run opens on and shows first: the first pick's (#3296), the credit paper
- * when none was. The earlier version's tea example stands in for the credit paper.
+ * The example a first run makes first and Get started leads with: the first pick's (#3296), the
+ * credit paper when none was. The earlier version's tea example stands in for the credit paper.
  */
 const leadsOf = (examples: Examples, work: readonly WorkKind[]): boolean =>
   (examples.group === "tea" ? "credit" : examples.group) === leadGroupOf(work);

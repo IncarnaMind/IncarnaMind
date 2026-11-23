@@ -6,6 +6,7 @@ import {
   launchApp,
   leaveFirstOpen,
   newMind,
+  openExample,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -37,6 +38,7 @@ test.afterEach(async () => {
 for (const language of ["en", "zh-CN"] as const) {
   test(`the example's banner and New note's tooltip say what a Mind is, in ${language}`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await leaveFirstOpen(window);

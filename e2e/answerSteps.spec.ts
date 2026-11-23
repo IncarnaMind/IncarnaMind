@@ -17,6 +17,7 @@ import {
   launchApp,
   mindWrittenBefore,
   motionSettled,
+  openExample,
   openSteps,
   pointAndClick,
   pointAt,
@@ -913,6 +914,7 @@ for (const language of ["en", "zh-CN"] as const) {
     test.setTimeout(180_000);
     const words = EXAMPLE_LINES[language];
     const { app, window } = await start({ documents: false, examples: true });
+    await openExample(window);
     await core(window).language(language);
     await expect(window.getByTestId("mind-editor")).toContainText(words.note);
     await expect

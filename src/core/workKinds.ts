@@ -33,6 +33,6 @@ export function exampleGroupsOf(work: readonly WorkKind[]): ExampleGroup[] {
   return [...new Set(groups)];
 }
 
-/** The example a first run opens on: the first pick's, the credit paper when none was. */
+/** The example a first run makes first: the first pick's, the credit paper when none was. */
 export const leadGroupOf = (work: readonly WorkKind[]): ExampleGroup =>
   EXAMPLE_FOR_WORK[work[0] ?? "other"];

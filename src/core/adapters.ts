@@ -1459,7 +1459,7 @@ export interface CoreAdapters {
   decisionReadsByDefault?: boolean;
   /**
    * Whether a fresh profile opens on the first run's setup (#3296). Left out: it does. A test
-   * build says no unless a test asks for it, so the specs that open on the example still do.
+   * build says no unless a test asks for it, so the specs that need the example made at once get it.
    */
   setupOnFirstRun?: boolean;
   /**

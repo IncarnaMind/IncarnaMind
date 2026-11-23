@@ -7,6 +7,7 @@ import {
   createDataFolder,
   launchApp,
   newMind,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -303,6 +304,7 @@ for (const language of ["en", "zh-CN"] as const) {
       ollama: "http://127.0.0.1:9",
     });
     try {
+      await openExample(window);
       await setWindowSize(app, window, 900, 700);
       await setLanguage(window, language);
       await expect(window.getByTestId("mind-editor")).toContainText(

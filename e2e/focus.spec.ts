@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
-import { createDataFolder, launchApp, leaveFirstOpen, removeDataFolder } from "./app";
+import { createDataFolder, launchApp, leaveFirstOpen, openExample, removeDataFolder } from "./app";
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -118,6 +118,7 @@ async function pointAndClick(window: Page, target: Locator): Promise<void> {
 test("every Tab stop in a Mind, the sidebar and Settings shows the blue focus ring", async () => {
   // The example Mind is a working one: a Question with a scope, an Answer with checked Citations.
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await leaveFirstOpen(window);
   // A chat model, so the composer shows its model chip: an Ollama on a closed port, never called.
   await window.evaluate(async () => {

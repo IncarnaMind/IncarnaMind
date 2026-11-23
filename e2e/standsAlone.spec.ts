@@ -9,6 +9,7 @@ import {
   frontMind,
   launchApp,
   markSteps,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -52,6 +53,7 @@ test.afterEach(async () => {
 for (const walk of WALKS) {
   test(`asked from the example's page, an Answer about their own file says nothing of the example (${walk.name})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true, examples: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, walk.language);
     await expect(frontMind(window).locator(".mind-editor h1")).toHaveText(walk.example, {

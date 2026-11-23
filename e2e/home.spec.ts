@@ -2,14 +2,20 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { EXAMPLE_SETS } from "../src/core/exampleSets";
 import { formatLongDay } from "../src/shared/dates";
 import { translate } from "../src/shared/i18n";
 import type { MessageKey, MessageParams } from "../src/shared/i18n/types";
 import type { TestHooks } from "../src/shared/testHooks";
 import {
   createDataFolder,
+  exampleRow,
+  expectHomeInFront,
   focusSettled,
+  frontMindName,
   launchApp,
+  newMind,
+  openExample,
   pointAt,
   removeDataFolder,
   setLanguage,
@@ -71,12 +77,6 @@ const recentRow = (window: Page, title: string) =>
 const shownMindName = (window: Page) =>
   window.locator('[data-testid="mind-tab"][aria-selected="true"] [data-testid="tab-title"]');
 
-async function expectHomeInFront(window: Page): Promise<void> {
-  await expect(window.getByTestId("home")).toBeVisible();
-  await expect(homeTab(window)).toHaveAttribute("aria-selected", "true");
-  await expect(window.getByTestId("sidebar-home")).toHaveAttribute("aria-current", "page");
-}
-
 async function goHome(window: Page): Promise<void> {
   await window.getByTestId("sidebar-home").click();
   await expectHomeInFront(window);
@@ -90,15 +90,15 @@ for (const [language, width] of [
   ["zh-CN", 1440],
   ["zh-CN", 900],
 ] as const) {
-  test(`a first run opens the example Mind under a sidebar of Home and Search; the next launch opens on Home with a welcome, and Coming up only once a meeting is coming (${language}, ${width}px)`, async () => {
+  test(`a first run opens on Home, the example Mind made and one press away in a sidebar of Home and Search; the next launch opens on Home with a welcome, and Coming up only once a meeting is coming (${language}, ${width}px)`, async () => {
     const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
     let { app, window } = await launchApp(dataDir, { examples: true });
     try {
       await setWindowSize(app, window, width, 760);
       await setLanguage(window, language);
       const sidebar = window.getByTestId("sidebar");
-      await expect(window.getByTestId("mind-pane")).toBeVisible();
-      await expect(window.getByTestId("home")).toHaveCount(0);
+      await expectHomeInFront(window);
+      await expect(window.getByTestId("mind-pane")).toHaveCount(0);
 
       await expect(sidebar.getByTestId("plus-menu")).toBeVisible();
       await expect(sidebar.getByTestId("sidebar-home")).toHaveText(t("home.title"));
@@ -115,6 +115,13 @@ for (const [language, width] of [
       const searchBox = await sidebar.getByTestId("sidebar-search").boundingBox();
       expect(homeBox?.y ?? 0).toBeLessThan(searchBox?.y ?? 0);
       await screenshot(window, `home-first-run-${language}-${width}`);
+
+      // The example is made, and opens from its row with Get started.
+      await expect(exampleRow(window)).toHaveCount(1);
+      await openExample(window);
+      await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText(
+        t("firstOpen.title"),
+      );
       await app.close();
 
       ({ app, window } = await launchApp(dataDir, { examples: true }));
@@ -248,6 +255,33 @@ for (const [language, width] of [
       await expect(window.getByTestId("composer-input")).toBeFocused();
       await expectHomeInFront(window);
       await expect(window.getByTestId("composer-scope-all")).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`on a first run's Home, a new Note's Get started guide opens the example Note (${language})`, async () => {
+    const t = (key: MessageKey) => translate(language, key);
+    const { app, window } = await launchApp(dataDir, { examples: true });
+    try {
+      await setWindowSize(app, window, 1440, 800);
+      await setLanguage(window, language);
+      await expectHomeInFront(window);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(0);
+
+      await newMind(window);
+      const guide = window.getByTestId("start-guide");
+      await expect(guide).toBeVisible();
+      await expect(guide).toContainText(t("startGuide.example.lead"));
+      await guide.getByTestId("start-open-example").click();
+      await expect(window.getByTestId("first-open-steps").locator("h2")).toHaveText(
+        t("firstOpen.title"),
+      );
+      await expect(frontMindName(window)).toHaveText(EXAMPLE_SETS.credit[language].title, {
+        timeout: 30_000,
+      });
     } finally {
       await app.close();
     }

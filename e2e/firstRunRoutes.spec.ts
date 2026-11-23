@@ -10,8 +10,10 @@ import {
   assistantAnswers,
   createDataFolder,
   exampleRow,
+  expectHomeInFront,
   interceptOpenExternal,
   launchApp,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -250,6 +252,8 @@ for (const { language, width, height } of COMBINATIONS) {
       await acceptPlainTextKeys(window);
       await setLanguage(window, language);
       const example = exampleRow(window);
+      await expectHomeInFront(window);
+      await openExample(window);
       await expect(example).toHaveAttribute("aria-current", "page");
 
       const card = await askFirstQuestion(window);

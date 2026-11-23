@@ -22,6 +22,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openExample,
   openPageMenu,
   paletteFound,
   pointAndClick,
@@ -137,6 +138,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeFile(harbours, HARBOURS);
       const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
       try {
+        await openExample(window);
         await setWindowSize(app, window, width, 900);
         await setLanguage(window, language);
         await enableLocalModel(window);
@@ -272,6 +274,7 @@ test("the example's Documents stay reachable when its Mind is deleted after the 
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([notes]);
     await expect(window.getByTestId("example-section").getByTestId("mind-list-item")).toBeVisible({
@@ -326,6 +329,7 @@ test("the Examples heading's ⋯ and the keyboard open the examples' menu, and t
   await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([notes]);
     const example = window.getByTestId("example-section");
@@ -365,6 +369,7 @@ test("the Examples heading's ⋯ and the keyboard open the examples' menu, and t
 
 test("hiding the guide takes its red mark's ring and its ⌘K route away (#1944)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await markSteps(window, { ...NONE, indexed: true, askedReady: true });
   const mark = window.getByTestId("mind-pane").getByTestId("claim-mark");
@@ -430,6 +435,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const first = await createDataFolder();
       const a = await launchApp(first, { examples: true, fakeChat: true });
       try {
+        await openExample(a.window);
         await setWindowSize(a.app, a.window, width, 900);
         await setLanguage(a.window, language);
         await expectReadyDocuments(a.window, 2);
@@ -498,6 +504,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const second = await createDataFolder();
       const b = await launchApp(second, { examples: true, fakeChat: true });
       try {
+        await openExample(b.window);
         await setWindowSize(b.app, b.window, width, 900);
         await setLanguage(b.window, language);
         await expectReadyDocuments(b.window, 2);
@@ -533,6 +540,7 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
   await writeFile(file, "# 港口简报\n\n港口每月发布一次潮汐表，并在冬季疏浚之后更新。\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, "zh-CN");
     await window.getByTestId("add-documents-input").setInputFiles([file]);
@@ -554,6 +562,7 @@ test("a Chinese Question longer than the line cuts at a character, whole in its 
 test("the English example's Question shows whole on one line at 900 px (#2084)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, "en");
     await expectReadyDocuments(window, 2);
@@ -570,6 +579,7 @@ test("the English example's Question shows whole on one line at 900 px (#2084)",
 
 test("the Welcome card keeps one height through every step, so the page's text never moves (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
   // The example, and its ready Question, are there before the first height is taken.
   await expectReadyDocuments(window, 2);
@@ -612,6 +622,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
   await writeFile(damaged, "%PDF-1.4 this is not a PDF");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     const files = window.locator('[data-testid="first-open-step"][data-step="files"]');
     await expect(files).toHaveAttribute("data-state", "open");
     await expectReadyDocuments(window, 2);
@@ -650,6 +661,7 @@ test("a file that couldn't be read says so in step 1 without changing the card's
 
 test("the card keeps one height through every step with the sidebar dragged to its widest, in English and Chinese (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 900, 900);
   const card = window.getByTestId("first-open-steps");
   await expect(card).toBeVisible();
@@ -673,6 +685,7 @@ test("asking the ready Question opens the assistant, and the page stays still as
   for (const width of [900, 1100]) {
     const folder = await createDataFolder();
     const { app, window } = await launchApp(folder, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, width, 900);
     await expect(window.getByTestId("first-open-steps")).toBeVisible();
     const before = await measure(window);
@@ -704,6 +717,7 @@ test("asking the ready Question opens the assistant, and the page stays still as
 
 test("the Welcome card has no subtitle and no footer; its Examples row's ⋯ offers the other examples and removing them, which Undo takes back (#1195)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   const card = window.getByTestId("first-open-steps");
   await expect(card).toBeVisible();
@@ -740,6 +754,7 @@ const WORDS = {
 for (const language of ["en", "zh-CN"] as const) {
   test(`an example Mind's page ⋯ offers the other examples and removing them, after an own Mind has been made, with Undo (${language}) (#1195)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true });
+    await openExample(window);
     await setWindowSize(app, window, 900, 900);
     await setLanguage(window, language);
     await dismissChatSetup(window);
@@ -811,6 +826,7 @@ const TITLES = {
 
 test("Ask a question and Add your Documents do their step on a click, Enter or Space at any time, and doing it alone ticks nothing (#1489)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 900, 900);
   await cancelFilePicker(app);
   await expect(window.getByTestId("first-open-steps")).toBeVisible();
@@ -866,6 +882,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await writeFile(notes, "# Harbour notes\n\nThe harbour master publishes the tide tables.\n");
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
     try {
+      await openExample(window);
       await setWindowSize(app, window, 900, 900);
       await setLanguage(window, language);
       const card = window.getByTestId("first-open-steps");
@@ -922,6 +939,7 @@ test("a folder linked on the first step ticks step 1 alone (#1574)", async () =>
   );
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     const files = step(window, "files");
     await expect(files).toHaveAttribute("data-state", "open");
@@ -945,6 +963,7 @@ test("a file dropped on the window, or added from the + menu or ⌘O, ticks step
   await writeFile(opened, "# Opened notes\n\nThe pilot station answers on channel 12.\n");
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await window.getByTestId("add-documents-input").setInputFiles([dropped]);
     await expect(step(window, "files")).toHaveAttribute("data-state", "done", {
@@ -996,6 +1015,7 @@ const BUTTON_STATES = [
 
 test("a step's title looks like a button in every state, open, later and done: an icon, a name that says the action, a hover state and a focus ring, in English and Chinese (#1489)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await cancelFilePicker(app);
   const look = (button: Locator) =>
@@ -1073,6 +1093,7 @@ test("a step's title looks like a button in every state, open, later and done: a
 for (const language of ["en", "zh-CN"] as const) {
   test(`or see it on the example goes to the red ≠ and focuses it without opening its card or ticking, and checking a Citation ticks step 3, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 600);
     await setLanguage(window, language);
     await markSteps(window, { ...NONE, indexed: true, askedReady: true });
@@ -1134,6 +1155,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
 test("or see it on the example leaves the page where it is when the red ≠ is already in view (#1489)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await markSteps(window, { ...NONE, indexed: true, askedReady: true });
   const mark = window.getByTestId("mind-pane").getByTestId("claim-mark");
@@ -1155,6 +1177,7 @@ test("or see it on the example leaves the page where it is when the red ≠ is a
 for (const language of ["en", "zh-CN"] as const) {
   test(`Check a Citation goes to the page's first Citation and focuses it without opening its card; Enter opens it and ticks, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await markSteps(window, { ...NONE, indexed: true, askedReady: true });
@@ -1192,6 +1215,7 @@ for (const language of ["en", "zh-CN"] as const) {
 for (const language of ["en", "zh-CN"] as const) {
   test(`Ask ticks when the Answer arrives, never when the Question is only asked or its Answer fails, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await enableLocalModel(window);
@@ -1225,6 +1249,7 @@ const TIDES = buildPdf([
 for (const language of ["en", "zh-CN"] as const) {
   test(`Check a Citation ticks when a Citation's card opens, not when the example's red ≠ does, in ${language} (#1489)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await markSteps(window, { ...NONE, indexed: true, askedReady: true });
@@ -1262,6 +1287,7 @@ test("a red ≠ opened in a Mind of the User's own still records it (#1489)", as
     fakeChat: true,
     home: sources,
   });
+  await openExample(window);
   await setWindowSize(app, window, 1440, 900);
   await enableLocalModel(window);
   await window.getByTestId("add-documents-input").setInputFiles([join(sources, "Tides.pdf")]);
@@ -1352,6 +1378,7 @@ for (const language of ["en", "zh-CN"] as const) {
       home: sources,
     });
     try {
+      await openExample(window);
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       await acceptPlainTextKeys(window);
@@ -1419,6 +1446,7 @@ for (const language of ["en", "zh-CN"] as const) {
 for (const language of ["en", "zh-CN"] as const) {
   test(`opening a checked Citation from its card or from ⌘K ticks step 3, in ${language} (#2375)`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await markSteps(window, { ...NONE, indexed: true, askedOwn: true });
@@ -1467,6 +1495,7 @@ for (const language of ["en", "zh-CN"] as const) {
       home: sources,
     });
     try {
+      await openExample(window);
       await setWindowSize(app, window, 1440, 900);
       await setLanguage(window, language);
       await enableLocalModel(window, "fake-model-slow-check");

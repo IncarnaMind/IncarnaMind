@@ -16,6 +16,7 @@ import {
   leaveFirstOpen,
   motionSettled,
   newMind,
+  openExample,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -81,6 +82,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, { examples: true });
     try {
+      await openExample(window);
       // A wide window in English, a narrow one in Chinese.
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
@@ -173,6 +175,7 @@ for (const language of ["en", "zh-CN"] as const) {
       translate(language, key, params);
     const { app, window } = await launchApp(dataDir, { examples: true });
     try {
+      await openExample(window);
       // A wide window in English, a narrow one in Chinese.
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
@@ -251,6 +254,7 @@ for (const language of ["en", "zh-CN"] as const) {
       translate(language, key, params);
     const { app, window } = await launchApp(dataDir, { examples: true });
     try {
+      await openExample(window);
       // A wide window in English, a narrow one in Chinese.
       await setWindowSize(app, window, language === "en" ? 1600 : 900, 900);
       await setLanguage(window, language);
@@ -303,7 +307,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(checkedBy(1)).toHaveText(mine);
       await expect(checkedBy(2)).toHaveText(mine);
       // A narrow window shows one tab at a time: the badge is on the note's.
-      if (language !== "en") await pointAndClick(window, window.getByRole("tab").first());
+      if (language !== "en") await pointAndClick(window, window.getByTestId("mind-tab").first());
       await expect((await checkCard(window)).getByTestId("health-sign-offs")).toHaveText(
         t("signOff.count.mine", { count: 3 }),
       );

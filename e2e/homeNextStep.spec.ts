@@ -19,6 +19,7 @@ import {
   motionRunning,
   nameMind,
   newMind,
+  openExample,
   paletteOffers,
   pathsOpened,
   removeDataFolder,
@@ -84,6 +85,7 @@ for (const language of ["en", "zh-CN"] as const)
       const t = (key: Parameters<typeof translate>[1], values?: Parameters<typeof translate>[2]) =>
         translate(language, key, values);
       const running = await launchApp(dataDir, { examples: true, fakeChat: true });
+      await openExample(running.window);
       let { app, window } = running;
       try {
         await setWindowSize(app, window, width, 800);

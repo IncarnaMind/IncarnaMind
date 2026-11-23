@@ -13,11 +13,13 @@ import {
   controlReads,
   copied,
   createDataFolder,
+  expectHomeInFront,
   frontMind,
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
   motionSettled,
+  openExample,
   openSettings,
   removeDataFolder,
   setWindowSize,
@@ -327,6 +329,8 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
   await expect(panelOf(window)).toHaveCount(0);
+  await expectHomeInFront(window);
+  await openExample(window);
 
   // Get started follows the agent, and nothing on it asks for a key.
   const card = window.getByTestId("first-open-steps");
@@ -481,6 +485,7 @@ test("the agents found here come first, and any other is found by typing, in the
   await expect.poll(listed).toHaveLength(8);
 
   await skipTheRest(window);
+  await openExample(window);
   await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setAgentsEnabled(true),
   );
@@ -520,6 +525,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
   await connectClaudeCode(window, await atStep(window, "ai"));
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  await openExample(window);
   const card = window.getByTestId("first-open-steps");
   const step = (name: string) =>
     card.locator(`[data-testid="first-open-step"][data-step="${name}"]`);
@@ -655,6 +661,7 @@ test("the step asks the AI with the line typed, and copies it only where the AI 
   await connectClaudeCode(window, await atStep(window, "ai"));
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  await openExample(window);
   // VS Code, connected last, has no link that opens it with a line.
   await window.evaluate(async (everything) => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -725,6 +732,7 @@ test("the first-open card follows the connected agent when both an agent and a m
   await expect(ai.getByTestId("setup-ai-works")).toBeVisible();
   await ai.getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  await openExample(window);
   const card = window.getByTestId("first-open-steps");
   await expect(card.getByTestId("first-open-step")).toHaveText([
     /Add your Documents/,
@@ -744,6 +752,7 @@ test("the first-open card follows the connected agent when both an agent and a m
   await connectClaudeCode(again, await atStep(again, "ai"));
   await (await atStep(again, "ai")).getByTestId("setup-next").click();
   await (await atStep(again, "meetings")).getByTestId("setup-skip").click();
+  await openExample(again);
   await expect(again.getByTestId("first-open-steps").getByTestId("first-open-step")).toHaveText([
     /Add your Documents/,
     /Ask your AI for a document/,
@@ -759,6 +768,7 @@ test("with only their own AI, the User chooses a dedicated sorting model later i
   await connectClaudeCode(window, await atStep(window, "ai"));
   await (await atStep(window, "ai")).getByTestId("setup-next").click();
   await (await atStep(window, "meetings")).getByTestId("setup-skip").click();
+  await openExample(window);
   await window.getByTestId("first-open-steps").getByTestId("first-open-set-change").click();
   const settings = await showSettingsPage(window, "ai");
   await settings.getByTestId("ai-use-model-open").click();

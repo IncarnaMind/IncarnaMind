@@ -7,6 +7,7 @@ import {
   createDataFolder,
   interceptOpenDialog,
   launchApp,
+  openExample,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -84,6 +85,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const folder = join(sources, "contracts");
     await mkdir(folder, { recursive: true });
     const { app, window } = await launchApp(dataDir, { examples: true });
+    await openExample(window);
     await setWindowSize(app, window, 900, 700);
     await setLanguage(window, language);
     await linkFromFirstStep(app, window, folder);
@@ -123,6 +125,7 @@ test("a folder holding only files IncarnaMind can't read says so under its row, 
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "Old scan.wps"), "Not a format IncarnaMind reads.\n");
   const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
   await setWindowSize(app, window, 900, 700);
   await setLanguage(window, "en");
   await linkFromFirstStep(app, window, folder);

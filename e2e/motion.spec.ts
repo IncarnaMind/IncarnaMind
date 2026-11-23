@@ -10,6 +10,7 @@ import {
   motionLook,
   motionRunning,
   motionSettled,
+  openExample,
   openSettings,
   removeDataFolder,
   scaleOf,
@@ -221,6 +222,7 @@ test("until the User chooses, motion follows the system's Reduce motion, in Engl
 
 test("the Citation card grows from its Citation and goes back toward it", async () => {
   const { window } = await start({ width: 1280 }, { examples: true });
+  await openExample(window);
   const pane = window.getByTestId("mind-pane");
   const citation = pane.getByTestId("citation-chip").first();
   await expect(pane.getByTestId("citation").first()).toHaveAttribute("data-check", "found", {

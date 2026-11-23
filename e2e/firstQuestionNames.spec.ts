@@ -10,6 +10,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -74,6 +75,7 @@ for (const language of ["en", "zh-CN"] as const) {
       "# Harbour times\n\nHarbours publish the times of high water every 12 months.\n",
     );
     const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+    await openExample(window);
     let model: Awaited<ReturnType<typeof heldModel>> | null = null;
     try {
       await setWindowSize(app, window, 1440, 900);

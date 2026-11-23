@@ -174,13 +174,14 @@ export interface LaunchOptions {
    */
   usageData?: { host: string; testerBuild?: boolean };
   /**
-   * The app ships its examples (`resources/examples`), so a first run opens
-   * on the example Mind with "Get started". Without, a test build ships none.
+   * The app ships its examples (`resources/examples`), so a first run makes the example Mind
+   * with "Get started" and opens on Home (`openExample` brings it in front). Without, a test
+   * build ships none.
    */
   examples?: boolean;
   /**
    * A fresh profile opens on the first run's setup (#3296), as every other build does: a test
-   * build otherwise opens straight on the example. Implies `examples`; the launch then waits for
+   * build otherwise opens straight on Home. Implies `examples`; the launch then waits for
    * the setup page or the sidebar, whichever the profile opens on.
    */
   firstRunSetup?: boolean;
@@ -3283,6 +3284,19 @@ export const frontMind = (window: Page) =>
 /** The example Note's row in the sidebar, which carries no badge: its row says it is the example. */
 export const exampleRow = (window: Page) =>
   window.locator('[data-testid="mind-list-item"][data-example]');
+
+/** Home is the tab in front and the sidebar's Home row is the page the User is on. */
+export async function expectHomeInFront(window: Page): Promise<void> {
+  await expect(window.getByTestId("home")).toBeVisible();
+  await expect(window.getByTestId("home-tab")).toHaveAttribute("aria-selected", "true");
+  await expect(window.getByTestId("sidebar-home")).toHaveAttribute("aria-current", "page");
+}
+
+/** Opens the example Note from its row in the sidebar, as a first run's User does from Home. */
+export async function openExample(window: Page): Promise<void> {
+  await pointAndClick(window, exampleRow(window).first());
+  await expect(frontMind(window)).toBeVisible();
+}
 
 /** The name of the Mind the User is in, as its tab shows it. */
 export const frontMindName = (window: Page) =>
