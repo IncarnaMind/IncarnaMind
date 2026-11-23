@@ -14,9 +14,9 @@
  *   in (Claude Code's) is written with a backup and only whole (`SettingsFile.backup`);
  * - "manual": the settings to paste, worded for the agent's own screen.
  *
- * Whether an agent is on this computer is a guess from its app or the folder
- * it keeps its settings in, used only to list it first. The documentation
- * each setup follows is cited beside it, as it stood on 2026-11-19.
+ * An agent is on this computer where its installer left it: its app, a command
+ * on the PATH, its program, or its extension in an editor (`isInstalled`). The
+ * documentation each setup follows is cited beside it, as it stood on 2026-11-19.
  */
 import { join } from "node:path";
 import { HIDDEN_KEY } from "../../shared/agentSocket";
@@ -51,10 +51,17 @@ export interface ClientDefinition {
   /** A chat app, where the User talks to the AI; listed before the coding tools (#3487). */
   chat?: true;
   setup: AgentSetupKind;
-  /** Files or folders under the home folder whose presence says it is installed. */
-  home?: readonly (readonly string[])[];
-  /** Its app, on macOS. */
-  apps?: readonly string[];
+  /**
+   * Its app, where each system's installer puts it, under one of `InstallPlaces.applications`:
+   * the `.app` on macOS, the program on Windows, the launcher on Linux.
+   */
+  installs?: Partial<Record<"darwin" | "win32" | "linux", readonly (readonly string[])[]>>;
+  /** The commands it puts on the PATH. */
+  commands?: readonly string[];
+  /** Its program under the home folder, where its installer puts it off the PATH. */
+  homePrograms?: readonly (readonly string[])[];
+  /** Its id as an extension of a code editor (`publisher.name`). */
+  extension?: string;
   /**
    * The settings files a "file" setup writes. A list so that a setup can
    * write a second file (an Agent Skill, #378) beside the server's entry.
@@ -113,12 +120,17 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     // The same page: a chat link whose ID "is missing or invalid" opens "your recent chats"
     // instead, so it starts no chat. Claude Code's, Codex's and Cursor's pages document none.
     front: "claude://claude.ai/chat/",
-    apps: ["Claude.app"],
-    home: [
-      ["Library", "Application Support", "Claude"],
-      ["AppData", "Roaming", "Claude"],
-      [".config", "Claude"],
-    ],
+    installs: {
+      darwin: [["Claude.app"]],
+      // The Store's package runs from WindowsApps, which can't be read; its alias can. The installer
+      // before it, AnthropicClaude.
+      win32: [
+        ["Microsoft", "WindowsApps", "claude-desktop.exe"],
+        ["AnthropicClaude", "claude.exe"],
+      ],
+      linux: [["com.anthropic.Claude.desktop"]],
+    },
+    commands: ["claude-desktop"],
   },
   {
     // https://code.claude.com/docs/en/mcp: user-scoped servers "are stored in ~/.claude.json", the
@@ -144,7 +156,13 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
       most: 5_000,
       of: "prompt",
     },
-    home: [[".claude.json"], [".claude"]],
+    commands: ["claude"],
+    // The native installer's link; the older local install, which a shell alias runs.
+    homePrograms: [
+      [".local", "bin", "claude"],
+      [".local", "bin", "claude.exe"],
+      [".claude", "local", "claude"],
+    ],
     // https://code.claude.com/docs/en/skills (personal skills): its own folder only.
     skills: [[".claude", "skills"]],
   },
@@ -164,8 +182,16 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
       most: 5_000,
       of: "prompt",
     },
-    apps: ["Codex.app", "ChatGPT.app"],
-    home: [[".codex"]],
+    installs: {
+      darwin: [["ChatGPT.app"], ["Codex.app"]],
+      win32: [
+        ["Microsoft", "WindowsApps", "chatgpt-desktop.exe"],
+        ["OpenAI", "Codex", "bin", "codex.exe"],
+      ],
+      linux: [["chatgpt.desktop"]],
+    },
+    commands: ["codex"],
+    homePrograms: [[".local", "bin", "codex"]],
     files: [{ path: [".codex", "config.toml"], format: "codex-toml" }],
     // https://learn.chatgpt.com/docs/build-skills (user skills, shared with the ChatGPT desktop app).
     skills: [SHARED_SKILLS],
@@ -183,8 +209,12 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
       most: 10_000,
       of: "link",
     },
-    apps: ["Cursor.app"],
-    home: [[".cursor"]],
+    installs: {
+      darwin: [["Cursor.app"]],
+      win32: [["cursor", "Cursor.exe"]],
+      linux: [["cursor.desktop"]],
+    },
+    commands: ["cursor"],
     // https://cursor.com/docs/context/skills (user-level, and Claude's and Codex's for compatibility).
     skills: [SHARED_SKILLS, [".cursor", "skills"], [".claude", "skills"], [".codex", "skills"]],
   },
@@ -197,8 +227,21 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "VS Code",
     otherNames: ["Visual Studio Code", "Copilot", "GitHub Copilot"],
     setup: "file",
-    apps: ["Visual Studio Code.app"],
-    home: [[".vscode"], [".copilot"]],
+    installs: {
+      darwin: [["Visual Studio Code.app"], ["Visual Studio Code - Insiders.app"]],
+      win32: [
+        ["Microsoft VS Code", "Code.exe"],
+        ["Microsoft VS Code Insiders", "Code - Insiders.exe"],
+      ],
+      linux: [
+        ["com.microsoft.VSCode.desktop"],
+        ["code.desktop"],
+        ["com.microsoft.VSCodeInsiders.desktop"],
+        ["code_code.desktop"],
+        ["com.visualstudio.code.desktop"],
+      ],
+    },
+    commands: ["code", "code-insiders"],
     files: [
       {
         path: [".copilot", "mcp-config.json"],
@@ -221,7 +264,9 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
         "--",
         ...commandWords(launch, platform),
       ].join(" "),
-    home: [[".config", "opencode"], [".opencode"]],
+    // Its setup is a line of its command, so its command is what counts, not the desktop app.
+    commands: ["opencode"],
+    homePrograms: [[".opencode", "bin", "opencode"]],
     // https://opencode.ai/docs/skills/ (global, and the shared and Claude folders it also reads).
     skills: [SHARED_SKILLS, [".config", "opencode", "skills"], [".claude", "skills"]],
   },
@@ -239,8 +284,11 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
         ...envFlags("--env", launch, platform),
         "--no-probe",
       ].join(" "),
-    apps: ["OpenClaw.app"],
-    home: [[".openclaw"]],
+    commands: ["openclaw"],
+    homePrograms: [
+      [".openclaw", "bin", "openclaw"],
+      [".local", "bin", "openclaw"],
+    ],
     // https://docs.openclaw.ai/tools/skills
     skills: [SHARED_SKILLS, [".openclaw", "skills"]],
   },
@@ -250,11 +298,14 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Antigravity",
     otherNames: ["Google Antigravity", "Gemini"],
     setup: "file",
-    apps: ["Antigravity.app"],
-    home: [
-      [".gemini", "config"],
-      [".gemini", "antigravity"],
-    ],
+    installs: {
+      darwin: [["Antigravity.app"], ["Antigravity IDE.app"]],
+      win32: [
+        ["Antigravity IDE", "Antigravity IDE.exe"],
+        ["antigravity", "Antigravity.exe"],
+      ],
+    },
+    commands: ["antigravity-ide", "agy-ide"],
     files: [{ path: [".gemini", "config", "mcp_config.json"], format: "mcp-servers-json" }],
     // https://www.antigravity.google/docs/skills (global skills, Antigravity 2.0 and the IDE).
     skills: [[".gemini", "config", "skills"]],
@@ -272,7 +323,7 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
         SERVER_KEY,
         ...commandWords(launch, platform),
       ].join(" "),
-    home: [[".gemini", "settings.json"]],
+    commands: ["gemini"],
     // https://geminicli.com/docs/cli/skills/ (user skills; the shared alias comes first).
     skills: [SHARED_SKILLS, [".gemini", "skills"]],
   },
@@ -283,8 +334,15 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Devin Desktop",
     otherNames: ["Windsurf", "Devin"],
     setup: "manual",
-    apps: ["Devin.app", "Windsurf.app"],
-    home: [[".config", "devin"], [".codeium"]],
+    installs: {
+      darwin: [["Devin.app"], ["Devin - Next.app"], ["Windsurf.app"]],
+      win32: [
+        ["Devin", "Devin.exe"],
+        ["Windsurf", "Windsurf.exe"],
+      ],
+      linux: [["devin-desktop.desktop"], ["windsurf.desktop"]],
+    },
+    commands: ["devin-desktop", "windsurf"],
     skills: [SHARED_SKILLS, [".config", "devin", "skills"]],
   },
   {
@@ -293,7 +351,8 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     id: "cline",
     name: "Cline",
     setup: "file",
-    home: [[".cline"]],
+    extension: "saoudrizwan.claude-dev",
+    commands: ["cline"],
     files: [
       {
         path: [".cline", "data", "settings", "cline_mcp_settings.json"],
@@ -310,7 +369,9 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Kilo Code",
     otherNames: ["Kilo"],
     setup: "manual",
-    home: [[".kilo"], [".config", "kilo"]],
+    extension: "kilocode.kilo-code",
+    commands: ["kilo", "kilocode"],
+    homePrograms: [[".kilo", "bin", "kilo"]],
     // https://kilo.ai/docs/customize/skills
     skills: [SHARED_SKILLS, [".kilo", "skills"]],
   },
@@ -322,24 +383,43 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Zed",
     setup: "manual",
     pasted: (launch) => `${JSON.stringify({ [SERVER_KEY]: serverEntry(launch) }, null, 2)}\n`,
-    apps: ["Zed.app"],
-    home: [[".config", "zed"]],
+    installs: {
+      darwin: [["Zed.app"], ["Zed Preview.app"]],
+      win32: [["Zed", "Zed.exe"]],
+      linux: [["dev.zed.Zed.desktop"]],
+    },
+    // Some Linux packages name its command zeditor or zedit.
+    commands: ["zed", "zeditor", "zedit"],
   },
   {
     // https://docs.trae.cn/ide_add-mcp-servers: Settings › MCP › Add › Add Manually.
     id: "trae",
     name: "Trae",
     setup: "manual",
-    apps: ["Trae.app", "Trae CN.app"],
-    home: [[".trae"], [".trae-cn"]],
+    installs: {
+      darwin: [["Trae.app"], ["Trae CN.app"]],
+      win32: [
+        ["Trae", "Trae.exe"],
+        ["Trae CN", "Trae CN.exe"],
+      ],
+      linux: [["trae.desktop"], ["trae-cn.desktop"]],
+    },
+    commands: ["trae", "trae-cn"],
   },
   {
     // https://docs.qoder.com/user-guide/chat/model-context-protocol: My Servers › + Add.
     id: "qoder",
     name: "Qoder",
     setup: "manual",
-    apps: ["Qoder.app"],
-    home: [[".qoder"]],
+    installs: {
+      darwin: [["Qoder.app"], ["Qoder IDE.app"], ["Qoder CN.app"]],
+      win32: [
+        ["Qoder", "Qoder.exe"],
+        ["Qoder IDE", "Qoder.exe"],
+      ],
+      linux: [["qoder.desktop"]],
+    },
+    commands: ["qoder", "qodercli"],
     // https://docs.qoder.com/cli/Skills (user-level), and the shared folder its IDE also reads.
     skills: [[".qoder", "skills"], SHARED_SKILLS],
   },
@@ -351,8 +431,14 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "CodeBuddy",
     setup: "manual",
     pasted: (launch) => typedSnippet(launch),
-    apps: ["CodeBuddy.app"],
-    home: [[".codebuddy"]],
+    installs: {
+      darwin: [["CodeBuddy.app"], ["CodeBuddy CN.app"]],
+      win32: [
+        ["CodeBuddy", "CodeBuddy.exe"],
+        ["CodeBuddy CN", "CodeBuddy CN.exe"],
+      ],
+    },
+    commands: ["codebuddy", "cbc"],
     // https://www.codebuddy.ai/docs/cli/skills (user-level).
     skills: [[".codebuddy", "skills"]],
   },
@@ -369,7 +455,9 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
         SERVER_KEY,
         ...commandWords(launch, platform),
       ].join(" "),
-    home: [[".qwen"]],
+    installs: { win32: [["qwen-code", "bin", "qwen.cmd"]] },
+    commands: ["qwen"],
+    homePrograms: [[".local", "bin", "qwen"]],
     // https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/skills.md
     skills: [SHARED_SKILLS, [".qwen", "skills"]],
   },
@@ -380,7 +468,12 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "Kimi Code",
     otherNames: ["Kimi"],
     setup: "file",
-    home: [[".kimi-code"]],
+    // The Kimi CLI before it was also `kimi`, but its installer renames that one kimi-legacy.
+    commands: ["kimi"],
+    homePrograms: [
+      [".kimi-code", "bin", "kimi"],
+      [".kimi-code", "bin", "kimi.exe"],
+    ],
     files: [{ path: [".kimi-code", "mcp.json"], format: "mcp-servers-json" }],
     // https://www.kimi.com/code/docs/kimi-code-cli/customization/skills.html
     skills: [SHARED_SKILLS, [".kimi-code", "skills"]],
@@ -392,8 +485,13 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     name: "WorkBuddy",
     chat: true,
     setup: "file",
-    apps: ["WorkBuddy.app"],
-    home: [[".workbuddy"]],
+    installs: {
+      darwin: [["WorkBuddy.app"], ["WorkBuddy AI.app"]],
+      win32: [
+        ["WorkBuddy", "WorkBuddy.exe"],
+        ["WorkBuddyAI", "WorkBuddyAI.exe"],
+      ],
+    },
     files: [{ path: [".workbuddy", "mcp.json"], format: "mcp-servers-json" }],
   },
   {
@@ -404,8 +502,15 @@ export const AGENT_CLIENT_DEFINITIONS: readonly ClientDefinition[] = [
     otherNames: ["MiniMax"],
     setup: "manual",
     pasted: (launch) => typedSnippet(launch),
-    apps: ["MiniMax Code.app"],
-    home: [[".minimax"], [".minimax-code"]],
+    installs: {
+      darwin: [["MiniMax Code.app"]],
+      win32: [["MiniMax Code", "MiniMax Code.exe"]],
+    },
+    commands: ["mcode"],
+    homePrograms: [
+      [".minimax-code", "bin", "mcode"],
+      [".minimax-code", "mcode.cmd"],
+    ],
   },
   { id: "other", name: "", setup: "manual" },
 ];
@@ -443,16 +548,128 @@ export function promptLinkFor(client: string | null, prompt: string): string | n
 export const frontLinkFor = (client: string | null): string | null =>
   clientDefinition(client)?.front ?? null;
 
-/** Whether the agent looks installed: its app, or the folder it keeps its settings in. */
-export function isInstalled(
+/** Where this computer has its apps and commands, to tell which agents are installed (#3644). */
+export interface InstallPlaces {
+  home: string;
+  platform: NodeJS.Platform;
+  /**
+   * The folders apps are installed in: macOS's Applications folders, Windows' program folders,
+   * Linux's folders of launchers (`.desktop` files).
+   */
+  applications: readonly string[];
+  /** The folders on the PATH a terminal of the User's has. */
+  commandFolders: readonly string[];
+}
+
+/** How `isInstalled` reads the disk. */
+export interface InstallLook {
+  exists(path: string): Promise<boolean>;
+  /** A file the User's account may run. */
+  runnable(path: string): Promise<boolean>;
+  /** The file's text; null where there is none. */
+  read(path: string): Promise<string | null>;
+  /** The names in a folder; none where there is no folder. */
+  list(folder: string): Promise<readonly string[]>;
+}
+
+/** The folders under the home folder each editor keeps its extensions in. */
+const EXTENSION_FOLDERS = [
+  [".vscode", "extensions"],
+  [".vscode-insiders", "extensions"],
+  [".vscode-oss", "extensions"],
+  [".cursor", "extensions"],
+  [".devin", "extensions"],
+  [".windsurf", "extensions"],
+] as const;
+
+/**
+ * Whether an editor has the extension `id` (`publisher.name`). The editor lists the extensions it
+ * has in `extensions.json`; one uninstalled stays in the folder until the editor restarts, named in
+ * `.obsolete`, so the folder is read only where there is no list.
+ */
+async function extensionInstalled(id: string, home: string, look: InstallLook): Promise<boolean> {
+  const wanted = id.toLowerCase();
+  for (const segments of EXTENSION_FOLDERS) {
+    const folder = join(home, ...segments);
+    const listed = listedExtensions(await look.read(join(folder, "extensions.json")));
+    if (listed !== null) {
+      if (listed.includes(wanted)) return true;
+      continue;
+    }
+    const obsolete = Object.keys(parsedObject(await look.read(join(folder, ".obsolete"))));
+    const names = await look.list(folder);
+    if (
+      names.some((name) => name.toLowerCase().startsWith(`${wanted}-`) && !obsolete.includes(name))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The ids in an editor's `extensions.json`, lowercased; null where it has no such list. */
+function listedExtensions(text: string | null): string[] | null {
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  return parsed.flatMap((entry) => {
+    const id = isRecord(entry) && isRecord(entry.identifier) ? entry.identifier.id : undefined;
+    return typeof id === "string" ? [id.toLowerCase()] : [];
+  });
+}
+
+function parsedObject(text: string | null): Record<string, unknown> {
+  if (text === null) return {};
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** What a command may be called on Windows, where its name carries the kind of file it is. */
+const WINDOWS_COMMAND_ENDINGS = [".exe", ".cmd", ".bat", ".com"];
+
+/**
+ * Whether the agent is installed: its app, a command of its on the PATH, its program in the home
+ * folder, or its extension in an editor. A folder it keeps settings in is no sign, since it stays
+ * when the agent is uninstalled (#3644).
+ */
+export async function isInstalled(
   client: ClientDefinition,
-  where: { home: string; applications: readonly string[] },
-  exists: (path: string) => boolean,
-): boolean {
-  if (client.home?.some((segments) => exists(join(where.home, ...segments)))) return true;
-  return (
-    client.apps?.some((app) => where.applications.some((dir) => exists(join(dir, app)))) ?? false
-  );
+  places: InstallPlaces,
+  look: InstallLook,
+): Promise<boolean> {
+  const system =
+    places.platform === "darwin" || places.platform === "win32" ? places.platform : "linux";
+  const candidates: { path: string; runs: boolean }[] = [
+    ...(client.installs?.[system] ?? []).flatMap((segments) =>
+      places.applications.map((folder) => ({ path: join(folder, ...segments), runs: false })),
+    ),
+    ...(client.commands ?? []).flatMap((command) =>
+      (places.platform === "win32"
+        ? WINDOWS_COMMAND_ENDINGS.map((end) => command + end)
+        : [command]
+      ).flatMap((name) =>
+        places.commandFolders.map((folder) => ({ path: join(folder, name), runs: true })),
+      ),
+    ),
+    ...(client.homePrograms ?? []).map((segments) => ({
+      path: join(places.home, ...segments),
+      runs: true,
+    })),
+  ];
+  for (const { path, runs } of candidates) {
+    if (await (runs ? look.runnable(path) : look.exists(path))) return true;
+  }
+  if (!client.extension) return false;
+  return extensionInstalled(client.extension, places.home, look);
 }
 
 /** The server's entry, as most agents' `mcpServers` settings take it. */

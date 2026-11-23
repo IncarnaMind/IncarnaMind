@@ -7,6 +7,7 @@ import type { CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import type { MessageKey, MessageParams } from "../src/shared/i18n";
 import { translate } from "../src/shared/i18n";
+import { installAgent } from "../tests/helpers/agentInstalls";
 import {
   acceptPlainTextKeys,
   catchCopies,
@@ -130,12 +131,15 @@ const JARGON = {
 let dataDir: string;
 let home: string;
 let sources: string;
+let apps: string;
 let app: ElectronApplication | null = null;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   home = await realpath(await createDataFolder());
   sources = await realpath(await createDataFolder());
-  // Claude Code keeps its settings here, so the first run finds it on this computer.
+  apps = await realpath(await createDataFolder());
+  // Claude Code's command, so the first run finds it on this computer, and its settings file.
+  await installAgent("claude-code", { applications: apps, commands: apps, home }, "command");
   await writeFile(join(home, ".claude.json"), "{}\n");
 });
 test.afterEach(async () => {
@@ -143,6 +147,7 @@ test.afterEach(async () => {
   app = null;
   await removeDataFolder(dataDir);
   await removeDataFolder(home);
+  await removeDataFolder(apps);
   await removeDataFolder(sources);
 });
 
@@ -216,6 +221,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const launched = await launchApp(dataDir, {
       firstRunSetup: true,
       home,
+      agentApps: [apps],
       ollama: DEAD,
       decisions: DEAD,
     });

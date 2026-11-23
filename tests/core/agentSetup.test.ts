@@ -11,6 +11,7 @@ import {
   readdir,
   readFile,
   readlink,
+  rm,
   stat,
   symlink,
   writeFile,
@@ -22,6 +23,7 @@ import { SERVER_INSTRUCTIONS } from "../../src/core/agents/mcp";
 import { SKILL_MARKDOWN } from "../../src/core/agents/skill";
 import { AGENT_CLIENT_IDS } from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
+import { installAgent, installSigns } from "../helpers/agentInstalls";
 import { agentsAdapter, buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -32,6 +34,7 @@ async function started() {
   const dataDir = await createTempDataFolder();
   const home = await createTempDataFolder();
   const applications = await createTempDataFolder();
+  const commands = await createTempDataFolder();
   const tempDir = await createTempDataFolder();
   const links: string[] = [];
   const opened: string[] = [];
@@ -42,6 +45,7 @@ async function started() {
       ...(await agentsAdapter(dataDir)),
       shimScript: shim,
       applications: [applications],
+      commandFolders: async () => [commands],
       openLink: async (url) => {
         links.push(url);
       },
@@ -65,7 +69,7 @@ async function started() {
   const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
   await core.assignDocumentGroup(tides.id, coast.id);
   await core.setAgentsEnabled(true);
-  return { core, home, applications, links, opened, shim, coast };
+  return { core, home, applications, commands, links, opened, shim, coast };
 }
 
 /** The settings an agent was given, as it would start the server. */
@@ -85,9 +89,9 @@ describe("setting an agent up", () => {
   }, 60_000);
 
   it("lists the agents on this computer first", async () => {
-    const { core, home, applications } = await started();
-    await mkdir(join(home, ".codex"));
-    await mkdir(join(applications, "Cursor.app"));
+    const { core, home, applications, commands } = await started();
+    await installAgent("codex", { applications, commands, home }, "command");
+    await installAgent("cursor", { applications, commands, home });
     const clients = await core.listAgentClients();
     expect(clients.slice(0, 2).map((each) => [each.id, each.installed])).toEqual([
       ["codex", true],
@@ -222,12 +226,12 @@ describe("setting an agent up", () => {
       ["cline", ".cline", [".cline", "data", "settings", "cline_mcp_settings.json"]],
       ["kimi-code", ".kimi-code", [".kimi-code", "mcp.json"]],
     ] as const)(
-      "takes away the file and the folder it made for %s, and the agent stays among those not on this computer",
+      "takes away the file and the folder it made for %s, which never made the agent found here",
       async (client, folder, file) => {
         const { core, home, pairing } = await restarted(client);
         expect(await readFile(join(home, ...file), "utf8")).toContain("incarnamind");
         expect((await core.listAgentClients()).find((each) => each.id === client)?.installed).toBe(
-          true,
+          false,
         );
         await core.disconnectAgent(pairing.id);
         await expect(stat(join(home, folder))).rejects.toThrow(/ENOENT/);
@@ -864,6 +868,123 @@ describe("a connection whose program has moved (#3644)", () => {
     expect(await core.agentNeedsRepair(pairing.id)).toBe(false);
     const byHand = await core.connectAgent({ name: "My agent", folderIds: [coast.id] });
     expect(await core.agentNeedsRepair(byHand.pairing.id)).toBe(false);
+  });
+});
+
+describe("an agent is found where its installer put it (#3644)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=an app is offered as found only when it is installed, not when its settings folder is left behind after an uninstall (#3644); fails_when=a leftover folder such as ~/.claude or ~/.codex makes its agent found
+  it("a settings folder left behind after an uninstall finds no agent", async () => {
+    const { core, home } = await started();
+    for (const folder of [
+      [".claude"],
+      [".codex"],
+      [".cursor"],
+      [".gemini", "config"],
+      [".cline"],
+      [".qwen"],
+      [".kimi-code"],
+      [".config", "zed"],
+      [".vscode"],
+      [".copilot"],
+      [".codeium", "windsurf", "bin"],
+      ["Library", "Application Support", "Claude"],
+      ["AppData", "Roaming", "Claude"],
+    ]) {
+      await mkdir(join(home, ...folder), { recursive: true });
+    }
+    await writeFile(join(home, ".claude.json"), "{}\n");
+    expect((await core.listAgentClients()).filter((each) => each.installed)).toEqual([]);
+  });
+
+  // protects=each agent is found by every sign its installer leaves on this system, its app, its command on the PATH, its program in the home folder or its editor extension, and that sign finds no other agent (#3644); fails_when=an agent installed one of the ways its vendor documents is missed, or one agent's sign makes another found
+  it("each agent is found by each sign its installer leaves on this system, and no other agent is", async () => {
+    const { core, home, applications, commands } = await started();
+    const folders = { applications, commands, home };
+    // WorkBuddy is made for macOS and Windows only.
+    const noBuildHere = process.platform === "linux" ? ["workbuddy"] : [];
+    for (const client of AGENT_CLIENT_IDS.filter((id) => id !== "other")) {
+      const signs = installSigns(client);
+      expect({ client, signs: signs.length > 0 }).toEqual({
+        client,
+        signs: !noBuildHere.includes(client),
+      });
+      for (const sign of signs) {
+        const made = await installAgent(client, folders, sign);
+        const found = (await core.listAgentClients())
+          .filter((each) => each.installed)
+          .map((each) => each.id);
+        expect({ client, sign, found }).toEqual({ client, sign, found: [client] });
+        await rm(made, { recursive: true, force: true });
+      }
+    }
+  });
+
+  // protects=a file named as an agent's command that can't be run is no sign of it (#3644); fails_when=a plain file named codex on the PATH makes Codex found
+  it.skipIf(process.platform === "win32")(
+    "a file named as an agent's command that can't be run finds no agent",
+    async () => {
+      const { core, home, applications, commands } = await started();
+      const path = await installAgent("codex", { applications, commands, home }, "command");
+      await chmod(path, 0o644);
+      expect((await core.listAgentClients()).find((each) => each.id === "codex")?.installed).toBe(
+        false,
+      );
+    },
+  );
+
+  // protects=a folder on the PATH named as an agent's command is no sign of it, here and on Windows, where a file of that name is (#3644); fails_when=a folder named codex, or codex.cmd on Windows, makes Codex found
+  it("a folder named as an agent's command finds no agent, here or on Windows", async () => {
+    const codexFound = async (core: Awaited<ReturnType<typeof started>>["core"]) =>
+      (await core.listAgentClients()).find((each) => each.id === "codex")?.installed;
+    const here = await started();
+    await mkdir(join(here.commands, process.platform === "win32" ? "codex.cmd" : "codex"));
+    expect(await codexFound(here.core)).toBe(false);
+
+    const real = process.platform;
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    let windows: Awaited<ReturnType<typeof started>>;
+    try {
+      windows = await started();
+    } finally {
+      Object.defineProperty(process, "platform", { configurable: true, value: real });
+    }
+    const command = join(windows.commands, "codex.cmd");
+    await mkdir(command);
+    expect(await codexFound(windows.core)).toBe(false);
+    await rm(command, { recursive: true });
+    await writeFile(command, "@echo off\r\n");
+    expect(await codexFound(windows.core)).toBe(true);
+  });
+
+  // protects=an editor's extension counts while the editor lists it, and one it uninstalled and keeps until a restart does not (#3644); fails_when=an extension removed in VS Code still makes Cline found, or one VS Code lists is missed
+  it("an extension counts while its editor lists it, not after it is uninstalled", async () => {
+    const { core, home } = await started();
+    const cline = async () =>
+      (await core.listAgentClients()).find((each) => each.id === "cline")?.installed;
+    const folder = join(home, ".vscode", "extensions");
+    await mkdir(join(folder, "saoudrizwan.claude-dev-4.1.27"), { recursive: true });
+    const listed = (ids: string[]) =>
+      writeFile(
+        join(folder, "extensions.json"),
+        JSON.stringify(ids.map((id) => ({ identifier: { id }, version: "4.1.27" }))),
+      );
+    await listed(["saoudrizwan.claude-dev"]);
+    expect(await cline()).toBe(true);
+    // Uninstalled: the editor takes it off its list and deletes its folder when it next starts.
+    await listed(["esbenp.prettier-vscode"]);
+    expect(await cline()).toBe(false);
+    // An editor with no list: its folder, unless the editor named it as uninstalled.
+    await rm(join(folder, "extensions.json"));
+    expect(await cline()).toBe(true);
+    await writeFile(
+      join(folder, ".obsolete"),
+      JSON.stringify({ "saoudrizwan.claude-dev-4.1.27": true }),
+    );
+    expect(await cline()).toBe(false);
   });
 });
 

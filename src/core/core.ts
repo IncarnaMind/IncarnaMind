@@ -6775,6 +6775,7 @@ export function createCore(adapters: CoreAdapters): Core {
     applications:
       adapters.agents?.applications ??
       (platform === "darwin" ? ["/Applications", join(home, "Applications")] : []),
+    commandFolders: async () => (await adapters.agents?.commandFolders?.()) ?? [],
     platform,
     tempDir: adapters.paths.tempDir ?? tmpdir(),
     shimScript: adapters.agents?.shimScript ?? null,

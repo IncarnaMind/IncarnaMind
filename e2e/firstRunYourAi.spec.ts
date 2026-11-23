@@ -6,6 +6,7 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import { ALL_SHARED_ID, type CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
+import { installAgent } from "../tests/helpers/agentInstalls";
 import {
   acceptPlainTextKeys,
   agentsToConnect,
@@ -66,12 +67,16 @@ const FERRY = "Ferry crossings to Ardmore Island fell to 3,100 in 2025";
 let dataDir: string;
 let home: string;
 let sources: string;
+let apps: string;
 let app: ElectronApplication | null = null;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   home = await realpath(await createDataFolder());
   sources = await realpath(await createDataFolder());
-  // Claude Code keeps its settings here: the step lists it first, as found on this computer.
+  apps = await realpath(await createDataFolder());
+  // Claude Code's command, so the step lists it first as found on this computer, and the settings
+  // file it keeps.
+  await installAgent("claude-code", { applications: apps, commands: apps, home }, "command");
   await writeFile(join(home, ".claude.json"), "{}\n");
 });
 test.afterEach(async () => {
@@ -80,6 +85,7 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
   await removeDataFolder(home);
   await removeDataFolder(sources);
+  await removeDataFolder(apps);
 });
 
 const core = (window: Page) => ({
@@ -114,7 +120,12 @@ const core = (window: Page) => ({
 });
 
 async function launch(width = 1280) {
-  const launched = await launchApp(dataDir, { ...STAND_INS, firstRunSetup: true, home });
+  const launched = await launchApp(dataDir, {
+    ...STAND_INS,
+    firstRunSetup: true,
+    home,
+    agentApps: [apps],
+  });
   app = launched.app;
   // Connecting Claude's app or Cursor opens them: here nothing of this computer's opens.
   await interceptOpenPath(launched.app);
@@ -432,9 +443,9 @@ async function skipTheRest(window: Page): Promise<void> {
 // protects=a long list of agents stays easy to choose from: those on this computer first, then the most used, any other found by typing its name, by keyboard, in the setup and in Settings › AI alike; fails_when=every agent shows at once, a found agent isn't first, typing a name or one it went by doesn't find it, or the keyboard can't reach the search or the agent found
 test("the agents found here come first, and any other is found by typing, in the step and in Settings", async () => {
   test.setTimeout(240_000);
-  // Made-up signs of Zed and Qwen Code beside Claude Code's, in the test's own home folder.
-  await mkdir(join(home, ".config", "zed"), { recursive: true });
-  await mkdir(join(home, ".qwen"));
+  // Zed and Qwen Code installed beside Claude Code, in the test's own folders.
+  await installAgent("zed", { applications: apps, commands: apps, home });
+  await installAgent("qwen-code", { applications: apps, commands: apps, home }, "command");
   const window = await launch();
   await (await atStep(window, "work")).getByTestId("setup-skip").click();
   const ai = await atStep(window, "ai");
