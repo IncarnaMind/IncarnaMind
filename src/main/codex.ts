@@ -57,11 +57,15 @@ const TOOL_FIELDS = {
 /**
  * Codex 0.170.0's features that would give the model a tool, an app or a hook, or leave something
  * behind: a shell snapshot, written into the User's Codex folder, holds Codex's environment and so
- * the grant; a daemon would outlive the run.
+ * the grant; a daemon would outlive the run; the rest write there too once on. A name this Codex
+ * doesn't know fails the preflight, so a renamed one leaves the check to the link.
  */
 const FEATURES_OFF = [
   "shell_snapshot",
   "daemon_auto_start",
+  "local_thread_store_compression",
+  "background_paginated_rollout_migration",
+  "use_agent_identity",
   "shell_tool",
   "unified_exec",
   "apps",
