@@ -299,7 +299,11 @@ const CLAUDE_CODE: AgentPairing = {
   lastUsedAt: null,
   createdAt: "2026-11-22T00:00:00.000Z",
 } as never;
-const agents = (pairings: AgentPairing[], enabled = true): AgentSettings =>
+const agents = (
+  pairings: AgentPairing[],
+  enabled = true,
+  shimsOutOfDate: string[] = [],
+): AgentSettings =>
   ({
     enabled,
     paused: null,
@@ -307,6 +311,7 @@ const agents = (pairings: AgentPairing[], enabled = true): AgentSettings =>
     skills: [],
     skillsOutOfDate: [],
     awaitingInstall: [],
+    shimsOutOfDate,
   }) as never;
 
 describe("Settings › AI leads with Your AI (#3645)", () => {
@@ -439,6 +444,38 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
     unmount = null;
     const one = await yourAi(agents([CLAUDE_CODE]), NO_MODEL, "zh-CN");
     expect(one.part("agents-connect-another")?.textContent).toBe("连接其他智能体…");
+  });
+
+  test("a pairing that last connected with a legacy v1 shim says so, with reinstall for bundle clients", async () => {
+    const clear = async () => {
+      await unmount?.();
+      unmount = null;
+    };
+    const claudeDesktop: AgentPairing = {
+      ...CLAUDE_CODE,
+      id: "p-bundle",
+      name: "Claude Desktop",
+      client: "claude-desktop",
+    } as never;
+    const { part } = await yourAi(agents([CLAUDE_CODE], true, [CLAUDE_CODE.id]));
+    expect(part("agent-pairing-shim-old")?.textContent).toContain(
+      "Using an older connection helper",
+    );
+    expect(part("agent-shim-reinstall")).toBeNull();
+    await clear();
+
+    const bundle = await yourAi(agents([claudeDesktop], true, [claudeDesktop.id]));
+    expect(bundle.part("agent-pairing-shim-old")?.textContent).toContain(
+      "Using an older connection helper",
+    );
+    expect(bundle.part("agent-shim-reinstall")?.textContent).toBe(
+      "Open the install in Claude again",
+    );
+    await clear();
+
+    const zh = await yourAi(agents([claudeDesktop], true, [claudeDesktop.id]), NO_MODEL, "zh-CN");
+    expect(zh.part("agent-pairing-shim-old")?.textContent).toContain("正在使用旧版连接程序");
+    expect(zh.part("agent-shim-reinstall")?.textContent).toBe("在 Claude 中重新打开安装");
   });
 
   test("a model in IncarnaMind, with none set up, is one quiet row that says it is optional", async () => {

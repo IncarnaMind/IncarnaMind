@@ -17,9 +17,15 @@
  * token, closes the pairing's connections and revokes its consent at once.
  * The token is never logged, stored in the database or shown in the activity.
  */
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
-import { AGENT_SOCKET_ENV, AGENT_TOKEN_ENV } from "../../shared/agentSocket";
+import { dirname } from "node:path";
+import {
+  AGENT_SOCKET_ENV,
+  AGENT_TOKEN_ENV,
+  clientProofInput,
+  serverProofInput,
+} from "../../shared/agentSocket";
 import type { Logger } from "../adapters";
 import {
   AGENT_TOOLS,
@@ -44,7 +50,6 @@ import type { Secrets } from "../secrets";
 import type { Database } from "../storage";
 import {
   type AdmittedPairing,
-  type AgentAccess,
   type AgentAccessDeps,
   AgentRefusedError,
   createAgentAccess,
@@ -56,7 +61,7 @@ import {
 import { CHECK_RUN_TOOLS, createAskedChecks } from "./askedChecks";
 import { createAgentCitations } from "./citations";
 import { clientDefinition } from "./clients";
-import type { ServedConnection } from "./mcp";
+import type { AgentChallengeSession, OpenedAgentConnection, ServedConnection } from "./mcp";
 import { createAgentRequests, type KeptRequest } from "./requests";
 import {
   AgentEndpointError,
@@ -85,6 +90,8 @@ export const HOSTED_CLIENTS: readonly string[] = ["claude-code"];
 
 /** The device setting that turns connecting agents on. */
 const ENABLED_KEY = "agentsEnabled";
+/** The device setting remembering pairings that last connected with a legacy v1 shim (ADR-0036). */
+const LEGACY_SHIMS_KEY = "agentLegacyShims";
 /** Each pairing's token, in ../secrets. */
 const secretName = (pairingId: string) => `agent-pairing:${pairingId}`;
 /** How a pairing is named as a service of the "agents" and "hosted-agents" data flows. */
@@ -235,6 +242,13 @@ const shownRequest = (kept: KeptRequest): AgentRequest => ({
 });
 
 const digest = (token: string) => createHash("sha256").update(token).digest();
+const hmacHex = (token: string, input: string) =>
+  createHmac("sha256", token).update(input).digest("hex");
+const equalHex = (a: string, b: string) => {
+  const left = Buffer.from(a, "hex");
+  const right = Buffer.from(b, "hex");
+  return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
+};
 
 export function createAgents(options: AgentsOptions) {
   const { db } = options;
@@ -249,6 +263,27 @@ export function createAgents(options: AgentsOptions) {
   const lastWritten = new Map<string, number>();
   let listener: AgentListener | null = null;
   let listenProblem: "too-long" | "untrusted" | "unavailable" | null = null;
+  let listenProblemPath: string | null = null;
+  const readLegacyShims = (): Set<string> => {
+    const raw = options.readValue(LEGACY_SHIMS_KEY);
+    return new Set(
+      Array.isArray(raw) ? raw.filter((each): each is string => typeof each === "string") : [],
+    );
+  };
+  const legacyShims = readLegacyShims();
+  const saveLegacyShims = () => {
+    options.writeValue(LEGACY_SHIMS_KEY, [...legacyShims]);
+  };
+  const markHandshakeVersion = (pairingId: string, version: 1 | 2) => {
+    const had = legacyShims.has(pairingId);
+    if (version === 1 && !had) {
+      legacyShims.add(pairingId);
+      saveLegacyShims();
+    } else if (version === 2 && had) {
+      legacyShims.delete(pairingId);
+      saveLegacyShims();
+    }
+  };
   /** Starting and stopping the listener, one after another, so two quick toggles can't race. */
   let listening: Promise<void> = Promise.resolve();
   let closed = false;
@@ -315,6 +350,7 @@ export function createAgents(options: AgentsOptions) {
       skills: skills.filter((each) => each.installed).map((each) => each.id),
       skillsOutOfDate: skills.filter((each) => each.outOfDate).map((each) => each.id),
       awaitingInstall: awaitingInstall(pairings),
+      shimsOutOfDate: pairings.filter((each) => legacyShims.has(each.id)).map((each) => each.id),
     };
   };
 
@@ -564,16 +600,14 @@ export function createAgents(options: AgentsOptions) {
    */
   const grants = new Map<
     string,
-    { pairingId: string; mindId: string; connections: Set<ServedConnection> }
+    { pairingId: string; mindId: string; token: string; connections: Set<ServedConnection> }
   >();
 
   /**
    * The core interface for a token's calls: refused at every call when the token is no pairing's.
    * `grant`: the run grant's key, for a connection opened with one.
    */
-  const open = async (
-    token: string,
-  ): Promise<{ pairingId: string | null; access: AgentAccess; grant?: string }> => {
+  const open = async (token: string): Promise<OpenedAgentConnection> => {
     const key = digest(token).toString("hex");
     const grant = grants.get(key);
     if (grant) {
@@ -588,6 +622,66 @@ export function createAgents(options: AgentsOptions) {
     }
     const pairingId = await pairingOfToken(token);
     return { pairingId, access: createAgentAccess(accessDeps, pairingId ?? "") };
+  };
+
+  /**
+   * Prepares a v2 mutual HMAC challenge-response session (ADR-0036): signs the
+   * shim's nonce with each live pairing's and active check grant's token so the
+   * shim verifies IncarnaMind before sending its own proof.
+   */
+  const challenge = async (shimNonce: string): Promise<AgentChallengeSession> => {
+    const appNonce = randomBytes(32).toString("base64url");
+    const serverInput = serverProofInput(shimNonce, appNonce);
+    const candidates: Array<{
+      token: string;
+      open: () => OpenedAgentConnection | null;
+    }> = [];
+    for (const [key, grant] of grants.entries()) {
+      candidates.push({
+        token: grant.token,
+        open: () => {
+          const active = grants.get(key);
+          if (!active) return null;
+          return {
+            pairingId: active.pairingId,
+            access: createAgentAccess(accessDeps, active.pairingId, {
+              mindId: active.mindId,
+              tools: CHECK_RUN_TOOLS,
+            }),
+            grant: key,
+          };
+        },
+      });
+    }
+    for (const pairing of livePairings()) {
+      const token = await tokenOf(pairing.id);
+      if (!token) continue;
+      candidates.push({
+        token,
+        open: () => {
+          if (!findPairing(pairing.id)) return null;
+          return {
+            pairingId: pairing.id,
+            access: createAgentAccess(accessDeps, pairing.id),
+          };
+        },
+      });
+    }
+    const proofs = candidates.map((entry) => hmacHex(entry.token, serverInput));
+    return {
+      appNonce,
+      proofs,
+      verify: async (clientProofHex: string) => {
+        const clientInput = clientProofInput(appNonce, shimNonce);
+        let matched: (() => OpenedAgentConnection | null) | null = null;
+        for (const entry of candidates) {
+          if (equalHex(clientProofHex, hmacHex(entry.token, clientInput)) && matched === null) {
+            matched = entry.open;
+          }
+        }
+        return matched ? matched() : null;
+      },
+    };
   };
 
   /** Tells the windows the settings changed because a connection opened or closed, unless the core is closing. */
@@ -622,9 +716,10 @@ export function createAgents(options: AgentsOptions) {
       ({ serveConnection }) =>
         serveConnection(socket, {
           open,
+          challenge,
           modelReady,
           version: options.version,
-          paired: (pairingId, connection, grant) => {
+          paired: (pairingId, connection, grant, handshakeVersion) => {
             const granted = grant === undefined ? null : grants.get(grant);
             // A grant that ended while its connection opened lets it do nothing.
             if (closed || granted === undefined) {
@@ -641,6 +736,9 @@ export function createAgents(options: AgentsOptions) {
               if (pairingId !== null) connectionsChanged();
             });
             if (pairingId === null) return;
+            if (grant === undefined && handshakeVersion !== undefined) {
+              markHandshakeVersion(pairingId, handshakeVersion);
+            }
             for (const watcher of watchers) watcher.connected(pairingId);
             connectionsChanged();
           },
@@ -653,19 +751,29 @@ export function createAgents(options: AgentsOptions) {
     );
   };
 
-  const socketError = () =>
-    new InvalidInputError({
-      key:
-        listenProblem === "untrusted"
-          ? "error.agent.socketUntrusted"
-          : listenProblem === "too-long" || !isSocketPathUsable(options.socketPath)
-            ? "error.agent.socketTooLong"
-            : "error.agent.socketUnavailable",
+  const defaultSocketProblemPath = () =>
+    isWindowsPipe(options.socketPath) ? options.socketPath : dirname(options.socketPath);
+
+  const socketError = () => {
+    if (listenProblem === "untrusted") {
+      return new InvalidInputError({
+        key: "error.agent.socketUntrusted",
+        values: { path: listenProblemPath ?? defaultSocketProblemPath() },
+      });
+    }
+    if (listenProblem === "too-long" || !isSocketPathUsable(options.socketPath)) {
+      return new InvalidInputError({ key: "error.agent.socketTooLong" });
+    }
+    return new InvalidInputError({
+      key: "error.agent.socketUnavailable",
+      values: { path: listenProblemPath ?? defaultSocketProblemPath() },
     });
+  };
 
   const ensureReachable = async (): Promise<void> => {
     if (!isSocketPathUsable(options.socketPath)) {
       listenProblem = isWindowsPipe(options.socketPath) ? "untrusted" : "too-long";
+      listenProblemPath = defaultSocketProblemPath();
       throw socketError();
     }
     if (enabled() && !listener) {
@@ -684,6 +792,7 @@ export function createAgents(options: AgentsOptions) {
         try {
           listener = await listenForAgents(options.socketPath, serve);
           listenProblem = null;
+          listenProblemPath = null;
         } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
           listenProblem =
@@ -694,11 +803,16 @@ export function createAgents(options: AgentsOptions) {
                   code === "ENAMETOOLONG"
                 ? "too-long"
                 : "unavailable";
+          listenProblemPath =
+            error instanceof AgentEndpointError && error.path
+              ? error.path
+              : defaultSocketProblemPath();
           // Another copy of IncarnaMind on this data folder is listening already, or the socket can't open.
           options.reportError(error);
         }
       } else if (!enabled() && listener) {
         listenProblem = null;
+        listenProblemPath = null;
         await stopListening();
       }
     });
@@ -794,6 +908,7 @@ export function createAgents(options: AgentsOptions) {
       if (typeof value !== "boolean") throw new InvalidInputError("enabled must be true or false.");
       if (value && !isSocketPathUsable(options.socketPath)) {
         listenProblem = isWindowsPipe(options.socketPath) ? "untrusted" : "too-long";
+        listenProblemPath = defaultSocketProblemPath();
         throw socketError();
       }
       options.writeValue(ENABLED_KEY, value);
@@ -874,6 +989,7 @@ export function createAgents(options: AgentsOptions) {
         requests.forget(pairing.id, at);
       });
       tokens.delete(pairing.id);
+      if (legacyShims.delete(pairing.id)) saveLegacyShims();
       options.consent.revoke("agents", serviceOf(pairing).id);
       options.consent.revoke("hosted-agents", serviceOf(pairing).id);
       changed();
@@ -954,7 +1070,7 @@ export function createAgents(options: AgentsOptions) {
       const token = `im_${randomBytes(32).toString("base64url")}`;
       const key = digest(token).toString("hex");
       const connections = new Set<ServedConnection>();
-      grants.set(key, { pairingId, mindId, connections });
+      grants.set(key, { pairingId, mindId, token, connections });
       askedChecks.withdraw(mindId);
       return {
         launch: launchFor(token),

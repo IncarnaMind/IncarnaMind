@@ -20,7 +20,12 @@ import { type Duplex, PassThrough } from "node:stream";
 import { type CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport, serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
-import { AGENT_HANDSHAKE_MAX_BYTES, parseHandshake } from "../../shared/agentSocket";
+import {
+  AGENT_HANDSHAKE_MAX_BYTES,
+  parseClientProof,
+  parseOpeningLine,
+  serverChallengeLine,
+} from "../../shared/agentSocket";
 import { DOCUMENT_KINDS } from "../../shared/libraryFacts";
 import type { AgentToolName } from "../api";
 import {
@@ -867,61 +872,65 @@ export interface ServedConnection {
   modelChanged(ready: boolean): void;
 }
 
+/** What an opened agent connection binds to: a pairing (or null for an unknown v1 token), its access, and any check grant key. */
+export interface OpenedAgentConnection {
+  pairingId: string | null;
+  access: AgentAccess;
+  grant?: string;
+}
+
+/** A v2 mutual HMAC challenge session (ADR-0036): proves the app holds the key before verifying the shim. */
+export interface AgentChallengeSession {
+  appNonce: string;
+  proofs: string[];
+  verify(clientProofHex: string): Promise<OpenedAgentConnection | null>;
+}
+
 /**
- * Reads the shim's opening line from a connection, then serves MCP over the
- * rest of it with the pairing's access. A line that isn't an opening one
- * closes the connection. `open` turns the token into access: an unknown
- * token still gets access whose every call is refused, saying the agent is
- * no longer connected, which is what the agent should tell the User.
+ * Reads the shim's handshake from a connection, then serves MCP over the rest
+ * of it with the pairing's access. Supports both v2 mutual HMAC challenge-
+ * response (ADR-0036) and legacy v1 (`{"incarnamind":1,"token":"…"}`) for
+ * frozen installed shims. Invalid lines or failed proofs close the connection.
  */
 export function serveConnection(
   socket: Duplex,
   options: {
-    /** `grant`: the key of the run grant the token is, if it is one. */
-    open(token: string): Promise<{ pairingId: string | null; access: AgentAccess; grant?: string }>;
+    /** `grant`: the key of the run grant the token is, if it is one (legacy v1 handshake). */
+    open(token: string): Promise<OpenedAgentConnection>;
+    /** Prepares a v2 mutual HMAC challenge for the shim's nonce (ADR-0036). */
+    challenge?(shimNonce: string): Promise<AgentChallengeSession>;
     /** Whether IncarnaMind has an AI model of its own ready now, read at each connection. */
     modelReady(): Promise<boolean>;
     version: string;
-    /** Called once the connection's pairing is known (null for an unknown token), with `open`'s grant. */
-    paired(pairingId: string | null, connection: ServedConnection, grant?: string): void;
+    /** Called once the connection's pairing is known (null for an unknown v1 token), with `open`'s grant and handshake version. */
+    paired(
+      pairingId: string | null,
+      connection: ServedConnection,
+      grant?: string,
+      handshakeVersion?: 1 | 2,
+    ): void;
     reportError(error: unknown): void;
     handshakeTimeoutMs?: number;
   },
 ): void {
   const input = new PassThrough();
-  let opening: Buffer | null = Buffer.alloc(0);
+  type Phase = "opening" | "sending-challenge" | "awaiting-proof" | "mcp";
+  let phase: Phase = "opening";
+  let buffer: Buffer = Buffer.alloc(0);
+  let session: AgentChallengeSession | null = null;
   const timer = setTimeout(() => socket.destroy(), options.handshakeTimeoutMs ?? 10_000);
   timer.unref?.();
 
-  socket.on("data", (chunk: Buffer) => {
-    if (opening === null) {
-      input.write(chunk);
-      return;
-    }
-    opening = Buffer.concat([opening, chunk]);
-    const end = opening.indexOf(0x0a);
-    if (end === -1) {
-      if (opening.length > AGENT_HANDSHAKE_MAX_BYTES) socket.destroy();
-      return;
-    }
-    if (end > AGENT_HANDSHAKE_MAX_BYTES) {
-      socket.destroy();
-      return;
-    }
-    clearTimeout(timer);
-    const line = opening.subarray(0, end).toString("utf8");
-    const rest = opening.subarray(end + 1);
-    opening = null;
-    const token = parseHandshake(line);
-    if (token === null) {
-      socket.destroy();
-      return;
-    }
-    // What comes after the opening line waits in `input` while the token is looked up.
-    if (rest.length > 0) input.write(rest);
-    Promise.all([options.open(token), options.modelReady()]).then(
+  const startMcp = (
+    openedPromise: Promise<OpenedAgentConnection | null>,
+    handshakeVersion: 1 | 2,
+  ) => {
+    Promise.all([openedPromise, options.modelReady()]).then(
       ([opened, ready]) => {
-        if (socket.destroyed) return;
+        if (socket.destroyed || opened === null) {
+          socket.destroy();
+          return;
+        }
         // The model's state as this connection last knew it: a server is built at its first
         // message, which may come after the state changed.
         let modelNow = ready;
@@ -958,6 +967,7 @@ export function serveConnection(
             },
           },
           opened.grant,
+          handshakeVersion,
         );
         // A change between the read above and the connection being registered reached nobody: read
         // again now that it would, and keep what an event said since if one came first.
@@ -966,6 +976,95 @@ export function serveConnection(
           modelNow = again;
           current?.modelChanged(again);
         });
+      },
+      (error: unknown) => {
+        options.reportError(error);
+        socket.destroy();
+      },
+    );
+  };
+
+  const tryReadProofLine = () => {
+    if (phase !== "awaiting-proof" || session === null) return;
+    const end = buffer.indexOf(0x0a);
+    if (end === -1) {
+      if (buffer.length > AGENT_HANDSHAKE_MAX_BYTES) socket.destroy();
+      return;
+    }
+    if (end > AGENT_HANDSHAKE_MAX_BYTES) {
+      socket.destroy();
+      return;
+    }
+    clearTimeout(timer);
+    const line = buffer.subarray(0, end).toString("utf8");
+    const rest = buffer.subarray(end + 1);
+    buffer = Buffer.alloc(0);
+    phase = "mcp";
+    const proof = parseClientProof(line);
+    if (proof === null) {
+      socket.destroy();
+      return;
+    }
+    if (rest.length > 0) input.write(rest);
+    const active = session;
+    session = null;
+    startMcp(active.verify(proof), 2);
+  };
+
+  socket.on("data", (chunk: Buffer) => {
+    if (phase === "mcp") {
+      input.write(chunk);
+      return;
+    }
+    buffer = Buffer.concat([buffer, chunk]);
+    if (phase === "sending-challenge") {
+      if (buffer.length > AGENT_HANDSHAKE_MAX_BYTES) socket.destroy();
+      return;
+    }
+    if (phase === "awaiting-proof") {
+      tryReadProofLine();
+      return;
+    }
+    const end = buffer.indexOf(0x0a);
+    if (end === -1) {
+      if (buffer.length > AGENT_HANDSHAKE_MAX_BYTES) socket.destroy();
+      return;
+    }
+    if (end > AGENT_HANDSHAKE_MAX_BYTES) {
+      socket.destroy();
+      return;
+    }
+    const line = buffer.subarray(0, end).toString("utf8");
+    const rest = buffer.subarray(end + 1);
+    buffer = Buffer.alloc(0);
+    const opening = parseOpeningLine(line);
+    if (opening === null) {
+      clearTimeout(timer);
+      socket.destroy();
+      return;
+    }
+    if (opening.version === 1) {
+      clearTimeout(timer);
+      phase = "mcp";
+      // What comes after the opening line waits in `input` while the token is looked up.
+      if (rest.length > 0) input.write(rest);
+      startMcp(options.open(opening.token), 1);
+      return;
+    }
+    if (!options.challenge) {
+      clearTimeout(timer);
+      socket.destroy();
+      return;
+    }
+    phase = "sending-challenge";
+    buffer = rest;
+    options.challenge(opening.nonce).then(
+      (prepared) => {
+        if (socket.destroyed) return;
+        session = prepared;
+        phase = "awaiting-proof";
+        socket.write(serverChallengeLine(prepared.appNonce, prepared.proofs));
+        if (buffer.length > 0) tryReadProofLine();
       },
       (error: unknown) => {
         options.reportError(error);

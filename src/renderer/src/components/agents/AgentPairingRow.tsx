@@ -51,6 +51,8 @@ export function AgentPairingRow({
   skillInstalled,
   skillOutOfDate,
   awaitingInstall,
+  shimOutOfDate = false,
+  isBundleClient = pairing.client === "claude-desktop",
   folders,
   justSetUp,
   onUndone,
@@ -64,6 +66,10 @@ export function AgentPairingRow({
   skillOutOfDate: boolean;
   /** Its install file waits for the agent, which hasn't connected or been used (#3523). */
   awaitingInstall: boolean;
+  /** Its last connection used a legacy v1 shim without mutual verification (ADR-0036). */
+  shimOutOfDate?: boolean;
+  /** Whether this pairing's agent installs a bundle file that can be reopened to upgrade. */
+  isBundleClient?: boolean;
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;
   onUndone(): void;
@@ -294,6 +300,28 @@ export function AgentPairingRow({
                     {t("agents.pairing.skillOld.replace")}
                   </button>
                 </>
+              )}
+            </span>
+          )}
+          {shimOutOfDate && (
+            <span data-testid="agent-pairing-shim-old" className="block">
+              {isBundleClient ? (
+                <>
+                  {t("agents.pairing.shimOld.bundle")}
+                  <span aria-hidden="true"> · </span>
+                  <button
+                    type="button"
+                    data-testid="agent-shim-reinstall"
+                    onClick={() =>
+                      core.openAgentInstallAgain(pairing.id).then(onInstallReopened, reportError)
+                    }
+                    className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    {t("agents.pairing.installAgain")}
+                  </button>
+                </>
+              ) : (
+                t("agents.pairing.shimOld")
               )}
             </span>
           )}

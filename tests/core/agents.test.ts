@@ -121,6 +121,7 @@ describe("outside agents", () => {
       skills: [],
       skillsOutOfDate: [],
       awaitingInstall: [],
+      shimsOutOfDate: [],
     });
     const { launch, pairing } = await core.connectAgent({ name: "Codex", client: "codex" });
     expect(pairing).toMatchObject({ name: "Codex", client: "codex", folderIds: [] });
@@ -544,10 +545,7 @@ describe("outside agents", () => {
     await closed;
     expect((await core.getAgents()).pairings).toEqual([]);
 
-    const again = await connectLegacyAgent(launch);
-    const refused = await again.callTool({ name: "search", arguments: { query: "tides" } });
-    expect(refused.isError).toBe(true);
-    expect(resultText(refused)).toMatch(/no longer connected/);
+    await expect(connectLegacyAgent(launch)).rejects.toThrow(/Couldn't verify IncarnaMind/);
     await expect(core.getAgentLaunch(pairing.id)).rejects.toThrow();
   });
 

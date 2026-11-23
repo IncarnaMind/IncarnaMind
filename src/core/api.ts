@@ -12911,6 +12911,12 @@ export interface AgentSettings {
    * agent connects again (#3523).
    */
   awaitingInstall: string[];
+  /**
+   * The pairings whose agent last connected with a legacy v1 shim instead of the mutual HMAC
+   * handshake (ADR-0036, #2049): still accepted so existing installs aren't cut off, with a line
+   * asking the User to reinstall or reconnect. Cleared once that pairing connects with v2.
+   */
+  shimsOutOfDate: string[];
 }
 
 /** What Disconnect left behind (#3430). */

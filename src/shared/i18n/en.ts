@@ -6553,9 +6553,9 @@ export const en = {
   "error.agent.socketTooLong":
     "Agents can’t reach IncarnaMind from this folder: the path is too long for a local connection. Use a shorter data or temporary folder.",
   "error.agent.socketUntrusted":
-    "Agents can’t reach IncarnaMind right now: its local connection is held by another account or isn’t private to your account. Restart IncarnaMind or use a different data folder.",
+    "Agents can’t reach IncarnaMind: {path} isn’t private to your account. Fix its permissions or remove it, or use a different data folder.",
   "error.agent.socketUnavailable":
-    "Agents can’t reach IncarnaMind right now: couldn’t open its local connection. Restart IncarnaMind or close another copy and try again.",
+    "Agents can’t reach IncarnaMind: couldn’t open its local connection at {path}. Close another copy of IncarnaMind using this folder, or check permissions on that folder, and try again.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
@@ -8907,6 +8907,10 @@ export const en = {
   "agents.pairing.skillOld.ask": "Replacing discards your changes to the Skill file.",
   "agents.pairing.skillOld.confirm": "Replace Skill",
   "agents.pairing.skillOld.cancel": "Keep mine",
+  "agents.pairing.shimOld":
+    "Using an older connection helper: reconnect this agent so it verifies IncarnaMind before sending its key.",
+  "agents.pairing.shimOld.bundle":
+    "Using an older connection helper: reinstall so it verifies IncarnaMind before sending its key",
   "agents.pairing.copySettings": "Copy settings",
   "agents.pairing.copySkill": "Copy Skill",
   "agents.pairing.copySkill.hint": "Save as incarnamind/SKILL.md in your agent’s skills folder.",
