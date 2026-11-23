@@ -233,19 +233,21 @@ for (const language of LANGUAGES) {
       await expect(picker).toHaveCount(0);
       await expect(example.editor).not.toContainText(opening);
 
+      // The same Answer names the User's empty note and offers the picker again on the example.
+      await newMind(window);
+      await nameMind(window, w.note);
+      await expect(answer.getByTestId("answer-add-label")).toHaveText(w.named(w.note));
+      await pointAndClick(window, example.tab);
+      await expect(answer.getByTestId("answer-add-label")).toHaveText(w.plain);
+
       // Write as a note makes the User's own note, and leaves the example as it was.
       await pointAndClick(window, answer.getByTestId("answer-write-note"));
-      await expect(window.getByTestId("mind-tab")).toHaveCount(2);
+      await expect(window.getByTestId("mind-tab")).toHaveCount(3);
       await expect(frontMind(window).getByTestId("mind-editor")).toContainText(opening);
       await expect(example.tab).not.toHaveAttribute("aria-selected", "true");
       await pointAndClick(window, example.tab);
       await expect(example.editor).not.toContainText(opening);
 
-      // A note of the User's own, empty: Add to note names it.
-      await newMind(window);
-      await nameMind(window, w.note);
-      const empty = await askInAssistant(window, w.question);
-      await expect(empty.getByTestId("answer-add-label")).toHaveText(w.named(w.note));
       await app.close();
     });
   }
@@ -359,7 +361,7 @@ for (const language of LANGUAGES) {
 
   for (const width of WIDTHS) {
     test(`an empty note keeps the start guide until the first-run card has been seen, and loses it after, at ${width} px (${language})`, async () => {
-      const { app, window } = await start(language, width, { examples: true });
+      const { window } = await start(language, width, { examples: true });
       const example = await exampleTaken(window);
       // The card has been seen, so no second guide in the User's own empty note.
       await newMind(window);
@@ -382,7 +384,6 @@ for (const language of LANGUAGES) {
         window.locator(`[data-testid="mind-tab"][data-mind-id="${emptyId}"]`),
       );
       await expect(guide).toHaveCount(0);
-      await app.close();
     });
   }
 }
