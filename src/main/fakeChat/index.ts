@@ -291,6 +291,7 @@ const slowCheck = {
   holdSort: false,
   holdCite: false,
   holdAsked: false,
+  holdCellFinish: false,
   waiting: [] as (() => void)[],
   /** What each step in `waiting` is: a step of a sentence's check Run, or another. */
   kinds: [] as ("check-run" | "other")[],
@@ -621,7 +622,8 @@ export const createFakeChatModel: ChatModelFactory = (spec) => {
             part.finishReason.unified === "stop" &&
             isCell(prompt)
           ) {
-            await wait(SLOW_STEP_MS);
+            if (slowCheck.holdCellFinish) await held("other");
+            else await wait(SLOW_STEP_MS);
           }
           if (part.type === "text-delta" || part.type === "tool-input-delta") {
             await wait(slow ? SLOW_WORD_MS : edit ? EDIT_WORD_MS : WORD_DELAY_MS);

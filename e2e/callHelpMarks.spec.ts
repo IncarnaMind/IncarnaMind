@@ -21,6 +21,7 @@ import {
   startRecording,
   useLocalChatModel,
 } from "./app";
+import { holdModel, modelHeld } from "./heldModel";
 
 /**
  * In call help, under each line that carries a Citation's number, the app draws that Citation's
@@ -116,41 +117,6 @@ async function callWithSheet(call: (typeof CALLS)[number], model?: string) {
   await firstTranscriptLine(window);
   return { app, window, panel: await panelOf(app) };
 }
-
-interface SlowCheck {
-  holdCite: boolean;
-  holdAsked: boolean;
-  waiting: unknown[];
-  release(): void;
-}
-
-/**
- * Holds the scripted model's cite calls, or its one request for a reply's Citations, until set
- * false, which lets every held one go.
- */
-async function holdModel(
-  app: ElectronApplication,
-  which: "holdCite" | "holdAsked",
-  hold: boolean,
-): Promise<void> {
-  await app.evaluate(
-    (_electron, { which, hold }) => {
-      const slow = (globalThis as unknown as { incarnamindSlowCheck: SlowCheck })
-        .incarnamindSlowCheck;
-      slow[which] = hold;
-      if (!hold) slow.release();
-    },
-    { which, hold },
-  );
-}
-
-/** Whether a request of the scripted model is held now. */
-const held = (app: ElectronApplication) =>
-  app.evaluate(
-    () =>
-      (globalThis as unknown as { incarnamindSlowCheck: SlowCheck }).incarnamindSlowCheck.waiting
-        .length > 0,
-  );
 
 /** The panel closed, then shown again from ⌘K: it draws its reply from what is stored. */
 async function shownAgain(
@@ -296,7 +262,7 @@ for (const call of CALLS) {
     await pressHelpPrompt(panel, call.answer);
     const reply = panel.getByTestId("help-suggestion").last();
     const options = reply.getByTestId("help-option");
-    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => modelHeld(app), { timeout: 20_000 }).toBe(true);
     await expect(options).toHaveCount(2);
     await expect(reply).toHaveAttribute("data-status", "streaming");
     await expect(reply.getByTestId("help-citation")).toHaveCount(0);
@@ -376,7 +342,7 @@ for (const call of CALLS) {
     await pressHelpPrompt(panel, call.answer);
     const reply = panel.getByTestId("help-suggestion").last();
     const options = reply.getByTestId("help-option");
-    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => modelHeld(app), { timeout: 20_000 }).toBe(true);
     await expect(options).toHaveCount(2);
     const first = options.nth(0).getByTestId("help-option-say");
     const later = options.nth(1).getByTestId("help-option-say");
@@ -429,7 +395,7 @@ for (const call of CALLS) {
     await pressHelpPrompt(panel, call.answer);
     const reply = panel.getByTestId("help-suggestion").last();
     const options = reply.getByTestId("help-option");
-    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => modelHeld(app), { timeout: 20_000 }).toBe(true);
     await expect(options).toHaveCount(2);
     const room = options.nth(0).getByTestId("help-quote");
     await expect(room).toHaveAttribute("data-state", "waiting");
@@ -471,7 +437,7 @@ for (const call of CALLS) {
     await holdModel(app, "holdAsked", true);
     await pressHelpPrompt(panel, call.answer);
     const reply = panel.getByTestId("help-suggestion").last();
-    await expect.poll(() => held(app), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => modelHeld(app), { timeout: 20_000 }).toBe(true);
     const lines = reply.getByTestId("help-option-say");
     await expect(lines).toHaveCount(2);
     const boxes = async () => [await topOf(lines.nth(0)), await topOf(lines.nth(1))];
