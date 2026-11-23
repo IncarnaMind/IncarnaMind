@@ -60,6 +60,15 @@ async function chooseOtherModel(section: Locator, fill: (form: Locator) => Promi
   await expect(form).toHaveCount(0);
 }
 
+async function turnOffAutomaticSorting(settings: Locator) {
+  const automatic = settings.getByRole("switch", {
+    name: /^Sort and tag new Documents as they arrive/,
+  });
+  await expect(automatic).toBeChecked();
+  await automatic.click();
+  await expect(automatic).not.toBeChecked();
+}
+
 const makeFolders = async (
   window: Page,
   folders: readonly { name: string; description: string }[],
@@ -249,12 +258,7 @@ test("Organize proposes a Folder that Confirm files, keeps the User's correction
       await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
       await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
     });
-    // On by default; turned off here, so the Document waits for Organize.
-    const automatic = settings.getByRole("switch", {
-      name: /^Sort and tag new Documents as they arrive/,
-    });
-    await expect(automatic).toBeChecked();
-    await automatic.uncheck();
+    await turnOffAutomaticSorting(settings);
     await closeSettings(window);
     const path = join(sources, "Research notes.txt");
     await writeFile(path, "Research report about membrane separation and water filtration.");
@@ -343,9 +347,7 @@ test("⌘Z takes Organize's Confirm back and ⇧⌘Z files them again in one ste
       await form.getByLabel("Connection", { exact: true }).selectOption(providerId);
       await form.getByLabel("Model name", { exact: true }).fill("small-classifier");
     });
-    await settings
-      .getByRole("switch", { name: /^Sort and tag new Documents as they arrive/ })
-      .uncheck();
+    await turnOffAutomaticSorting(settings);
     await closeSettings(window);
     const names = ["Research notes A", "Research notes B", "Research notes C"];
     const paths: string[] = [];
