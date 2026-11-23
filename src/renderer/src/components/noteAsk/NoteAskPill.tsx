@@ -356,14 +356,15 @@ export function Reply({ text }: { text: string }) {
     if (!tokens.includes(token)) tokens.push(token);
     return `${CHIP_OPEN}${tokens.indexOf(token) + 1}${CHIP_CLOSE}`;
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the chips are drawn anew for each text.
   useLayoutEffect(() => {
     const root = drawn.current;
     if (!root) return;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const holding: Text[] = [];
     while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      if (node.data.includes(CHIP_OPEN)) holding.push(node);
+      const node = walker.currentNode;
+      if (node instanceof Text && node.data.includes(CHIP_OPEN)) holding.push(node);
     }
     for (const node of holding) {
       const parts = node.data.split(new RegExp(`${CHIP_OPEN}(\\d+)${CHIP_CLOSE}`));
