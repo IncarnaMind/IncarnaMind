@@ -2666,10 +2666,8 @@
       animation-delay: 0.4s;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .note-ask-dots > span {
-      animation: none;
-    }
+  :root:not([data-motion="on"]) .note-ask-dots > span {
+    animation: none;
   }
   @keyframes note-ask-dot {
     0%,

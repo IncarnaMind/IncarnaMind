@@ -1512,8 +1512,8 @@ export function createAgentAccess(
       }
       throw error;
     }
+    const ended = grant?.kind === "conversation" ? grant.calling?.(tool) : undefined;
     try {
-      if (grant?.kind === "conversation") grant.calling?.(tool);
       const done = await run(pairing);
       record(
         "done",
@@ -1534,6 +1534,8 @@ export function createAgentAccess(
       deps.reportError(error);
       record("failed", { problem: "failed" });
       throw new AgentRefusedError("failed", t("agents.problem.failed"));
+    } finally {
+      ended?.();
     }
   }
 

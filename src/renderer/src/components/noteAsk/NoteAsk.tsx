@@ -93,8 +93,9 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     <div data-testid="note-ask" data-mind-id={mindId} className="note-ask">
       {open && <NoteConversation mindId={mindId} onClose={() => showConversation(mindId, false)} />}
       <div className="note-ask-over">
-        {/* The reply is in one place at a time: the line, or the conversation. */}
-        {ask && (working || !open) && (
+        {/* The reply is in one place at a time, the line or the conversation; a failure, which
+            the conversation doesn't keep, stays in the line. */}
+        {ask && (working || ask.state === "failed" || !open) && (
           <NoteAskPill
             ask={ask}
             mindId={mindId}

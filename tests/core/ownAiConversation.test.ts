@@ -115,6 +115,30 @@ function runner(
   return { adapter, runs, purged };
 }
 
+interface Gate {
+  shut: Promise<void>;
+  open(): void;
+  at: Promise<void>;
+  reached(): void;
+}
+
+/** A promise to hold a step at, and how to let it go. */
+function gate(): Gate {
+  let open = () => {};
+  const shut = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  let reached = () => {};
+  const at = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  return { shut, open: () => open(), at, reached: () => reached() };
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PAGE = { title: "Ferry page", html: "<p>The ferry carried passengers.</p>" };
+
 /**
  * A User with no model set up, a Document in "Harbour", a Note they wrote there and another, and
  * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
@@ -126,9 +150,21 @@ async function written(
     readOnly = false,
     cited = false,
     quietMs,
-  }: { readOnly?: boolean; cited?: boolean; quietMs?: number } = {},
+    held,
+  }: { readOnly?: boolean; cited?: boolean; quietMs?: number; held?: Gate } = {},
 ) {
-  const canvasFiles = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
+  const files = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
+  // `held`: a page's files are written only once it opens, so its call runs until then.
+  const canvasFiles = held
+    ? {
+        ...files,
+        async write(hash: string, bytes: Uint8Array) {
+          held.reached();
+          await held.shut;
+          await files.write(hash, bytes);
+        },
+      }
+    : files;
   const started = await startAgentsCore(
     checkingModel({}, []),
     { canvasFiles, ownAi, ...(quietMs !== undefined && { ownAiQuietMs: quietMs }) },
@@ -305,8 +341,9 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
 
   // protects=a run that has sent nothing for a while is said to be quiet, and no longer once it sends again; fails_when=the line stays the same for minutes with nothing to say the AI is silent
   it("says when the AI has sent nothing for a while", async () => {
-    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    let saidAt = 0;
     const run = runner(async (_agent, request) => {
+      saidAt = performance.now();
       request.progress?.({ kind: "said", text: "Reading the report" });
       await pause(900);
       request.progress?.({ kind: "heard" });
@@ -314,13 +351,34 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
     });
     const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300 });
+    let quietAt = 0;
+    core.on("agents.noteTurn", (turn) => {
+      if (turn.quiet && quietAt === 0) quietAt = performance.now();
+    });
     await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
     expect(await ended()).toMatchObject({ state: "landed", quiet: false });
     const working = turns.filter((turn) => turn.state === "working");
     const quiet = working.findIndex((turn) => turn.quiet);
     expect(working[quiet]?.doing).toEqual({ kind: "said", text: "Reading the report" });
+    expect(quietAt - saidAt).toBeGreaterThanOrEqual(280);
     expect(working.slice(quiet + 1).some((turn) => !turn.quiet)).toBe(true);
-    expect(working.slice(0, quiet).every((turn) => !turn.quiet)).toBe(true);
+  });
+
+  // protects=while a call of the run runs in IncarnaMind, however long, the line doesn't say the AI is quiet: it waits on IncarnaMind; fails_when=the User reads that their AI is silent while IncarnaMind is the one at work
+  it("doesn't say the AI is quiet while a call of it runs here", async () => {
+    const held = gate();
+    const run = runner(async (agent) => {
+      const published = agent.callTool({ name: "publish_canvas", arguments: PAGE });
+      await held.at;
+      await pause(900);
+      held.open();
+      await published;
+      return { kind: "finished", reply: "Made a page." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300, held });
+    await core.askInNote({ mindId, words: "make a page of the ferry figures" });
+    expect(await ended()).toMatchObject({ state: "landed" });
+    expect(turns.filter((turn) => turn.quiet)).toEqual([]);
   });
 
   // protects=a Note the AI writes is named with its id at the end, so the line can open it; fails_when=the line says it wrote a Note the User has no way to open
@@ -347,17 +405,22 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
 
   // protects=once a turn has ended, a call of its run that finishes later tells no window it is working again; fails_when=the input stays on Working for good, with nothing to stop
   it("tells nothing of a run after its turn ended", async () => {
+    const held = gate();
     const run = runner(async (agent) => {
       // Left running: the run's end closes its connection under it, and the call still finishes.
       agent
-        .callTool({ name: "search", arguments: { query: "ferry passengers" } })
+        .callTool({ name: "publish_canvas", arguments: PAGE })
         .catch((error: unknown) => expect(String(error)).toMatch(/Connection closed/));
+      await held.at;
       return { kind: "failed", reason: "stalled" };
     });
-    const { core, mindId, turns, ended } = await written(run.adapter);
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300, held });
     await core.askInNote({ mindId, words: "anything new?" });
     expect(await ended()).toMatchObject({ state: "failed", problem: "stalled" });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    // The call reached IncarnaMind before the end, and ends after it; then the quiet limit passes.
+    held.open();
+    await expect.poll(async () => (await core.listCanvases()).length).toBe(1);
+    await pause(700);
     const last = turns.findIndex((turn) => turn.state !== "working");
     expect(turns.slice(last + 1)).toEqual([]);
   });

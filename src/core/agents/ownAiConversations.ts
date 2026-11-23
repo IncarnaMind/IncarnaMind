@@ -381,7 +381,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const { mindId, pairing, turnId, conversation, stop } = turn;
     const signal = AbortSignal.any([options.lifetime, stop.signal]);
     const startedAt = options.now();
-    // What the line says now, and how many calls of each Tool the run has made, by what they named.
     let doing: NoteDoing | null = null;
     let written = "";
     const named = new Map<string, Set<string>>();
@@ -414,7 +413,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         });
       }
     };
-    // The words come a few at a time: the windows hear them at most this often.
     let pending: ReturnType<typeof setTimeout> | null = null;
     // Once the run has ended, a call of it that finishes late, or a word, tells no window anything:
     // the turn's end is the last they hear of it.
@@ -430,25 +428,27 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     // User's AI app shows a thought for its step; with none, the line says the call itself.
     let saidForStep = false;
     let calledSince = false;
-    // When the run last sent anything, or a call of it here started or ended; the calls running.
-    let heardAt = Date.now();
+    // A clock that stands still while the computer sleeps: a sleep isn't the AI gone quiet.
+    let heardAt = performance.now();
     let calls = 0;
     let quiet = false;
     const heard = () => {
-      heardAt = Date.now();
+      heardAt = performance.now();
       if (!quiet) return;
       quiet = false;
       tellWorking();
     };
     const quietMs = options.quietMs ?? QUIET_MS;
-    const listening = setInterval(
-      () => {
-        if (quiet || over || signal.aborted || calls > 0 || Date.now() - heardAt < quietMs) return;
-        quiet = true;
-        tell(event({ state: "working" }));
-      },
-      Math.min(1_000, quietMs / 4),
-    );
+    const listen = () =>
+      setInterval(
+        () => {
+          if (quiet || over || signal.aborted || calls > 0) return;
+          if (performance.now() - heardAt < quietMs) return;
+          quiet = true;
+          tell(event({ state: "working" }));
+        },
+        Math.min(1_000, quietMs / 4),
+      );
     const doingCall = (tool: AgentToolName, summary: string) => {
       const seen = named.get(tool) ?? new Set<string>();
       if (summary !== "") seen.add(summary);
@@ -462,7 +462,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (step.kind === "heard") return;
       if (step.kind === "said") {
         written = step.text;
-        // Its first word or two say nothing yet.
         if (step.text.trim().length < SAID_FROM) return;
         doing = { kind: "said", text: step.text };
         saidForStep = true;
@@ -486,11 +485,13 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         calling: () => {
           calls += 1;
           heard();
+          return () => {
+            calls -= 1;
+            heard();
+          };
         },
         called: (call) => {
-          calls = Math.max(0, calls - 1);
           if (signal.aborted || over) return;
-          heard();
           if (call.outcome === "refused" && call.problem === "read-only") readOnly = true;
           if (call.outcome === "done" && call.tool === "create_mind") {
             const wrote = call.effects.find(
@@ -553,7 +554,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     let fresh = false;
     let end: Awaited<ReturnType<typeof runOnce>>;
+    let listening: ReturnType<typeof setInterval> | undefined;
     try {
+      listening = listen();
       end = await runOnce(hasEarlierTurns(conversation.id, turnId), conversation.session_id);
       if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
         // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.

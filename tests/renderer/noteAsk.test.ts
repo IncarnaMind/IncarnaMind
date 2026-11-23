@@ -117,6 +117,20 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(applyTurn).toHaveBeenCalledOnce();
   });
 
+  // protects=a request that ended stays ended, whatever of it the window hears later, and says it is quiet only while it works; fails_when=a late word puts the line back on Working with nothing to stop, or a quiet sign outlives the run
+  test("keeps an ended request ended, and its quiet sign to its run", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    tell(event({ quiet: true }));
+    expect(ask()?.quiet).toBe(true);
+    tell(event({ quiet: false }));
+    expect(ask()?.quiet).toBe(false);
+    tell(event({ quiet: true }));
+    tell(event({ state: "landed", reply: "Shorter.", quiet: true }));
+    expect(ask()).toMatchObject({ state: "landed", quiet: false });
+    tell(event({ state: "working", doing: { kind: "thinking" } }));
+    expect(ask()).toMatchObject({ state: "landed", reply: "Shorter." });
+  });
+
   // protects=a request another window sent shows its line here but applies only there; fails_when=two windows apply one turn's changes
   test("doesn't apply a turn another window asked", async () => {
     tell(

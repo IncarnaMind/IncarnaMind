@@ -65,8 +65,11 @@ export interface ConversationRun extends ConversationHears {
 export interface ConversationHears {
   /** Each request of changes made in the front Note that applies at once, with what it changed. */
   asked?(made: AskedInFront): void;
-  /** Each call of the run as IncarnaMind starts it, once it is let in; `called` follows. */
-  calling?(tool: AgentToolName): void;
+  /**
+   * Each call of the run as IncarnaMind starts it, once it is let in; what it returns is called
+   * as the call ends, however it ends.
+   */
+  calling?(tool: AgentToolName): () => void;
   /** Each call of the run, as its activity row records it. */
   called?(call: RunCall): void;
 }

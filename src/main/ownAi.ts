@@ -33,9 +33,9 @@ const MAX_REPLY_CHARS = 4000;
 const STATUS_MS = 15_000;
 /**
  * How long a run may send nothing before it is stopped as stalled. While it works it sends a tick
- * about every second as it thinks, its words and Tool inputs as it writes them, and a heartbeat
- * every 30 s during a Tool call; past Claude Code's own 5 minutes with no data, its own watchdog
- * and retry act first (#3677).
+ * about every second as it thinks, and its words and Tool inputs as it writes them; time it waits
+ * on a Tool of IncarnaMind's own doesn't count. Past Claude Code's own 5 minutes with no data, its
+ * own watchdog and retry act first (#3677).
  */
 const STALL_MS = 6 * 60_000;
 
@@ -196,12 +196,19 @@ export function createOwnAi({
       const cwd = conversation ? folderOf(conversation.key) : scratch;
       const ours = (tool: unknown) =>
         typeof tool === "string" && tool.startsWith(`mcp__${SERVER}__`);
+      // A call to one of IncarnaMind's other Tools is denied by Claude Code and refused by the
+      // server; any other call, of a tool of its own or one its servers run, stops the run.
+      const stray = (part: Record<string, unknown>) =>
+        typeof part.type === "string" &&
+        part.type.endsWith("tool_use") &&
+        !(part.type === "tool_use" && ours(part.name));
       // The category of the request that failed last, if Claude Code named one IncarnaMind words.
       let failure: OwnAiFailure | null = null;
       let begun = false;
-      // The words of the text block being written, as its pieces come.
       let written = "";
       let toldHeard = 0;
+      // The calls of IncarnaMind's Tools sent and not yet answered: the run waits on them silently.
+      const running = new Set<string>();
       const heardPart = (event: Record<string, unknown>) => {
         const block = object(event.content_block);
         const delta = object(event.delta);
@@ -245,13 +252,31 @@ export function createOwnAi({
           permissionMode: request.permissionMode,
           partial: true,
           stallMs,
+          busy: () => running.size > 0,
           onMessage(message) {
-            if (Date.now() - toldHeard >= HEARD_EVERY_MS) {
-              toldHeard = Date.now();
+            // A retry's notice says the AI isn't answering, rather than that it is.
+            const retry = message.type === "system" && message.subtype === "api_retry";
+            if (!retry && performance.now() - toldHeard >= HEARD_EVERY_MS) {
+              toldHeard = performance.now();
               request.progress?.({ kind: "heard" });
             }
+            if (message.type === "user") {
+              const content = object(message.message).content;
+              for (const part of Array.isArray(content) ? content.map(object) : []) {
+                if (part.type === "tool_result") running.delete(String(part.tool_use_id));
+              }
+              return;
+            }
             if (message.type === "stream_event") {
-              if (begun) heardPart(object(message.event));
+              const event = object(message.event);
+              // A call stops the run as it starts, not once it has been written whole.
+              if (event.type === "content_block_start") {
+                if (!begun) throw new StrayRunError("a reply before its start");
+                if (stray(object(event.content_block))) {
+                  throw new StrayRunError("a call to a tool of its own");
+                }
+              }
+              if (begun) heardPart(event);
               return;
             }
             if (message.type === "system" && message.subtype === "thinking_tokens") {
@@ -286,8 +311,6 @@ export function createOwnAi({
             written = "";
             const content = object(message.message).content;
             for (const part of Array.isArray(content) ? content.map(object) : []) {
-              // A call to one of IncarnaMind's other Tools is denied by Claude Code and refused by
-              // the server; any other call, of a tool of its own or one its servers run, stops it.
               if (
                 part.type === "text" &&
                 typeof part.text === "string" &&
@@ -295,10 +318,8 @@ export function createOwnAi({
               ) {
                 request.progress?.({ kind: "said", text: part.text.slice(0, MAX_REPLY_CHARS) });
               }
-              const call = typeof part.type === "string" && part.type.endsWith("tool_use");
-              if (call && !(part.type === "tool_use" && ours(part.name))) {
-                throw new StrayRunError("a call to a tool of its own");
-              }
+              if (stray(part)) throw new StrayRunError("a call to a tool of its own");
+              if (part.type === "tool_use") running.add(String(part.id));
             }
           },
         });
@@ -315,8 +336,11 @@ export function createOwnAi({
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
         if (error instanceof ClaudeCodeStalledError) return { kind: "failed", reason: "stalled" };
-        if (error instanceof StrayRunError) console.warn(error.message);
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
+        console.warn(
+          "A run of the User's own AI failed:",
+          error instanceof Error ? error.message : "unknown",
+        );
         return { kind: "failed", reason: failure ?? "other" };
       } finally {
         await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() =>

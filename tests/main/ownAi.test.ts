@@ -97,10 +97,10 @@ function useClaude({
 }
 
 /**
- * A stand-in for the stream-json session: settings first, then `after` once the prompt comes. `plugin`: a
- * managed plugin is on, as an organization's settings can turn one on.
+ * A stand-in for the stream-json session: settings first, then `after` once the prompt comes, and
+ * `then`'s code. `plugin`: a managed plugin is on, as an organization's settings can turn one on.
  */
-const session = (after: unknown[], plugin = false) => `
+const session = (after: unknown[], plugin = false, then = "") => `
   const lines = require("node:readline").createInterface({ input: process.stdin });
   lines.on("line", (line) => {
     const v = JSON.parse(line);
@@ -110,6 +110,7 @@ const session = (after: unknown[], plugin = false) => `
           { source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }] } } }));
     } else if (v.type === "user") {
       for (const each of ${JSON.stringify(after)}) console.log(JSON.stringify(each));
+      ${then}
     }
   });
 `;
@@ -216,8 +217,53 @@ describe("a check run on the User's own Claude Code", () => {
         done,
       ],
     ],
+    [
+      "a call to a tool of its own, as it starts",
+      [
+        init(),
+        {
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "tool_use", id: "b1", name: "Bash", input: {} },
+          },
+        },
+        done,
+      ],
+    ],
+    [
+      "a call to a tool its server runs, as it starts",
+      [
+        init(),
+        {
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "server_tool_use", id: "s1", name: "web_search", input: {} },
+          },
+        },
+        done,
+      ],
+    ],
     ["no start", [done]],
     ["a reply before its start", [call("mcp__incarnamind__search"), init(), done]],
+    [
+      "a reply before its start, as it starts",
+      [
+        {
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          },
+        },
+        init(),
+        done,
+      ],
+    ],
     ["no list of its tools", [{ ...init(), tools: undefined }, done]],
     ["no list of its servers", [{ ...init(), mcp_servers: undefined }, done]],
   ])("stops a run that shows %s", async (_name, after) => {
@@ -546,6 +592,63 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     await expect(ask(undefined, 500)).resolves.toEqual({ kind: "finished", reply: "Checked." });
   });
 
+  // protects=time a run waits, silently, on a Tool of IncarnaMind's own doesn't count towards the stall limit, and once the call is answered silence counts again; fails_when=a long call of IncarnaMind's own ends the run as if the User's AI had stopped answering, or a run stuck after its call goes on
+  it("doesn't count a wait on IncarnaMind's own Tool as a stall", async () => {
+    const answered = {
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "Found." }] },
+    };
+    useClaude({
+      run: session(
+        [init(), call("mcp__incarnamind__search")],
+        false,
+        `setTimeout(() => {
+          console.log(JSON.stringify(${JSON.stringify(answered)}));
+          console.log(JSON.stringify(${JSON.stringify(done)}));
+        }, 1500);`,
+      ),
+    });
+    await expect(ask(undefined, 500)).resolves.toEqual({ kind: "finished", reply: "Checked." });
+    useClaude({
+      run: session(
+        [init(), call("mcp__incarnamind__search"), answered],
+        false,
+        "setTimeout(() => {}, 60_000);",
+      ),
+    });
+    await expect(ask(undefined, 500)).resolves.toEqual({ kind: "failed", reason: "stalled" });
+  });
+
+  // protects=a run's words as they come don't count towards the size limit of its whole messages, which still stops one too long; fails_when=a long streamed reply fails, or a run prints without bound
+  it("bounds what a run prints by its whole messages", async () => {
+    const piece = {
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "x".repeat(60_000) },
+      },
+    };
+    useClaude({
+      run: session(
+        [init()],
+        false,
+        `for (let i = 0; i < 160; i++) console.log(JSON.stringify(${JSON.stringify(piece)}));
+        console.log(JSON.stringify(${JSON.stringify(done)}));`,
+      ),
+    });
+    await expect(ask()).resolves.toEqual({ kind: "finished", reply: "Checked." });
+    useClaude({
+      run: session(
+        [init()],
+        false,
+        `console.log(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "x".repeat(9 * 1024 * 1024) }] } }));
+        console.log(JSON.stringify(${JSON.stringify(done)}));`,
+      ),
+    });
+    await expect(ask()).resolves.toEqual({ kind: "failed", reason: "other" });
+  });
+
   // protects=what the run says to the User between its calls, and each call as it starts, reach IncarnaMind as they come, and so does that it sent anything, at most once a second; fails_when=the line can only show a call once it has ended, or can't tell a silent run from a busy one
   it("says what the run is doing as its stream tells it", async () => {
     const steps: unknown[] = [];
@@ -586,5 +689,8 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       { kind: "thinking" },
     ]);
     expect(launch.mock.calls.at(-1)?.[1]).toContain("--include-partial-messages");
+    expect(launch.mock.calls.at(-1)?.[2]).toMatchObject({
+      env: expect.objectContaining({ CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1" }),
+    });
   });
 });
