@@ -904,9 +904,14 @@ describe("an agent is found where its installer put it (#3644)", () => {
   it("each agent is found by each sign its installer leaves on this system, and no other agent is", async () => {
     const { core, home, applications, commands } = await started();
     const folders = { applications, commands, home };
+    // WorkBuddy is made for macOS and Windows only.
+    const noBuildHere = process.platform === "linux" ? ["workbuddy"] : [];
     for (const client of AGENT_CLIENT_IDS.filter((id) => id !== "other")) {
       const signs = installSigns(client);
-      expect({ client, signs: signs.length > 0 }).toEqual({ client, signs: true });
+      expect({ client, signs: signs.length > 0 }).toEqual({
+        client,
+        signs: !noBuildHere.includes(client),
+      });
       for (const sign of signs) {
         const made = await installAgent(client, folders, sign);
         const found = (await core.listAgentClients())
