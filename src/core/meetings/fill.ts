@@ -1721,6 +1721,9 @@ export function createMeetingFill(options: MeetingFillOptions) {
         unwritten: undefined,
         part: undefined,
         checking: 0,
+        omitted: 0,
+        unfinishedParts: 0,
+        stretches: undefined,
         problem: { kind: "user-stopped", message: "" },
       });
     },

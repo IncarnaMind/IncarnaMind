@@ -7129,7 +7129,7 @@ export const zhCN = {
   "meetings.fill.reference.above": "{topic}，详见上文",
   "meetings.fill.reference.below": "{topic}，详见下文",
   "meetings.fill.stop": "停止",
-  "meetings.fill.problem.userStopped": "你已停止补全笔记",
+  "meetings.fill.problem.userStopped": "已停止补全笔记",
   "meetings.fill.problem.stopped": "补全完成前 IncarnaMind 已关闭",
   "meetings.fill.problem.localMode":
     "已开启“所有内容都留在这台电脑上”，而这篇笔记用的模型不在这台电脑上",

@@ -338,16 +338,17 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       </ProblemLine>
     );
   }
+  const stoppedByUser = fill.problem?.kind === "user-stopped";
   return (
     <ProblemLine
       testId="meeting-fill-line"
-      role="alert"
+      role={stoppedByUser ? "status" : "alert"}
       className=""
       title={fill.problem?.kind === "model" ? fill.problem.message : undefined}
       action={provider?.fix ?? again(t("meetings.fill.tryAgain"))}
       also={provider?.fix && again(t("meetings.fill.tryAgain"))}
     >
-      {notFilled(fill.problem)}
+      {stoppedByUser ? reasonOf(fill.problem) : notFilled(fill.problem)}
     </ProblemLine>
   );
 }

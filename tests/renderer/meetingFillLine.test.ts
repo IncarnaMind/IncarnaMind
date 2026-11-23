@@ -940,6 +940,19 @@ describe.each(["en", "zh-CN"] as const)("existing fill behavior in %s", (languag
     },
   );
 
+  test("stopping the notes shows a status and lets the user try again", async () => {
+    const meeting = meetingOf(
+      fillOf({ state: "failed", problem: { kind: "user-stopped", message: "" } }),
+    );
+    const line = await show(meeting);
+    expect(line?.getAttribute("role")).toBe("status");
+    expect(line?.textContent).toBe(
+      language === "en" ? "Stopped filling in the note · Try again" : "已停止补全笔记 · 重试",
+    );
+    await click("meeting-fill-again");
+    expect(actions.fillNotes).toHaveBeenCalledWith(meeting.id);
+  });
+
   // protects=a call's note filled in while its speakers are still told apart says so beside its Undo until the pass ends, as its Citations may then name who spoke (#2839); fails_when=the line hides the pass, or keeps saying it once the pass has ended; no_claim=the Citations' speakers, which tests/core/meetingFill.test.ts covers.
   test("a note filled in while its speakers are told apart says so until the pass ends", async () => {
     const { holdFillSteps } = await import("../../src/renderer/src/meetingFillSteps");
