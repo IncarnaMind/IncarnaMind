@@ -1320,7 +1320,7 @@ export function* piecesOf(blocks: readonly Block[]): Generator<Piece> {
             key: inline,
             authorship,
             sentence: inline.sentenceCheck,
-            ...(inline.marks.comment && { comments: [inline.marks.comment] }),
+            ...(inline.marks.comments && { comments: inline.marks.comments }),
           };
         }
         break;

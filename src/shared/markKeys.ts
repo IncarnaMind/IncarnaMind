@@ -80,7 +80,7 @@ function whichCheckCounts(checks: readonly KeyedValue[]): number {
   return best;
 }
 
-/** Which of two comments, or two assistant changes, on the same words is read: the first key. */
+/** Which of two assistant changes on the same words is read: the first key. */
 function whichByKey(values: readonly KeyedValue[]): number {
   let best = 0;
   values.forEach((value, at) => {
@@ -89,22 +89,41 @@ function whichByKey(values: readonly KeyedValue[]): number {
   return best;
 }
 
-const RULES: Record<KeyedMark, (values: readonly KeyedValue[]) => number> = {
+/** A mark of which one counts where several of its keys meet on the same words. */
+type PickedMark = Exclude<KeyedMark, typeof COMMENT_MARK>;
+
+const RULES: Record<PickedMark, (values: readonly KeyedValue[]) => number> = {
   [CLAIM_CHECK_MARK]: whichCheckCounts,
-  [COMMENT_MARK]: whichByKey,
   [PROPOSAL_INSERT_MARK]: whichByKey,
   [PROPOSAL_DELETE_MARK]: whichByKey,
 };
 
-/** The value of a mark that counts among a run's formats, or null when the run has none. */
-export function countingMarkOf(
-  name: KeyedMark,
-  attributes: Record<string, unknown> | undefined,
-): KeyedValue | null {
-  const values = Object.entries(attributes ?? {})
+const valuesOf = (name: KeyedMark, attributes: Record<string, unknown> | undefined) =>
+  Object.entries(attributes ?? {})
     .filter(([key, attrs]) => isMarkKey(name, key) && attrs != null)
     .map(([key, attrs]) => ({ key, attrs }));
+
+/** The value of a mark that counts among a run's formats, or null when the run has none. */
+export function countingMarkOf(
+  name: PickedMark,
+  attributes: Record<string, unknown> | undefined,
+): KeyedValue | null {
+  const values = valuesOf(name, attributes);
   return values[RULES[name](values)] ?? null;
+}
+
+/**
+ * The values of a mark that count among a run's formats, by key: every comment on its words, since
+ * a Word file can have several on the same words (#2585), and of another mark the one that counts.
+ */
+export function countingMarksOf(
+  name: KeyedMark,
+  attributes: Record<string, unknown> | undefined,
+): KeyedValue[] {
+  if (name === COMMENT_MARK)
+    return valuesOf(name, attributes).sort((a, b) => (a.key < b.key ? -1 : 1));
+  const one = countingMarkOf(name, attributes);
+  return one ? [one] : [];
 }
 
 export const countingCheckOf = (attributes: Record<string, unknown> | undefined) =>
@@ -112,11 +131,11 @@ export const countingCheckOf = (attributes: Record<string, unknown> | undefined)
 
 /** The value of a mark a run holds, under whichever of its keys counts; undefined for none. */
 export const markValueOf = (
-  name: KeyedMark,
+  name: PickedMark,
   attributes: Record<string, unknown> | undefined,
 ): unknown => countingMarkOf(name, attributes)?.attrs;
 
-export const hasMarkIn = (name: KeyedMark, attributes: Record<string, unknown> | undefined) =>
+export const hasMarkIn = (name: PickedMark, attributes: Record<string, unknown> | undefined) =>
   countingMarkOf(name, attributes) !== null;
 
 /**
@@ -138,11 +157,12 @@ export function keyedFormats(
 
 /**
  * What the editor's Yjs sync is told of a keyed mark (patches/y-tiptap/marks.mjs): the key each
- * value is kept under, and which value it reads when two meet on the same words.
+ * value is kept under, and which value it reads when two meet on the same words. It reads every
+ * comment.
  */
 export const ySyncOf = (name: KeyedMark) => ({
   yKey: (attrs: Record<string, unknown>) => markKeyOf(name, attrs.id),
-  yPick: RULES[name],
+  ...(name !== COMMENT_MARK && { yPick: RULES[name] }),
 });
 
 /** The keyed mark a format key holds, if any. */

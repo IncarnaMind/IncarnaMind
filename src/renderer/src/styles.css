@@ -13572,13 +13572,16 @@ body.assistant-dragging * {
 .comment-menu {
   min-width: 180px;
   padding: 4px;
+  border-radius: 10px;
+  background: var(--color-sheet);
+  box-shadow: var(--shadow-popover);
 }
 
 .comment-menu-item {
   display: block;
   width: 100%;
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 13px;
   line-height: 18px;
   text-align: start;
