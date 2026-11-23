@@ -1302,10 +1302,16 @@ export interface CoreAdapters {
     /** The shim's script, built (`out/main/agentShim.js`): Claude's install file carries a copy. */
     shimScript?: string;
     /**
-     * Where apps are installed, to tell which agents are on this computer.
-     * Defaults, on macOS, to the Applications folders.
+     * Where apps are installed, to tell which agents are on this computer: macOS's Applications
+     * folders, Windows' program folders, Linux's folders of launchers. Defaults, on macOS, to the
+     * Applications folders.
      */
     applications?: readonly string[];
+    /**
+     * The folders on the PATH a terminal of the User's has, where agents' commands are. None when
+     * not given.
+     */
+    commandFolders?(): Promise<readonly string[]>;
     /** Opens a link in an agent's app: Cursor's install link, or one with a request typed (#3373). */
     openLink?(url: string): Promise<void>;
   };

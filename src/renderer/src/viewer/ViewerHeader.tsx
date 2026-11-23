@@ -1,5 +1,13 @@
 import { isMacOS } from "@tiptap/core";
-import { createContext, type ReactNode, useContext, useMemo, useRef } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Document } from "../../../core/api";
 import { changedSourceLines, citationState, whereQuoteStands } from "../../../shared/citations";
 import { displayName, sourceOf } from "../../../shared/documentNames";
@@ -50,22 +58,7 @@ export function HeaderDivider() {
   return <span aria-hidden="true" className="viewer-divider" />;
 }
 
-/**
- * A Document tab's 36px toolbar, under its group's tab strip: the outline
- * toggle (`leading`), the Document's kind and name, its Tags, the view's own
- * controls (`children`: where it is, page navigation and zoom for a PDF),
- * then Keep open for a preview, and "Open in default app" (for a web page,
- * when it was fetched and "Open the live page"). Under it, for a file
- * IncarnaMind wrote, that checks don't count it as evidence, with Count it (#80).
- */
-export function ViewerHeader({
-  leading,
-  children,
-  openable = true,
-  onRetry,
-  showingCited = false,
-  placeGone = false,
-}: {
+interface ViewerHeaderProps {
   leading?: ReactNode;
   children?: ReactNode;
   /**
@@ -85,7 +78,48 @@ export function ViewerHeader({
    * line under the toolbar says so, after the one that says the Document changed.
    */
   placeGone?: boolean;
-}) {
+}
+
+const HeaderControls = createContext<((props: ViewerHeaderProps) => void) | null>(null);
+const noControls: ViewerHeaderProps = {};
+
+/** The tab owns its toolbar while the file and its format-specific controls load or reload. */
+export function DocumentToolbar({ children }: { children: ReactNode }) {
+  const [controls, setControls] = useState(noControls);
+  return (
+    <HeaderControls.Provider value={setControls}>
+      <Toolbar {...controls} />
+      {children}
+    </HeaderControls.Provider>
+  );
+}
+
+export function ViewerHeader(props: ViewerHeaderProps) {
+  const setControls = useContext(HeaderControls);
+  useLayoutEffect(() => {
+    if (!setControls) return;
+    setControls(props);
+    return () => setControls(noControls);
+  }, [setControls, props]);
+  return setControls ? null : <Toolbar {...props} />;
+}
+
+/**
+ * A Document tab's 36px toolbar, under its group's tab strip: the outline
+ * toggle (`leading`), the Document's kind and name, its Tags, the view's own
+ * controls (`children`: where it is, page navigation and zoom for a PDF),
+ * then Keep open for a preview, and "Open in default app" (for a web page,
+ * when it was fetched and "Open the live page"). Under it, for a file
+ * IncarnaMind wrote, that checks don't count it as evidence, with Count it (#80).
+ */
+function Toolbar({
+  leading,
+  children,
+  openable = true,
+  onRetry,
+  showingCited = false,
+  placeGone = false,
+}: ViewerHeaderProps) {
   const t = useT();
   const language = useLanguage();
   const gap = useGap();

@@ -22,8 +22,9 @@
  * take it out again, whichever release wrote it; a copy the User changed stays
  * (./skillFiles, #3430).
  */
-import { existsSync } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import {
+  access,
   lstat,
   mkdir,
   readdir,
@@ -62,6 +63,7 @@ import {
   codexTable,
   hideToken,
   holdsMcpServers,
+  type InstallLook,
   isEmptySettings,
   isInstalled,
   mcpServersSnippet,
@@ -107,8 +109,10 @@ export interface AgentSetupOptions {
   skills: SkillFiles;
   /** The User's home folder, where agents keep their settings. */
   home: string;
-  /** Where apps are installed (macOS's Applications folders), to tell which agents are here. */
+  /** Where apps are installed, to tell which agents are here (see `InstallPlaces`). */
   applications: readonly string[];
+  /** The folders on the PATH a terminal of the User's has, to tell which agents are here. */
+  commandFolders(): Promise<readonly string[]>;
   platform: NodeJS.Platform;
   /** Where a bundle waits for the agent's app to install it. */
   tempDir: string;
@@ -129,6 +133,33 @@ interface Written {
   path: string;
   before: string | null;
   after: string;
+}
+
+/**
+ * `isInstalled`'s reads. A file or folder that can't be read is not there, for this purpose. On
+ * Windows a Store app's command is a link no `stat` follows, so the link itself is what counts there,
+ * and any file there is one to run. A command is a file, never a folder.
+ */
+function diskLook(platform: NodeJS.Platform): InstallLook {
+  const windows = platform === "win32";
+  const found = async (path: string, file: boolean) => {
+    const target = await stat(path).catch(() => null);
+    if (target) return !file || target.isFile();
+    const link = windows ? await lstat(path).catch(() => null) : null;
+    return link !== null && !(file && link.isDirectory());
+  };
+  return {
+    exists: (path) => found(path, false),
+    runnable: async (path) =>
+      (await found(path, true)) &&
+      (windows ||
+        (await access(path, constants.X_OK).then(
+          () => true,
+          () => false,
+        ))),
+    read: (path) => readFile(path, "utf8").catch(() => null),
+    list: (folder) => readdir(folder).catch(() => []),
+  };
 }
 
 async function readText(path: string): Promise<string | null> {
@@ -569,17 +600,25 @@ export function createAgentSetup(options: AgentSetupOptions) {
 
   return {
     /** Every agent, those on this computer first, in the catalog's order otherwise. */
-    clients(): AgentClient[] {
-      const where = { home: options.home, applications: options.applications };
-      const all = AGENT_CLIENT_DEFINITIONS.map((client) => ({
-        id: client.id,
-        name: client.name,
-        otherNames: [...(client.otherNames ?? [])],
-        chat: client.chat === true,
-        installed: client.id !== "other" && isInstalled(client, where, existsSync),
-        setup: client.setup,
-        skillPath: skillPathsFor(options.home, client.id)[0] ?? null,
-      }));
+    async clients(): Promise<AgentClient[]> {
+      const look = diskLook(options.platform);
+      const places = {
+        home: options.home,
+        platform: options.platform,
+        applications: options.applications,
+        commandFolders: await options.commandFolders(),
+      };
+      const all = await Promise.all(
+        AGENT_CLIENT_DEFINITIONS.map(async (client) => ({
+          id: client.id,
+          name: client.name,
+          otherNames: [...(client.otherNames ?? [])],
+          chat: client.chat === true,
+          installed: client.id !== "other" && (await isInstalled(client, places, look)),
+          setup: client.setup,
+          skillPath: skillPathsFor(options.home, client.id)[0] ?? null,
+        })),
+      );
       return [...all.filter((each) => each.installed), ...all.filter((each) => !each.installed)];
     },
 

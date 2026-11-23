@@ -48,6 +48,18 @@ interface Shift {
   moved: string[];
 }
 
+interface LongTask {
+  at: number;
+  duration: number;
+  name: string;
+  attribution: {
+    containerType: string;
+    containerId: string;
+    containerName: string;
+    containerSrc: string;
+  }[];
+}
+
 interface StepRecord {
   name: string;
   shifts: Shift[];
@@ -55,6 +67,7 @@ interface StepRecord {
   /** What the slowest input was: its event and the element it reached. */
   inputOn: string | null;
   longTasks: number[];
+  overBudgetTasks: LongTask[];
   focus: string | null;
 }
 
@@ -100,7 +113,7 @@ function excuses(known: Known, problem: Problem): boolean {
 interface FeelEntries {
   shifts: { at: number; value: number; moved: string[] }[];
   events: { at: number; duration: number; on: string }[];
-  longTasks: { at: number; duration: number }[];
+  longTasks: LongTask[];
   take(): void;
 }
 
@@ -162,7 +175,13 @@ async function observe(window: Page): Promise<void> {
     };
     const onLongTasks = (entries: PerformanceEntryList) => {
       for (const entry of entries) {
-        feel.longTasks.push({ at: entry.startTime, duration: entry.duration });
+        const { attribution = [] } = entry.toJSON() as Pick<LongTask, "attribution">;
+        feel.longTasks.push({
+          at: entry.startTime,
+          duration: entry.duration,
+          name: entry.name,
+          attribution,
+        });
       }
     };
     // What an input reached, written down as it is dispatched: by the time the timing entry
@@ -313,6 +332,7 @@ export async function feelOf(window: Page, flow: string): Promise<Feel> {
       inputMs: input,
       inputOn: slowest?.on ?? null,
       longTasks,
+      overBudgetTasks: entries.longTasks.filter((task) => task.duration > LONG_TASK_CEILING_MS),
       focus: null,
     });
     // Summed over the step: two small shifts in one frame move as much as one big one.

@@ -13087,7 +13087,7 @@ export interface AgentClient {
   otherNames: string[];
   /** A chat app, not a coding tool: chat apps are listed first. */
   chat: boolean;
-  /** It looks installed on this computer: such agents are listed first of their kind. */
+  /** It is installed on this computer (see `isInstalled`): such agents are listed first of their kind. */
   installed: boolean;
   setup: AgentSetupKind;
   /** Where setting it up puts the Skill that tells it when to use IncarnaMind; null if it reads none. */

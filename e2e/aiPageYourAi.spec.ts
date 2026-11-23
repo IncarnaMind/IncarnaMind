@@ -2,6 +2,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import { installAgent } from "../tests/helpers/agentInstalls";
 import {
   acceptPlainTextKeys,
   closeSettings,
@@ -34,10 +35,13 @@ async function shot(window: Page, name: string): Promise<void> {
 
 let dataDir: string;
 let home: string;
+let apps: string;
 let app: ElectronApplication | null = null;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   home = await realpath(await createDataFolder());
+  apps = await realpath(await createDataFolder());
+  await installAgent("claude-code", { applications: apps, commands: apps, home }, "command");
   await writeFile(join(home, ".claude.json"), "{}\n");
   await mkdir(join(home, ".claude"), { recursive: true });
 });
@@ -46,10 +50,11 @@ test.afterEach(async () => {
   app = null;
   await removeDataFolder(dataDir);
   await removeDataFolder(home);
+  await removeDataFolder(apps);
 });
 
 async function launch(): Promise<Page> {
-  const launched = await launchApp(dataDir, { home });
+  const launched = await launchApp(dataDir, { home, agentApps: [apps] });
   app = launched.app;
   await setWindowSize(launched.app, launched.window, 1440, 900);
   await dismissChatSetup(launched.window);
