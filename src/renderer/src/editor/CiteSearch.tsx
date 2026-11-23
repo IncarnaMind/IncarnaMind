@@ -232,11 +232,9 @@ export function CiteSearch({
     onDone();
     // A press elsewhere in the Note is the User's to place, not this to undo.
     if (editor.isDestroyed || how === "outside") return;
-    editor
-      .chain()
-      .focus()
-      .setTextSelection(Math.min(to.current, editor.state.doc.content.size))
-      .run();
+    editor.commands.setTextSelection(Math.min(to.current, editor.state.doc.content.size));
+    editor.view.focus();
+    editor.commands.scrollIntoView();
   };
 
   const choose = async (passage: FoundPassage) => {
@@ -258,12 +256,10 @@ export function CiteSearch({
         return;
       }
       asOneStep(editor, () => {
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(range, type.create({ ...cited }))
-          .run();
+        editor.commands.insertContentAt(range, type.create({ ...cited }));
       });
+      editor.view.focus();
+      editor.commands.scrollIntoView();
       onDone();
     } catch (error) {
       useAppStore.getState().reportError(error);

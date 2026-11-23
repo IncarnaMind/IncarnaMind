@@ -90,6 +90,19 @@ async function chooseCite(window: Page): Promise<Locator> {
   return search;
 }
 
+function focusWhenCiteCloses(search: Locator) {
+  return search.evaluateHandle((panel) => {
+    const result = { inNote: false };
+    const observer = new MutationObserver(() => {
+      if (panel.isConnected) return;
+      result.inNote = document.activeElement?.matches('[data-testid="mind-editor"]') === true;
+      observer.disconnect();
+    });
+    observer.observe(panel.getRootNode(), { childList: true, subtree: true });
+    return result;
+  });
+}
+
 test('"/" offers Cite… first with the sentence being written in it, and a chosen Passage becomes a checked Citation whose card and click open the page', async () => {
   const { app, window, editor } = await started();
   try {
@@ -160,8 +173,10 @@ test("Esc closes Cite… and leaves the “/” as typed text, with the caret af
     const search = await chooseCite(window);
     await expect(search.getByTestId("cite-result").first()).toBeVisible();
 
+    const focus = await focusWhenCiteCloses(search);
     await window.keyboard.press("Escape");
     await expect(search).toHaveCount(0);
+    expect(await focus.evaluate((result) => result.inNote)).toBe(true);
     await expect(editor).toBeFocused();
     // The "/" is text, and typing goes on after it, where the caret was.
     await window.keyboard.type("draft");
@@ -446,8 +461,10 @@ test("zh-CN: 引用… and 链接文档, a Chinese sentence finds its Passage, a
     await expect(best.getByTestId("cite-result-text")).toContainText("大潮出现在新月和满月前后");
     await screenshot(window, "cite-search-zh");
 
+    const focus = await focusWhenCiteCloses(search);
     await window.keyboard.press("Enter");
     await expect(search).toHaveCount(0);
+    expect(await focus.evaluate((result) => result.inNote)).toBe(true);
     const citation = editor.getByTestId("citation");
     await expect(citation).toHaveAttribute("data-check", "found");
     await expect(citation.getByTestId("citation-chip")).toHaveText("1");
