@@ -115,16 +115,59 @@ function runner(
   return { adapter, runs, purged };
 }
 
+interface Gate {
+  shut: Promise<void>;
+  open(): void;
+  at: Promise<void>;
+  reached(): void;
+}
+
+/** A promise to hold a step at, and how to let it go. */
+function gate(): Gate {
+  let open = () => {};
+  const shut = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  let reached = () => {};
+  const at = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  return { shut, open: () => open(), at, reached: () => reached() };
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const PAGE = { title: "Ferry page", html: "<p>The ferry carried passengers.</p>" };
+
 /**
  * A User with no model set up, a Document in "Harbour", a Note they wrote there and another, and
  * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
  * sentence rests on the report with a Citation after it.
  */
-async function written(ownAi: OwnAiRunner, { readOnly = false, cited = false } = {}) {
-  const canvasFiles = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
+async function written(
+  ownAi: OwnAiRunner,
+  {
+    readOnly = false,
+    cited = false,
+    quietMs,
+    held,
+  }: { readOnly?: boolean; cited?: boolean; quietMs?: number; held?: Gate } = {},
+) {
+  const files = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
+  // `held`: a page's files are written only once it opens, so its call runs until then.
+  const canvasFiles = held
+    ? {
+        ...files,
+        async write(hash: string, bytes: Uint8Array) {
+          held.reached();
+          await held.shut;
+          await files.write(hash, bytes);
+        },
+      }
+    : files;
   const started = await startAgentsCore(
     checkingModel({}, []),
-    { canvasFiles, ownAi },
+    { canvasFiles, ownAi, ...(quietMs !== undefined && { ownAiQuietMs: quietMs }) },
     { modelSetUp: false },
   );
   const { core } = started;
@@ -176,7 +219,7 @@ async function written(ownAi: OwnAiRunner, { readOnly = false, cited = false } =
   core.on("agents.noteTurn", (turn) => turns.push(turn));
   const ended = (count = 1) =>
     expect
-      .poll(() => turns.filter((turn) => turn.state !== "working").length)
+      .poll(() => turns.filter((turn) => turn.state !== "working").length, { timeout: 5_000 })
       .toBeGreaterThanOrEqual(count)
       .then(() => turns.filter((turn) => turn.state !== "working")[count - 1]);
   const blockIdOf = (index: number) => String(readMind(client).child(index).attrs.id);
@@ -260,6 +303,126 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await away.core.askInNote({ mindId: away.mindId, words: "shorter" })).toEqual({
       kind: "link",
     });
+  });
+
+  // protects=while a request runs, every window hears when it started and what it is doing: the AI's own words for a step, standing through that step's calls; thinking once it thinks again after them; and a call with what it names (the Document a reading read) when it said nothing for it; fails_when=the line can only show the last Tool's name, the AI's words flash and go, or no Document is named
+  it("tells what the run is doing as it goes", async () => {
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+    const run = runner(async (agent, request) => {
+      request.progress?.({ kind: "said", text: "I" });
+      request.progress?.({ kind: "said", text: "Reading the report" });
+      await pause();
+      const found = structured<{ passages: { documentId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } }),
+      ).passages[0];
+      await pause();
+      request.progress?.({ kind: "thinking" });
+      await pause();
+      await agent.callTool({ name: "read_passages", arguments: { documentId: found?.documentId } });
+      await pause();
+      return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    await ended();
+    const working = turns.filter((turn) => turn.state === "working");
+    expect(working[0]?.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+    const doings = working.map((turn) => turn.doing);
+    expect(doings).not.toContainEqual({ kind: "said", text: "I" });
+    expect(doings).not.toContainEqual(expect.objectContaining({ kind: "call", tool: "search" }));
+    expect(doings).toEqual(
+      expect.arrayContaining([
+        { kind: "said", text: "Reading the report" },
+        { kind: "thinking" },
+        { kind: "call", tool: "read_passages", summary: "Report", count: 1 },
+      ]),
+    );
+  });
+
+  // protects=a run that has sent nothing for a while is said to be quiet, and no longer once it sends again; fails_when=the line stays the same for minutes with nothing to say the AI is silent
+  it("says when the AI has sent nothing for a while", async () => {
+    let saidAt = 0;
+    const run = runner(async (_agent, request) => {
+      saidAt = performance.now();
+      request.progress?.({ kind: "said", text: "Reading the report" });
+      await pause(900);
+      request.progress?.({ kind: "heard" });
+      await pause(500);
+      return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300 });
+    let quietAt = 0;
+    core.on("agents.noteTurn", (turn) => {
+      if (turn.quiet && quietAt === 0) quietAt = performance.now();
+    });
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    expect(await ended()).toMatchObject({ state: "landed", quiet: false });
+    const working = turns.filter((turn) => turn.state === "working");
+    const quiet = working.findIndex((turn) => turn.quiet);
+    expect(working[quiet]?.doing).toEqual({ kind: "said", text: "Reading the report" });
+    expect(quietAt - saidAt).toBeGreaterThanOrEqual(280);
+    expect(working.slice(quiet + 1).some((turn) => !turn.quiet)).toBe(true);
+  });
+
+  // protects=while a call of the run runs in IncarnaMind, however long, the line doesn't say the AI is quiet: it waits on IncarnaMind; fails_when=the User reads that their AI is silent while IncarnaMind is the one at work
+  it("doesn't say the AI is quiet while a call of it runs here", async () => {
+    const held = gate();
+    const run = runner(async (agent) => {
+      const published = agent.callTool({ name: "publish_canvas", arguments: PAGE });
+      await held.at;
+      await pause(900);
+      held.open();
+      await published;
+      return { kind: "finished", reply: "Made a page." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300, held });
+    await core.askInNote({ mindId, words: "make a page of the ferry figures" });
+    expect(await ended()).toMatchObject({ state: "landed" });
+    expect(turns.filter((turn) => turn.quiet)).toEqual([]);
+  });
+
+  // protects=a Note the AI writes is named with its id at the end, so the line can open it; fails_when=the line says it wrote a Note the User has no way to open
+  it("names the Note it wrote, to open", async () => {
+    let wrote = "";
+    const run = runner(async (agent) => {
+      wrote = structured<{ mindId: string }>(
+        await agent.callTool({
+          name: "create_mind",
+          arguments: { title: "Ferry summary", markdown: "The ferry carried passengers." },
+        }),
+      ).mindId;
+      return { kind: "finished", reply: "I wrote “Ferry summary”." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "summarise the report in a new note" });
+    const end = await ended();
+    expect(wrote).not.toBe("");
+    expect(end).toMatchObject({
+      state: "landed",
+      made: [{ mindId: wrote, title: "Ferry summary" }],
+    });
+  });
+
+  // protects=once a turn has ended, a call of its run that finishes later tells no window it is working again; fails_when=the input stays on Working for good, with nothing to stop
+  it("tells nothing of a run after its turn ended", async () => {
+    const held = gate();
+    const run = runner(async (agent) => {
+      // Left running: the run's end closes its connection under it, and the call still finishes.
+      agent
+        .callTool({ name: "publish_canvas", arguments: PAGE })
+        .catch((error: unknown) => expect(String(error)).toMatch(/Connection closed/));
+      await held.at;
+      return { kind: "failed", reason: "stalled" };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter, { quietMs: 300, held });
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "failed", problem: "stalled" });
+    // The call reached IncarnaMind before the end, and ends after it; then the quiet limit passes.
+    held.open();
+    await expect.poll(async () => (await core.listCanvases()).length).toBe(1);
+    await pause(700);
+    const last = turns.findIndex((turn) => turn.state !== "working");
+    expect(turns.slice(last + 1)).toEqual([]);
   });
 
   // protects=a turn ends when its run does, though the command line's connection is still open and listening for the Tool list to change, as Claude Code's can be then; fails_when=closing that connection waits on a message to a socket already gone, and the request stays working for good
@@ -481,7 +644,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await expect.poll(() => back.purged).toEqual([back.runs[0]?.conversation?.key]);
   });
 
-  // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers, in plain words where the agent wrote Markdown; fails_when=the read-only refusal shows as a generic failure, an explanation is refused, or its answer shows Markdown's marks
+  // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers, its Markdown kept for the conversation to show; fails_when=the read-only refusal shows as a generic failure, an explanation is refused, or its answer loses its structure
   it("says a read-only connection may only read, and still answers what only reads", async () => {
     let explain = false;
     const run = runner(async (agent, request) => {
@@ -505,13 +668,10 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended(1)).toMatchObject({ state: "failed", problem: "read-only" });
     explain = true;
     await core.askInNote({ mindId, words: "explain this" });
-    expect(await ended(2)).toMatchObject({
-      state: "landed",
-      reply: "It counts each crossing: out and back",
-    });
-    expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(
-      "It counts each crossing: out and back",
-    );
+    // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
+    const answer = "It counts **each crossing**:\n- out\n- and back";
+    expect(await ended(2)).toMatchObject({ state: "landed", reply: answer });
+    expect((await core.noteConversation(mindId)).at(-1)?.reply).toBe(answer);
   });
 
   // protects=a Folder linking made and the User gave the connection is read in a Note's conversation as by any other call of that connection, and one it wasn't given isn't (#3613); fails_when=the conversation finds the linked folder's file where a call doesn't, or misses it where a call finds it

@@ -1427,6 +1427,11 @@ export interface CoreAdapters {
    */
   exampleReadyWaitMs?: number;
   /**
+   * How long a request at a Note's foot may hear nothing from the User's AI before its line says
+   * it is still waiting for it (#3677). Defaults to 30 seconds; tests shorten it.
+   */
+  ownAiQuietMs?: number;
+  /**
    * The Connectors directory's entries, in its JSON form, in place of the
    * list that ships with the app; tests point an entry at a local stand-in.
    */
@@ -1672,7 +1677,20 @@ export type OwnAiFailure =
   | "isolation"
   /** A kept conversation Claude Code no longer has: its own sweep or the User removed it. */
   | "lost-conversation"
+  /** Claude Code sent nothing for as long as a run that still works never stays quiet. */
+  | "stalled"
   | "other";
+
+/**
+ * What a run is doing, as its stream says while it goes: the words it writes to the User (between
+ * its Tool calls, or its reply as it comes), a Tool call it starts, or a moment of thinking, whose
+ * words the stream doesn't carry; and, at most about once a second, that something came at all.
+ */
+export type OwnAiProgress =
+  | { kind: "heard" }
+  | { kind: "said"; text: string }
+  | { kind: "tool"; name: string }
+  | { kind: "thinking" };
 
 /**
  * The User's own command-line AI, started once for a job the User pressed, with no window and no
@@ -1699,6 +1717,8 @@ export interface OwnAiRunner {
     instructions: string;
     prompt: string;
     conversation?: { key: string; sessionId: string; resume: boolean };
+    /** Hears what the run is doing as it goes: its words as they come, each call as it starts. */
+    progress?(step: OwnAiProgress): void;
     signal: AbortSignal;
   }): Promise<{ kind: "finished"; reply: string } | { kind: "failed"; reason: OwnAiFailure }>;
   /**

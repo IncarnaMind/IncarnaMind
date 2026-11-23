@@ -7107,6 +7107,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     lifetime: lifetime.signal,
     log: adapters.log ?? silentLogger,
+    ...(adapters.ownAiQuietMs !== undefined && { quietMs: adapters.ownAiQuietMs }),
   });
   // A connection's conversations go with the connection, and with its consent to start it (ADR-0034).
   const forgetConversations = (pairingId: string) =>

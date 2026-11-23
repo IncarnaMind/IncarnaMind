@@ -9136,6 +9136,8 @@ export const en = {
     "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
   "agents.ownCheck.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+  "agents.ownCheck.problem.stalled":
+    "{agent} stopped answering for six minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":
     "{agent} took longer than 15 minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.no-marks":
@@ -9156,7 +9158,7 @@ export const en = {
   "noteAsk.doing.read_mind": "Reading “{summary}”",
   "noteAsk.doing.list_minds": "Looking through your notes",
   "noteAsk.doing.search": "Searching your Documents for “{summary}”",
-  "noteAsk.doing.read_passages": "Reading your Documents",
+  "noteAsk.doing.read_passages": "Reading “{summary}”",
   "noteAsk.doing.cite": "Checking quotes",
   "noteAsk.doing.propose_changes": "Changing “{summary}”",
   "noteAsk.doing.create_mind": "Writing “{summary}”",
@@ -9170,6 +9172,17 @@ export const en = {
   "noteAsk.done.waiting.other": "{count} changes wait for you in “{title}”.",
   "noteAsk.done.wrote": "Wrote “{title}”.",
   "noteAsk.done.nothing": "{agent} changed nothing.",
+  "noteAsk.pill.working": "Working",
+  "noteAsk.pill.thinking": "Thinking",
+  "noteAsk.pill.quiet": "Still waiting for {agent}…",
+  "noteAsk.open": "Open “{title}”",
+  "noteAsk.seconds": "{count}s",
+  "noteAsk.doing.read_passages.any": "Reading your Documents",
+  "noteAsk.doing.read_mind.any": "Reading the note",
+  "noteAsk.doing.search.any": "Searching your Documents",
+  "noteAsk.doing.propose_changes.any": "Writing the change",
+  "noteAsk.doing.create_mind.any": "Writing a new note",
+  "noteAsk.doing.read_passages.counted": "Reading “{summary}” · {count} read",
   "noteAsk.done.held.one": "1 change waits for you in this note.",
   "noteAsk.done.held.other": "{count} changes wait for you in this note.",
   "noteAsk.busy": "{agent} is still working on your last request. Stop it to ask something else.",
@@ -9197,6 +9210,8 @@ export const en = {
   "noteAsk.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
   "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
+  "noteAsk.problem.stalled":
+    "{agent} stopped answering for six minutes, so it stopped. Send it again.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",
