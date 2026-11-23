@@ -3107,8 +3107,8 @@ export async function dragBlock(window: Page, block: Locator, target: Locator): 
 }
 
 /**
- * Where `words` are drawn in a line of text: their left and right edges, and
- * their middle line. They may run across marks (AI text and the User's, bold).
+ * The whole box is used for layout checks. The endpoints stay on the first and last lines
+ * when the words wrap, including across inline marks.
  */
 export async function wordsBox(line: Locator, words: string, nth = 1) {
   const box = await line.evaluate(
@@ -3137,8 +3137,18 @@ export async function wordsBox(line: Locator, words: string, nth = 1) {
       const range = element.ownerDocument.createRange();
       range.setStart(from.text, from.offset);
       range.setEnd(to.text, to.offset);
+      const rects = [...range.getClientRects()].filter((rect) => rect.width > 0 && rect.height > 0);
+      const first = rects[0];
+      const last = rects.at(-1);
+      if (!first || !last) return null;
       const rect = range.getBoundingClientRect();
-      return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+      return {
+        left: rect.left,
+        right: rect.right,
+        y: rect.top + rect.height / 2,
+        start: { x: first.left, y: first.top + first.height / 2 },
+        end: { x: last.right, y: last.top + last.height / 2 },
+      };
     },
     { words, nth },
   );
@@ -3190,12 +3200,13 @@ export async function slideSelect(
   let tries = 0;
   await expect(async () => {
     const box = await wordsBox(line, words);
-    const end = to ? await wordsBox(to.line, to.words) : box;
-    if (tries++ > 0) await window.mouse.click(box.left - 6, box.y);
-    await window.mouse.move(box.left - 6, box.y, { steps: 4 });
-    await window.mouse.move(box.left + 1, box.y, { steps: 2 });
+    const start = box.start;
+    const end = to ? (await wordsBox(to.line, to.words)).end : box.end;
+    if (tries++ > 0) await window.mouse.click(start.x - 6, start.y);
+    await window.mouse.move(start.x - 6, start.y, { steps: 4 });
+    await window.mouse.move(start.x + 1, start.y, { steps: 2 });
     await window.mouse.down();
-    await window.mouse.move(end.right - 1, end.y, { steps: 12 });
+    await window.mouse.move(end.x - 1, end.y, { steps: 12 });
     await window.mouse.up();
     // After a drag, ProseMirror puts its selection back into the page in a task queued as the
     // mouse comes up; a key pressed before that task runs is undone by it. This waits for it.
