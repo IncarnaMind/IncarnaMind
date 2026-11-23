@@ -9168,7 +9168,8 @@ export const en = {
   // A check run on Codex stopped by its watch, or ended by its service with no category (#3639).
   "agents.ownCheck.problem.outside":
     "{agent} stopped because it requested an action outside this check. Open the check in {agent}.",
-  "agents.ownCheck.problem.unreadable": "{agent} stopped before finishing. Open the check in {agent}.",
+  "agents.ownCheck.problem.unreadable":
+    "{agent} stopped before finishing. Open the check in {agent}.",
   "agents.ownCheck.problem.service":
     "{agent} stopped before finishing. Check your sign-in and usage in {agent}.",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).

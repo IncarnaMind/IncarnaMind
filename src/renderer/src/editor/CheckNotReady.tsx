@@ -109,7 +109,8 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
     );
   }
   // A run stopped for what it showed opens the check in the agent's app, as its line says (#3639).
-  const byLink = background && ["outside", "unreadable"].includes(asked.asked.problem?.problem ?? "");
+  const byLink =
+    background && ["outside", "unreadable"].includes(asked.asked.problem?.problem ?? "");
   // An agent that can run it in the background does so again; any other is asked by its link.
   const ask = async (each: AgentPairing) => {
     if (byLink || !(await checkInBackground(mindId, each.id)))

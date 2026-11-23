@@ -104,7 +104,9 @@ export async function codexStatus(path: string): Promise<OwnAiStatus> {
   if (version.kind === "absent") return { kind: "missing" };
   const found = version.kind === "exited" ? version.out.match(/\d+\.\d+\.\d+/)?.[0] : undefined;
   if (version.kind !== "exited" || version.code !== 0 || !found || older(found, LOWEST_CODEX)) {
-    console.info(`Codex ${found ?? "(no version)"} runs no check here; the check goes by its link.`);
+    console.info(
+      `Codex ${found ?? "(no version)"} runs no check here; the check goes by its link.`,
+    );
     return { kind: "unsupported" };
   }
   const login = await short(path, ["login", "status"]);
@@ -338,7 +340,10 @@ export type CodexEnd =
 
 /** The run showed something no check run should, and was stopped. */
 class OutsideError extends Error {
-  constructor(readonly reason: "outside" | "unreadable", what: string) {
+  constructor(
+    readonly reason: "outside" | "unreadable",
+    what: string,
+  ) {
     super(`A check run on Codex showed ${what}, so it was stopped.`);
     this.name = "OutsideError";
   }
@@ -353,18 +358,17 @@ export async function runCodex(run: CodexRun): Promise<CodexEnd> {
       console.info("Codex gave no model catalog IncarnaMind can read; the check goes by its link.");
       return { kind: "failed", reason: "unsupported" };
     }
-    if (
-      !(await preflight(run.path, folder, run.server, run.tools, run.instructions, defaults))
-    ) {
-      console.info("Codex's preflight didn't list the check's Tools alone; the check goes by its link.");
+    if (!(await preflight(run.path, folder, run.server, run.tools, run.instructions, defaults))) {
+      console.info(
+        "Codex's preflight didn't list the check's Tools alone; the check goes by its link.",
+      );
       return { kind: "failed", reason: "unsupported" };
     }
     run.signal.throwIfAborted();
     return await execute(run, folder);
   } finally {
-    await rm(folder.root, { recursive: true, force: true, maxRetries: 3 }).catch(
-      (error: unknown) =>
-        console.warn("Could not remove the folder of a Codex run:", errorCode(error)),
+    await rm(folder.root, { recursive: true, force: true, maxRetries: 3 }).catch((error: unknown) =>
+      console.warn("Could not remove the folder of a Codex run:", errorCode(error)),
     );
   }
 }
@@ -438,7 +442,10 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
           case "item.completed":
             break;
           default:
-            throw new OutsideError("unreadable", `an event it doesn't know (${String(message.type)})`);
+            throw new OutsideError(
+              "unreadable",
+              `an event it doesn't know (${String(message.type)})`,
+            );
         }
         const item = object(message.item);
         if (!begun) throw new OutsideError("outside", "an item before its turn started");

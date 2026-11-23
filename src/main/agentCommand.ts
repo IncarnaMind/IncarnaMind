@@ -153,7 +153,9 @@ export async function drained(
   clearTimeout(timer);
   if (!tooLate) return;
   for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
-  console.warn(`${agent}'s output stayed open after it was stopped, so IncarnaMind stopped reading it.`);
+  console.warn(
+    `${agent}'s output stayed open after it was stopped, so IncarnaMind stopped reading it.`,
+  );
 }
 
 /** The run sent nothing for as long as `stallMs`, and was stopped. */

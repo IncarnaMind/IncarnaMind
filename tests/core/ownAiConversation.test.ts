@@ -109,6 +109,8 @@ function runner(
     },
     async run(request) {
       runs.push(request);
+      // As the command line does, once the request is on its way to the model.
+      request.started?.();
       return act(await connect(request.server), request);
     },
   };

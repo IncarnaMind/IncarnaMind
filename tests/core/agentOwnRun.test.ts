@@ -105,17 +105,21 @@ const untilStopped = (_agent: Agent, request: RunRequest) =>
     });
   });
 
-/** A runner whose command line is `act`, or `status` without one; `installed`: whether `claude` is found at all. */
+/**
+ * A runner whose command line is `act`, or `status` without one; `installed`: whether `claude` is
+ * found at all, or which of the command lines are.
+ */
 function runner(
   act: (agent: Agent, request: RunRequest) => Promise<RunEnd> = checks,
   status: OwnAiStatus = { kind: "ready" },
-  installed = true,
+  installed: boolean | readonly OwnAiClient[] = true,
 ) {
   const runs: RunRequest[] = [];
   const launches: AgentLaunch[] = [];
   const statuses: OwnAiClient[] = [];
   const adapter: OwnAiRunner = {
-    installed: async () => installed,
+    installed: async (client) =>
+      typeof installed === "boolean" ? installed : installed.includes(client),
     purge: async () => true,
     async status(client) {
       statuses.push(client);
@@ -124,6 +128,8 @@ function runner(
     async run(request) {
       runs.push(request);
       launches.push(request.server);
+      // As the command line does, once the request is on its way to the model.
+      request.started?.();
       return act(await connectLegacyAgent(request.server), request);
     },
   };
@@ -151,7 +157,7 @@ async function sentencesOf(agent: Agent, mindId: string) {
  * A User with no model set up, Tides in "Coast", a Note they wrote there, Claude Code and VS Code,
  * on a desktop app that reads a file an agent names by its path.
  */
-async function written(ownAi?: OwnAiRunner) {
+async function written(ownAi?: OwnAiRunner, { codex = false }: { codex?: boolean } = {}) {
   const canvasFiles = createCanvasFiles(join(await createTempDataFolder(), "Canvases"));
   const started = await startAgentsCore(
     checkingModel({}, []),
@@ -176,6 +182,15 @@ async function written(ownAi?: OwnAiRunner) {
     client: "vscode",
     folderIds: [coast.id],
   });
+  // Connected last, so asked first.
+  const chatgpt = codex
+    ? await core.connectAgent({
+        name: "ChatGPT app and Codex",
+        client: "codex",
+        folderIds: [coast.id],
+        propose: false,
+      })
+    : null;
   const mind = await core.createMind({ title: "Tide notes", folderId: coast.id });
   const client = await connectToMind(core, mind.id);
   writeMind(client, [note(SPRING), note(NEAP)]);
@@ -203,7 +218,7 @@ async function written(ownAi?: OwnAiRunner) {
       }).state,
     ]);
   };
-  return { ...started, core, mindId: mind.id, coast, claude, vscode, ends, ended, marks };
+  return { ...started, core, mindId: mind.id, coast, claude, vscode, chatgpt, ends, ended, marks };
 }
 
 describe("a Check run on the User's own Claude Code in the background (#3606)", () => {
@@ -535,5 +550,113 @@ describe("a Check run on the User's own Claude Code in the background (#3606)", 
     });
     expect(await core.checkWithOwnAi(mindId)).toEqual({ kind: "link" });
     expect(run.runs).toEqual([]);
+  });
+});
+
+describe("a Check run on the User's own Codex in the background (#3639)", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  // protects=a press with Codex connected first and its command line on this computer runs the check on Codex, with the check's Tools and a grant of its own, and connecting it was the consent, so nothing asks; its marks land; fails_when=Codex keeps the link, another agent runs in its place, or the press asks a dialog the connect sheet already answered
+  it("checks the Note on Codex, whose connection was its consent", async () => {
+    const run = runner();
+    const { core, mindId, chatgpt, ended, marks } = await written(run.adapter, { codex: true });
+    const asked: string[] = [];
+    core.on("consent.requested", (request) => asked.push(request.flow.id));
+    expect(await core.checkWithOwnAi(mindId)).toEqual({
+      kind: "started",
+      pairing: expect.objectContaining({ id: chatgpt?.pairing.id }),
+    });
+    expect(await ended()).toMatchObject({ pairingId: chatgpt?.pairing.id, outcome: "landed" });
+    expect(await marks()).toEqual([
+      [SPRING, "supported"],
+      [NEAP, "contradicted"],
+    ]);
+    expect(run.runs.map((each) => each.client)).toEqual(["codex"]);
+    expect(run.runs[0]?.tools).toEqual(
+      expect.arrayContaining(["check_mind_yourself", "report_check"]),
+    );
+    expect(asked).toEqual([]);
+  });
+
+  // protects=a Codex that can't be held to the check's Tools here (its preflight listed something else, or it ended before its turn) leaves the check to the link with no line and no end said; a Codex too old, signed out or not answering does the same, with nothing run; fails_when=the User sees an error for the fallback, the line says checking for a run that never started, or a run starts
+  it("leaves the check to the link when Codex can't run it here, saying nothing", async () => {
+    // Its preflight lists something else: the run ends before it tells its start.
+    const launches: AgentLaunch[] = [];
+    const preflight: OwnAiRunner = {
+      installed: async () => true,
+      status: async () => ({ kind: "ready" }),
+      purge: async () => true,
+      async run(request) {
+        launches.push(request.server);
+        return { kind: "failed", reason: "unsupported" };
+      },
+    };
+    const refused = await written(preflight, { codex: true });
+    expect(await refused.core.checkWithOwnAi(refused.mindId)).toEqual({ kind: "link" });
+    expect(refused.ends).toEqual([]);
+    const [launch] = launches;
+    if (!launch) throw new Error("No run was started.");
+    await expect(connectLegacyAgent(launch)).rejects.toThrow(/no longer connected/);
+
+    const signedOut = runner(checks, { kind: "unsupported" }, ["codex"]);
+    const out = await written(signedOut.adapter, { codex: true });
+    expect(await out.core.checkWithOwnAi(out.mindId)).toEqual({ kind: "link" });
+    expect(signedOut.statuses).toEqual(["codex"]);
+    expect(signedOut.runs).toEqual([]);
+  });
+
+  // protects=a run stopped by its watch says why in the press's own line when nothing had reached the model yet, and otherwise ends as any run does; fails_when=the line says checking for a run that already failed, or a watch's stop reads as the check's own failure
+  it("says why a Codex run its watch stopped, before or after its turn began", async () => {
+    const early = await written(
+      runner(async () => ({ kind: "failed", reason: "outside" })).adapter,
+      { codex: true },
+    );
+    // The stand-in tells its start before it acts, so this one ended after the start.
+    expect((await early.core.checkWithOwnAi(early.mindId)).kind).toBe("started");
+    expect(await early.ended()).toMatchObject({ outcome: "failed", problem: "outside" });
+
+    const before: OwnAiRunner = {
+      installed: async () => true,
+      status: async () => ({ kind: "ready" }),
+      purge: async () => true,
+      run: async () => ({ kind: "failed", reason: "unreadable" }),
+    };
+    const unread = await written(before, { codex: true });
+    expect(await unread.core.checkWithOwnAi(unread.mindId)).toMatchObject({
+      kind: "problem",
+      problem: "unreadable",
+    });
+    expect(unread.ends).toEqual([]);
+  });
+
+  // protects=a User with only the ChatGPT app (no `codex` command here) is asked nothing about it, and the press goes on to the next agent that can run in the background; fails_when=the press stops at Codex and keeps the link where Claude Code could have run it, or asks consent for a command that isn't there
+  it("goes on to Claude Code when Codex isn't on this computer", async () => {
+    const run = runner(checks, { kind: "ready" }, ["claude-code"]);
+    const { core, mindId, claude, dataDir, ended } = await written(run.adapter, { codex: true });
+    madeBefore(dataDir);
+    const asked: string[] = [];
+    core.on("consent.requested", (request) => {
+      asked.push(request.flow.service.name);
+      void core.respondToConsent(request.requestId, true);
+    });
+    expect(await core.checkWithOwnAi(mindId)).toMatchObject({
+      kind: "started",
+      pairing: { id: claude.pairing.id },
+    });
+    expect((await ended())?.outcome).toBe("landed");
+    expect(asked).toEqual(["Claude Code"]);
+    expect(run.statuses).toEqual(["claude-code"]);
+  });
+
+  // protects=connecting Codex agrees to its check alone, as its connect sheet says: the check runs with no dialog, and a request typed at a Note's foot would still ask; fails_when=connecting Codex counts as the consent to kinds its sheet never named
+  it("takes connecting Codex as the consent to its check, and no more", async () => {
+    const { core, chatgpt } = await written(runner().adapter, { codex: true });
+    const hosted = (await core.listDataFlows()).find(
+      ({ flow }) =>
+        flow.id === "hosted-agents" && flow.service.id === `agent:${chatgpt?.pairing.id}`,
+    );
+    expect(hosted).toMatchObject({ consent: "not-asked", added: ["note-requests", "selection"] });
   });
 });

@@ -20,6 +20,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
 import { dirname } from "node:path";
+import { agentServiceId } from "../../shared/agentConnection";
 import {
   AGENT_SOCKET_ENV,
   AGENT_TOKEN_ENV,
@@ -27,7 +28,6 @@ import {
   keyIdInput,
   serverProofInput,
 } from "../../shared/agentSocket";
-import { agentServiceId } from "../../shared/agentConnection";
 import type { Logger } from "../adapters";
 import {
   AGENT_TOOLS,
