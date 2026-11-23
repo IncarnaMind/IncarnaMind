@@ -16,6 +16,7 @@ import { ResizeRod } from "../ResizeRod";
 import { ShareDialog } from "../ShareDialog";
 import { DocumentTab } from "./DocumentTab";
 import { MindTab, NoTabOpen } from "./MindTab";
+import { GroupColumnContext } from "./groupColumn";
 import { TabStrip } from "./TabStrip";
 import { TabPlaceContext } from "./tabItems";
 import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
@@ -185,6 +186,7 @@ function TabGroup({
   const t = useT();
   const focused = useAppStore((state) => merged || state.layout?.focusedGroupId === group.id);
   const tab = activeTabOf(group);
+  const [columnSlot, setColumnSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     resumeTabCloseFocus();
     return () => forgetTabCloseFocus(group.id, group.activeTabId);
@@ -219,24 +221,27 @@ function TabGroup({
         {!tab ? (
           <NoTabOpen />
         ) : (
-          <TabPlaceContext.Provider value={{ tabId: tab.id, groupId: group.id }}>
-            {tab.item.kind === "mind" ? (
-              // Keyed, so another Mind starts a fresh title field and editor.
-              <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
-            ) : tab.item.kind === "figures" ? (
-              <FigureScheduleTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
-            ) : tab.item.kind === "library" ? (
-              <LibraryPane />
-            ) : tab.item.kind === "home" ? (
-              <HomePane />
-            ) : tab.item.kind === "canvas" ? (
-              <CanvasTab key={`${tab.id}:${tab.item.canvasId}`} canvasId={tab.item.canvasId} />
-            ) : (
-              <DocumentTab key={tab.id} tab={tab} />
-            )}
-          </TabPlaceContext.Provider>
+          <GroupColumnContext.Provider value={columnSlot}>
+            <TabPlaceContext.Provider value={{ tabId: tab.id, groupId: group.id }}>
+              {tab.item.kind === "mind" ? (
+                // Keyed, so another Mind starts a fresh title field and editor.
+                <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
+              ) : tab.item.kind === "figures" ? (
+                <FigureScheduleTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
+              ) : tab.item.kind === "library" ? (
+                <LibraryPane />
+              ) : tab.item.kind === "home" ? (
+                <HomePane />
+              ) : tab.item.kind === "canvas" ? (
+                <CanvasTab key={`${tab.id}:${tab.item.canvasId}`} canvasId={tab.item.canvasId} />
+              ) : (
+                <DocumentTab key={tab.id} tab={tab} />
+              )}
+            </TabPlaceContext.Provider>
+          </GroupColumnContext.Provider>
         )}
       </div>
+      <div ref={setColumnSlot} data-testid="tab-group-column" className="tab-group-column" />
     </section>
   );
 }

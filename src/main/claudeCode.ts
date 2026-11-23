@@ -38,6 +38,8 @@ export interface ClaudeCodeTurn {
   session?: { id: string; resume: boolean };
   /** How Claude Code answers its own permission prompts; nothing it may ask is allowed here. */
   permissionMode?: "dontAsk";
+  /** A model alias or name Claude Code offers; absent: its own default. */
+  model?: string;
   /** Each message before the result, from the first; one that throws stops the turn. */
   onMessage?(message: Record<string, unknown>): void;
   /** The stream carries the words and each Tool call as they come (`stream_event` messages). */
@@ -102,6 +104,7 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     "--disable-slash-commands",
     "--permission-mode",
     turn.permissionMode ?? "dontAsk",
+    ...(turn.model ? ["--model", turn.model] : []),
     ...(turn.session
       ? [turn.session.resume ? "--resume" : "--session-id", turn.session.id]
       : ["--no-session-persistence"]),

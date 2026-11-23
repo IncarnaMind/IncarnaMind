@@ -16,6 +16,7 @@ import {
   type NoteDoing,
   type NoteRequestInput,
   type NoteRequestStart,
+  type NoteStep,
   type NoteTurn,
   type NoteTurnEvent,
   type NoteTurnProblem,
@@ -250,6 +251,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         made: [],
         fresh: false,
         quiet: false,
+        model: null,
+        steps: [],
+        documentsFound: 0,
         ...rest,
         ...outcome,
         reply,
@@ -309,6 +313,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const caret = input.caret === undefined ? "" : words(input.caret, MAX_CARET);
     const selection = selectionOf(input.selection);
     const pairingId = input.pairingId === undefined ? undefined : words(input.pairingId, 200);
+    const model = input.model === undefined ? undefined : words(input.model, 100);
 
     const already = running.get(mindId);
     if (already) return { kind: "started", pairing: already.pairing, turnId: already.turnId };
@@ -355,6 +360,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       quote,
       caret,
       selection,
+      model,
       stop,
     }).catch((error: unknown) => {
       // Whatever went wrong, the request doesn't stay working: the User can send it again.
@@ -377,6 +383,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     quote: string;
     caret: string;
     selection: SelectedInBlock[] | null;
+    model: string | undefined;
     stop: AbortController;
   }): Promise<void> {
     const { mindId, pairing, turnId, conversation, stop } = turn;
@@ -390,6 +397,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const made: { mindId: string; title: string }[] = [];
     let readOnly = false;
     let lost: NoteTurnProblem | null = null;
+    let answeredOn: string | null = null;
+    const steps: NoteStep[] = [];
+    // The Documents its searches found and its reads reached, and how many Passages of each it read.
+    const found = new Set<string>();
+    const readOf = new Map<string, number>();
+    const passagesIn = (documentId: string) =>
+      db.get<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+        [documentId],
+      )?.count ?? 0;
     const event = (rest: Partial<NoteTurnEvent> & Pick<NoteTurnEvent, "state">): NoteTurnEvent => ({
       mindId,
       turnId,
@@ -403,6 +420,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       made,
       fresh: false,
       quiet,
+      model: answeredOn,
+      steps: [...steps],
+      documentsFound: found.size,
       ...rest,
     });
     const tell = (each: NoteTurnEvent) => {
@@ -469,7 +489,13 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         tellWorking();
         return;
       }
-      if (step.kind === "said") {
+      if (step.kind === "model") {
+        answeredOn = step.model;
+      } else if (step.kind === "said") {
+        // The words of one line grow as they come; a line that doesn't start as the last did is new.
+        const last = steps.at(-1);
+        if (last?.kind === "said" && step.text.startsWith(last.text)) last.text = step.text;
+        else steps.push({ kind: "said", text: step.text });
         written = step.text;
         if (step.text.trim().length < SAID_FROM) return;
         doing = { kind: "said", text: step.text };
@@ -521,6 +547,37 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             }
           }
           doingCall(call.tool, call.summary);
+          const ids = call.documentIds ?? [];
+          if (call.outcome === "done" && call.tool === "search")
+            for (const id of ids) found.add(id);
+          const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
+          const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
+          const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
+          if (read) {
+            found.add(read);
+            const sofar = (readOf.get(read) ?? 0) + (call.count ?? 0);
+            readOf.set(read, sofar);
+            const total = passagesIn(read);
+            const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
+            steps.push({
+              kind: "call",
+              tool: call.tool,
+              summary: call.summary,
+              documentId: read,
+              ...(part !== undefined && { part }),
+            });
+          } else {
+            steps.push({
+              kind: "call",
+              tool: call.tool,
+              summary: call.summary,
+              done: call.outcome === "done",
+              ...(other && call.outcome === "done" && { mindId: other }),
+              ...(other &&
+                call.tool === "propose_changes" &&
+                call.count && { waiting: call.count }),
+            });
+          }
           tellWorking();
         },
       },
@@ -548,6 +605,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
                 turn.caret,
               ),
               conversation: { key: conversation.id, sessionId, resume },
+              ...(turn.model !== undefined && { model: turn.model }),
               progress,
               signal,
             })
@@ -610,6 +668,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       applied,
       waiting: [...waiting.values()],
       made,
+      model: answeredOn,
+      steps,
+      documentsFound: found.size,
     });
   }
 
@@ -645,6 +706,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           problem: (row.problem as NoteTurnProblem | null) ?? null,
           at: row.created_at,
         }));
+    },
+
+    /** The models the agent offers, as it lists them. */
+    async models() {
+      return (await options.runner?.models?.()) ?? [];
     },
 
     /** Deletes the conversations of Notes deleted for good. */

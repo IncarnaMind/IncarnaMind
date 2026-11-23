@@ -77,7 +77,7 @@ export interface ConversationHears {
 /** A call of a run, as its activity row records it. */
 export type RunCall = Pick<
   AgentActivity,
-  "tool" | "summary" | "outcome" | "problem" | "count" | "effects"
+  "tool" | "summary" | "outcome" | "problem" | "count" | "effects" | "documentIds"
 >;
 
 /** A request of changes in the front Note that applies at once, and what it changed, as its line counts. */

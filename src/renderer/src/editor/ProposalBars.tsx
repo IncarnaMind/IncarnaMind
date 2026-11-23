@@ -12,7 +12,7 @@ import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
-import { useConversationShown, useNoteAskShown, useNoteAsks } from "../ownAiInNote";
+import { useNoteAskShown, useNoteAsks } from "../ownAiInNote";
 import { useReviewPanes } from "../reviewPane";
 import { useAppStore } from "../store";
 import {
@@ -196,12 +196,11 @@ function ProposalsBar({ editor, mindId }: { editor: Editor; mindId: string }) {
       return { theirs, assistant, agents };
     },
   });
-  // The line above the Note's input says it, with its Accept all, once a request there ends,
-  // unless the conversation shows its reply instead (#3677).
+  // The Note's input says it, with its Accept all, once a request there ends: in its line, or
+  // under the reply in the open conversation (#3677).
   const landed = useNoteAsks((state) => state.byMind[mindId]?.state === "landed");
-  const conversing = useConversationShown((state) => state.byMind[mindId] === true);
   const inputShown = useNoteAskShown(mindId);
-  const pillSaysIt = landed && inputShown && !conversing;
+  const pillSaysIt = landed && inputShown;
   const theirLine = theirs.count > 0 && !reviewing;
   const aiLine = assistant.ids.length > 0 && !pillSaysIt;
   if (!theirLine && !aiLine) return null;
@@ -480,8 +479,12 @@ function useBarPlace(
         ?.querySelector("[data-ask-pill]")
         ?.getBoundingClientRect();
       const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
-      // The Note's own input at its foot (#3627), with the line and the conversation above it.
-      const input = pageOf?.querySelector(".note-ask")?.getBoundingClientRect();
+      // The Note's own input (#3627): at its foot with its line, or in the conversation's sheet
+      // over a narrow Note (#3677).
+      const input = (
+        pageOf?.querySelector(".note-ask") ??
+        pageOf?.querySelector(".note-column-over-slot .note-ask-box")
+      )?.getBoundingClientRect();
       // Its width at the widest it is drawn, before this placement's own cap.
       element.style.maxWidth = "";
       const size = { width: element.offsetWidth, height: element.offsetHeight };

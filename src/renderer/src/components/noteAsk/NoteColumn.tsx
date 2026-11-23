@@ -1,0 +1,441 @@
+import type { Editor } from "@tiptap/react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { NoteStep, NoteTurn } from "../../../../core/api";
+import type { MessageKey } from "../../../../shared/i18n";
+import { core } from "../../core";
+import { useT } from "../../i18n";
+import {
+  firstWordsOf,
+  type NoteTrail,
+  setColumnOpen,
+  useNoteAsks,
+  useNoteColumns,
+  useNoteTrails,
+} from "../../ownAiInNote";
+import { useAppStore } from "../../store";
+import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
+import { MoveConversation } from "./NoteAsk";
+import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
+
+type Translate = ReturnType<typeof useT>;
+
+/** Each Tool's step, while it is the one going and once it is done. */
+const DOING: Partial<Record<string, MessageKey>> = {
+  read_mind: "noteAsk.doing.read_mind",
+  list_minds: "noteAsk.doing.list_minds",
+  search: "noteAsk.doing.search",
+  read_passages: "noteAsk.doing.read_passages",
+  cite: "noteAsk.doing.cite",
+  check_citations: "noteAsk.doing.cite",
+  propose_changes: "noteAsk.doing.propose_changes",
+  create_mind: "noteAsk.doing.create_mind",
+  run_analysis: "noteAsk.doing.run_analysis",
+  calculate: "noteAsk.doing.run_analysis",
+  publish_canvas: "noteAsk.doing.publish_canvas",
+  update_canvas: "noteAsk.doing.publish_canvas",
+};
+const DID: Partial<Record<string, MessageKey>> = {
+  read_mind: "noteAsk.did.read_mind",
+  list_minds: "noteAsk.did.list_minds",
+  search: "noteAsk.did.search",
+  read_passages: "noteAsk.did.read_passages",
+  cite: "noteAsk.did.cite",
+  check_citations: "noteAsk.did.cite",
+  propose_changes: "noteAsk.did.propose_changes",
+  create_mind: "noteAsk.did.create_mind",
+  run_analysis: "noteAsk.did.run_analysis",
+  calculate: "noteAsk.did.run_analysis",
+  publish_canvas: "noteAsk.did.publish_canvas",
+  update_canvas: "noteAsk.did.publish_canvas",
+};
+
+/** The Tools whose steps make or change something the User may open: a Note, or a page. */
+const MAKES = new Set(["create_mind", "propose_changes", "publish_canvas", "update_canvas"]);
+
+/** The Documents a run read, each once: how many, and how many only in part. */
+function readsOf(steps: readonly NoteStep[]) {
+  const last = new Map<string, number | undefined>();
+  for (const step of steps) {
+    if (step.kind === "call" && step.documentId) last.set(step.documentId, step.part);
+  }
+  return { count: last.size, part: [...last.values()].filter((each) => each !== undefined).length };
+}
+
+const stepText = (step: NoteStep, t: Translate, going: boolean): string => {
+  if (step.kind === "said") return firstWordsOf(step.text);
+  if (!going && step.tool === "read_passages" && step.part !== undefined) {
+    return t("noteColumn.readPart", { summary: step.summary, part: step.part });
+  }
+  const key = (going ? DOING : DID)[step.tool];
+  return key ? t(key, { summary: step.summary, agent: "" }) : t("noteAsk.did.other");
+};
+
+/** "claude-sonnet-5-5" as people say it: "Sonnet 5.5". */
+export const shortModel = (id: string): string => {
+  const found = id.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?/);
+  if (!found) return id;
+  const [, family = "", major = "", minor] = found;
+  return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
+};
+
+const secondsOf = (trail: NoteTrail) =>
+  Math.max(
+    1,
+    Math.floor(
+      (Date.parse(trail.endedAt ?? new Date().toISOString()) - Date.parse(trail.startedAt)) / 1000,
+    ),
+  );
+
+/** The steps folded to one line: how many Documents it read of those it found, and how long it took. */
+function foldedOf(trail: NoteTrail, t: Translate): string {
+  const seconds = secondsOf(trail);
+  const { count, part } = readsOf(trail.steps);
+  if (count === 0) return t("noteColumn.worked", { seconds });
+  const total = Math.max(trail.documentsFound, count);
+  if (part > 0) return t("noteColumn.readOf.part", { n: count, total, part, seconds });
+  return t("noteColumn.readOf", { n: count, total, seconds });
+}
+
+/** What a stopped run had done: what it read, as one line. */
+function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
+  const mind = steps.find((step) => step.kind === "call" && step.tool === "read_mind");
+  const documents = [
+    ...new Set(
+      steps.flatMap((step) => (step.kind === "call" && step.documentId ? [step.summary] : [])),
+    ),
+  ];
+  const [only] = documents;
+  const named = mind?.kind === "call" ? mind.summary : null;
+  const what =
+    named && documents.length > 1
+      ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
+      : named && only
+        ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
+        : named
+          ? t("noteColumn.what.mind", { mind: named })
+          : documents.length > 1
+            ? t("noteColumn.what.docs", { count: documents.length })
+            : only
+              ? t("noteColumn.what.doc", { document: only })
+              : null;
+  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+}
+
+/**
+ * The Note's conversation, opened as a column at the Note's right (#3677): each request as a
+ * bubble, its steps, what it made or changed, and its reply. While it is open the Note's one input
+ * is at its foot, so the User reads and asks in one place.
+ */
+export function NoteColumn({
+  mindId,
+  editor,
+  agent,
+  input,
+}: {
+  mindId: string;
+  editor: Editor;
+  agent: string;
+  input: ReactNode;
+}) {
+  const t = useT();
+  return (
+    <aside
+      data-testid="note-column"
+      aria-label={t("noteAsk.conversation")}
+      className="note-column"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          setColumnOpen(mindId, false);
+        }
+      }}
+    >
+      <header className="note-column-head">
+        <h2 className="note-column-title">{t("noteColumn.title")}</h2>
+        <MoveConversation to="upward" className="note-column-icon" />
+        <button
+          type="button"
+          data-testid="note-column-close"
+          aria-label={t("noteColumn.close")}
+          title={t("noteColumn.close")}
+          // The input keeps the focus as it goes back to the Note's foot.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setColumnOpen(mindId, false)}
+          className="note-column-icon"
+        >
+          <CloseLineIcon className="size-4" />
+        </button>
+      </header>
+      <NoteConversationBody
+        mindId={mindId}
+        editor={editor}
+        agent={agent}
+        className="note-column-body"
+      />
+      <div className="note-column-foot">{input}</div>
+    </aside>
+  );
+}
+
+/**
+ * The conversation's turns, newest in view, scrolling in their own place: the column's body, or
+ * the panel that opens upward inside the input's box.
+ */
+export function NoteConversationBody({
+  mindId,
+  editor,
+  agent,
+  className,
+}: {
+  mindId: string;
+  editor: Editor;
+  agent: string;
+  className: string;
+}) {
+  const t = useT();
+  const waiting = useWaitingInNote(editor);
+  const ask = useNoteAsks((state) => state.byMind[mindId]);
+  const working = ask?.state === "working";
+  const trails = useNoteTrails((state) => state.byTurn);
+  const at = useNoteColumns((state) => state.at[mindId] ?? null);
+  const body = useRef<HTMLDivElement>(null);
+  const [turns, setTurns] = useState<readonly NoteTurn[] | null>(null);
+  const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
+  useEffect(() => {
+    let current = true;
+    core
+      .noteConversation(mindId)
+      .then((read) => {
+        if (current) setTurns(read);
+      })
+      .catch(useAppStore.getState().reportError);
+    return () => {
+      current = false;
+    };
+  }, [mindId, changed]);
+
+  // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follows what it shows.
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (!element) return;
+    const turn = at
+      ? element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(at)}"]`)
+      : null;
+    if (turn) element.scrollTop = turn.offsetTop - 8;
+    else element.scrollTop = element.scrollHeight;
+  }, [turns, trails, waiting, at]);
+
+  return (
+    <div ref={body} data-testid="note-conversation-body" className={className}>
+      {turns?.length === 0 && (
+        <p className="note-column-notice">{t("noteAsk.conversationEmpty")}</p>
+      )}
+      {turns?.map((turn, index) => (
+        <Turn
+          key={turn.id}
+          turn={turn}
+          trail={trails[turn.id]}
+          agent={agent}
+          // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
+          accept={
+            index === turns.length - 1 && !working && ask && ask.turnId === turn.id ? (
+              <EndAction ask={ask} mindId={mindId} editor={editor} named />
+            ) : null
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+function Turn({
+  turn,
+  trail,
+  agent,
+  accept,
+}: {
+  turn: NoteTurn;
+  trail?: NoteTrail;
+  agent: string;
+  accept: ReactNode;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const state = trail?.state ?? (turn.outcome === "working" ? "working" : turn.outcome);
+  const steps = (trail?.steps ?? []).filter(
+    // The reply's own words come as a line too: the reply shows them.
+    (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
+  );
+  const made = steps.filter((step) => madeKind(step) !== null);
+  const cites = /\[cite:[a-z0-9]{1,32}\]/.test(turn.reply);
+  return (
+    <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
+      {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
+      <div className="note-column-bubble">
+        {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
+        <p>{turn.request}</p>
+      </div>
+      {state === "working" && trail && <LiveSteps trail={trail} steps={steps} />}
+      {state === "stopped" && (
+        <p data-testid="note-column-interrupted" className="note-column-interrupted">
+          {stoppedOf(steps, t)}
+        </p>
+      )}
+      {state === "failed" && turn.problem && (
+        <p className="note-column-interrupted">
+          {t(`noteAsk.problem.${turn.problem}` as MessageKey, { agent, found: "", lowest: "" })}
+        </p>
+      )}
+      {state === "landed" && trail && (
+        <div className="note-column-steps">
+          <button
+            type="button"
+            data-testid="note-column-steps-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen((was) => !was)}
+            className="answer-steps-line note-column-fold"
+          >
+            <span className="answer-steps-text">{foldedOf(trail, t)}</span>
+            <ChevronRightLineIcon
+              className={`answer-steps-icon ${open ? "rotate-90" : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+          {open ? (
+            <ol className="note-column-list">
+              {steps.map((step, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+                <li key={index} className="note-column-step-item">
+                  <span className="note-column-step">{stepText(step, t, false)}</span>
+                  {madeKind(step) && <MadeCard step={step} />}
+                </li>
+              ))}
+              {trail.model && (
+                <li className="note-column-step">
+                  {t("noteColumn.answered", {
+                    model: shortModel(trail.model),
+                    seconds: secondsOf(trail),
+                  })}
+                </li>
+              )}
+            </ol>
+          ) : (
+            made.length > 0 && (
+              <div className="note-column-made">
+                {made.map((step, index) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+                  <MadeCard key={index} step={step} />
+                ))}
+              </div>
+            )
+          )}
+        </div>
+      )}
+      {state === "landed" && turn.reply !== "" && (
+        <div data-testid="note-column-reply" className="note-column-reply">
+          <Reply text={turn.reply} />
+          <div className="note-column-reply-foot">
+            {cites && (
+              <button type="button" data-testid="note-column-put" className="note-column-put">
+                {t("noteColumn.putInNote")}
+              </button>
+            )}
+            <span className="note-column-reply-meta">
+              <button type="button" className="note-column-icon" title={t("noteColumn.copy")}>
+                <CopyLineIcon className="size-3.5" />
+              </button>
+              {trail?.model && <span>{shortModel(trail.model)}</span>}
+            </span>
+          </div>
+        </div>
+      )}
+      {accept && <div className="note-column-accept">{accept}</div>}
+    </div>
+  );
+}
+
+const madeKind = (step: NoteStep): "note" | "changed" | "page" | null => {
+  if (step.kind !== "call" || !MAKES.has(step.tool) || step.done === false) return null;
+  if (step.tool === "create_mind") return "note";
+  if (step.tool === "publish_canvas" || step.tool === "update_canvas") return "page";
+  if (step.tool === "propose_changes" && step.mindId && step.waiting) return "changed";
+  return null;
+};
+
+/** What the AI made or changed, other than the Note in front: a press opens it. */
+function MadeCard({ step }: { step: NoteStep }) {
+  const t = useT();
+  const kind = madeKind(step);
+  const minds = useAppStore((state) => state.minds);
+  if (step.kind !== "call" || !kind) return null;
+  const mindId =
+    step.mindId ?? minds.find((each) => kind === "note" && each.title === step.summary)?.id;
+  const what =
+    kind === "note"
+      ? t("noteColumn.made.note")
+      : kind === "page"
+        ? t("noteColumn.made.page")
+        : t(step.waiting === 1 ? "noteColumn.made.waiting.one" : "noteColumn.made.waiting.other", {
+            count: step.waiting ?? 0,
+          });
+  return (
+    <button
+      type="button"
+      data-testid="note-column-made"
+      onClick={() => {
+        if (mindId) useAppStore.getState().openMind(mindId);
+      }}
+      className="note-column-made-card"
+    >
+      <span className="note-column-made-title">{step.summary}</span>
+      <span className="note-column-made-kind">{what}</span>
+    </button>
+  );
+}
+
+/** The steps as they happen: each done one in the past tense, the one going grey and in the present. */
+function LiveSteps({ trail, steps }: { trail: NoteTrail; steps: readonly NoteStep[] }) {
+  const t = useT();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const thinking = trail.doing?.kind === "thinking";
+  const done = thinking ? steps : steps.slice(0, -1);
+  const going = thinking ? null : (steps.at(-1) ?? null);
+  const seconds = secondsOf(trail);
+  const reads = readsOf(steps).count;
+  const total = Math.max(trail.documentsFound, reads);
+  const goingText =
+    going?.kind === "call" && going.tool === "read_passages" && total > 1
+      ? t("noteAsk.doing.read_passages.of", { n: reads, total, summary: going.summary })
+      : going
+        ? stepText(going, t, true)
+        : t(thinking ? "noteAsk.pill.thinking" : "noteAsk.pill.working");
+  return (
+    <ol data-testid="note-column-live" className="note-column-list">
+      {done.map((step, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+        <li key={index} className="note-column-step-item">
+          <span className="note-column-step">{stepText(step, t, false)}</span>
+          {madeKind(step) && <MadeCard step={step} />}
+        </li>
+      ))}
+      <li className="note-column-step note-column-step--now">
+        <span aria-hidden="true" className="note-ask-dots">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{goingText}</span>
+        {seconds >= 3 && (
+          <span className="note-ask-pill-time">{t("noteAsk.seconds", { count: seconds })}</span>
+        )}
+      </li>
+    </ol>
+  );
+}

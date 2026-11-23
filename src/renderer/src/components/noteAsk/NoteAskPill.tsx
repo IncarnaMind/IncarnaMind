@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentToolName } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
@@ -11,7 +11,7 @@ import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
 import { showWaitingChanges } from "../../mindChanges";
-import { allowAndAskAgain, firstWordsOf, type NoteAsk, withoutCitations } from "../../ownAiInNote";
+import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
@@ -153,6 +153,13 @@ function doingOf(ask: NoteAsk, t: Translate): string {
     const any = STARTED[doing.tool];
     return any ? t(any) : t("noteAsk.pill.working");
   }
+  if (doing.tool === "read_passages" && ask.documentsFound > 1) {
+    return t("noteAsk.doing.read_passages.of", {
+      n: doing.count,
+      total: Math.max(ask.documentsFound, doing.count),
+      summary: doing.summary,
+    });
+  }
   if (doing.tool === "read_passages" && doing.count > 1) {
     return t("noteAsk.doing.read_passages.counted", {
       summary: doing.summary,
@@ -273,7 +280,7 @@ export function NoteAskPill({
  * open the Note it wrote, or left changes waiting in, unless the line names it already; else Undo,
  * while what it changed here can still be undone.
  */
-function EndAction({
+export function EndAction({
   ask,
   mindId,
   editor,
@@ -333,11 +340,49 @@ function EndAction({
   );
 }
 
-/** A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces show Markdown. */
+/** Stands for a Citation chip in the text until the reply is drawn: its number between the two. */
+const CHIP_OPEN = "\uE000";
+const CHIP_CLOSE = "\uE001";
+
+/**
+ * A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces
+ * show Markdown, and each Citation as the numbered chip a Note shows (#3677).
+ */
 export function Reply({ text }: { text: string }) {
-  const shown = withoutCitations(text);
+  const t = useT();
+  const drawn = useRef<HTMLDivElement>(null);
+  const tokens: string[] = [];
+  const shown = text.replace(/\s?\[cite:([a-z0-9]{1,32})\]/g, (_, token: string) => {
+    if (!tokens.includes(token)) tokens.push(token);
+    return `${CHIP_OPEN}${tokens.indexOf(token) + 1}${CHIP_CLOSE}`;
+  });
+  useLayoutEffect(() => {
+    const root = drawn.current;
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const holding: Text[] = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      if (node.data.includes(CHIP_OPEN)) holding.push(node);
+    }
+    for (const node of holding) {
+      const parts = node.data.split(new RegExp(`${CHIP_OPEN}(\\d+)${CHIP_CLOSE}`));
+      const pieces = parts.map((part, index) => {
+        // A word joiner keeps each chip with the word before it, as a Note keeps its marks.
+        if (index % 2 === 0)
+          return document.createTextNode(index < parts.length - 1 ? `${part}\u2060` : part);
+        const chip = document.createElement("span");
+        chip.className = "citation-marker";
+        chip.dataset.check = "found";
+        chip.textContent = part;
+        chip.title = t("noteColumn.citation", { number: part });
+        return chip;
+      });
+      node.replaceWith(...pieces);
+    }
+  }, [shown, t]);
   return (
-    <div data-testid="note-ask-reply" className="note-ask-reply-text">
+    <div key={shown} ref={drawn} data-testid="note-ask-reply" className="note-ask-reply-text">
       <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />
     </div>
   );

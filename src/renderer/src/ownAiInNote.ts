@@ -11,6 +11,7 @@ import { create } from "zustand";
 import type {
   NoteChangeApplied,
   NoteSelectionBlock,
+  NoteStep,
   NoteTurnEvent,
   NoteTurnProblem,
 } from "../../core/api";
@@ -51,6 +52,7 @@ export interface NoteAsk {
   fresh: boolean;
   /** While it works, the AI has sent nothing for a while. */
   quiet: boolean;
+  documentsFound: number;
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -59,15 +61,76 @@ export const useNoteAsks = create<{ byMind: Readonly<Record<string, NoteAsk>> }>
   byMind: {},
 }));
 
-/** The Notes whose conversation shows, opened at their top right or from the line's reply. */
-export const useConversationShown = create<{ byMind: Readonly<Record<string, true>> }>(() => ({
-  byMind: {},
+/**
+ * What the conversation shows of each request beyond IncarnaMind's record (#3677): its steps in
+ * order, the model that answered, and how long it took, kept in the window while it is open.
+ */
+export interface NoteTrail {
+  mindId: string;
+  state: NoteTurnEvent["state"];
+  doing: NoteTurnEvent["doing"];
+  steps: NoteStep[];
+  model: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  fresh: boolean;
+  documentsFound: number;
+}
+
+export const useNoteTrails = create<{ byTurn: Readonly<Record<string, NoteTrail>> }>(() => ({
+  byTurn: {},
 }));
 
-export function showConversation(mindId: string, shown: boolean): void {
-  useConversationShown.setState((state) => {
-    const { [mindId]: _was, ...rest } = state.byMind;
-    return { byMind: shown ? { ...rest, [mindId]: true } : rest };
+/**
+ * Each Note's conversation: whether it is open, the model it asks on, whether it was just started
+ * anew, and the reply it opens at. It opens in one place for every Note, the User's to move: upward
+ * from the input's box at the Note's foot, or in the column at the Note's right (#3677).
+ */
+export const useNoteColumns = create<{
+  open: Readonly<Record<string, boolean>>;
+  model: Readonly<Record<string, string>>;
+  started: Readonly<Record<string, boolean>>;
+  /** The reply the conversation opens at, from the line. */
+  at: Readonly<Record<string, string>>;
+  place: "upward" | "column";
+}>(() => ({ open: {}, model: {}, started: {}, at: {}, place: "upward" }));
+
+/** Opens the conversation at a reply, as pressing the line does. */
+export const openColumnAt = (mindId: string, turnId: string | null) =>
+  useNoteColumns.setState((state) => ({
+    open: { ...state.open, [mindId]: true },
+    at: turnId ? { ...state.at, [mindId]: turnId } : state.at,
+  }));
+
+export const setColumnOpen = (mindId: string, open: boolean) =>
+  useNoteColumns.setState((state) => ({ open: { ...state.open, [mindId]: open } }));
+
+export const useColumnOpen = (mindId: string): boolean =>
+  useNoteColumns((state) => state.open[mindId] ?? false);
+
+/** Moves the open conversation between its two places; it stays open, and the input goes with it. */
+export const moveConversation = (place: "upward" | "column") => useNoteColumns.setState({ place });
+
+function keepTrail(event: NoteTurnEvent): void {
+  useNoteTrails.setState((state) => {
+    const was = state.byTurn[event.turnId];
+    const ended = event.state !== "working";
+    return {
+      byTurn: {
+        ...state.byTurn,
+        [event.turnId]: {
+          mindId: event.mindId,
+          state: event.state,
+          doing: ended ? (was?.doing ?? null) : event.doing,
+          steps: event.steps.length > 0 || !was ? event.steps : was.steps,
+          model: event.model ?? was?.model ?? null,
+          startedAt: was?.startedAt ?? event.startedAt,
+          endedAt: ended ? new Date().toISOString() : null,
+          fresh: event.fresh || (was?.fresh ?? false),
+          documentsFound: Math.max(event.documentsFound, was?.documentsFound ?? 0),
+        },
+      },
+    };
   });
 }
 
@@ -115,6 +178,7 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 });
 
 function heard(event: NoteTurnEvent): void {
+  keepTrail(event);
   const was = useNoteAsks.getState().byMind[event.mindId];
   if (was && was.turnId !== null && was.turnId !== event.turnId && was.state === "working") return;
   // A turn that ended stays ended: nothing of it said later takes it back to working.
@@ -140,6 +204,7 @@ function heard(event: NoteTurnEvent): void {
     made: event.made,
     fresh: event.fresh,
     quiet: event.state === "working" && event.quiet,
+    documentsFound: event.documentsFound,
     asked: was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
@@ -169,7 +234,7 @@ function heard(event: NoteTurnEvent): void {
 }
 
 let listening = false;
-function listen(): void {
+export function listen(): void {
   if (listening) return;
   listening = true;
   core.on("agents.noteTurn", heard);
@@ -184,9 +249,16 @@ export async function askInNote(
   asked: NoteAsked,
 ): Promise<"started" | "problem" | "link"> {
   listen();
+  const model = useNoteColumns.getState().model[mindId];
+  // A new request brings the newest back into view in the column.
+  useNoteColumns.setState((state) => {
+    const { [mindId]: _shown, ...at } = state.at;
+    return { started: { ...state.started, [mindId]: false }, at };
+  });
   const start = await core.askInNote({
     mindId,
     words: asked.words,
+    ...(model && { model }),
     ...(asked.quote !== "" && { quote: asked.quote }),
     ...(asked.selection && { selection: asked.selection }),
     ...(asked.caret && !asked.selection && { caret: asked.caret }),
@@ -207,6 +279,7 @@ export async function askInNote(
     made: [],
     fresh: false,
     quiet: false,
+    documentsFound: 0,
     asked,
   };
   if (start.kind === "started") askedHere.add(start.turnId);
@@ -249,12 +322,13 @@ export async function askFromSelection(
   return askInNote(mindId, { words, quote: selected.quote, selection: selected.selection });
 }
 
-/** Puts the keyboard in the Note's input, where ⌘J asks with the words selected as context. */
+/**
+ * Puts the keyboard in the Note's input, where ⌘J asks with the words selected as context: at the
+ * Note's foot, or at the column's foot while it is open (#3677).
+ */
 export function focusNoteAsk(mindId: string): void {
   document
-    .querySelector<HTMLTextAreaElement>(
-      `[data-testid="note-ask"][data-mind-id="${CSS.escape(mindId)}"] [data-note-ask-input]`,
-    )
+    .querySelector<HTMLTextAreaElement>(`[data-note-ask-input="${CSS.escape(mindId)}"]`)
     ?.focus();
 }
 

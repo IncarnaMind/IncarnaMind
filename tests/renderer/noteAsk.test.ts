@@ -78,6 +78,9 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   made: [],
   fresh: false,
   quiet: false,
+  model: null,
+  steps: [],
+  documentsFound: 0,
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {

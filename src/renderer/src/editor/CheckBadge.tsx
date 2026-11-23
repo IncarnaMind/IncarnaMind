@@ -576,6 +576,8 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // With the Note's own controls at its top right (#3677), the card opens down from there.
+  const fromTop = anchor?.closest(".note-head-badge") != null;
   // The card takes its first paint's height, so what lands later never moves what is above it;
   // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
@@ -683,8 +685,8 @@ function BadgeFrame({
       {open && anchor && (
         <Popover
           anchor={anchor}
-          placement="top-end"
-          fromBottom
+          placement={fromTop ? "bottom-end" : "top-end"}
+          fromBottom={!fromTop}
           middleware={placing}
           aria-label={t("health.label")}
           data-testid="check-card"
@@ -765,6 +767,44 @@ function StateMark({ state }: { state: NoteState }) {
   }
 }
 
+/**
+ * The resting state as a mark and its count, as the badge shows it with the Note's own controls
+ * (#3677): "○ 3" to check, each problem's mark and count ("≠ 1 · ! 1"), "✓ 24" checked.
+ */
+function QuietCount({
+  state,
+  badge,
+  format,
+}: {
+  state: NoteState;
+  badge: Badge;
+  format(value: number): string;
+}) {
+  if (state.kind === "needs-look" && badge.marks.length > 0) {
+    return (
+      <span className="check-badge-quiet">
+        {badge.marks.map(({ part, count }) => (
+          <span key={part} className="check-badge-mark" data-part={part}>
+            <PartMark part={part} />
+            {format(count)}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  const count =
+    state.kind === "not-checked"
+      ? state.notRecalculated > 0
+        ? state.notRecalculated
+        : state.toCheck
+      : state.kind === "not-yet-cited"
+        ? state.canBeCited
+        : state.kind === "checked"
+          ? state.checkable
+          : state.look;
+  return count > 0 ? <span className="check-badge-quiet">{format(count)}</span> : null;
+}
+
 function BadgePill({
   badge,
   state,
@@ -819,7 +859,13 @@ function BadgePill({
     );
   } else if (state && resting) {
     parts.push(
-      <span key="state" className="check-badge-mark" data-part={state.mark} data-tone={state.tone}>
+      <span
+        key="state"
+        className="check-badge-mark"
+        data-part={state.mark}
+        data-tone={state.tone}
+        data-quiet-marks={state.kind === "needs-look" && badge.marks.length > 0 ? "" : undefined}
+      >
         <StateMark state={state} />
         <span className="check-badge-words">{resting[0]}</span>
         {state.kind === "needs-look" && (
@@ -850,6 +896,7 @@ function BadgePill({
         ))}
       </span>,
     );
+    parts.push(<QuietCount key="quiet" state={state} badge={badge} format={format} />);
   } else {
     for (const { part, count } of badge.marks) {
       parts.push(
@@ -900,6 +947,7 @@ function BadgePill({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={badge.running && running ? undefined : label}
+        title={badge.running && running ? undefined : label}
         onClick={onToggle}
       >
         {parts}

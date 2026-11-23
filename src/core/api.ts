@@ -13316,6 +13316,8 @@ export interface NoteRequestInput {
   caret?: string;
   /** The agent to ask; absent: the first that can run in the background. */
   pairingId?: string;
+  /** One of the values `noteModels` gave; absent: the agent's own default. */
+  model?: string;
 }
 
 /**
@@ -13391,6 +13393,39 @@ export interface NoteTurnEvent {
   fresh: boolean;
   /** While it works: the AI has sent nothing for a while, and no call of it runs here. */
   quiet: boolean;
+  /** The model the run answers on, as its start names it ("claude-haiku-5-5"); null until it starts. */
+  model: string | null;
+  /** Each step so far, in order: the AI's own lines and each Tool call, as they happened. */
+  steps: NoteStep[];
+  /** How many Documents its searches found and its reads reached, for "Reading 3 of 10". */
+  documentsFound: number;
+}
+
+/** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
+export type NoteStep =
+  | { kind: "said"; text: string }
+  | {
+      kind: "call";
+      tool: AgentToolName;
+      summary: string;
+      /** The Document it read, for a read. */
+      documentId?: string;
+      /** How much of that Document it has read by now, in percent, when it isn't all of it. */
+      part?: number;
+      /** The Note it wrote or changed, other than the one in front. */
+      mindId?: string;
+      /** How many changes it left waiting there. */
+      waiting?: number;
+      /** False when the call was refused or failed. */
+      done?: boolean;
+    };
+
+/** A model the User's own AI offers, as it lists them itself (#3677). */
+export interface NoteModel {
+  value: string;
+  resolvedModel: string;
+  displayName: string;
+  description: string;
 }
 
 /**
@@ -16053,6 +16088,8 @@ export interface CoreApi {
   stopInNote(mindId: string): Promise<void>;
   /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
   noteConversation(mindId: string): Promise<NoteTurn[]>;
+  /** The models the User's own command-line AI offers, as it lists them (#3677); [] when it can't say. */
+  noteModels(): Promise<NoteModel[]>;
   /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.
@@ -16891,6 +16928,7 @@ const methods: Record<CoreApiMethod, true> = {
   askInNote: true,
   stopInNote: true,
   noteConversation: true,
+  noteModels: true,
   ownAiRunsHere: true,
   handedFileOf: true,
   listCanvases: true,

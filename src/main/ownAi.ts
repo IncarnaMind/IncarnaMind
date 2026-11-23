@@ -19,6 +19,7 @@ import {
   object,
   runClaudeCodeTurn,
 } from "./claudeCode";
+import { modelsOf } from "./ownAiModels";
 import { createLoginShellProcesses } from "./processes";
 
 const processes = createLoginShellProcesses();
@@ -184,6 +185,8 @@ export function createOwnAi({
       return purged.code === 0 || (purged.code === 1 && NOTHING_TO_PURGE.test(purged.out));
     },
 
+    models: () => modelsOf(command),
+
     async status(): Promise<OwnAiStatus> {
       const version = await short(command, ["--version"]);
       if (version.kind === "no-answer") return { kind: "unknown" };
@@ -284,6 +287,7 @@ export function createOwnAi({
             session: { id: conversation.sessionId, resume: conversation.resume },
           }),
           permissionMode: request.permissionMode,
+          ...(request.model && { model: request.model }),
           partial: true,
           stallMs,
           busy: () => running.size > 0 || compacting !== null,
@@ -352,6 +356,8 @@ export function createOwnAi({
               }
               session = typeof message.session_id === "string" ? message.session_id : null;
               begun = true;
+              if (typeof message.model === "string" && message.model !== "")
+                request.progress?.({ kind: "model", model: message.model });
               return;
             }
             if (message.type === "system" && message.subtype === "api_retry") {
