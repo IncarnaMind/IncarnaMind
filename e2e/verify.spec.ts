@@ -223,6 +223,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   expect(await paletteOffers(window, "check.chooseCitation", "Choose the Citation")).toBe(0);
 
   // Editing a claim makes its check need a re-check, as Check against Documents' do: a row of its own.
+  // The card opens down from the badge at the Note's top right, over its first lines (#3677): it
+  // closes first.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
   const first = editor.locator(":scope > p").nth(1);
   await slideSelect(window, first, "Spring");
   await window.keyboard.type("Some spring");
