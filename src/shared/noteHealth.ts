@@ -27,8 +27,8 @@ import { isClaim } from "./sentences";
  * `uncheckable` the failed ones a re-run cannot settle and `edited` the
  * rechecks a change to a sentence that had run made;
  * `checking`: the claims a run is checking right now, not done yet;
- * `kept`: the sentences the User keeps as their own view, which count as
- * handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
+ * `kept`: the sentences the User keeps as written, and `keptCharts` the
+ * charts they keep as their view, which count as handled; `tableCells` are the parts of `toCheck` a table holds (#1194);
  * `checkable`: every claim a check reads, to check, checking or covered;
  * `supported`: the covered claims a check found supported, the ones with no
  * Citation among them; `checkedAt`: the newest check among the claims one
@@ -62,6 +62,7 @@ export interface NoteHealth {
   edited: number[];
   checking: number[];
   kept: number[];
+  keptCharts: number[];
   tableCells: number[];
   noCitation: number[];
   /** The supported claims whose only evidence is one of the User's own notes (#335). */
@@ -131,6 +132,7 @@ export const emptyHealth = (): NoteHealth => ({
   edited: [],
   checking: [],
   kept: [],
+  keptCharts: [],
   tableCells: [],
   noCitation: [],
   ownNotes: [],
@@ -221,7 +223,7 @@ export function countSentence(
     return;
   }
   if (state.kind === "kept") {
-    if (!lookFor(false)) health.kept.push(from);
+    if (!lookFor(false)) (kind === "chart" ? health.keptCharts : health.kept).push(from);
     return;
   }
   if (state.kind !== "covered" || !claim) {

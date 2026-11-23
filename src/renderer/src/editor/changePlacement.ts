@@ -72,12 +72,18 @@ function offsetsOf(tokens: readonly string[]): number[] {
   return offsets;
 }
 
+/** White space alone, as a run of it reads to the change: any two stretches of it alike. */
+const WHITE = /^\s*$/u;
+const asRead = (token: string) => (WHITE.test(token) ? " " : token);
+
 /**
  * Where the change of `claim`'s check is written in the document as it is: one edit per run of
  * words it changes, word by word as a change waiting in the Note is drawn, so every Citation and
- * worked-out figure between them stays exactly where it is. Words added between two kept ones go
- * right after the one before, ahead of a Citation that follows it. Refused where a run it takes
- * out holds a Citation or figure, as writing over it would delete it.
+ * worked-out figure between them stays exactly where it is. White space is no change on its own:
+ * the sentence's text keeps the spaces around a Citation it leaves out, which an AI may write as
+ * one, so the Note keeps its own spacing. Words added between two kept ones go right after the
+ * one before, ahead of a Citation that follows it. Refused where a run it takes out holds a
+ * Citation or figure, as writing over it would delete it.
  */
 export function placeChange(state: EditorState, claim: ShownClaim): PlacedChange {
   const change = readClaimChange(claim.check.change);
@@ -100,10 +106,11 @@ export function placeChange(state: EditorState, claim: ShownClaim): PlacedChange
   const oldAt = offsetsOf(old);
   const nowAt = offsetsOf(now);
   const edits: ChangeEdit[] = [];
-  for (const hunk of hunksOf(diffSteps(old, now), () => false)) {
+  for (const hunk of hunksOf(diffSteps(old.map(asRead), now.map(asRead)), () => false)) {
     const from = at + (oldAt[hunk.oldFrom] ?? 0);
     const to = at + (oldAt[hunk.oldTo] ?? 0);
     const written = change.with.slice(nowAt[hunk.newFrom] ?? 0, nowAt[hunk.newTo] ?? 0);
+    if (WHITE.test(text.slice(from, to)) && WHITE.test(written)) continue;
     if (from < to) {
       const place = placeInSentence(state, claim, { from, to });
       if (
