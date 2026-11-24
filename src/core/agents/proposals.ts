@@ -51,6 +51,7 @@ import {
   CHART_NODE,
   CITATION_NODE,
   CLAIM_CHECK_MARK,
+  FOOTNOTE_NODE,
   GENERATED_MARK,
   MIND_CONTENT_FIELD,
   NOTE_TAB_NODE,
@@ -805,7 +806,7 @@ export function newBlocks(
     const put: NodeJSON = each.footnote
       ? nodeOf(each.footnote)
       : { type: CITATION_NODE, attrs: withoutNulls(each.citation ?? {}) };
-    return { before, put };
+    return { before, put: keeps?.copies ? withIdsOf(put, keeps.copies) : put };
   });
   const { nodes, refused } = options.visuals
     ? placeVisuals(parsedNodes, pictures, options.visuals, before)
@@ -1039,6 +1040,22 @@ interface Kept {
 interface Keeps {
   selection: Pick<Selection, "citations" | "footnotes">;
   named: Set<string>;
+  /**
+   * Ids for what is kept, when it is kept in what is added after the paragraph: that is decided
+   * apart from the paragraph, so it is a copy with ids of its own (#1933), never a second
+   * Citation or footnote under the paragraph's ids while the paragraph stays.
+   */
+  copies?: () => string;
+}
+
+/** `node` with an id of its own, and each Citation and footnote in it one of its own too. */
+function withIdsOf(node: NodeJSON, newId: () => string): NodeJSON {
+  const owned = node.type === CITATION_NODE || node.type === FOOTNOTE_NODE;
+  return {
+    ...node,
+    ...(owned && { attrs: { ...node.attrs, [BLOCK_ID_ATTRIBUTE]: newId() } }),
+    ...(node.content && { content: node.content.map((each) => withIdsOf(each, newId)) }),
+  };
 }
 
 /** Puts what a change keeps by handle into `placed`. */
@@ -1224,6 +1241,7 @@ function writeNamed(
   }
   const additions = [...adds.entries()].map(([after, texts]) => {
     const anchor = after === null ? null : elementAt(after);
+    const keeps = after === null ? undefined : keepsAt.get(after);
     const name = `${anchor?.paragraph.name ?? "¶0"}+`;
     // What is added first after a table's paragraph follows the table: a chart there draws it.
     const nodes = texts.flatMap((text, index) => {
@@ -1232,7 +1250,7 @@ function writeNamed(
         name,
         options,
         index === 0 ? tableAbove(anchor?.element ?? null) : null,
-        after === null ? undefined : keepsAt.get(after),
+        keeps && { ...keeps, copies: options.newId },
       );
       citedAnew.push(...made.cited);
       tallyBack(placed, made.kept, options.request);

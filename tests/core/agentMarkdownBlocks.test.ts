@@ -6,11 +6,12 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 import type { OwnAiRunner } from "../../src/core/adapters";
 import { type CitedToken, namedNote, proposeNamed } from "../../src/core/agents/proposals";
-import { CITATION_NODE, FOOTNOTE_NODE } from "../../src/core/api";
+import { CITATION_NODE, FOOTNOTE_NODE, PROPOSAL_ATTRIBUTE } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
-import { decideProposals, waitingChanges } from "../../src/shared/proposals";
+import { decideProposals, readProposalAttribute, waitingChanges } from "../../src/shared/proposals";
 import { citingIn, harbours, optionsWith, SPRING, tides, userNote } from "../helpers/agentChanges";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -238,8 +239,63 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
       await client.settled();
       expect(await decided(client, "accept")).toEqual(["heading:2", "bulletList", "p:2"]);
       const [, kept] = readMind(client).toJSON().content ?? [];
-      expectKept(kept);
+      expectKept(kept, true);
       expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
+    }
+  }, 60_000);
+
+  // protects=a paragraph's title in its place and a list after it keeping its Citation and footnote, decided apart: while both wait, with the list accepted and the title declined, with the title accepted and the list declined, and with both accepted, each Citation and footnote goes by its id in one place only; fails_when=the paragraph and the list hold the same Citation or footnote id, so "Checked by me" on one shows on the other
+  it("keeps the ids apart whichever of the title and the list the User accepts", async () => {
+    const ids = (client: MindClient) => {
+      const out: unknown[] = [];
+      const visit = (node: JSONContent) => {
+        if (node.type === CITATION_NODE || node.type === FOOTNOTE_NODE) out.push(node.attrs?.id);
+        for (const child of node.content ?? []) visit(child);
+      };
+      visit(readMind(client).toJSON());
+      return out;
+    };
+    for (const [title, list] of [
+      [null, null],
+      ["reject", "accept"],
+      ["accept", "reject"],
+      ["accept", "accept"],
+    ] as const) {
+      const { agent, client, mindId } = await citedNote();
+      const read = (await agent.callTool({
+        name: "read_mind",
+        arguments: { mindId, named: true },
+      })) as { structuredContent?: { version?: string } };
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: read.structuredContent?.version,
+          changes: [
+            { paragraph: "¶1", text: "## Spring tides" },
+            {
+              paragraph: "¶+",
+              text: "- The ferry waits for the tide [kept:1]\n- Seen in March [note:1]",
+            },
+          ],
+        },
+      });
+      await client.settled();
+      const listRef = client.blocks
+        .toArray()
+        .flatMap((each) =>
+          each instanceof Y.XmlElement && each.nodeName === "bulletList"
+            ? [readProposalAttribute(each.getAttribute(PROPOSAL_ATTRIBUTE))?.id]
+            : [],
+        )[0];
+      expect(listRef).toBeTruthy();
+      client.doc.transact(() => {
+        if (list) decideProposals(client.blocks, (ref) => ref.id === listRef, list);
+        if (title) decideProposals(client.blocks, (ref) => ref.id !== listRef, title);
+      }, "user");
+      await client.settled();
+      const all = ids(client);
+      expect(new Set(all).size, `${title} ${list}: ${JSON.stringify(all)}`).toBe(all.length);
     }
   }, 60_000);
   // protects=in one call, each of two paragraphs rewritten as a title with a list added after it: each list keeps only the handles it names, of the paragraph it follows; the first keeps its Citation and not its footnote, the second its own Citation; fails_when=a handle keeps the other paragraph's Citation, or a handle left out still keeps its footnote
@@ -450,24 +506,27 @@ function wordsOf(json: JSONContent): string[] {
   return out;
 }
 
-/** `block` holds the same Citation of Tides and the same footnote, its own Citation in it. */
-function expectKept(block: JSONContent | undefined): void {
+/**
+ * `block` holds the paragraph's Citation of Tides and its footnote, its own Citation in it: under
+ * their ids where the paragraph's own replacement keeps them, under ids of their own (`copies`)
+ * where what is added after the paragraph keeps them, since that is decided apart (#1933).
+ */
+function expectKept(block: JSONContent | undefined, copies = false): void {
   const all: JSONContent[] = [];
   const visit = (node: JSONContent) => {
     all.push(node);
     if (node.type !== FOOTNOTE_NODE) for (const child of node.content ?? []) visit(child);
   };
   if (block) visit(block);
-  expect(all.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
-    documentId: tides.documentId,
-    quote: tides.quote,
-  });
+  const citation = all.find((each) => each.type === CITATION_NODE)?.attrs;
+  expect(citation).toMatchObject({ documentId: tides.documentId, quote: tides.quote });
   const kept = all.find((each) => each.type === FOOTNOTE_NODE);
-  expect(kept?.attrs?.id).toBe("n1");
-  expect(kept?.content?.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
-    documentId: harbours.documentId,
-    quote: harbours.quote,
-  });
+  const inner = kept?.content?.find((each) => each.type === CITATION_NODE)?.attrs;
+  expect(inner).toMatchObject({ documentId: harbours.documentId, quote: harbours.quote });
+  const ids = [citation?.id, kept?.attrs?.id, inner?.id];
+  if (copies)
+    for (const [at, id] of ids.entries()) expect(id).not.toBe([tides.id, "n1", harbours.id][at]);
+  else expect(ids).toEqual([tides.id, "n1", harbours.id]);
 }
 
 describe("Markdown blocks from the box at a Note's foot (#3747)", () => {
