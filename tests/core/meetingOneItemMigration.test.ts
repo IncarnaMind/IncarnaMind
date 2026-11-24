@@ -14,6 +14,8 @@ import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 
 const AT = "2026-10-20T09:00:00.000Z";
 const DELETED = "2026-10-25T09:00:00.000Z";
+const openCore = (dataDir: string) =>
+  startCore(dataDir, { now: manualClock("2026-10-26T09:00:00.000Z").now });
 
 const ours = migrations.find((each) => each.description.includes("(#2528)")) as Migration;
 const before = migrations.filter((each) => each.version < ours.version);
@@ -464,7 +466,7 @@ describe("A database from before, opened by this version (#2528)", () => {
     });
     db.close();
 
-    const core = startCore(dataDir);
+    const core = openCore(dataDir);
     await core.restore([{ kind: "tag", id: "gone" }]);
     expect((await core.listTags()).map((tag) => tag.id)).toEqual(["gone"]);
     expect((await core.listDocuments()).find((each) => each.id === "t1")?.tags).toEqual([]);
@@ -480,7 +482,7 @@ describe("A database from before, opened by this version (#2528)", () => {
     // The version before let the User delete a Transcript on its own.
     db.run("UPDATE documents SET deleted_at = ? WHERE id = 't1'", [DELETED]);
     db.close();
-    startCore(dataDir).close();
+    openCore(dataDir).close();
     const after = openDatabase(join(dataDir, DATABASE_FILE));
     after.run("UPDATE minds SET deleted_at = ?, purged_at = ? WHERE id = 'n1'", [DELETED, DELETED]);
     after.close();
@@ -499,7 +501,7 @@ describe("A database from before, opened by this version (#2528)", () => {
       return state;
     };
     for (const start of [1, 2]) {
-      const core = startCore(dataDir);
+      const core = openCore(dataDir);
       expect(
         (await core.listDeleted()).map((item) => [item.kind, item.id]),
         `start ${start}`,
@@ -512,7 +514,7 @@ describe("A database from before, opened by this version (#2528)", () => {
     }
 
     // Restored, it is back behind its wall, a Document of its own.
-    const core = startCore(dataDir);
+    const core = openCore(dataDir);
     await core.restore([{ kind: "document", id: "t1" }]);
     expect(
       (await core.getLibrary()).assignments
@@ -533,7 +535,7 @@ describe("A database from before, opened by this version (#2528)", () => {
     db.run("UPDATE minds SET deleted_at = ?, purged_at = ? WHERE id = 'n1'", [DELETED, DELETED]);
     db.close();
 
-    const core = startCore(dataDir);
+    const core = openCore(dataDir);
     const t1 = (await core.listDocuments()).find((each) => each.id === "t1");
     expect(t1?.meetingMindId).toBeNull();
     expect(
@@ -549,7 +551,7 @@ describe("A database from before, opened by this version (#2528)", () => {
     const seededDb = await seeded(join(dataDir, DATABASE_FILE));
     seededDb.close();
 
-    const core = startCore(dataDir, { now: manualClock("2026-10-26T09:00:00.000Z").now });
+    const core = openCore(dataDir);
 
     const live = ["t1", "t10a", "t10b", "t2", "t3", "t4", "t5", "t7", "t8a", "t8b", "t9", "u1"];
     // The Transcript joined to the Note in Recently deleted waits there with it, as one item.
@@ -607,13 +609,13 @@ describe("A database from before, opened by this version (#2528)", () => {
     const dataDir = await createTempDataFolder();
     (await seeded(join(dataDir, DATABASE_FILE))).close();
 
-    const first = startCore(dataDir);
+    const first = openCore(dataDir);
     const joined = await first.listJoinedMeetings();
     expect(joined).toHaveLength(2);
     await first.joinedMeetingsSaid(joined.map((each) => each.id));
     first.close();
 
-    const again = startCore(dataDir);
+    const again = openCore(dataDir);
     expect(await again.listJoinedMeetings()).toEqual([]);
     expect((await again.listMinds()).find((mind) => mind.id === "n1")?.folderId).toBe("S");
     again.close();
@@ -622,7 +624,7 @@ describe("A database from before, opened by this version (#2528)", () => {
   test("Undo is refused once the User has moved the Note since, and the join is no longer said", async () => {
     const dataDir = await createTempDataFolder();
     (await seeded(join(dataDir, DATABASE_FILE))).close();
-    const core = startCore(dataDir);
+    const core = openCore(dataDir);
     const [first] = await core.listJoinedMeetings();
     await core.moveToFolder({ mindIds: ["n1"], folderId: "W" });
 
