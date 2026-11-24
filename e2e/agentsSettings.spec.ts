@@ -18,6 +18,7 @@ import {
   launchApp,
   openSettings,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   showSettingsPage,
@@ -633,6 +634,101 @@ test("a connection whose program has moved says so in its row, and Repair writes
     const repaired = await readFile(codexSettings, "utf8");
     expect(repaired).not.toContain(gone);
     expect(repaired.startsWith('model = "gpt-6-luna"')).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
+// protects=with two apps whose program has gone, Repair all (2) at Your AI's title writes both again in one press, and Disconnect all… asks in place (Keep them, Esc) before it takes IncarnaMind out of every app's settings, in English and Chinese and from ⌘K; fails_when=Repair all leaves one app broken, Disconnect all disconnects without asking or leaves an entry behind, or ⌘K's entry opens Settings without the question
+test("two broken connections: Repair all repairs both, and Disconnect all asks in place first (#3644)", async () => {
+  await mkdir(join(home, ".codex"));
+  const codexSettings = join(home, ".codex", "config.toml");
+  const claudeSettings = join(home, ".claude.json");
+  await writeFile(codexSettings, 'model = "gpt-6-luna"\n');
+  await writeFile(claudeSettings, `${JSON.stringify({ theme: "dark" })}\n`);
+  const first = await launchApp(dataDir, { home });
+  let command = "";
+  try {
+    await dismissChatSetup(first.window);
+    await acceptPlainTextKeys(first.window);
+    command = await first.window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.setAgentsEnabled(true);
+      await bridge.setUpAgent({ client: "claude-code", folderIds: ["all"], propose: true });
+      const { pairing } = await bridge.setUpAgent({ client: "codex", folderIds: ["all"] });
+      return (await bridge.getAgentLaunch(pairing.id)).command;
+    });
+  } finally {
+    await first.app.close();
+  }
+  const gone = join(home, "gone", ".mount_x7Kq", "incarnamind");
+  for (const file of [codexSettings, claudeSettings]) {
+    const written = await readFile(file, "utf8");
+    expect(written).toContain(JSON.stringify(command));
+    await writeFile(file, written.replaceAll(JSON.stringify(command), JSON.stringify(gone)));
+  }
+
+  const { app, window } = await launchApp(dataDir, { home });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    const page = await openSettings(window, "ai");
+    const section = page.getByTestId("agents-connected");
+    const repairAll = section.getByTestId("agents-repair-all");
+    await expect(repairAll).toHaveText("Repair all (2)");
+    await expect(section.getByTestId("agent-pairing-repair")).toHaveCount(2);
+    await shot(window, "repair-all-en");
+    await setLanguage(window, "zh-CN");
+    await expect(repairAll).toHaveText("全部修复（2 个）");
+    await shot(window, "repair-all-zh");
+    await setLanguage(window, "en");
+
+    await repairAll.click();
+    await expect(section.getByTestId("agent-pairing-repair")).toHaveCount(0);
+    await expect(repairAll).toBeHidden();
+    for (const file of [codexSettings, claudeSettings]) {
+      expect(await readFile(file, "utf8")).not.toContain(gone);
+    }
+
+    const opener = section.getByTestId("agents-disconnect-all-open");
+    const ask = section.getByTestId("agents-disconnect-all-ask");
+    await opener.click();
+    await expect(ask).toContainText(
+      "Disconnect all 2? IncarnaMind takes its lines out of each app’s settings and removes the Skill copies it added. What they wrote in IncarnaMind stays.",
+    );
+    await expect(section.getByTestId("agents-disconnect-all-keep")).toBeFocused();
+    await shot(window, "disconnect-all-en");
+    await setLanguage(window, "zh-CN");
+    await expect(ask).toContainText("断开全部 2 个？");
+    await expect(section.getByTestId("agents-disconnect-all-confirm")).toHaveText("全部断开");
+    await shot(window, "disconnect-all-zh");
+    await setLanguage(window, "en");
+    await window.keyboard.press("Escape");
+    await expect(ask).toBeHidden();
+    await expect(page).toBeVisible();
+    await expect(opener).toBeFocused();
+    await opener.click();
+    await section.getByTestId("agents-disconnect-all-keep").click();
+    await expect(ask).toBeHidden();
+    await expect(section.getByTestId("agent-pairing")).toHaveCount(2);
+
+    await window.keyboard.press("Escape");
+    await expect(page).toBeHidden();
+    await runCommand(window, "settings.disconnectAllAgents", "Disconnect all AI apps…");
+    await expect(ask).toBeVisible();
+    await expect(section.getByTestId("agents-disconnect-all-keep")).toBeFocused();
+    await section.getByTestId("agents-disconnect-all-confirm").click();
+    await expect(section.getByTestId("agent-pairing")).toHaveCount(0);
+    await expect(section.getByTestId("agents-disconnect-all")).toBeHidden();
+    const codexLeft = await readFile(codexSettings, "utf8");
+    expect(codexLeft).not.toContain(command);
+    expect(codexLeft.startsWith('model = "gpt-6-luna"')).toBe(true);
+    const claudeLeft = JSON.parse(await readFile(claudeSettings, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(claudeLeft)).not.toContain(command);
+    expect(claudeLeft.theme).toBe("dark");
   } finally {
     await app.close();
   }
