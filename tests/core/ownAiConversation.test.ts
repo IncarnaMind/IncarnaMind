@@ -141,6 +141,17 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const PAGE = { title: "Ferry page", html: "<p>The ferry carried passengers.</p>" };
 
+/** The models Claude Code lists in its `initialize` answer, as the run hears them. */
+const MODELS = [
+  {
+    value: "default",
+    resolvedModel: "claude-sonnet-5-5",
+    displayName: "Default (recommended)",
+    description: "Sonnet 5.5",
+  },
+  { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "" },
+];
+
 /**
  * A User with no model set up, a Document in "Harbour", a Note they wrote there and another, and
  * Claude Code connected, allowed to propose changes unless `readOnly`. `cited`: the Note's first
@@ -339,6 +350,16 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
         { kind: "call", tool: "read_passages", summary: "Report", count: 1 },
       ]),
     );
+    // Its steps, in order, for the conversation: its own lines and each call, the reading naming
+    // its Document; and how many Documents its searches found, for "Reading 1 of 1".
+    const last = working.at(-1);
+    expect(last?.steps).toEqual([
+      { kind: "said", text: "I" },
+      { kind: "said", text: "Reading the report" },
+      { kind: "call", tool: "search", summary: "ferry passengers", done: true },
+      { kind: "call", tool: "read_passages", summary: "Report", documentId: expect.any(String) },
+    ]);
+    expect(last?.documentsFound).toBe(1);
   });
 
   // protects=a run that has sent nothing for a while is said to be quiet, and no longer once it sends again; fails_when=the line stays the same for minutes with nothing to say the AI is silent
@@ -670,6 +691,96 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended()).toMatchObject({ state: "stopped", applied: [] });
     await client.settled();
     expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+  });
+
+  // protects=looking for the models starts nothing of the User's agent, with or without the consent; the list comes from a request's own run, which asks for it, and shows only while a request from the Note could run; fails_when=the list starts the agent, shows before a run answered it, or outlives the consent or the connection
+  it("lists the models a request's run heard, and starts nothing to look", async () => {
+    let calls = 0;
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: MODELS });
+      return { kind: "finished", reply: "Done." };
+    });
+    const counted: OwnAiRunner = {
+      ...run.adapter,
+      installed: async () => {
+        calls += 1;
+        return true;
+      },
+      status: async () => {
+        calls += 1;
+        return { kind: "ready" };
+      },
+    };
+    const { core, mindId, claude } = await written(counted);
+    await core.revokeConsent("hosted-agents", `agent:${claude.pairing.id}`);
+    expect(await core.noteModels(mindId)).toEqual([]);
+    expect(calls).toBe(0);
+    expect(run.runs).toEqual([]);
+
+    const given = await written(counted);
+    calls = 0;
+    expect(await given.core.noteModels(given.mindId)).toEqual([]);
+    expect(calls).toBe(0);
+    await given.core.askInNote({ mindId: given.mindId, words: "shorter" });
+    await given.ended();
+    expect(run.runs.at(-1)?.listModels).toBe(true);
+    expect(await given.core.noteModels(given.mindId)).toEqual(MODELS);
+    await given.core.revokeConsent("hosted-agents", `agent:${given.claude.pairing.id}`);
+    expect(await given.core.noteModels(given.mindId)).toEqual([]);
+  });
+
+  // protects=a reply's Citation is shown as one only when IncarnaMind gave that token to this connection; a made-up token is not; fails_when=a token the agent made up, or one of another connection, reaches the conversation as a Citation
+  it("keeps only the reply's Citations IncarnaMind gave this connection", async () => {
+    const run = runner(async (agent) => {
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages;
+      const { citations } = structured<{ citations: { cite: string | null }[] }>(
+        await agent.callTool({
+          name: "cite",
+          arguments: {
+            citations: found.map(({ passageId }) => ({ passageId, quote: FERRY })),
+          },
+        }),
+      );
+      const given = citations.find((each) => each.cite !== null)?.cite ?? "";
+      return {
+        kind: "finished",
+        reply: `The ferry carried 212,000 passengers.${given} Fares rose.[cite:k3x9a2b7]`,
+      };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the report say?" });
+    await ended();
+    const [turn] = await core.noteConversation(mindId);
+    expect(turn?.citations).toEqual([
+      { token: expect.any(String), documentName: "Report", quote: FERRY },
+    ]);
+    expect(turn?.reply).toContain(`[cite:${turn?.citations[0]?.token}]`);
+    expect(turn?.citations.map((each) => each.token)).not.toContain("k3x9a2b7");
+  });
+
+  // protects=only a model the User's agent itself offered goes to it as its model; anything else is refused before anything starts; fails_when=a value the renderer sends reaches the command line unchecked
+  it("sends only a model the agent offered", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: MODELS });
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await expect(core.askInNote({ mindId, words: "shorter", model: "haiku" })).rejects.toThrow(
+      translate("en", "error.agent.askRequest"),
+    );
+    expect(run.runs).toEqual([]);
+    await core.askInNote({ mindId, words: "shorter" });
+    await ended();
+    expect(run.runs[0]?.model).toBeUndefined();
+    await expect(
+      core.askInNote({ mindId, words: "shorter", model: "--dangerously-skip-permissions" }),
+    ).rejects.toThrow(translate("en", "error.agent.askRequest"));
+    expect(run.runs).toHaveLength(1);
+    await core.askInNote({ mindId, words: "shorter", model: "haiku" });
+    await ended(2);
+    expect(run.runs[1]?.model).toBe("haiku");
   });
 
   // protects=a lost connection or a consent taken back ends the run with its reason, and deletes the connection's conversations, the agent's copy too; fails_when=a run goes on without its connection or consent, or its conversation stays on disk

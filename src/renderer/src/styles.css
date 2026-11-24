@@ -3026,16 +3026,6 @@
     line-height: 16px;
     color: var(--color-ink-meta);
   }
-  .note-column-put {
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 600;
-    color: var(--color-accent);
-    &:hover {
-      text-decoration: underline;
-      text-underline-offset: 3px;
-    }
-  }
   .note-column-reply-meta {
     display: inline-flex;
     align-items: center;

@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AgentToolName } from "../../../../core/api";
+import type { AgentToolName, NoteCitation } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
@@ -246,7 +246,7 @@ export function NoteAskPill({
         >
           {readOnly
             ? t("noteAsk.readOnly", { agent: ask.agent })
-            : t(`noteAsk.problem.${ask.problem ?? "failed"}` as MessageKey, {
+            : t(`noteAsk.problem.${ask.problem ?? "failed"}`, {
                 agent: ask.agent,
                 found: ask.versions?.found ?? "",
                 lowest: ask.versions?.lowest ?? "",
@@ -346,13 +346,15 @@ const CHIP_CLOSE = "\uE001";
 
 /**
  * A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces
- * show Markdown, and each Citation as the numbered chip a Note shows (#3677).
+ * show Markdown, and each Citation IncarnaMind gave its connection as the numbered chip a Note
+ * shows (#3677). Any other `[cite:…]` is left out, never drawn as a Citation.
  */
-export function Reply({ text }: { text: string }) {
+export function Reply({ text, citations }: { text: string; citations: readonly NoteCitation[] }) {
   const t = useT();
   const drawn = useRef<HTMLDivElement>(null);
   const tokens: string[] = [];
   const shown = text.replace(/\s?\[cite:([a-z0-9]{1,32})\]/g, (_, token: string) => {
+    if (!citations.some((each) => each.token === token)) return "";
     if (!tokens.includes(token)) tokens.push(token);
     return `${CHIP_OPEN}${tokens.indexOf(token) + 1}${CHIP_CLOSE}`;
   });
@@ -372,16 +374,19 @@ export function Reply({ text }: { text: string }) {
         // A word joiner keeps each chip with the word before it, as a Note keeps its marks.
         if (index % 2 === 0)
           return document.createTextNode(index < parts.length - 1 ? `${part}\u2060` : part);
+        const cited = citations.find((each) => each.token === tokens[Number(part) - 1]);
         const chip = document.createElement("span");
         chip.className = "citation-marker";
         chip.dataset.check = "found";
         chip.textContent = part;
-        chip.title = t("noteColumn.citation", { number: part });
+        chip.title = cited
+          ? `${cited.documentName}: “${cited.quote}”`
+          : t("noteColumn.citation", { number: part });
         return chip;
       });
       node.replaceWith(...pieces);
     }
-  }, [shown, t]);
+  }, [shown, t, citations]);
   return (
     <div key={shown} ref={drawn} data-testid="note-ask-reply" className="note-ask-reply-text">
       <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />

@@ -59,13 +59,18 @@ const underCard = (window: Page) =>
     );
   });
 
-for (const language of ["en", "zh-CN"] as const) {
-  test(`Next makes way for a sentence in the Note's first lines and goes on from it; further down it lands clear of the card (${language}, 900)`, async () => {
+for (const [language, width] of [
+  ["en", 900],
+  ["zh-CN", 900],
+  ["en", 1440],
+  ["zh-CN", 1440],
+] as const) {
+  test(`Next makes way for a sentence in the Note's first lines and goes on from it; further down it lands clear of the card (${language}, ${width})`, async () => {
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await setWindowSize(app, window, 900, 900);
+    await setWindowSize(app, window, width, 900);
     await newMind(window);
     await window.getByTestId("mind-editor").evaluate((dom, text) => {
       (dom as unknown as { editor: Editor }).editor.commands.setContent(

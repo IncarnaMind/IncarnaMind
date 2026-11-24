@@ -13,6 +13,7 @@ import {
   type AgentPairing,
   type AgentToolName,
   type NoteChangeApplied,
+  type NoteCitation,
   type NoteDoing,
   type NoteRequestInput,
   type NoteRequestStart,
@@ -24,6 +25,7 @@ import {
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
 import type { ConversationHears, ConversationRun, SelectedInBlock } from "./askedChecks";
+import { CITATION_TOKEN } from "./citations";
 
 /** IncarnaMind's instructions, the same for every request of a conversation: Claude Code keeps the first. */
 const INSTRUCTIONS = [
@@ -74,6 +76,8 @@ export interface OwnAiConversationsOptions {
   db: Database;
   /** The agents the User can ask about this Note now, the one connected or used last first. */
   askable(mindId: string): AgentPairing[];
+  /** The Citation IncarnaMind gave this connection under `token`, or null for any other. */
+  citationOf(pairingId: string, token: string): NoteCitation | null;
   /** A grant for one run, which tells it of its own calls and changes, and of no one else's. */
   conversationGrant(
     pairingId: string,
@@ -163,7 +167,8 @@ function promptOf(
 }
 
 export function createOwnAiConversations(options: OwnAiConversationsOptions) {
-  let listed: Promise<OwnAiModel[]> | null = null;
+  /** The models the agent offers, as its last run here answered; held in memory only. */
+  let listed: readonly OwnAiModel[] | null = null;
   const { db } = options;
   const running = new Map<
     string,
@@ -319,6 +324,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const selection = selectionOf(input.selection);
     const pairingId = input.pairingId === undefined ? undefined : words(input.pairingId, 200);
     const model = input.model === undefined ? undefined : words(input.model, 100);
+    // Only a model the agent itself offered goes to it as `--model`.
+    if (model !== undefined && !listed?.some((each) => each.value === model)) {
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+    }
 
     const already = running.get(mindId);
     if (already) return { kind: "started", pairing: already.pairing, turnId: already.turnId };
@@ -494,6 +503,10 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         tellWorking();
         return;
       }
+      if (step.kind === "models") {
+        if (step.models.length > 0) listed = step.models;
+        return;
+      }
       if (step.kind === "model") {
         answeredOn = step.model;
       } else if (step.kind === "said") {
@@ -611,6 +624,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               ),
               conversation: { key: conversation.id, sessionId, resume },
               ...(turn.model !== undefined && { model: turn.model }),
+              listModels: true,
               progress,
               signal,
             })
@@ -688,8 +702,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     /** The Note's conversation, as IncarnaMind keeps it, with the agent asked last, oldest first. */
     turns(mindId: string): NoteTurn[] {
-      const latest = db.get<{ id: string }>(
-        `SELECT c.id FROM own_ai_conversations c
+      const latest = db.get<{ id: string; pairing_id: string }>(
+        `SELECT c.id, c.pairing_id FROM own_ai_conversations c
          JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
          WHERE c.mind_id = ? AND c.deleted_at IS NULL
          ORDER BY t.created_at DESC LIMIT 1`,
@@ -710,18 +724,20 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           outcome: row.outcome,
           problem: (row.problem as NoteTurnProblem | null) ?? null,
           at: row.created_at,
+          citations: [...new Set([...row.reply.matchAll(CITATION_TOKEN)].map(([, token]) => token))]
+            .map((token) => (token ? options.citationOf(latest.pairing_id, token) : null))
+            .filter((cited) => cited !== null),
         }));
     },
 
     /**
-     * The models the agent offers, as it lists them: asked once, since each asking starts the
-     * agent; a list it couldn't give is asked for again next time.
+     * The models the agent offers for a request from this Note, as a run here answered before its
+     * prompt went: asking starts nothing. [] until a run has answered, and while no request from
+     * the Note could run (no connection that runs here, no consent, local mode).
      */
-    async models() {
-      listed ??= (options.runner?.models?.() ?? Promise.resolve([])).then((models) => {
-        if (models.length === 0) listed = null;
-        return models;
-      });
+    models(mindId: string): readonly OwnAiModel[] {
+      const pairing = options.askable(mindId).find(canRun);
+      if (!listed || !pairing || options.heldBack(pairing, mindId)) return [];
       return listed;
     },
 

@@ -279,3 +279,115 @@ test("the Note's conversation opens upward in its input's box and moves to a col
     await app.close();
   }
 });
+
+test("the model in the box comes with the first request's run, and the one chosen is the one the next request runs on", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    home,
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+  });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    const folderId = await connected(window);
+    const mindId = await writeNote(window, "Harbour notes", [{ text: P1 }, { text: P3 }], {
+      folderId,
+    });
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const model = group.getByTestId("note-ask-model");
+    await expect(input).toBeVisible();
+    // Nothing of Claude Code is started to list its models: before a request, the box has none.
+    await window.waitForTimeout(1000);
+    await expect(model).toHaveCount(0);
+
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, input);
+    await window.keyboard.type("What does the harbour plan add?");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    // The request's own run brought the list: its default first, as Claude Code names it.
+    await expect(model).toHaveText("Sonnet 5.5");
+    await pointAndClick(window, model);
+    const menu = window.getByTestId("note-ask-models");
+    await expect(menu.getByRole("menuitemradio")).toHaveCount(4);
+    await pointAndClick(window, menu.getByRole("menuitemradio").filter({ hasText: "Haiku" }));
+    await expect(model).toHaveText("Haiku 5.5");
+
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, input);
+    await window.keyboard.type("And when?");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    // Claude Code named the model it answered on: the one chosen.
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    const reply = group.getByTestId("note-column-reply").last();
+    await expect(reply.locator(".note-column-reply-meta")).toHaveText("Haiku 5.5");
+    // Copy puts the reply's words on the clipboard.
+    await reply.hover();
+    await pointAndClick(window, reply.getByTestId("note-column-copy"));
+    const [last] = (
+      await window.evaluate(
+        (id) =>
+          (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.noteConversation(id),
+        mindId,
+      )
+    ).slice(-1);
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe((last?.reply ?? "").replace(/\s?\[cite:[a-z0-9]{1,32}\]/g, ""));
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Chinese IME composition open as the conversation moves ends in its new place, its letters never left behind", async () => {
+  const { app, window } = await launchApp(dataDir, {
+    home,
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+  });
+  await acceptPlainTextKeys(window);
+  try {
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1440, 900);
+    await setLanguage(window, "zh-CN");
+    const folderId = await connected(window);
+    const mindId = await writeNote(window, "港口笔记", [{ text: P3 }], { folderId });
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = window.getByTestId("note-ask-input");
+    await nextRun("plan");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, input);
+    await window.keyboard.type("规划加了什么？");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, input);
+    await window.keyboard.type("坡道");
+    // The IME as Chromium hears it: letters composing, then the characters they end as.
+    const ime = await window.context().newCDPSession(window);
+    await ime.send("Input.imeSetComposition", { text: "gang", selectionStart: 4, selectionEnd: 4 });
+    await expect(input).toHaveValue("坡道gang");
+    await pointAndClick(window, group.getByTestId("conversation-move-right"));
+    await expect(window.getByTestId("note-column")).toBeVisible();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("坡道");
+    await ime.send("Input.insertText", { text: "港" });
+    await expect(input).toHaveValue("坡道港");
+    await ime.send("Input.imeSetComposition", { text: "kou", selectionStart: 3, selectionEnd: 3 });
+    await pointAndClick(
+      window,
+      window.getByTestId("note-column").getByTestId("conversation-move-down"),
+    );
+    await expect(input).toBeFocused();
+    await ime.send("Input.insertText", { text: "口" });
+    await expect(input).toHaveValue("坡道港口");
+  } finally {
+    await app.close();
+  }
+});

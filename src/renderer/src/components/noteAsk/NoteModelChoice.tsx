@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { NoteModel } from "../../../../core/api";
 import { core } from "../../core";
 import { useT } from "../../i18n";
-import { useNoteColumns } from "../../ownAiInNote";
+import { useNoteAsks, useNoteColumns, useNoteTrails } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { CheckLineIcon, ChevronRightLineIcon } from "../lineIcons";
 import { menuClass } from "../ui";
@@ -11,22 +11,38 @@ import { shortModel } from "./NoteColumn";
 
 /**
  * The model this Note's conversation runs on, inside its input before Send (#3677), from the list
- * the User's AI gives. While a request runs it shows the model and can't be changed.
+ * the User's AI gave a request's run: nothing until a request has run since IncarnaMind started.
+ * While a request runs it shows the model and can't be changed.
  */
 export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolean }) {
   const t = useT();
   const [models, setModels] = useState<readonly NoteModel[]>([]);
   const chosen = useNoteColumns((state) => state.model[mindId]);
   const menu = usePopoverMenu({ align: "end", side: "above" });
+  // A run hears the list before it names its model, so each run that names one, and each that
+  // ends, may bring a list.
+  const runsNamed = useNoteTrails(
+    (state) => Object.values(state.byTurn).filter((trail) => trail.model !== null).length,
+  );
+  const ended = useNoteAsks((state) => state.byMind[mindId]?.state !== "working");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each run names its model and as it ends.
   useEffect(() => {
     let current = true;
-    core.noteModels().then((listed) => {
-      if (current) setModels(listed);
+    core.noteModels(mindId).then((listed) => {
+      if (!current) return;
+      setModels(listed);
+      // A model no longer offered isn't sent: the agent's own default answers instead.
+      const { model } = useNoteColumns.getState();
+      const kept = model[mindId];
+      if (kept !== undefined && !listed.some((each) => each.value === kept)) {
+        const { [mindId]: _gone, ...rest } = model;
+        useNoteColumns.setState({ model: rest });
+      }
     }, useAppStore.getState().reportError);
     return () => {
       current = false;
     };
-  }, []);
+  }, [mindId, runsNamed, ended]);
   if (models.length === 0) return null;
   const current = models.find((each) => each.value === chosen) ?? models[0];
   const label = current?.resolvedModel

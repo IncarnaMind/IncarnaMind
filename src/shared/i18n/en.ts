@@ -9275,7 +9275,6 @@ export const en = {
   "noteColumn.what.docs": "{count} Documents",
   "noteColumn.what.doc": "“{document}”",
   "noteColumn.made.note": "Note",
-  "noteColumn.made.page": "Page",
   "noteColumn.made.waiting.one": "1 change waits",
   "noteColumn.made.waiting.other": "{count} changes wait",
   "noteColumn.close": "Hide conversation",
@@ -9286,7 +9285,6 @@ export const en = {
   "noteColumn.moveRight": "Move to the right",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
-  "noteColumn.putInNote": "Put it in the note",
   "noteColumn.citation": "Citation {number}",
   "noteAsk.did.read_mind": "Read “{summary}”",
   "noteAsk.did.list_minds": "Looked through your notes",
@@ -9328,6 +9326,11 @@ export const en = {
   "noteAsk.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
   "noteAsk.problem.failed": "{agent} stopped before it finished. Try again.",
+  "noteAsk.problem.outside":
+    "{agent} stopped because it asked for something outside this request. Try again.",
+  "noteAsk.problem.unreadable": "{agent} stopped before it finished. Try again.",
+  "noteAsk.problem.service":
+    "{agent} stopped before it finished. Check your sign-in and usage in {agent}.",
   "noteAsk.problem.read-only": "{agent} may only read. Let it propose changes?",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":

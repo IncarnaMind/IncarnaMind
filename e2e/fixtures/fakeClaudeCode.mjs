@@ -11,7 +11,8 @@
 // Citations; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
 // a new Note, proposes a change to the Note the mode file's ".other" file names, and makes a page.
 // The init event names the model `--model` asked for, as Claude Code's does, and an `initialize`
-// control request is answered with the models it offers (one only when the ".models" file says "one").
+// control request is answered with the models it offers, only in a run started with a run's flags
+// and environment: asked anywhere else, it answers with an error, so a spec sees no list.
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -79,14 +80,20 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   const message = JSON.parse(line);
   if (message.type === "control_request") {
     if (message.request?.subtype === "initialize") {
-      const one = readOr(`${modeFile}.models`, "") === "one";
+      const held =
+        ["--restricted", "--disable-slash-commands", "--strict-mcp-config"].every((flag) =>
+          args.includes(flag),
+        ) &&
+        args[args.indexOf("--permission-mode") + 1] === "dontAsk" &&
+        process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC === "1" &&
+        process.env.ENABLE_CLAUDEAI_MCP_SERVERS === "false" &&
+        process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS === "1" &&
+        process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === "1";
       say({
         type: "control_response",
-        response: {
-          subtype: "success",
-          request_id: message.request_id,
-          response: { models: one ? [MODELS[0]] : MODELS },
-        },
+        response: held
+          ? { subtype: "success", request_id: message.request_id, response: { models: MODELS } }
+          : { subtype: "error", request_id: message.request_id, error: "not a run's flags" },
       });
       return;
     }

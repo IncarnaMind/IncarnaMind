@@ -5,11 +5,15 @@ import { StopIcon } from "../icons";
 import { TypingTextarea } from "../TypingTextarea";
 import { NoteModelChoice } from "./NoteModelChoice";
 
-/** Whether the input had the focus, and where its caret was, when it last left its place. */
+/**
+ * Whether the input had the focus, and where its caret was, when it last left its place;
+ * `composed`: it left while the IME was composing, so its words went back to what they were before.
+ */
 export interface InputCarry {
   focused: boolean;
   start: number;
   end: number;
+  composed: boolean;
 }
 
 /**
@@ -51,6 +55,10 @@ export function NoteAskInput({
 }) {
   const t = useT();
   const input = useRef<HTMLTextAreaElement | null>(null);
+  const composing = useRef<{ words: string; at: number } | null>(null);
+  const caretAfter = useRef<number | null>(null);
+  const wordsTo = useRef(onWords);
+  wordsTo.current = onWords;
   useLayoutEffect(() => {
     const element = input.current;
     const was = carry.current;
@@ -58,16 +66,30 @@ export function NoteAskInput({
     if (element && was?.focused) {
       element.focus();
       element.setSelectionRange(was.start, was.end);
+      if (was.composed) caretAfter.current = was.start;
     }
     return () => {
       if (!element) return;
+      const open = composing.current;
       carry.current = {
         focused: document.activeElement === element,
-        start: element.selectionStart,
-        end: element.selectionEnd,
+        start: open ? open.at : element.selectionStart,
+        end: open ? open.at : element.selectionEnd,
+        composed: open !== null,
       };
+      // A composition the IME hasn't ended can't move with the box: its letters would stay as
+      // typed and the IME's end would add its characters after them. The words go back to what
+      // they were before it, and the IME's end writes into the input in its new place.
+      if (open) wordsTo.current(open.words);
     };
   }, [carry]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once the words went back, the caret goes to where the composition began.
+  useLayoutEffect(() => {
+    const at = caretAfter.current;
+    if (at === null || !input.current) return;
+    caretAfter.current = null;
+    input.current.setSelectionRange(at, at);
+  }, [words]);
   const placeholder = t("noteAsk.placeholder");
   return (
     <div data-testid="note-ask-box" data-mind-id={mindId} className="note-ask-box">
@@ -105,6 +127,13 @@ export function NoteAskInput({
           rows={1}
           value={words}
           onChange={(event) => onWords(event.target.value)}
+          onCompositionStart={(event) => {
+            const element = event.currentTarget;
+            composing.current = { words: element.value, at: element.selectionStart };
+          }}
+          onCompositionEnd={() => {
+            composing.current = null;
+          }}
           onKeyDown={onKeyDown}
           className="note-ask-input-text"
         />

@@ -524,6 +524,77 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     }
   });
 
+  const OFFERED = [
+    {
+      value: "default",
+      resolvedModel: "claude-sonnet-5-5",
+      displayName: "Default",
+      description: "",
+    },
+    { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku" },
+  ];
+  /** Claude Code answering the settings request, `initialize` with OFFERED, then the prompt. */
+  const listing = (plugin: boolean) => `
+    const lines = require("node:readline").createInterface({ input: process.stdin });
+    lines.on("line", (line) => {
+      const v = JSON.parse(line);
+      if (v.type === "control_request" && v.request.subtype === "initialize") {
+        console.log(JSON.stringify({ type: "control_response", response: { subtype: "success",
+          request_id: v.request_id, response: { models: ${JSON.stringify(OFFERED)} } } }));
+      } else if (v.type === "control_request") {
+        console.log(JSON.stringify({ type: "control_response", response: { subtype: "success",
+          request_id: v.request_id, response: { effective: { disableAllHooks: true },
+            sources: [{ source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }] } } }));
+      } else if (v.type === "user") {
+        console.log(${JSON.stringify(JSON.stringify(init(["mcp__incarnamind__read_mind"])))});
+        console.log(${JSON.stringify(JSON.stringify(done))});
+      }
+    });
+  `;
+  /** A request asking for the models, on Haiku: how it ended, and the models it heard. */
+  const listen = async () => {
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    const steps: unknown[] = [];
+    try {
+      const end = await createOwnAi({ conversations }).run({
+        client: "claude-code",
+        server: SERVER,
+        tools: "all",
+        permissionMode: "dontAsk",
+        instructions: INSTRUCTIONS,
+        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        conversation: { key: KEY, sessionId: SESSION, resume: false },
+        model: "haiku",
+        listModels: true,
+        progress: (step) => steps.push(step),
+        signal: new AbortController().signal,
+      });
+      return { end, models: steps.filter((step) => (step as { kind: string }).kind === "models") };
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
+    }
+  };
+
+  // protects=the models Claude Code offers are asked in the request's own process, before its prompt, with no second start; the chosen one goes as --model; fails_when=listing the models starts Claude Code apart from a run
+  it("asks for the models in the run's own process", async () => {
+    useClaude({ run: listing(false) });
+    const isolated = await listen();
+    expect(isolated.end).toEqual({ kind: "finished", reply: "Checked." });
+    expect(isolated.models).toEqual([
+      { kind: "models", models: OFFERED.map((each) => ({ description: "", ...each })) },
+    ]);
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["--model", "haiku"]));
+  });
+
+  // protects=a Claude Code whose settings fail the isolation check gives no list; fails_when=a list from a Claude Code with a managed plugin is used
+  it("hears no models from a run that isn't isolated", async () => {
+    useClaude({ run: listing(true) });
+    const managed = await listen();
+    expect(managed.end).toEqual({ kind: "failed", reason: "isolation" });
+    expect(managed.models).toEqual([]);
+  });
+
   // protects=deleting a Note's conversation asks Claude Code to purge the Note's folder and removes the folder; one with nothing to purge counts as done, and a purge that failed says so; fails_when=a failed purge reads as done and the transcript stays without a word
   it("purges the Note's folder, and says when it couldn't", async () => {
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));

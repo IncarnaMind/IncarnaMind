@@ -63,7 +63,9 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 - **The flags are ADR-0032's,** with these differences:
   - no `--no-session-persistence`;
   - `--session-id` on the first request and `--resume` after;
-  - `--allowedTools mcp__incarnamind`: every Tool of IncarnaMind's server, whose grant decides what the connection may do (decision 4).
+  - `--allowedTools mcp__incarnamind`: every Tool of IncarnaMind's server, whose grant decides what the connection may do (decision 4);
+  - `--model <value>` when the User chose a model in the box (#3677), and only a value from the list below; the core refuses any other before anything starts.
+- **The models, from the run itself** (#3677). Before the prompt goes, the run asks Claude Code which models it offers, in the same process: an `initialize` control request after the settings request, which Claude Code answers itself with no model call and nothing of the Note (Claude Code 2.1.331: answered in the run's own process, and the request that followed ran as before). The answer is heard only once the settings check has passed, so a Claude Code with a managed hook or plugin gives no list. IncarnaMind holds the list in memory until it quits and keeps none of it; nothing of Claude Code starts to look for it. The box shows the model choice once a request's run has given the list, and only while a request from that Note could run (a Claude Code connection that runs here, the consent given, not Local mode); until then it shows none, and the request runs on Claude Code's default.
 
   IncarnaMind's instructions are the same text for every request of a conversation, since Claude Code keeps the first.
 - **A conversation that can't be continued,** removed by Claude Code's own 30-day sweep or by the User, gives way to a new one, and the label says so once ("Started a new conversation: the earlier one was cleared").
@@ -168,7 +170,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 
   It stays until the next request or ✕.
 - **The conversation:**
-  - It is hidden; "Show conversation" (显示对话) at the Note's top right, beside its menu, or the line above the input, opens it above the input, in the Note's column, never higher than a third of the window, so the Note stays in view. Sending doesn't close it.
+  - It is hidden; "Show conversation" (显示对话) at the Note's top right, beside its menu, or the line above the input, opens it (#3677). It opens upward inside the input's box, over the Note's foot, at most 40% of the window tall, so the Note stays in view and nothing in it moves. One control moves it into a column at the Note's right, the tab group's full height, and back; the move keeps the conversation, a request still running, the words typed and the focus, and there is only ever one input. Under 1,100 px wide the column is a sheet over the Note. Sending doesn't close it.
   - It lists each request (the User's words, the selection's quote) and its reply as the AI wrote it, formatted, newest last, from IncarnaMind's record.
   - Esc or "Hide conversation" closes it. It never opens by itself.
 - **Explain, Improve writing, Shorten and Translate** in the selection toolbar fill the input with their request and send it. Explain's answer shows in the line, and changes nothing.
@@ -185,7 +187,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 - **What would cut it, if the measurement says so, in this order:**
   1. The request carries the selection's paragraph and the Note's version, so the model can propose without reading the Note first: one turn fewer.
   2. One process stays for a Note while its conversation is in use, taking each request on its input (`--input-format stream-json` takes one message after another), and stops after a few idle minutes. That saves the start and the server's connection each time, and keeps the prompt cache warm. It is still one process per conversation.
-  3. The model is the User's own default, which IncarnaMind doesn't choose.
+  3. The model: Claude Code's default, or the one the User chose in the box from Claude Code's own list (decision 3). IncarnaMind never chooses one.
 
 ### 9. The next step's door
 
@@ -195,7 +197,7 @@ The owner's next step gives the conversation the command line's own abilities, a
 
 ### 10. What we never do
 
-- Set `CLAUDE_CONFIG_DIR`, or read Claude Code's transcripts, settings or sign-in.
+- Set `CLAUDE_CONFIG_DIR`, or read Claude Code's transcripts, settings or sign-in. The settings check before the prompt (ADR-0032) reads only hooks and plugins, and the `initialize` answer (decision 3) only its models; the rest of it, the account it names among it, is left unread.
 - Run two processes on one conversation.
 - Start a run without the User's request.
 - Give the run a tool of the command line's own, a file by its path, or the web.

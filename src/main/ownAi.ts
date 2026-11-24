@@ -14,7 +14,7 @@ import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { findOnPath, object, older, StalledError, short } from "./agentCommand";
 import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
-import { modelsOf } from "./ownAiModels";
+import { modelsIn } from "./ownAiModels";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
 export const LOWEST_CLAUDE_CODE = "2.1.248";
@@ -164,8 +164,6 @@ export function createOwnAi({
       return purged.code === 0 || (purged.code === 1 && NOTHING_TO_PURGE.test(purged.out));
     },
 
-    models: () => (command === null ? Promise.resolve([]) : modelsOf(command)),
-
     async status(client): Promise<OwnAiStatus> {
       if (client === "codex") {
         const path = await codex();
@@ -275,6 +273,10 @@ export function createOwnAi({
           }),
           permissionMode: request.permissionMode,
           ...(request.model && { model: request.model }),
+          ...(request.listModels && {
+            onModels: (answer: Record<string, unknown>) =>
+              request.progress?.({ kind: "models", models: modelsIn(answer) }),
+          }),
           partial: true,
           stallMs,
           busy: () => running.size > 0 || compacting !== null,

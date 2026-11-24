@@ -13349,7 +13349,7 @@ export interface NoteRequestInput {
   caret?: string;
   /** The agent to ask; absent: the first that can run in the background. */
   pairingId?: string;
-  /** One of the values `noteModels` gave; absent: the agent's own default. */
+  /** One of the values `noteModels` gave, or the request is refused; absent: the agent's own default. */
   model?: string;
 }
 
@@ -13399,6 +13399,18 @@ export interface NoteTurn {
   problem: NoteTurnProblem | null;
   /** ISO 8601, UTC. */
   at: string;
+  /**
+   * The reply's Citations IncarnaMind gave this connection, each by its token; a `[cite:…]` in the
+   * reply that isn't here is not one of them, and is not shown as a Citation.
+   */
+  citations: NoteCitation[];
+}
+
+/** A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document and its quote. */
+export interface NoteCitation {
+  token: string;
+  documentName: string;
+  quote: string;
 }
 
 /**
@@ -16121,8 +16133,12 @@ export interface CoreApi {
   stopInNote(mindId: string): Promise<void>;
   /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
   noteConversation(mindId: string): Promise<NoteTurn[]>;
-  /** The models the User's own command-line AI offers, as it lists them (#3677); [] when it can't say. */
-  noteModels(): Promise<NoteModel[]>;
+  /**
+   * The models the User's own command-line AI offers for a request from this Note (#3677), as a
+   * request's run heard them before its prompt went: looking starts nothing. [] until a request
+   * has run since IncarnaMind started, and while none from this Note could run.
+   */
+  noteModels(mindId: string): Promise<NoteModel[]>;
   /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.

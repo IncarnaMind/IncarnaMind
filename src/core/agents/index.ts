@@ -43,6 +43,7 @@ import {
   type Effect,
   type ExternalService,
   NOT_IN_A_FOLDER_ID,
+  type NoteCitation,
 } from "../api";
 import type { Consent } from "../consent";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
@@ -1168,6 +1169,12 @@ export function createAgents(options: AgentsOptions) {
         front,
         ...hears,
       });
+    },
+
+    /** The Citation IncarnaMind gave this connection under `token`, or null for any other. */
+    citationOf(pairingId: string, token: string): NoteCitation | null {
+      const kept = citations.find(pairingId, token);
+      return kept ? { token, documentName: kept.documentName, quote: kept.quote } : null;
     },
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */

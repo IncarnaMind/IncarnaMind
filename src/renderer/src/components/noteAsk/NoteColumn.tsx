@@ -11,6 +11,7 @@ import {
   useNoteAsks,
   useNoteColumns,
   useNoteTrails,
+  withoutCitations,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
@@ -49,8 +50,8 @@ const DID: Partial<Record<string, MessageKey>> = {
   update_canvas: "noteAsk.did.publish_canvas",
 };
 
-/** The Tools whose steps make or change something the User may open: a Note, or a page. */
-const MAKES = new Set(["create_mind", "propose_changes", "publish_canvas", "update_canvas"]);
+/** The Tools whose steps make or change a Note the User may open. */
+const MAKES = new Set(["create_mind", "propose_changes"]);
 
 /** The Documents a run read, each once: how many, and how many only in part. */
 function readsOf(steps: readonly NoteStep[]) {
@@ -270,7 +271,6 @@ function Turn({
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
-  const cites = /\[cite:[a-z0-9]{1,32}\]/.test(turn.reply);
   return (
     <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
@@ -286,7 +286,7 @@ function Turn({
       )}
       {state === "failed" && turn.problem && (
         <p className="note-column-interrupted">
-          {t(`noteAsk.problem.${turn.problem}` as MessageKey, { agent, found: "", lowest: "" })}
+          {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
         </p>
       )}
       {state === "landed" && trail && (
@@ -336,15 +336,21 @@ function Turn({
       )}
       {state === "landed" && turn.reply !== "" && (
         <div data-testid="note-column-reply" className="note-column-reply">
-          <Reply text={turn.reply} />
+          <Reply text={turn.reply} citations={turn.citations} />
           <div className="note-column-reply-foot">
-            {cites && (
-              <button type="button" data-testid="note-column-put" className="note-column-put">
-                {t("noteColumn.putInNote")}
-              </button>
-            )}
             <span className="note-column-reply-meta">
-              <button type="button" className="note-column-icon" title={t("noteColumn.copy")}>
+              <button
+                type="button"
+                data-testid="note-column-copy"
+                aria-label={t("noteColumn.copy")}
+                title={t("noteColumn.copy")}
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(withoutCitations(turn.reply))
+                    .catch(useAppStore.getState().reportError)
+                }
+                className="note-column-icon"
+              >
                 <CopyLineIcon className="size-3.5" />
               </button>
               {trail?.model && <span>{shortModel(trail.model)}</span>}
@@ -357,10 +363,9 @@ function Turn({
   );
 }
 
-const madeKind = (step: NoteStep): "note" | "changed" | "page" | null => {
+const madeKind = (step: NoteStep): "note" | "changed" | null => {
   if (step.kind !== "call" || !MAKES.has(step.tool) || step.done === false) return null;
   if (step.tool === "create_mind") return "note";
-  if (step.tool === "publish_canvas" || step.tool === "update_canvas") return "page";
   if (step.tool === "propose_changes" && step.mindId && step.waiting) return "changed";
   return null;
 };
@@ -376,11 +381,9 @@ function MadeCard({ step }: { step: NoteStep }) {
   const what =
     kind === "note"
       ? t("noteColumn.made.note")
-      : kind === "page"
-        ? t("noteColumn.made.page")
-        : t(step.waiting === 1 ? "noteColumn.made.waiting.one" : "noteColumn.made.waiting.other", {
-            count: step.waiting ?? 0,
-          });
+      : t(step.waiting === 1 ? "noteColumn.made.waiting.one" : "noteColumn.made.waiting.other", {
+          count: step.waiting ?? 0,
+        });
   return (
     <button
       type="button"

@@ -166,7 +166,7 @@ const checkedText = (
   ],
 });
 
-test("a Note with a sentence a check cannot settle says so in the pill, in full and at a narrow pane (#2313)", async () => {
+test("a checked Note with a sentence a check cannot settle rests on that sentence's own mark and count, never the ✓, and says it in full in its name, in a narrow pane too (#2313, #3677)", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
@@ -200,8 +200,11 @@ test("a Note with a sentence a check cannot settle says so in the pill, in full 
   );
   const badge = window.getByTestId("check-badge");
   await expect(badge).toHaveAttribute("data-state", "checked");
-  // At rest it is its mark and its count; its words, the caveat with them, are its name (#3677).
-  await expect(badge.locator(".check-badge-quiet")).toHaveText(/^\d+$/);
+  // At rest it is the unsettled sentence's own mark and its count, not the ✓; its words, the
+  // caveat with them, are its name (#3677).
+  const left = badge.locator('.check-badge-quiet [data-part="not-checked"]');
+  await expect(left).toHaveText("1");
+  await expect(badge.locator('.check-badge-mark[data-part="checked"]')).toBeHidden();
   await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
     /^Checks: Checked .*1 sentence can’t be checked/,
   );
@@ -214,7 +217,7 @@ test("a Note with a sentence a check cannot settle says so in the pill, in full 
   }
   // At a narrow pane it is the same: the mark and the count, the caveat in its name.
   const narrow = window.getByTestId("check-badge").first();
-  await expect(narrow.locator(".check-badge-quiet")).toBeVisible();
+  await expect(narrow.locator('.check-badge-quiet [data-part="not-checked"]')).toHaveText("1");
   await expect(narrow.locator(".check-badge-words")).toBeHidden();
   await expect(narrow.getByTestId("check-badge-open")).toHaveAccessibleName(
     /1 sentence can’t be checked/,
