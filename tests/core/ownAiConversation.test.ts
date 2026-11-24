@@ -651,6 +651,128 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=a change that applies at once in the Note asked from reads, in the same run, as in the Note: in the result and in a later read, with the Note's names and version; a second change to that paragraph is refused as the agent's own, never as one for the User to accept; a change that waits, here or in another Note, and an outside agent's, read as waiting; fails_when=the agent is shown the Note as if its change hadn't landed, and may write it again
+  it("reads the Note with this request's own change in, and never as if it hadn't landed", async () => {
+    const seen: Record<string, unknown> = {};
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = structured<{ markdown: string; version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const done = structured<{ status: string; markdown: string; version: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [
+              { paragraph: "¶2", text: "Fares rose by a tenth." },
+              { paragraph: "¶2+", text: "The council meets the ferry company in January." },
+            ],
+          },
+        }),
+      );
+      seen.result = done;
+      seen.again = structured<{ markdown: string; version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      seen.twice = refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: (seen.again as { version: string }).version,
+            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Shortened the fares." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "shorten the fares and add the January meeting" });
+    const end = await ended();
+    const yours = translate("en", "agents.mind.yours");
+    const result = seen.result as { status: string; markdown: string; version: string };
+    const again = seen.again as { markdown: string; version: string };
+    expect(result.status).toBe("applied");
+    // The result and a later read show the change in, marked as this request's own: not waiting.
+    for (const markdown of [result.markdown, again.markdown]) {
+      expect(markdown).toContain(`¶2 ${yours} Fares rose by a tenth.`);
+      expect(markdown).toContain(`${yours} The council meets the ferry company in January.`);
+      expect(markdown).not.toContain(translate("en", "agents.mind.waiting"));
+      expect(markdown).not.toContain(FARES);
+    }
+    // Its names and version are the Note's, so a next change is placed as it reads.
+    expect(again.version).toBe(result.version);
+    expect(seen.twice).toBe(translate("en", "agents.problem.yours", { paragraph: "¶2" }));
+    expect(seen.twice).not.toContain("Accept or reject");
+    // The window that asked puts it in once the request ends: once, the paragraph added once.
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      FERRY,
+      "Fares rose by a tenth.",
+      "The council meets the ferry company in January.",
+    ]);
+  });
+
+  // protects=a change that waits reads as waiting, to the run that made it and to an outside agent over the connection, as before; fails_when=a waiting change reads as in the Note
+  it("reads a change that waits as waiting, here, in another Note and to an outside agent", async () => {
+    const results: { status: string; markdown: string }[] = [];
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      results.push(
+        structured(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId,
+              version: read.version,
+              changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+            },
+          }),
+        ),
+      );
+      return { kind: "finished", reply: "" };
+    });
+    const { core, mindId, claude, ended, selectionOf, otherId } = await written(run.adapter);
+    // Beyond the words selected: it waits.
+    await core.askInNote({
+      mindId,
+      words: "fix the fares",
+      selection: selectionOf(0, "212,000 passengers"),
+    });
+    await ended();
+    const waiting = translate("en", "agents.mind.waiting");
+    expect(results[0]?.status).toBe("waiting");
+    expect(results[0]?.markdown).toContain(`¶2 ${waiting}`);
+    expect(results[0]?.markdown).not.toContain(translate("en", "agents.mind.yours"));
+    // An outside agent over the connection, in the other Note: it waits, as before.
+    const agent = await connectLegacyAgent(claude.launch);
+    const read = structured<{ version: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: otherId, named: true } }),
+    );
+    const outside = structured<{ status: string; markdown: string }>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: otherId,
+          version: read.version,
+          changes: [{ paragraph: "¶1", text: "Fares rose by a tenth." }],
+        },
+      }),
+    );
+    expect(outside.status).toBe("waiting");
+    expect(outside.markdown).toContain(`¶1 ${waiting}`);
+  });
+
   // protects=one conversation per Note: the first request starts it under an id IncarnaMind makes, every later one continues it in the same working folder; a conversation the agent no longer has starts anew once, and says so; fails_when=a follow-up starts a new conversation, or a cleared one fails the request
   it("continues the Note's conversation, and starts a new one once when it is gone", async () => {
     let lose = false;

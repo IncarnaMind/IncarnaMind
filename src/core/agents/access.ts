@@ -131,6 +131,7 @@ import {
   type CitedToken,
   HANDLE,
   HeldParagraph,
+  heldByOwn,
   type NamedChange,
   type NamedNote,
   type NamedOptions,
@@ -1426,6 +1427,11 @@ export function createAgentAccess(
   grant?: RunGrant,
 ): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  /**
+   * The requests of this run whose changes the window that asked applies once the request ends
+   * (ADR-0034): the Note reads with them in, so the agent never sees its change as not landed.
+   */
+  const ownPending = new Set<string>();
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
   let askedFromIncarnaMind = false;
   const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
@@ -2102,8 +2108,31 @@ export function createAgentAccess(
    * How a Note is named for an agent: its title as ¶0, and in a Note the agent wrote, what the
    * User wrote there marked as theirs (#3371).
    */
+  /**
+   * As `proposeNamed`; a paragraph held by this run's own change is the agent's, in the Note once
+   * the request ends, not one for the User to accept or reject first.
+   */
+  const proposeYours: typeof proposeNamed = (blocks, ...rest) => {
+    try {
+      return proposeNamed(blocks, ...rest);
+    } catch (error) {
+      if (
+        error instanceof HeldParagraph &&
+        error.held === "waiting" &&
+        heldByOwn(blocks, error.paragraph.blockId, ownPending)
+      ) {
+        throw new AgentRefusedError(
+          "waiting",
+          t("agents.problem.yours", { paragraph: error.paragraph.name }),
+        );
+      }
+      throw error;
+    }
+  };
+
   const namingOf = (own: boolean): NamedOptions => ({
     title: true,
+    ownPending,
     ...(own && {
       users: { wrote: t("agents.mind.usersWrote"), changed: t("agents.mind.usersChanged") },
     }),
@@ -2127,6 +2156,7 @@ export function createAgentAccess(
     },
     waiting: t("agents.mind.waiting"),
     busy: t("agents.mind.busy"),
+    yours: t("agents.mind.yours"),
     untitledTab: (number: number) => t("noteTabs.defaultTitle", { n: number }),
   });
 
@@ -3157,7 +3187,7 @@ export function createAgentAccess(
           askedHere =
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
-          const proposed = proposeNamed(blocks, note, placed, {
+          const proposed = proposeYours(blocks, note, placed, {
             request,
             made: {
               source: "outside-agent",
@@ -3174,6 +3204,7 @@ export function createAgentAccess(
           });
           const kinds = changeKinds(blocks, mine);
           if (own) decideProposals(blocks, mine, "accept");
+          if (askedHere) ownPending.add(request);
           const now = namedNote(blocks, namedWords(pairing, inScope, []), naming);
           return { ...proposed, kinds, now, waitingInNote: waitingChanges(blocks) };
         };

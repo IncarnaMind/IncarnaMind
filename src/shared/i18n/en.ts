@@ -8727,6 +8727,8 @@ export const en = {
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
     "This note changed after the agent read it. Read it again, then propose the changes again.",
+  "agents.problem.yours":
+    "{paragraph} already has your change from this request, which is in the note once the request ends. Change another paragraph, or say what else to change in your reply.",
   "agents.problem.waiting":
     "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
   "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
@@ -8848,6 +8850,9 @@ export const en = {
   "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
+  // A paragraph this run changed or added from the box at the Note's foot, which the window that
+  // asked puts in once the request ends (ADR-0034).
+  "agents.mind.yours": "(your change from this request, in the note once the request ends)",
   "agents.mind.busy": "(being written)",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",

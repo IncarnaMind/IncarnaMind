@@ -8224,6 +8224,8 @@ export const zhCN = {
   "agents.problem.read-only":
     "这个智能体只能读取。要让它新建笔记、对笔记提出修改，在“设置 → AI”中允许。",
   "agents.problem.changed": "智能体读取后，这篇笔记有了改动。重新读取，再提出修改。",
+  "agents.problem.yours":
+    "{paragraph} 已有你在本次请求中的修改，请求结束后即写入笔记。请修改其他段落，或在回复中说明还要改什么。",
   "agents.problem.waiting": "{paragraph} 已有修订待处理。先在 IncarnaMind 中接受或拒绝。",
   "agents.problem.busy": "IncarnaMind 正在写入 {paragraph}。写完后再试。",
   "agents.problem.changedByYou":
@@ -8322,6 +8324,7 @@ export const zhCN = {
   "agents.chart.refused.noNumbers": "表格中没有数字列：每个单元格只放一个数字及其引用标记",
   "agents.chart.refused.needsTwo": "散点图需要两列数字",
   "agents.mind.waiting": "（修订待处理）",
+  "agents.mind.yours": "（你在本次请求中的修改，请求结束后即写入笔记）",
   "agents.mind.busy": "（正在写入）",
   "agents.mind.usersWrote": "（用户写的）",
   "agents.mind.usersChanged": "（用户改过）",

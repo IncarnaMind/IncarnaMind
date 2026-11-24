@@ -118,6 +118,8 @@ export interface NamedWords {
   /** Before the words of a paragraph with changes waiting, and of one being written. */
   waiting: string;
   busy: string;
+  /** Before the words of a paragraph this run changed or added, in once its request ends. */
+  yours?: string;
   /**
    * The title a tab of the Note (#3414) shows when it has none of its own, by its number from 1.
    * Absent: tabs aren't read.
@@ -137,6 +139,13 @@ export interface NamedOptions {
    * is made with from its name carries no mark, whoever named it.
    */
   users?: { wrote: string; changed: string };
+  /**
+   * The requests of this run whose changes apply in the Note once the request ends, as the window
+   * that asked applies them (ADR-0034): read with their words in, so the agent sees the Note as
+   * it will be, never as if its change hadn't landed. The paragraphs' names and the version stay
+   * those of the Note as it is, which the next change is placed against.
+   */
+  ownPending?: ReadonlySet<string>;
 }
 
 /**
@@ -198,10 +207,16 @@ const HOLDING = /[\uE000\uE001]/g;
 
 /** A Block an unaccepted Proposal adds, or one inside it: not in the Note yet. */
 function addedByProposal(element: Y.XmlElement): boolean {
+  return addingRequest(element) !== null;
+}
+
+/** The request of the Proposal that adds this element, itself or a Block it is inside. */
+function addingRequest(element: Y.XmlElement): string | null {
   for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
-    if (readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "insert") return true;
+    const proposal = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal?.kind === "insert") return proposal.request;
   }
-  return false;
+  return null;
 }
 
 const sizeOf = (element: Y.XmlElement) =>
@@ -212,6 +227,55 @@ const wholeOf = (element: Y.XmlElement, blockId: string) =>
     from: { blockId, offset: 0 },
     to: { blockId, offset: sizeOf(element) },
   }) as const;
+
+/** The requests of the changes waiting in an element, its own attribute's and its text's. */
+function pendingIn(element: Y.XmlElement): Set<string> {
+  const requests = new Set<string>();
+  const own = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+  if (own) requests.add(own.request);
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
+      for (const mark of [PROPOSAL_INSERT_MARK, PROPOSAL_DELETE_MARK] as const) {
+        const ref = readProposalRef(markValueOf(mark, run.attributes));
+        if (ref) requests.add(ref.request);
+      }
+    }
+  }
+  return requests;
+}
+
+/** Whether every change waiting in an element is one of `own`, and there is at least one. */
+function onlyOwn(element: Y.XmlElement, own: ReadonlySet<string> | undefined): boolean {
+  if (!own || own.size === 0) return false;
+  const requests = pendingIn(element);
+  return requests.size > 0 && [...requests].every((request) => own.has(request));
+}
+
+/** Whether the Block `blockId` holds changes waiting that are all this run's own (`own`). */
+export function heldByOwn(
+  blocks: Y.XmlFragment,
+  blockId: string,
+  own: ReadonlySet<string>,
+): boolean {
+  for (const { element } of namedBlocks(blocks)) {
+    if (element.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId) return onlyOwn(element, own);
+  }
+  return false;
+}
+
+/** A paragraph's words once its changes are in: what they add kept, what they remove left out. */
+function changedWords(element: Y.XmlElement): string {
+  let text = "";
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlText)) continue;
+    for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
+      if (typeof run.insert === "string" && !hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes))
+        text += run.insert;
+    }
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
 
 /** A held paragraph's words as the Note holds them: what its changes would add left out. */
 function heldWords(element: Y.XmlElement): string {
@@ -277,6 +341,10 @@ export function namedNote(
   const paragraphs: NamedParagraph[] = [];
   const tops = new Map(blocks.toArray().map((block, index) => [block, index]));
   const places: number[] = [];
+  // How this run's own changes read, by paragraph, and the paragraphs it added, unnamed.
+  const asChanged = new Map<number, string>();
+  const added: { at: number; text: string }[] = [];
+  const own = words.yours ? options.ownPending : undefined;
   const seen = new Set<string>();
   let titled = false;
   const first = blocks.get(0);
@@ -285,7 +353,12 @@ export function namedNote(
     const blockId = element.getAttribute(BLOCK_ID_ATTRIBUTE);
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
     seen.add(blockId);
-    if (addedByProposal(element)) continue;
+    const adding = addingRequest(element);
+    if (adding !== null) {
+      const text = own?.has(adding) && visual === null ? changedWords(element) : "";
+      if (text !== "") added.push({ at: topOf(element, tops), text: `${words.yours} ${text}` });
+      continue;
+    }
     if (visual !== null) {
       const waits = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE)) !== null;
       paragraphs.push({
@@ -304,7 +377,8 @@ export function namedNote(
     const read = readSelection(blocks, from, to);
     const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
     const text = read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element));
-    if (text.trim() === "") continue;
+    const changed = held === "waiting" && onlyOwn(element, own) ? changedWords(element) : null;
+    if (text.trim() === "" && !changed) continue;
     const title =
       options.title === true &&
       paragraphs.length === 0 &&
@@ -319,6 +393,10 @@ export function namedNote(
       users: options.users && !title ? usersWordsIn(element) : null,
     });
     places.push(topOf(element, tops));
+    if (changed !== null) {
+      const name = paragraphs.at(-1)?.name ?? "";
+      asChanged.set(paragraphs.length - 1, `${name} ${words.yours} ${escapeNames(changed)}`);
+    }
   }
   const line = (paragraph: NamedParagraph) =>
     [
@@ -339,8 +417,9 @@ export function namedNote(
   );
   const shown: { at: number; text: string }[] = paragraphs.map((paragraph, index) => ({
     at: places[index] ?? 0,
-    text: line(paragraph),
+    text: asChanged.get(index) ?? line(paragraph),
   }));
+  shown.push(...added);
   if (words.untitledTab) shown.push(...tabLines(blocks, words.untitledTab));
   const text = shown
     .sort((a, b) => a.at - b.at)
