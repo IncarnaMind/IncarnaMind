@@ -4,8 +4,9 @@
  * 1440 px, in English and Chinese, with the conversation closed and open as a column, and
  * pressing it opens the checks. Each card is opened where, hanging from its anchor, it would reach
  * the badge's row. At 900 px the open conversation is a sheet over the Note's right, under its own
- * controls: the badge opens the checks, and Show conversation closes the sheet. Test data only:
- * Kestrel Bay.
+ * controls: the badge opens the checks, and Show conversation closes the sheet. Every press lands
+ * where its target stands: with a Citation on every line, a pointer sliding across the Note rests
+ * on some on the way, and the card one opens would take the press. Test data only: Kestrel Bay.
  */
 import { randomUUID } from "node:crypto";
 import { chmod, realpath, writeFile } from "node:fs/promises";
@@ -22,7 +23,6 @@ import {
   mindNode,
   motionSettled,
   newMind,
-  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -42,8 +42,8 @@ const citation = () =>
     documentId: "document-ferry",
     documentName: "Kestrel Bay ferry survey",
     contentHash: "hash-ferry",
-    pageFrom: "1",
-    pageTo: "1",
+    pageFrom: 1,
+    pageTo: 1,
     quote: "The early crossing ran late on 41 of 60 weekdays.",
     check: "found",
   });
@@ -163,12 +163,24 @@ function roomBottom(group: Locator): Promise<number> {
   });
 }
 
-/** Opens `card` from `anchor`, pressed again when the first press opened nothing, as a person does. */
-async function openFrom(window: Page, anchor: Locator, card: Locator): Promise<void> {
+/**
+ * Opens `card` from `anchor`, again when the first try opened nothing. A Citation's card comes with
+ * the pointer resting on it, as a person reads one: pressed, a Citation in a wide window opens
+ * what it cites beside the Note.
+ */
+async function openFrom(window: Page, anchor: Locator, cardId: string): Promise<void> {
+  const card = window.getByTestId(cardId);
   await expect(async () => {
-    if (!(await card.isVisible())) await pointAndClick(window, anchor);
-    await expect(card).toBeVisible({ timeout: 1000 });
-  }).toPass();
+    if ((await card.count()) === 0) {
+      if (cardId === "citation-card") {
+        await window.mouse.move(0, 0);
+        await anchor.hover();
+      } else {
+        await anchor.click();
+      }
+    }
+    await expect(card).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 20_000 });
 }
 
 /**
@@ -179,14 +191,15 @@ async function openNear(
   window: Page,
   group: Locator,
   anchor: Locator,
-  card: Locator,
+  cardId: string,
   badge: Box,
 ): Promise<void> {
+  const card = window.getByTestId(cardId);
   const scroller = group.getByTestId("mind-scroller");
   const bottom = await roomBottom(group);
   const below = badge.y + badge.height;
   await scrollTo(scroller, anchor, Math.min(below + 140, bottom - 60));
-  await openFrom(window, anchor, card);
+  await openFrom(window, anchor, cardId);
   const { height } = await boxOf(card);
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
@@ -199,7 +212,7 @@ async function openNear(
     });
   }
   await scrollTo(scroller, anchor, at);
-  await openFrom(window, anchor, card);
+  await openFrom(window, anchor, cardId);
   await motionSettled(window);
 }
 
@@ -216,7 +229,7 @@ async function pressable(window: Page, badge: Locator, card: Locator | null): Pr
       return top !== null && element.contains(top);
     }),
   ).toBe(true);
-  await pointAndClick(window, badge);
+  await badge.click();
   const checks = window.getByTestId("check-card");
   await expect(checks).toBeVisible();
   await window.keyboard.press("Escape");
@@ -232,11 +245,11 @@ async function setColumn(window: Page, group: Locator, open: boolean): Promise<v
   const toggle = group.getByTestId("note-ask-conversation-toggle");
   const column = window.getByTestId("note-column");
   if ((await toggle.getAttribute("aria-expanded")) !== String(open)) {
-    await pointAndClick(window, toggle);
+    await toggle.click();
   }
   await expect(toggle).toHaveAttribute("aria-expanded", String(open));
   if (open && (await column.count()) === 0) {
-    await pointAndClick(window, group.getByTestId("conversation-move-right"));
+    await group.getByTestId("conversation-move-right").click();
   }
   await expect(column).toHaveCount(open ? 1 : 0);
   await motionSettled(window);
@@ -247,7 +260,7 @@ async function asked(window: Page, language: "en" | "zh-CN"): Promise<void> {
   const input = window
     .locator('[data-testid="tab-group"][data-focused]')
     .getByTestId("note-ask-input");
-  await pointAndClick(window, input);
+  await input.click();
   await window.keyboard.type(
     language === "en" ? "Why is the early ferry late?" : "早班渡轮为什么晚点？",
   );
@@ -305,7 +318,7 @@ async function cardsNearTheBadge(
         const anchor = await anchorNear(anchors, badgeBox, 100);
         const card = window.getByTestId(cardId);
         await test.step(`${kind}'s card, ${place}`, () =>
-          openNear(window, group, anchor, card, badgeBox));
+          openNear(window, group, anchor, cardId, badgeBox));
         if (kind === "Citation" && width === 900 && !column) {
           await still(window, `citation-card-near-badge-${language}-900`);
         }
@@ -319,7 +332,7 @@ async function cardsNearTheBadge(
       await window.mouse.dblclick(word.x - 24, word.y + word.height / 2);
       const selectionMenu = window.getByTestId("selection-menu");
       await expect(selectionMenu, `selection menu, ${place}`).toBeVisible();
-      await pointAndClick(window, selectionMenu.getByTestId("format-aa"));
+      await selectionMenu.getByTestId("format-aa").click();
       const format = window.getByTestId("format-menu");
       await expect(format, `format menu, ${place}`).toBeVisible();
       await pressable(window, badge, format);
@@ -333,7 +346,7 @@ async function cardsNearTheBadge(
       if (width === 900 && !column) {
         const under = await anchorNear(chips, badgeBox, 0, true);
         const card = window.getByTestId("citation-card");
-        await openNear(window, group, under, card, badgeBox);
+        await openNear(window, group, under, "citation-card", badgeBox);
         await still(window, `citation-card-under-badge-${language}-900`);
         const [anchorBox, cardBox] = [await boxOf(under), await boxOf(card)];
         test.info().annotations.push({
@@ -345,7 +358,7 @@ async function cardsNearTheBadge(
 
       if (column) {
         const toggle = group.getByTestId("note-ask-conversation-toggle");
-        await pointAndClick(window, toggle);
+        await toggle.click();
         await expect(toggle).toHaveAttribute("aria-expanded", "false");
         await expect(window.getByTestId("note-column")).toHaveCount(0);
       }
