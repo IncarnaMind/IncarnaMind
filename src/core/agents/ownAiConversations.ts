@@ -61,6 +61,10 @@ const PROBLEM_OF: Record<Exclude<OwnAiFailure, "lost-conversation">, NoteTurnPro
   isolation: "isolation",
   stalled: "stalled",
   compaction: "compaction",
+  unsupported: "failed",
+  outside: "outside",
+  unreadable: "unreadable",
+  service: "service",
   other: "failed",
 };
 
@@ -321,7 +325,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     // Nothing of the User's agent is started, its `--version` included, before the consent.
     if (!(await options.consented(pairing))) return { kind: "link" };
     const status = await runner.status("claude-code");
-    if (status.kind === "missing") return { kind: "link" };
+    if (status.kind === "missing" || status.kind === "unsupported") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
     if (status.kind === "unknown") return { kind: "problem", pairing, problem: "no-answer" };
     if (status.kind === "too-old") {

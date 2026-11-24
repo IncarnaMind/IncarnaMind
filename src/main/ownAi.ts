@@ -1,27 +1,19 @@
 /**
- * The User's own command-line AI, run once for a check they pressed (ADR-0032): Claude Code, the
- * `claude` the login shell finds, signed in as the User set it up. IncarnaMind reads only the
- * version `--version` prints and the exit code of `auth status`, never the agent's settings or
- * sign-in, and only once the User's consent is given. A run gets
- * IncarnaMind's server with a grant, in a settings file only the User's account can read, inside
- * a folder of its own that goes when the run ends; nothing of the run is kept.
+ * The User's own command-line AI, run once for a job they pressed (ADR-0032): Claude Code, the
+ * `claude` the login shell finds, or Codex (./codex), signed in as the User set them up.
+ * IncarnaMind reads only the version `--version` prints and the exit code of their sign-in status
+ * (and of Codex, the model catalog and the tool list it prints for a folder of the run's own), never
+ * the agent's settings or sign-in, and only once the User's consent is given. A run gets
+ * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
+ * when the run ends; nothing of the run is kept.
  */
-import { constants } from "node:fs";
-import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
-import { stopProcessTree } from "../core/execution";
-import {
-  ClaudeCodeIsolationError,
-  ClaudeCodeStalledError,
-  drained,
-  object,
-  runClaudeCodeTurn,
-} from "./claudeCode";
-import { createLoginShellProcesses } from "./processes";
-
-const processes = createLoginShellProcesses();
+import { findOnPath, object, older, StalledError, short } from "./agentCommand";
+import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
+import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
 export const LOWEST_CLAUDE_CODE = "2.1.248";
@@ -30,7 +22,6 @@ const RUN_MS = 15 * 60_000;
 const MAX_RUN_BYTES = 8 * 1024 * 1024;
 /** As much of the agent's last reply as the Note's label and its conversation show. */
 const MAX_REPLY_CHARS = 4000;
-const STATUS_MS = 15_000;
 /**
  * How long a run may send nothing before it is stopped as stalled. While it works it sends a tick
  * about every second as it thinks, and its words and Tool inputs as it writes them; time it waits
@@ -78,89 +69,25 @@ class StrayRunError extends Error {
   }
 }
 
-const older = (found: string, lowest: string) => {
-  const [a, b] = [found, lowest].map((each) => each.split(".").map(Number));
-  for (let at = 0; at < 3; at++) {
-    const one = a?.[at] ?? 0;
-    const two = b?.[at] ?? 0;
-    if (one !== two) return one < two;
-  }
-  return false;
-};
-
-type Short =
-  | { kind: "exited"; code: number | null; out: string }
-  /** The command isn't there. */
-  | { kind: "absent" }
-  /** It couldn't be started for another reason, or took too long: it says nothing. */
-  | { kind: "no-answer" };
-
-/** A short command's exit code and what it printed. */
-async function short(command: string, args: string[]): Promise<Short> {
-  let child: Awaited<ReturnType<typeof processes.spawn>>;
-  try {
-    child = await processes.spawn(command, args, { processGroup: true });
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : undefined;
-    if (code !== "ENOENT") console.warn(`Could not start ${command} ${args.join(" ")} (${code}).`);
-    return code === "ENOENT" ? { kind: "absent" } : { kind: "no-answer" };
-  }
-  let out = "";
-  for (const stream of [child.stdout, child.stderr]) {
-    stream?.on("data", (chunk: Buffer) => {
-      if (out.length < 4096) out += chunk.toString("utf8");
-    });
-  }
-  const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
-  let timer: NodeJS.Timeout | undefined;
-  const deadline = new Promise<"late">((resolve) => {
-    timer = setTimeout(() => resolve("late"), STATUS_MS);
-  });
-  const code = await Promise.race([closed, deadline]);
-  clearTimeout(timer);
-  if (code !== "late") return { kind: "exited", code, out };
-  stopProcessTree(child);
-  await drained(child, closed);
-  return { kind: "no-answer" };
-}
-
-/** A file the User's account may run. */
-const runnable = async (path: string) =>
-  (await stat(path).catch(() => null))?.isFile() === true &&
-  (await access(path, constants.X_OK).then(
-    () => true,
-    () => false,
-  ));
-
-/** Whether the login shell's PATH holds `command`, as a terminal would find it, looked up without starting it. */
-async function onPath(command: string): Promise<boolean> {
-  if (isAbsolute(command)) return runnable(command);
-  const environment = await processes.environment();
-  const value = (name: string) =>
-    Object.entries(environment).find(([key]) => key.toUpperCase() === name)?.[1] ?? "";
-  const names =
-    process.platform === "win32"
-      ? (value("PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").map((ext) => `${command}${ext}`)
-      : [command];
-  for (const folder of value("PATH").split(delimiter).filter(Boolean)) {
-    for (const name of names) if (await runnable(join(folder, name))) return true;
-  }
-  return false;
-}
-
 /**
- * `conversations`: the folder of IncarnaMind's own that holds each kept conversation's working
- * folder, one per conversation, so Claude Code files its transcript under that folder's name and
- * `claude purge` deletes it alone (ADR-0034).
+ * `command`, `codexCommand`: Claude Code's and Codex's, or null where this copy runs none (a test
+ * build with a stand-in for only one). `conversations`: the folder of IncarnaMind's own that holds
+ * each kept conversation's working folder, one per conversation, so Claude Code files its
+ * transcript under that folder's name and `claude purge` deletes it alone (ADR-0034).
  */
 export function createOwnAi({
   command = "claude",
+  codexCommand = "codex",
   conversations,
+  runMs = RUN_MS,
   stallMs = STALL_MS,
   compactMs = COMPACT_MS,
 }: {
-  command?: string;
+  command?: string | null;
+  codexCommand?: string | null;
   conversations?: string;
+  /** How long a run may take before it is stopped. */
+  runMs?: number;
   /** How long a run may send nothing before it is stopped as stalled. */
   stallMs?: number;
   /** How long a compaction may last before the run is stopped. */
@@ -172,11 +99,63 @@ export function createOwnAi({
     }
     return join(conversations, key);
   };
+  /** A check on Codex (./codex); a kept conversation isn't one it runs (#3639). */
+  async function runCodexCheck(
+    request: Parameters<OwnAiRunner["run"]>[0],
+  ): ReturnType<OwnAiRunner["run"]> {
+    const path = await codex();
+    if (path === null || request.conversation || request.tools === "all") {
+      return { kind: "failed", reason: "unsupported" };
+    }
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(runMs)]);
+    try {
+      const end = await runCodex({
+        path,
+        server: request.server,
+        tools: request.tools,
+        instructions: request.instructions,
+        prompt: request.prompt,
+        signal,
+        maxBytes: MAX_RUN_BYTES,
+        stallMs,
+        ...(request.progress && { progress: request.progress }),
+        ...(request.started && { started: request.started }),
+      });
+      if (end.kind === "finished") {
+        return { kind: "finished", reply: end.reply.slice(0, MAX_REPLY_CHARS) };
+      }
+      if (end.cause) console.warn("A check run on Codex ended with:", end.cause);
+      return { kind: "failed", reason: end.reason };
+    } catch (error) {
+      if (request.signal.aborted) throw error;
+      if (error instanceof StalledError) return { kind: "failed", reason: "stalled" };
+      if (signal.aborted) return { kind: "failed", reason: "timeout" };
+      console.warn(
+        "A run of the User's own Codex failed:",
+        error instanceof Error ? error.message : "unknown",
+      );
+      return { kind: "failed", reason: "other" };
+    }
+  }
+
+  // A run's folder that outlived its app holds what Codex logged of a Note.
+  sweepCodexRuns().catch((error: unknown) =>
+    console.warn("Could not look for Codex runs' folders left behind:", error),
+  );
+  const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
+
   return {
-    installed: () => onPath(command),
+    async installed(client) {
+      if (client === "codex") return (await codex()) !== null;
+      return command !== null && (await findOnPath(command)) !== null;
+    },
 
     async purge(key) {
       const folder = folderOf(key);
+      if (command === null) {
+        await rm(folder, { recursive: true, force: true, maxRetries: 3 });
+        return false;
+      }
       const purged = await short(command, ["purge", folder, "--yes"]);
       await rm(folder, { recursive: true, force: true, maxRetries: 3 });
       if (purged.kind !== "exited") return false;
@@ -184,7 +163,12 @@ export function createOwnAi({
       return purged.code === 0 || (purged.code === 1 && NOTHING_TO_PURGE.test(purged.out));
     },
 
-    async status(): Promise<OwnAiStatus> {
+    async status(client): Promise<OwnAiStatus> {
+      if (client === "codex") {
+        const path = await codex();
+        return path === null ? { kind: "missing" } : codexStatus(path);
+      }
+      if (command === null) return { kind: "missing" };
       const version = await short(command, ["--version"]);
       if (version.kind === "no-answer") return { kind: "unknown" };
       if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
@@ -200,10 +184,13 @@ export function createOwnAi({
     },
 
     async run(request) {
+      if (request.client === "codex") return runCodexCheck(request);
+      if (command === null) return { kind: "failed", reason: "other" };
+      request.started?.();
       const compactionOver = new AbortController();
       const signal = AbortSignal.any([
         request.signal,
-        AbortSignal.timeout(RUN_MS),
+        AbortSignal.timeout(runMs),
         compactionOver.signal,
       ]);
       const { conversation } = request;
@@ -390,7 +377,7 @@ export function createOwnAi({
         if (request.signal.aborted) throw error;
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
-        if (error instanceof ClaudeCodeStalledError) return { kind: "failed", reason: "stalled" };
+        if (error instanceof StalledError) return { kind: "failed", reason: "stalled" };
         if (compactionStuck) return { kind: "failed", reason: failure ?? "compaction" };
         if (signal.aborted) return { kind: "failed", reason: "timeout" };
         console.warn(

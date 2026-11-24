@@ -23,6 +23,7 @@ import type {
   OwnAiCheckEnd,
   OwnAiCheckProblem,
 } from "../../core/api";
+import { hasListName } from "./components/agents/agentWords";
 import { core } from "./core";
 import { useT } from "./i18n";
 import { noModelSetUp } from "./noModelSetUp";
@@ -272,6 +273,15 @@ export function organizeSeen(): void {
   if (useAgentAsked.getState().byKey[ORGANIZE]?.state === "landed") put(ORGANIZE, null);
 }
 
+/**
+ * What a line calls the agent asked: its connection's name, but Codex for a check run in the
+ * background on a connection still named "ChatGPT app and Codex", which ran the command line (#3639).
+ */
+export const runnerName = (asked: Pick<AgentAsked, "agent" | "background">): string =>
+  asked.background && asked.agent.client === "codex" && hasListName(asked.agent)
+    ? "Codex"
+    : asked.agent.name;
+
 const WORKING = {
   check: "agents.asked.checking",
   summary: "agents.asked.writing",
@@ -292,7 +302,7 @@ export function useAskedAgent(
   const key = asked ? keyOf(asked) : null;
   const now = useAgentAsked((state) => (key === null ? undefined : state.byKey[key]));
   if (!now || now.state === "landed") return null;
-  const agent = now.agent.name;
+  const agent = runnerName(now);
   const words =
     now.state === "failed"
       ? t(`agents.ownCheck.problem.${now.problem?.problem ?? "failed"}`, {

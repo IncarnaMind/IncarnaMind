@@ -6444,6 +6444,11 @@ export interface ExternalService {
   name: string;
   /** The catalog entry for this service when another API shares the provider, such as reranking. */
   catalogId?: string;
+  /**
+   * For a connected agent: the client its pairing was set up for, so the consent it is asked for
+   * says what that agent does (#3639).
+   */
+  agentClient?: string;
 }
 
 export interface ChatProvider {
@@ -13289,6 +13294,12 @@ export type OwnAiCheckProblem =
   | "access"
   | "local-mode"
   | "taken-back"
+  /** It showed something other than its words, its reasoning and the check's Tools, and was stopped. */
+  | "outside"
+  /** A line of what it printed couldn't be read, and it was stopped. */
+  | "unreadable"
+  /** Its service ended the request with an error it didn't name: a sign-in or a plan's limit, say. */
+  | "service"
   | "failed";
 
 /**

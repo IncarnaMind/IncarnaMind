@@ -33,14 +33,21 @@ export function pairingInSentence(
 ): string {
   const client = pairing.client === "other" || pairing.client === "codex" ? pairing.client : null;
   if (client === null) return pairing.name;
-  const listNames = (["en", "zh-CN"] as const).map((language) =>
-    translate(language, client === "other" ? "agents.client.other" : "agents.client.codex"),
-  );
-  const isListName = listNames.some((listName) => {
+  return hasListName(pairing) ? clientInSentence({ id: client, name: "" }, t) : pairing.name;
+}
+
+/** Whether a connection still has the name the list gave it ("ChatGPT app and Codex 2"), in either language. */
+export function hasListName(pairing: Pick<AgentPairing, "name" | "client">): boolean {
+  const client = pairing.client === "other" || pairing.client === "codex" ? pairing.client : null;
+  if (client === null) return false;
+  return (["en", "zh-CN"] as const).some((language) => {
+    const listName = translate(
+      language,
+      client === "other" ? "agents.client.other" : "agents.client.codex",
+    );
     const rest = pairing.name.slice(listName.length);
     return pairing.name.startsWith(listName) && (rest === "" || /^ \d+$/.test(rest));
   });
-  return isListName ? clientInSentence({ id: client, name: "" }, t) : pairing.name;
 }
 
 /** What an agent's row says it reads: its Folders by name, or that it reads none yet. */
