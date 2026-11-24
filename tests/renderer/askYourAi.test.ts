@@ -285,7 +285,7 @@ afterEach(async () => {
 
 describe("the line above a Note", () => {
   // protects=a User with their own AI and no model is never asked for a model above a Note, while one with neither still is and one with a model sees nothing; fails_when=the agent User gets any line, or either other User's line changes
-  test("with an agent and no model: none; with neither: Asking needs an AI model; with a model: none", async () => {
+  test("with an agent and no model: none; with neither: Asking needs your AI; with a model: none", async () => {
     user(NO_MODEL, [pairing("Claude Code", "claude-code"), pairing("VS Code", "vscode")]);
     expect((await lineAbove()).textContent).toBe("");
     await unmount?.();
@@ -294,7 +294,8 @@ describe("the line above a Note", () => {
     await unmount?.();
     user(NO_MODEL, []);
     const line = await lineAbove();
-    expect(line.textContent).toContain("Asking needs an AI model");
+    expect(line.textContent).toContain("Asking needs your AI");
+    expect(line.textContent).toContain("Connect your AI");
     expect(line.textContent).not.toContain("Claude Code");
   });
 });
@@ -519,7 +520,7 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
     const line = await checkLine(NO_MODEL as never);
     expect(line.textContent).toContain("Ask Claude Code");
     expect(line.textContent).toContain("Set up a model");
-    expect(line.textContent).not.toContain("Asking needs an AI model");
+    expect(line.textContent).not.toContain("Asking needs your AI");
     expect(line.querySelector('[data-testid="checks-ask-agent-others"]')).not.toBeNull();
     const ask = line.querySelector('[data-testid="checks-ask-agent-ask"]') as HTMLElement;
     await act(async () => ask.click());
@@ -527,12 +528,12 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
     expect(problemKind()).toBeUndefined();
   });
 
-  // protects=with neither a model nor an agent the line says what a check needs, in words about checking, with the way to set a model up; fails_when=it says asking, or offers no way on
-  test("with no model and no agent: a line about checking, with the way to set a model up", async () => {
+  // protects=with neither a model nor an agent the line says what a check needs, in words about checking, with the way to connect an AI; fails_when=it says asking, or offers no way on
+  test("with no model and no agent: a line about checking, with the way to connect an AI", async () => {
     user(NO_MODEL, []);
     const line = await checkLine(NO_MODEL as never);
-    expect(line.textContent).toContain("Checking needs an AI model");
-    expect(line.textContent).toContain("Set up");
+    expect(line.textContent).toContain("Checking needs your AI");
+    expect(line.textContent).toContain("Connect your AI");
     expect(line.textContent).not.toContain("Asking");
     expect(line.querySelector('[data-testid="checks-ask-agent"]')).toBeNull();
   });
@@ -543,7 +544,7 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
     expect((await checkLine(NO_MODEL as never)).textContent).toContain("Claude Code");
     await unmount?.();
     user(NO_MODEL, [], "zh-CN");
-    expect((await checkLine(NO_MODEL as never)).textContent).toContain("核对需要 AI 模型");
+    expect((await checkLine(NO_MODEL as never)).textContent).toContain("核对需要连接你的 AI");
   });
 
   // protects=a model that is set up but can't be used (its key is gone) keeps its own explanation and no agent is offered; fails_when=the agent is offered for a problem the User fixes in Settings
