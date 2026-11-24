@@ -223,12 +223,16 @@ export function SlideEditor({
   const onEditNow = useRef(onEdit);
   onEditNow.current = onEdit;
   /** Writes a gesture; one refused leaves the slide as drawn, the shape's stand-in let go. */
+  /** Counts the gestures handed over, so what an earlier one says can't follow a later one. */
+  const gestures = useRef(0);
   const edit = useRef(
-    (edits: ShapeEdit[], what: DeckGesture, leaving = false): Promise<boolean> =>
-      onEditNow.current(edits, what, leaving).then((written) => {
+    (edits: ShapeEdit[], what: DeckGesture, leaving = false): Promise<boolean> => {
+      gestures.current++;
+      return onEditNow.current(edits, what, leaving).then((written) => {
         if (!written) setDraft(null);
         return written;
-      }),
+      });
+    },
   );
   // A text box open while the slide is drawn again (a write before it landed) fits the shape as
   // it is now, a move not yet drawn from the file with it.
@@ -389,6 +393,7 @@ export function SlideEditor({
           written = { ...written, fit };
         }
         const taken = edit.current([written], "text", leaving);
+        const gesture = gestures.current;
         if (fit?.kind === "overflow") {
           const overflow = {
             slide: now.number,
@@ -397,9 +402,10 @@ export function SlideEditor({
             fontScale: fit.fontScale,
             lineReduction: fit.lineReduction,
           };
-          // Said of an edit the core took (written, or waiting), never of one it refused.
+          // Said of an edit the core took (written, or waiting), never of one it refused, and only
+          // while no later gesture came: Shrink text to fit would put back the older words.
           void taken.then((took) => {
-            if (took) overflowed.current?.(overflow);
+            if (took && gestures.current === gesture) overflowed.current?.(overflow);
           });
         }
       },

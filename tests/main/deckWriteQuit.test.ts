@@ -4,7 +4,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Core } from "../../src/core";
 import { hashBytes } from "../../src/core/documents/files";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  linkWithoutFolderAndProcess,
+} from "../helpers/documents";
 import { refuseWrites } from "../helpers/failingStorage";
 import { note } from "../helpers/minds";
 import { plainDeck } from "../helpers/pptx";
@@ -173,7 +177,9 @@ describe("Quitting with a hand edit of a deck that waits to be saved", () => {
     restores.push(refuseWrites(dataDir, { tables: ["documents"] }));
     await quitAnswering(["Save a copy beside it"], 2);
     expect(dialogs.asked[1]?.message).toBe("1 change to a deck isn’t saved");
-    expect(dialogs.asked[1]?.detail).toContain("The copy couldn’t be saved.");
+    expect(dialogs.asked[1]?.detail).toBe(
+      "The copy of “Plan.pptx” couldn’t be saved. The disk is full.",
+    );
     expect(quit).not.toHaveBeenCalled();
     expect(core.deckChangesWaiting()).toHaveLength(1);
   });
@@ -213,5 +219,81 @@ describe("Quitting with an unsaved Note and a deck's change that waits", () => {
     dialogs.asked.length = 0;
     await quitAnswering(["Quit anyway"]);
     expect(both.quit).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Quitting where a deck's copy can't go beside it", () => {
+  // protects=each deck's copy is tried on its own, and the one that fails is named (#149 review); fails_when=the first failure stops the others, so a deck whose copy would save never can; no_claim=the system's own words, under Details.
+  test("with two decks waiting and one copy failing, the other is saved and the failed one is named", async () => {
+    const { guardQuit } = await import("../../src/main/unsavedChanges");
+    const dataDir = await createTempDataFolder();
+    const good = await createSourceFolder();
+    const shut = await createSourceFolder();
+    const nowhere = await createSourceFolder();
+    await writeFile(join(good, "Plan.pptx"), new Uint8Array(plainDeck([{ title: "One" }])));
+    await writeFile(join(shut, "Budget.pptx"), new Uint8Array(plainDeck([{ title: "Two" }])));
+    const started = startCore(dataDir);
+    core = started;
+    const documents = await addAndProcess(started, [
+      join(good, "Plan.pptx"),
+      join(shut, "Budget.pptx"),
+    ]);
+    // The budget's folder takes nothing, and nor does the Output location its copy then goes to.
+    await started.setOutputLocation(nowhere);
+    await chmod(join(good, "Plan.pptx"), 0o444);
+    await chmod(shut, 0o555);
+    await chmod(nowhere, 0o555);
+    restores.push(() => {
+      void chmod(shut, 0o755);
+      void chmod(nowhere, 0o755);
+    });
+    for (const document of documents) {
+      const edit = await started.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: [{ kind: "box", slide: 1, shape: "2", box: { x: 200, y: 96, w: 192, h: 96 } }],
+      });
+      expect(edit.kind).toBe("unwritable");
+    }
+    const quit = vi.fn();
+    guardQuit(started, () => null, quit);
+    await quitAnswering(["Save a copy beside it"], 2);
+    expect(dialogs.asked[1]?.detail).toContain("The copy of “Budget.pptx” couldn’t be saved.");
+    expect(dialogs.asked[1]?.detail).not.toContain("Plan.pptx");
+    expect((await readdir(good)).sort()).toEqual(["Plan 2.pptx", "Plan.pptx"]);
+    expect(started.deckChangesWaiting().map((deck) => deck.name)).toEqual(["Budget.pptx"]);
+    expect(quit).not.toHaveBeenCalled();
+  });
+
+  // protects=the quit never waits on a question no window can show (#149 review); fails_when=a copy into a Linked folder whose new-files question was never answered waits for it, and the quit hangs with nothing on screen; no_claim=the Output location's name.
+  test("with no window open, a copy whose Linked folder was never asked goes to the Output location, said, and the app quits", async () => {
+    const { guardQuit } = await import("../../src/main/unsavedChanges");
+    const dataDir = await createTempDataFolder();
+    const files = await createSourceFolder();
+    const output = await createSourceFolder();
+    await writeFile(join(files, "Plan.pptx"), new Uint8Array(plainDeck([{ title: "One" }])));
+    const started = startCore(dataDir);
+    core = started;
+    const [document] = await linkWithoutFolderAndProcess(started, files);
+    if (!document) throw new Error("not linked");
+    await started.setOutputLocation(output);
+    await chmod(join(files, "Plan.pptx"), 0o444);
+    const edit = await started.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: [{ kind: "box", slide: 1, shape: "2", box: { x: 200, y: 96, w: 192, h: 96 } }],
+    });
+    expect(edit.kind).toBe("unwritable");
+    const quit = vi.fn();
+    guardQuit(started, () => null, quit);
+    await quitAnswering(["Save a copy beside it"], 2);
+    expect(dialogs.asked[1]?.message).toBe(
+      `The copy of “Plan.pptx” is in “${output.split(/[\\/]/).at(-1)}”.`,
+    );
+    await vi.waitFor(() => expect(quit).toHaveBeenCalledOnce());
+    expect(await readdir(output)).toEqual(["Plan.pptx"]);
+    expect(started.deckChangesWaiting()).toHaveLength(0);
   });
 });

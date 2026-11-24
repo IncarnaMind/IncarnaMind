@@ -389,7 +389,7 @@ test("a file that can't be written keeps the edit and saves it as a copy beside 
     await window.keyboard.press("Shift+ArrowRight");
     const problem = window.getByTestId("viewer-deck-unwritable");
     // One short line: what is wrong, then the actions.
-    await expect(problem).toContainText(`“${NAME}” is read-only, so the change isn’t saved.`);
+    await expect(problem).toContainText(`“${NAME}” is read-only, so the change isn’t saved yet.`);
     expect(Buffer.compare(await readFile(path), shown)).toBe(0);
     await still(window, "12-cannot-write-en");
     await problem.getByTestId("viewer-deck-save-copy").click();
@@ -580,7 +580,7 @@ test("a deck another app has open waits, and Try again writes it once that app l
     await window.keyboard.press("Shift+ArrowDown");
     const problem = window.getByTestId("viewer-deck-unwritable");
     await expect(problem).toContainText(
-      `“${NAME}” is open in another app. Close it there, then try again.`,
+      `“${NAME}” is open in another app. Close it, then try again.`,
     );
     expect(Buffer.compare(await readFile(path), DECK)).toBe(0);
     await still(window, "14-locked-en");
@@ -727,7 +727,7 @@ test("a change that waits outlives its tab, and another app's save of the file: 
     await rm(lock);
     await problem.getByTestId("viewer-deck-try-again").click();
     await expect(problem).toContainText(
-      `“${NAME}” was changed in another app, so the change isn’t saved.`,
+      `“${NAME}” was changed in another app, so the change isn’t saved yet.`,
     );
     await expect(problem.getByTestId("viewer-deck-try-again")).toHaveCount(0);
     expect(Buffer.compare(await readFile(path), DECK_THEIRS)).toBe(0);
@@ -757,7 +757,7 @@ test("a change that waits keeps its line and its Save a copy when its file goes 
     await expect(item).toContainText("Missing", { timeout: 15_000 });
     await expect(viewer.getByTestId("viewer-slide-editor")).toHaveCount(0);
     await expect(problem).toContainText(
-      `“${NAME}” was moved or deleted, so the change isn’t saved.`,
+      `“${NAME}” was moved or deleted, so the change isn’t saved yet.`,
     );
     await expect(problem.getByTestId("viewer-deck-try-again")).toHaveCount(0);
     await problem.getByTestId("viewer-deck-save-copy").click();
@@ -768,6 +768,30 @@ test("a change that waits keeps its line and its Save a copy when its file goes 
     const copy = await slideOnDisk(join(sources, saved[0] ?? ""), 1);
     expect(placeOf(copy, 4).y).toBe(placeOf(SLIDE_ONE, 4).y + 10 * 9525);
   } finally {
+    await app.close();
+  }
+});
+
+test("a folder that takes no new file is named, and the copy's receipt names the folder it went to", async () => {
+  const { app, window, viewer, first } = await opened();
+  try {
+    await chmod(sources, 0o555);
+    await first.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    const problem = window.getByTestId("viewer-deck-unwritable");
+    // The line cuts a long name in the middle, as it does this test's folder's.
+    const whole = sources.split(/[\\/]/).at(-1) ?? "";
+    const folder = whole.length <= 32 ? whole : `${whole.slice(0, 19)}…${whole.slice(-12)}`;
+    await expect(problem).toContainText(
+      `The folder “${folder}” can’t be written, so the change isn’t saved yet.`,
+    );
+    await problem.getByTestId("viewer-deck-save-copy").click();
+    await expect(undoLine(window)).toContainText(
+      `Made a copy with your change · saved in “${NAME}” in “IncarnaMind”`,
+    );
+    await expect(viewer.getByTestId("viewer-deck-unwritable")).toHaveCount(0);
+  } finally {
+    await chmod(sources, 0o755);
     await app.close();
   }
 });

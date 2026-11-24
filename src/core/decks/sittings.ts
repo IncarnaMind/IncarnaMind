@@ -24,7 +24,7 @@ import { protectionOf } from "./protection";
 export type PlaceWritten =
   | { kind: "written"; documentId: string; saved: DeckSaved }
   | { kind: "changed" }
-  | { kind: "unwritable"; why: DeckUnwritable["why"]; name: string; lock?: string };
+  | ({ kind: "unwritable" } & Pick<DeckUnwritable, "why" | "name" | "lock" | "folder">);
 
 /** Where a sitting's deck is written: the one seam between editing and the files it writes. */
 export interface DeckPlace {
@@ -40,10 +40,14 @@ export interface DeckSittingDeps {
   read(documentId: string): Promise<Uint8Array>;
   /** Where a sitting that starts on this Document, whose bytes are `bytes`, writes. */
   placeFor(documentId: string, bytes: Uint8Array): DeckPlace;
-  /** Saves bytes the deck's place couldn't take as a copy beside it: its Document and place. */
+  /**
+   * Saves bytes the deck's place couldn't take as a copy beside it: its Document and place.
+   * `unasked`: fails at once where it would ask the User where it goes.
+   */
   copyBeside(
     documentId: string,
     bytes: Uint8Array,
+    unasked?: boolean,
   ): Promise<{ documentId: string; saved: DeckSaved; place: DeckPlace }>;
   newId(): string;
   /** The Document's file name, for the words about a change that waits. */
@@ -102,7 +106,7 @@ async function slideCounts(base: Uint8Array, now: Uint8Array) {
 }
 
 /** Why a sitting's change waits; `again` once Try again was refused for the same reason. */
-type WaitingWhy = Pick<DeckUnwritable, "why" | "name" | "lock" | "again">;
+type WaitingWhy = Pick<DeckUnwritable, "why" | "name" | "lock" | "folder" | "again">;
 
 export function createDeckSittings(deps: DeckSittingDeps) {
   const sittings = new Map<string, Sitting>();
@@ -117,6 +121,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       why: why.why,
       name: why.name,
       ...(why.lock && { lock: why.lock }),
+      ...(why.folder && { folder: why.folder }),
       ...(why.again && { again: true }),
       bytes,
       contentHash: hashBytes(bytes),
@@ -222,7 +227,28 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     return saved(sitting, bytes, step, written.saved, written.documentId);
   }
 
-  async function start(documentId: string, shown: string): Promise<Sitting> {
+  /**
+   * The sitting a gesture with none joins or begins. In the Document's turn, so a write under way
+   * lands first and two gestures arriving together don't both begin one.
+   */
+  const start = (documentId: string, shown: string): Promise<Sitting> =>
+    inDocumentTurn(documentId, () => begin(documentId, shown));
+
+  async function begin(documentId: string, shown: string): Promise<Sitting> {
+    const others = [...sittings.values()].filter((other) => other.documentId === documentId);
+    if (others.some((other) => other.waiting)) {
+      throw new InvalidInputError({ key: "error.deck.waiting" });
+    }
+    // One sitting a deck while any tab shows it: a gesture from a window that hasn't learnt the
+    // sitting going on (its first write still under way as the window closed, or another window)
+    // joins it, in its turn.
+    const going = others.find(
+      (other) =>
+        !other.closed &&
+        !other.ended &&
+        (hashBytes(other.current) === shown || hashBytes(other.base) === shown),
+    );
+    if (going) return going;
     const base = await deps.read(documentId);
     // The viewer showed another version than the file holds now: nothing is applied to it.
     if (hashBytes(base) !== shown) throw changedError();
@@ -230,13 +256,8 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     if (!zip.rewritable) throw new TranslatableError({ key: "error.deck.unrewritable" });
     const protection = await protectionOf(zip);
     if (protection) throw new TranslatableError({ key: `error.deck.protected.${protection}` });
-    // One sitting a deck goes on at a time: one a window left (it closed or reloaded) is closed,
-    // but one whose change waits goes on, to be saved, and no other begins before it is.
-    for (const other of sittings.values()) {
-      if (other.documentId !== documentId) continue;
-      if (other.waiting) throw new InvalidInputError({ key: "error.deck.waiting" });
-      other.closed = true;
-    }
+    // One sitting a deck goes on at a time: one on another version is closed.
+    for (const other of others) other.closed = true;
     letClosedGo();
     const sitting: Sitting = {
       id: deps.newId(),
@@ -324,6 +345,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
           why: result.why,
           name: result.name,
           ...(result.lock && { lock: result.lock }),
+          ...(result.folder && { folder: result.folder }),
           again: true,
         };
         waitingWhy.set(sitting.id, again);
@@ -359,12 +381,12 @@ export function createDeckSittings(deps: DeckSittingDeps) {
      * Saves the step its place couldn't take as a copy beside the deck; the sitting goes on in
      * that copy, which the viewer shows from then on.
      */
-    saveCopy(sittingId: unknown): Promise<DeckEdit> {
+    saveCopy(sittingId: unknown, unasked = false): Promise<DeckEdit> {
       const sitting = requireSitting(sittingId);
       return inTurn(sitting, async () => {
         const { waiting } = sitting;
         if (!waiting) throw new InvalidInputError({ key: "error.deck.noStep" });
-        const copy = await deps.copyBeside(sitting.documentId, waiting.bytes);
+        const copy = await deps.copyBeside(sitting.documentId, waiting.bytes, unasked);
         sitting.place = copy.place;
         sitting.waiting = null;
         waitingWhy.delete(sitting.id);

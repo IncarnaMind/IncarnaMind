@@ -129,6 +129,14 @@ export class FileWriteCancelledError extends TranslatableError {
   }
 }
 
+/** Thrown by a save that may not ask the User anything (the quit, with no window), where it would ask. */
+export class FileWriteUnansweredError extends TranslatableError {
+  override name = "FileWriteUnansweredError";
+  constructor() {
+    super({ key: "error.files.needsAnswer" });
+  }
+}
+
 /** Thrown when a PDF couldn't be laid out or printed: no PDF was saved, and the Output location is fine. */
 export class PdfLayoutError extends TranslatableError {
   override name = "PdfLayoutError";

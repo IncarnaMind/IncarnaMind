@@ -4189,7 +4189,14 @@ export type DeckSaved =
    */
   | { kind: "file"; name: string; keptId: string | null; letGo: string[] }
   /** A copy beside the User's file, which couldn't be written, and the sitting's place from then on. */
-  | { kind: "copy"; name: string; path: string; inDefaultFolder: boolean };
+  | {
+      kind: "copy";
+      name: string;
+      path: string;
+      inDefaultFolder: boolean;
+      /** In the deck's own folder; false when that folder took no new file and it went elsewhere. */
+      beside: boolean;
+    };
 
 /** A deck's file that couldn't be written, and why; the edit waits to be saved as a copy beside it. */
 export interface DeckUnwritable {
@@ -4201,9 +4208,11 @@ export interface DeckUnwritable {
    * write it. "changed": another program wrote the file while the change waited, so only a copy
    * beside it keeps the change.
    */
-  why: "read-only" | "locked" | "gone" | "full" | "unkept" | "changed";
+  why: "read-only" | "folder" | "locked" | "gone" | "full" | "unkept" | "changed";
   /** The file's name. */
   name: string;
+  /** "folder": the name of the folder that takes no writes. */
+  folder?: string;
   /** The lock file another app left beside it, which may be a leftover from a crash. */
   lock?: string;
   /** Try again was refused for the same reason: the line then says what else to do. */

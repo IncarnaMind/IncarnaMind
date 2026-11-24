@@ -50,6 +50,9 @@ const toKept = (row: Row): KeptDeck => ({
   first: Number(row.first) === 1,
 });
 
+/** How much older than the start an unnamed kept file must be to be taken out. */
+const SWEEP_MARGIN_MS = 60 * 60_000;
+
 export function createKeptDecks(options: { db: Database; dataDir: string; now(): string }) {
   const { db, dataDir, now } = options;
 
@@ -170,8 +173,9 @@ export function createKeptDecks(options: { db: Database; dataDir: string; now():
     /**
      * Forgets the kept states of Documents the Library deleted for good, with their folders.
      * `before`: at start, also a file in a live Document's folder no kept state names (one a
-     * crash left between writing it and recording it), if older than that time: a write under way
-     * now is never touched. A link in the folder is never followed.
+     * crash left between writing it and recording it), if an hour older than that time: a write
+     * under way now is never touched, on a disk whose file times are coarse too. A link in the
+     * folder is never followed.
      */
     async dropGone(exists: (documentId: string) => boolean, before?: number): Promise<void> {
       const documents = db.all<{ document_id: string }>(
@@ -200,7 +204,8 @@ export function createKeptDecks(options: { db: Database; dataDir: string; now():
         for (const name of await readdir(at).catch(() => [] as string[])) {
           const file = join(at, name);
           const stat = await lstat(file).catch(() => null);
-          if (!stat?.isFile() || named.has(file) || stat.mtimeMs >= before) continue;
+          if (!stat?.isFile() || named.has(file) || stat.mtimeMs >= before - SWEEP_MARGIN_MS)
+            continue;
           await rm(file, { force: true });
         }
       }

@@ -5,6 +5,13 @@ import { useT } from "../../i18n";
 import { closeTip, useFeatureTip } from "../../tips";
 import type { DeckEditing } from "./deckEditing";
 
+/** The longest file name the line shows whole; a longer one keeps its start and its end. */
+const NAME_FITS = 32;
+
+/** A long name cut in the middle, so the line and its actions stay on one line in a narrow pane. */
+export const middleCut = (name: string): string =>
+  name.length <= NAME_FITS ? name : `${name.slice(0, NAME_FITS - 13)}…${name.slice(-12)}`;
+
 /**
  * A file another app holds is written once that app lets it go, so Try again comes first; a file
  * that is gone can only be saved as a copy.
@@ -63,8 +70,11 @@ export function DeckLines({
           <ProblemMark />
           {/* The lock file is named only once Try again has failed on it: most often the app is open. */}
           {waiting.lock && waiting.again && !fileGone
-            ? t("error.deck.unwritable.lockFile", { lock: waiting.lock })
-            : t(`error.deck.unwritable.${why ?? waiting.why}`, { name: waiting.name })}
+            ? t("error.deck.unwritable.lockFile", { lock: middleCut(waiting.lock) })
+            : t(`error.deck.unwritable.${why ?? waiting.why}`, {
+                name: middleCut(waiting.name),
+                folder: middleCut(waiting.folder ?? ""),
+              })}
         </ProblemLine>
       )}
       {overflow && (

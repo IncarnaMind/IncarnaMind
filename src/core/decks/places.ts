@@ -9,14 +9,19 @@
  * over. A file that can't be written says why, and the edit waits to be saved as a copy beside it.
  */
 import { constants, type Stats } from "node:fs";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { HANDED_FOLDER } from "../agentFiles/handOver";
 import type { AgentFiles } from "../agentFiles/index";
 import type { DeckRestored, DeckUnwritable, Document, SavedFile } from "../api";
 import { hashBytes, hashFile, isGone, isInside } from "../documents/files";
 import { writeWholeFile } from "../documents/writeWhole";
-import { LinkedFolderWritesDeclinedError, NotFoundError, TranslatableError } from "../errors";
+import {
+  FileWriteUnansweredError,
+  LinkedFolderWritesDeclinedError,
+  NotFoundError,
+  TranslatableError,
+} from "../errors";
 import { removeStalePartials, replaceFile } from "../fileNames";
 import type { NewFile } from "../outputFiles";
 import type { KeptDecks } from "./kept";
@@ -25,6 +30,8 @@ import type { DeckPlace, PlaceWritten } from "./sittings";
 export interface DeckPlaceDeps {
   dataDir: string;
   document(documentId: string): Document;
+  /** The file's path, the Document live or in Recently deleted, whose file is still there. */
+  pathOf(documentId: string): string;
   /** Reads the file at `path` again: its Document's new version, or a Linked folder's new file. */
   readAgain(path: string): Promise<unknown>;
   /** The live Document at `path`; null for none. */
@@ -148,11 +155,13 @@ async function lockFileOf(path: string): Promise<string | null> {
 }
 
 /** Steps after the file is written that mustn't undo it: a failure is logged, the write stands. */
-async function afterWriting(what: string, step: () => Promise<unknown>): Promise<void> {
+async function afterWriting(what: string, step: () => Promise<unknown>): Promise<boolean> {
   try {
     await step();
+    return true;
   } catch (error) {
     console.error(`A deck was written, but ${what} failed.`, error);
+    return false;
   }
 }
 
@@ -183,9 +192,18 @@ export function ownFile(
         info = await stat(path);
         // A file the User made read-only stays as it is, though its folder would let a rename in.
         await access(path, constants.W_OK);
+      } catch (error) {
+        const why = unwritable(error);
+        if (why) return { kind: "unwritable", why, name };
+        throw error;
+      }
+      try {
         await access(dirname(path), constants.W_OK);
       } catch (error) {
         const why = unwritable(error);
+        // The folder, not the file, refuses: the line names it, and a copy can't go beside it.
+        if (why === "read-only")
+          return { kind: "unwritable", why: "folder", name, folder: basename(dirname(path)) };
         if (why) return { kind: "unwritable", why, name };
         throw error;
       }
@@ -237,11 +255,11 @@ export function ownFile(
       if (!began && keptId) deps.kept.beganFrom(keptId);
       began = true;
       let letGo: string[] = [];
+      // Tried again with the sitting's next write if it fails, so no more are kept than the limit.
       if (keptNew) {
-        keptNew = false;
-        await afterWriting("letting older kept states go", async () => {
+        keptNew = !(await afterWriting("letting older kept states go", async () => {
           letGo = (await deps.kept.letGo(documentId)).map((each) => each.keptAt);
-        });
+        }));
       }
       await afterWriting("reading the file again", () => deps.readAgain(path));
       return {
@@ -262,16 +280,30 @@ export async function copyBeside(
   deps: DeckPlaceDeps,
   documentId: string,
   bytes: Uint8Array,
-): Promise<{ documentId: string; file: SavedFile; place: DeckPlace }> {
-  const { path } = deps.document(documentId);
-  const asked: NewFile = { name: basename(path), data: bytes, ownFile: null, fromFolder: null };
+  unasked = false,
+): Promise<{ documentId: string; file: SavedFile; beside: boolean; place: DeckPlace }> {
+  // A deck moved to Recently deleted keeps its file: a change that waits is still saved beside it.
+  const path = deps.pathOf(documentId);
+  const asked: NewFile = {
+    name: basename(path),
+    data: bytes,
+    ownFile: null,
+    fromFolder: null,
+    ...(unasked && { unasked }),
+  };
   let file: SavedFile;
   try {
     // The User chose this place by its name, "Save a copy beside it" (#1110 allows one file so).
     file = await deps.save({ ...asked, folder: dirname(path), approved: true });
   } catch (error) {
-    // A folder that can't be written, or a Linked folder the User keeps new files out of.
-    if (!unwritable(error) && !(error instanceof LinkedFolderWritesDeclinedError)) throw error;
+    // A folder that can't be written, a Linked folder the User keeps new files out of, or one
+    // whose question can't be asked now: the Output location takes it.
+    if (
+      !unwritable(error) &&
+      !(error instanceof LinkedFolderWritesDeclinedError) &&
+      !(error instanceof FileWriteUnansweredError)
+    )
+      throw error;
     file = await deps.save(asked);
   }
   let made: string | null = null;
@@ -280,7 +312,11 @@ export async function copyBeside(
     made = deps.documentAt(file.path);
   }
   const copyId = made ?? (await deps.addFile(file.path, deps.folderOf(documentId)));
-  return { documentId: copyId, file, place: ownFile(deps, copyId, bytes, { kept: true }) };
+  const beside = await realpath(dirname(path)).then(
+    (folder) => folder === dirname(file.path),
+    () => false,
+  );
+  return { documentId: copyId, file, beside, place: ownFile(deps, copyId, bytes, { kept: true }) };
 }
 
 /** The one place that decides where a sitting on this Document writes. */
@@ -325,7 +361,7 @@ export async function restoreKept(
   if (written.kind === "unwritable") {
     throw new TranslatableError({
       key: `error.deck.unwritable.${written.why}`,
-      values: { name: written.name },
+      values: { name: written.name, folder: written.folder ?? "" },
     });
   }
   return {

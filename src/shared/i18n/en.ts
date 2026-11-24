@@ -2519,6 +2519,7 @@ export const en = {
   "viewer.deck.edit.tried": "Wrote the change that waited",
   "viewer.deck.edit.copied": "Made a copy with your change",
   "viewer.deck.saved.file": "saved in “{name}”",
+  "viewer.deck.saved.elsewhere": "saved in “{name}” in “{folder}”",
   "viewer.deck.saved.version": "saved as version {number}",
   "viewer.deck.saved.kept": "saved",
   "viewer.deck.saved.letGo": "(let go of the version kept {date})",
@@ -6081,10 +6082,9 @@ export const en = {
   "error.deck.waiting": "A change is waiting: try again or save a copy first.",
   "error.deck.noStep": "There’s nothing here to undo or redo.",
   "error.deck.keptGone": "That earlier version of the deck is no longer kept.",
-  "error.deck.unwritable.read-only": "“{name}” is read-only, so the change isn’t saved.",
-  "error.deck.unwritable.locked":
-    "“{name}” is open in another app. Close it there, then try again.",
-  "error.deck.unwritable.gone": "“{name}” was moved or deleted, so the change isn’t saved.",
+  "error.deck.unwritable.read-only": "“{name}” is read-only, so the change isn’t saved yet.",
+  "error.deck.unwritable.locked": "“{name}” is open in another app. Close it, then try again.",
+  "error.deck.unwritable.gone": "“{name}” was moved or deleted, so the change isn’t saved yet.",
   "error.deck.unwritable.unkept":
     "IncarnaMind couldn’t keep “{name}” as it was, so it wasn’t changed.",
   "error.deck.protected.signed": "This deck is signed, so it isn’t edited here.",
@@ -6092,9 +6092,11 @@ export const en = {
   "error.deck.protected.protected":
     "This deck needs a password to change, so it isn’t edited here.",
   "error.deck.unwritable.changed":
-    "“{name}” was changed in another app, so the change isn’t saved.",
+    "“{name}” was changed in another app, so the change isn’t saved yet.",
   "error.deck.unwritable.lockFile":
     "Still locked. If no app has it open, delete “{lock}” beside it.",
+  "error.deck.unwritable.folder":
+    "The folder “{folder}” can’t be written, so the change isn’t saved yet.",
   "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
@@ -6196,6 +6198,11 @@ export const en = {
   "quit.unsaved.deck.full": "The disk is full.",
   "quit.unsaved.deck.unkept": "IncarnaMind couldn’t keep “{name}” as it was.",
   "quit.unsaved.deck.writing": "A deck is still being saved.",
+  "error.files.needsAnswer": "IncarnaMind needs to ask where it goes: keep it open to answer.",
+  "quit.unsaved.deck.folder": "The folder “{folder}” can’t be written.",
+  "quit.unsaved.deck.copyFailed": "The copy of “{name}” couldn’t be saved. {reason}",
+  "quit.copiedElsewhere": "The copy of “{name}” is in “{folder}”.",
+  "quit.copiedElsewhere.ok": "Quit",
   "quit.unsaved.quit": "Quit anyway",
   "quit.unsaved.keep": "Keep open",
   "quit.unsaved.copyFailed": "The copy couldn’t be saved. {reason}",

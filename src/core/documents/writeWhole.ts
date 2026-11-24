@@ -26,7 +26,7 @@ export async function writeWholeFile(
   at?: string,
   options: { durable?: boolean } = {},
 ): Promise<WrittenFile> {
-  await mkdir(dirname(path), { recursive: true });
+  const made = await mkdir(dirname(path), { recursive: true });
   const partial = `${path}.${randomUUID()}.part`;
   try {
     const file = await open(partial, "wx", 0o600);
@@ -43,11 +43,14 @@ export async function writeWholeFile(
     await rm(partial, { force: true });
     throw error;
   }
-  // The file is in place: a folder that can't be flushed leaves it there, only less sure of a power cut.
+  // Its name, and the name of every folder this call made, flushed too: a copy that must survive a
+  // power cut isn't counted as kept until they are.
   if (options.durable) {
-    await syncFolder(dirname(path)).catch((error: unknown) =>
-      console.error("A folder couldn't be flushed to the disk.", dirname(path), error),
-    );
+    const folders = [dirname(path)];
+    for (let folder = dirname(path); made && folder !== dirname(made); folder = dirname(folder)) {
+      folders.push(dirname(folder));
+    }
+    for (const folder of folders) await syncFolder(folder);
   }
   const { mtimeMs } = await stat(path);
   return { path, contentHash: hashBytes(bytes), size: bytes.byteLength, mtimeMs };

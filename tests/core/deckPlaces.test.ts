@@ -23,6 +23,7 @@ function depsFor(dataDir: string, path: string, kept: KeptDecks): DeckPlaceDeps 
   return {
     dataDir,
     document: () => ({ id: "deck", path, linkedFolderId: null }) as Document,
+    pathOf: () => path,
     readAgain: async () => undefined,
     documentAt: () => null,
     addFile: async () => "copy",
@@ -117,6 +118,44 @@ describe("A deck of the User's own, written itself", () => {
     db.close();
     expect(refused).toBe("unwritable");
     expect(bytes && new TextDecoder().decode(bytes)).toBe("as it first was");
+  });
+
+  // protects=no more states are kept than the limit when letting older ones go fails once (#149 review); fails_when=a failed let-go is never tried again in that sitting; no_claim=the log's words.
+  it("letting older kept states go is tried again with the sitting's next write when it fails", async () => {
+    const dataDir = await createTempDataFolder();
+    const folder = await createSourceFolder();
+    const path = join(folder, "Plan.pptx");
+    await writeFile(path, bytesOf("as it first was"));
+    const db = openDatabase(join(dataDir, "test.db"));
+    migrate(db);
+    const real = createKeptDecks({ db, dataDir, now: () => new Date().toISOString() });
+    let refuse = false;
+    const kept: KeptDecks = {
+      ...real,
+      letGo: async (documentId) => {
+        if (refuse) {
+          refuse = false;
+          throw new Error("The disk is busy.");
+        }
+        return real.letGo(documentId);
+      },
+    };
+    const deps = depsFor(dataDir, path, kept);
+    let base = bytesOf("as it first was");
+    for (let at = 0; at < MAX_KEPT; at++) {
+      const next = bytesOf(`sitting ${at}`);
+      expect((await ownFile(deps, "deck", base).write(next)).kind).toBe("written");
+      base = next;
+    }
+    refuse = true;
+    const place = ownFile(deps, "deck", base);
+    expect((await place.write(bytesOf("one more"))).kind).toBe("written");
+    const over = real.of("deck").length;
+    expect((await place.write(bytesOf("and another"))).kind).toBe("written");
+    const after = real.of("deck").length;
+    db.close();
+    expect(over).toBe(MAX_KEPT + 1);
+    expect(after).toBe(MAX_KEPT);
   });
 
   // protects=a write that has happened stands (#149); fails_when=a step after the rename throws and the sitting is left behind the file; no_claim=the log's words.
@@ -230,16 +269,20 @@ describe("The kept decks' sweep", () => {
     const live = join(dataDir, "Kept decks", "live");
     await mkdir(live, { recursive: true });
     await writeFile(join(live, "left.pptx"), "a crash left it");
-    const long = new Date(Date.now() - 3_600_000);
+    const long = new Date(Date.now() - 2 * 3_600_000);
     await utimes(join(live, "left.pptx"), long, long);
     const start = Date.now();
     await writeFile(join(live, "being-kept.pptx"), "renamed into place now");
+    // A disk whose file times are coarse can date a copy written now a little before the start.
+    await writeFile(join(live, "coarse.pptx"), "renamed into place now, dated earlier");
+    const earlier = new Date(start - 2_000);
+    await utimes(join(live, "coarse.pptx"), earlier, earlier);
     const elsewhere = await createSourceFolder();
     await writeFile(join(elsewhere, "keep-me.pptx"), "outside the data folder");
     await symlink(elsewhere, join(dataDir, "Kept decks", "linked"));
     await kept.dropGone((documentId) => documentId === "live", start - 1);
     db.close();
-    expect(await readdir(live)).toEqual(["being-kept.pptx"]);
+    expect((await readdir(live)).sort()).toEqual(["being-kept.pptx", "coarse.pptx"]);
     expect(await readdir(elsewhere)).toEqual(["keep-me.pptx"]);
   });
 });

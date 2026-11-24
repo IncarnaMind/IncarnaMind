@@ -61,14 +61,22 @@ const doneWords =
     t(`viewer.deck.edit.${what}`, { slide });
 
 /** Where the deck was saved, said after what was done. */
+/** The name of the folder a file's path is in, whichever separator the system uses. */
+const folderName = (path: string) => path.split(/[\\/]/).slice(-2, -1)[0] ?? "";
+
 function savedWords(saved: DeckSaved, language: Language): WordsInLine {
   return (t, cut) => {
     const where =
-      saved.kind !== "version"
-        ? t("viewer.deck.saved.file", { name: cut(saved.name) })
-        : saved.number === null
-          ? t("viewer.deck.saved.kept")
-          : t("viewer.deck.saved.version", { number: saved.number });
+      saved.kind === "copy" && !saved.beside
+        ? t("viewer.deck.saved.elsewhere", {
+            name: cut(saved.name),
+            folder: cut(folderName(saved.path)),
+          })
+        : saved.kind !== "version"
+          ? t("viewer.deck.saved.file", { name: cut(saved.name) })
+          : saved.number === null
+            ? t("viewer.deck.saved.kept")
+            : t("viewer.deck.saved.version", { number: saved.number });
     const letGo =
       saved.kind === "file" && saved.letGo.length > 0
         ? t("viewer.deck.saved.letGo", {

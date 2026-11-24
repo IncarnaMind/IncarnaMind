@@ -245,6 +245,21 @@ describe("Moving and sizing a shape", () => {
       `<mc:AlternateContent><mc:Choice Requires="a14">${copy("Choice", "Internal forecast")}</mc:Choice><mc:Fallback>${copy("Fallback", "Forecast")}</mc:Fallback></mc:AlternateContent>`,
     );
     await expect(applyShapeEdits(differ, typed)).rejects.toThrow(/don't hold the same runs/);
+    const paragraphs = (words: string[]) =>
+      sp({
+        id: 3,
+        name: "Box",
+        spPr: xfrm(914400, 914400, 4572000, 1828800),
+        body: txBody(
+          words
+            .map((each) => `<a:p><a:r><a:rPr lang="en-GB"/><a:t>${each}</a:t></a:r></a:p>`)
+            .join(""),
+        ),
+      });
+    const splitDiffers = slide(
+      `<mc:AlternateContent><mc:Choice Requires="a14">${paragraphs(["A", "B"])}</mc:Choice><mc:Fallback>${sp({ id: 3, name: "Box", spPr: xfrm(914400, 914400, 4572000, 1828800), body: txBody(`<a:p><a:r><a:rPr lang="en-GB"/><a:t>A</a:t></a:r><a:r><a:rPr lang="en-GB"/><a:t>B</a:t></a:r></a:p>`) })}</mc:Fallback></mc:AlternateContent>`,
+    );
+    await expect(applyShapeEdits(splitDiffers, typed)).rejects.toThrow(/don't hold the same runs/);
     const twoChoices = slide(
       `<mc:AlternateContent><mc:Choice Requires="a14">${copy("One", "Forecast")}</mc:Choice><mc:Choice Requires="a14">${copy("Two", "Forecast")}</mc:Choice><mc:Fallback>${copy("Fallback", "Forecast")}</mc:Fallback></mc:AlternateContent>`,
     );

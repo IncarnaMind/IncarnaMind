@@ -249,7 +249,8 @@ describe("A deck of the User's own, edited by hand", () => {
         shown: document.contentHash,
         edits: moveBox(200),
       });
-      expect(shut).toMatchObject({ kind: "unwritable", why: "read-only" });
+      // The folder, not the file, takes nothing: the line names the folder.
+      expect(shut).toMatchObject({ kind: "unwritable", why: "folder" });
       expect(hashBytes(new Uint8Array(await readFile(path)))).toBe(hashBytes(original));
       expect(await readdir(folder)).toEqual(["Quarterly review.pptx"]);
     } finally {

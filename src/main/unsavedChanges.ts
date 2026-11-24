@@ -7,10 +7,11 @@
  * Lost typing has no Undo, so this one asks first.
  */
 import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { app, type BrowserWindow, type SaveDialogOptions } from "electron";
 import type { Core, UnsavedChanges } from "../core";
 import type { DeckUnwritable } from "../core/api";
+import { TranslatableError } from "../core/errors";
 import { quitCopyOptions } from "../shared/exportOptions";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { systemReason } from "../shared/systemReasons";
@@ -53,6 +54,22 @@ export async function saveMindCopy(
   return true;
 }
 
+/** Why a deck's copy failed, in the language asked: the core's own words, or the system's. */
+function failureWords(
+  t: (key: MessageKey, params?: MessageParams) => string,
+  error: unknown,
+): string {
+  if (error instanceof TranslatableError && error.wording) {
+    return t(error.wording.key, error.wording.values);
+  }
+  const raw = error instanceof Error ? error.message : String(error);
+  const reason = systemReason(raw);
+  return reason ? t(reason) : raw;
+}
+
+/** The name of the folder a file's path is in. */
+const folderName = (path: string) => basename(dirname(path));
+
 function copyFailedText(t: (key: MessageKey, params?: MessageParams) => string, raw: string) {
   const reason = systemReason(raw);
   return reason
@@ -84,6 +101,7 @@ export function guardQuit(
     decks: readonly DeckUnwritable[],
     writing: boolean,
     copyFailed: string | null,
+    deckFailed: ReadonlyMap<string, unknown>,
   ) => {
     const { language } = await core.getSettings();
     const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
@@ -103,7 +121,14 @@ export function guardQuit(
         : t("quit.unsaved.title", { count });
     const details = [
       ...(copyFailed !== null ? [copyFailedText(t, copyFailed)] : []),
-      ...decks.map((deck) => t(`quit.unsaved.deck.${deck.why}`, { name: deck.name })),
+      ...decks.map((deck) =>
+        deckFailed.has(deck.sittingId)
+          ? t("quit.unsaved.deck.copyFailed", {
+              name: deck.name,
+              reason: failureWords(t, deckFailed.get(deck.sittingId)),
+            })
+          : t(`quit.unsaved.deck.${deck.why}`, { name: deck.name, folder: deck.folder ?? "" }),
+      ),
       ...(writing ? [t("quit.unsaved.deck.writing")] : []),
     ];
     const options = {
@@ -131,13 +156,16 @@ export function guardQuit(
       await Promise.race([pending, new Promise((done) => setTimeout(done, DECK_WRITE_WAIT_MS))]);
     if (!(await settleSummaries())) return false;
     let copyFailed: string | null = null;
+    // Each deck's copy is tried on its own: one that fails is named, and the others still go.
+    const deckFailed = new Map<string, unknown>();
+    const elsewhere: { name: string; folder: string }[] = [];
     let notesCopied = false;
     for (;;) {
       const notes = notesCopied ? null : await core.saveChangesAgain();
       const decks = core.deckChangesWaiting();
       const writing = core.writingDecks() !== null;
-      if (!notes && decks.length === 0 && !writing) return true;
-      const { choice, window } = await ask(notes, decks, writing, copyFailed);
+      if (!notes && decks.length === 0 && !writing) return sayWhereCopiesWent(elsewhere);
+      const { choice, window } = await ask(notes, decks, writing, copyFailed, deckFailed);
       if (choice === "quitAnyway") return true;
       if (choice !== "saveCopy" && choice !== "saveDeckCopy") return false;
       try {
@@ -147,14 +175,45 @@ export function guardQuit(
           }
           notesCopied = true;
         }
-        // The same copy the deck's own line saves: beside its file, else in the Output location.
-        for (const deck of decks) await core.saveDeckCopy(deck.sittingId);
         copyFailed = null;
       } catch (error) {
-        console.error("quit: a copy of a Note or a deck couldn't be saved", error);
+        console.error("quit: a copy of a Note couldn't be saved", error);
         copyFailed = error instanceof Error ? error.message : String(error);
+        continue;
+      }
+      // The same copy the deck's own line saves, beside its file or else in the Output location,
+      // but never waiting on a question: there may be no window to ask it in.
+      for (const deck of decks) {
+        try {
+          const copied = await core.saveDeckCopyUnasked(deck.sittingId);
+          deckFailed.delete(deck.sittingId);
+          if (copied.kind === "saved" && copied.saved.kind === "copy" && !copied.saved.beside) {
+            elsewhere.push({ name: copied.saved.name, folder: folderName(copied.saved.path) });
+          }
+        } catch (error) {
+          console.error("quit: a copy of a deck couldn't be saved", deck.name, error);
+          deckFailed.set(deck.sittingId, error);
+        }
       }
     }
+  };
+  /** Says where copies went that couldn't go beside their decks, before the app quits. */
+  const sayWhereCopiesWent = async (
+    elsewhere: readonly { name: string; folder: string }[],
+  ): Promise<boolean> => {
+    if (elsewhere.length === 0) return true;
+    const { language } = await core.getSettings();
+    const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+    const [first, ...rest] = elsewhere.map((copy) => t("quit.copiedElsewhere", copy));
+    await showMessageBox(focusedWindow(), {
+      type: "info",
+      message: first ?? "",
+      ...(rest.length > 0 && { detail: rest.join("\n") }),
+      buttons: [t("quit.copiedElsewhere.ok")],
+      defaultId: 0,
+      noLink: true,
+    });
+    return true;
   };
   const decide = async () => {
     if (!(await settle())) return;

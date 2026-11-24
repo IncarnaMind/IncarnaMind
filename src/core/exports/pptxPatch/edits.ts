@@ -200,11 +200,20 @@ export async function setShapeRuns(
   const copies = shapesById(part.root, shapeId).filter((shape) => local(shape.name) === "sp");
   // The edit names runs of the copy the viewer drew: another copy whose words or runs differ
   // (a Choice that says more than its Fallback) can't take them, so neither is changed.
+  /** Each paragraph's pieces in order: its runs' words, its line breaks and its fields. */
   const runsOf = (shape: XmlElement) =>
-    descendants(shape, "a:r").map((run) =>
-      descendants(run, "a:t")
-        .map((t) => textOf(t))
-        .join(""),
+    descendants(shape, "a:p").map((paragraph) =>
+      elements(paragraph).flatMap((piece) =>
+        local(piece.name) === "br"
+          ? ["br"]
+          : local(piece.name) === "r" || local(piece.name) === "fld"
+            ? [
+                `${local(piece.name)}:${descendants(piece, "a:t")
+                  .map((t) => textOf(t))
+                  .join("")}`,
+              ]
+            : [],
+      ),
     );
   const [one, ...others] = copies;
   if (

@@ -159,6 +159,7 @@ import {
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
   type DecisionHostStatus,
+  type DeckEdit,
   type DeckUnwritable,
   type DeletedAgainRef,
   type Document,
@@ -615,6 +616,11 @@ export interface Core extends CoreApi, CoreEventSource {
   writingDecks(): Promise<void> | null;
   /** The hand edits of decks that wait to be saved: the quit asks about them with unsaved Notes. */
   deckChangesWaiting(): DeckUnwritable[];
+  /**
+   * Saves a waiting change as a copy, as `saveDeckCopy` does, but never asks the User anything:
+   * where it would, it fails at once (the quit, which may have no window to ask in).
+   */
+  saveDeckCopyUnasked(sittingId: string): Promise<DeckEdit>;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /**
@@ -6461,6 +6467,7 @@ export function createCore(adapters: CoreAdapters): Core {
   const deckPlaces: DeckPlaceDeps = {
     dataDir,
     document: (documentId) => documents.get(documentId),
+    pathOf: (documentId) => documents.pathEvenDeleted(documentId),
     readAgain: (path) => documents.checkNow(path),
     documentAt: (path) => documents.placeOf(path).documentId,
     addFile: async (path, folderId) => {
@@ -6483,8 +6490,8 @@ export function createCore(adapters: CoreAdapters): Core {
   const deckSittings = createDeckSittings({
     read: readDeck,
     placeFor: (documentId, bytes) => deckPlaceFor(deckPlaces, documentId, bytes),
-    copyBeside: async (documentId, bytes) => {
-      const copy = await copyBeside(deckPlaces, documentId, bytes);
+    copyBeside: async (documentId, bytes, unasked) => {
+      const copy = await copyBeside(deckPlaces, documentId, bytes, unasked);
       return {
         documentId: copy.documentId,
         saved: {
@@ -6492,12 +6499,13 @@ export function createCore(adapters: CoreAdapters): Core {
           name: copy.file.name,
           path: copy.file.path,
           inDefaultFolder: copy.file.inDefaultFolder,
+          beside: copy.beside,
         },
         place: copy.place,
       };
     },
     newId: () => crypto.randomUUID(),
-    nameOf: (documentId) => basename(documents.get(documentId).path),
+    nameOf: (documentId) => basename(documents.pathEvenDeleted(documentId)),
   });
 
   /** Hand edits of decks being written now: the host waits for them before it quits. */
@@ -9837,6 +9845,7 @@ export function createCore(adapters: CoreAdapters): Core {
     undoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.undo(sittingId, stepId)),
     redoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.redo(sittingId, stepId)),
     saveDeckCopy: (sittingId) => writingDeck(deckSittings.saveCopy(sittingId)),
+    saveDeckCopyUnasked: (sittingId) => writingDeck(deckSittings.saveCopy(sittingId, true)),
     retryDeckEdit: (sittingId) => writingDeck(deckSittings.retry(sittingId)),
     closeDeckSitting: async (sittingId) => deckSittings.close(sittingId),
     keptDeckStates: async (documentId) => {

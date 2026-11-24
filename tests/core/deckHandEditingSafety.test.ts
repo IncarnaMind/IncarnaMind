@@ -428,3 +428,100 @@ describe("What a crash leaves", () => {
     expect(await readdir(files)).not.toContain(".0b8f8a2e-1c2d-4e5f-8a9b-0c1d2e3f4a5b.partial");
   });
 });
+
+describe("Changes that wait and gestures from a window that is going", () => {
+  // protects=a gesture handed over before its window learnt its sitting (the window closing while the first write is under way) joins that sitting, behind the write (#149 review); fails_when=it starts a sitting of its own that is refused as changed, and its words are lost; no_claim=the window's own queue.
+  it("a gesture with no sitting, made on the same version while a write is under way, joins it and both land", async () => {
+    const { core, path, document } = await opened();
+    const first = core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: moveBox(200),
+    });
+    const second = core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: [{ kind: "box", slide: 1, shape: "4", box: { x: 200, y: 150, w: 192, h: 96 } }],
+    });
+    const [one, two] = [saved(await first), saved(await second)];
+    expect(two.sittingId).toBe(one.sittingId);
+    const xml =
+      (await openPackage(new Uint8Array(await readFile(path))).readText("ppt/slides/slide1.xml")) ??
+      "";
+    expect(/<a:off x="(\d+)" y="(\d+)"/.exec(xml)?.slice(1)).toEqual([
+      String(200 * 9525),
+      String(150 * 9525),
+    ]);
+  });
+
+  // protects=a change that waits is never left behind by a new sitting on its deck (#149 review); fails_when=a gesture with no sitting begins one while another's change waits; no_claim=the window's line, which takes the change up.
+  it("a change that waits on a closed sitting refuses a new sitting with the waiting words", async () => {
+    const { core, path, document } = await opened();
+    await chmod(path, 0o444);
+    const waiting = await core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: moveBox(200),
+    });
+    expect(waiting.kind).toBe("unwritable");
+    await core.closeDeckSitting(waiting.sittingId);
+    await expect(
+      core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: moveBox(300),
+      }),
+    ).rejects.toMatchObject({ wording: { key: "error.deck.waiting" } });
+  });
+
+  // protects=a deck moved to Recently deleted keeps its file, so its waiting change is still saved as a copy (#149 review); fails_when=the copy fails as not found until the deck is restored; no_claim=the deleted deck's tab.
+  it("a deck in Recently deleted still saves its waiting change as a copy beside its file", async () => {
+    const { core, files, path, document } = await opened();
+    await chmod(path, 0o444);
+    const waiting = await core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: moveBox(200),
+    });
+    await core.deleteDocument(document.id);
+    const copy = saved(await core.saveDeckCopy(waiting.sittingId));
+    expect(copy.saved).toMatchObject({ kind: "copy", name: "Plan 2.pptx", beside: true });
+    expect(await offsetOf(new Uint8Array(await readFile(join(files, "Plan 2.pptx"))))).toBe(
+      String(200 * 9525),
+    );
+    expect(core.deckChangesWaiting()).toHaveLength(0);
+  });
+
+  // protects=a folder that refuses writes is said as the folder, and its copy is said where it went (#149 review); fails_when=the line says the file is read-only, or the copy is said to be beside it; no_claim=the Output location's own name.
+  it("a folder that refuses writes is named, and the copy goes to the Output location", async () => {
+    const { core, files, path, document } = await opened();
+    await chmod(files, 0o555);
+    try {
+      const waiting = await core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: moveBox(200),
+      });
+      expect(waiting).toMatchObject({
+        kind: "unwritable",
+        why: "folder",
+        folder: basenameOf(files),
+      });
+      const copy = saved(await core.saveDeckCopy(waiting.sittingId));
+      if (copy.saved.kind !== "copy") throw new Error("no copy");
+      expect(copy.saved.beside).toBe(false);
+      expect(copy.saved.path.startsWith(files)).toBe(false);
+      expect(await hashOn(path)).toBe(document.contentHash);
+    } finally {
+      await chmod(files, 0o755);
+    }
+  });
+});
+
+const basenameOf = (path: string) => path.split(/[\\/]/).at(-1) ?? "";
