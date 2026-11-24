@@ -146,7 +146,7 @@ for (const width of [1440, 900] as const) {
       await setLanguage(window, language);
       const page = settings.getByTestId("settings-page-ai");
       await expect(settings.getByTestId("settings-page-title")).toHaveText("AI");
-      await expect(page.locator("section > h4")).toHaveText([...TITLES[language]]);
+      await expect(page.getByRole("heading", { level: 4 })).toHaveText([...TITLES[language]]);
 
       // What each job uses: one row per job, each with one picker, and no other job row anywhere.
       const jobs = page.getByTestId("ai-jobs");

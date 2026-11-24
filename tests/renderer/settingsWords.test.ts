@@ -93,6 +93,15 @@ const CONSENT_FACTS = [
   "agents.connect.background",
   "agents.connect.background.codex",
   "agents.connect.codexInstructions",
+  // One-press Claude Code install disclosure, browser sign-in security fact, and plan fallback (#3638).
+  "agents.install.disclosure",
+  "agents.install.firstRun.detail",
+  "agents.install.settings.detail",
+  "agents.install.progress.detail",
+  "agents.install.signIn.detail",
+  "agents.install.signIn.notYet",
+  "agents.install.noPlan.detail.named",
+  "agents.install.noPlan.detail.desktop",
   // What the leave to write allows: a check of its notes goes to the User's AI model (#3317), and
   // IncarnaMind copies the files it names for a Canvas (#3406).
   "agents.propose.hint",

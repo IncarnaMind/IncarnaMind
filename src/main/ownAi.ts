@@ -8,10 +8,11 @@
  * when the run ends; nothing of the run is kept.
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
-import { findOnPath, object, older, StalledError, short } from "./agentCommand";
+import { object, older, processes, StalledError, short } from "./agentCommand";
+import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 import { modelsIn } from "./ownAiModels";
@@ -70,6 +71,14 @@ class StrayRunError extends Error {
   }
 }
 
+/** Resolves `command` on the login shell's PATH first, falling back to `~/.local/bin/claude`. */
+function resolveCommand(command: string): Promise<string | null> {
+  const home = process.env.HOME || process.env.USERPROFILE || homedir();
+  return resolveCommandOnPath(command, {
+    environment: () => processes.environment(),
+    home,
+  });
+}
 /**
  * `command`, `codexCommand`: Claude Code's and Codex's, or null where this copy runs none (a test
  * build with a stand-in for only one). `conversations`: the folder of IncarnaMind's own that holds
@@ -148,7 +157,7 @@ export function createOwnAi({
   return {
     async installed(client) {
       if (client === "codex") return (await codex()) !== null;
-      return command !== null && (await findOnPath(command)) !== null;
+      return command !== null && (await resolveCommand(command)) !== null;
     },
 
     async purge(key) {
@@ -157,7 +166,8 @@ export function createOwnAi({
         await rm(folder, { recursive: true, force: true, maxRetries: 3 });
         return false;
       }
-      const purged = await short(command, ["purge", folder, "--yes"]);
+      const executable = (await resolveCommand(command)) ?? command;
+      const purged = await short(executable, ["purge", folder, "--yes"]);
       await rm(folder, { recursive: true, force: true, maxRetries: 3 });
       if (purged.kind !== "exited") return false;
       // No transcript for the folder is an error to `claude purge`, and nothing to delete.
@@ -170,7 +180,8 @@ export function createOwnAi({
         return path === null ? { kind: "missing" } : codexStatus(path);
       }
       if (command === null) return { kind: "missing" };
-      const version = await short(command, ["--version"]);
+      const executable = (await resolveCommand(command)) ?? command;
+      const version = await short(executable, ["--version"]);
       if (version.kind === "no-answer") return { kind: "unknown" };
       if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
       const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
@@ -178,7 +189,7 @@ export function createOwnAi({
         return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
       }
       // 0 signed in, 1 not: anything else says nothing about the sign-in.
-      const signedIn = await short(command, ["auth", "status"]);
+      const signedIn = await short(executable, ["auth", "status"]);
       if (signedIn.kind === "exited" && signedIn.code === 0) return { kind: "ready" };
       if (signedIn.kind === "exited" && signedIn.code === 1) return { kind: "signed-out" };
       return { kind: "unknown" };
@@ -259,8 +270,9 @@ export function createOwnAi({
           }),
           { mode: 0o600 },
         );
+        const executable = (await resolveCommand(command)) ?? command;
         const result = await runClaudeCodeTurn({
-          command,
+          command: executable,
           cwd,
           scratch,
           systemPrompt: request.instructions,

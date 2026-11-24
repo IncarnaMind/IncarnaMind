@@ -179,26 +179,29 @@ test("asking without a chat model says what to set up at the top of the Mind, an
   await dismissChatSetup(window);
   await newMind(window);
 
-  // At the top of the Mind: one line and one action, read as a status.
+  // At the top of the Mind: what asking needs and how to connect or install, read as a status.
   const top = window.getByTestId("chat-readiness");
-  await expect(top).toContainText("Asking needs an AI model");
-  await expect(top.getByRole("button")).toHaveText("Set up");
+  const connect = top.getByTestId("chat-readiness-connect-ai");
+  await expect(top).toContainText("Asking needs your AI");
+  await expect(connect).toHaveText("Connect your AI");
+  await expect(top.getByTestId("readiness-install-claude-code")).toHaveText("Install Claude Code");
   await expect(window.getByRole("status").filter({ has: top })).toHaveCount(0);
   await screenshot(window, "needs-chat-model-en");
 
-  // The notice's action opens Settings on Models, by keyboard too.
+  // The notice's action opens Settings on AI, by keyboard too.
   await nameMind(window, "Tides");
   await window.keyboard.press("End");
-  await top.getByRole("button").focus();
-  await expect(top.getByRole("button")).toHaveCSS("outline-style", "solid");
+  await connect.focus();
+  await expect(connect).toHaveCSS("outline-style", "solid");
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   await window.keyboard.press("Escape");
 
   // In Chinese.
   await bridge(window).settings("zh-CN");
-  await expect(top).toContainText("提问需要 AI 模型");
-  await expect(top.getByRole("button")).toHaveText("设置");
+  await expect(top).toContainText("提问需要连接你的 AI");
+  await expect(connect).toHaveText("连接你的 AI");
+  await expect(top.getByTestId("readiness-install-claude-code")).toHaveText("安装 Claude Code");
   await screenshot(window, "needs-chat-model-zh");
   await bridge(window).settings("en");
 

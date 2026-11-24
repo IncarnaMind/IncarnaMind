@@ -10262,6 +10262,7 @@ export const dataKinds = [
   "worked-figures",
   "library-counts",
   "note-requests",
+  "installer-request",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -10360,6 +10361,7 @@ export const dataFlowIds = [
   "calendars",
   "decision-checks",
   "hosted-agents",
+  "agent-install",
 ] as const;
 
 export type DataFlowId = (typeof dataFlowIds)[number];
@@ -13119,6 +13121,38 @@ export interface AgentClient {
   setup: AgentSetupKind;
   /** Where setting it up puts the Skill that tells it when to use IncarnaMind; null if it reads none. */
   skillPath: string | null;
+}
+
+export type ClaudeCodeInstallStage = "downloading" | "installing";
+
+export type ClaudeCodeInstallFailureReason =
+  | "network"
+  | "checksum"
+  | "unsupported"
+  | "local-mode"
+  | "root"
+  | "sign-in-failed"
+  | "failed";
+
+/** Lifecycle state of the one-press Claude Code installation and browser sign-in flow (#3638). */
+export type ClaudeCodeInstallState =
+  | { kind: "idle" }
+  | { kind: "installing"; stage: ClaudeCodeInstallStage; directory: string }
+  | { kind: "awaiting-sign-in"; notYet?: boolean }
+  | { kind: "signed-in" }
+  | { kind: "no-plan" }
+  | { kind: "failed"; reason: ClaudeCodeInstallFailureReason; detail?: string };
+
+/** Whether one-press Claude Code installation is offered on this computer (#3638). */
+export interface ClaudeCodeInstallAvailability {
+  /** True when the host supplies an installer adapter (desktop macOS, Linux, Windows). */
+  supported: boolean;
+  /** True when a `claude` executable is already present on this computer. */
+  installed: boolean;
+  /** True when any command-line AI is already detected, so the Install offer stays hidden. */
+  cliAgentPresent: boolean;
+  /** Display path where Anthropic's installer places the launcher (e.g. `~/.local/bin`). */
+  directory: string;
 }
 
 /** What setting an agent up will change in its settings file, the pairing's key hidden. */
@@ -16078,6 +16112,24 @@ export interface CoreApi {
   listAgentActivity(pairingId: string): Promise<AgentActivity[]>;
   /** The agents IncarnaMind can be set up in, those on this computer first. */
   listAgentClients(): Promise<AgentClient[]>;
+  /** Whether one-press Claude Code installation is offered on this computer (#3638). */
+  getClaudeCodeInstallAvailability(): Promise<ClaudeCodeInstallAvailability>;
+  /** Current state of the one-press Claude Code installation and browser sign-in flow (#3638). */
+  getClaudeCodeInstallState(): Promise<ClaudeCodeInstallState>;
+  /**
+   * Downloads and runs Anthropic's official Claude Code installer on explicit User press (#3638).
+   * Records consent for the download through `consent.ts` (ADR-0022). Leaves an already-installed
+   * `claude` untouched and hands off to Anthropic's sign-in when needed.
+   */
+  installClaudeCode(): Promise<ClaudeCodeInstallState>;
+  /** Opens Anthropic's own browser sign-in again (`claude auth login`) without seeing credentials. */
+  openClaudeCodeSignIn(): Promise<ClaudeCodeInstallState>;
+  /** Checks whether Claude Code sign-in has completed (`claude auth status --json`). */
+  checkClaudeCodeAuth(): Promise<ClaudeCodeInstallState>;
+  /** Cancels an active installation or browser sign-in wait and cleans up partial downloads. */
+  cancelClaudeCodeInstall(): Promise<ClaudeCodeInstallState>;
+  /** Resets a finished or failed installation state back to idle. */
+  resetClaudeCodeInstall(): Promise<ClaudeCodeInstallState>;
   /** What setting up an agent will change in its settings file; null for one that has none. */
   previewAgentSetup(client: AgentClientId): Promise<AgentSetupPreview | null>;
   /**
@@ -16439,6 +16491,7 @@ export interface CoreEvents {
    * was made, changed, used or removed: as `getAgents` now returns it.
    */
   "agents.changed": AgentSettings;
+  "claudeCodeInstall.changed": ClaudeCodeInstallState;
   /** An outside agent made a call (see `listAgentActivity`). */
   "agents.activity": AgentActivity;
   /** A request to the User's own AI was made or read (see `listAgentRequests`). */
@@ -16964,6 +17017,13 @@ const methods: Record<CoreApiMethod, true> = {
   getAgentLaunch: true,
   listAgentActivity: true,
   listAgentClients: true,
+  getClaudeCodeInstallAvailability: true,
+  getClaudeCodeInstallState: true,
+  installClaudeCode: true,
+  openClaudeCodeSignIn: true,
+  checkClaudeCodeAuth: true,
+  cancelClaudeCodeInstall: true,
+  resetClaudeCodeInstall: true,
   previewAgentSetup: true,
   setUpAgent: true,
   undoAgentSetup: true,

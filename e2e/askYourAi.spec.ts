@@ -169,7 +169,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     await expect(pill).toContainText("Ask Claude Code");
     await expect(window.getByTestId("ask-pill")).toHaveCount(0);
     await expect(window.getByTestId("chat-readiness")).toHaveCount(0);
-    await expect(frontMind(window)).not.toContainText("Asking needs an AI model");
+    await expect(frontMind(window)).not.toContainText("Asking needs your AI");
     await pointAndClick(window, pill);
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     let [link] = await urlsOpened(app);
@@ -531,7 +531,7 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
     await expect(window.getByTestId("checks-asked-set-up")).toHaveText("Set up a model");
     await expect(window.getByTestId("badge-check-mind")).toBeDisabled();
-    await expect(window.getByTestId("check-card")).not.toContainText("Asking needs an AI model");
+    await expect(window.getByTestId("check-card")).not.toContainText("Asking needs your AI");
     await shot(window, "check-no-model-asked-en");
     await setLanguage(window, "zh-CN");
     await expect(asked).toHaveText("已交给 Claude Code：在那里发送请求即可。");
@@ -629,11 +629,11 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     expect(connectedAgents).toBe(2);
     await press();
     const alone = window.getByTestId("checks-problem");
-    await expect(alone).toContainText("Checking needs an AI model");
+    await expect(alone).toContainText("Checking needs your AI");
     await expect(alone).not.toContainText("Asking");
     await shot(window, "check-no-model-alone-en");
     await setLanguage(window, "zh-CN");
-    await expect(alone).toContainText("核对需要 AI 模型");
+    await expect(alone).toContainText("核对需要连接你的 AI");
     await shot(window, "check-no-model-alone-zh-CN");
     await setLanguage(window, "en");
 
@@ -642,7 +642,7 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     await useLocalChatModel(window);
     await press();
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
-    await expect(window.getByTestId("check-card")).not.toContainText("Checking needs an AI model");
+    await expect(window.getByTestId("check-card")).not.toContainText("Checking needs your AI");
     await shot(window, "check-with-model-en");
     await setLanguage(window, "zh-CN");
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);

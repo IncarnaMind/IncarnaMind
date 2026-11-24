@@ -331,6 +331,10 @@ export interface LaunchOptions {
   /** The command that stands in for the User's Codex the same way (#3639). */
   ownCodex?: string;
   /**
+   * Origin of a local HTTP server standing in for the one-press Claude Code installer (#3638).
+   */
+  claudeInstaller?: string;
+  /**
    * More of the app's environment, by name: a made-up credential, or a switch such as
    * ELECTRON_DISABLE_SANDBOX. Nothing else comes from the test's own (`launchEnvironment`), and
    * a trace keeps all of it, so never a real key.
@@ -436,6 +440,7 @@ export async function launchApp(
     systemCalendar,
     calendarSyncMs,
     ownAi,
+    claudeInstaller,
     ownCodex,
     extraEnv,
     extraArgs = [],
@@ -499,6 +504,7 @@ export async function launchApp(
       contradictionWatchDelayMs === undefined ? undefined : String(contradictionWatchDelayMs),
     INCARNAMIND_TEST_AGENT_APPS: JSON.stringify(agentApps),
     INCARNAMIND_TEST_OWN_AI: ownAi,
+    INCARNAMIND_TEST_CLAUDE_INSTALLER: claudeInstaller,
     INCARNAMIND_TEST_OWN_CODEX: ownCodex,
     ...extraEnv,
   });
