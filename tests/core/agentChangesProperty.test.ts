@@ -93,7 +93,8 @@ const NOISE = [
 /**
  * Where a token can stand that isn't after words: what each path makes of it. A rewrite reads
  * no Markdown but formulas, so there it cites where it stands; new paragraphs are Markdown, so
- * there one in code is words, and one in a formula or a link's address is refused.
+ * there one in code is words, and one in a formula or a link's address is refused. A rewrite
+ * that writes a heading or a list becomes those Blocks, so it reads as new paragraphs do (#3747).
  */
 const WRAPS = {
   formula: { wrap: (token: string) => `$x ${token} y$`, rewrite: "refused", add: "refused" },
@@ -127,6 +128,7 @@ function agentText(rng: ReturnType<typeof random>) {
   const wrapped: { wrap: Wrap; token: Citable }[] = [];
   let keepsCitation = false;
   let keepsNote = false;
+  let writesBlocks = false;
   const piece = (): string => {
     const roll = rng.next();
     if (roll < 0.02) {
@@ -164,6 +166,7 @@ function agentText(rng: ReturnType<typeof random>) {
       );
       return ["| Claim | Source |", "| --- | --- |", ...rows].join("\n");
     }
+    if (roll < 0.3) writesBlocks = true;
     if (roll < 0.22) return `## ${words(1, 4)}`;
     if (roll < 0.3) return `- ${words(2, 5)}`;
     // A footnote's definition, as Markdown writes one: never where a token goes.
@@ -171,7 +174,7 @@ function agentText(rng: ReturnType<typeof random>) {
     return `${words(3, 8)}.`;
   };
   const text = Array.from({ length: 1 + Math.floor(rng.next() * 3) }, block).join("\n\n");
-  return { text, tokens, wrapped, keepsCitation, keepsNote };
+  return { text, tokens, wrapped, keepsCitation, keepsNote, writesBlocks };
 }
 
 const CASES = 2000;
@@ -190,7 +193,8 @@ describe("an outside agent's change, whatever it writes (#352)", () => {
           if (n > 0) expected[key] = (expected[key] ?? 0) + n;
         };
         const accepted = outcome === "accepted";
-        const wraps = written.wrapped.map((each) => ({ ...each, made: WRAPS[each.wrap][path] }));
+        const reads = path === "rewrite" && written.writesBlocks ? "add" : path;
+        const wraps = written.wrapped.map((each) => ({ ...each, made: WRAPS[each.wrap][reads] }));
         if (wraps.some((each) => each.made === "refused")) expect(accepted).toBe(false);
         // A rewrite replaces the User's paragraph: what it keeps of it, it keeps by handle, and
         // never a figure.
