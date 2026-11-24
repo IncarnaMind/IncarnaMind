@@ -243,6 +243,12 @@ if (testHooks) {
   app.commandLine.appendSwitch("disable-background-timer-throttling");
 }
 
+// On a Mac, the GPU compiles a shader the first time the window draws each new kind of thing,
+// and the window waits for it: about 300 ms on a new Mind's first open, up to 2 s on a slower
+// Mac. Text and shapes drawn on the CPU need almost none; the GPU still puts the layers together
+// (#3723).
+if (process.platform === "darwin") app.commandLine.appendSwitch("disable-gpu-rasterization");
+
 // Electron takes every privileged scheme in one call: a second would replace the first.
 protocol.registerSchemesAsPrivileged([
   DOCUMENT_SCHEME_PRIVILEGES,

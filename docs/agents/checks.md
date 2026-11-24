@@ -111,7 +111,7 @@ What it can't see (#1331 adds what it can):
 
 - **Shifts in the 500 ms after an input.** Chromium counts those as the User's own, so a shift the User's action set off elsewhere, or a jump while typing, goes unseen. A green check doesn't mean nothing moved: watch the video too.
 - **A flash or a lost scroll position,** since nothing moves. The videos show both.
-- Times on CI read a little high, because the check films every frame while it measures.
+- Times on CI read a little high, because the check films every frame while it measures. On a Mac's first launch the filming also waits while the GPU compiles its first shaders. So the first-open flow run alone on a fresh macOS runner can read close to a second for the first Question, which the unfilmed app doesn't show. Run with the other feel specs, it comes after earlier launches and reads true (#3723).
 
 To run it on what you touch, build once, then run each matching spec on its own:
 
