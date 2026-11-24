@@ -18,10 +18,11 @@ import type { EditedParagraph, ShapeEdit } from "../../../../core/exports/pptxPa
 import type { Language } from "../../../../core/language";
 import { formatDateTime } from "../../../../shared/dates";
 import { core } from "../../core";
+import { describeError } from "../../errors";
 import { languageNow, useLanguage } from "../../i18n";
 import type { Words, WordsInLine } from "../../lineNames";
 import { useAppStore } from "../../store";
-import { makeInTurn, UndoRefused, useUndo } from "../../undo";
+import { makeInTurn, UndoRefused, undoSettled, useUndo } from "../../undo";
 import {
   adopt,
   beginWrite,
@@ -84,15 +85,22 @@ const joined =
     `${first(t)} · ${then(t, cut)}`;
 
 export interface DeckEditing {
-  /** Hands a gesture's edits over to be written. */
-  edit(edits: ShapeEdit[], what: DeckGesture): void;
-  /** The deck as the last edit wrote it, drawn while its version is one this window wrote. */
+  /** Hands a gesture's edits over to be written; false once it was refused, nothing written. */
+  edit(edits: ShapeEdit[], what: DeckGesture): Promise<boolean>;
+  /**
+   * The deck as the sitting has it: as its last write left it, or with the change that waits. It
+   * is what is drawn while the deck's version is one this window wrote; null: the file is drawn.
+   */
   written: Uint8Array | null;
   /** What names the deck's version: the same while this window's hand edits wrote it. */
   steady: string;
+  /** The content hash of the file as the viewer read it, when it draws that: set by the viewer. */
+  read: { current: string | null };
   /** The file that couldn't take the last edit, while it waits to be saved as a copy. */
   waiting: DeckUnwritable | null;
   saveCopy(): void;
+  /** Writes the change that waits again, as the file may take it now. */
+  tryAgain(): void;
   /** A text box that runs past its shape after typing, while the line about it shows. */
   overflow: Overflow | null;
   setOverflow(overflow: Overflow | null): void;
@@ -102,65 +110,117 @@ export interface DeckEditing {
   wroteFile: boolean;
 }
 
-/** Sittings handed from a deck's viewer to its copy's, which takes it up once it opens. */
-const handedOn = new Map<string, string>();
+/**
+ * A sitting this window's hand edits go on with, by Document. It is kept while a tab of the window
+ * shows the deck, as a look at another tab unmounts the viewer, and ends when the last tab showing
+ * the deck closes, the deck changes elsewhere or is put back, or the window closes.
+ */
+interface Here {
+  sittingId: string;
+  /** What names the deck while the sitting's writes are what it holds (`steadyVersion`). */
+  key: string;
+  /** What the sitting's next gesture is made on: as last written, or with the change that waits. */
+  bytes: Uint8Array;
+  waiting: DeckUnwritable | null;
+}
 
-/** Hand editing of the deck the viewer shows, `shown` being the content hash of what it read. */
-export function useDeckEditing(
-  document: Document,
-  shown: string,
-  tabId: string | null,
-): DeckEditing {
+const useHere = create<{ byDocument: Readonly<Record<string, Here>> }>(() => ({ byDocument: {} }));
+
+const setHere = (documentId: string, here: Here | null) =>
+  useHere.setState((state) => {
+    const { [documentId]: _, ...others } = state.byDocument;
+    return { byDocument: here ? { ...others, [documentId]: here } : others };
+  });
+
+/** The sitting on this Document ends here: the next gesture begins another, from the file. */
+function endHere(documentId: string): void {
+  const here = useHere.getState().byDocument[documentId];
+  if (!here) return;
+  setHere(documentId, null);
+  void core
+    .closeDeckSitting(here.sittingId)
+    .catch((error: unknown) => console.error("The deck's sitting couldn't close.", error));
+}
+
+const shownIn = (layout: ReturnType<typeof useAppStore.getState>["layout"]) =>
+  new Set(
+    (layout?.groups ?? []).flatMap((group) =>
+      group.tabs.flatMap((tab) => (tab.item.kind === "document" ? [tab.item.documentId] : [])),
+    ),
+  );
+
+// A deck's sitting ends once no tab shows the deck: one that was shown and isn't any more. It
+// ends after the viewer has gone and handed over the words its open text box held, and their write.
+useAppStore.subscribe((state, before) => {
+  if (state.layout === before.layout) return;
+  const now = shownIn(state.layout);
+  const was = shownIn(before.layout);
+  const gone = Object.keys(useHere.getState().byDocument).filter(
+    (documentId) => was.has(documentId) && !now.has(documentId),
+  );
+  if (gone.length === 0) return;
+  setTimeout(() => {
+    void undoSettled().then(() => {
+      const shown = shownIn(useAppStore.getState().layout);
+      for (const documentId of gone) if (!shown.has(documentId)) endHere(documentId);
+    });
+  }, 0);
+});
+
+/** Whether the core refused because the deck changed under the sitting: it is read again. */
+const changedUnder = (error: unknown) => describeError(error).wording?.key === "error.deck.changed";
+
+/** Hand editing of the deck the viewer shows. */
+export function useDeckEditing(document: Document, tabId: string | null): DeckEditing {
   const language = useLanguage();
-  const sitting = useRef<string | null>(null);
-  const latest = useRef(shown);
-  latest.current = shown;
-  const steady = useSteadyVersion(document.id, shown);
-  const [written, setWritten] = useState<{ key: string; bytes: Uint8Array } | null>(null);
-  const [waiting, setWaiting] = useState<DeckUnwritable | null>(null);
+  const latest = useRef(document.contentHash);
+  latest.current = document.contentHash;
+  const read = useRef<string | null>(null);
+  const steady = useSteadyVersion(document.id, document.contentHash);
+  const stored = useHere((state) => state.byDocument[document.id]);
+  const here = stored?.key === steady ? stored : undefined;
   const [overflow, setOverflow] = useState<Overflow | null>(null);
   const [wroteFile, setWroteFile] = useState(false);
 
-  // Another version than this viewer's hand edits wrote (another program's, an agent's, one put
+  // Another version than this window's hand edits wrote (another program's, an agent's, one put
   // back) is read again, and the next gesture begins a sitting on it.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: what names the deck changed
   useEffect(() => {
-    setWritten(null);
-    setWaiting(null);
-    if (!handedOn.has(document.id)) sitting.current = null;
-  }, [steady]);
+    if (stored && stored.key !== steady) endHere(document.id);
+  }, [stored, steady, document.id]);
 
   useEffect(() => {
-    sitting.current = handedOn.get(document.id) ?? null;
-    handedOn.delete(document.id);
     void refreshKept(document.id).catch((error: unknown) =>
       console.error("The deck's kept states couldn't be read.", error),
     );
-    return () => {
-      const id = sitting.current;
-      sitting.current = null;
-      if (id) {
-        void core
-          .closeDeckSitting(id)
-          .catch((error: unknown) => console.error("The deck's sitting couldn't close.", error));
-      }
-    };
   }, [document.id]);
+
+  const keyOf = useCallback(
+    (version: string) => steadyVersion(useHandVersions.getState(), document.id, version),
+    [document.id],
+  );
 
   /** Takes what the core did: draws it, or keeps the edit waiting. Null when it waits. */
   const took = useCallback(
     (result: DeckEdit): Extract<DeckEdit, { kind: "saved" }> | null => {
       if (result.kind === "unwritable") {
-        sitting.current = result.sittingId;
-        setWaiting(result);
+        setHere(document.id, {
+          sittingId: result.sittingId,
+          key: keyOf(latest.current),
+          bytes: result.bytes,
+          waiting: result,
+        });
         return null;
       }
-      setWaiting(null);
       if (result.documentId !== document.id) {
         // The sitting goes on in the copy beside the deck, in a tab of its own beside this one.
-        sitting.current = null;
-        handedOn.set(result.documentId, result.sittingId);
+        setHere(document.id, null);
         adopt(result.documentId, result.contentHash);
+        setHere(result.documentId, {
+          sittingId: result.sittingId,
+          key: steadyVersion(useHandVersions.getState(), result.documentId, result.contentHash),
+          bytes: result.bytes,
+          waiting: null,
+        });
         const { layout, openDocument } = useAppStore.getState();
         const group = layout?.groups.find((each) => each.tabs.some((tab) => tab.id === tabId));
         void openDocument(
@@ -169,18 +229,33 @@ export function useDeckEditing(
         );
         return result;
       }
-      sitting.current = result.sittingId;
-      setWritten({
-        key: steadyVersion(useHandVersions.getState(), document.id, result.contentHash),
+      setHere(document.id, {
+        sittingId: result.sittingId,
+        key: keyOf(result.contentHash),
         bytes: result.bytes,
+        waiting: null,
       });
       if (result.saved.kind === "file") {
         setWroteFile(true);
-        if (result.saved.keptId) void refreshKept(document.id);
+        if (result.saved.keptId) {
+          void refreshKept(document.id).catch((error: unknown) =>
+            console.error("The deck's kept states couldn't be read.", error),
+          );
+        }
       }
       return result;
     },
-    [document.id, tabId],
+    [document.id, tabId, keyOf],
+  );
+
+  /** A write the core refused: the deck changed under it, and is read again; else nothing changed. */
+  const refused = useCallback(
+    (error: unknown) => {
+      if (!changedUnder(error)) return;
+      endHere(document.id);
+      forget(document.id);
+    },
+    [document.id],
   );
 
   /** Runs one write of the deck, telling the versions this window wrote what it wrote. */
@@ -211,8 +286,7 @@ export function useDeckEditing(
           done = await writing(run);
         } catch (error) {
           console.error("A hand edit of the deck couldn't be undone or redone.", error);
-          sitting.current = null;
-          setWritten(null);
+          refused(error);
           throw new UndoRefused((t) => t("viewer.deck.undoRefused"), null);
         }
         if (!took(done)) throw new UndoRefused((t) => t("viewer.deck.waiting.undo"), null);
@@ -223,7 +297,7 @@ export function useDeckEditing(
         redo: () => again(() => core.redoDeckEdit(sittingId, stepId)),
       });
     },
-    [took, writing, language],
+    [took, writing, refused, language],
   );
 
   const edit = useCallback(
@@ -231,46 +305,72 @@ export function useDeckEditing(
       const slide = edits[0]?.slide ?? 1;
       // Text past its box is said of the deck as the last gesture left it.
       setOverflow(null);
-      void makeInTurn(async () => {
+      const drawn = read.current;
+      return makeInTurn(async () => {
+        const going = useHere.getState().byDocument[document.id];
+        const on = going?.key === keyOf(latest.current) ? going : undefined;
         try {
           const result = took(
             await writing(() =>
               core.editDeck({
                 documentId: document.id,
-                sittingId: sitting.current,
-                shown: latest.current,
+                sittingId: on?.sittingId ?? null,
+                // What is drawn: a new sitting begins only on the file as the viewer read it.
+                shown: drawn ?? latest.current,
                 edits,
               }),
             ),
           );
           if (result) step(result, doneWords(what, slide));
+          return true;
         } catch (error) {
-          sitting.current = null;
-          setWritten(null);
+          refused(error);
+          useAppStore.getState().reportError(error);
+          return false;
+        }
+      });
+    },
+    [document.id, took, writing, step, refused, keyOf],
+  );
+
+  const waiting = here?.waiting ?? null;
+  const settle = useCallback(
+    (run: (sittingId: string) => Promise<DeckEdit>, said: Words) => {
+      const id = waiting?.sittingId;
+      if (!id) return;
+      void makeInTurn(async () => {
+        try {
+          const result = took(await writing(() => run(id)));
+          if (result) step(result, said);
+        } catch (error) {
+          refused(error);
           useAppStore.getState().reportError(error);
         }
       });
     },
-    [document.id, took, writing, step],
+    [waiting, took, writing, step, refused],
   );
-
-  const saveCopy = useCallback(() => {
-    const id = waiting?.sittingId;
-    if (!id) return;
-    void makeInTurn(async () => {
-      try {
-        const result = took(await core.saveDeckCopy(id));
-        if (result) step(result, (t) => t("viewer.deck.edit.copied"));
-      } catch (error) {
-        useAppStore.getState().reportError(error);
-      }
-    });
-  }, [waiting, took, step]);
+  const saveCopy = useCallback(
+    () =>
+      settle(
+        (id) => core.saveDeckCopy(id),
+        (t) => t("viewer.deck.edit.copied"),
+      ),
+    [settle],
+  );
+  const tryAgain = useCallback(
+    () =>
+      settle(
+        (id) => core.retryDeckEdit(id),
+        (t) => t("viewer.deck.edit.tried"),
+      ),
+    [settle],
+  );
 
   const shrinkToFit = useCallback(() => {
     if (!overflow) return;
     setOverflow(null);
-    edit(
+    void edit(
       [
         {
           kind: "text",
@@ -290,10 +390,12 @@ export function useDeckEditing(
 
   return {
     edit,
-    written: written?.key === steady ? written.bytes : null,
+    written: here?.bytes ?? null,
     steady,
+    read,
     waiting,
     saveCopy,
+    tryAgain,
     overflow,
     setOverflow,
     shrinkToFit,
@@ -307,6 +409,7 @@ export function putBack(document: Document, kept: KeptDeckState, shown: string):
   /** Writes a kept state over the deck at `from`; what it put back, to go the other way from. */
   const restore = async (keptId: string, from: string) => {
     const restored = await core.restoreKeptDeck({ documentId: document.id, keptId, shown: from });
+    endHere(document.id);
     forget(document.id);
     await refreshKept(document.id);
     return restored;
@@ -316,11 +419,16 @@ export function putBack(document: Document, kept: KeptDeckState, shown: string):
     try {
       let now = await restore(kept.id, shown);
       useUndo.getState().push({
-        said: (t, cut) =>
-          t("viewer.deck.restored", {
+        said: (t, cut) => {
+          const restored = t("viewer.deck.restored", {
             name: cut(document.name),
             time: formatDateTime(kept.keptAt, language),
-          }),
+          });
+          const [letGo] = now.letGo;
+          return letGo
+            ? `${restored} ${t("viewer.deck.saved.letGo", { date: formatDateTime(letGo, language) })}`
+            : restored;
+        },
         undo: async () => {
           const before = now.before;
           if (!before) throw refused();

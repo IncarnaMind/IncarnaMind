@@ -35,6 +35,8 @@ export const deckCommands: readonly Command[] = [
     appliesTo: ["document"],
     when: (ctx) => keptOf(ctx) !== null,
     reversible: true,
+    // It writes the User's own file, which only their hand does; no Tool of the core reaches it.
+    assistant: false,
     run: (ctx) => {
       const found = keptOf(ctx);
       if (!found) return;

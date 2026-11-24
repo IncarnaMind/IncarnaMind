@@ -64,9 +64,17 @@ import { ViewerHeader } from "./ViewerHeader";
 
 interface Loaded {
   bytes: Uint8Array;
+  /** The SHA-256 of `bytes`, as the core names a version: what a hand edit says it was made on. */
+  hash: string;
   deck: PptxResult;
   /** The slides as drawings; null when the deck couldn't be drawn, and is shown as an outline. */
   drawing: DeckDrawing | null;
+}
+
+/** The SHA-256 of `bytes` in hex, as the core's `hashBytes` gives it. */
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 const read = async (bytes: Uint8Array): Promise<Loaded> => {
@@ -80,7 +88,7 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => {
   if (drawing && drawing.unreadable.length > 0) {
     console.warn("viewer.pptx.partsNotRead", drawing.unreadable.join(", "));
   }
-  return { bytes, deck, drawing };
+  return { bytes, hash: await sha256Hex(bytes), deck, drawing };
 };
 
 /** The backdrop's padding, and the gutter on its right where a Citation's mark and label go. */
@@ -103,9 +111,10 @@ const MARK_GAP = 8;
  * the outline it was before: title, text, tables, chart figures, images.
  */
 export function SlidesView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const editing = useDeckEditing(document, document.contentHash, useContext(ViewerTabContext));
+  const editing = useDeckEditing(document, useContext(ViewerTabContext));
   // A version this window's hand edits wrote is drawn from what they wrote, not read again.
   const { loaded, reload } = useDocumentFile(document.id, editing.steady, read);
+  editing.read.current = loaded.kind === "ready" ? loaded.value.hash : null;
   const editable = document.kind === "pptx" && !document.web && document.fileStatus === "available";
   const [written, setWritten] = useState<Loaded | null>(null);
   // What a hand edit wrote is drawn at once, until the viewer reads the file it wrote again.

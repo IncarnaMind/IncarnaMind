@@ -6,6 +6,7 @@ import type {
   ShapeEdit,
 } from "../../../../core/exports/pptxPatch/shapeEdit";
 import type { TextRange } from "../../../../shared/quoteMatch";
+import { beginChange } from "../../undo";
 import type { DeckGesture, Overflow } from "./deckEditing";
 import type { TextEditing } from "./editedText";
 import { SlideCanvas } from "./SlideCanvas";
@@ -192,7 +193,8 @@ export function SlideEditor({
   ranges: ReadonlyMap<string, TextRange[]> | null;
   /** The slide's scale on screen, to turn the pointer's travel into slide pixels. */
   scale?: number;
-  onEdit: (edits: ShapeEdit[], what: DeckGesture) => void;
+  /** Writes a gesture's edits; false once it was refused, nothing written. */
+  onEdit: (edits: ShapeEdit[], what: DeckGesture) => Promise<boolean>;
   /** A text box that doesn't follow its text runs past it after typing. */
   onOverflow?: (overflow: Overflow) => void;
   /** Opens a picture on the slide, as a click on one does where the deck can't be edited. */
@@ -209,9 +211,20 @@ export function SlideEditor({
     path: string;
     box: ShapeBox;
     timer: ReturnType<typeof setTimeout>;
+    /** Says the run was handed over by itself, to the Undo that would have handed it over. */
+    ended: () => void;
   } | null>(null);
-  const edit = useRef(onEdit);
-  edit.current = onEdit;
+  const onEditNow = useRef(onEdit);
+  onEditNow.current = onEdit;
+  /** Writes a gesture; one refused leaves the slide as drawn, the shape's stand-in let go. */
+  const edit = useRef((edits: ShapeEdit[], what: DeckGesture) => {
+    void onEditNow.current(edits, what).then((written) => {
+      if (!written) setDraft(null);
+    });
+  });
+  // A text box open while the slide is drawn again (a write before it landed) fits the shape as
+  // it is now, a move not yet drawn from the file with it.
+  const slideNow = useRef(slide);
   const overflowed = useRef(onOverflow);
   overflowed.current = onOverflow;
   const root = useRef<HTMLDivElement>(null);
@@ -223,6 +236,7 @@ export function SlideEditor({
     () => (draft ? { ...slide, items: withBox(slide.items, draft.path, draft.box) } : slide),
     [slide, draft],
   );
+  slideNow.current = shown;
 
   const shapeIdAt = useCallback(
     (path: string) => located(slide.items, path)?.item.shapeId ?? null,
@@ -298,73 +312,59 @@ export function SlideEditor({
     if (!typing) return null;
     const cell = /^(.*)\/(\d+)\.(\d+)$/.exec(typing.path);
     const owner = cell?.[1] ?? typing.path;
-    const at = located(slide.items, owner);
-    const shape = at?.item.shapeId;
     return {
       path: typing.path,
       opened: (element) => placeCaret(element, typing.at),
       done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null) => {
         setTyping(null);
         root.current?.focus({ preventScroll: true });
+        // Words that didn't change write nothing, however the box would fit them.
+        if (!paragraphs) return;
+        const now = slideNow.current;
+        const at = located(now.items, owner);
+        const shape = at?.item.shapeId;
         if (!shape || !at) return;
         if (cell) {
-          if (paragraphs) {
-            edit.current(
-              [
-                {
-                  kind: "cell",
-                  slide: slide.number,
-                  shape,
-                  row: Number(cell[2]),
-                  column: Number(cell[3]),
-                  paragraphs,
-                },
-              ],
-              "cell",
-            );
-          }
+          edit.current(
+            [
+              {
+                kind: "cell",
+                slide: now.number,
+                shape,
+                row: Number(cell[2]),
+                column: Number(cell[3]),
+                paragraphs,
+              },
+            ],
+            "cell",
+          );
           return;
         }
-        const box = slideBox(slide.items, owner);
+        const box = slideBox(now.items, owner);
         const item = at.item;
-        let written: ShapeEdit | null = null;
+        let written: ShapeEdit = { kind: "text", slide: now.number, shape, paragraphs };
         if (fit?.kind === "grow" && box && item.kind === "shape") {
           const text = item.textBox?.h ?? box.h;
           const h = Math.max(1, box.h + fit.height - text);
-          const grows = Math.abs(h - box.h) > 0.5;
-          if (paragraphs || grows) {
-            written = {
-              kind: "text",
-              slide: slide.number,
-              shape,
-              paragraphs: paragraphs ?? currentParagraphs(item),
-              ...(grows && { fit: { kind: "grow", box: { ...box, h } } }),
-            };
+          if (Math.abs(h - box.h) > 0.5) {
+            written = { ...written, fit: { kind: "grow", box: { ...box, h } } };
           }
         } else if (fit?.kind === "shrink") {
-          written = {
-            kind: "text",
-            slide: slide.number,
-            shape,
-            paragraphs: paragraphs ?? currentParagraphs(item),
-            fit,
-          };
-        } else if (paragraphs) {
-          written = { kind: "text", slide: slide.number, shape, paragraphs };
+          written = { ...written, fit };
         }
-        if (written) edit.current([written], paragraphs ? "text" : "fitted");
-        if (fit?.kind === "overflow" && written?.kind === "text") {
+        edit.current([written], "text");
+        if (fit?.kind === "overflow") {
           overflowed.current?.({
-            slide: slide.number,
+            slide: now.number,
             shapeId: shape,
-            paragraphs: written.paragraphs,
+            paragraphs,
             fontScale: fit.fontScale,
             lineReduction: fit.lineReduction,
           });
         }
       },
     };
-  }, [typing, slide]);
+  }, [typing]);
 
   const openText = (path: string, at: { x: number; y: number } | null) => {
     const found = located(shown.items, path);
@@ -384,22 +384,41 @@ export function SlideEditor({
     }
   };
 
+  /** Writes the run of nudges now: its pause ended, or ⌘Z came first and takes it back. */
+  const handOverNudge = useRef(() => {
+    const run = nudge.current;
+    if (!run) return;
+    nudge.current = null;
+    clearTimeout(run.timer);
+    run.ended();
+    movedNow.current(run.path, run.box);
+  });
+  const movedNow = useRef(moved);
+  movedNow.current = moved;
+  useEffect(() => () => handOverNudge.current(), []);
+
   const nudged = (dx: number, dy: number) => {
     if (!selected) return;
-    const from =
-      nudge.current?.path === selected ? nudge.current.box : slideBox(shown.items, selected);
+    const run = nudge.current;
+    if (run && run.path !== selected) handOverNudge.current();
+    const from = nudge.current ? nudge.current.box : slideBox(shown.items, selected);
     if (!from) return;
     const box = { ...from, x: from.x + dx, y: from.y + dy };
-    if (nudge.current) clearTimeout(nudge.current.timer);
-    const path = selected;
-    setDraft({ path, box });
+    setDraft({ path: selected, box });
+    if (nudge.current) {
+      clearTimeout(nudge.current.timer);
+      nudge.current = {
+        ...nudge.current,
+        box,
+        timer: setTimeout(() => handOverNudge.current(), NUDGE_RUN_MS),
+      };
+      return;
+    }
     nudge.current = {
-      path,
+      path: selected,
       box,
-      timer: setTimeout(() => {
-        nudge.current = null;
-        moved(path, box);
-      }, NUDGE_RUN_MS),
+      timer: setTimeout(() => handOverNudge.current(), NUDGE_RUN_MS),
+      ended: beginChange(() => handOverNudge.current()),
     };
   };
 
@@ -510,8 +529,11 @@ export function SlideEditor({
         setSelected(found?.path ?? null);
       }}
       onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget)) return;
+        // Working elsewhere (a line's action among it) takes the nudges so far as made.
+        handOverNudge.current();
         // One shape is selected in the deck at a time: working elsewhere lets this one go.
-        if (!typing && !event.currentTarget.contains(event.relatedTarget)) setSelected(null);
+        if (!typing) setSelected(null);
       }}
       onDoubleClick={(event) => {
         if (typing) return;
@@ -593,18 +615,4 @@ export function SlideEditor({
       )}
     </div>
   );
-}
-
-/** A shape's paragraphs as they are, for an edit that changes only how it fits them. */
-function currentParagraphs(item: Item): EditedParagraph[] {
-  if (item.kind !== "shape" || !item.text) return [];
-  return item.text.paragraphs.map((paragraph, p) => ({
-    source: p,
-    runs: paragraph.runs
-      .map((run, r) => ({
-        source: { paragraph: p, run: r },
-        text: run.lineBreak ? "\n" : run.text,
-      }))
-      .filter((run) => run.text !== ""),
-  }));
 }

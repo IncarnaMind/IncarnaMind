@@ -6,7 +6,7 @@
  * the edit for a copy beside it, and the deck is put back as it was in one step. English and
  * Chinese. Set INCARNAMIND_SCREENSHOTS to a folder to keep a picture of each state.
  */
-import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -461,3 +461,206 @@ for (const [language, index, shape, words, moved] of [
     }
   });
 }
+
+/** The offset of a picture in a slide's XML, in EMU. */
+function pictureAt(xml: string, id: number) {
+  const picture = xml.split("<p:pic>").find((each) => each.includes(`<p:cNvPr id="${id}"`)) ?? "";
+  const [, x, y] = /<a:off x="(-?\d+)" y="(-?\d+)"\/>/.exec(picture) ?? [];
+  return { x: Number(x), y: Number(y) };
+}
+
+const at = async (locator: Locator) => {
+  const box = await locator.boundingBox();
+  return { x: box?.x ?? Number.NaN, y: box?.y ?? Number.NaN };
+};
+
+const SLIDE_ONE = part(unzip(DECK), "ppt/slides/slide1.xml");
+
+test("while a change waits, the slide shows every gesture made since, and the copy holds them all", async () => {
+  const { app, window, path, first } = await opened();
+  try {
+    const box = first.locator('[data-shape-id="4"]');
+    await box.click();
+    await window.keyboard.press("Shift+ArrowLeft");
+    await expect
+      .poll(async () => placeOf(await slideOnDisk(path, 1), 4).x)
+      .toBe(placeOf(SLIDE_ONE, 4).x - 10 * 9525);
+    await expect(undoLine(window)).toContainText("Moved a shape on slide 1");
+    const written = await at(box);
+
+    await chmod(path, 0o444);
+    await window.keyboard.press("Shift+ArrowDown");
+    const problem = window.getByTestId("viewer-deck-unwritable");
+    await expect(problem).toBeVisible();
+    // A drag while it waits: the slide shows it with the others, the first, written one too.
+    const picture = first.locator('[data-shape-id="7"]');
+    const from = await at(picture);
+    await drag(window, await centre(picture), { x: 0, y: 40 });
+    await expect.poll(async () => (await at(picture)).y).toBeGreaterThan(from.y + 30);
+    expect((await at(box)).x).toBeCloseTo(written.x, 0);
+    await expect(window.getByTestId("error-notice")).toHaveCount(0);
+
+    await problem.getByTestId("viewer-deck-save-copy").click();
+    await expect(undoLine(window)).toContainText("Made a copy with your change");
+    const copy = await slideOnDisk(join(sources, "Harbour plan 2.pptx"), 1);
+    expect(placeOf(copy, 4)).toMatchObject({
+      x: placeOf(SLIDE_ONE, 4).x - 10 * 9525,
+      y: placeOf(SLIDE_ONE, 4).y + 10 * 9525,
+    });
+    expect(pictureAt(copy, 7).y).toBeGreaterThan(pictureAt(SLIDE_ONE, 7).y);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a look at another tab keeps the sitting going, so Put back reaches the deck as it was before it", async () => {
+  const { app, window, viewer, path, first } = await opened();
+  try {
+    await first.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => Buffer.compare(await readFile(path), DECK)).not.toBe(0);
+    const group = window.getByTestId("tab-group").filter({ has: viewer });
+    await pointAndClick(window, group.getByTestId("new-tab"));
+    await expect(window.getByTestId("viewer")).toHaveCount(0);
+    await pointAndClick(
+      window,
+      window.getByTestId("document-tab").filter({ hasText: "Harbour plan" }),
+    );
+    await expect(viewer.getByTestId("viewer-slides")).toHaveAttribute("data-drawn", "yes");
+    const again = viewer.getByTestId("viewer-slide-editor").first();
+    await again.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    await expect
+      .poll(async () => placeOf(await slideOnDisk(path, 1), 4).y)
+      .toBe(placeOf(SLIDE_ONE, 4).y + 10 * 9525);
+    await runFromPalette(window, "Put back as it was");
+    await expect.poll(async () => Buffer.compare(await readFile(path), DECK)).toBe(0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a deck another app has open waits, and Try again writes it once that app lets it go", async () => {
+  const { app, window, path, first } = await opened();
+  try {
+    const lock = join(sources, `~$${NAME}`);
+    await writeFile(lock, "PowerPoint");
+    await first.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    const problem = window.getByTestId("viewer-deck-unwritable");
+    await expect(problem).toContainText("another app has it open");
+    expect(Buffer.compare(await readFile(path), DECK)).toBe(0);
+    await still(window, "14-locked-en");
+    await rm(lock);
+    await problem.getByTestId("viewer-deck-try-again").click();
+    await expect(problem).toHaveCount(0);
+    await expect(undoLine(window)).toContainText(
+      `Wrote the change that waited · saved in “${NAME}”`,
+    );
+    expect(placeOf(await slideOnDisk(path, 1), 4).y).toBe(placeOf(SLIDE_ONE, 4).y + 10 * 9525);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a text box opened and left without typing writes nothing", async () => {
+  const { app, window, path, first } = await opened();
+  try {
+    const words = await centre(first.getByText(", checked."));
+    await window.mouse.dblclick(words.x, words.y);
+    await expect(first.locator('[contenteditable="true"]')).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(first.locator('[contenteditable="true"]')).toHaveCount(0);
+    await window.waitForTimeout(1_000);
+    expect(Buffer.compare(await readFile(path), DECK)).toBe(0);
+    await expect(undoLine(window)).not.toContainText("slide 1");
+  } finally {
+    await app.close();
+  }
+});
+
+test("⌘Z right after arrow nudges takes the nudges back, not the gesture before them", async () => {
+  const { app, window, path, first } = await opened();
+  try {
+    const box = first.locator('[data-shape-id="4"]');
+    await drag(window, await centre(box), { x: -80, y: 0 });
+    await expect
+      .poll(async () => placeOf(await slideOnDisk(path, 1), 4).x)
+      .toBeLessThan(placeOf(SLIDE_ONE, 4).x);
+    const dragged = placeOf(await slideOnDisk(path, 1), 4);
+    await window.keyboard.press("ArrowDown");
+    await window.keyboard.press("ArrowDown");
+    await window.keyboard.press("ControlOrMeta+z");
+    await window.waitForTimeout(1_500);
+    expect(placeOf(await slideOnDisk(path, 1), 4)).toEqual(dragged);
+  } finally {
+    await app.close();
+  }
+});
+
+test("Escape in an input method's composition keeps the text box open", async () => {
+  const { app, window, path, second } = await opened("zh-CN");
+  try {
+    const words = await centre(second.getByText("，已核对。"));
+    await window.mouse.dblclick(words.x, words.y);
+    const typing = second.locator('[contenteditable="true"]');
+    await expect(typing).toBeFocused();
+    await window.keyboard.press(LINE_END);
+    const session = await window.context().newCDPSession(window);
+    try {
+      await session.send("Input.imeSetComposition", {
+        text: "quanbu",
+        selectionStart: 6,
+        selectionEnd: 6,
+      });
+      await window.keyboard.press("Escape");
+      await expect(typing).toBeFocused();
+      await session.send("Input.insertText", { text: "全部" });
+    } finally {
+      await session.detach();
+    }
+    await window.keyboard.press("Escape");
+    await expect.poll(async () => slideOnDisk(path, 2)).toContain("，已核对。全部");
+    expect(await slideOnDisk(path, 2)).not.toContain("quanbu");
+  } finally {
+    await app.close();
+  }
+});
+
+test("words typed in an open text box are written when its tab closes", async () => {
+  const { app, window, viewer, path, first } = await opened();
+  try {
+    const words = await centre(first.getByText(", checked."));
+    await window.mouse.dblclick(words.x, words.y);
+    await expect(first.locator('[contenteditable="true"]')).toBeFocused();
+    await window.keyboard.press(LINE_END);
+    await window.keyboard.type(" Rising");
+    await window.keyboard.press("ControlOrMeta+w");
+    await expect(viewer).toHaveCount(0);
+    await expect.poll(async () => slideOnDisk(path, 1)).toContain(", checked. Rising");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a box moved and typed in at once keeps the place it was moved to", async () => {
+  const { app, window, path, first } = await opened();
+  try {
+    const before = placeOf(await slideOnDisk(path, 1), 3);
+    const edge = first.locator('[data-shape-id="3"][data-edge="top"]');
+    await drag(window, await centre(edge), { x: 0, y: 60 });
+    // At once, before the move is drawn from the file: the words where the box was put.
+    const words = await centre(first.getByText(", checked."));
+    await window.mouse.dblclick(words.x, words.y);
+    await expect(first.locator('[contenteditable="true"]')).toBeFocused();
+    await window.keyboard.press(LINE_END);
+    await window.keyboard.type(" Rising");
+    await window.keyboard.press("Escape");
+    await expect.poll(async () => slideOnDisk(path, 1)).toContain(", checked. Rising");
+    const now = placeOf(await slideOnDisk(path, 1), 3);
+    expect(now.y).toBeGreaterThan(before.y);
+    expect(now.x).toBe(before.x);
+  } finally {
+    await app.close();
+  }
+});

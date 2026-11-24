@@ -1,4 +1,4 @@
-import { type CSSProperties, memo, type ReactNode, useId, useRef } from "react";
+import { type CSSProperties, memo, type ReactNode, useId, useLayoutEffect, useRef } from "react";
 import type {
   Box,
   ChartItem,
@@ -542,15 +542,38 @@ const EditableTextBody = memo(
     style: CSSProperties;
   }) {
     const paragraphs = useRef<HTMLDivElement>(null);
-    let composing = false;
-    const follow = (box: HTMLElement) => {
-      if (!composing && paragraphs.current) followText(box, paragraphs.current, body.autofit);
+    const box = useRef<HTMLDivElement | null>(null);
+    const composing = useRef(false);
+    const finished = useRef(false);
+    const follow = (element: HTMLElement) => {
+      if (!composing.current && paragraphs.current) {
+        followText(element, paragraphs.current, body.autofit);
+      }
     };
+    /** Hands the words over once: at blur, or as the box goes with its tab or its window. */
+    const finish = useRef(() => {
+      const element = box.current;
+      if (finished.current || !element) return;
+      finished.current = true;
+      editing.done(
+        editedParagraphs(element, body),
+        paragraphs.current ? measuredFit(element, paragraphs.current, body.autofit) : null,
+      );
+    });
+    useLayoutEffect(() => {
+      const leaving = () => finish.current();
+      window.addEventListener("beforeunload", leaving);
+      return () => {
+        window.removeEventListener("beforeunload", leaving);
+        finish.current();
+      };
+    }, []);
     const grows = body.autofit.kind === "grow";
     return (
       // biome-ignore lint/a11y/useSemanticElements: a text area can't hold the runs' own formatting.
       <div
         ref={(element) => {
+          box.current = element;
           if (element) editing.opened(element);
         }}
         className="slide-text slide-text-editing"
@@ -567,22 +590,19 @@ const EditableTextBody = memo(
         data-testid="viewer-slide-text-editor"
         data-autofit={body.autofit.kind}
         onCompositionStart={() => {
-          composing = true;
+          composing.current = true;
         }}
         onCompositionEnd={(event) => {
-          composing = false;
+          composing.current = false;
           follow(event.currentTarget);
         }}
         onInput={(event) => follow(event.currentTarget)}
-        onBlur={(event) => {
-          const box = event.currentTarget;
-          editing.done(
-            editedParagraphs(box, body),
-            paragraphs.current ? measuredFit(box, paragraphs.current, body.autofit) : null,
-          );
-        }}
+        onBlur={() => finish.current()}
         onKeyDown={(event) => {
-          if (event.key === "Escape") event.currentTarget.blur();
+          // Escape in an input method's composition cancels the composition, not the typing.
+          if (event.key === "Escape" && !event.nativeEvent.isComposing && !composing.current) {
+            event.currentTarget.blur();
+          }
           // A run's formatting comes from the file: the browser's own bold and italic would be lost on save.
           if (
             (event.metaKey || event.ctrlKey) &&
