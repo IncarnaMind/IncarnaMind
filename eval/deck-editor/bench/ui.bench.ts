@@ -87,20 +87,50 @@ async function editDeck(
         continue;
       }
       const scale = box.width / (target.from.w / EMU_PER_PX);
-      const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-      await arm.window.mouse.move(center.x, center.y);
+      // A point of the shape that no shape above it covers, as a person would grab it.
+      const grab = await arm.window.evaluate(
+        ({ id, rect, name }) => {
+          const root: Document | ShadowRoot | null | undefined =
+            name === "A" ? document : document.querySelector("office-kit-pptx-editor")?.shadowRoot;
+          const owner = (element: Element | null) =>
+            name === "A"
+              ? element?.closest(".slide-editor-hit")?.getAttribute("data-shape-id")
+              : element?.closest("[data-pptx-shape-id]")?.getAttribute("data-pptx-shape-id");
+          for (const fy of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+            for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+              const x = rect.x + rect.width * fx;
+              const y = rect.y + rect.height * fy;
+              if (owner(root?.elementFromPoint(x, y) ?? null) === id) return { x, y };
+            }
+          }
+          return null;
+        },
+        { id: target.shapeId, rect: box, name: arm.name },
+      );
+      // B hit-tests shapes in its own layer over the drawing, which the page can't ask: its shape's middle.
+      if (!grab && arm.name === "A") {
+        log.push(`${id} slide ${target.slide}: shape ${target.shapeId} is covered by others`);
+        continue;
+      }
+      const point = grab ?? { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      if (arm.name === "B") {
+        // A click opens a text shape for typing; Escape leaves it selected, to be dragged.
+        await arm.window.mouse.click(point.x, point.y);
+        await arm.window.keyboard.press("Escape");
+      }
+      await arm.window.mouse.move(point.x, point.y);
       await arm.window.mouse.down();
-      await arm.window.mouse.move(center.x + 12 * scale, center.y + 6 * scale, { steps: 4 });
-      await arm.window.mouse.move(center.x + 24 * scale, center.y + 12 * scale, { steps: 4 });
+      await arm.window.mouse.move(point.x + 12 * scale, point.y + 6 * scale, { steps: 4 });
+      await arm.window.mouse.move(point.x + 24 * scale, point.y + 12 * scale, { steps: 4 });
       await arm.window.mouse.up();
       await arm.window.waitForTimeout(250);
-      const moved = await (await arm.shape(target.shapeId)).boundingBox();
-      if (!moved) continue;
+      if (arm.name === "A") await arm.shape(target.shapeId);
       const grow = ((target.to.w - target.from.w) / EMU_PER_PX) * scale;
-      const corner =
+      const handle =
         arm.name === "A"
-          ? await arm.window.locator(".slide-editor-handle--se").boundingBox()
-          : { x: moved.x + moved.width - 1, y: moved.y + moved.height - 1, width: 0, height: 0 };
+          ? arm.window.locator(".slide-editor-handle--se")
+          : arm.window.locator('button[aria-label="Resize se"]');
+      const corner = (await handle.count()) > 0 ? await handle.first().boundingBox() : null;
       if (!corner) {
         log.push(`${id} slide ${target.slide}: no corner handle`);
         continue;
