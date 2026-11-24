@@ -1,7 +1,7 @@
 {
   "name": "incarnamind",
   "productName": "IncarnaMind",
-  "version": "0.1.0-alpha.7",
+  "version": "0.1.0-alpha.8",
   "private": true,
   "description": "The artifact layer for any agent: what your AI writes, checked against your files.",
   "license": "Apache-2.0",
