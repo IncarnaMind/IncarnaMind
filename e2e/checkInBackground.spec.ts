@@ -270,11 +270,17 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
       .click();
     const sheet = window.getByTestId("connect-agent-dialog");
     await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-      "With no AI model set up here, Check and the box at the bottom of a note run your Claude Code in the background. Nothing opens and no chat is added. A check works only through IncarnaMind. In a note’s conversation it can also use its own tools (commands, files, the web), as its own settings allow, and what it asks shows in IncarnaMind. It uses your own Claude plan or API key.",
+      "Checks and note requests run Claude Code in the background on your Claude plan or API key.",
+    );
+    await expect(sheet.getByTestId("connect-agent-background-details")).toHaveText(
+      "Only while no AI model is set up here: nothing opens and no chat is added. A check works only through IncarnaMind; in a note’s conversation it also uses its own tools, as its own settings allow.",
     );
     await both(app, window, "background-connect-sheet", async () => {
       await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-        "没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 Claude Code，不打开窗口，也不新增对话。核对只通过 IncarnaMind 工作。在笔记的对话里，它还可以按自己的设置使用自己的工具（命令、文件、网页），它要问你的会显示在 IncarnaMind 里。用的是你自己的 Claude 订阅或 API 密钥。",
+        "核对和笔记请求在后台运行 Claude Code，用你的订阅或 API 密钥。",
+      );
+      await expect(sheet.getByTestId("connect-agent-background-details")).toHaveText(
+        "只在没设置 AI 模型时这样运行：不打开窗口，也不新增对话。核对只通过 IncarnaMind 工作；在笔记的对话里，它还会按自己的设置使用自己的工具。",
       );
     });
   } finally {
@@ -453,11 +459,17 @@ test("with no model, a press checks the Note on the User's own Codex in the back
       .click();
     const sheet = window.getByTestId("connect-agent-dialog");
     await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-      "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key. In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
+      "Checks run Codex in the background on your ChatGPT plan or API key.",
+    );
+    await expect(sheet.getByTestId("connect-agent-background-details")).toHaveText(
+      "Only while no AI model is set up here: nothing opens, no chat is added, and it may use only IncarnaMind, which stops it at anything else. In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
     );
     await both(app, window, "codex-connect-sheet", async () => {
       await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-        "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
+        "核对在后台运行你的 Codex，用你的 ChatGPT 订阅或 API 密钥。",
+      );
+      await expect(sheet.getByTestId("connect-agent-background-details")).toHaveText(
+        "只在没设置 AI 模型时这样运行：不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
       );
     });
   } finally {

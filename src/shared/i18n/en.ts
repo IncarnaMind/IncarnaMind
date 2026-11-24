@@ -9166,24 +9166,28 @@ export const en = {
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
-    "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. It can also hand over a deck, workbook or other file it made: IncarnaMind reads that one file and keeps each version. What it writes waits for your Check, unless checking as it lands is on in Settings › AI. Its changes to your notes wait for you.",
+    "Its notes appear at once; its changes to your notes wait for you. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
-    "It may read all your Documents and notes, including those you add later. What it reads goes to the AI model {agent} uses.",
-  "agents.connect.reads": "What it reads goes to the AI model {agent} uses.",
+    "It can read all your Documents and notes. What it reads goes to its AI model.",
+  "agents.connect.reads.later": "That includes the Documents and notes you add later.",
+  "agents.connect.reads": "What it reads goes to its AI model.",
   "agents.connect.reads.walled":
-    "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
+    "What it reads goes to its AI model. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",
   "agents.share.folders": "Choose Folders",
   // The consent to start the agent for a check in the background (#3606).
   "agents.connect.background":
-    "With no AI model set up here, Check and the box at the bottom of a note run your {agent} in the background. Nothing opens and no chat is added. A check works only through IncarnaMind. In a note’s conversation it can also use its own tools (commands, files, the web), as its own settings allow, and what it asks shows in IncarnaMind. It uses your own Claude plan or API key.",
+    "Checks and note requests run {agent} in the background on your Claude plan or API key.",
   // The consent to start Codex for a check in the background, and what it reads of its own (#3639).
   "agents.connect.background.codex":
-    "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key.",
+    "Checks run Codex in the background on your ChatGPT plan or API key.",
+  "agents.connect.background.details":
+    "Only while no AI model is set up here: nothing opens and no chat is added. A check works only through IncarnaMind; in a note’s conversation it also uses its own tools, as its own settings allow.",
+  "agents.connect.background.codex.details":
+    "Only while no AI model is set up here: nothing opens, no chat is added, and it may use only IncarnaMind, which stops it at anything else.",
   "agents.connect.codexInstructions":
     "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
-  "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.backup":
