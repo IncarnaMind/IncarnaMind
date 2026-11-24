@@ -232,6 +232,8 @@ describe("a check run on the User's own Codex (#3639)", () => {
     ["limit", "service"],
     ["late", "unsupported"],
     ["early-item", "unsupported"],
+    ["resource-read-codex", "outside"],
+    ["resource-list-other", "outside"],
   ])("ends a run that shows %s", async (shown, reason) => {
     await mode(shown);
     await expect(run()).resolves.toEqual({ kind: "failed", reason });
@@ -275,10 +277,14 @@ describe("a check run on the User's own Codex (#3639)", () => {
       await run();
       await mode("late");
       await run();
+      await mode("late-debug");
+      await run();
       const logged = info.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(logged).toContain("functions.request_user_input");
       expect(logged).toContain("unknown configuration field");
-      expect(logged).not.toContain(TOKEN);
+      expect(logged).toContain("xxxx[hidden] end");
+      expect(logged).not.toContain("DEBUG-MARKER");
+      expect(logged).not.toContain(TOKEN.slice(0, 10));
     } finally {
       info.mockRestore();
     }

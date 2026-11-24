@@ -422,20 +422,21 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
   let reply = "";
   let notice = "";
   let toldHeard = 0;
-  // What it printed on its error stream, for the log when it ends before its turn: never the grant.
-  let errors = "";
+  // Its error stream until its turn starts, whole, so the grant can be taken out before anything is
+  // cut. Only its last line, Codex's own error, reaches the log: with RUST_LOG set in the User's
+  // shell, the rest is Codex's debug output.
+  let errors: string | undefined = "";
   child.stderr?.on("data", (chunk: Buffer) => {
-    if (errors.length < MAX_LOGGED_STDERR) errors += chunk.toString("utf8");
+    if (begun || errors === undefined) return;
+    errors += chunk.toString("utf8");
+    if (errors.length > STDERR_KEPT) errors = undefined;
   });
   // The calls of IncarnaMind's Tools under way: the run waits on them silently.
   const calls = new Set<string>();
   const allowed = (item: Record<string, unknown>) =>
     item.type === "mcp_tool_call" &&
     typeof item.tool === "string" &&
-    ((item.server === SERVER && run.tools.includes(item.tool)) ||
-      // Codex's resource operations come as calls of its own server, or of the one they ask;
-      // they reach only IncarnaMind's, which serves no resources.
-      (RESOURCE_TOOLS.includes(item.tool) && (item.server === "codex" || item.server === SERVER)));
+    ((item.server === SERVER && run.tools.includes(item.tool)) || resourceCall(item));
   try {
     return await readJsonLines<CodexEnd>(child, {
       agent: "Codex",
@@ -520,7 +521,7 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
       console.info(
         "Codex ended before its turn started; the check goes by its link.",
         error instanceof Error ? error.message : "",
-        redacted(errors.slice(0, MAX_LOGGED_STDERR), run.server.env),
+        lastLine(redacted(errors ?? "", run.server.env)).slice(0, MAX_LOGGED_STDERR),
       );
       return { kind: "failed", reason: "unsupported" };
     }
@@ -533,8 +534,29 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
   }
 }
 
-/** As much of Codex's error stream as the log keeps of a run that ended before its turn. */
-const MAX_LOGGED_STDERR = 600;
+/** As much of Codex's last error line as the log keeps. */
+const MAX_LOGGED_STDERR = 300;
+/** Past this much before its turn, nothing of Codex's error stream is logged. */
+const STDERR_KEPT = 1_000_000;
+
+const lastLine = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1) ?? "";
+
+/**
+ * Codex's resource operations, as Codex 0.170.0 reports them: one that names no server comes under
+ * Codex's own name and lists every server's, which is only IncarnaMind's; one that names a server
+ * comes under that server's name. A read always names one. IncarnaMind's serves no resources.
+ */
+function resourceCall(item: Record<string, unknown>): boolean {
+  if (typeof item.tool !== "string" || !RESOURCE_TOOLS.includes(item.tool)) return false;
+  const named = object(item.arguments).server;
+  if (named === undefined) return item.server === "codex" && item.tool !== "read_mcp_resource";
+  return named === SERVER && item.server === SERVER;
+}
 
 /** `text` with every value of the server's variables, the grant among them, taken out. */
 const redacted = (text: string, env: Record<string, string>) =>

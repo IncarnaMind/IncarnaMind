@@ -8,12 +8,15 @@
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped, writing
 // its own and its server's process ids beside the mode file; "outside" asks for a command of its
 // own; "unreadable" prints a line that isn't JSON; "limit" ends as a plan's limit does; "late"
-// exits before its turn starts; "old" is 0.169.0; "signed-out" isn't signed in; "extra-tool" offers
+// exits before its turn starts, and "late-debug" first prints debug lines, as with RUST_LOG set,
+// and puts the grant in its last line; "old" is 0.169.0; "signed-out" isn't signed in; "extra-tool" offers
 // a tool of its own in the preflight; "renamed" no longer knows the feature shell_snapshot, as a
 // later Codex might; "bad-catalog" prints a catalog that isn't one; "other-tool" and "other-server"
 // call an IncarnaMind Tool it wasn't allowed, or another server's; "early-item" prints an item
-// before its turn starts; "resources" lists Codex's resources first, then checks; "stall" goes
-// silent after its turn starts; "slow" thinks for ever.
+// before its turn starts; "resources" lists and reads resources as Codex 0.170.0 reports it, then
+// checks; "resource-read-codex" and "resource-list-other" show a read under Codex's own name and a
+// list naming another server, as it doesn't; "stall" goes silent after its turn starts; "slow"
+// thinks for ever.
 //
 // Like Codex 0.170.0, it refuses a feature it doesn't know.
 import { spawn } from "node:child_process";
@@ -197,6 +200,12 @@ if (mode === "late") {
   console.error("Error: unknown configuration field `sqlite_homes` in -c/--config override");
   process.exit(1);
 }
+if (mode === "late-debug") {
+  for (let at = 0; at < 50; at++)
+    console.error(`2026-11-24T00:00:00Z DEBUG codex_core: line ${at} DEBUG-MARKER`);
+  console.error(`Error: ${"x".repeat(280)}${process.env.INCARNAMIND_AGENT_TOKEN ?? ""} end`);
+  process.exit(1);
+}
 const started = await server();
 say({ type: "thread.started", thread_id: "00000000-0000-7000-8000-000000000000" });
 if (mode === "early-item") {
@@ -243,6 +252,16 @@ if (mode === "wait") {
     },
   });
   setInterval(() => undefined, 1000);
+} else if (mode === "resource-read-codex" || mode === "resource-list-other") {
+  const call =
+    mode === "resource-read-codex"
+      ? { server: "codex", tool: "read_mcp_resource", arguments: { uri: "x://y" } }
+      : { server: "codex", tool: "list_mcp_resources", arguments: { server: "elsewhere" } };
+  say({
+    type: "item.started",
+    item: { id: `item_${item++}`, type: "mcp_tool_call", ...call, status: "in_progress" },
+  });
+  setInterval(() => undefined, 1000);
 } else if (mode === "stall") {
   setInterval(() => undefined, 1000);
 } else if (mode === "slow") {
@@ -266,15 +285,20 @@ if (mode === "wait") {
     return result;
   };
   if (mode === "resources") {
-    const call = {
-      id: `item_${item++}`,
-      type: "mcp_tool_call",
-      server: "codex",
-      tool: "list_mcp_resources",
-      arguments: {},
-    };
-    say({ type: "item.started", item: { ...call, status: "in_progress" } });
-    say({ type: "item.completed", item: { ...call, status: "completed" } });
+    for (const call of [
+      { server: "codex", tool: "list_mcp_resources", arguments: {} },
+      { server: "codex", tool: "list_mcp_resource_templates", arguments: {} },
+      { server: "incarnamind", tool: "list_mcp_resources", arguments: { server: "incarnamind" } },
+      {
+        server: "incarnamind",
+        tool: "read_mcp_resource",
+        arguments: { server: "incarnamind", uri: "x://y" },
+      },
+    ]) {
+      const shown = { id: `item_${item++}`, type: "mcp_tool_call", ...call };
+      say({ type: "item.started", item: { ...shown, status: "in_progress" } });
+      say({ type: "item.completed", item: { ...shown, status: "completed" } });
+    }
   }
   const given = await use("check_mind_yourself", { mindId });
   await use("report_check", {
