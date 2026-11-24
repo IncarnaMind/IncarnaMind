@@ -4,8 +4,8 @@
  * never writes over bytes the viewer didn't show or another program saved; a file that can't be
  * written keeps the edit waiting for a copy beside it; and the kept state puts the deck back.
  */
-import { chmod, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
 import type { DeckEdit } from "../../src/core/api";
@@ -235,6 +235,53 @@ describe("A deck of the User's own, edited by hand", () => {
       }),
     );
     expect(next.saved).toMatchObject({ kind: "file", name: "Quarterly review 2.pptx" });
+  });
+
+  it("keeps the edit waiting when the file's folder takes nothing, or the file is gone", async () => {
+    const { core, path, original, document } = await opened();
+    const folder = dirname(path);
+    await chmod(folder, 0o555);
+    try {
+      const shut = await core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: moveBox(200),
+      });
+      expect(shut).toMatchObject({ kind: "unwritable", why: "read-only" });
+      expect(hashBytes(new Uint8Array(await readFile(path)))).toBe(hashBytes(original));
+      expect(await readdir(folder)).toEqual(["Quarterly review.pptx"]);
+    } finally {
+      await chmod(folder, 0o755);
+    }
+  });
+
+  it("keeps the edit waiting when the file is gone during a sitting, and saves it as a copy where it was", async () => {
+    const { core, path, document } = await opened();
+    const first = saved(
+      await core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: moveBox(200),
+      }),
+    );
+    await rm(path);
+    const waiting = await core.editDeck({
+      documentId: document.id,
+      sittingId: first.sittingId,
+      shown: "",
+      edits: moveBox(300),
+    });
+    expect(waiting).toMatchObject({
+      kind: "unwritable",
+      why: "gone",
+      name: "Quarterly review.pptx",
+    });
+    const copy = saved(await core.saveDeckCopy(waiting.sittingId));
+    expect(copy.saved).toMatchObject({ kind: "copy", name: "Quarterly review.pptx" });
+    if (copy.saved.kind !== "copy") throw new Error("no copy");
+    expect(hashBytes(new Uint8Array(await readFile(copy.saved.path)))).toBe(hashBytes(copy.bytes));
   });
 
   it("puts the deck back as it stood before the sitting, and that can be undone", async () => {
