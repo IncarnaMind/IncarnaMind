@@ -693,9 +693,7 @@ test("two broken connections: Repair all repairs both, and Disconnect all asks i
     const opener = section.getByTestId("agents-disconnect-all-open");
     const ask = section.getByTestId("agents-disconnect-all-ask");
     await opener.click();
-    await expect(ask).toContainText(
-      "Disconnect all 2? IncarnaMind takes its lines out of each app’s settings and removes the Skill copies it added. What they wrote in IncarnaMind stays.",
-    );
+    await expect(ask).toContainText("Disconnect all 2? What they wrote in IncarnaMind stays.");
     await expect(section.getByTestId("agents-disconnect-all-keep")).toBeFocused();
     await shot(window, "disconnect-all-en");
     await setLanguage(window, "zh-CN");

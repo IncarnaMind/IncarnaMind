@@ -508,7 +508,7 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
       expect(part("agents-disconnect-all-ask")).toBeNull();
       await press(part("agents-disconnect-all-open"));
       expect(part("agents-disconnect-all-ask")?.textContent).toContain(
-        "Disconnect all 2? IncarnaMind takes its lines out of each app’s settings and removes the Skill copies it added. What they wrote in IncarnaMind stays.",
+        "Disconnect all 2? What they wrote in IncarnaMind stays.",
       );
       await press(part("agents-disconnect-all-keep"));
       expect(part("agents-disconnect-all-ask")).toBeNull();
@@ -557,7 +557,7 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
       expect(part("agents-disconnect-all-open")?.textContent).toBe("全部断开…");
       await press(part("agents-disconnect-all-open"));
       expect(part("agents-disconnect-all-ask")?.textContent).toBe(
-        "断开全部 2 个？IncarnaMind 会从每个应用的设置中删除它添加的内容，并删除它添加的技能副本。它们在 IncarnaMind 中写下的内容会保留。全部断开保留",
+        "断开全部 2 个？它们在 IncarnaMind 中写下的内容会保留。全部断开保留",
       );
     });
   });

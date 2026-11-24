@@ -475,6 +475,8 @@ export const zhCN = {
   "command.settings.callHelpModel": "通话助手模型",
   "command.settings.repairAllAgents": "修复全部 AI 应用连接",
   "command.settings.disconnectAllAgents": "断开全部 AI 应用…",
+  "command.settings.allAgents.keywords":
+    "设置 你的 AI 应用 智能体 连接 修复 断开 移除 xiufu duankai lianjie zhinengti",
   "command.settings.callHelpModel.keywords":
     "最快 快速 速度 回答 会议 设置 zuikuai sudu huida huiyi",
   "palette.label": "搜索",
@@ -8393,7 +8395,7 @@ export const zhCN = {
   "agents.settings.repairAll": "全部修复（{count} 个）",
   "agents.settings.disconnectAll": "全部断开…",
   "agents.settings.disconnectAll.ask":
-    "断开全部 {count} 个？IncarnaMind 会从每个应用的设置中删除它添加的内容，并删除它添加的技能副本。它们在 IncarnaMind 中写下的内容会保留。",
+    "断开全部 {count} 个？它们在 IncarnaMind 中写下的内容会保留。",
   "agents.settings.disconnectAll.confirm": "全部断开",
   "agents.settings.disconnectAll.keep": "保留",
   "agents.setup.bundle": "一键连接：打开 Claude 进行安装",

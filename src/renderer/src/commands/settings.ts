@@ -111,7 +111,7 @@ export const settingsPageCommands: readonly Command[] = [
   {
     id: "settings.repairAllAgents",
     label: "command.settings.repairAllAgents",
-    keywords: ["settings.title", "command.settings.ai.keywords"],
+    keywords: ["settings.title", "command.settings.allAgents.keywords"],
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openSettings("ai", "repair-all-agents"),
@@ -120,7 +120,7 @@ export const settingsPageCommands: readonly Command[] = [
     // Opens Settings › AI with its question, which nothing is disconnected without (#3644).
     id: "settings.disconnectAllAgents",
     label: "command.settings.disconnectAllAgents",
-    keywords: ["settings.title", "command.settings.ai.keywords"],
+    keywords: ["settings.title", "command.settings.allAgents.keywords"],
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openSettings("ai", "disconnect-all-agents"),
