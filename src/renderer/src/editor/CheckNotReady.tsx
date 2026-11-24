@@ -2,6 +2,7 @@ import type { AgentPairing, ChatReadiness } from "../../../core/api";
 import { checkInBackground, stopBackgroundCheck, useAskedAgent } from "../askedAgent";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { dismissCheckProblem } from "../checks";
+import { installClaudeCodeFromEntry, useClaudeCodeInstallAvailability } from "../claudeCodeInstall";
 import { AskAgentLine } from "../components/AskAgentLine";
 import { MetaLine } from "../components/MetaLine";
 import { LineAction, ProblemLine } from "../components/ProblemLine";
@@ -10,6 +11,7 @@ import {
   readinessAction,
   readinessAlso,
 } from "../components/providers/ChatReadinessNotice";
+import { buttonStyle } from "../components/ui";
 import { useT } from "../i18n";
 import { noModelSetUp } from "../noModelSetUp";
 import { useAppStore } from "../store";
@@ -31,6 +33,7 @@ export function CheckNotReady({
   const openSettings = useAppStore((state) => state.openSettings);
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAskRead(mindId);
+  const installAvailability = useClaudeCodeInstallAvailability();
   const dismiss = () => dismissCheckProblem(mindId);
   const setUp = readinessAction(readiness, t, openSettings, t("question.setUp"), dismiss);
   const noModel = readiness.reason === "no-provider";
@@ -53,6 +56,59 @@ export function CheckNotReady({
       />
     );
   }
+  if (noModel) {
+    const offerInstall =
+      installAvailability?.supported === true && !installAvailability.cliAgentPresent;
+    const connectAi = {
+      label: t("agents.install.connectYourAi"),
+      testId: "checks-connect-ai",
+      onClick: () => {
+        dismiss();
+        openSettings("ai");
+      },
+    };
+    if (!offerInstall) {
+      return (
+        <ProblemLine testId="checks-problem" className="mind-health-line" action={connectAi}>
+          {t("checks.problem.no-provider")}
+        </ProblemLine>
+      );
+    }
+    return (
+      <div
+        data-testid="checks-problem"
+        role="status"
+        className="mind-health-line flex flex-col gap-2"
+      >
+        <p className="font-semibold text-ink">{t("checks.problem.no-provider")}</p>
+        <p className="text-[12.5px] leading-[18px] text-ink-secondary">
+          {t("agents.install.checks.detail")}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-testid="checks-install-claude-code"
+            onClick={() => {
+              dismiss();
+              installClaudeCodeFromEntry();
+            }}
+            className={buttonStyle("primary", "sm")}
+          >
+            {t("agents.install.action")}
+          </button>
+          <button
+            type="button"
+            data-testid="checks-connect-ai"
+            onClick={connectAi.onClick}
+            className={buttonStyle("secondary", "sm")}
+          >
+            {connectAi.label}
+          </button>
+        </div>
+        <p className="text-[11.5px] leading-4 text-ink-meta">{t("agents.install.disclosure")}</p>
+      </div>
+    );
+  }
   return (
     <ProblemLine
       testId="checks-problem"
@@ -60,11 +116,7 @@ export function CheckNotReady({
       action={setUp}
       also={readinessAlso(readiness, t, openSettings, dismiss)}
     >
-      {noModel ? (
-        t("checks.problem.no-provider")
-      ) : (
-        <ReadinessExplanation readiness={readiness} inLine />
-      )}
+      <ReadinessExplanation readiness={readiness} inLine />
     </ProblemLine>
   );
 }

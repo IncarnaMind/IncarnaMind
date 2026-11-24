@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { AgentClient, AgentClientId, AgentPairing } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
+import { resetClaudeCodeInstall } from "../../claudeCodeInstall";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
@@ -8,6 +9,7 @@ import type { Read } from "../../useRead";
 import { AgentFinder } from "../agents/AgentFinder";
 import type { JustSetUp } from "../agents/AgentPairingRow";
 import { clientName, doneWords, helpUrl, takesParts } from "../agents/agentWords";
+import { ClaudeCodeInstallRow } from "../agents/ClaudeCodeInstallRow";
 import { ConnectAgentFields, useAgentConnection } from "../agents/ConnectAgentFields";
 import { LaunchDetails } from "../agents/LaunchDetails";
 import { ReadProblem } from "../ReadProblem";
@@ -28,9 +30,11 @@ const linkClass =
 export function AgentWays({
   clients,
   pairings,
+  onSetUpModel,
 }: {
   clients: Exclude<Read<readonly AgentClient[]>, { state: "loading" }>;
   pairings: readonly AgentPairing[];
+  onSetUpModel(): void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -55,13 +59,41 @@ export function AgentWays({
     if (!done) return;
     setJustSetUp(done);
     setChosen(null);
+    if (client.id === "claude-code") void resetClaudeCodeInstall();
   };
+
+  const openClaudeCodeConnect = useCallback(() => {
+    if (clients.state !== "ready") return;
+    const claudeCode = clients.data.find((each) => each.id === "claude-code");
+    if (claudeCode) {
+      connection.clearProblem();
+      setChosen(claudeCode);
+    }
+  }, [clients, connection]);
+
+  const selectClaudeDesktop = useCallback(() => {
+    if (clients.state !== "ready") return;
+    const desktop = clients.data.find((each) => each.id === "claude-desktop");
+    if (desktop) {
+      connection.clearProblem();
+      setChosen(desktop);
+    }
+  }, [clients, connection]);
 
   return (
     <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
       <h2 id={`${id}-title`} className="text-ui font-semibold text-ink">
         {t("setupPage.ai.agents")}
       </h2>
+      {!pairings.some((each) => each.client === "claude-code") && (
+        <ClaudeCodeInstallRow
+          variant="first-run"
+          pairings={pairings}
+          onSignedIn={openClaudeCodeConnect}
+          onSetUpModel={onSetUpModel}
+          onKeepDesktop={selectClaudeDesktop}
+        />
+      )}
       {pairings.map((pairing) => {
         const done = justSetUp?.pairingId === pairing.id ? justSetUp.result : null;
         return (

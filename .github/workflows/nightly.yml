@@ -66,7 +66,7 @@ jobs:
       - uses: ./.github/actions/packaged-engines
       - uses: ./.github/actions/packaged-speech-windows
       - if: ${{ !cancelled() }}
-        run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts
+        run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts installClaudeCode.packaged.ts
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -90,7 +90,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: ./.github/actions/packaged-engines
       - if: ${{ !cancelled() }}
-        run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts
+        run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts installClaudeCode.packaged.ts
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

@@ -18,6 +18,7 @@ import {
   useOwnAiRunsHere,
   useReadAgentsToAsk,
 } from "./askYourAi";
+import { useClaudeCodeInstallAvailability } from "./claudeCodeInstall";
 import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { useGroupsMerged } from "./useWindowWidth";
@@ -59,6 +60,7 @@ export function setUpModelInstead(): void {
  */
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
+  useClaudeCodeInstallAvailability();
   const only = useOwnAiOnly();
   const reading = useReading((state) => state.reading);
   const place = useAppStore((state) => state.layout?.assistant ?? null);

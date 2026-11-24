@@ -43,6 +43,8 @@ const offers = (shown: ShownTabs, headings: number) =>
 const LANDING = 48;
 /** The line the heading being read is the last one above, from the top of what scrolls. */
 const READING_LINE = 96;
+/** `.mind-editor`'s top padding (`--mind-band` in `styles.css`), used when styles aren't computed. */
+const MIND_BAND = 26;
 
 const sameShown = (a: readonly Heading[], b: readonly Heading[] | null) =>
   b !== null && sameHeadings(a, b);
@@ -124,13 +126,21 @@ export function NoteOutline({
     }
     jumped.current = null;
     const top = scroller.getBoundingClientRect().top;
+    // Chrome above the editor taller than a single notice (e.g. a wrapped readiness line in a
+    // narrow column or a meeting bar) pushes the first line past READING_LINE while at scrollTop 0.
+    const parsedBand = Number.parseFloat(getComputedStyle(editor.view.dom).paddingTop);
+    const band = Number.isFinite(parsedBand) ? parsedBand : MIND_BAND;
+    const extra = Math.max(
+      0,
+      editor.view.dom.getBoundingClientRect().top - top - (READING_LINE - band),
+    );
     const tops = shownHeadings(editor.state).map(({ pos }) => {
       const element = editor.view.nodeDOM(pos);
       return element instanceof HTMLElement
         ? element.getBoundingClientRect().top - top
         : Number.POSITIVE_INFINITY;
     });
-    setCurrent(headingAt(tops, READING_LINE));
+    setCurrent(headingAt(tops, READING_LINE + extra));
   }, [editor, scrollerOf]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the headings changing is when to forget it.

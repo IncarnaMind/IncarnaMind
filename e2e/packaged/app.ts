@@ -25,11 +25,15 @@ export async function launchPackaged(
     speech,
     testHooks,
     documents,
+    extraArgs = [],
+    extraEnv,
     env = {},
   }: {
     speech?: string;
     testHooks?: boolean;
     documents?: boolean;
+    extraArgs?: readonly string[];
+    extraEnv?: Record<string, string | undefined>;
     /** More of the app's environment: a PATH with a stand-in command on it, say. */
     env?: Record<string, string>;
   } = {},
@@ -41,6 +45,7 @@ export async function launchPackaged(
     executablePath: packagedExecutable,
     args: [
       "--use-mock-keychain",
+      ...extraArgs,
       ...(speech
         ? [
             // Chromium's fake microphone plays this file; its audio service reads it only unsandboxed.
@@ -59,6 +64,7 @@ export async function launchPackaged(
       INCARNAMIND_DATA_DIR: data,
       INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
       ...env,
+      ...extraEnv,
     }),
   });
   // A release build opens a fresh profile on the first run's setup: these specs start past it.
