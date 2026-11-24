@@ -36,15 +36,21 @@ test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION
 let dataDir: string;
 let sources: string;
 let home: string;
+let contextClosed: Promise<void> | undefined;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
   sources = await realpath(await createDataFolder());
   home = await realpath(await createDataFolder());
 });
 test.afterEach(async () => {
-  await removeDataFolder(dataDir);
-  await removeDataFolder(sources);
-  await removeDataFolder(home);
+  try {
+    await contextClosed;
+  } finally {
+    contextClosed = undefined;
+    await removeDataFolder(dataDir);
+    await removeDataFolder(sources);
+    await removeDataFolder(home);
+  }
 });
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -99,8 +105,9 @@ const paragraphsOf = (window: Page) =>
 
 test("a Note the agent writes opens behind the one being typed in, and ⌘Z takes back its changes there one by one", async () => {
   const { app, window } = await launchApp(dataDir, { home });
-  await acceptPlainTextKeys(window);
+  const electron = app.process();
   try {
+    await acceptPlainTextKeys(window);
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1440, 900);
     const launch = await connectedToCoast(window);
@@ -214,6 +221,13 @@ test("a Note the agent writes opens behind the one being typed in, and ⌘Z take
       await agent.close();
     }
   } finally {
-    await app.close();
+    // Playwright can still be closing the context after Electron exits (#1741).
+    await new Promise<void>((resolve, reject) => {
+      if (electron.exitCode !== null || electron.signalCode !== null) resolve();
+      else electron.once("exit", () => resolve());
+      contextClosed = app.close();
+      contextClosed.catch(reject);
+    });
+    expect(electron.exitCode).toBe(0);
   }
 });
