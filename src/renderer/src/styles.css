@@ -3151,14 +3151,6 @@
     margin: 0;
     padding: 0;
     box-shadow: none;
-    /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
-    code,
-    pre,
-    .own-ask-value,
-    .own-ask-input,
-    .own-ask-args dt {
-      font-variant-ligatures: none;
-    }
   }
   .own-ask-card .approval-title {
     align-items: flex-start;
@@ -3327,6 +3319,10 @@
   .note-ask-pill-own {
     min-width: 0;
     flex: 1;
+  }
+  /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
+  .own-ask-card :is(code, pre, .own-ask-value, .own-ask-input, .own-ask-args dt) {
+    font-variant-ligatures: none;
   }
   /*
    * The check badge with the Note's own controls at its top right, left of the conversation button

@@ -332,18 +332,6 @@ export const answerInNote = (mindId: string, questionId: string, answer: NoteAns
   core.answerInNote(mindId, questionId, answer).catch(useAppStore.getState().reportError);
 
 /**
- * What the User's own AI asks now in the Note's running request: from its events, or for a window
- * opened while it waits, from the conversation IncarnaMind keeps.
- */
-export const useNoteQuestions = (mindId: string): readonly NoteQuestion[] =>
-  useNoteAsks((state) => {
-    const ask = state.byMind[mindId];
-    return ask?.state === "working" ? ask.questions : NO_QUESTIONS;
-  });
-
-const NO_QUESTIONS: readonly NoteQuestion[] = [];
-
-/**
  * A window opened while a request runs at the Note's foot hears of it, and of what its AI asks,
  * from the core: a waiting question tells nothing more until it is answered (#3653).
  */
