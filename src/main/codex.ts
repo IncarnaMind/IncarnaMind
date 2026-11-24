@@ -12,7 +12,7 @@
  * catalog, the preflight's own Codex folder) is in a private folder of the run's, removed when it
  * ends and swept at the next start if the app didn't live to remove it.
  */
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OwnAiFailure, OwnAiProgress, OwnAiStatus } from "../core/adapters";
@@ -38,6 +38,8 @@ export const LOWEST_CODEX = "0.170.0";
 
 const SERVER = "incarnamind";
 const RUN_FOLDER_PREFIX = "incarnamind-codex-";
+/** The file `runFolder` writes first, so the sweep removes only folders it made. */
+const RUN_MARK = ".incarnamind-codex-run";
 const CATALOG = "catalog.json";
 /** As long as a Tool of IncarnaMind's may take; Codex's own default is a minute. */
 const TOOL_TIMEOUT_SEC = 120;
@@ -140,6 +142,11 @@ export async function sweepCodexRuns(folder = tmpdir()): Promise<void> {
     names.map(async (name) => {
       const pid = Number(name.slice(RUN_FOLDER_PREFIX.length).split("-")[0]);
       if (!name.startsWith(RUN_FOLDER_PREFIX) || !Number.isInteger(pid) || alive(pid)) return;
+      const ours = await access(join(folder, name, RUN_MARK)).then(
+        () => true,
+        () => false,
+      );
+      if (!ours) return;
       await rm(join(folder, name), { recursive: true, force: true, maxRetries: 3 }).catch(
         (error: unknown) =>
           console.warn("Could not remove a Codex run's folder left behind:", errorCode(error)),
@@ -172,8 +179,14 @@ interface Folder {
 async function runFolder(): Promise<Folder> {
   const root = await mkdtemp(join(tmpdir(), `${RUN_FOLDER_PREFIX}${process.pid}-`));
   const folder = { root, work: join(root, "work"), codexHome: join(root, "codex-home") };
-  for (const each of [folder.work, folder.codexHome, join(root, "sqlite"), join(root, "logs")]) {
-    await mkdir(each, { mode: 0o700 });
+  try {
+    await writeFile(join(root, RUN_MARK), "", { mode: 0o600 });
+    for (const each of [folder.work, folder.codexHome, join(root, "sqlite"), join(root, "logs")]) {
+      await mkdir(each, { mode: 0o700 });
+    }
+  } catch (error) {
+    await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+    throw error;
   }
   return folder;
 }
@@ -227,11 +240,16 @@ async function writeCatalog(
     models = null;
   }
   if (!models) return null;
-  await writeFile(
-    join(folder.root, CATALOG),
-    JSON.stringify({ models: models.map((model) => ({ ...model, ...TOOL_FIELDS })) }),
-    { mode: 0o600 },
-  );
+  try {
+    await writeFile(
+      join(folder.root, CATALOG),
+      JSON.stringify({ models: models.map((model) => ({ ...model, ...TOOL_FIELDS })) }),
+      { mode: 0o600 },
+    );
+  } catch (error) {
+    console.info("Could not write the run's model catalog:", errorCode(error));
+    return null;
+  }
   const signedIn = defaultModel(models, false);
   const apiKey = defaultModel(models, true);
   return typeof signedIn === "string" ? { signedIn, apiKey } : null;
@@ -388,7 +406,14 @@ class OutsideError extends Error {
 
 /** Runs the check, from the catalog and the preflight to the end of Codex's turn. */
 export async function runCodex(run: CodexRun): Promise<CodexEnd> {
-  const folder = await runFolder();
+  const folder = await runFolder().catch((error: unknown) => {
+    console.info(
+      "Could not make a Codex run's folder; the check goes by its link.",
+      errorCode(error),
+    );
+    return null;
+  });
+  if (folder === null) return { kind: "failed", reason: "unsupported" };
   try {
     run.signal.throwIfAborted();
     const defaults = await writeCatalog(run.path, folder, run.signal);

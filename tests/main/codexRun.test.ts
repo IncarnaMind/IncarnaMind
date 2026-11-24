@@ -428,15 +428,24 @@ describe("a Codex run's folder left behind", () => {
       for (const name of [
         `incarnamind-codex-${gone.pid}-abc`,
         `incarnamind-codex-${process.pid}-def`,
+        `incarnamind-codex-${gone.pid}-backup`,
         "other",
       ]) {
         await mkdir(join(folder, name, "logs"), { recursive: true });
       }
-      await sweepCodexRuns(folder);
-      expect((await readdir(folder)).sort()).toEqual([
+      for (const name of [
+        `incarnamind-codex-${gone.pid}-abc`,
         `incarnamind-codex-${process.pid}-def`,
-        "other",
-      ]);
+      ])
+        await writeFile(join(folder, name, ".incarnamind-codex-run"), "");
+      await sweepCodexRuns(folder);
+      expect((await readdir(folder)).sort()).toEqual(
+        [
+          `incarnamind-codex-${gone.pid}-backup`,
+          `incarnamind-codex-${process.pid}-def`,
+          "other",
+        ].sort(),
+      );
     } finally {
       await rm(folder, { recursive: true, force: true });
     }

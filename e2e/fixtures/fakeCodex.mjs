@@ -22,11 +22,17 @@
 //
 // Like Codex 0.170.0, it refuses a feature it doesn't know.
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
+/** Writes a file beside the mode file whole before a test can see it. */
+const publish = (name, text) => {
+  const file = join(dirname(modeFile), name);
+  writeFileSync(`${file}.part`, text);
+  renameSync(`${file}.part`, file);
+};
 const modeFile = process.env.INCARNAMIND_TEST_OWN_AI_MODE_FILE ?? "";
 let mode = "check";
 try {
@@ -175,7 +181,7 @@ function ownTools() {
 
 if (args[0] === "debug" && args[1] === "prompt-input") {
   if (mode === "slow-preflight") {
-    writeFileSync(join(dirname(modeFile), "preflight-pid"), String(process.pid));
+    publish("preflight-pid", String(process.pid));
     setInterval(() => undefined, 1000);
     await new Promise(() => undefined);
   }
@@ -235,7 +241,7 @@ const message = (text) =>
   say({ type: "item.completed", item: { id: `item_${item++}`, type: "agent_message", text } });
 if (mode === "wait") {
   message("Looking at your note.");
-  writeFileSync(join(dirname(modeFile), "pids"), `${process.pid} ${started.child.pid}`);
+  publish("pids", `${process.pid} ${started.child.pid}`);
   setInterval(() => undefined, 1000);
 } else if (mode === "outside") {
   say({
