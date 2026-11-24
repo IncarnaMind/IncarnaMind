@@ -139,6 +139,9 @@ describe("every place that opens Settings › AI with no spot named", () => {
 
   test("is a way to the User's own AI, which leads the page, so a new one has to say where it goes", () => {
     expect(naming(/(openSettings|showSettingsPage|showPage)\(\s*["']ai["']\s*\)/)).toEqual([
+      // One-press Claude Code install from empty states and ⌘K (#3638).
+      "claudeCodeInstall.ts",
+      "commands/settings.ts",
       // The Get started card's agent step, and its foot naming what was set.
       "components/FirstOpenSteps.tsx",
       "components/firstRun/CardTail.tsx",
@@ -146,8 +149,12 @@ describe("every place that opens Settings › AI with no spot named", () => {
       "components/library/OrganizeAsk.tsx",
       "components/meetings/MeetingAgentNotes.tsx",
       "components/meetings/MeetingSummaryProblem.tsx",
+      // Empty-state "Connect your AI" beside Install Claude Code (#3638).
+      "components/providers/ChatReadinessNotice.tsx",
       // The Claude app shortcut, when the Note isn't in a Folder it can read.
       "components/providers/ModelSetupCard.tsx",
+      // Empty-state "Connect your AI" on Checks (#3638).
+      "editor/CheckNotReady.tsx",
       // A refused key: the page then opens that provider's own page.
       "keyRefusals.ts",
     ]);

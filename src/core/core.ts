@@ -86,6 +86,7 @@ import {
 import { createAgentAsk } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
+import { createClaudeCodeInstallController } from "./agents/installClaudeCode";
 import { createOwnAiConversations } from "./agents/ownAiConversations";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createOwnAiChecks } from "./agents/ownRun";
@@ -1627,6 +1628,7 @@ export function createCore(adapters: CoreAdapters): Core {
   let connectorsLocalModeChanged = () => {};
   /** Set once calendars exist: Local mode stops reading Google and Microsoft. */
   let calendarsLocalModeChanged = () => {};
+  let claudeCodeInstallLocalModeChanged = () => {};
   /**
    * Local mode on or off: embeddings may switch back to the built-in model,
    * rerank pauses, usage data stops, and outside agents pause.
@@ -1651,6 +1653,7 @@ export function createCore(adapters: CoreAdapters): Core {
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
       calendarsLocalModeChanged();
+      claudeCodeInstallLocalModeChanged();
       await rerankChanged();
       // Questions to a cloud model are refused now (or allowed again): the chat model's readiness changed.
       await readinessChanged();
@@ -7123,6 +7126,19 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
     ...(adapters.ownAiQuietMs !== undefined && { quietMs: adapters.ownAiQuietMs }),
   });
+  const claudeCodeInstall = createClaudeCodeInstallController({
+    installer: adapters.claudeCodeInstaller,
+    consent,
+    localOnly: () => embedding.localOnly(),
+    clients: () => agentSetup.clients(),
+    onChanged: (next) => events.emit("claudeCodeInstall.changed", next),
+    onClientsChanged: () => events.emit("agents.changed", agents.settings()),
+    lifetime: lifetime.signal,
+    log: adapters.log ?? silentLogger,
+  });
+  claudeCodeInstallLocalModeChanged = () => {
+    void claudeCodeInstall.onLocalOnlyChanged();
+  };
   // A connection's conversations go with the connection, and with its consent to start it (ADR-0034).
   const forgetConversations = (pairingId: string) =>
     ownAiConversations
@@ -9664,7 +9680,27 @@ export function createCore(adapters: CoreAdapters): Core {
     replaceAgentSkill: (pairingId) => agentSetup.replaceSkill(pairingId),
     agentNeedsRepair: (pairingId) => agentSetup.needsRepair(pairingId),
     repairAgent: (pairingId) => agentSetup.repair(pairingId),
-    listAgentClients: async () => agentSetup.clients(),
+    listAgentClients: async () => {
+      const listed = await agentSetup.clients();
+      const hasBinary =
+        adapters.claudeCodeInstaller !== undefined &&
+        (await adapters.claudeCodeInstaller.findBinary()) !== null;
+      if (!hasBinary) return listed;
+      const marked = listed.map((client) =>
+        client.id === "claude-code" ? { ...client, installed: true } : client,
+      );
+      return [
+        ...marked.filter((each) => each.installed),
+        ...marked.filter((each) => !each.installed),
+      ];
+    },
+    getClaudeCodeInstallAvailability: () => claudeCodeInstall.availability(),
+    getClaudeCodeInstallState: async () => claudeCodeInstall.state(),
+    installClaudeCode: () => claudeCodeInstall.install(),
+    openClaudeCodeSignIn: () => claudeCodeInstall.openSignIn(),
+    checkClaudeCodeAuth: () => claudeCodeInstall.checkAuth(),
+    cancelClaudeCodeInstall: () => claudeCodeInstall.cancel(),
+    resetClaudeCodeInstall: () => claudeCodeInstall.reset(),
     previewAgentSetup: async (client) => agentSetup.preview(client),
     setUpAgent: (input) => agentSetup.setUp(input),
     undoAgentSetup: (pairingId) => agentSetup.undo(pairingId),

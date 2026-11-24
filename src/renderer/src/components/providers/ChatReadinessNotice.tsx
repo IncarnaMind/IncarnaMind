@@ -6,6 +6,7 @@ import {
 } from "../../../../core/providers/signInRoutes";
 import { useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { signInAgain } from "../../chatGptSignIn";
+import { useClaudeCodeInstallAvailability } from "../../claudeCodeInstall";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { useSettingUp } from "../../modelSetup";
@@ -123,6 +124,35 @@ export function ReadinessLine({
 }) {
   const t = useT();
   const openSettings = useAppStore((state) => state.openSettings);
+  const installAvailability = useClaudeCodeInstallAvailability();
+  if (readiness.reason === "no-provider") {
+    const offerInstall =
+      installAvailability?.supported === true && !installAvailability.cliAgentPresent;
+    const connectAi = {
+      label: t("agents.install.connectYourAi"),
+      testId: `${testId}-connect-ai`,
+      onClick: () => openSettings("ai"),
+    };
+    const installAi = offerInstall
+      ? {
+          label: t("agents.install.action"),
+          title: t("agents.install.disclosure"),
+          testId: "readiness-install-claude-code",
+          onClick: () => openSettings("ai"),
+        }
+      : undefined;
+    return (
+      <ProblemLine
+        role="status"
+        testId={testId}
+        {...(className && { className })}
+        action={connectAi}
+        also={installAi}
+      >
+        <ReadinessExplanation readiness={readiness} inLine />
+      </ProblemLine>
+    );
+  }
   if (readiness.reason === "local-mode") {
     return (
       <ProblemLine
@@ -168,14 +198,21 @@ export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   const readiness = useAppStore((state) => state.chatReadiness);
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAskRead(mindId);
+  const installAvailability = useClaudeCodeInstallAvailability();
   // The setup card already says it.
   const settingUp = useSettingUp();
   if (!readiness || readiness.ready || settingUp) return null;
   // Local mode's refusal is said once, in the composer where the Question was asked (#1511): a
   // second line above the page would move the page.
   if (readiness.reason === "local-mode") return null;
-  // Until the agents are read, nothing shows that could go a moment later.
-  if (readiness.reason === "no-provider" && agents?.length !== 0) return null;
+  // Until agents and installer availability are read, hold the line back rather than showing one
+  // that could disappear or wrap taller a moment later.
+  if (
+    readiness.reason === "no-provider" &&
+    (agents?.length !== 0 || installAvailability === null)
+  ) {
+    return null;
+  }
   return (
     <ReadinessLine
       readiness={readiness}

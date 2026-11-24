@@ -8,6 +8,10 @@ import type {
 } from "../../../../core/api";
 import { modelName } from "../../../../shared/modelName";
 import { searchesTheWeb } from "../../../../shared/webSearch";
+import {
+  focusClaudeCodeInstallOffer,
+  useClaudeCodeInstallAvailability,
+} from "../../claudeCodeInstall";
 import { useLanguage, useT } from "../../i18n";
 import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
@@ -62,12 +66,30 @@ export function JobsSection({
   const id = useId();
   const roles = useModelRoles(groups);
   const health = useModelHealthFailure();
+  const installAvailability = useClaudeCodeInstallAvailability();
   const reached = useSettingsTarget<HTMLElement>(MODEL, !noModel, () =>
     queueMicrotask(() => document.getElementById(`${id}-answers`)?.focus({ preventScroll: true })),
   );
   return (
     <SettingsSection ref={reached} title={t("ai.jobs.title")} testId="ai-jobs">
       <SettingsGroup>
+        {noModel && installAvailability?.supported && !installAvailability.cliAgentPresent && (
+          <SettingsRow
+            data-testid="ai-jobs-background-checks"
+            label={t("agents.install.jobs.title")}
+            detail={t("agents.install.jobs.detail")}
+            control={
+              <button
+                type="button"
+                data-testid="ai-jobs-install-claude-code"
+                onClick={focusClaudeCodeInstallOffer}
+                className="rounded-sm text-[13px] font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
+              >
+                {t("agents.install.action")}
+              </button>
+            }
+          />
+        )}
         {!noModel && (
           <>
             <ModelRow
