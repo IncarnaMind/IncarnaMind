@@ -8869,7 +8869,7 @@ export const zhCN = {
   "ownAsk.does.acceptEdits":
     "{kept}，{agent} 使用它的“{mode}”模式：修改它文件夹里的文件（包括它自己的指示 CLAUDE.md），以及运行一些只改动文件的命令时，不会问你。",
   "ownAsk.does.mode": "{kept}，{agent} 使用它的“{mode}”模式。",
-  "ownAsk.does.folders": "{kept}，{agent} 也在 {folders} 里工作：读取那里的文件不会问你。",
+  "ownAsk.does.folders": "{kept}，{agent} 也在{folders}里工作：读取那里的文件不会问你。",
   "ownAsk.does.other": "{kept}，{agent} 修改它的权限：{text}。",
   "ownAsk.answers": "回复 {agent}",
   "ownAsk.announce": "{agent} 请求：{title}。{value}。可选：{answers}。按 Shift+Tab 作答。",

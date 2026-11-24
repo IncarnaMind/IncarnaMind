@@ -3251,28 +3251,36 @@
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
+    min-width: 0;
     padding: 10px 12px 12px 32px;
   }
+  /* Never wider than the card: a line cut short keeps the answers below it in view. */
   .own-ask-scopes {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
     margin: 0;
     padding: 0;
     list-style: none;
   }
-  /* One line each; the answer pointed at shows its whole line. */
+  /*
+   * One line each, cut by a line clamp rather than kept from wrapping, so no line widens the card;
+   * the answer reached by the keyboard shows its whole line, and each says it whole on hover.
+   */
   .own-ask-scope {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    min-width: 0;
     margin: 0;
     overflow: hidden;
     font-size: 12px;
     line-height: 16px;
     color: var(--color-ink-meta);
-    text-overflow: ellipsis;
-    white-space: nowrap;
     &[data-open] {
+      display: block;
       color: var(--color-ink-secondary);
-      white-space: normal;
     }
   }
   .own-ask-answers {
@@ -3348,7 +3356,16 @@
     line-height: 16px;
     color: var(--color-ink-secondary);
   }
+  /* What didn't run, and Ask again at the end of the same line. */
+  .own-closed .note-column-step-item {
+    flex-direction: row;
+    align-items: baseline;
+  }
+  .own-closed .own-step-parts {
+    flex: 0 1 auto;
+  }
   .own-closed .note-ask-pill-action {
+    flex: none;
     margin-left: 4px;
   }
   .note-ask-pill-own {

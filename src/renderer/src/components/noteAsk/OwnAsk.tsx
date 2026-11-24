@@ -234,8 +234,8 @@ function answerLabel(t: Translate, question: NoteQuestion, answer: NoteAnswer): 
  * The card for a question the User's own AI asks before it does something with a tool of its own
  * (#3653): what it would do, whole; where; and the answers its question offers: Deny, each answer
  * the AI itself suggests, as it gave it, and Allow once last, as the app's approval cards put
- * them. Each suggested answer has a line of what it does and where it is saved, whole for the one
- * pointed at. It never takes the focus: its answers are one Tab stop, entered on Deny by Shift+Tab
+ * them. Each suggested answer has a line under the answers of what it does and where it is saved,
+ * whole for the one reached by the keyboard and as the answer's tooltip. It never takes the focus: its answers are one Tab stop, entered on Deny by Shift+Tab
  * from the Note's input.
  */
 export function QuestionCard({
@@ -401,25 +401,6 @@ export function QuestionCard({
         )}
       </div>
       <div className="approval-actions own-ask-actions">
-        {question.suggested.length > 0 && (
-          <ul data-testid="own-ask-scopes" className="own-ask-scopes">
-            {question.suggested.map((suggested, index) => {
-              const said = suggestedWords(t, language, suggested, agent);
-              return (
-                <li
-                  key={said}
-                  id={`${linesId}-${index}`}
-                  data-testid="own-ask-scope"
-                  data-open={pointed === index || undefined}
-                  title={said}
-                  className="own-ask-scope"
-                >
-                  {said}
-                </li>
-              );
-            })}
-          </ul>
-        )}
         <div
           role="toolbar"
           aria-label={t("ownAsk.answers", { agent })}
@@ -446,11 +427,17 @@ export function QuestionCard({
               data-testid={typeof kind === "number" ? "own-ask-suggested" : `own-ask-${kind}`}
               data-kept={typeof kind === "number" ? question.suggested[kind]?.kept : undefined}
               aria-describedby={typeof kind === "number" ? `${linesId}-${kind}` : undefined}
-              onFocus={() => {
+              onFocus={(event) => {
                 setAt(index);
-                setPointed(typeof kind === "number" ? kind : null);
+                // Opened for the keyboard only: a line opening under a press would move the card.
+                const keyed = event.currentTarget.matches(":focus-visible");
+                setPointed(typeof kind === "number" && keyed ? kind : null);
               }}
-              onPointerEnter={() => setPointed(typeof kind === "number" ? kind : null)}
+              title={
+                typeof kind === "number" && question.suggested[kind]
+                  ? suggestedWords(t, language, question.suggested[kind], agent)
+                  : undefined
+              }
               onClick={() => answer(kind)}
               className={`approval-button ${
                 kind === "once"
@@ -464,6 +451,26 @@ export function QuestionCard({
             </button>
           ))}
         </div>
+        {/* Below the answers: a line that opens as an answer is pointed at moves none of them. */}
+        {question.suggested.length > 0 && (
+          <ul data-testid="own-ask-scopes" className="own-ask-scopes">
+            {question.suggested.map((suggested, index) => {
+              const said = suggestedWords(t, language, suggested, agent);
+              return (
+                <li
+                  key={said}
+                  id={`${linesId}-${index}`}
+                  data-testid="own-ask-scope"
+                  data-open={pointed === index || undefined}
+                  title={said}
+                  className="own-ask-scope"
+                >
+                  {said}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </fieldset>
   );
