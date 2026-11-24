@@ -2872,10 +2872,14 @@
    * The Note's conversation as a column (#3677): the request as a bubble, the steps folded to one
    * line, the reply in full, the Note's one input at its foot.
    */
-  /* In a narrow window: a sheet over the Note from its right, above the Note's input. */
+  /*
+   * In a narrow window: a sheet over the Note from its right, above the Note's input, under the
+   * Note's own controls (16px down, 28px tall, .mind-menu-slot), which stay pressable while it is
+   * open: the check badge, Show conversation and ⋯.
+   */
   .note-column-over-slot {
     position: absolute;
-    top: 0;
+    top: 52px;
     right: 0;
     bottom: 0;
     z-index: 20;
@@ -2885,6 +2889,7 @@
     }
     > .note-column {
       border-left: 0;
+      border-top-left-radius: 8px;
       border-bottom-left-radius: 8px;
       box-shadow: var(--shadow-popover);
     }

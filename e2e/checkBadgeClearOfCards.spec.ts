@@ -3,8 +3,9 @@
  * card, a footnote's card and the format menu opened near it leave it uncovered, at 900 and
  * 1440 px, in English and Chinese, with the conversation closed and open as a column, and
  * pressing it opens the checks. Each card is opened where, hanging from its anchor, it would reach
- * the badge's row. At 900 px the open conversation is a sheet over the Note's right, the badge
- * under it: that is kept as a still. Test data only: Kestrel Bay.
+ * the badge's row. At 900 px the open conversation is a sheet over the Note's right, under its own
+ * controls: the badge opens the checks, and Show conversation closes the sheet. Test data only:
+ * Kestrel Bay.
  */
 import { randomUUID } from "node:crypto";
 import { chmod, realpath, writeFile } from "node:fs/promises";
@@ -59,7 +60,8 @@ const paragraph = (_: unknown, at: number) =>
     "paragraph",
     { id: randomUUID() },
     PHRASES.flatMap((words, index) => [
-      `${index === 0 ? LEADS[at % LEADS.length] : ""}${words} `,
+      // Every other paragraph starts short, so a Citation stands at the start of a line too.
+      `${index === 0 ? (at % 2 ? "Late again" : `${LEADS[at % LEADS.length]}${words}`) : words} `,
       index % 2 ? footnote() : citation(),
       " ",
     ]),
@@ -104,18 +106,22 @@ async function boxOf(locator: Locator): Promise<Box> {
 }
 
 /**
- * Of `anchors` in the middle of the Note, so it can be scrolled to any height, the one a card
- * hanging from it would reach the badge from: `reach` left of the badge's left edge; with
- * `under`, the one closest under the badge's middle.
+ * Of `anchors` in the middle of the Note, so it can be scrolled to any height, and left of a
+ * conversation over the Note, the one a card hanging from it would reach the badge from: `reach`
+ * left of the badge's left edge; with `under`, the one closest under the badge's middle.
  */
 async function anchorNear(anchors: Locator, badge: Box, reach: number, under = false) {
   const index = await anchors.evaluateAll(
     (elements, { badge, reach, under }) => {
+      const sheet = document
+        .querySelector('.note-column-over-slot [data-testid="note-column"]')
+        ?.getBoundingClientRect();
       let best = -1;
       let score = Number.POSITIVE_INFINITY;
       elements.forEach((element, at) => {
         if (at < elements.length / 4 || at > (elements.length * 3) / 4) return;
         const box = element.getBoundingClientRect();
+        if (sheet && box.right > sheet.left - 8) return;
         const middle = box.left + box.width / 2;
         const off = under
           ? Math.abs(middle - (badge.x + badge.width / 2))
@@ -192,9 +198,11 @@ async function openNear(
 }
 
 /** The badge is drawn on top where it stands, and pressing it opens the checks. */
-async function pressable(window: Page, badge: Locator, card: Locator): Promise<void> {
-  const [badgeBox, cardBox] = [await boxOf(badge), await boxOf(card)];
-  expect(apart(badgeBox, cardBox), "the card covers the badge").toBe(true);
+async function pressable(window: Page, badge: Locator, card: Locator | null): Promise<void> {
+  if (card) {
+    const [badgeBox, cardBox] = [await boxOf(badge), await boxOf(card)];
+    expect(apart(badgeBox, cardBox), "the card covers the badge").toBe(true);
+  }
   expect(
     await badge.evaluate((element) => {
       const box = element.getBoundingClientRect();
@@ -207,7 +215,7 @@ async function pressable(window: Page, badge: Locator, card: Locator): Promise<v
   await expect(checks).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(checks).toHaveCount(0);
-  await expect(card).toHaveCount(0);
+  if (card) await expect(card).toHaveCount(0);
 }
 
 /**
@@ -275,17 +283,11 @@ async function cardsNearTheBadge(
       const place = `${language}, ${width} px, conversation ${column ? "open" : "closed"}`;
       await expect(badge).toBeVisible();
       const badgeBox = await boxOf(badge);
-      // In a narrow window the conversation is a sheet over the Note's right, its own controls
-      // included: there the badge is out of reach with no card open, until the sheet is closed.
-      const under = await badge.evaluate((element) => {
-        const box = element.getBoundingClientRect();
-        const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-        return top?.closest('[data-testid="note-column"]') !== null && top !== null;
-      });
-      if (under) {
-        await still(window, `badge-under-conversation-${language}-${width}`);
-        test.info().annotations.push({ type: "under the conversation", description: place });
-        continue;
+      // In a narrow window the conversation is a sheet over the Note's right, under the Note's
+      // own controls: the badge opens the checks with it open, and Show conversation closes it.
+      if (column) {
+        if (width === 900) await still(window, `conversation-open-${language}-900`);
+        await pressable(window, badge, null);
       }
 
       // A Citation's card and a footnote's card hang above their anchor: each is opened where its
@@ -333,6 +335,13 @@ async function cardsNearTheBadge(
           description: `${language}: Citation ${Math.round(anchorBox.x)} to ${Math.round(anchorBox.x + anchorBox.width)}, card ${Math.round(cardBox.x)} to ${Math.round(cardBox.x + cardBox.width)}, badge ${Math.round(badgeBox.x)} to ${Math.round(badgeBox.x + badgeBox.width)}`,
         });
         await pressable(window, badge, card);
+      }
+
+      if (column) {
+        const toggle = group.getByTestId("note-ask-conversation-toggle");
+        await pointAndClick(window, toggle);
+        await expect(toggle).toHaveAttribute("aria-expanded", "false");
+        await expect(window.getByTestId("note-column")).toHaveCount(0);
       }
     }
   }
