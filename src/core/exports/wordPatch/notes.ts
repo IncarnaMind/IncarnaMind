@@ -21,6 +21,17 @@ import {
 import { child, elements, type XmlElement } from "../../documents/formats/xml";
 import type { Inline, ReviewReading } from "../../mindText";
 import { WRITER_NAMESPACES } from "../docx";
+import {
+  closeTag,
+  endOf,
+  openTag,
+  parentsOf,
+  rescoped,
+  type Splice,
+  scopeOf,
+  sliceOf,
+  startOf,
+} from "../packagePatch/text";
 import { escapeXml, type WordIds } from "../wordml";
 import type { Review } from "../wordReview";
 import { type AtomPlan, copiedText, isFilesAtom } from "./atoms";
@@ -35,17 +46,6 @@ import {
   type Token,
   writeParagraph,
 } from "./paragraph";
-import {
-  closeTag,
-  endOf,
-  openTag,
-  parentsOf,
-  rescoped,
-  type Splice,
-  scopeOf,
-  sliceOf,
-  startOf,
-} from "./text";
 
 export interface NotesPatchInput {
   base: WordDocument;
