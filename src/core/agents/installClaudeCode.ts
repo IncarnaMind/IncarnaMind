@@ -46,6 +46,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
   }
 
   let state: ClaudeCodeInstallState = { kind: "idle" };
+  let generation = 0;
   let activeInstall: { stop: AbortController; done: Promise<void> } | null = null;
   let activeSignIn: { stop: AbortController; done: Promise<void> } | null = null;
 
@@ -63,7 +64,8 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
     await running.done.catch(() => undefined);
   };
 
-  const beginSignIn = (adapter: ClaudeCodeInstaller): ClaudeCodeInstallState => {
+  const beginSignIn = (adapter: ClaudeCodeInstaller, token: number): ClaudeCodeInstallState => {
+    if (token !== generation) return state;
     if (options.localOnly()) {
       return setState({ kind: "failed", reason: "local-mode" });
     }
@@ -82,11 +84,11 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
     entry.done = (async () => {
       try {
         const outcome = await adapter.startSignIn({ signal });
-        if (activeSignIn !== entry || signal.aborted) return;
-        activeSignIn = null;
+        if (activeSignIn !== entry || signal.aborted || token !== generation) return;
         if (outcome.kind === "signed-in") {
           const auth = await adapter.checkAuth();
-          if (signal.aborted) return;
+          if (activeSignIn !== entry || signal.aborted || token !== generation) return;
+          activeSignIn = null;
           if (auth.kind === "signed-in") {
             options.onClientsChanged();
             setState({ kind: "signed-in" });
@@ -97,6 +99,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
           }
           return;
         }
+        activeSignIn = null;
         if (outcome.kind === "no-plan") {
           setState({ kind: "no-plan" });
           return;
@@ -109,7 +112,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
         }
       } catch (error: unknown) {
         if (activeSignIn === entry) activeSignIn = null;
-        if (!signal.aborted) {
+        if (!signal.aborted && token === generation) {
           log.warn("agents.claudeCodeSignInError", {
             error: error instanceof Error ? error.name : "unknown",
           });
@@ -124,13 +127,16 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
 
   const handOffAfterInstalled = async (
     adapter: ClaudeCodeInstaller,
+    token: number,
   ): Promise<ClaudeCodeInstallState> => {
+    if (token !== generation) return state;
     options.onClientsChanged();
     const auth = await adapter.checkAuth();
+    if (token !== generation) return state;
     if (auth.kind === "signed-in") return setState({ kind: "signed-in" });
     if (auth.kind === "no-plan") return setState({ kind: "no-plan" });
     if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
-    return beginSignIn(adapter);
+    return beginSignIn(adapter, token);
   };
 
   return {
@@ -168,6 +174,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
 
       // Claim the install slot synchronously before any await so rapid double presses can never
       // start two concurrent installs or race on partial-download cleanup.
+      const token = ++generation;
       const stop = new AbortController();
       const signal = AbortSignal.any([options.lifetime, stop.signal]);
       const { promise: done, resolve: finishDone } = Promise.withResolvers<void>();
@@ -180,13 +187,13 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       };
 
       const existing = await installer.findBinary();
-      if (activeInstall !== entry || signal.aborted) {
+      if (activeInstall !== entry || signal.aborted || token !== generation) {
         release();
         return state;
       }
       if (existing !== null) {
         release();
-        return handOffAfterInstalled(installer);
+        return handOffAfterInstalled(installer, token);
       }
 
       if (options.localOnly()) {
@@ -199,7 +206,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       }
 
       await stopSignIn();
-      if (activeInstall !== entry || signal.aborted) {
+      if (activeInstall !== entry || signal.aborted || token !== generation) {
         release();
         return state;
       }
@@ -219,12 +226,12 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
           const result = await installer.install({
             signal,
             onStage: (stage) => {
-              if (activeInstall === entry && !signal.aborted) {
+              if (activeInstall === entry && !signal.aborted && token === generation) {
                 setState({ kind: "installing", stage, directory });
               }
             },
           });
-          if (activeInstall !== entry) return;
+          if (activeInstall !== entry || token !== generation) return;
           activeInstall = null;
           if (signal.aborted || result.kind === "cancelled") {
             setState(
@@ -241,9 +248,10 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
             });
             return;
           }
-          await handOffAfterInstalled(installer);
+          await handOffAfterInstalled(installer, token);
         } catch (error: unknown) {
           if (activeInstall === entry) activeInstall = null;
+          if (token !== generation) return;
           if (signal.aborted) {
             setState(
               options.localOnly() ? { kind: "failed", reason: "local-mode" } : { kind: "idle" },
@@ -265,35 +273,43 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       if (!installer) return setState({ kind: "failed", reason: "unsupported" });
       if (activeInstall) return state;
       if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
+      const token = ++generation;
       const existing = await installer.findBinary();
+      if (token !== generation) return state;
       if (existing === null) {
         return setState({ kind: "failed", reason: "failed" });
       }
       if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
-      return beginSignIn(installer);
+      return beginSignIn(installer, token);
     },
 
     async checkAuth(): Promise<ClaudeCodeInstallState> {
       if (!installer) return setState({ kind: "failed", reason: "unsupported" });
       if (activeInstall) return state;
+      const token = generation;
       const auth = await installer.checkAuth();
+      if (token !== generation) return state;
       if (auth.kind === "signed-in") {
         await stopSignIn();
+        if (token !== generation) return state;
         options.onClientsChanged();
         return setState({ kind: "signed-in" });
       }
       if (auth.kind === "no-plan") {
         await stopSignIn();
+        if (token !== generation) return state;
         return setState({ kind: "no-plan" });
       }
       if (auth.kind === "missing") {
         await stopSignIn();
+        if (token !== generation) return state;
         return setState({ kind: "failed", reason: "failed" });
       }
       return setState({ kind: "awaiting-sign-in", notYet: true });
     },
 
     async cancel(): Promise<ClaudeCodeInstallState> {
+      generation += 1;
       const installing = activeInstall;
       activeInstall = null;
       if (installing) {
@@ -312,6 +328,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
         state.kind === "installing" ||
         state.kind === "awaiting-sign-in";
       if (!hadActive) return;
+      generation += 1;
       const installing = activeInstall;
       activeInstall = null;
       if (installing) {
@@ -324,6 +341,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
 
     async reset(): Promise<ClaudeCodeInstallState> {
       if (activeInstall) return state;
+      generation += 1;
       await stopSignIn();
       return setState({ kind: "idle" });
     },

@@ -56,7 +56,7 @@ export function isTrustedInstallerUrl(rawUrl: string): boolean {
 }
 
 function childEnvironment(
-  base: NodeJS.ProcessEnv,
+  base: Readonly<Record<string, string | undefined>>,
   home: string,
   platform: NodeJS.Platform,
 ): NodeJS.ProcessEnv {
@@ -66,6 +66,32 @@ function childEnvironment(
   env.HOME = home;
   if (platform === "win32") env.USERPROFILE = home;
   return env;
+}
+
+/**
+ * Spawns a discovered `claude` command. On Windows, npm-installed `.cmd` / `.bat` shims cannot be
+ * spawned directly under Node 24 without `cmd.exe`, whereas native `.exe` and POSIX binaries run directly.
+ */
+function spawnClaudeCommand(
+  binary: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): ChildProcess {
+  if (platform === "win32" && /\.(cmd|bat)$/i.test(binary)) {
+    const comspec = envValue(env, "ComSpec") || "cmd.exe";
+    return spawn(comspec, ["/d", "/s", "/c", binary, ...args], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+  }
+  return spawn(binary, args, {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: platform !== "win32",
+    windowsHide: true,
+  });
 }
 
 function classifyInstallFailure(text: string): "network" | "checksum" | "unsupported" | "failed" {
@@ -141,6 +167,9 @@ export function createClaudeCodeInstaller(
   const findBinary = (): Promise<string | null> =>
     resolveCommandOnPath("claude", { environment, home, platform });
 
+  const resolvedChildEnv = async (): Promise<NodeJS.ProcessEnv> =>
+    childEnvironment({ ...baseEnv, ...(await environment()) }, home, platform);
+
   return {
     installDirectoryDisplay: installDirectoryDisplayFor(platform),
     isRoot: checkIsRoot,
@@ -202,7 +231,7 @@ export function createClaudeCodeInstaller(
 
       try {
         await writeFile(scriptFile, scriptText, { mode: 0o600, encoding: "utf8" });
-        const env = childEnvironment(baseEnv, home, platform);
+        const env = await resolvedChildEnv();
         const command =
           platform === "win32"
             ? existsSync(
@@ -278,13 +307,8 @@ export function createClaudeCodeInstaller(
       if (!binary) return { kind: "failed", detail: "missing-binary" };
       if (signal.aborted) return { kind: "cancelled" };
 
-      const env = childEnvironment(baseEnv, home, platform);
-      const child = spawn(binary, ["auth", "login"], {
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: platform !== "win32",
-        windowsHide: true,
-      });
+      const env = await resolvedChildEnv();
+      const child = spawnClaudeCommand(binary, ["auth", "login"], env, platform);
 
       let output = "";
       const append = (chunk: Buffer) => {
@@ -309,13 +333,8 @@ export function createClaudeCodeInstaller(
       const binary = await findBinary();
       if (!binary) return { kind: "missing" };
 
-      const env = childEnvironment(baseEnv, home, platform);
-      const child = spawn(binary, ["auth", "status", "--json"], {
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: platform !== "win32",
-        windowsHide: true,
-      });
+      const env = await resolvedChildEnv();
+      const child = spawnClaudeCommand(binary, ["auth", "status", "--json"], env, platform);
 
       let output = "";
       const append = (chunk: Buffer) => {

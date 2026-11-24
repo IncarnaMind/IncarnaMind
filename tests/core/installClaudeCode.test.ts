@@ -26,6 +26,7 @@ interface StandInControls {
   installCalls: number;
   signInCalls: number;
   findGate: ReturnType<typeof deferred<string | null>> | null;
+  authGate: ReturnType<typeof deferred<ClaudeCodeAuthCheck>> | null;
   installGate: ReturnType<typeof deferred<ClaudeCodeAdapterInstallResult>> | null;
   signInGate: ReturnType<typeof deferred<ClaudeCodeSignInResult>> | null;
   onStageRef: { fn?: (stage: "downloading" | "installing") => void };
@@ -39,6 +40,7 @@ function createStandIn(): StandInControls {
     installCalls: 0,
     signInCalls: 0,
     findGate: null,
+    authGate: null,
     installGate: null,
     signInGate: null,
     onStageRef: {},
@@ -90,6 +92,7 @@ function createStandIn(): StandInControls {
         });
       },
       async checkAuth() {
+        if (controls.authGate) return controls.authGate.promise;
         return controls.auth;
       },
     },
@@ -412,6 +415,17 @@ describe("Claude Code one-press installation through CoreApi (#3638)", () => {
       await core.openClaudeCodeSignIn();
       standIn.signInGate.resolve({ kind: "signed-in" });
       await waitForState(seen, (s) => s.kind === "failed" && s.reason === "sign-in-failed");
+
+      // Cancelling while checkAuth() is pending prevents stale probe from starting sign-in.
+      standIn.signInCalls = 0;
+      standIn.authGate = deferred<ClaudeCodeAuthCheck>();
+      const pendingInstall = core.installClaudeCode();
+      await core.cancelClaudeCodeInstall();
+      standIn.authGate.resolve({ kind: "signed-out" });
+      standIn.authGate = null;
+      await pendingInstall;
+      expect(await core.getClaudeCodeInstallState()).toEqual({ kind: "idle" });
+      expect(standIn.signInCalls).toBe(0);
     } finally {
       await core.close();
       await rm(data, { recursive: true, force: true });

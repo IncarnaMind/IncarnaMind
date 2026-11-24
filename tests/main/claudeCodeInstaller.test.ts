@@ -96,18 +96,27 @@ describe("createClaudeCodeInstaller host adapter (#3638)", () => {
     await mkdir(localBin, { recursive: true });
 
     const brewClaude = join(brewBin, "claude");
+    const brewHelper = join(brewBin, "im-test-node-helper");
     const localClaude = join(localBin, "claude");
-    await writeFile(brewClaude, "#!/bin/sh\necho brew\n", "utf8");
+    await writeFile(
+      brewHelper,
+      '#!/bin/sh\necho \'{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}\'\n',
+      "utf8",
+    );
+    await chmod(brewHelper, 0o755);
+    await writeFile(brewClaude, "#!/bin/sh\nim-test-node-helper\n", "utf8");
     await chmod(brewClaude, 0o755);
 
     try {
       // Only on login shell PATH (process.env.PATH has no claude, ~/.local/bin/claude absent).
+      // checkAuth also executes with the login shell's PATH so `im-test-node-helper` resolves.
       const installer = createClaudeCodeInstaller({
         home,
         env: { PATH: "/usr/bin:/bin" },
         environment: async () => ({ PATH: `${brewBin}:/usr/bin:/bin` }),
       });
       expect(await installer.findBinary()).toBe(brewClaude);
+      expect(await installer.checkAuth()).toEqual({ kind: "signed-in" });
 
       // Even if ~/.local/bin/claude also exists, login shell PATH wins for both installer and ownAi.
       await writeFile(localClaude, "#!/bin/sh\necho local\n", "utf8");
