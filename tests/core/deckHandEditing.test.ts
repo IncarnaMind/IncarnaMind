@@ -181,7 +181,7 @@ describe("A deck of the User's own, edited by hand", () => {
         shown: "not the shown version",
         edits: moveBox(200),
       }),
-    ).rejects.toThrow(/changed since/);
+    ).rejects.toThrow(/The deck changed elsewhere, so nothing was written/);
     const first = saved(
       await core.editDeck({
         documentId: document.id,
@@ -199,7 +199,7 @@ describe("A deck of the User's own, edited by hand", () => {
         shown: "",
         edits: moveBox(300),
       }),
-    ).rejects.toThrow(/changed since/);
+    ).rejects.toThrow(/The deck changed elsewhere, so nothing was written/);
     expect(hashBytes(new Uint8Array(await readFile(path)))).toBe(hashBytes(theirs));
     await expect(core.undoDeckEdit(first.sittingId, first.stepId)).rejects.toThrow();
     expect(hashBytes(new Uint8Array(await readFile(path)))).toBe(hashBytes(theirs));

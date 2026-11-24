@@ -252,8 +252,8 @@ test("a User's own deck: select, move, resize, nudge and type on the slide, each
     expect({ cx: moved.cx, cy: moved.cy }).toEqual({ cx: was.cx, cy: was.cy });
     await expect(undoLine(window)).toContainText(`Moved a shape on slide 1 · saved in “${NAME}”`);
     // Once, the first time: the file itself is changed, and how to put it back.
-    await expect(window.getByTestId("tip")).toContainText(
-      "Your changes are saved in the file itself.",
+    await expect(window.getByTestId("tip")).toHaveText(
+      "Changes save to the file itself. To go back: ⋯ › Put back as it was.",
     );
     await still(window, "05-saved-en");
 
@@ -333,7 +333,9 @@ test("in Chinese: typing in a Chinese line keeps its bold run, and the lines rea
     expect(await slideOnDisk(path, 2)).toContain(`b="1"/><a:t>百分之四</a:t>`);
     expect((await slideOnDisk(path, 2)).match(/全部/g)).toHaveLength(1);
     await expect(undoLine(window)).toContainText(`已修改第 2 张幻灯片上的文字 · 已保存到“${NAME}”`);
-    await expect(window.getByTestId("tip")).toContainText("修改会直接保存到文件中。");
+    await expect(window.getByTestId("tip")).toContainText(
+      "修改会直接保存到文件。要恢复：⋯ ›“恢复原样”。",
+    );
     await still(window, "09-saved-zh");
   } finally {
     await app.close();
@@ -386,8 +388,8 @@ test("a file that can't be written keeps the edit and saves it as a copy beside 
     await box.click();
     await window.keyboard.press("Shift+ArrowRight");
     const problem = window.getByTestId("viewer-deck-unwritable");
-    await expect(problem).toContainText(`“${NAME}” can’t be changed`);
-    await expect(problem).toContainText("Your change is kept here until it’s saved");
+    // One short line: what is wrong, then the actions.
+    await expect(problem).toContainText(`“${NAME}” is read-only, so the change isn’t saved.`);
     expect(Buffer.compare(await readFile(path), shown)).toBe(0);
     await still(window, "12-cannot-write-en");
     await problem.getByTestId("viewer-deck-save-copy").click();
@@ -577,9 +579,17 @@ test("a deck another app has open waits, and Try again writes it once that app l
     await first.locator('[data-shape-id="4"]').click();
     await window.keyboard.press("Shift+ArrowDown");
     const problem = window.getByTestId("viewer-deck-unwritable");
-    await expect(problem).toContainText("another app has it open");
+    await expect(problem).toContainText(
+      `“${NAME}” is open in another app. Close it there, then try again.`,
+    );
     expect(Buffer.compare(await readFile(path), DECK)).toBe(0);
     await still(window, "14-locked-en");
+    // Still locked when tried again: only then is the lock file named, in case no app has it open.
+    await problem.getByTestId("viewer-deck-try-again").click();
+    await expect(problem).toContainText(
+      `Still locked. If no app has it open, delete “~$${NAME}” beside it.`,
+    );
+    await still(window, "14-locked-again-en");
     await rm(lock);
     await problem.getByTestId("viewer-deck-try-again").click();
     await expect(problem).toHaveCount(0);
@@ -703,7 +713,7 @@ test("a change that waits outlives its tab, and another app's save of the file: 
     await first.locator('[data-shape-id="4"]').click();
     await window.keyboard.press("Shift+ArrowDown");
     const problem = window.getByTestId("viewer-deck-unwritable");
-    await expect(problem).toContainText(`“~$${NAME}” beside it is a lock file left behind`);
+    await expect(problem).toContainText(`“${NAME}” is open in another app.`);
     // The tab closes and the deck opens again: the change still waits, said where it was.
     await pointAndClick(window, viewer.getByTestId("viewer-header"));
     await window.keyboard.press("ControlOrMeta+w");
@@ -716,12 +726,46 @@ test("a change that waits outlives its tab, and another app's save of the file: 
     await writeFile(path, DECK_THEIRS);
     await rm(lock);
     await problem.getByTestId("viewer-deck-try-again").click();
-    await expect(problem).toContainText(`“${NAME}” was changed in another app since`);
+    await expect(problem).toContainText(
+      `“${NAME}” was changed in another app, so the change isn’t saved.`,
+    );
     await expect(problem.getByTestId("viewer-deck-try-again")).toHaveCount(0);
     expect(Buffer.compare(await readFile(path), DECK_THEIRS)).toBe(0);
     await problem.getByTestId("viewer-deck-save-copy").click();
     await expect(undoLine(window)).toContainText("Made a copy with your change");
     const copy = await slideOnDisk(join(sources, "Harbour plan 2.pptx"), 1);
+    expect(placeOf(copy, 4).y).toBe(placeOf(SLIDE_ONE, 4).y + 10 * 9525);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a change that waits keeps its line and its Save a copy when its file goes missing", async () => {
+  const { app, window, viewer, path } = await opened();
+  try {
+    const lock = join(sources, `~$${NAME}`);
+    await writeFile(lock, "PowerPoint");
+    const first = viewer.getByTestId("viewer-slide-editor").first();
+    await first.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    const problem = window.getByTestId("viewer-deck-unwritable");
+    await expect(problem).toBeVisible();
+    // The file is moved away with its lock: the deck can't be edited, and the change still waits.
+    await rm(path);
+    await rm(lock);
+    const item = window.getByTestId("document-list-item").filter({ hasText: "Harbour plan" });
+    await expect(item).toContainText("Missing", { timeout: 15_000 });
+    await expect(viewer.getByTestId("viewer-slide-editor")).toHaveCount(0);
+    await expect(problem).toContainText(
+      `“${NAME}” was moved or deleted, so the change isn’t saved.`,
+    );
+    await expect(problem.getByTestId("viewer-deck-try-again")).toHaveCount(0);
+    await problem.getByTestId("viewer-deck-save-copy").click();
+    await expect(undoLine(window)).toContainText("Made a copy with your change");
+    await expect(problem).toHaveCount(0);
+    const saved = (await readdir(sources)).filter((name) => name.endsWith(".pptx"));
+    expect(saved).toHaveLength(1);
+    const copy = await slideOnDisk(join(sources, saved[0] ?? ""), 1);
     expect(placeOf(copy, 4).y).toBe(placeOf(SLIDE_ONE, 4).y + 10 * 9525);
   } finally {
     await app.close();
@@ -799,9 +843,7 @@ test("a refused edit and a refused Undo leave the slide and its sitting as they 
     const waiting = await box.boundingBox();
     await slide.focus();
     await window.keyboard.press("ControlOrMeta+z");
-    await expect(undoLine(window)).toContainText(
-      "The file can’t be written now, so this wasn’t taken back.",
-    );
+    await expect(undoLine(window)).toContainText("Not undone: the file can’t be written now.");
     expect((await box.boundingBox())?.y).toBeCloseTo(waiting?.y ?? 0, 0);
     // The sitting goes on: the copy holds both gestures, and one state was kept, before the first.
     await problem.getByTestId("viewer-deck-save-copy").click();

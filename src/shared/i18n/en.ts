@@ -2521,14 +2521,11 @@ export const en = {
   "viewer.deck.saved.file": "saved in “{name}”",
   "viewer.deck.saved.version": "saved as version {number}",
   "viewer.deck.saved.kept": "saved",
-  "viewer.deck.saved.letGo":
-    "(the version kept {date} was let go: IncarnaMind keeps the deck as it first was and its latest 9)",
-  "viewer.deck.undoRefused": "The deck changed since, so this can’t be taken back here.",
-  "viewer.deck.waiting.undo": "The file can’t be written now, so this wasn’t taken back.",
+  "viewer.deck.saved.letGo": "(let go of the version kept {date})",
+  "viewer.deck.undoRefused": "The deck has changed since, so this can’t be undone.",
+  "viewer.deck.waiting.undo": "Not undone: the file can’t be written now.",
   "viewer.deck.tryAgain": "Try again",
   "viewer.deck.saveCopy": "Save a copy beside it",
-  "viewer.deck.unwritableLine": "{problem} {kept}",
-  "viewer.deck.changeKept": "Your change is kept here until it’s saved",
   "viewer.deck.overflow": "The text on slide\u00a0{slide} runs past its box",
   "viewer.deck.shrinkToFit": "Shrink text to fit",
   "viewer.deck.putBack": "Put back as it was",
@@ -2537,8 +2534,7 @@ export const en = {
   "viewer.deck.restoredFirst": "Put “{name}” back as it was before IncarnaMind first changed it",
   "viewer.deck.saving": "Saving “{name}”…",
   "viewer.deck.restored": "Put “{name}” back as it was at {time}",
-  "viewer.deck.tip":
-    "Your changes are saved in the file itself. To go back, use ⋯ › Put back as it was.",
+  "viewer.deck.tip": "Changes save to the file itself. To go back: ⋯ › Put back as it was.",
   "viewer.slide.label": "Slide {number}",
   "viewer.slide.hidden": "hidden",
   "viewer.slide.notes": "Speaker notes",
@@ -6077,33 +6073,29 @@ export const en = {
   "error.export.restore.changed":
     "“{name}” was changed after it was written, so it wasn’t put back.",
   "error.deck.badEdit": "That change to the deck couldn’t be made.",
-  "error.deck.changed":
-    "The deck changed since it was shown here, so nothing was written over it. It shows the newest now.",
-  "error.deck.noSitting": "That change belongs to a deck that’s no longer open for editing.",
+  "error.deck.changed": "The deck changed elsewhere, so nothing was written. The newest is shown.",
+  "error.deck.noSitting": "That deck is no longer open for editing.",
   "error.deck.unrewritable":
-    "This deck’s file is stored in a way IncarnaMind can’t write back whole, so it isn’t edited here.",
-  "error.deck.notEditable": "That part of the deck can’t be changed by hand here.",
-  "error.deck.waiting": "Save the change that couldn’t be written as a copy, or try again, first.",
+    "This deck’s file can’t be written back whole, so it isn’t edited here.",
+  "error.deck.notEditable": "That part of the deck can’t be edited here.",
+  "error.deck.waiting": "A change is waiting: try again or save a copy first.",
   "error.deck.noStep": "There’s nothing here to undo or redo.",
   "error.deck.keptGone": "That earlier version of the deck is no longer kept.",
-  "error.deck.unwritable.read-only":
-    "“{name}” can’t be changed: it’s read-only, or its folder can’t be written.",
+  "error.deck.unwritable.read-only": "“{name}” is read-only, so the change isn’t saved.",
   "error.deck.unwritable.locked":
-    "“{name}” can’t be changed while another app has it open: close it there, then try again.",
-  "error.deck.unwritable.gone":
-    "“{name}” is no longer where it was: it may have been moved or deleted.",
+    "“{name}” is open in another app. Close it there, then try again.",
+  "error.deck.unwritable.gone": "“{name}” was moved or deleted, so the change isn’t saved.",
   "error.deck.unwritable.unkept":
-    "“{name}” wasn’t changed: IncarnaMind couldn’t keep it as it was first, in its data folder.",
-  "error.deck.protected.signed":
-    "This deck is signed, so IncarnaMind doesn’t edit it: an edit would break its signature.",
-  "error.deck.protected.final": "This deck is marked as final, so IncarnaMind doesn’t edit it.",
+    "IncarnaMind couldn’t keep “{name}” as it was, so it wasn’t changed.",
+  "error.deck.protected.signed": "This deck is signed, so it isn’t edited here.",
+  "error.deck.protected.final": "This deck is marked as final, so it isn’t edited here.",
   "error.deck.protected.protected":
-    "This deck needs a password to change it, so IncarnaMind doesn’t edit it.",
+    "This deck needs a password to change, so it isn’t edited here.",
   "error.deck.unwritable.changed":
-    "“{name}” was changed in another app since, so IncarnaMind won’t write over it.",
+    "“{name}” was changed in another app, so the change isn’t saved.",
   "error.deck.unwritable.lockFile":
-    "“{name}” can’t be changed while another app has it open: close it there, then try again. If no app has it open, “{lock}” beside it is a lock file left behind; removing it lets IncarnaMind write.",
-  "error.deck.unwritable.full": "“{name}” can’t be changed: the disk is full.",
+    "Still locked. If no app has it open, delete “{lock}” beside it.",
+  "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",
@@ -6195,6 +6187,15 @@ export const en = {
     "When Windows shut down or signed out, 1 change to “{name}” hadn’t been saved yet. Everything else was kept.",
   "quit.unsaved.title": "{count} changes aren’t saved",
   "quit.unsaved.title.one": "1 change isn’t saved",
+  "quit.unsaved.decks": "{count} changes to decks aren’t saved",
+  "quit.unsaved.decks.one": "1 change to a deck isn’t saved",
+  "quit.unsaved.deck.read-only": "“{name}” is read-only.",
+  "quit.unsaved.deck.locked": "“{name}” is open in another app.",
+  "quit.unsaved.deck.gone": "“{name}” was moved or deleted.",
+  "quit.unsaved.deck.changed": "“{name}” was changed in another app.",
+  "quit.unsaved.deck.full": "The disk is full.",
+  "quit.unsaved.deck.unkept": "IncarnaMind couldn’t keep “{name}” as it was.",
+  "quit.unsaved.deck.writing": "A deck is still being saved.",
   "quit.unsaved.quit": "Quit anyway",
   "quit.unsaved.keep": "Keep open",
   "quit.unsaved.copyFailed": "The copy couldn’t be saved. {reason}",

@@ -261,12 +261,12 @@ describe("A change that waits", () => {
     });
     expect(waiting.kind).toBe("unwritable");
     await core.closeDeckSitting(waiting.sittingId);
-    expect(core.deckChangesWaiting()).toBe(1);
+    expect(core.deckChangesWaiting()).toHaveLength(1);
     const found = await core.deckChangeWaiting(document.id);
     expect(found).toMatchObject({ sittingId: waiting.sittingId, why: "read-only" });
     expect(await offsetOf(found?.bytes ?? new Uint8Array())).toBe(String(200 * 9525));
     saved(await core.saveDeckCopy(waiting.sittingId));
-    expect(core.deckChangesWaiting()).toBe(0);
+    expect(core.deckChangesWaiting()).toHaveLength(0);
   });
 
   it("takes every gesture made while it waits, and the copy beside it holds them all", async () => {

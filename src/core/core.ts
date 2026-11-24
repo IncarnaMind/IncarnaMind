@@ -159,6 +159,7 @@ import {
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
   type DecisionHostStatus,
+  type DeckUnwritable,
   type DeletedAgainRef,
   type Document,
   type DocumentStatus,
@@ -612,8 +613,8 @@ export interface Core extends CoreApi, CoreEventSource {
   sessionEnding(): UnsavedAtEnd;
   /** Resolves once every hand edit of a deck being written now is written; null while none is. */
   writingDecks(): Promise<void> | null;
-  /** How many hand edits of decks wait to be saved: the quit asks about them with unsaved Notes. */
-  deckChangesWaiting(): number;
+  /** The hand edits of decks that wait to be saved: the quit asks about them with unsaved Notes. */
+  deckChangesWaiting(): DeckUnwritable[];
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /**
@@ -9864,7 +9865,7 @@ export function createCore(adapters: CoreAdapters): Core {
       decksBeingWritten.size === 0
         ? null
         : Promise.allSettled([...decksBeingWritten]).then(() => undefined),
-    deckChangesWaiting: () => deckSittings.waitingCount(),
+    deckChangesWaiting: () => deckSittings.waitingAll(),
     deckChangeWaiting: async (documentId) => deckSittings.waitingOn(documentId),
     deckRefusal: async (documentId) => {
       if (typeof documentId !== "string") return null;

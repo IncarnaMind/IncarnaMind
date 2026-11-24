@@ -26,16 +26,28 @@ function unwritableActions(
  * past its shape; and once, the first time a deck of the User's own is changed, the tip that the
  * file itself is written and how to put it back.
  */
-export function DeckLines({ editing }: { editing: DeckEditing }) {
+export function DeckLines({
+  editing,
+  waitingOnly = false,
+  fileGone = false,
+}: {
+  editing: DeckEditing;
+  /** Only the line of a change that waits: the deck can't be edited, so nothing else applies. */
+  waitingOnly?: boolean;
+  /** The Library found the file gone since the change was refused: that is what the line says. */
+  fileGone?: boolean;
+}) {
   const t = useT();
-  const { waiting, overflow } = editing;
-  const tip = useFeatureTip("deck-edits", "viewer", editing.wroteFile);
+  const { waiting } = editing;
+  const why = fileGone ? "gone" : waiting?.why;
+  const overflow = waitingOnly ? null : editing.overflow;
+  const tip = useFeatureTip("deck-edits", "viewer", editing.wroteFile && !waitingOnly);
   return (
     <div className="viewer-deck-lines" data-quote-skip="">
       {waiting && (
         <ProblemLine
           testId="viewer-deck-unwritable"
-          {...unwritableActions(waiting.why, {
+          {...unwritableActions(why ?? waiting.why, {
             saveCopy: {
               label: t("viewer.deck.saveCopy"),
               onClick: editing.saveCopy,
@@ -49,12 +61,10 @@ export function DeckLines({ editing }: { editing: DeckEditing }) {
           })}
         >
           <ProblemMark />
-          {t("viewer.deck.unwritableLine", {
-            problem: waiting.lock
-              ? t("error.deck.unwritable.lockFile", { name: waiting.name, lock: waiting.lock })
-              : t(`error.deck.unwritable.${waiting.why}`, { name: waiting.name }),
-            kept: t("viewer.deck.changeKept"),
-          })}
+          {/* The lock file is named only once Try again has failed on it: most often the app is open. */}
+          {waiting.lock && waiting.again && !fileGone
+            ? t("error.deck.unwritable.lockFile", { lock: waiting.lock })
+            : t(`error.deck.unwritable.${why ?? waiting.why}`, { name: waiting.name })}
         </ProblemLine>
       )}
       {overflow && (

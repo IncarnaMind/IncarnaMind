@@ -10,16 +10,19 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, type BrowserWindow, type SaveDialogOptions } from "electron";
 import type { Core, UnsavedChanges } from "../core";
+import type { DeckUnwritable } from "../core/api";
 import { quitCopyOptions } from "../shared/exportOptions";
 import { type MessageKey, type MessageParams, translate } from "../shared/i18n";
 import { systemReason } from "../shared/systemReasons";
 import { settleSummaries, summariesWaiting } from "./meetings/summaryClosing";
 import { showMessageBox, showSaveDialog } from "./systemDialogs";
 
-type Choice = "saveCopy" | "quitAnyway" | "keepOpen";
+/** `saveCopy`: the Notes' copies, where the User chooses, and the decks' beside their files. */
+type Choice = "saveCopy" | "saveDeckCopy" | "quitAnyway" | "keepOpen";
 
 const LABELS: Readonly<Record<Choice, MessageKey>> = {
   saveCopy: "unsaved.saveCopy",
+  saveDeckCopy: "viewer.deck.saveCopy",
   quitAnyway: "quit.unsaved.quit",
   keepOpen: "quit.unsaved.keep",
 };
@@ -72,24 +75,41 @@ export function guardQuit(
     unsaved = state;
   });
   let leaving = false;
-  /** Asks what to do with what still waits; a copy that couldn't be saved asks again, saying why. */
-  const ask = async (left: UnsavedChanges, copyFailed: string | null) => {
+  /**
+   * Asks what to do with what still waits: Notes not stored and hand edits of decks (#149), each
+   * deck's with why it isn't saved; a copy that couldn't be saved asks again, saying why.
+   */
+  const ask = async (
+    notes: UnsavedChanges | null,
+    decks: readonly DeckUnwritable[],
+    writing: boolean,
+    copyFailed: string | null,
+  ) => {
     const { language } = await core.getSettings();
     const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
     const window = focusedWindow();
     // Only a Mind not deleted can be copied: a deleted one comes back with Restore (#1202).
-    const choices: Choice[] = [
-      ...(left.mindIds.length > 0 ? (["saveCopy"] as const) : []),
-      "quitAnyway",
-      "keepOpen",
+    const copies: Choice[] =
+      notes && notes.mindIds.length > 0 ? ["saveCopy"] : decks.length > 0 ? ["saveDeckCopy"] : [];
+    const choices: Choice[] = [...copies, "quitAnyway", "keepOpen"];
+    const deckCount = decks.length + (writing ? 1 : 0);
+    const count = (notes?.count ?? 0) + deckCount;
+    const message = !notes
+      ? deckCount === 1
+        ? t("quit.unsaved.decks.one")
+        : t("quit.unsaved.decks", { count: deckCount })
+      : count === 1
+        ? t("quit.unsaved.title.one")
+        : t("quit.unsaved.title", { count });
+    const details = [
+      ...(copyFailed !== null ? [copyFailedText(t, copyFailed)] : []),
+      ...decks.map((deck) => t(`quit.unsaved.deck.${deck.why}`, { name: deck.name })),
+      ...(writing ? [t("quit.unsaved.deck.writing")] : []),
     ];
     const options = {
       type: "warning" as const,
-      message:
-        left.count === 1
-          ? t("quit.unsaved.title.one")
-          : t("quit.unsaved.title", { count: left.count }),
-      ...(copyFailed !== null && { detail: copyFailedText(t, copyFailed) }),
+      message,
+      ...(details.length > 0 && { detail: details.join("\n") }),
       buttons: choices.map((choice) => t(LABELS[choice])),
       defaultId: choices.indexOf("keepOpen"),
       cancelId: choices.indexOf("keepOpen"),
@@ -99,38 +119,39 @@ export function guardQuit(
     return { choice: choices[response] ?? "keepOpen", window };
   };
   /**
-   * Hand edits of decks are asked about with the Notes' (#149): one that waits to be saved, or one
-   * still being written once the wait for it is over. A copy is saved from the deck's own line.
+   * True once nothing waits, or the User chose to quit anyway; false if they keep the app open. Save
+   * a copy saves the Notes' copies and each deck's beside its file, then asks again about anything
+   * still waiting: nothing quits while a deck's change waits unless the User chose to.
    */
-  const withDecks = (left: UnsavedChanges | null): UnsavedChanges | null => {
-    const decks = core.deckChangesWaiting() + (core.writingDecks() ? 1 : 0);
-    if (decks === 0) return left;
-    return left
-      ? { ...left, count: left.count + decks }
-      : { count: decks, mindIds: [], reason: "other", detail: "" };
-  };
-  /** True once nothing waits, or the User chose to quit anyway or saved copies; false if they keep the app open. */
   const settle = async (): Promise<boolean> => {
     // A deck being written by hand finishes first, so the gesture isn't lost half way, but a write
     // that never settles (a stalled share) doesn't hold the quit: it is asked about.
-    const writing = core.writingDecks();
-    if (writing)
-      await Promise.race([writing, new Promise((done) => setTimeout(done, DECK_WRITE_WAIT_MS))]);
+    const pending = core.writingDecks();
+    if (pending)
+      await Promise.race([pending, new Promise((done) => setTimeout(done, DECK_WRITE_WAIT_MS))]);
     if (!(await settleSummaries())) return false;
     let copyFailed: string | null = null;
+    let notesCopied = false;
     for (;;) {
-      const left = withDecks(await core.saveChangesAgain());
-      if (!left) return true;
-      const { choice, window } = await ask(left, copyFailed);
+      const notes = notesCopied ? null : await core.saveChangesAgain();
+      const decks = core.deckChangesWaiting();
+      const writing = core.writingDecks() !== null;
+      if (!notes && decks.length === 0 && !writing) return true;
+      const { choice, window } = await ask(notes, decks, writing, copyFailed);
       if (choice === "quitAnyway") return true;
-      if (choice !== "saveCopy") return false;
+      if (choice !== "saveCopy" && choice !== "saveDeckCopy") return false;
       try {
-        for (const mindId of left.mindIds) {
-          if (!(await saveMindCopy(core, window, mindId))) return false;
+        if (choice === "saveCopy" && notes) {
+          for (const mindId of notes.mindIds) {
+            if (!(await saveMindCopy(core, window, mindId))) return false;
+          }
+          notesCopied = true;
         }
-        return true;
+        // The same copy the deck's own line saves: beside its file, else in the Output location.
+        for (const deck of decks) await core.saveDeckCopy(deck.sittingId);
+        copyFailed = null;
       } catch (error) {
-        console.error("quit: a copy of a Mind couldn't be saved", error);
+        console.error("quit: a copy of a Note or a deck couldn't be saved", error);
         copyFailed = error instanceof Error ? error.message : String(error);
       }
     }
@@ -143,7 +164,10 @@ export function guardQuit(
   app.on("before-quit", (event) => {
     if (
       leaving ||
-      (!unsaved && !summariesWaiting() && !core.writingDecks() && core.deckChangesWaiting() === 0)
+      (!unsaved &&
+        !summariesWaiting() &&
+        !core.writingDecks() &&
+        core.deckChangesWaiting().length === 0)
     ) {
       return;
     }

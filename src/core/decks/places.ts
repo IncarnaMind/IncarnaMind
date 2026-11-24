@@ -172,6 +172,8 @@ export function ownFile(
   let kept = options.kept ?? false;
   /** A state this sitting kept that wasn't there before: the first write that succeeds lets older go. */
   let keptNew = false;
+  /** The sitting is marked as begun from its kept state only once a write of it has landed. */
+  let began = options.sitting === false;
   return {
     async write(bytes) {
       const { path } = deps.document(documentId);
@@ -211,7 +213,6 @@ export function ownFile(
           keptId = id;
           keptNew = true;
         }
-        if (options.sitting !== false && keptId) deps.kept.beganFrom(keptId);
         kept = true;
       }
       const expected = wrote;
@@ -233,6 +234,8 @@ export function ownFile(
         throw error;
       }
       wrote = hashBytes(bytes);
+      if (!began && keptId) deps.kept.beganFrom(keptId);
+      began = true;
       let letGo: string[] = [];
       if (keptNew) {
         keptNew = false;

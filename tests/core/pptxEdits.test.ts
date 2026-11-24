@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import { parseShapeEdits } from "../../src/core/decks/parse";
 import { drawPptx, type ShapeItem } from "../../src/core/documents/formats/pptxDrawing";
 import { openPackage } from "../../src/core/documents/formats/zip";
+import { Deck } from "../../src/core/exports/pptxPatch/deck";
 import { applyShapeEdits } from "../../src/core/exports/pptxPatch/edits";
 import type { EditedParagraph } from "../../src/core/exports/pptxPatch/shapeEdit";
 import { pptxOf, sp, txBody, xfrm } from "../helpers/pptx";
@@ -430,6 +431,54 @@ describe("A gesture's edits as the window sends them", () => {
     ]) {
       expect(() => parseShapeEdits(bad)).toThrow();
     }
+  });
+});
+
+describe("The slides an edit names", () => {
+  // protects=an edit names slides as the viewer numbers them (#149 review); fails_when=an entry in the slide list that names a layout is counted as slide 1, and the edit lands on the layout; no_claim=what PowerPoint does with such an entry.
+  test("skip an entry in the slide list that names no slide, as the viewer does", async () => {
+    const box = (words: string) =>
+      sp({
+        id: 3,
+        name: "Box",
+        spPr: xfrm(914400, 914400, 4572000, 457200),
+        body: txBody(`<a:p><a:r><a:rPr lang="en-GB"/><a:t>${words}</a:t></a:r></a:p>`),
+      });
+    const deck = Deck.open(
+      new Uint8Array(
+        pptxOf({
+          slides: [{ shapes: box("On the slide") }],
+          layout: { shapes: box("On the layout") },
+          parts: [ROOT_RELS],
+        }),
+      ),
+    );
+    const list = (await deck.pkg.text("ppt/presentation.xml")) ?? "";
+    deck.pkg.set(
+      "ppt/presentation.xml",
+      list.replace("<p:sldIdLst>", '<p:sldIdLst><p:sldId id="255" r:id="rId9"/>'),
+    );
+    const rels = (await deck.pkg.text("ppt/_rels/presentation.xml.rels")) ?? "";
+    deck.pkg.set(
+      "ppt/_rels/presentation.xml.rels",
+      rels.replace(
+        "</Relationships>",
+        '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="slideLayouts/slideLayout1.xml"/></Relationships>',
+      ),
+    );
+    const bytes = await deck.save();
+    expect((await drawPptx(bytes)).slides).toHaveLength(1);
+    const saved = await applyShapeEdits(bytes, [
+      {
+        kind: "text",
+        slide: 1,
+        shape: "3",
+        paragraphs: [{ source: 0, runs: runs(0, ["On the slide, edited"]) }],
+      },
+    ]);
+    const zip = openPackage(saved);
+    expect(await zip.readText("ppt/slides/slide1.xml")).toContain("On the slide, edited");
+    expect(await zip.readText("ppt/slideLayouts/slideLayout1.xml")).toContain(">On the layout<");
   });
 });
 

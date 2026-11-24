@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -161,27 +162,29 @@ export function SlidesView({ document, target }: { document: Document; target: V
       live = false;
     };
   }, [editing.written]);
-  // A change that waits keeps its line, and its Save a copy, when the file went missing meanwhile.
-  const waitingAside = editing.waiting !== null && (!editable || loaded.kind !== "ready");
+  // A change that waits keeps its line, and its Save a copy, once the deck can't be edited any more:
+  // its file gone or out of reach, or written by another app as a version that is never edited.
+  const waitingLine = editing.waiting ? (
+    <DeckLines editing={editing} waitingOnly fileGone={document.fileStatus === "missing"} />
+  ) : null;
   return (
-    <>
-      {waitingAside && <DeckLines editing={editing} />}
-      <FileStates
-        document={document}
-        loaded={loaded}
-        quote={target.quote}
-        reload={reload}
-        ready={(value) => (
-          <Slides
-            loaded={written ?? value}
-            document={document}
-            target={target}
-            editing={editable ? editing : null}
-            refusal={refusal}
-          />
-        )}
-      />
-    </>
+    <FileStates
+      document={document}
+      loaded={loaded}
+      quote={target.quote}
+      reload={reload}
+      lines={waitingLine}
+      ready={(value) => (
+        <Slides
+          loaded={written ?? value}
+          document={document}
+          target={target}
+          editing={editable ? editing : null}
+          waitingLine={waitingLine}
+          refusal={refusal}
+        />
+      )}
+    />
   );
 }
 
@@ -222,6 +225,7 @@ function Slides({
   document,
   target,
   editing,
+  waitingLine,
   refusal,
 }: {
   loaded: Loaded;
@@ -229,6 +233,8 @@ function Slides({
   target: ViewerTarget;
   /** Hand editing of the deck, where its file may be edited. */
   editing: DeckEditing | null;
+  /** The line of a change that waits, drawn when the deck can't be edited. */
+  waitingLine: ReactNode;
   /** Why the deck is never edited by hand, said once over its slides. */
   refusal: DeckRefusal | null;
 }) {
@@ -574,7 +580,7 @@ function Slides({
         placeGone={citedPlaceGone(target, slides.length)}
       />
       <QuoteStepsLine stepper={stepper} />
-      {editing && <DeckLines editing={editing} />}
+      {editing ? <DeckLines editing={editing} /> : waitingLine}
       {refusal && (
         <p className="viewer-deck-refusal" data-testid="viewer-deck-refusal" data-quote-skip="">
           {t(

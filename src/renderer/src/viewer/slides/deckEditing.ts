@@ -209,29 +209,36 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
 
   // A change that waits outlives its viewer: the deck opened again, after a closed tab, a reload
   // or in another window, takes it up from the core, which keeps it until it is saved.
+  const takeUpWaiting = useCallback(
+    (live: () => boolean = () => true) =>
+      core
+        .deckChangeWaiting(document.id)
+        .then((waiting) => {
+          if (!live() || !waiting || useHere.getState().byDocument[document.id]?.waiting) return;
+          setHere(document.id, {
+            sittingId: waiting.sittingId,
+            key: steadyVersion(useHandVersions.getState(), document.id, latest.current),
+            bytes: waiting.bytes,
+            hash: waiting.contentHash,
+            waiting,
+          });
+        })
+        .catch((error: unknown) => {
+          // Not taken up, the change can't be saved from here, and every gesture is refused for it.
+          console.error("The deck's change that waits couldn't be read.", error);
+          if (live()) useAppStore.getState().reportError(error);
+        }),
+    [document.id],
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: asked again as the deck's version changes
   useEffect(() => {
     if (stored) return;
     let live = true;
-    void core
-      .deckChangeWaiting(document.id)
-      .then((waiting) => {
-        if (!live || !waiting || useHere.getState().byDocument[document.id]) return;
-        setHere(document.id, {
-          sittingId: waiting.sittingId,
-          key: steadyVersion(useHandVersions.getState(), document.id, latest.current),
-          bytes: waiting.bytes,
-          hash: waiting.contentHash,
-          waiting,
-        });
-      })
-      .catch((error: unknown) =>
-        console.error("The deck's change that waits couldn't be read.", error),
-      );
+    void takeUpWaiting(() => live);
     return () => {
       live = false;
     };
-  }, [stored, steady, document.id]);
+  }, [stored, steady, takeUpWaiting]);
 
   // The file back at a version this window wrote earlier (another program wrote it back): what the
   // window wrote last isn't what the file holds, so the file is read again.
@@ -310,11 +317,14 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
   /** A write the core refused: the deck changed under it, and is read again; else nothing changed. */
   const refused = useCallback(
     (error: unknown) => {
+      // Refused for a change that waits which this window hasn't taken up: it takes it up, so its
+      // line and Save a copy show.
+      if (describeError(error).wording?.key === "error.deck.waiting") void takeUpWaiting();
       if (!changedUnder(error)) return;
       endHere(document.id);
       forget(document.id);
     },
-    [document.id],
+    [document.id, takeUpWaiting],
   );
 
   /** Runs one write of the deck, telling the versions this window wrote what it wrote. */

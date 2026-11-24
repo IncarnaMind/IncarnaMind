@@ -142,7 +142,7 @@ describe("a deck an agent handed over, edited by hand", () => {
         shown: "",
         edits: moved(60),
       }),
-    ).rejects.toThrow(/changed since/);
+    ).rejects.toThrow(/The deck changed elsewhere, so nothing was written/);
     await expect(set.core.undoDeckEdit(first.sittingId, first.stepId)).rejects.toThrow();
     const newest = await deckHolding(set.core, hashBytes(theirs));
     expect(newest.id).toBe(document.id);

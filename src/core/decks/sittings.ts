@@ -101,14 +101,14 @@ async function slideCounts(base: Uint8Array, now: Uint8Array) {
   return { changed, kept: parts.length - changed };
 }
 
+/** Why a sitting's change waits; `again` once Try again was refused for the same reason. */
+type WaitingWhy = Pick<DeckUnwritable, "why" | "name" | "lock" | "again">;
+
 export function createDeckSittings(deps: DeckSittingDeps) {
   const sittings = new Map<string, Sitting>();
 
   /** What a sitting's waiting change is, for the viewer: what was refused, and the deck with it. */
-  const waitingOf = (
-    sitting: Sitting,
-    why: { why: DeckUnwritable["why"]; name: string; lock?: string },
-  ): DeckUnwritable => {
+  const waitingOf = (sitting: Sitting, why: WaitingWhy): DeckUnwritable => {
     const bytes = sitting.waiting?.bytes ?? sitting.current;
     return {
       kind: "unwritable",
@@ -117,12 +117,13 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       why: why.why,
       name: why.name,
       ...(why.lock && { lock: why.lock }),
+      ...(why.again && { again: true }),
       bytes,
       contentHash: hashBytes(bytes),
     };
   };
   /** Why each sitting's change waits, as last said. */
-  const waitingWhy = new Map<string, { why: DeckUnwritable["why"]; name: string; lock?: string }>();
+  const waitingWhy = new Map<string, WaitingWhy>();
 
   /** Each holds its deck twice in memory: the oldest closed ones go, their steps with them. */
   const letClosedGo = () => {
@@ -316,7 +317,17 @@ export function createDeckSittings(deps: DeckSittingDeps) {
         if (sitting.ended) throw changedError();
         const { waiting } = sitting;
         if (!waiting) throw new InvalidInputError({ key: "error.deck.noStep" });
-        return write(sitting, waiting.bytes, waiting.step, waiting.done);
+        const before = waitingWhy.get(sitting.id);
+        const result = await write(sitting, waiting.bytes, waiting.step, waiting.done);
+        if (result.kind !== "unwritable" || result.why !== before?.why) return result;
+        const again: WaitingWhy = {
+          why: result.why,
+          name: result.name,
+          ...(result.lock && { lock: result.lock }),
+          again: true,
+        };
+        waitingWhy.set(sitting.id, again);
+        return waitingOf(sitting, again);
       });
     },
 
@@ -387,9 +398,21 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       return null;
     },
 
-    /** How many changes wait to be saved, in all: the quit asks about them as about unsaved Notes. */
-    waitingCount(): number {
-      return [...sittings.values()].filter((each) => each.waiting).length;
+    /** Every change that waits to be saved: the quit asks about them as about unsaved Notes. */
+    waitingAll(): DeckUnwritable[] {
+      return [...sittings.values()].flatMap((sitting) =>
+        sitting.waiting
+          ? [
+              waitingOf(
+                sitting,
+                waitingWhy.get(sitting.id) ?? {
+                  why: "read-only",
+                  name: deps.nameOf(sitting.documentId),
+                },
+              ),
+            ]
+          : [],
+      );
     },
 
     /** Every sitting on a Document ends: it was put back as it was, or changed elsewhere. */

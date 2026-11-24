@@ -4206,6 +4206,8 @@ export interface DeckUnwritable {
   name: string;
   /** The lock file another app left beside it, which may be a leftover from a crash. */
   lock?: string;
+  /** Try again was refused for the same reason: the line then says what else to do. */
+  again?: boolean;
   /** The deck with the change that waits: what the viewer draws, and a copy would hold. */
   bytes: Uint8Array;
   /** The SHA-256 of `bytes`. */
