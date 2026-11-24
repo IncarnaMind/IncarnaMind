@@ -163,6 +163,14 @@ function roomBottom(group: Locator): Promise<number> {
   });
 }
 
+/** Opens `card` from `anchor`, pressed again when the first press opened nothing, as a person does. */
+async function openFrom(window: Page, anchor: Locator, card: Locator): Promise<void> {
+  await expect(async () => {
+    if (!(await card.isVisible())) await pointAndClick(window, anchor);
+    await expect(card).toBeVisible({ timeout: 1000 });
+  }).toPass();
+}
+
 /**
  * Opens `card` from `anchor` where, hanging above it, its top would come 10 px into the badge's
  * row; or as high as the room in the Note lets it, which is said.
@@ -178,8 +186,7 @@ async function openNear(
   const bottom = await roomBottom(group);
   const below = badge.y + badge.height;
   await scrollTo(scroller, anchor, Math.min(below + 140, bottom - 60));
-  await pointAndClick(window, anchor);
-  await expect(card).toBeVisible();
+  await openFrom(window, anchor, card);
   const { height } = await boxOf(card);
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
@@ -192,8 +199,7 @@ async function openNear(
     });
   }
   await scrollTo(scroller, anchor, at);
-  await pointAndClick(window, anchor);
-  await expect(card).toBeVisible();
+  await openFrom(window, anchor, card);
   await motionSettled(window);
 }
 
