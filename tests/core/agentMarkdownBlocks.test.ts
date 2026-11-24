@@ -241,10 +241,66 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
       expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
     }
   }, 60_000);
+  // protects=in one call, each of two paragraphs rewritten as a title with a list added after it joins its own list, and the list keeps only the handles it names: the first keeps its Citation and not its footnote, the second its own Citation; fails_when=a list joins the other paragraph's rewrite, a handle keeps the other paragraph's Citation, or a handle left out still keeps its footnote
+  it("joins each paragraph's additions to its own rewrite, keeping only the handles they name", async () => {
+    const { agent, client, mindId } = await citedNote([
+      {
+        type: "paragraph",
+        attrs: { id: "walls" },
+        content: [
+          { type: "text", text: "Harbour walls are built for them " },
+          { type: CITATION_NODE, attrs: harbours },
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    const read = (await agent.callTool({
+      name: "read_mind",
+      arguments: { mindId, named: true },
+    })) as { structuredContent?: { version?: string } };
+    const result = (await agent.callTool({
+      name: "propose_changes",
+      arguments: {
+        mindId,
+        version: read.structuredContent?.version,
+        changes: [
+          { paragraph: "¶1", text: "## Spring tides" },
+          { paragraph: "¶+", text: "- The ferry waits for the tide [kept:1]" },
+          { paragraph: "¶2", text: "## Harbour walls" },
+          { paragraph: "¶+", text: "- Built for the spring tides [kept:1]" },
+        ],
+      },
+    })) as { isError?: boolean; content?: { text?: string }[] };
+    expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
+    await client.settled();
+    expect(await decided(client, "accept")).toEqual([
+      "heading:2",
+      "bulletList",
+      "heading:2",
+      "bulletList",
+    ]);
+    const [, first, , second] = readMind(client).toJSON().content ?? [];
+    expect(citingOf(first)).toEqual({ cites: [tides.documentId], footnote: false });
+    expect(citingOf(second)).toEqual({ cites: [harbours.documentId], footnote: false });
+    expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
+  }, 60_000);
 });
 
+/** The Citations in `node`, by Document, and whether a footnote is in it. */
+function citingOf(node: JSONContent | undefined): { cites: unknown[]; footnote: boolean } {
+  const cites: unknown[] = [];
+  let footnote = false;
+  const visit = (each: JSONContent) => {
+    if (each.type === CITATION_NODE) cites.push(each.attrs?.documentId);
+    if (each.type === FOOTNOTE_NODE) footnote = true;
+    else for (const child of each.content ?? []) visit(child);
+  };
+  if (node) visit(node);
+  return { cites, footnote };
+}
+
 /** A Note whose first paragraph holds the User's Citation of Tides and a footnote that cites. */
-async function citedNote() {
+async function citedNote(rest: JSONContent[] = [note(P2)]) {
   const { core } = await startAgentsCore(replyingModel());
   await core.setAgentsEnabled(true);
   const { launch } = await core.connectAgent({
@@ -272,7 +328,7 @@ async function citedNote() {
   };
   const mind = await core.createMind({ title: "Ferry notes" });
   const client = await connectToMind(core, mind.id);
-  writeMind(client, [cited, note(P2)]);
+  writeMind(client, [cited, ...rest]);
   await client.settled();
   return { agent, client, mindId: mind.id };
 }
