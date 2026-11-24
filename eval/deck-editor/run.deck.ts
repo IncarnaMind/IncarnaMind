@@ -20,7 +20,7 @@ const lane = process.env.INCARNAMIND_EVAL_CACHE ?? "";
 const phase = process.env.DECK_EDITOR_PHASE ?? "a";
 const decksDir = join(lane, "decks", "cache");
 const outDir = join(lane, "out");
-const KINDS: Kind[] = ["noedit", "text", "box"];
+const KINDS = ["noedit", "text", "box"] as const;
 
 async function produceArmA(): Promise<void> {
   await mkdir(decksDir, { recursive: true });
@@ -66,8 +66,9 @@ async function compareArms(): Promise<void> {
       if (!deckTargets) continue;
       const original = await fetchPinned(entry.url, entry.sha256, decksDir);
       const deck: Partial<Record<Kind, CopyReport | { error: string }>> = {};
-      for (const kind of KINDS) {
+      for (const kind of [...KINDS, "rebuild" as const]) {
         const file = join(outDir, arm, `${entry.id}-${kind}.pptx`);
+        if (kind === "rebuild" && !existsSync(file)) continue;
         if (!existsSync(file)) {
           const log = join(outDir, arm, `${entry.id}.json`);
           const reason = existsSync(log)
@@ -84,6 +85,7 @@ async function compareArms(): Promise<void> {
             new Uint8Array(readFileSync(file)),
             kind,
             deckTargets,
+            arm.endsWith("-ui") ? 3 : 1,
           );
         } catch (error) {
           deck[kind] = { error: error instanceof Error ? error.message : String(error) };

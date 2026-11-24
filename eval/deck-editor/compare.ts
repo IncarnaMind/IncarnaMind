@@ -20,7 +20,8 @@ import { openPackage, resolvePart, type ZipArchive } from "../../src/core/docume
 import { shapesById } from "../../src/core/exports/pptxPatch/shapes";
 import type { BoxTarget, DeckTargets, TextTarget } from "./targets";
 
-export type Kind = "noedit" | "text" | "box";
+/** A save with no edit, the text or box edits, or a save with no edit through a rebuild of the deck. */
+export type Kind = "noedit" | "text" | "box" | "rebuild";
 
 export interface CopyReport {
   kind: Kind;
@@ -34,12 +35,16 @@ export interface CopyReport {
   restored: number;
   missing: string[];
   added: string[];
+  /** ZIP entries for folders (names ending "/"), which hold no part, dropped from the copy. */
+  foldersDropped: number;
   /** For each changed XML part, the elements it has fewer of, by name and count. */
   dropped: Record<string, Record<string, number>>;
   /** Parts changed that no edit named: not the edited slides. */
   changedOutsideEdited: string[];
   /** Edited slides whose bytes changed outside the edited shapes. */
   slidesChangedOutsideShape: number[];
+  /** The same, not counting the line break after the XML declaration. */
+  slidesChangedOutsideShapeBeyondDeclaration: number[];
   /** Our reader: the copy's slide count and whether every edit reads back. */
   readBack: {
     slides: number;
@@ -163,10 +168,13 @@ export async function compareCopy(
   copy: Uint8Array,
   kind: Kind,
   targets: DeckTargets,
+  /** How far a moved or sized shape may land from where it was asked to, CSS pixels: a drag lands on whole screen pixels. */
+  tolerance = 1,
 ): Promise<CopyReport> {
   const before = openPackage(original);
   const after = openPackage(copy);
-  const names = before.names();
+  const isFolder = (name: string) => name.endsWith("/");
+  const names = before.names().filter((name) => !isFolder(name));
   const changed: string[] = [];
   let restored = 0;
   const dropped: Record<string, Record<string, number>> = {};
@@ -193,7 +201,8 @@ export async function compareCopy(
     }
   }
   const missing = names.filter((name) => !after.has(name));
-  const added = after.names().filter((name) => !before.has(name));
+  const added = after.names().filter((name) => !before.has(name) && !isFolder(name));
+  const foldersDropped = before.names().filter((name) => isFolder(name) && !after.has(name)).length;
   for (const name of [...changed, ...added]) {
     if (!isXml(name)) continue;
     const problem = wellFormed((await after.readText(name)) ?? "");
@@ -205,20 +214,24 @@ export async function compareCopy(
   const editedParts = new Set(edits.map((each) => each.slidePart));
   const changedOutsideEdited = [...changed, ...missing].filter((name) => !editedParts.has(name));
   const slidesChangedOutsideShape: number[] = [];
+  const slidesChangedOutsideShapeBeyondDeclaration: number[] = [];
+  const declaration = /^\uFEFF?<\?xml[^>]*\?>\s*/;
   for (const part of editedParts) {
     const was = (await before.readText(part)) ?? "";
     const now = (await after.readText(part)) ?? "";
     if (was === now) continue;
     const ids = edits.filter((each) => each.slidePart === part).map((each) => each.shapeId);
-    let outside = true;
-    try {
-      outside =
-        without(was, editedRegions(was, ids, kind)) !== without(now, editedRegions(now, ids, kind));
-    } catch {
-      outside = true;
-    }
-    if (outside) {
-      slidesChangedOutsideShape.push(edits.find((each) => each.slidePart === part)?.slide ?? 0);
+    const slide = edits.find((each) => each.slidePart === part)?.slide ?? 0;
+    const outside = (a: string, b: string) => {
+      try {
+        return without(a, editedRegions(a, ids, kind)) !== without(b, editedRegions(b, ids, kind));
+      } catch {
+        return true;
+      }
+    };
+    if (outside(was, now)) slidesChangedOutsideShape.push(slide);
+    if (outside(was.replace(declaration, ""), now.replace(declaration, ""))) {
+      slidesChangedOutsideShapeBeyondDeclaration.push(slide);
     }
   }
 
@@ -249,7 +262,7 @@ export async function compareCopy(
             ? slide.items.find((each) => each.shapeId === target.shapeId)
             : undefined;
         const near = (px: number | undefined, emu: number) =>
-          px !== undefined && Math.abs(px * 9525 - emu) <= 9525;
+          px !== undefined && Math.abs(px * 9525 - emu) <= tolerance * 9525;
         if (
           item &&
           near(item.box.x, target.to.x) &&
@@ -272,7 +285,10 @@ export async function compareCopy(
     restored === 0 &&
     missing.length === 0 &&
     added.length === 0 &&
-    after.names().join("\n") === names.join("\n");
+    after
+      .names()
+      .filter((name) => !isFolder(name))
+      .join("\n") === names.join("\n");
   return {
     kind,
     fileIdentical: Buffer.from(original).equals(Buffer.from(copy)),
@@ -281,9 +297,11 @@ export async function compareCopy(
     restored,
     missing,
     added,
+    foldersDropped,
     dropped,
     changedOutsideEdited,
     slidesChangedOutsideShape,
+    slidesChangedOutsideShapeBeyondDeclaration,
     readBack,
     malformed,
     danglingAdded,
