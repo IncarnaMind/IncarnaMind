@@ -21,7 +21,7 @@ import {
 /*
  * The card counts sentences, each once, by its one state (#2831): what needs a look, what is
  * supported, what is being checked and what isn't checked, each a row a click moves to (#2313),
- * and no row of Citations. "Everything checked" shows only when nothing is left. A sentence not
+ * and no row of Citations. "All supported" shows only when nothing is left. A sentence not
  * checked keeps a quiet ring on the page and opens from the card's row for it or from ⇧⌘K too.
  * The checks are written into the page, so no model is involved.
  */
@@ -33,7 +33,7 @@ const TIDES = buildPdf([
 const WORDS = {
   en: {
     label: "Checks",
-    allChecked: "Everything checked",
+    allChecked: "All supported",
     supported: "4 supported",
     allSupported: "2 supported",
     lookOnly: "2 supported",
@@ -56,7 +56,7 @@ const WORDS = {
   },
   "zh-CN": {
     label: "核对结果",
-    allChecked: "已全部核对",
+    allChecked: "全部有依据",
     supported: "4 句有依据",
     allSupported: "2 句有依据",
     lookOnly: "2 句有依据",
@@ -231,7 +231,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(wide).toHaveCount(0);
 
-    // Everything checked, and only then: every claim holds and every one cites.
+    // All supported, and only then: every claim holds and every one cites.
     await newMind(window);
     const clean = window.getByTestId("mind-editor");
     await clean.evaluate(

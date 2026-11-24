@@ -336,9 +336,11 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   await window.keyboard.press("Escape");
 
   // Pressing Install Claude Code from the Checks card (beside its disclosure) opens Settings › AI
-  // and starts installing in one press.
+  // and starts installing in one press. The card still says what checking needs, and offers no
+  // Check under it while nothing can check (#3756).
   await window.getByTestId("check-badge-open").click();
-  await window.getByTestId("badge-check-mind").click();
+  await expect(checksProblem).toContainText("Checking needs your AI");
+  await expect(window.getByTestId("badge-check-mind")).toHaveCount(0);
   await checksProblem.getByTestId("checks-install-claude-code").click();
   await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   const progress = window.getByTestId("claude-code-install-progress");

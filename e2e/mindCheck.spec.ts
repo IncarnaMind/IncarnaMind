@@ -145,7 +145,7 @@ const mindCheckFinished = (window: Page, claims: number, { card = true } = {}) =
         (open !== null || !withCard) &&
         marks.length === count &&
         [...marks].every((mark) => mark.getAttribute("data-check") !== "checking") &&
-        open?.querySelector('[data-testid="card-progress"]') == null
+        open?.querySelector('[data-testid="card-foot-progress"]') == null
       );
     },
     { count: claims, withCard: card },
@@ -228,7 +228,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
       const card = await checkCard(window, window, { stopTimeout: 120_000 });
       await mindCheckFinished(window, 2);
-      const checked = card.getByTestId("health-checked-all");
+      // Under the rows, the check's own line leaves the time to the card's top (#3756).
+      const checked = card.getByTestId("health-checked-more");
       await expect(checked).toContainText(
         language === "en"
           ? "Couldn’t tell whether 1 sentence needs checking"
@@ -256,7 +257,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const again = (await checkCard(window)).getByTestId("badge-check-mind");
       await pointAndClick(window, again);
       await mindCheckFinished(window, 3);
-      await expect(checked).not.toContainText(translate(language, "health.unexamined.one"));
+      await expect(card).not.toContainText(translate(language, "health.unexamined.one"));
       await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
     } finally {
       await app.close();
@@ -576,10 +577,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await screenshot(window, `card-foot-${language}-${width}-open`);
       // The card takes its first paint's height; no line is reserved empty, and a finished
       // check's note line shows its when, never the run's progress words.
-      const notes = health.locator(".check-card-note");
-      if ((await notes.count()) > 0) {
-        await expect(notes).not.toContainText(language === "en" ? "Checking" : "正在核对");
-      }
+      await expect(
+        health
+          .locator(".check-card-note")
+          .filter({ hasText: language === "en" ? "Checking" : "正在核对" }),
+      ).toHaveCount(0);
       const before = { card: await health.boundingBox(), foot: await foot.boundingBox() };
       if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
 
@@ -612,12 +614,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(price).toBeVisible();
       // A keyboard User can stop the run: the press leaves them on Stop.
       await expect(health.getByTestId("card-foot-stop")).toBeFocused();
-      // The foot carries the run's words; the body's note line takes a line only with something
-      // to say, and nothing has landed yet.
+      // The badge says the run's words once; the foot keeps its Stop, and the body's note line
+      // takes a line only with something to say, and nothing has landed yet (#3756).
       await expect(health.locator(".check-card-note")).toHaveCount(0);
-      await expect(line).toContainText(language === "en" ? "Checking" : "正在核对");
-      // The badge keeps its words while the card is open.
-      await expect(window.getByTestId("badge-progress")).toBeVisible();
+      await expect(line).toHaveText(language === "en" ? "Stop" : "停止");
+      await expect(window.getByTestId("badge-progress")).toContainText(
+        language === "en" ? "Checking" : "正在核对",
+      );
 
       await release();
       await mindCheckFinished(window, at === 0 ? 15 : 16);
@@ -677,7 +680,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
     }
 
-    // A card that never showed a price line: no empty line at rest, and the run's words take
+    // A card that never showed a price line: no empty line at rest, and the run's Stop takes
     // Check's own row, so the card does not jump at the press.
     await window.evaluate(async () => {
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -731,7 +734,10 @@ for (const language of ["en", "zh-CN"] as const) {
       plainPressBox.x + plainPressBox.width,
       0,
     );
-    await expect(plainLine).toContainText(language === "en" ? "Checking" : "正在核对");
+    await expect(plainLine).toHaveText(language === "en" ? "Stop" : "停止");
+    await expect(window.getByTestId("badge-progress")).toContainText(
+      language === "en" ? "Checking" : "正在核对",
+    );
     await screenshot(window, `card-foot-${language}-noprice-held`);
     await release();
     await mindCheckFinished(window, language === "en" ? 17 : 18);
