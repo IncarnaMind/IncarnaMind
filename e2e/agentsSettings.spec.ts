@@ -731,3 +731,39 @@ test("two broken connections: Repair all repairs both, and Disconnect all asks i
     await app.close();
   }
 });
+
+// protects=the connect card's "Let it write notes and propose changes" starts ticked in Settings, as in first setup, so connecting without touching it gives a connection that may write, and unticking it gives one that may not (#3756); fails_when=the box starts unticked in Settings, or the connection's permission differs from the box; no_claim=a connection made before, which keeps the choice it was made with.
+test("connecting from Settings starts with writing ticked, and the box decides what the connection may do", async () => {
+  const { app, window } = await launchApp(dataDir, { home });
+  try {
+    await dismissChatSetup(window);
+    await catchCopies(window);
+    await acceptPlainTextKeys(window);
+    await window.evaluate(() =>
+      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setAgentsEnabled(true),
+    );
+    const page = await openSettings(window, "ai");
+    const connect = async (untick: boolean) => {
+      await (await agentsToConnect(page))
+        .locator('[data-client="claude-code"]')
+        .getByTestId("agent-connect")
+        .click();
+      const dialog = window.getByTestId("connect-agent-dialog");
+      const propose = dialog.getByTestId("agent-propose");
+      await expect(propose).toBeChecked();
+      if (untick) await propose.uncheck();
+      await dialog.getByTestId("connect-agent-allow").click();
+      await expect(dialog).toBeHidden();
+      return window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const [pairing] = (await bridge.getAgents()).pairings;
+        if (pairing) await bridge.disconnectAgent(pairing.id);
+        return pairing?.propose;
+      });
+    };
+    expect(await connect(false)).toBe(true);
+    expect(await connect(true)).toBe(false);
+  } finally {
+    await app.close();
+  }
+});
