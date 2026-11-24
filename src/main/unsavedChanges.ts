@@ -27,6 +27,9 @@ const LABELS: Readonly<Record<Choice, MessageKey>> = {
 /** A file name the file systems take: a Mind's title without what they refuse. */
 const fileNameOf = (title: string) => title.replace(/[\\/:*?"<>|]+/g, " ").trim() || "Note";
 
+/** How long the quit waits for a hand edit of a deck being written before it asks. */
+const DECK_WRITE_WAIT_MS = 10_000;
+
 /** Saves the Mind as a .docx where the User chooses; false when they didn't choose. */
 export async function saveMindCopy(
   core: Core,
@@ -95,14 +98,28 @@ export function guardQuit(
     const { response } = await showMessageBox(window, options);
     return { choice: choices[response] ?? "keepOpen", window };
   };
+  /**
+   * Hand edits of decks are asked about with the Notes' (#149): one that waits to be saved, or one
+   * still being written once the wait for it is over. A copy is saved from the deck's own line.
+   */
+  const withDecks = (left: UnsavedChanges | null): UnsavedChanges | null => {
+    const decks = core.deckChangesWaiting() + (core.writingDecks() ? 1 : 0);
+    if (decks === 0) return left;
+    return left
+      ? { ...left, count: left.count + decks }
+      : { count: decks, mindIds: [], reason: "other", detail: "" };
+  };
   /** True once nothing waits, or the User chose to quit anyway or saved copies; false if they keep the app open. */
   const settle = async (): Promise<boolean> => {
-    // A deck being written by hand finishes first, so the gesture isn't lost half way (#149).
-    await core.writingDecks();
+    // A deck being written by hand finishes first, so the gesture isn't lost half way, but a write
+    // that never settles (a stalled share) doesn't hold the quit: it is asked about.
+    const writing = core.writingDecks();
+    if (writing)
+      await Promise.race([writing, new Promise((done) => setTimeout(done, DECK_WRITE_WAIT_MS))]);
     if (!(await settleSummaries())) return false;
     let copyFailed: string | null = null;
     for (;;) {
-      const left = await core.saveChangesAgain();
+      const left = withDecks(await core.saveChangesAgain());
       if (!left) return true;
       const { choice, window } = await ask(left, copyFailed);
       if (choice === "quitAnyway") return true;
@@ -124,7 +141,12 @@ export function guardQuit(
     quit();
   };
   app.on("before-quit", (event) => {
-    if (leaving || (!unsaved && !summariesWaiting() && !core.writingDecks())) return;
+    if (
+      leaving ||
+      (!unsaved && !summariesWaiting() && !core.writingDecks() && core.deckChangesWaiting() === 0)
+    ) {
+      return;
+    }
     event.preventDefault();
     // Whatever goes wrong here, IncarnaMind stays open: quitting would lose what waits.
     decide().catch((error: unknown) => {

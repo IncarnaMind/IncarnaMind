@@ -120,9 +120,10 @@ describe("A deck of the User's own, edited by hand", () => {
         Buffer.from(after.raw(name)?.data ?? []).equals(Buffer.from(before.raw(name)?.data ?? [])),
       ).toBe(true);
     }
-    // The file as it stood is kept, whole, once for the sitting.
+    // The file as it stood is kept, whole, once for the sitting: what Put back as it was writes.
     const kept = await core.keptDeckStates(document.id);
-    expect(kept).toHaveLength(1);
+    expect(kept.sitting?.contentHash).toBe(hashBytes(original));
+    expect(kept.first).toBeNull();
     const keptFiles = await readdir(join(dataDir, "Kept decks", document.id));
     expect(keptFiles).toHaveLength(1);
     expect(
@@ -141,7 +142,7 @@ describe("A deck of the User's own, edited by hand", () => {
         edits: moveBox(200),
       }),
     );
-    expect(await core.keptDeckStates(document.id)).toHaveLength(1);
+    expect(await readdir(join(dataDir, "Kept decks", document.id))).toHaveLength(1);
   });
 
   it("undoes and redoes one gesture at a time, writing the file each time", async () => {
@@ -294,7 +295,7 @@ describe("A deck of the User's own, edited by hand", () => {
         edits: typed("，改"),
       }),
     );
-    const [kept] = await core.keptDeckStates(document.id);
+    const kept = (await core.keptDeckStates(document.id)).sitting;
     if (!kept) throw new Error("nothing kept");
     const now = await waitForDocuments(core, (documents) =>
       expect(documents.find((each) => each.id === document.id)?.contentHash).toBe(
@@ -317,8 +318,8 @@ describe("A deck of the User's own, edited by hand", () => {
     expect(hashBytes(new Uint8Array(await readFile(path)))).toBe(hashBytes(edit.bytes));
   });
 
-  it(`keeps the last ${MAX_KEPT} states and says which one it let go`, async () => {
-    const { core, path, document } = await opened();
+  it(`keeps ${MAX_KEPT} states and says which one it let go`, async () => {
+    const { core, dataDir, path, document } = await opened();
     let letGo: string[] = [];
     for (let sitting = 0; sitting <= MAX_KEPT; sitting++) {
       const shown = hashBytes(new Uint8Array(await readFile(path)));
@@ -333,7 +334,7 @@ describe("A deck of the User's own, edited by hand", () => {
       if (edit.saved.kind === "file") letGo = edit.saved.letGo;
       await core.closeDeckSitting(edit.sittingId);
     }
-    expect(await core.keptDeckStates(document.id)).toHaveLength(MAX_KEPT);
+    expect(await readdir(join(dataDir, "Kept decks", document.id))).toHaveLength(MAX_KEPT);
     expect(letGo).toHaveLength(1);
   });
 

@@ -4196,10 +4196,16 @@ export interface DeckUnwritable {
   kind: "unwritable";
   sittingId: string;
   documentId: string;
-  /** "unkept": IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't write it. */
-  why: "read-only" | "locked" | "gone" | "full" | "unkept";
+  /**
+   * "unkept": IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't
+   * write it. "changed": another program wrote the file while the change waited, so only a copy
+   * beside it keeps the change.
+   */
+  why: "read-only" | "locked" | "gone" | "full" | "unkept" | "changed";
   /** The file's name. */
   name: string;
+  /** The lock file another app left beside it, which may be a leftover from a crash. */
+  lock?: string;
   /** The deck with the change that waits: what the viewer draws, and a copy would hold. */
   bytes: Uint8Array;
   /** The SHA-256 of `bytes`. */
@@ -4229,6 +4235,16 @@ export interface KeptDeckState {
   id: string;
   /** ISO 8601, UTC. */
   keptAt: string;
+  /** The SHA-256 of the deck as kept: nothing to put back while the file holds it. */
+  contentHash: string;
+}
+
+/** The two states a deck of the User's own can be put back to (#149); no list of versions. */
+export interface KeptDeckStates {
+  /** As it was before the latest sitting of editing it by hand: Put back as it was. */
+  sitting: KeptDeckState | null;
+  /** As it was before IncarnaMind first changed it, when that is another state than `sitting`. */
+  first: KeptDeckState | null;
 }
 
 /** A deck put back as it stood: when that was, and the state kept just before, to undo it with. */
@@ -16292,8 +16308,17 @@ export interface CoreApi {
   closeDeckSitting(sittingId: string): Promise<void>;
   /** Writes the change that waits for its file again, as the file may take it now (#149). */
   retryDeckEdit(sittingId: string): Promise<DeckEdit>;
-  /** A deck of the User's own as it stood before each sitting of editing it, the newest first (#149). */
-  keptDeckStates(documentId: string): Promise<KeptDeckState[]>;
+  /**
+   * Why a deck is never edited by hand, if it isn't (#149): signed, marked as final, protected by a
+   * password to modify, or stored so it can't be written back whole. The viewer says so once.
+   */
+  deckRefusal(
+    documentId: string,
+  ): Promise<"signed" | "final" | "protected" | "unrewritable" | null>;
+  /** The hand edit of this deck that waits to be saved, if one does: a viewer opened again shows it (#149). */
+  deckChangeWaiting(documentId: string): Promise<DeckUnwritable | null>;
+  /** What a deck of the User's own can be put back to: before its latest sitting, and as it first was (#149). */
+  keptDeckStates(documentId: string): Promise<KeptDeckStates>;
   /**
    * Puts a deck of the User's own back as it stood then, keeping it as it is now first, so this
    * can be undone (#149). `shown`: the content hash of the version the viewer shows.
@@ -17151,6 +17176,8 @@ const methods: Record<CoreApiMethod, true> = {
   keptDeckStates: true,
   restoreKeptDeck: true,
   retryDeckEdit: true,
+  deckChangeWaiting: true,
+  deckRefusal: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

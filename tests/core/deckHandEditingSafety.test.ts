@@ -3,7 +3,7 @@
  * that Put back can't eat and a failed write can't drop, a change that waits whole while its file
  * can't be written, a file another app holds, a deck its author protected, and what a crash leaves.
  */
-import { chmod, mkdir, readdir, readFile, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Core } from "../../src/core";
@@ -17,7 +17,6 @@ import {
   addAndProcess,
   createSourceFolder,
   linkWithoutFolderAndProcess,
-  waitForDocuments,
 } from "../helpers/documents";
 import { pptxOf, sp, xfrm } from "../helpers/pptx";
 import type { ZipInput } from "../helpers/zip";
@@ -82,30 +81,29 @@ async function sitting(core: Core, documentId: string, path: string, x: number) 
 }
 
 describe("Kept states of a User's own deck", () => {
+  /** What the deck's menu offers to put back: before the latest sitting, and as it first was. */
+  const offered = async (core: Core, documentId: string) => core.keptDeckStates(documentId);
+
   it("Put back and its Undo, again and again, never let the deck as it first was go", async () => {
-    const { core, path, original, document } = await opened();
+    const { core, dataDir, path, original, document } = await opened();
     for (let at = 0; at < 3; at++) await sitting(core, document.id, path, 100 + at);
-    const [newest] = await core.keptDeckStates(document.id);
-    if (!newest) throw new Error("nothing kept");
+    const { sitting: state } = await offered(core, document.id);
+    if (!state) throw new Error("nothing kept");
     for (let round = 0; round < MAX_KEPT + 2; round++) {
-      const now = await waitForDocuments(core, () => undefined);
-      const shown = await hashOn(path);
       const restored = await core.restoreKeptDeck({
         documentId: document.id,
-        keptId: newest.id,
-        shown,
+        keptId: state.id,
+        shown: await hashOn(path),
       });
       await core.restoreKeptDeck({
         documentId: document.id,
         keptId: restored.before ?? "",
         shown: restored.contentHash,
       });
-      expect(now).toBeDefined();
     }
-    const kept = await core.keptDeckStates(document.id);
-    expect(kept.length).toBeLessThanOrEqual(5);
-    const first = kept.at(-1);
-    if (!first) throw new Error("nothing kept");
+    expect((await readdir(join(dataDir, "Kept decks", document.id))).length).toBeLessThanOrEqual(5);
+    const { first } = await offered(core, document.id);
+    if (!first) throw new Error("the deck as it first was isn't offered");
     await core.restoreKeptDeck({
       documentId: document.id,
       keptId: first.id,
@@ -114,18 +112,17 @@ describe("Kept states of a User's own deck", () => {
     expect(await hashOn(path)).toBe(hashBytes(original));
   });
 
-  it("keeps the deck as it first was however many sittings follow, and says which it let go", async () => {
-    const { core, path, original, document } = await opened();
+  it("offers the deck as it first was however many sittings follow, and says which state it let go", async () => {
+    const { core, dataDir, path, original, document } = await opened();
     let letGo: string[] = [];
     for (let at = 0; at <= MAX_KEPT + 1; at++) {
       const edit = await sitting(core, document.id, path, 100 + at);
       if (edit.saved.kind === "file" && edit.saved.letGo.length > 0) letGo = edit.saved.letGo;
     }
-    const kept = await core.keptDeckStates(document.id);
-    expect(kept).toHaveLength(MAX_KEPT);
+    expect(await readdir(join(dataDir, "Kept decks", document.id))).toHaveLength(MAX_KEPT);
     expect(letGo.length).toBeGreaterThan(0);
-    const first = kept.at(-1);
-    if (!first) throw new Error("nothing kept");
+    const { first } = await offered(core, document.id);
+    if (!first) throw new Error("the deck as it first was isn't offered");
     await core.restoreKeptDeck({
       documentId: document.id,
       keptId: first.id,
@@ -134,25 +131,28 @@ describe("Kept states of a User's own deck", () => {
     expect(await hashOn(path)).toBe(hashBytes(original));
   });
 
-  it("a write that didn't happen lets no kept state go", async () => {
-    const { core, files, path, document } = await opened();
-    for (let at = 0; at < MAX_KEPT; at++) await sitting(core, document.id, path, 100 + at);
-    const before = (await core.keptDeckStates(document.id)).map((each) => each.id);
-    // The file may be written, its folder takes no new file: the rename fails after the copy is kept.
-    await chmod(files, 0o555);
-    try {
-      const waiting = await core.editDeck({
-        documentId: document.id,
-        sittingId: null,
-        shown: await hashOn(path),
-        edits: moveBox(300),
-      });
-      expect(waiting.kind).toBe("unwritable");
-    } finally {
-      await chmod(files, 0o755);
-    }
-    const after = (await core.keptDeckStates(document.id)).map((each) => each.id);
-    for (const id of before) expect(after).toContain(id);
+  it("put back as it first was, then edited again: Put back as it was writes the state this sitting began from", async () => {
+    const { core, path, original, document } = await opened();
+    await sitting(core, document.id, path, 120);
+    await sitting(core, document.id, path, 140);
+    const { first } = await offered(core, document.id);
+    if (!first) throw new Error("the deck as it first was isn't offered");
+    await core.restoreKeptDeck({
+      documentId: document.id,
+      keptId: first.id,
+      shown: await hashOn(path),
+    });
+    expect(await hashOn(path)).toBe(hashBytes(original));
+    await sitting(core, document.id, path, 160);
+    const now = await offered(core, document.id);
+    expect(now.sitting?.contentHash).toBe(hashBytes(original));
+    expect(now.first).toBeNull();
+    await core.restoreKeptDeck({
+      documentId: document.id,
+      keptId: now.sitting?.id ?? "",
+      shown: await hashOn(path),
+    });
+    expect(await hashOn(path)).toBe(hashBytes(original));
   });
 
   it("a kept copy that can't be written keeps the change waiting, the file untouched", async () => {
@@ -212,7 +212,7 @@ describe("A deck in the data folder that no agent handed over", () => {
       }),
     );
     expect(edit.saved.kind).toBe("file");
-    const [kept] = await core.keptDeckStates(document.id);
+    const kept = (await core.keptDeckStates(document.id)).sitting;
     if (!kept) throw new Error("nothing kept");
     await core.restoreKeptDeck({
       documentId: document.id,
@@ -224,6 +224,51 @@ describe("A deck in the data folder that no agent handed over", () => {
 });
 
 describe("A change that waits", () => {
+  it("is never lost when another app writes its file meanwhile: it waits on, and a copy beside it keeps it", async () => {
+    const { core, files, path, document } = await opened();
+    const lock = join(files, "~$Plan.pptx");
+    await writeFile(lock, "PowerPoint");
+    const waiting = await core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: moveBox(200),
+    });
+    expect(waiting).toMatchObject({ kind: "unwritable", why: "locked", lock: "~$Plan.pptx" });
+    // The other app saves as it closes: its own version, then its lock file goes.
+    await writeFile(
+      path,
+      deck([{ name: "docProps/app.xml", data: "<Properties>theirs</Properties>" }]),
+    );
+    await rm(lock);
+    const tried = await core.retryDeckEdit(waiting.sittingId);
+    expect(tried).toMatchObject({ kind: "unwritable", why: "changed" });
+    expect(
+      await openPackage(new Uint8Array(await readFile(path))).readText("docProps/app.xml"),
+    ).toContain("theirs");
+    const copy = saved(await core.saveDeckCopy(tried.sittingId));
+    expect(await offsetOf(copy.bytes)).toBe(String(200 * 9525));
+  });
+
+  it("outlives its viewer: closed, it is found again for the deck, and the quit counts it", async () => {
+    const { core, path, document } = await opened();
+    await chmod(path, 0o444);
+    const waiting = await core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: moveBox(200),
+    });
+    expect(waiting.kind).toBe("unwritable");
+    await core.closeDeckSitting(waiting.sittingId);
+    expect(core.deckChangesWaiting()).toBe(1);
+    const found = await core.deckChangeWaiting(document.id);
+    expect(found).toMatchObject({ sittingId: waiting.sittingId, why: "read-only" });
+    expect(await offsetOf(found?.bytes ?? new Uint8Array())).toBe(String(200 * 9525));
+    saved(await core.saveDeckCopy(waiting.sittingId));
+    expect(core.deckChangesWaiting()).toBe(0);
+  });
+
   it("takes every gesture made while it waits, and the copy beside it holds them all", async () => {
     const { core, path, document } = await opened();
     await chmod(path, 0o444);

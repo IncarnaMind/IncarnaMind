@@ -15,31 +15,39 @@ export interface WrittenFile {
   mtimeMs: number;
 }
 
-/** `at`: the time the version is dated, ISO 8601, set before the rename so no reader sees another. */
+/**
+ * `at`: the time the version is dated, ISO 8601, set before the rename so no reader sees another.
+ * `durable`: on the disk before it is named, and its name too, for a copy that must survive a
+ * power cut that follows (a deck kept before the User's own file is written over, #149).
+ */
 export async function writeWholeFile(
   path: string,
   bytes: Uint8Array,
   at?: string,
+  options: { durable?: boolean } = {},
 ): Promise<WrittenFile> {
   await mkdir(dirname(path), { recursive: true });
   const partial = `${path}.${randomUUID()}.part`;
   try {
-    // On the disk before it is named, and its name too: a deck kept before the User's own file is
-    // written over must survive a power cut that follows (#149).
     const file = await open(partial, "wx", 0o600);
     try {
       await file.writeFile(bytes);
-      await file.sync();
+      if (options.durable) await file.sync();
     } finally {
       await file.close();
     }
     const taken = at === undefined ? null : new Date(at);
     if (taken !== null && !Number.isNaN(taken.getTime())) await utimes(partial, taken, taken);
     await rename(partial, path);
-    await syncFolder(dirname(path));
   } catch (error) {
     await rm(partial, { force: true });
     throw error;
+  }
+  // The file is in place: a folder that can't be flushed leaves it there, only less sure of a power cut.
+  if (options.durable) {
+    await syncFolder(dirname(path)).catch((error: unknown) =>
+      console.error("A folder couldn't be flushed to the disk.", dirname(path), error),
+    );
   }
   const { mtimeMs } = await stat(path);
   return { path, contentHash: hashBytes(bytes), size: bytes.byteLength, mtimeMs };

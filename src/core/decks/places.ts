@@ -38,7 +38,7 @@ export interface DeckPlaceDeps {
   /** Saves a new file in the Output location, or in `folder` inside a Linked folder (ADR-0010). */
   save(file: NewFile): Promise<SavedFile>;
   handed: Pick<AgentFiles, "holding" | "versions" | "addVersion" | "rewriteVersion">;
-  kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId">;
+  kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId" | "beganFrom">;
   /** Writes of a deck IncarnaMind keeps take turns with agents' hand-overs of it. */
   inHandOverTurn<T>(run: () => Promise<T>): Promise<T>;
   now(): string;
@@ -110,7 +110,7 @@ function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array):
         }
         await writeWholeFile(path, bytes, deps.now());
         wrote = contentHash;
-        await deps.readAgain(path);
+        await afterWriting("reading the file again", () => deps.readAgain(path));
         return {
           kind: "written",
           documentId,
@@ -126,31 +126,42 @@ const lockFilesOf = (path: string) => {
   return [join(dirname(path), `~$${name}`), join(dirname(path), `.~lock.${name}#`)];
 };
 
-async function lockedByAnotherApp(path: string): Promise<boolean> {
+/** The name of the lock file another app left beside the file, if one is there. */
+async function lockFileOf(path: string): Promise<string | null> {
   for (const lock of lockFilesOf(path)) {
     try {
       await access(lock);
-      return true;
+      return basename(lock);
     } catch {
       // No lock file: the other app, if any, doesn't hold this one.
     }
   }
-  return false;
+  return null;
+}
+
+/** Steps after the file is written that mustn't undo it: a failure is logged, the write stands. */
+async function afterWriting(what: string, step: () => Promise<unknown>): Promise<void> {
+  try {
+    await step();
+  } catch (error) {
+    console.error(`A deck was written, but ${what} failed.`, error);
+  }
 }
 
 /**
  * A deck of the User's own, written itself. `base` is what the sitting read, which the viewer
- * showed; `keptAlready` when there is nothing to keep (a copy this sitting just made).
+ * showed. `kept`: nothing to keep (a copy this sitting just made). `sitting`: false for a write
+ * that isn't a sitting's (Put back), whose kept state Put back as it was mustn't name.
  */
 export function ownFile(
   deps: DeckPlaceDeps,
   documentId: string,
   base: Uint8Array,
-  keptAlready = false,
+  options: { kept?: boolean; sitting?: boolean } = {},
 ): DeckPlace {
   let wrote = hashBytes(base);
   let keptId: string | null = null;
-  let kept = keptAlready;
+  let kept = options.kept ?? false;
   /** A state this sitting kept that wasn't there before: the first write that succeeds lets older go. */
   let keptNew = false;
   return {
@@ -169,7 +180,8 @@ export function ownFile(
         throw error;
       }
       // An app that has the file open writes its own copy over ours when it saves.
-      if (await lockedByAnotherApp(path)) return { kind: "unwritable", why: "locked", name };
+      const lock = await lockFileOf(path);
+      if (lock) return { kind: "unwritable", why: "locked", name, lock };
       if (!(await holds(path, wrote))) return CHANGED;
       await removeStalePartials(dirname(path));
       if (!kept) {
@@ -180,7 +192,7 @@ export function ownFile(
           const id = deps.newId();
           const file = deps.kept.fileFor(documentId, id);
           try {
-            await writeWholeFile(join(deps.dataDir, file), base);
+            await writeWholeFile(join(deps.dataDir, file), base, undefined, { durable: true });
           } catch (error) {
             // Not kept, not written: the change waits, and the file stays as it is.
             if ((error as NodeJS.ErrnoException | null)?.code)
@@ -191,6 +203,7 @@ export function ownFile(
           keptId = id;
           keptNew = true;
         }
+        if (options.sitting !== false && keptId) deps.kept.beganFrom(keptId);
         kept = true;
       }
       const expected = wrote;
@@ -215,9 +228,11 @@ export function ownFile(
       let letGo: string[] = [];
       if (keptNew) {
         keptNew = false;
-        letGo = (await deps.kept.letGo(documentId)).map((each) => each.keptAt);
+        await afterWriting("letting older kept states go", async () => {
+          letGo = (await deps.kept.letGo(documentId)).map((each) => each.keptAt);
+        });
       }
-      await deps.readAgain(path);
+      await afterWriting("reading the file again", () => deps.readAgain(path));
       return {
         kind: "written",
         documentId,
@@ -254,7 +269,7 @@ export async function copyBeside(
     made = deps.documentAt(file.path);
   }
   const copyId = made ?? (await deps.addFile(file.path, deps.folderOf(documentId)));
-  return { documentId: copyId, file, place: ownFile(deps, copyId, bytes, true) };
+  return { documentId: copyId, file, place: ownFile(deps, copyId, bytes, { kept: true }) };
 }
 
 /** The one place that decides where a sitting on this Document writes. */
@@ -294,7 +309,7 @@ export async function restoreKept(
   }
   if (hashBytes(bytes) !== kept.contentHash)
     throw new NotFoundError({ key: "error.deck.keptGone" });
-  const written = await ownFile(deps, kept.documentId, now).write(bytes);
+  const written = await ownFile(deps, kept.documentId, now, { sitting: false }).write(bytes);
   if (written.kind === "changed") throw new TranslatableError({ key: "error.deck.changed" });
   if (written.kind === "unwritable") {
     throw new TranslatableError({

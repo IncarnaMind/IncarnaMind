@@ -24,7 +24,7 @@ import { protectionOf } from "./protection";
 export type PlaceWritten =
   | { kind: "written"; documentId: string; saved: DeckSaved }
   | { kind: "changed" }
-  | { kind: "unwritable"; why: DeckUnwritable["why"]; name: string };
+  | { kind: "unwritable"; why: DeckUnwritable["why"]; name: string; lock?: string };
 
 /** Where a sitting's deck is written: the one seam between editing and the files it writes. */
 export interface DeckPlace {
@@ -46,6 +46,8 @@ export interface DeckSittingDeps {
     bytes: Uint8Array,
   ): Promise<{ documentId: string; saved: DeckSaved; place: DeckPlace }>;
   newId(): string;
+  /** The Document's file name, for the words about a change that waits. */
+  nameOf(documentId: string): string;
 }
 
 /** One gesture: the edits it made, as one step to undo. */
@@ -102,9 +104,29 @@ async function slideCounts(base: Uint8Array, now: Uint8Array) {
 export function createDeckSittings(deps: DeckSittingDeps) {
   const sittings = new Map<string, Sitting>();
 
+  /** What a sitting's waiting change is, for the viewer: what was refused, and the deck with it. */
+  const waitingOf = (
+    sitting: Sitting,
+    why: { why: DeckUnwritable["why"]; name: string; lock?: string },
+  ): DeckUnwritable => {
+    const bytes = sitting.waiting?.bytes ?? sitting.current;
+    return {
+      kind: "unwritable",
+      sittingId: sitting.id,
+      documentId: sitting.documentId,
+      why: why.why,
+      name: why.name,
+      ...(why.lock && { lock: why.lock }),
+      bytes,
+      contentHash: hashBytes(bytes),
+    };
+  };
+  /** Why each sitting's change waits, as last said. */
+  const waitingWhy = new Map<string, { why: DeckUnwritable["why"]; name: string; lock?: string }>();
+
   /** Each holds its deck twice in memory: the oldest closed ones go, their steps with them. */
   const letClosedGo = () => {
-    const closed = [...sittings.values()].filter((each) => each.closed);
+    const closed = [...sittings.values()].filter((each) => each.closed && !each.waiting);
     for (const old of closed.slice(0, Math.max(0, closed.length - KEPT_CLOSED))) {
       sittings.delete(old.id);
     }
@@ -178,23 +200,23 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     done: number,
   ): Promise<DeckEdit> {
     const written = await inDocumentTurn(sitting.documentId, () => sitting.place.write(bytes));
-    if (written.kind === "changed") {
-      sitting.ended = true;
-      throw changedError();
-    }
-    if (written.kind === "unwritable") {
+    // A change that waited, its file since written by another program: it is never written over
+    // that, nor dropped. It waits on, to be saved as a copy beside it.
+    if (written.kind !== "written") {
+      if (written.kind === "changed" && sitting.waiting === null) {
+        sitting.ended = true;
+        throw changedError();
+      }
       sitting.waiting = { bytes, step, done };
-      return {
-        kind: "unwritable",
-        sittingId: sitting.id,
-        documentId: sitting.documentId,
-        why: written.why,
-        name: written.name,
-        bytes,
-        contentHash: hashBytes(bytes),
-      };
+      const why =
+        written.kind === "unwritable"
+          ? written
+          : { why: "changed" as const, name: deps.nameOf(sitting.documentId) };
+      waitingWhy.set(sitting.id, why);
+      return waitingOf(sitting, why);
     }
     sitting.waiting = null;
+    waitingWhy.delete(sitting.id);
     sitting.done = done;
     return saved(sitting, bytes, step, written.saved, written.documentId);
   }
@@ -207,9 +229,12 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     if (!zip.rewritable) throw new TranslatableError({ key: "error.deck.unrewritable" });
     const protection = await protectionOf(zip);
     if (protection) throw new TranslatableError({ key: `error.deck.protected.${protection}` });
-    // One sitting a deck goes on at a time: one a window left (it closed or reloaded) is closed.
+    // One sitting a deck goes on at a time: one a window left (it closed or reloaded) is closed,
+    // but one whose change waits goes on, to be saved, and no other begins before it is.
     for (const other of sittings.values()) {
-      if (other.documentId === documentId) other.closed = true;
+      if (other.documentId !== documentId) continue;
+      if (other.waiting) throw new InvalidInputError({ key: "error.deck.waiting" });
+      other.closed = true;
     }
     letClosedGo();
     const sitting: Sitting = {
@@ -331,6 +356,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
         const copy = await deps.copyBeside(sitting.documentId, waiting.bytes);
         sitting.place = copy.place;
         sitting.waiting = null;
+        waitingWhy.delete(sitting.id);
         sitting.done = waiting.done;
         return saved(sitting, waiting.bytes, waiting.step, copy.saved, copy.documentId);
       });
@@ -342,10 +368,28 @@ export function createDeckSittings(deps: DeckSittingDeps) {
      */
     close(sittingId: unknown): void {
       const sitting = typeof sittingId === "string" ? sittings.get(sittingId) : undefined;
-      if (!sitting) return;
+      // A change that waits isn't dropped with its viewer: the deck opened again finds it.
+      if (!sitting || sitting.waiting) return;
       sitting.closed = true;
       if (sitting.steps.length === 0) sittings.delete(sitting.id);
       letClosedGo();
+    },
+
+    /** The change that waits on a Document, if one does: a viewer opened again takes it up. */
+    waitingOn(documentId: unknown): DeckUnwritable | null {
+      for (const sitting of sittings.values()) {
+        if (sitting.documentId !== documentId || !sitting.waiting) continue;
+        return waitingOf(
+          sitting,
+          waitingWhy.get(sitting.id) ?? { why: "read-only", name: deps.nameOf(sitting.documentId) },
+        );
+      }
+      return null;
+    },
+
+    /** How many changes wait to be saved, in all: the quit asks about them as about unsaved Notes. */
+    waitingCount(): number {
+      return [...sittings.values()].filter((each) => each.waiting).length;
     },
 
     /** Every sitting on a Document ends: it was put back as it was, or changed elsewhere. */

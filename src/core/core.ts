@@ -224,8 +224,9 @@ import { createConsent, type DataFlowRegistry } from "./consent";
 import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
 import { inCurrency } from "./cost/price";
-import { createKeptDecks } from "./decks/kept";
+import { createKeptDecks, type KeptDeck } from "./decks/kept";
 import { copyBeside, type DeckPlaceDeps, deckPlaceFor, restoreKept } from "./decks/places";
+import { protectionOf } from "./decks/protection";
 import { createDeckSittings } from "./decks/sittings";
 import {
   createDocuments,
@@ -241,6 +242,7 @@ import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
 import { readVtt } from "./documents/formats/vtt";
+import { openPackage } from "./documents/formats/zip";
 import { createOwnFiles } from "./documents/ownFiles";
 import { approximateTokens, livePassageText } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
@@ -610,6 +612,8 @@ export interface Core extends CoreApi, CoreEventSource {
   sessionEnding(): UnsavedAtEnd;
   /** Resolves once every hand edit of a deck being written now is written; null while none is. */
   writingDecks(): Promise<void> | null;
+  /** How many hand edits of decks wait to be saved: the quit asks about them with unsaved Notes. */
+  deckChangesWaiting(): number;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /**
@@ -6451,7 +6455,7 @@ export function createCore(adapters: CoreAdapters): Core {
     db.get("SELECT 1 AS one FROM documents WHERE id = ? AND purged_at IS NULL", [documentId]) !==
     undefined;
   keptDecks
-    .dropGone(documentLive)
+    .dropGone(documentLive, Date.now())
     .catch((error: unknown) => console.error("The kept decks couldn't be tidied.", error));
   const deckPlaces: DeckPlaceDeps = {
     dataDir,
@@ -6492,6 +6496,7 @@ export function createCore(adapters: CoreAdapters): Core {
       };
     },
     newId: () => crypto.randomUUID(),
+    nameOf: (documentId) => basename(documents.get(documentId).path),
   });
 
   /** Hand edits of decks being written now: the host waits for them before it quits. */
@@ -9833,13 +9838,17 @@ export function createCore(adapters: CoreAdapters): Core {
     saveDeckCopy: (sittingId) => writingDeck(deckSittings.saveCopy(sittingId)),
     retryDeckEdit: (sittingId) => writingDeck(deckSittings.retry(sittingId)),
     closeDeckSitting: async (sittingId) => deckSittings.close(sittingId),
-    keptDeckStates: async (documentId) =>
-      typeof documentId === "string"
-        ? keptDecks
-            .of(documentId)
-            .reverse()
-            .map(({ id, keptAt }) => ({ id, keptAt }))
-        : [],
+    keptDeckStates: async (documentId) => {
+      if (typeof documentId !== "string") return { sitting: null, first: null };
+      const state = (kept: KeptDeck | null) =>
+        kept && { id: kept.id, keptAt: kept.keptAt, contentHash: kept.contentHash };
+      const sitting = keptDecks.ofSitting(documentId);
+      const first = keptDecks.firstOf(documentId);
+      return {
+        sitting: state(sitting),
+        first: first && first.contentHash !== sitting?.contentHash ? state(first) : null,
+      };
+    },
     restoreKeptDeck: (input) =>
       writingDeck(
         deckSittings
@@ -9855,6 +9864,13 @@ export function createCore(adapters: CoreAdapters): Core {
       decksBeingWritten.size === 0
         ? null
         : Promise.allSettled([...decksBeingWritten]).then(() => undefined),
+    deckChangesWaiting: () => deckSittings.waitingCount(),
+    deckChangeWaiting: async (documentId) => deckSittings.waitingOn(documentId),
+    deckRefusal: async (documentId) => {
+      if (typeof documentId !== "string") return null;
+      const zip = openPackage(await readDeck(documentId));
+      return zip.rewritable ? protectionOf(zip) : "unrewritable";
+    },
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

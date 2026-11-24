@@ -842,12 +842,17 @@ app.on("window-all-closed", () => {
     appEnd.quit("lastWindow");
 });
 
+let deckWritesWaited = false;
 app.on("will-quit", (event) => {
-  // Words a window's open slide text box handed over as it closed may still be being written.
-  const writing = core?.writingDecks();
+  // Words a window's open slide text box handed over as it closed may still be being written; a
+  // write that never settles holds the quit 10 seconds at most.
+  const writing = deckWritesWaited ? null : core?.writingDecks();
   if (writing) {
     event.preventDefault();
-    void writing.finally(() => app.quit());
+    deckWritesWaited = true;
+    void Promise.race([writing, new Promise((done) => setTimeout(done, 10_000))]).finally(() =>
+      app.quit(),
+    );
     return;
   }
   globalShortcut.unregisterAll();

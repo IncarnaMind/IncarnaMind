@@ -3464,18 +3464,21 @@ export const migrations: readonly Migration[] = [
     sql: `
       -- A hand edit writes the User's own deck (ADR-0010, 2026-11-24); before each sitting's first
       -- write the file as it stood is kept whole in the data folder, so the User can put it back.
+      -- first: the deck as it was before IncarnaMind first changed it, kept while it is in the
+      -- Library. sitting: which sitting began from it last, counted per Document, never by clock.
       CREATE TABLE deck_kept (
         id TEXT PRIMARY KEY,
         document_id TEXT NOT NULL,
         file TEXT NOT NULL,
         content_hash TEXT NOT NULL,
         size INTEGER NOT NULL,
+        first INTEGER NOT NULL DEFAULT 0,
+        sitting INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deleted_at TEXT
       ) STRICT;
-      CREATE INDEX deck_kept_by_document ON deck_kept (document_id, created_at)
-        WHERE deleted_at IS NULL;
+      CREATE INDEX deck_kept_by_document ON deck_kept (document_id) WHERE deleted_at IS NULL;
     `,
   },
 ];

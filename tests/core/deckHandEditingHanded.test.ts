@@ -93,7 +93,7 @@ describe("a deck an agent handed over, edited by hand", () => {
       { number: 1, by: "Claude Code", contentHash: hashBytes(DECK) },
       { number: 2, by: "", contentHash: hashBytes(second.bytes) },
     ]);
-    expect(await set.core.keptDeckStates(document.id)).toEqual([]);
+    expect(await set.core.keptDeckStates(document.id)).toEqual({ sitting: null, first: null });
 
     // The next sitting makes the next version.
     await set.core.closeDeckSitting(first.sittingId);
@@ -184,7 +184,7 @@ describe("a deck an agent handed over, edited by hand", () => {
     );
     expect(edit.saved).toMatchObject({ kind: "file", name: NAME });
     expect(hashBytes(new Uint8Array(await readFile(path)))).toBe(hashBytes(edit.bytes));
-    expect(await set.core.keptDeckStates(document.id)).toHaveLength(1);
+    expect((await set.core.keptDeckStates(document.id)).sitting).not.toBeNull();
     await set.core.close();
   });
 });

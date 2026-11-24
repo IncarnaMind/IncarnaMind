@@ -2533,6 +2533,9 @@ export const en = {
   "viewer.deck.shrinkToFit": "Shrink text to fit",
   "viewer.deck.putBack": "Put back as it was",
   "viewer.deck.putBack.at": "Put back as it was at {time}",
+  "viewer.deck.putBackFirst": "Put back as it was before IncarnaMind first changed it",
+  "viewer.deck.restoredFirst": "Put “{name}” back as it was before IncarnaMind first changed it",
+  "viewer.deck.saving": "Saving “{name}”…",
   "viewer.deck.restored": "Put “{name}” back as it was at {time}",
   "viewer.deck.tip":
     "Your changes are saved in the file itself. To go back, use ⋯ › Put back as it was.",
@@ -6096,6 +6099,10 @@ export const en = {
   "error.deck.protected.final": "This deck is marked as final, so IncarnaMind doesn’t edit it.",
   "error.deck.protected.protected":
     "This deck needs a password to change it, so IncarnaMind doesn’t edit it.",
+  "error.deck.unwritable.changed":
+    "“{name}” was changed in another app since, so IncarnaMind won’t write over it.",
+  "error.deck.unwritable.lockFile":
+    "“{name}” can’t be changed while another app has it open: close it there, then try again. If no app has it open, “{lock}” beside it is a lock file left behind; removing it lets IncarnaMind write.",
   "error.deck.unwritable.full": "“{name}” can’t be changed: the disk is full.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
