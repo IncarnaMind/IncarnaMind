@@ -429,11 +429,11 @@ test("with no model, a press checks the Note on the User's own Codex in the back
       .click();
     const sheet = window.getByTestId("connect-agent-dialog");
     await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-      "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own ChatGPT plan or API key. In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
+      "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key. In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
     );
     await both(app, window, "codex-connect-sheet", async () => {
       await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-        "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 ChatGPT 订阅或 API 密钥。这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md。",
+        "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md。",
       );
     });
   } finally {

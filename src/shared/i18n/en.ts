@@ -9102,7 +9102,7 @@ export const en = {
     "With no AI model set up here, Check and the box at the bottom of a note run your {agent} in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key.",
   // The consent to start Codex for a check in the background, and what it reads of its own (#3639).
   "agents.connect.background.codex":
-    "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own ChatGPT plan or API key.",
+    "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key.",
   "agents.connect.codexInstructions":
     "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
   "agents.connect.disconnect": "You can disconnect it at any time.",
