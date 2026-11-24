@@ -18,6 +18,14 @@ import { elements, parseXml, type XmlElement } from "../documents/formats/xml";
 import type { FailedSentence, Footnote, Pending } from "../mindText";
 import type { ExportLabels } from "./labels";
 import {
+  applySplices,
+  closeTag,
+  endOf,
+  type Splice,
+  selfClosing,
+  startOf,
+} from "./packagePatch/text";
+import {
   type CommentStyles,
   comment,
   commentEnd,
@@ -27,7 +35,6 @@ import {
   escapeXml,
   type WordIds,
 } from "./wordml";
-import { applySplices, closeTag, endOf, type Splice, selfClosing, startOf } from "./wordPatch/text";
 
 /** The author of IncarnaMind's own changes and comments. */
 export const INCARNAMIND = "IncarnaMind";

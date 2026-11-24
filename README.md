@@ -116,7 +116,7 @@ Code confirms that every quote a verdict rests on is on its page. "Quote found" 
 
 ## Privacy
 
-You don't need an account. IncarnaMind reads your files where they are and never changes them, and a question sends only what it needs to the model you picked.
+You don't need an account. IncarnaMind reads your files where they are and changes one only when you edit a deck in it by hand, keeping the file as it was first, and a question sends only what it needs to the model you picked.
 
 | What | Where it goes |
 |---|---|

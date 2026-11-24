@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useId } from "react";
+import { type CSSProperties, memo, type ReactNode, useId, useLayoutEffect, useRef } from "react";
 import type {
   Box,
   ChartItem,
@@ -20,14 +20,17 @@ import type { TextRange } from "../../../../shared/quoteMatch";
 import { useT } from "../../i18n";
 import { HighlightedText } from "../highlightedText";
 import { ChartView } from "./ChartView";
+import { editedParagraphs, type TextEditing } from "./editedText";
 import { geometryPaths, isLine, isRectangle, textInsets } from "./geometry";
 import { cellPath, childPath, runKey } from "./pieces";
+import { followText, measuredFit } from "./textFit";
 import "./slides.css";
 
 /** What drawing a slide needs besides the slide: its pictures, and the quote's parts. */
 interface Context {
   images: ReadonlyMap<string, string | null>;
   ranges: ReadonlyMap<string, TextRange[]> | null;
+  editing: TextEditing | null;
 }
 
 /** PowerPoint's single line spacing, as a multiple of the font size. */
@@ -44,14 +47,17 @@ export function SlideCanvas({
   height,
   images,
   ranges,
+  editing = null,
 }: {
   slide: SlideDrawing;
   width: number;
   height: number;
   images: ReadonlyMap<string, string | null>;
   ranges: ReadonlyMap<string, TextRange[]> | null;
+  /** The text shape open for typing, drawn as the others are, in an editable box. */
+  editing?: TextEditing | null;
 }) {
-  const context: Context = { images, ranges };
+  const context: Context = { images, ranges, editing };
   return (
     <div
       className="slide-canvas"
@@ -301,13 +307,23 @@ function ShapeView({ item, path, context }: { item: ShapeItem; path: string; con
           ))}
         </svg>
       )}
-      {item.text && hasText(item.text) && (
-        <TextBodyView
+      {item.text && context.editing?.path === path ? (
+        <EditableTextBody
           body={item.text}
           path={path}
-          context={context}
+          editing={context.editing}
           style={{ position: "absolute", ...textBox }}
         />
+      ) : (
+        item.text &&
+        hasText(item.text) && (
+          <TextBodyView
+            body={item.text}
+            path={path}
+            context={context}
+            style={{ position: "absolute", ...textBox }}
+          />
+        )
       )}
     </div>
   );
@@ -413,6 +429,7 @@ function TableView({ item, path, context }: { item: TableItem; path: string; con
                   <td
                     // biome-ignore lint/suspicious/noArrayIndexKey: cells never reorder
                     key={c}
+                    data-cell={`${r}.${c}`}
                     colSpan={cell.columnSpan > 1 ? cell.columnSpan : undefined}
                     rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined}
                     style={{
@@ -430,7 +447,16 @@ function TableView({ item, path, context }: { item: TableItem; path: string; con
                             : "top",
                     }}
                   >
-                    <Paragraphs body={cell.text} path={cellPath(path, r, c)} context={context} />
+                    {context.editing?.path === cellPath(path, r, c) ? (
+                      <EditableTextBody
+                        body={cell.text}
+                        path={cellPath(path, r, c)}
+                        editing={context.editing}
+                        style={{}}
+                      />
+                    ) : (
+                      <Paragraphs body={cell.text} path={cellPath(path, r, c)} context={context} />
+                    )}
                   </td>
                 ),
               )}
@@ -461,6 +487,22 @@ function ChartFrame({ item }: { item: ChartItem }) {
   );
 }
 
+function textBodyStyle(body: TextBody, style: CSSProperties): CSSProperties {
+  const vertical = body.vertical !== "horizontal";
+  return {
+    ...style,
+    paddingLeft: body.insets.left,
+    paddingTop: body.insets.top,
+    paddingRight: body.insets.right,
+    paddingBottom: body.insets.bottom,
+    justifyContent:
+      body.anchor === "middle" ? "center" : body.anchor === "bottom" ? "flex-end" : "flex-start",
+    writingMode: vertical ? "vertical-rl" : undefined,
+    transform: body.vertical === "vertical270" ? "rotate(180deg)" : undefined,
+    whiteSpace: body.wrap ? "pre-wrap" : "pre",
+  };
+}
+
 function TextBodyView({
   body,
   path,
@@ -472,37 +514,146 @@ function TextBodyView({
   context: Context;
   style: CSSProperties;
 }) {
-  const vertical = body.vertical !== "horizontal";
   return (
-    <div
-      className="slide-text"
-      style={{
-        ...style,
-        paddingLeft: body.insets.left,
-        paddingTop: body.insets.top,
-        paddingRight: body.insets.right,
-        paddingBottom: body.insets.bottom,
-        justifyContent:
-          body.anchor === "middle"
-            ? "center"
-            : body.anchor === "bottom"
-              ? "flex-end"
-              : "flex-start",
-        writingMode: vertical ? "vertical-rl" : undefined,
-        transform: body.vertical === "vertical270" ? "rotate(180deg)" : undefined,
-        whiteSpace: body.wrap ? "pre-wrap" : "pre",
-      }}
-    >
+    <div className="slide-text" style={textBodyStyle(body, style)}>
       <Paragraphs body={body} path={path} context={context} />
     </div>
   );
 }
 
+const NO_CONTEXT: Context = { images: new Map(), ranges: null, editing: null };
+
+/**
+ * A text shape or table cell open for typing: the same paragraphs and runs in an editable box,
+ * each marked with where it came from. React draws it once and never again while it is open, so an
+ * input method's composition is never redrawn under it; it follows its text as its autofit kind
+ * asks (./textFit), and on blur its text is read from the page as the person left it.
+ */
+const EditableTextBody = memo(
+  function EditableTextBody({
+    body,
+    path,
+    editing,
+    style,
+  }: {
+    body: TextBody;
+    path: string;
+    editing: TextEditing;
+    style: CSSProperties;
+  }) {
+    const paragraphs = useRef<HTMLDivElement>(null);
+    const box = useRef<HTMLDivElement | null>(null);
+    const composing = useRef(false);
+    const finished = useRef(false);
+    const follow = (element: HTMLElement) => {
+      if (!composing.current && paragraphs.current) {
+        followText(element, paragraphs.current, body.autofit);
+      }
+    };
+    /** The words and fit as the box holds them now, read while it is still in the page. */
+    const left = useRef(() => {
+      const element = box.current;
+      return element
+        ? {
+            words: editedParagraphs(element, body),
+            fit: paragraphs.current ? measuredFit(element, paragraphs.current, body.autofit) : null,
+          }
+        : null;
+    });
+    /** Hands the words over once: at blur, as the box goes with its tab, or as the window goes. */
+    const finish = useRef((now = left.current(), leaving = false) => {
+      if (finished.current || !now) return;
+      finished.current = true;
+      editing.done(now.words, now.fit, leaving);
+    });
+    const mounted = useRef(false);
+    useLayoutEffect(() => {
+      mounted.current = true;
+      const leaving = () => finish.current(left.current(), true);
+      window.addEventListener("beforeunload", leaving);
+      return () => {
+        window.removeEventListener("beforeunload", leaving);
+        mounted.current = false;
+        // Read now, handed over only if the box is really gone: React's development check runs
+        // this cleanup and the effect again at once, with the box still open.
+        const now = left.current();
+        queueMicrotask(() => {
+          if (!mounted.current) finish.current(now);
+        });
+      };
+    }, []);
+    const grows = body.autofit.kind === "grow";
+    return (
+      // biome-ignore lint/a11y/useSemanticElements: a text area can't hold the runs' own formatting.
+      <div
+        ref={(element) => {
+          box.current = element;
+          if (element) editing.opened(element);
+        }}
+        className="slide-text slide-text-editing"
+        style={{
+          ...textBodyStyle(body, style),
+          ...(grows && { height: "auto", minHeight: style.height }),
+        }}
+        role="textbox"
+        aria-multiline="true"
+        tabIndex={0}
+        contentEditable
+        suppressContentEditableWarning
+        spellCheck={false}
+        data-testid="viewer-slide-text-editor"
+        data-autofit={body.autofit.kind}
+        onCompositionStart={() => {
+          composing.current = true;
+        }}
+        onCompositionEnd={(event) => {
+          composing.current = false;
+          follow(event.currentTarget);
+        }}
+        onInput={(event) => follow(event.currentTarget)}
+        onBlur={() => finish.current()}
+        onKeyDown={(event) => {
+          // Escape in an input method's composition cancels the composition, not the typing.
+          if (event.key === "Escape" && !event.nativeEvent.isComposing && !composing.current) {
+            event.currentTarget.blur();
+          }
+          // A run's formatting comes from the file: the browser's own bold and italic would be lost on save.
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            ["b", "i", "u"].includes(event.key.toLowerCase())
+          ) {
+            event.preventDefault();
+          }
+        }}
+        onPaste={(event) => {
+          event.preventDefault();
+          document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+        }}
+      >
+        <div data-paragraphs="" ref={paragraphs}>
+          <Paragraphs body={body} path={path} context={NO_CONTEXT} editable />
+        </div>
+      </div>
+    );
+  },
+  () => true,
+);
+
 /** A spacing before or after a paragraph, CSS pixels: a percentage is of a line. */
 const spacingPx = (spacing: Spacing | null, size: number) =>
   spacing ? ("px" in spacing ? spacing.px : spacing.percent * size * SINGLE_LINE) : 0;
 
-function Paragraphs({ body, path, context }: { body: TextBody; path: string; context: Context }) {
+function Paragraphs({
+  body,
+  path,
+  context,
+  editable = false,
+}: {
+  body: TextBody;
+  path: string;
+  context: Context;
+  editable?: boolean;
+}) {
   return (
     <>
       {body.paragraphs.map((paragraph, index) => (
@@ -514,6 +665,7 @@ function Paragraphs({ body, path, context }: { body: TextBody; path: string; con
           path={path}
           context={context}
           first={index === 0}
+          editable={editable}
         />
       ))}
     </>
@@ -526,12 +678,14 @@ function ParagraphView({
   path,
   context,
   first,
+  editable,
 }: {
   paragraph: Paragraph;
   index: number;
   path: string;
   context: Context;
   first: boolean;
+  editable: boolean;
 }) {
   const textRuns = paragraph.runs.filter((run) => !run.lineBreak && run.text !== "");
   const size =
@@ -545,6 +699,7 @@ function ParagraphView({
   return (
     <p
       className="slide-paragraph"
+      data-paragraph={editable ? index : undefined}
       style={{
         paddingLeft: paragraph.marginLeft,
         textIndent: paragraph.indent,
@@ -564,6 +719,7 @@ function ParagraphView({
           data-quote-skip=""
           className="slide-bullet"
           aria-hidden="true"
+          contentEditable={editable ? false : undefined}
           style={{
             minWidth: paragraph.indent < 0 ? -paragraph.indent : undefined,
             paddingRight: paragraph.indent < 0 ? undefined : "0.5em",
@@ -578,10 +734,15 @@ function ParagraphView({
       {paragraph.runs.map((run, at) =>
         run.lineBreak ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: runs never reorder
-          <br key={at} />
+          <br key={at} data-run={editable ? `${index}.${at}` : undefined} />
         ) : (
-          // biome-ignore lint/suspicious/noArrayIndexKey: runs never reorder
-          <RunView key={at} run={run} ranges={context.ranges?.get(runKey(path, index, at))} />
+          <RunView
+            // biome-ignore lint/suspicious/noArrayIndexKey: runs never reorder
+            key={at}
+            run={run}
+            ranges={context.ranges?.get(runKey(path, index, at))}
+            source={editable ? `${index}.${at}` : undefined}
+          />
         ),
       )}
       {textRuns.length === 0 && <br />}
@@ -602,13 +763,23 @@ const DECORATION: Record<string, string> = {
   wavyDbl: "wavy",
 };
 
-function RunView({ run, ranges }: { run: Run; ranges: TextRange[] | undefined }) {
+function RunView({
+  run,
+  ranges,
+  source,
+}: {
+  run: Run;
+  ranges: TextRange[] | undefined;
+  /** "paragraph.run", while the text is open for typing. */
+  source?: string;
+}) {
   const lines = [run.underline ? "underline" : "", run.strike ? "line-through" : ""].filter(
     Boolean,
   );
   const raised = run.baseline !== 0;
   return (
     <span
+      data-run={source}
       style={{
         fontSize: raised ? run.size * 0.66 : run.size,
         fontFamily: run.fontFamily,

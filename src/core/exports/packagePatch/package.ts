@@ -1,11 +1,13 @@
 /**
- * The package a Word export writes into (#105): the stored original, whose
+ * An Office package written into (#105, #1264): the stored original, whose
  * entries are copied as they are, compressed bytes and all, unless a part is
  * changed; changed parts are spliced into their own text (./text), and new
  * ones added. Relationships and content types are added the same way, so a
- * part's existing ones keep their bytes.
+ * part's existing ones keep their bytes. Word's export and PowerPoint's
+ * patches both write through it.
  */
 
+import { DOMParser } from "@xmldom/xmldom";
 import { decodePart } from "../../documents/formats/docxImport";
 import { relationshipsPartOf } from "../../documents/formats/officePackage";
 import { descendants, parseXml, type XmlElement } from "../../documents/formats/xml";
@@ -16,18 +18,12 @@ import {
   type ZipArchive,
   type ZipWriteEntry,
 } from "../../documents/formats/zip";
-import {
-  COMMENTS_CONTENT_TYPE,
-  COMMENTS_EXTENDED_CONTENT_TYPE,
-  COMMENTS_EXTENDED_RELATIONSHIP,
-  COMMENTS_RELATIONSHIP,
-  escapeXml,
-} from "../wordml";
+import { escapeXml } from "../wordml";
 import { appendInside, applySplices } from "./text";
 
-/** A part that couldn't be written into: export stops and names it. */
-export class WordPartError extends Error {
-  override name = "WordPartError";
+/** A part that couldn't be written into: the save stops and names it. */
+export class PackagePartError extends Error {
+  override name = "PackagePartError";
   constructor(
     readonly part: string,
     message: string,
@@ -35,25 +31,6 @@ export class WordPartError extends Error {
     super(`${part}: ${message}`);
   }
 }
-
-export const RELATIONSHIP_TYPES = {
-  footnotes: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes",
-  numbering: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering",
-  styles: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles",
-  hyperlink: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-  image: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
-  comments: COMMENTS_RELATIONSHIP,
-  commentsExtended: COMMENTS_EXTENDED_RELATIONSHIP,
-} as const;
-
-const WORDPROCESSING = "application/vnd.openxmlformats-officedocument.wordprocessingml";
-export const CONTENT_TYPES = {
-  footnotes: `${WORDPROCESSING}.footnotes+xml`,
-  numbering: `${WORDPROCESSING}.numbering+xml`,
-  styles: `${WORDPROCESSING}.styles+xml`,
-  comments: COMMENTS_CONTENT_TYPE,
-  commentsExtended: COMMENTS_EXTENDED_CONTENT_TYPE,
-} as const;
 
 const RELATIONSHIPS_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships";
 const CONTENT_TYPES_PART = "[Content_Types].xml";
@@ -64,10 +41,10 @@ export interface PartText {
   root: XmlElement;
 }
 
-export class WordPackageWriter {
+export class PackageWriter {
   private readonly read = new Map<string, PartText>();
   private readonly texts = new Map<string, string>();
-  private readonly changed = new Map<string, string>();
+  private readonly changed = new Map<string, string | Uint8Array>();
   private readonly added = new Map<string, string | Uint8Array>();
   private readonly relationships = new Map<string, PartRelationships>();
   /** Defaults and overrides to add to [Content_Types].xml. */
@@ -82,7 +59,7 @@ export class WordPackageWriter {
   /** The part as it is now (changed, if it was), parsed; null if there is no such part. */
   async part(name: string): Promise<PartText | null> {
     const changed = this.changed.get(name);
-    if (changed !== undefined) return { text: changed, root: parsed(name, changed) };
+    if (typeof changed === "string") return { text: changed, root: parsed(name, changed) };
     const known = this.read.get(name);
     if (known) return known;
     const added = this.added.get(name);
@@ -104,16 +81,23 @@ export class WordPackageWriter {
     const text = decodePart(bytes);
     // Only text that encodes back to the same bytes can be spliced without changing the rest.
     if (!sameBytes(new TextEncoder().encode(text), bytes)) {
-      throw new WordPartError(name, "isn't stored as UTF-8 text.");
+      throw new PackagePartError(name, "isn't stored as UTF-8 text.");
     }
     this.texts.set(name, text);
     return text;
   }
 
-  /** Replaces a part's text. */
-  set(name: string, text: string): void {
-    if (this.added.has(name)) this.added.set(name, text);
-    else this.changed.set(name, text);
+  /** Replaces a part's text, or its bytes for a part that isn't XML (a chart's workbook). */
+  set(name: string, data: string | Uint8Array): void {
+    if (this.added.has(name)) this.added.set(name, data);
+    else this.changed.set(name, data);
+  }
+
+  /** A stored part's bytes as they inflate, or as they were set; null if there is no such part. */
+  async bytes(name: string): Promise<Uint8Array | null> {
+    const set = this.changed.get(name) ?? this.added.get(name);
+    if (set !== undefined) return typeof set === "string" ? new TextEncoder().encode(set) : set;
+    return (await this.zip.read(name)) ?? null;
   }
 
   /** Adds a new part. */
@@ -139,7 +123,7 @@ export class WordPackageWriter {
   /** Says which content type a new part has, unless its extension already says it. */
   async addContentType(part: string, contentType: string): Promise<void> {
     const types = await this.part(CONTENT_TYPES_PART);
-    if (!types) throw new WordPartError(CONTENT_TYPES_PART, "is missing.");
+    if (!types) throw new PackagePartError(CONTENT_TYPES_PART, "is missing.");
     const has = (name: string, test: (element: XmlElement) => boolean) =>
       descendants(types.root, name).some(test);
     const queued = this.contentTypes.some((added) =>
@@ -154,7 +138,7 @@ export class WordPackageWriter {
   /** Says which content type parts with this extension have, unless the package already does. */
   async addDefaultContentType(extension: string, contentType: string): Promise<void> {
     const types = await this.part(CONTENT_TYPES_PART);
-    if (!types) throw new WordPartError(CONTENT_TYPES_PART, "is missing.");
+    if (!types) throw new PackagePartError(CONTENT_TYPES_PART, "is missing.");
     const wanted = extension.toLowerCase();
     const known = descendants(types.root, "Default").some(
       (each) => each.attrs.Extension?.toLowerCase() === wanted,
@@ -190,13 +174,14 @@ export class WordPackageWriter {
       }
       this.contentTypes = [];
     }
-    for (const [name, text] of this.changed) check(name, text);
-    for (const [name, data] of this.added) if (typeof data === "string") check(name, data);
+    for (const [name, data] of [...this.changed, ...this.added]) {
+      if (typeof data === "string") check(name, data);
+    }
     const entries: ZipWriteEntry[] = this.zip.names().map((name) => {
-      const text = this.changed.get(name);
-      if (text !== undefined) return { name, data: text };
+      const data = this.changed.get(name);
+      if (data !== undefined) return { name, data };
       const raw = this.zip.raw(name);
-      if (!raw) throw new WordPartError(name, "can't be copied.");
+      if (!raw) throw new PackagePartError(name, "can't be copied.");
       return { name, raw };
     });
     for (const [name, data] of this.added) entries.push({ name, data });
@@ -204,11 +189,31 @@ export class WordPackageWriter {
   }
 }
 
+/**
+ * Throws unless a part written is well-formed XML with every prefix bound,
+ * as xmldom (a conforming parser, unlike the reader's own) reads it.
+ */
+export function checkWellFormed(name: string, text: string): void {
+  if (!/\.(xml|rels)$/i.test(name)) return;
+  const problems: string[] = [];
+  try {
+    new DOMParser({ onError: (_level, message) => problems.push(message) }).parseFromString(
+      text.replace(/^\uFEFF/, ""),
+      "text/xml",
+    );
+  } catch (error) {
+    problems.push(error instanceof Error ? error.message : String(error));
+  }
+  if (problems.length > 0) {
+    throw new PackagePartError(name, `couldn't be written as well-formed XML: ${problems[0]}`);
+  }
+}
+
 function parsed(name: string, text: string): XmlElement {
   try {
     return parseXml(text);
   } catch (error) {
-    throw new WordPartError(name, error instanceof Error ? error.message : String(error));
+    throw new PackagePartError(name, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -230,7 +235,7 @@ export class PartRelationships {
   private next = 1;
 
   private constructor(
-    private readonly pkg: WordPackageWriter,
+    private readonly pkg: PackageWriter,
     private readonly owner: string,
     private readonly part: PartText | null,
     readonly existing: readonly PartRelationship[],
@@ -242,7 +247,7 @@ export class PartRelationships {
     }
   }
 
-  static async read(pkg: WordPackageWriter, owner: string): Promise<PartRelationships> {
+  static async read(pkg: PackageWriter, owner: string): Promise<PartRelationships> {
     const part = await pkg.part(relationshipsPartOf(owner));
     const existing: PartRelationship[] = [];
     for (const each of part ? descendants(part.root, "Relationship") : []) {

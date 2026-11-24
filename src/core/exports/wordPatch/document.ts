@@ -39,6 +39,21 @@ import {
   tableLayout,
 } from "../../mindText";
 import { type DocxWriter, INDENT, piecesOf, WRITER_NAMESPACES } from "../docx";
+import {
+  appendInside,
+  applySplices,
+  closeTag,
+  endOf,
+  type Namespaces,
+  openTag,
+  parentsOf,
+  rescoped,
+  type Splice,
+  scopeOf,
+  selfClosing,
+  sliceOf,
+  startOf,
+} from "../packagePatch/text";
 import { changedElement, formatChanges } from "../paragraphFormat";
 import { dateAttribute, escapeXml, type WordIds } from "../wordml";
 import {
@@ -64,21 +79,6 @@ import {
 } from "./paragraph";
 import type { DocumentStyles, PatchTarget } from "./parts";
 import { Properties, withoutFormatChange } from "./properties";
-import {
-  appendInside,
-  applySplices,
-  closeTag,
-  endOf,
-  type Namespaces,
-  openTag,
-  parentsOf,
-  rescoped,
-  type Splice,
-  scopeOf,
-  selfClosing,
-  sliceOf,
-  startOf,
-} from "./text";
 
 export interface DocumentPatchInput {
   base: WordDocument;

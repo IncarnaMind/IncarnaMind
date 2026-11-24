@@ -3455,6 +3455,16 @@ export function createDocuments(options: DocumentsOptions) {
       return toDocument(row);
     },
 
+    /** A Document's file path, the Document live or in Recently deleted; not one deleted for good. */
+    pathEvenDeleted(documentId: string): string {
+      const row = db.get<{ path: string }>(
+        "SELECT path FROM documents WHERE id = ? AND purged_at IS NULL",
+        [documentId],
+      );
+      if (!row) throw new NotFoundError({ key: "error.document.notFound" });
+      return row.path;
+    },
+
     /** The live Documents among `ids`, in that order. */
     getMany(documentIds: readonly string[]): Document[] {
       return documentIds.flatMap((id) => {

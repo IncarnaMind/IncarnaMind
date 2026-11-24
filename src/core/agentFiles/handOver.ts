@@ -548,6 +548,13 @@ export function createHandOver(deps: HandOverDeps) {
       return next;
     },
 
+    /** Runs a write of a handed file's Document in turn with hand-overs, never between two of theirs (#149). */
+    inTurn<T>(run: () => Promise<T>): Promise<T> {
+      const next = queue.then(run);
+      queue = next.catch(() => undefined);
+      return next;
+    },
+
     /**
      * How the check of the Note stands for an agent that reaches `reach`, waiting up to `waitMs`
      * for a run still going to end. One that couldn't run or failed (no model then, no consent, a

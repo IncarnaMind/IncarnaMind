@@ -57,6 +57,7 @@ import {
   relationshipOfType,
 } from "./officePackage";
 import { type ChartData, chartLines, readChart } from "./pptxChart";
+import { sharedShapeIds } from "./pptxShapeIds";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
 import { openPackage, type ZipArchive } from "./zip";
 
@@ -140,8 +141,20 @@ export interface Paragraph {
   rtl: boolean;
 }
 
+/**
+ * How a text box follows its text (its `a:bodyPr`'s autofit, the nearest layer's): it grows to fit
+ * it (`spAutoFit`), shrinks the text on overflow (`normAutofit`, by `fontScale` and
+ * `lineReduction`, fractions of 1, already applied to the runs and line spacing), or neither.
+ */
+export interface Autofit {
+  kind: "grow" | "shrink" | "none";
+  fontScale: number;
+  lineReduction: number;
+}
+
 export interface TextBody {
   insets: { left: number; top: number; right: number; bottom: number };
+  autofit: Autofit;
   anchor: "top" | "middle" | "bottom";
   wrap: boolean;
   vertical: "horizontal" | "vertical" | "vertical270";
@@ -154,6 +167,8 @@ export type Origin = "slide" | "layout" | "master";
 interface ItemBase {
   box: Box;
   origin: Origin;
+  /** The shape's id on the slide (`p:cNvPr`), for the slide's own items: what an edit names it by. */
+  shapeId?: string;
 }
 
 export interface ShapeItem extends ItemBase {
@@ -629,6 +644,10 @@ interface Scope {
   slideNumber: number;
   /** The fill a shape set to `grpFill` takes: its group's. */
   groupFill: Fill | undefined;
+  /** Whether the shapes read are the slide's own, which an edit names by id; not a SmartArt drawing's. */
+  addressable: boolean;
+  /** Ids two of the slide's shapes share, which name no shape an edit could change. */
+  sharedIds: ReadonlySet<string>;
 }
 
 async function readMaster(deck: Deck, part: string): Promise<Master> {
@@ -751,6 +770,7 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
   map = readColourMap(layout?.colourOverride, map);
   map = readColourMap(colourOverrideOf(root), map);
   const colours: ColourContext = { theme: master.theme, map };
+  const sharedIds = root ? sharedShapeIds(root) : new Set<string>();
 
   const scope = (origin: Origin, partName: string, partRels: Relationships): Scope => ({
     deck,
@@ -762,6 +782,8 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
     origin,
     slideNumber: number,
     groupFill: undefined,
+    addressable: origin === "slide",
+    sharedIds,
   });
 
   // The background: the slide's own, else its layout's, else its master's.
@@ -990,9 +1012,13 @@ async function readTree(tree: XmlElement | undefined, scope: Scope): Promise<Ite
   return items;
 }
 
-const isHidden = (element: XmlElement) => {
+const cNvPrOf = (element: XmlElement) => {
   const nv = elements(element).find((each) => local(each.name).startsWith("nv"));
-  const cNvPr = nv && child(nv, "cNvPr");
+  return nv && child(nv, "cNvPr");
+};
+
+const isHidden = (element: XmlElement) => {
+  const cNvPr = cNvPrOf(element);
   return cNvPr?.attrs.hidden === "1" || cNvPr?.attrs.hidden === "true";
 };
 
@@ -1004,6 +1030,17 @@ async function readElement(element: XmlElement, scope: Scope): Promise<Item[] | 
     return choice ? readTree(choice, scope) : undefined;
   }
   if (isHidden(element)) return undefined;
+  const items = await readShapeElement(element, name, scope);
+  const id = scope.addressable ? cNvPrOf(element)?.attrs.id : undefined;
+  const shapeId = id !== undefined && !scope.sharedIds.has(id) ? id : undefined;
+  return shapeId ? items?.map((item) => ({ ...item, shapeId })) : items;
+}
+
+async function readShapeElement(
+  element: XmlElement,
+  name: string,
+  scope: Scope,
+): Promise<Item[] | undefined> {
   // A layout's or master's placeholders are prompts, not drawn on its slides.
   if (scope.origin !== "slide" && placeholderOf(element) && name !== "grpSp") return undefined;
   switch (name) {
@@ -1147,15 +1184,18 @@ function readTextBody(
   const attrs: Record<string, string> = {};
   let fontScale = 1;
   let lineReduction = 0;
+  let autofit: Autofit["kind"] = "none";
   for (const bodyPr of bodies) {
     Object.assign(attrs, bodyPr.attrs);
     const normal = child(bodyPr, "a:normAutofit");
     if (normal) {
       fontScale = numberAttr(normal, "fontScale", 100000) / 100000;
       lineReduction = numberAttr(normal, "lnSpcReduction", 0) / 100000;
+      autofit = "shrink";
     } else if (child(bodyPr, "a:spAutoFit") || child(bodyPr, "a:noAutofit")) {
       fontScale = 1;
       lineReduction = 0;
+      autofit = child(bodyPr, "a:spAutoFit") ? "grow" : "none";
     }
   }
   const [left, top, right, bottom] = defaults.insets ?? [91440, 45720, 91440, 45720];
@@ -1243,6 +1283,7 @@ function readTextBody(
     });
   }
   return {
+    autofit: { kind: autofit, fontScale, lineReduction },
     insets: {
       left: emu(attrs.lIns, left / 9525),
       top: emu(attrs.tIns, top / 9525),
@@ -1491,7 +1532,12 @@ async function readDiagram(
   if (!xml) return undefined;
   const tree = descendants(parseXml(xml), "spTree")[0];
   const drawingRels = await scope.deck.pkg.internalRelationships(drawingRel.target);
-  const children = await readTree(tree, { ...scope, part: drawingRel.target, rels: drawingRels });
+  const children = await readTree(tree, {
+    ...scope,
+    part: drawingRel.target,
+    rels: drawingRels,
+    addressable: false,
+  });
   if (children.length === 0) return undefined;
   return { kind: "group", box, origin: scope.origin, children };
 }

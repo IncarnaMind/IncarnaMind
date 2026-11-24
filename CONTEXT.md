@@ -86,7 +86,7 @@ A page of a PDF that is a picture of text, such as a scan, with little or no tex
 _Avoid_: image page, OCR page
 
 **Linked folder**:
-A folder on the User's computer that IncarnaMind reads where it is: every supported file in it, at any depth, is a Document, and new and changed files are read as they come; a file removed from it keeps what was read of it, as a Missing Document does. Nothing is copied to a cloud; IncarnaMind keeps the text it read from each file, and the picture of a Cited page, as it does for any Document. IncarnaMind never changes or deletes a file in it, and adds a new file there only once the User allows it for that folder. The User links no folder inside IncarnaMind's own data folder, which is the app's; the examples it copies there and links itself are the one exception. Files a cloud drive keeps online only are read when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents. Linking one makes its Folder, a Project.
+A folder on the User's computer that IncarnaMind reads where it is: every supported file in it, at any depth, is a Document, and new and changed files are read as they come; a file removed from it keeps what was read of it, as a Missing Document does. Nothing is copied to a cloud; IncarnaMind keeps the text it read from each file, and the picture of a Cited page, as it does for any Document. IncarnaMind never deletes a file in it, changes one only when the User edits a deck in it by hand (keeping the file as it was first, ADR-0010), and adds a new file there only once the User allows it for that folder. The User links no folder inside IncarnaMind's own data folder, which is the app's; the examples it copies there and links itself are the one exception. Files a cloud drive keeps online only are read when the User asks. Moved, renamed or on another computer, it is located again from its menu and keeps its Documents. Linking one makes its Folder, a Project.
 _Avoid_: workspace, vault, source, sync folder
 
 **Other Documents**:
@@ -259,6 +259,10 @@ _Avoid_: AI content, machine text
 **Checkpoint**:
 A saved copy of a Note as it was just before an AI change, or after a pause in writing, which the User can compare, in the Note's History, with another Checkpoint or with the Note now, and restore from. Restoring one brings its content back as a new change, after a Checkpoint of the Note as it is: nothing is overwritten, and Undo takes it back.
 _Avoid_: snapshot, version, backup, undo
+
+**Sitting**:
+The hand edits of one deck made in one go, from the first gesture on its slides until no tab of the window shows the deck any more, the deck changes elsewhere or is put back, or the window closes (#149); one whose change waits to be written goes on until it is. Each gesture of a sitting is one step of Undo. Before a deck of the User's own takes its first, IncarnaMind keeps the file as it stood (ADR-0010), which Put back as it was writes back; a deck an agent handed over takes one new version for the sitting. The interface doesn't name it.
+_Avoid_: session, editing session
 
 **Recently deleted**:
 Where a deleted Note, Conversation, Document, Folder, Tag or Canvas waits for 30 days, from where it can be restored or deleted permanently. Deleting never touches the User's files.

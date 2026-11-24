@@ -240,6 +240,14 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       return made;
     },
 
+    /** A version the User made by editing the deck by hand, written again by the same sitting (#149). */
+    rewriteVersion(versionId: string, input: { contentHash: string; size: number }): void {
+      db.run(
+        "UPDATE agent_file_versions SET content_hash = ?, size = ?, updated_at = ? WHERE id = ?",
+        [input.contentHash, BigInt(input.size), now(), versionId],
+      );
+    },
+
     setDocument(fileId: string, documentId: string): void {
       db.run("UPDATE agent_files SET document_id = ?, updated_at = ? WHERE id = ?", [
         documentId,

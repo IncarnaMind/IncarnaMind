@@ -103,3 +103,23 @@ export function rangesByKey(
   }
   return byKey;
 }
+
+/** The package parts of every picture a drawing shows, its backgrounds' and fills' too. */
+export function pictureParts(slide: SlideDrawing): string[] {
+  const parts: string[] = [];
+  if (slide.background.kind === "image") parts.push(slide.background.part);
+  const walk = (items: readonly Item[]) => {
+    for (const item of items) {
+      if (item.kind === "picture" && item.part) parts.push(item.part);
+      if (item.kind === "shape" && item.fill.kind === "image") parts.push(item.fill.part);
+      if (item.kind === "group") walk(item.children);
+      if (item.kind === "table") {
+        for (const row of item.rows) {
+          for (const cell of row.cells) if (cell.fill.kind === "image") parts.push(cell.fill.part);
+        }
+      }
+    }
+  };
+  walk(slide.items);
+  return parts;
+}
