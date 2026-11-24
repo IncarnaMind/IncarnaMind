@@ -350,7 +350,7 @@ describe("createClaudeCodeInstaller host adapter (#3638)", () => {
           join(spacedBin, "claude.cmd"),
           [
             "@echo off",
-            'if "%1 %2"=="auth status" (echo {"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"} & exit /b 0)',
+            'if "%~1 %~2"=="auth status" (echo {"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"} & exit /b 0)',
             "exit /b 0",
           ].join("\r\n"),
           "utf8",
@@ -369,11 +369,20 @@ describe("createClaudeCodeInstaller host adapter (#3638)", () => {
         await chmod(script, 0o755);
       }
       const sep = process.platform === "win32" ? ";" : ":";
+      const baseEnv: NodeJS.ProcessEnv = {};
+      let inheritedPath = "";
+      for (const [key, value] of Object.entries(process.env)) {
+        if (key.toLowerCase() === "path") {
+          if (value) inheritedPath = value;
+        } else {
+          baseEnv[key] = value;
+        }
+      }
       const installer = createClaudeCodeInstaller({
         home,
         env: {
-          ...process.env,
-          PATH: `${spacedBin}${sep}${process.env.PATH ?? ""}`,
+          ...baseEnv,
+          PATH: inheritedPath ? `${spacedBin}${sep}${inheritedPath}` : spacedBin,
         },
       });
       expect(await installer.checkAuth()).toEqual({ kind: "signed-in" });
