@@ -1227,7 +1227,8 @@ function placeChanges(asked: readonly AskedChange[], note: NamedNote, t: Say): N
     if (n === null) throw new AgentRefusedError("invalid", t("agents.propose.firstAdd"));
     const at = note.paragraphs.findIndex((paragraph) => paragraph.name === `¶${n}`);
     if (at < 0) {
-      if (note.paragraphs.length === 0 && n === 0 && change.kind === "add") {
+      // "¶0+" adds at the top, in a Note with no title as in one with nothing yet (#3747).
+      if (n === 0 && change.kind === "add") {
         before = n;
         return { kind: "add", after: null, text: change.text };
       }
