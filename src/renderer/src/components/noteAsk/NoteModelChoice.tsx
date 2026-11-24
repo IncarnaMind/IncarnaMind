@@ -25,6 +25,14 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
     (state) => Object.values(state.byTurn).filter((trail) => trail.model !== null).length,
   );
   const ended = useNoteAsks((state) => state.byMind[mindId]?.state !== "working");
+  // With none chosen, the model that last ran here: the User's own setting may name another than
+  // the list's first, which is the agent's general default.
+  const ran = useNoteTrails(
+    (state) =>
+      Object.values(state.byTurn)
+        .filter((trail) => trail.mindId === mindId && trail.model !== null)
+        .at(-1)?.model ?? null,
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each run names its model and as it ends.
   useEffect(() => {
     let current = true;
@@ -44,10 +52,14 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
     };
   }, [mindId, runsNamed, ended]);
   if (models.length === 0) return null;
-  const current = models.find((each) => each.value === chosen) ?? models[0];
-  const label = current?.resolvedModel
-    ? shortModel(current.resolvedModel)
-    : (current?.displayName ?? "");
+  const picked = models.find((each) => each.value === chosen);
+  const current = picked ?? models[0];
+  const label =
+    !picked && ran
+      ? shortModel(ran)
+      : current?.resolvedModel
+        ? shortModel(current.resolvedModel)
+        : (current?.displayName ?? "");
   const named = `${t("noteColumn.model")}: ${label}`;
   if (models.length === 1) {
     return (

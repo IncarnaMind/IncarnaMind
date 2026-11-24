@@ -1481,7 +1481,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const [question] = await waitingIn(turns);
     expect(question).toMatchObject({
       action: COMMAND,
-      answers: ["deny", 0, 1, "once"],
+      answers: ["deny", "suggested", "once"],
       suggested: SUGGESTED,
       read: null,
     });
@@ -1490,11 +1490,11 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     // A window opened meanwhile reads it too.
     expect((await core.noteTurnNow(mindId))?.questions).toEqual([question]);
     expect((await core.noteConversation(mindId)).at(-1)?.questions).toEqual([question]);
-    await core.answerInNote(mindId, question?.id ?? "", 0);
+    await core.answerInNote(mindId, question?.id ?? "", "suggested");
     const end = await ended();
     expect(end).toMatchObject({ state: "landed", reply: "Ran it.", questions: [] });
-    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "conversation" });
-    expect(run.answered).toEqual([0]);
+    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "suggested" });
+    expect(run.answered).toEqual(["suggested"]);
   });
 
   // protects=Deny keeps the step from running and the step says it was denied; an answer the question doesn't offer, or for a question no longer waiting, does nothing; fails_when=a denied step reads as run, or a stray answer allows something
@@ -1504,7 +1504,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     await core.askInNote({ mindId, words: "count the late crossings" });
     const [question] = await waitingIn(turns);
     expect(question?.answers).toEqual(["deny", "once"]);
-    await core.answerInNote(mindId, question?.id ?? "", 0);
+    await core.answerInNote(mindId, question?.id ?? "", "suggested");
     await core.answerInNote(mindId, "another-question", "once");
     expect((await core.noteTurnNow(mindId))?.questions).toHaveLength(1);
     await core.answerInNote(mindId, question?.id ?? "", "deny");
@@ -1513,30 +1513,21 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "deny" });
   });
 
-  // protects=once a request read text the User didn't write (a web page it opened), nothing it asks after offers the wider answer, and the card says what it read; fails_when=a page can give itself a standing yes for the rest of the request
-  it("offers no answer for the rest of the request after it read a page", async () => {
-    const page: NoteAction = {
-      kind: "web",
-      value: "https://kestrelbay-harbour.example/notice",
-      host: "kestrelbay-harbour.example",
-    };
-    const run = asking(asked("toolu_2"), (request) => {
-      request.progress?.({ kind: "own", id: "toolu_1", action: page, state: "going" });
-      request.progress?.({ kind: "own", id: "toolu_1", action: page, state: "done" });
-    });
-    const { core, mindId, turns } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "check the notice, then count" });
-    const [question] = await waitingIn(turns);
-    expect(question).toMatchObject({
-      answers: ["deny", "once"],
-      suggested: [],
-      read: { kind: "web", host: "kestrelbay-harbour.example" },
-    });
-    await core.stopInNote(mindId);
-  });
-
-  // protects=what the AI read that the User didn't write stays in its mind for the conversation, so a later request offers none of its suggested answers either; a file it read with its own tools, and any Document it read through IncarnaMind, count; fails_when=a page read in one request gives itself a standing yes in the next, or a file someone else wrote doesn't count
+  // protects=a card names the latest text the conversation read that the User didn't write (a page it opened, a file it read in an earlier request, a Document through IncarnaMind, a page read while the card waits), and still offers every answer the AI's own question suggests (the owner's decision: what the AI offers, the card offers); fails_when=the card hides where a planted step came from, or withholds an answer the AI offered
   it.each([
+    [
+      "a page it opened",
+      (request: RunRequest) => {
+        const page: NoteAction = {
+          kind: "web",
+          value: "https://a.example/notice",
+          host: "a.example",
+        };
+        request.progress?.({ kind: "own", id: "toolu_0", action: page, state: "going" });
+        request.progress?.({ kind: "own", id: "toolu_0", action: page, state: "done" });
+      },
+      { kind: "web", host: "a.example" },
+    ],
     [
       "a file it read",
       (request: RunRequest) => {
@@ -1546,31 +1537,32 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       },
       { kind: "file", path: "notice.txt" },
     ],
-  ])(
-    "offers no suggested answer for the rest of the conversation after %s",
-    async (_name, read, said) => {
-      let first = true;
-      const run = runner(async (_agent, request) => {
-        if (first) {
-          first = false;
-          read(request);
-          return { kind: "finished", reply: "Read it." };
-        }
-        const answer = await request.own?.ask(asked("toolu_1"), request.signal).catch(() => "deny");
-        return { kind: "finished", reply: String(answer) };
-      });
-      const { core, mindId, turns, ended } = await written(run.adapter);
-      await core.askInNote({ mindId, words: "read the notice" });
-      await ended(1);
-      await core.askInNote({ mindId, words: "now count the late crossings" });
-      const [question] = await waitingIn(turns);
-      expect(question).toMatchObject({ answers: ["deny", "once"], suggested: [], read: said });
-      await core.stopInNote(mindId);
-    },
-  );
+  ])("names %s, read in an earlier request, and offers every answer", async (_name, read, said) => {
+    let first = true;
+    const run = runner(async (_agent, request) => {
+      if (first) {
+        first = false;
+        read(request);
+        return { kind: "finished", reply: "Read it." };
+      }
+      const answer = await request.own?.ask(asked("toolu_1"), request.signal).catch(() => "deny");
+      return { kind: "finished", reply: String(answer) };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "read the notice" });
+    await ended(1);
+    await core.askInNote({ mindId, words: "now count the late crossings" });
+    const [question] = await waitingIn(turns);
+    expect(question).toMatchObject({
+      answers: ["deny", "suggested", "once"],
+      suggested: SUGGESTED,
+      read: said,
+    });
+    await core.stopInNote(mindId);
+  });
 
-  // protects=a Document read through IncarnaMind counts as text the User didn't write, whatever its kind; fails_when=a file of someone else's in the Library gives a standing yes
-  it("offers no suggested answer after it read a Document", async () => {
+  // protects=a Document read through IncarnaMind is named on the card; fails_when=the step a Document planted shows with no word of where it came from
+  it("names the Document it read", async () => {
     const run = runner(async (agent, request) => {
       await agent.callTool({ name: "search", arguments: { query: "ferry" } });
       const answer = await request.own?.ask(asked("toolu_1"), request.signal).catch(() => "deny");
@@ -1580,15 +1572,14 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     await core.askInNote({ mindId, words: "count the late crossings" });
     const [question] = await waitingIn(turns);
     expect(question).toMatchObject({
-      answers: ["deny", "once"],
-      suggested: [],
+      answers: ["deny", "suggested", "once"],
       read: { kind: "document", name: expect.any(String) },
     });
     await core.stopInNote(mindId);
   });
 
-  // protects=the answers are decided as the card shows them: a page read while a question waits takes its suggested answers away, and one sent after does nothing; fails_when=a question that came before a parallel fetch returned keeps a standing yes
-  it("takes the suggested answers away from a waiting question once a page is read", async () => {
+  // protects=a page read while a card waits is named on it at once; fails_when=the card says nothing of a page read after it came
+  it("names on a waiting card a page read meanwhile", async () => {
     const page: NoteAction = {
       kind: "web",
       value: "https://kestrelbay-harbour.example/notice",
@@ -1605,15 +1596,57 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const { core, mindId, turns, ended } = await written(run.adapter);
     await core.askInNote({ mindId, words: "check the notice and count" });
     const [question] = await waitingIn(turns);
-    expect(question?.answers).toEqual(["deny", 0, 1, "once"]);
+    expect(question?.read).toBeNull();
     late.open();
     await expect
-      .poll(async () => (await core.noteTurnNow(mindId))?.questions[0]?.answers, { timeout: 5_000 })
-      .toEqual(["deny", "once"]);
-    await core.answerInNote(mindId, question?.id ?? "", 0);
-    expect((await core.noteTurnNow(mindId))?.questions).toHaveLength(1);
-    await core.answerInNote(mindId, question?.id ?? "", "once");
-    expect(await ended()).toMatchObject({ reply: "once" });
+      .poll(async () => (await core.noteTurnNow(mindId))?.questions[0]?.read, { timeout: 5_000 })
+      .toEqual({ kind: "web", host: "kestrelbay-harbour.example" });
+    await core.answerInNote(mindId, question?.id ?? "", "suggested");
+    expect(await ended()).toMatchObject({ reply: "suggested" });
+  });
+
+  // protects=a conversation begun anew forgets the text the old one read, since its AI no longer has it in mind; fails_when=a new conversation's card names a page only the old one read
+  it("forgets what the old conversation read when it begins anew", async () => {
+    const run = runner(async (_agent, request) => {
+      const answer = await request.own?.ask(asked("toolu_1"), request.signal).catch(() => "deny");
+      return { kind: "finished", reply: String(answer) };
+    });
+    const { core, mindId, turns, dataDir } = await written(run.adapter);
+    await core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, renewed, read_text, created_at, updated_at)
+         SELECT 'c-old', ?, id, 's-old', 1, '{"kind":"web","host":"a.example"}', '0', '0'
+         FROM agent_pairings WHERE deleted_at IS NULL AND client = 'claude-code' LIMIT 1`,
+        [mindId],
+      );
+    } finally {
+      db.close();
+    }
+    const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    const told: NoteTurnEvent[] = [];
+    again.on("agents.noteTurn", (turn) => told.push(turn));
+    try {
+      await again.askInNote({ mindId, words: "count the late crossings" });
+      await expect.poll(() => told.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(1);
+      expect(told.at(-1)?.questions[0]?.read).toBeNull();
+      await again.stopInNote(mindId);
+      const check = openDatabase(join(dataDir, DATABASE_FILE));
+      try {
+        expect(
+          check.get("SELECT renewed, read_text FROM own_ai_conversations WHERE id = 'c-old'"),
+        ).toEqual({
+          renewed: 0,
+          read_text: null,
+        });
+      } finally {
+        check.close();
+      }
+    } finally {
+      await again.close();
+    }
+    expect(turns).toBeDefined();
   });
 
   // protects=two questions open at once both wait, oldest first, and each answer goes to its own; fails_when=the second hides the first, or answers cross

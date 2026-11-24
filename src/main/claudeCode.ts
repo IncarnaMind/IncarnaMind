@@ -11,6 +11,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Writable } from "node:stream";
 import { object, processes, readJsonLines, wholeTree } from "./agentCommand";
+import { STEERING_HOOK, STEERING_HOOKS, steeringAnswer } from "./claudeCodeAsks";
 
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
@@ -261,7 +262,7 @@ function readOwnTurn(
       write(stdin, {
         type: "control_request",
         request_id: "models",
-        request: { subtype: "initialize" },
+        request: { subtype: "initialize", hooks: STEERING_HOOKS },
       });
       write(stdin, {
         type: "user",
@@ -281,7 +282,16 @@ function readOwnTurn(
       if (msg.type === "control_request") {
         const id = typeof msg.request_id === "string" ? msg.request_id : "";
         const request = object(msg.request);
-        if (request.subtype === "can_use_tool" && id !== "") {
+        if (request.subtype === "hook_callback" && request.callback_id === STEERING_HOOK) {
+          write(stdin, {
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id: id,
+              response: steeringAnswer(object(request.input)),
+            },
+          });
+        } else if (request.subtype === "can_use_tool" && id !== "") {
           own.asked(id, request, (answer) =>
             write(stdin, {
               type: "control_response",

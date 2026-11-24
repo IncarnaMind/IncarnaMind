@@ -510,7 +510,9 @@ test("a request in a Note's conversation asks through the packaged app, runs wha
         ),
       ).toMatchObject({ kind: "started" });
       const question = await asking();
-      expect(question?.action).toMatchObject({ kind: "command", inFolder: true });
+      // Where a command runs can't be told from it: no place is claimed for it.
+      expect(question?.action).toMatchObject({ kind: "command" });
+      expect(question?.action.inFolder).toBeUndefined();
       await core.evaluate((bridge, input) => bridge.answerInNote(input.mindId, input.id, "once"), {
         mindId,
         id: question?.id ?? "",

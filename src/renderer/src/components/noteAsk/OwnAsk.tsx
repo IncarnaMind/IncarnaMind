@@ -10,7 +10,6 @@ import type {
   NoteAction,
   NoteAnswer,
   NoteAnswered,
-  NoteKept,
   NoteQuestion,
   NoteReadText,
   NoteRule,
@@ -55,16 +54,42 @@ function Title({ action }: { action: NoteAction }) {
 }
 
 /** The lines of a box past its twelve, as a line of it is tall. */
-function useMore(box: RefObject<HTMLElement | null>, key: string, all: boolean) {
-  const [more, setMore] = useState(0);
+/**
+ * Calls `measure` now, and again whenever `element` changes size or a font finishes loading: a
+ * narrower window or a late font wraps text into more lines.
+ */
+function useMeasured(element: RefObject<HTMLElement | null>, measure: () => void, key: unknown) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: measured again for each value.
   useLayoutEffect(() => {
-    const element = box.current;
-    if (!element || all) return;
-    const line = Number.parseFloat(getComputedStyle(element).lineHeight) || 18;
-    const hidden = element.scrollHeight - element.clientHeight;
-    setMore(hidden > 1 ? Math.ceil(hidden / line) : 0);
-  }, [key, all]);
+    const target = element.current;
+    if (!target) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(target);
+    let current = true;
+    void document.fonts?.ready.then(() => {
+      if (current) measure();
+    });
+    return () => {
+      current = false;
+      observer.disconnect();
+    };
+  }, [key]);
+}
+
+function useMore(box: RefObject<HTMLElement | null>, key: string, all: boolean) {
+  const [more, setMore] = useState(0);
+  useMeasured(
+    box,
+    () => {
+      const element = box.current;
+      if (!element || all) return;
+      const line = Number.parseFloat(getComputedStyle(element).lineHeight) || 18;
+      const hidden = element.scrollHeight - element.clientHeight;
+      setMore(hidden > 1 ? Math.ceil(hidden / line) : 0);
+    },
+    `${key}\u0000${all}`,
+  );
   return more;
 }
 
@@ -148,95 +173,99 @@ function sizeWords(t: Translate, size: NonNullable<NoteAction["size"]>) {
   return t(`${key}.${size.count === 1 ? "one" : "other"}` as MessageKey, { count: size.count });
 }
 
+/** What a rule covers, as Claude Code's own prompt names it after "don't ask again for". */
 function ruleWords(t: Translate, rule: NoteRule): string {
-  if (rule.kind === "commands") return t("ownAsk.rule.commands", { start: visible(rule.start) });
-  if (rule.kind === "command") return t("ownAsk.rule.command", { value: visible(rule.value) });
-  if (rule.kind === "site") return t("ownAsk.rule.site", { host: visible(rule.host) });
+  if (rule.kind === "commands") return t("ownAsk.what.commands", { start: visible(rule.start) });
+  if (rule.kind === "command") return t("ownAsk.what.command", { value: visible(rule.value) });
+  if (rule.kind === "site") return visible(rule.host);
   if (rule.kind === "tool") {
-    return t("ownAsk.rule.tool", { tool: visible(rule.tool), server: visible(rule.server) });
+    return t("ownAsk.what.tool", { tool: visible(rule.tool), server: visible(rule.server) });
   }
-  if (rule.kind === "searches") return t("ownAsk.rule.searches");
+  if (rule.kind === "searches") return t("ownAsk.what.searches");
   if (rule.kind === "files") {
-    return rule.folder === ""
-      ? t(rule.change ? "ownAsk.rule.changesHere" : "ownAsk.rule.readsHere")
-      : t(rule.change ? "ownAsk.rule.changes" : "ownAsk.rule.reads", {
-          folder: visible(rule.folder),
-        });
+    const folder = rule.folder === "" ? t("ownAsk.here.folder") : visible(rule.folder);
+    return t(rule.change ? "ownAsk.what.changes" : "ownAsk.what.reads", { folder });
   }
-  return t("ownAsk.rule.raw", { rule: visible(rule.rule) });
+  return visible(rule.rule);
 }
 
-/** An answer the AI suggests, as its button says it: what kind of yes, and for how long. */
-const suggestedLabel = (t: Translate, suggested: NoteSuggested) =>
-  t(
-    `ownAsk.suggested.${
-      suggested.kind === "mode" && suggested.mode === "acceptEdits" ? "acceptEdits" : suggested.kind
-    }.${suggested.kept}` as MessageKey,
-    { mode: suggested.kind === "mode" ? visible(suggested.mode) : "" },
-  );
-
-const KEPT_WORDS: Record<NoteKept, MessageKey> = {
-  request: "ownAsk.kept.request",
-  conversation: "ownAsk.kept.conversation",
-  everywhere: "ownAsk.kept.everywhere",
-};
-
 /**
- * An answer the AI suggests, as its line under the answers says it: its button's words, what it
- * does, for how long, and where it is saved, in plain words.
+ * One suggested answer in a few words, ending with where it is kept; with `fit`, what it covers is
+ * cut in its middle to that many characters, and in this conversation, where the card is, goes
+ * unsaid, for a label that fits beside the other answers.
  */
 function suggestedWords(
   t: Translate,
   language: string,
   suggested: NoteSuggested,
-  agent: string,
+  fit?: number,
 ): string {
-  const kept = t(KEPT_WORDS[suggested.kept], { agent });
-  const saved = t(`ownAsk.saved.${suggested.kept}`, { agent });
-  const list = (parts: string[]) =>
-    new Intl.ListFormat(language, { type: "conjunction" }).format(parts);
-  const does =
-    suggested.kind === "rules"
-      ? t("ownAsk.does.rules", {
-          agent,
-          what: list(suggested.rules.map((rule) => ruleWords(t, rule))),
-          kept,
-        })
-      : suggested.kind === "mode"
-        ? t(suggested.mode === "acceptEdits" ? "ownAsk.does.acceptEdits" : "ownAsk.does.mode", {
-            agent,
-            mode: visible(suggested.mode),
-            kept,
-          })
-        : suggested.kind === "folders"
-          ? t("ownAsk.does.folders", {
-              agent,
-              folders: list(
-                suggested.folders.map((folder) =>
-                  folder === "" ? t("ownAsk.here.folder") : `“${visible(folder)}”`,
-                ),
-              ),
-              kept,
-            })
-          : t("ownAsk.does.other", { agent, text: visible(suggested.text), kept });
-  return t("ownAsk.scopeLine", { label: suggestedLabel(t, suggested), does, saved });
+  const kept = fit !== undefined && suggested.kept === "conversation" ? "here" : suggested.kept;
+  const list = (parts: string[]) => {
+    const said = new Intl.ListFormat(language, { type: "conjunction" }).format(parts);
+    return fit === undefined ? said : middle(said, fit);
+  };
+  if (suggested.kind === "rules") {
+    // A command's start that doesn't fit keeps its first word, as "python3… commands".
+    const rules = suggested.rules.map((rule) =>
+      fit !== undefined && rule.kind === "commands" && rule.start.length > fit - 10
+        ? { ...rule, start: `${rule.start.split(/\s+/)[0] ?? rule.start}…` }
+        : rule,
+    );
+    return t(`ownAsk.lasting.rules.${kept}`, {
+      what: list(rules.map((rule) => ruleWords(t, rule))),
+    });
+  }
+  if (suggested.kind === "mode" && suggested.mode === "acceptEdits") {
+    return t(`ownAsk.lasting.edits.${kept}`);
+  }
+  if (suggested.kind === "mode") {
+    return t(`ownAsk.lasting.mode.${kept}`, { mode: visible(suggested.mode) });
+  }
+  if (suggested.kind === "folders") {
+    return t(`ownAsk.lasting.folders.${kept}`, {
+      what: list(
+        suggested.folders.map((folder) =>
+          folder === "" ? t("ownAsk.here.folder") : visible(folder),
+        ),
+      ),
+    });
+  }
+  return t(`ownAsk.lasting.other.${kept}`, { text: visible(suggested.text) });
 }
 
-/** An answer's button words. */
-function answerLabel(t: Translate, question: NoteQuestion, answer: NoteAnswer): string {
-  if (answer === "deny") return t("ownAsk.answer.deny");
-  if (answer === "once") return t("ownAsk.answer.once");
-  const suggested = question.suggested[answer];
-  return suggested ? suggestedLabel(t, suggested) : t("ownAsk.answer.once");
+/** The order Claude Code's own "don't ask again" names what it applies: its rules first. */
+const FIRST: Record<NoteSuggested["kind"], number> = { rules: 0, mode: 1, folders: 2, other: 3 };
+
+/**
+ * Claude Code's own "don't ask again", as its button says it: what it mainly does, short enough for
+ * one row; and, for the title and a screen reader, everything it applies, whole.
+ */
+function lastingWords(t: Translate, language: string, suggested: readonly NoteSuggested[]) {
+  const ordered = [...suggested].sort((a, b) => FIRST[a.kind] - FIRST[b.kind]);
+  const [main] = ordered;
+  const shortKind = main?.kind === "mode" && main.mode === "acceptEdits" ? "edits" : main?.kind;
+  return {
+    label: main ? suggestedWords(t, language, main, language === "zh-CN" ? 12 : 18) : "",
+    // Where the card is too narrow for that, Claude Code's own first words alone.
+    short: shortKind ? t(`ownAsk.lasting.short.${shortKind}`) : "",
+    whole: ordered.map((each) => suggestedWords(t, language, each)).join(" · "),
+  };
+}
+
+/** Text no longer than `max` characters, cut in its middle so its start and its end both show. */
+function middle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.ceil((max - 1) / 2);
+  return `${text.slice(0, head)}…${text.slice(text.length - (max - 1 - head))}`;
 }
 
 /**
  * The card for a question the User's own AI asks before it does something with a tool of its own
- * (#3653): what it would do, whole; where; and the answers its question offers: Deny, each answer
- * the AI itself suggests, as it gave it, and Allow once last, as the app's approval cards put
- * them. Each suggested answer has a line under the answers of what it does and where it is saved,
- * whole for the one reached by the keyboard and as the answer's tooltip. It never takes the focus: its answers are one Tab stop, entered on Deny by Shift+Tab
- * from the Note's input.
+ * (#3653): what it would do, whole; where; and the answers Claude Code's own prompt offers: Deny,
+ * its "don't ask again" when it suggests one, in its own words, and Allow once last, as the app's
+ * approval cards put them. It never takes the focus: its answers are one Tab stop, entered on Deny
+ * by Shift+Tab from the Note's input.
  */
 export function QuestionCard({
   question,
@@ -251,7 +280,7 @@ export function QuestionCard({
   const language = useLanguage();
   const titleId = useId();
   const ownId = useId();
-  const linesId = useId();
+  const wholeId = useId();
   const { action } = question;
   const [change, setChange] = useState(action.steers === true);
   const details = useRef<HTMLDivElement>(null);
@@ -262,20 +291,22 @@ export function QuestionCard({
     setAll(false);
     setChange(question.action.steers === true);
   }, [question.id]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: measured again for each question.
-  useLayoutEffect(() => {
-    const element = details.current;
-    if (!element || all) return;
-    setLong(
-      [...element.querySelectorAll<HTMLElement>(".own-clamp")].some(
-        (part) => part.scrollHeight > part.clientHeight + 1,
-      ),
-    );
-  }, [question.id, all]);
+  useMeasured(
+    details,
+    () => {
+      const element = details.current;
+      if (!element || all) return;
+      setLong(
+        [...element.querySelectorAll<HTMLElement>(".own-clamp")].some(
+          (part) => part.scrollHeight > part.clientHeight + 1,
+        ),
+      );
+    },
+    `${question.id}\u0000${all}`,
+  );
   const { answers } = question;
   const start = Math.max(0, answers.indexOf("deny"));
   const [at, setAt] = useState(start);
-  const [pointed, setPointed] = useState<number | null>(null);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
@@ -295,6 +326,7 @@ export function QuestionCard({
     focusNoteAsk(mindId);
     void answerInNote(mindId, question.id, chosen);
   };
+  const lasting = lastingWords(t, language, question.suggested);
   const runs = [
     ...(action.background ? [t("ownAsk.runs.background")] : []),
     ...(action.unsandboxed ? [t("ownAsk.runs.unsandboxed", { agent })] : []),
@@ -408,10 +440,7 @@ export function QuestionCard({
           onKeyDown={move}
           // Coming back to the answers always lands on Deny, never on the last one pointed at.
           onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setAt(start);
-              setPointed(null);
-            }
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAt(start);
           }}
           data-count={answers.length}
           className="own-ask-answers"
@@ -424,20 +453,10 @@ export function QuestionCard({
               }}
               type="button"
               tabIndex={index === at ? 0 : -1}
-              data-testid={typeof kind === "number" ? "own-ask-suggested" : `own-ask-${kind}`}
-              data-kept={typeof kind === "number" ? question.suggested[kind]?.kept : undefined}
-              aria-describedby={typeof kind === "number" ? `${linesId}-${kind}` : undefined}
-              onFocus={(event) => {
-                setAt(index);
-                // Opened for the keyboard only: a line opening under a press would move the card.
-                const keyed = event.currentTarget.matches(":focus-visible");
-                setPointed(typeof kind === "number" && keyed ? kind : null);
-              }}
-              title={
-                typeof kind === "number" && question.suggested[kind]
-                  ? suggestedWords(t, language, question.suggested[kind], agent)
-                  : undefined
-              }
+              data-testid={`own-ask-${kind}`}
+              aria-describedby={kind === "suggested" ? wholeId : undefined}
+              title={kind === "suggested" ? lasting.whole : undefined}
+              onFocus={() => setAt(index)}
               onClick={() => answer(kind)}
               className={`approval-button ${
                 kind === "once"
@@ -447,29 +466,21 @@ export function QuestionCard({
                     : ""
               }`}
             >
-              {answerLabel(t, question, kind)}
+              {kind === "suggested" ? (
+                <>
+                  <span className="own-ask-lasting">{lasting.label}</span>
+                  <span className="own-ask-lasting-short">{lasting.short}</span>
+                </>
+              ) : (
+                t(`ownAsk.answer.${kind}`)
+              )}
             </button>
           ))}
         </div>
-        {/* Below the answers: a line that opens as an answer is pointed at moves none of them. */}
-        {question.suggested.length > 0 && (
-          <ul data-testid="own-ask-scopes" className="own-ask-scopes">
-            {question.suggested.map((suggested, index) => {
-              const said = suggestedWords(t, language, suggested, agent);
-              return (
-                <li
-                  key={said}
-                  id={`${linesId}-${index}`}
-                  data-testid="own-ask-scope"
-                  data-open={pointed === index || undefined}
-                  title={said}
-                  className="own-ask-scope"
-                >
-                  {said}
-                </li>
-              );
-            })}
-          </ul>
+        {lasting.whole !== "" && (
+          <span id={wholeId} className="sr-only">
+            {lasting.whole}
+          </span>
         )}
       </div>
     </fieldset>
@@ -498,7 +509,11 @@ export function useAnnounce(question: NoteQuestion | undefined, agent: string): 
     title: titleText(t, action),
     value: visible(action.kind === "tool" ? (action.server ?? "") : action.value),
     answers: question.answers
-      .map((kind) => answerLabel(t, question, kind))
+      .map((kind) =>
+        kind === "suggested"
+          ? lastingWords(t, language, question.suggested).whole
+          : t(`ownAsk.answer.${kind}`),
+      )
       .join(language === "zh-CN" ? "、" : ", "),
   });
 }

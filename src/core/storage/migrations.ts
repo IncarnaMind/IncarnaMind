@@ -3485,8 +3485,7 @@ export const migrations: readonly Migration[] = [
       ALTER TABLE own_ai_conversations ADD COLUMN renewed INTEGER NOT NULL DEFAULT 0;
       UPDATE own_ai_conversations SET renewed = 1 WHERE deleted_at IS NULL;
       -- The latest text the conversation's AI read that the User didn't write, as JSON: the AI
-      -- keeps it in mind for the rest of the conversation, so none of its lasting answers is
-      -- offered after it.
+      -- keeps it in mind for the rest of the conversation, and a card it asks names it.
       ALTER TABLE own_ai_conversations ADD COLUMN read_text TEXT;
     `,
   },

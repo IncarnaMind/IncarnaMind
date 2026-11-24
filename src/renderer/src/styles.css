@@ -3254,38 +3254,21 @@
     min-width: 0;
     padding: 10px 12px 12px 32px;
   }
-  /* Never wider than the card: a line cut short keeps the answers below it in view. */
-  .own-ask-scopes {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  /* One row: Claude Code's "don't ask again" says what it covers where the card has room. */
+  .own-ask-lasting-short {
+    display: none;
   }
-  /*
-   * One line each, cut by a line clamp rather than kept from wrapping, so no line widens the card;
-   * the answer reached by the keyboard shows its whole line, and each says it whole on hover.
-   */
-  .own-ask-scope {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
-    min-width: 0;
-    margin: 0;
-    overflow: hidden;
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--color-ink-meta);
-    &[data-open] {
-      display: block;
-      color: var(--color-ink-secondary);
+  @container own-ask (max-width: 470px) {
+    .own-ask-lasting {
+      display: none;
+    }
+    .own-ask-lasting-short {
+      display: inline;
     }
   }
   .own-ask-answers {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     gap: 6px;
     & .approval-button--ghost {
@@ -3297,14 +3280,6 @@
     }
     & .approval-button--primary {
       padding-inline: 12px;
-    }
-  }
-  /* Four answers that can't share one row go two by two, in the same order, Allow once last. */
-  @container own-ask (max-width: 460px) {
-    .own-ask-answers[data-count="4"] {
-      display: grid;
-      grid-template-columns: repeat(2, auto);
-      justify-content: end;
     }
   }
   .own-ask-dot {

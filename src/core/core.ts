@@ -9751,7 +9751,7 @@ export function createCore(adapters: CoreAdapters): Core {
       if (
         typeof mindId !== "string" ||
         typeof questionId !== "string" ||
-        (answer !== "deny" && answer !== "once" && !(Number.isInteger(answer) && answer >= 0))
+        (answer !== "deny" && answer !== "once" && answer !== "suggested")
       )
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.answer(mindId, questionId, answer);

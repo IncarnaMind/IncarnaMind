@@ -99,6 +99,7 @@ export function actionOf(
     return {
       kind: "command",
       value: command,
+      ...(STEERING_NAMES.test(command) && { steers: true }),
       ...(input.run_in_background === true && { background: true }),
       ...(input.dangerouslyDisableSandbox === true && { unsandboxed: true }),
     };
@@ -195,9 +196,9 @@ export const oursIn = (server: string) => (name: unknown) =>
   typeof name === "string" && (name === `mcp__${server}` || name.startsWith(`mcp__${server}__`));
 
 /**
- * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents
- * and skills (under .claude), and the servers of a folder (.mcp.json). Written in the conversation's
- * folder, it steers every later request there.
+ * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
+ * skills and its memory (under a .claude folder), and the servers of a folder (.mcp.json). Written
+ * in the conversation's folder, or in its memory, it steers every later request there.
  */
 function steers(path: string): boolean {
   const name = basename(path);
@@ -207,6 +208,46 @@ function steers(path: string): boolean {
     name === ".mcp.json" ||
     path.split(/[\\/]/).includes(".claude")
   );
+}
+
+/** A command that names one of those files or folders: it may write one. */
+const STEERING_NAMES = /CLAUDE(?:\.local)?\.md|\.mcp\.json|(?:^|[\s"'=/\\])\.claude(?:$|[\s"'/\\])/;
+
+/** The id IncarnaMind's PreToolUse hook is registered under, in `initialize`. */
+export const STEERING_HOOK = "incarnamind-steering";
+
+/**
+ * The PreToolUse hook a conversation's run registers (#3653): a write or a change to one of Claude
+ * Code's own steering files, by a file tool or by a command that names one, always asks, whatever
+ * its mode or the rules it keeps, since a text it read could tell it to write them and every later
+ * request would follow it. Hooks run before the mode and the rules; asking takes nothing away.
+ */
+export const STEERING_HOOKS = {
+  PreToolUse: [
+    {
+      matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash",
+      hookCallbackIds: [STEERING_HOOK],
+      onFailure: "block",
+    },
+  ],
+};
+
+/** IncarnaMind's answer to its own hook for a tool call `input` of the hook's input. */
+export function steeringAnswer(input: Record<string, unknown>): Record<string, unknown> {
+  const name = text(input.tool_name);
+  const given = object(input.tool_input);
+  const path = text(given.file_path) || text(given.notebook_path);
+  const steering =
+    name === "Bash" ? STEERING_NAMES.test(text(given.command)) : path !== "" && steers(path);
+  if (!steering) return {};
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason:
+        "IncarnaMind asks the User before Claude Code changes its own instructions or settings.",
+    },
+  };
 }
 
 /** A rule as Claude Code writes it in its settings: `Tool` or `Tool(content)`. */
@@ -222,13 +263,21 @@ function ruleOf(rule: Record<string, unknown>, places: Places): NoteRule | null 
   const content = text(rule.ruleContent);
   if (tool === "") return null;
   if (tool === "WebSearch" && content === "") return { kind: "searches" };
-  // `//path/**`: every file under that folder, as Claude Code writes a folder's rule.
-  const under = /^\/(\/[^*]*?)\/\*\*$/.exec(content)?.[1];
+  // `//path/**` every file under that folder, `/path/**` the same inside the conversation's folder,
+  // as Claude Code writes a folder's rule.
+  const under = /^(\/?)(\/[^*]*?)\/\*\*$/.exec(content);
   if (under && (tool === "Read" || tool === "Edit" || tool === "Write")) {
-    return { kind: "files", change: tool !== "Read", folder: folderOf(under, places) };
+    const [, absolute, path = ""] = under;
+    const folder = absolute ? path : resolve(places.folders[0] ?? "", `.${path}`);
+    return { kind: "files", change: tool !== "Read", folder: folderOf(folder, places) };
   }
   if (tool === "Bash" && content !== "") {
-    const start = content.endsWith(":*") ? content.slice(0, -2) : null;
+    // Claude Code writes a command's start as `start:*`, and since 2.1 as `start *`.
+    const start = content.endsWith(":*")
+      ? content.slice(0, -2)
+      : content.endsWith(" *")
+        ? content.slice(0, -2)
+        : null;
     const words = start ?? content;
     if (!words.includes("*") && words.trim() !== "") {
       return start === null ? { kind: "command", value: content } : { kind: "commands", start };
@@ -340,11 +389,12 @@ export function questionOf(request: Record<string, unknown>, places: Places): Re
     suggested: suggestions.map(({ said }) => said),
     answer(answer) {
       if (answer === "deny") return { behavior: "deny", message: DENIED };
-      const chosen = typeof answer === "number" ? suggestions[answer] : undefined;
+      // Claude Code's own "don't ask again" applies every suggestion together, each as given.
       return {
         behavior: "allow",
         updatedInput: input,
-        ...(chosen && { updatedPermissions: [chosen.sent] }),
+        ...(answer === "suggested" &&
+          suggestions.length > 0 && { updatedPermissions: suggestions.map(({ sent }) => sent) }),
       };
     },
   };

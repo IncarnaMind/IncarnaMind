@@ -83,7 +83,10 @@ const MODELS = [
     description: "Haiku 5.5 · Fastest for quick answers",
   },
 ];
-const asked = args.includes("--model") ? args[args.indexOf("--model") + 1] : "default";
+// With no --model, the model the User's own settings name, in the mode file's ".settings-model".
+const asked = args.includes("--model")
+  ? args[args.indexOf("--model") + 1]
+  : readOr(`${modeFile}.settings-model`, "default");
 const model = (MODELS.find((each) => each.value === asked) ?? MODELS[0]).resolvedModel;
 
 const serverOf = () => {

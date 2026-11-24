@@ -527,23 +527,21 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         give(answer: NoteAnswer): void;
       }
     >();
-    // The answers are decided as the card shows them: text read meanwhile takes the lasting ones away.
-    const questionOf = ({ id, asked }: { id: string; asked: OwnAiAsk }): NoteQuestion => {
-      const suggested = outside === null ? asked.suggested : [];
-      return {
-        id,
-        action: asked.action,
-        answers: ["deny", ...suggested.map((_, at) => at), "once"],
-        suggested,
-        read: outside,
-      };
-    };
+    // Its answers are the AI's own; the card also names the latest text read meanwhile.
+    const questionOf = ({ id, asked }: { id: string; asked: OwnAiAsk }): NoteQuestion => ({
+      id,
+      action: asked.action,
+      answers: asked.suggested.length > 0 ? ["deny", "suggested", "once"] : ["deny", "once"],
+      suggested: asked.suggested,
+      read: outside,
+    });
     let mode: string | null = null;
     let modeNew = false;
     // Claude Code keeps the system prompt a conversation began with: one begun before its AI kept
     // its own abilities, told it had none, so it begins anew, once (#3653).
     const renewed = conversation.renewed === 1;
-    // What it read that the User didn't write stays in its mind for the whole conversation (#78).
+    // What it read that the User didn't write stays in its mind for the whole conversation, and a
+    // card names the latest of it (#78).
     let outside: NoteReadText | null = renewed ? null : readTextOf(conversation.read_text);
     // The latest such text is named: the one an ask after it most likely comes from.
     const sawOutside = (read: NoteReadText | null) => {
@@ -560,7 +558,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           error: error instanceof Error ? error.name : "unknown",
         });
       }
-      // A card already open offers none of the AI's own answers from now on, and says what was read.
+      // A card already open says what was read.
       if (waitingOn.size > 0) tellWorking();
     };
     // The Documents its searches found and its reads reached, and how many Passages of each it read.
@@ -779,11 +777,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           give(answer) {
             withdrawn.removeEventListener("abort", gone);
             waitingOn.delete(id);
-            const by: NoteAnswered =
-              typeof answer === "number" ? (asked.suggested[answer]?.kept ?? "once") : answer;
-            step.by = by;
+            step.by = answer;
             if (answer === "deny") delete step.going;
-            settle(id, by);
+            settle(id, answer);
             heard();
             tellWorking();
             resolve(answer);

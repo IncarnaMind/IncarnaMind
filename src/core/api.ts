@@ -13472,7 +13472,7 @@ export interface NoteAction {
   change?: string;
   /** For a file it writes: what it writes, whole. */
   content?: string;
-  /** For a file: one the AI reads as its own instructions, settings or servers (CLAUDE.md, .claude/, .mcp.json). */
+  /** For a file, or a command that names one: one the AI reads as its own (CLAUDE.md, .claude/, .mcp.json). */
   steers?: true;
   /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
   background?: true;
@@ -13512,9 +13512,10 @@ export type NoteSuggested =
   | { kind: "other"; kept: NoteKept; text: string };
 
 /**
- * An answer to a question: "deny", "once", or the place of one of its `suggested` answers.
+ * An answer to a question: "deny"; "once"; or "suggested", Claude Code's own "don't ask again",
+ * which applies every answer its question suggests, as it gave them.
  */
-export type NoteAnswer = "deny" | "once" | number;
+export type NoteAnswer = "deny" | "once" | "suggested";
 
 /** What a request read that the User didn't write, as a question names it (#3653). */
 export type NoteReadText =
@@ -13529,19 +13530,16 @@ export type NoteReadText =
 export interface NoteQuestion {
   id: string;
   action: NoteAction;
-  /** In the card's order: "deny", each of `suggested` by its place, "once". */
+  /** In the card's order: "deny", "suggested" when it suggests any, "once". */
   answers: NoteAnswer[];
-  /** The answers its own question suggests; none once the conversation read text the User didn't write. */
+  /** The answers its own question suggests, all applied by "suggested". */
   suggested: NoteSuggested[];
-  /** The conversation read text the User didn't write: nothing it suggests is offered. */
+  /** The latest text the conversation read that the User didn't write, which the card names. */
   read: NoteReadText | null;
 }
 
-/**
- * How a step of the AI's own went with its question: denied, allowed once, allowed by an answer it
- * suggested (by where that answer keeps it), or ended before it was answered.
- */
-export type NoteAnswered = "deny" | "once" | NoteKept | "stopped" | "closed" | "refused";
+/** How a step of the AI's own went with its question: as answered, or ended before it was. */
+export type NoteAnswered = NoteAnswer | "stopped" | "closed" | "refused";
 
 /** A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document and its quote. */
 export interface NoteCitation {

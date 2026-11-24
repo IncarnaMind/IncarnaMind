@@ -143,7 +143,16 @@ async function ask(window: Page, mode: string, words: string): Promise<Locator> 
 
 /** The answers on a card, as they read. */
 const answersOf = (card: Locator) =>
-  card.getByTestId("own-ask-answers").getByRole("button").allTextContents();
+  card.getByTestId("own-ask-answers").getByRole("button").allInnerTexts();
+
+/** How many rows a card's answers take. */
+const rowsOf = (card: Locator) =>
+  card
+    .getByTestId("own-ask-answers")
+    .getByRole("button")
+    .evaluateAll(
+      (buttons) => new Set(buttons.map((each) => each.getBoundingClientRect().top)).size,
+    );
 
 /** The steps of the AI's own in the conversation, as they read, once at least one shows. */
 async function stepsIn(scope: Locator): Promise<string[]> {
@@ -151,7 +160,7 @@ async function stepsIn(scope: Locator): Promise<string[]> {
   return scope.getByTestId("own-step").allTextContents();
 }
 
-test("what the User's own AI asks shows as a card, each kind as it will happen, with each answer Claude Code suggests said in plain words; Deny, Allow once and a suggested answer each go as said, and become a step; the keyboard and the folded box", async () => {
+test("what the User's own AI asks shows as a card, each kind as it will happen, with Claude Code's own three choices on one row; Deny, Allow once and its don't-ask-again each go as said, and become a step; the keyboard and the folded box", async () => {
   const { app, window } = await launched();
   try {
     await setWindowSize(app, window, 1440, 900);
@@ -173,18 +182,18 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await expect(card.getByTestId("own-ask-value")).toHaveText(COMMAND);
     // Where a command runs can't be told from it.
     await expect(card.getByTestId("own-ask-where")).toHaveCount(0);
+    // Claude Code's own three choices: no, its "don't ask again" (all it suggests, in its words,
+    // what it covers cut to fit one row, whole as the title), and yes once.
     expect(await answersOf(card)).toEqual([
       "Deny",
-      "Allow in this conversation",
-      "Allow the folder for this request",
-      "Allow file changes for this request",
+      "Don’t ask again for python3… commands",
       "Allow once",
     ]);
-    expect(await card.getByTestId("own-ask-scope").allTextContents()).toEqual([
-      "Allow in this conversation: Claude Code keeps a rule that allows commands that start with “python3 late_crossings.py” from now on in this conversation. Saved in its settings in this conversation’s folder.",
-      "Allow the folder for this request: Claude Code also works in this conversation’s folder until this request ends: it reads files there without asking. Nothing is saved.",
-      "Allow file changes for this request: Claude Code uses its “acceptEdits” mode until this request ends: it changes files in its folders, its own instructions (CLAUDE.md) among them, and runs some commands that only change files, without asking. Nothing is saved.",
-    ]);
+    await expect(card.getByTestId("own-ask-suggested")).toHaveAttribute(
+      "title",
+      "Don’t ask again for python3 late_crossings.py commands in this conversation · Allow all edits for this request · Allow access to this conversation’s folder for this request",
+    );
+    expect(await rowsOf(card)).toBe(1);
     await expect(box.getByTestId("note-ask-pill")).toContainText("Waiting for your approval");
     await expect(input).toBeFocused();
     expect((await firstLine.boundingBox())?.y ?? 0).toBe(noteAt);
@@ -194,8 +203,7 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await window.keyboard.press("Shift+Tab");
     await expect(card.getByTestId("own-ask-deny")).toBeFocused();
     await window.keyboard.press("ArrowRight");
-    await expect(card.getByTestId("own-ask-suggested").first()).toBeFocused();
-    await expect(card.getByTestId("own-ask-scope").first()).toHaveAttribute("data-open", "true");
+    await expect(card.getByTestId("own-ask-suggested")).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(input).toBeFocused();
     await window.keyboard.press("Shift+Tab");
@@ -219,43 +227,17 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
     await pointAndClick(window, group(window).getByTestId("conversation-move-right"));
     const column = window.getByTestId("note-column");
-    const edits = ["Deny", "Allow file changes for this request", "Allow once"];
+    // In the narrow column, Claude Code's own first words; what it covers is the title.
+    const edits = ["Deny", "Allow all edits", "Allow once"];
+    const again = ["Deny", "Don’t ask again", "Allow once"];
     const kinds: [string, string, string, string[], "once" | "deny", string][] = [
       ["write", "write", "Write a file", edits, "once", "Wrote"],
       ["change", "change", "Change a file", edits, "once", "Changed"],
       ["steers", "write", "Write a file", edits, "once", "Wrote"],
-      [
-        "read",
-        "read",
-        "Read files",
-        ["Deny", "Allow for this request", "Allow once"],
-        "deny",
-        "Didn’t read",
-      ],
-      [
-        "web",
-        "web",
-        "Open a page on kestrelbay-harbour.example",
-        ["Deny", "Allow in this conversation", "Allow once"],
-        "deny",
-        "Didn’t open",
-      ],
-      [
-        "search",
-        "search",
-        "Search the web",
-        ["Deny", "Allow in this conversation", "Allow once"],
-        "deny",
-        "Didn’t search",
-      ],
-      [
-        "tool",
-        "tool",
-        "Use search_tickets from ferry-data",
-        ["Deny", "Allow in this conversation", "Allow once"],
-        "deny",
-        "Didn’t use",
-      ],
+      ["read", "read", "Read files", again, "deny", "Didn’t read"],
+      ["web", "web", "Open a page on kestrelbay-harbour.example", again, "deny", "Didn’t open"],
+      ["search", "search", "Search the web", again, "deny", "Didn’t search"],
+      ["tool", "tool", "Use search_tickets from ferry-data", again, "deny", "Didn’t use"],
       ["long", "command", "Run a command", ["Deny", "Allow once"], "deny", "Didn’t run"],
       ["background", "command", "Run a command", ["Deny", "Allow once"], "deny", "Didn’t run"],
     ];
@@ -266,6 +248,7 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
       await expect(card).toHaveAttribute("data-kind", shown);
       await expect(card.locator(".approval-title")).toHaveText(title);
       expect(await answersOf(card)).toEqual(offered);
+      expect(await rowsOf(card)).toBe(1);
       if (kind === "write") {
         await expect(card.getByTestId("own-ask-value")).toHaveText(
           join("drafts", "late-crossings.md"),
@@ -307,8 +290,9 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
         );
       }
       if (kind === "read") {
-        await expect(card.getByTestId("own-ask-scope")).toHaveText(
-          `Allow for this request: Claude Code keeps a rule that allows reading files in “${join("~", "Documents", "Kestrel Bay")}” until this request ends. Nothing is saved.`,
+        await expect(card.getByTestId("own-ask-suggested")).toHaveAttribute(
+          "title",
+          `Don’t ask again for reading ${join("~", "Documents", "Kestrel Bay")} for this request`,
         );
       }
       if (kind === "change") {
@@ -342,21 +326,23 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await setLanguage(window, "zh-CN");
     before = (await outcomesOf(window, mindId)).length;
     card = await ask(window, "ask-tool", "查一下票务数据");
-    expect(await answersOf(card)).toEqual(["拒绝", "本对话内允许", "允许一次"]);
-    await expect(card.getByTestId("own-ask-scope")).toHaveText(
-      "本对话内允许：从现在起在这个对话里，Claude Code 保留一条规则，允许使用 ferry-data 的 search_tickets。保存在这个对话文件夹里它的设置中。",
+    expect(await answersOf(card)).toEqual(["拒绝", "不再询问", "允许一次"]);
+    expect(await rowsOf(card)).toBe(1);
+    await expect(card.getByTestId("own-ask-suggested")).toHaveAttribute(
+      "title",
+      "本对话内不再询问：ferry-data 的 search_tickets",
     );
     await shot(window, "card-tool-zh-CN");
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, before);
     await setLanguage(window, "en");
 
-    // Allow in this conversation: the answer goes back exactly as Claude Code suggested it, the
+    // Don't ask again: every answer Claude Code suggested goes back exactly as it gave it, the
     // same command later ran with no card, and both say so.
     before = (await outcomesOf(window, mindId)).length;
     card = await ask(window, "ask-twice", "Count them again, twice");
     await expect(column.getByTestId("own-ask-card")).toBeVisible();
-    await pointAndClick(window, card.getByTestId("own-ask-suggested").first());
+    await pointAndClick(window, card.getByTestId("own-ask-suggested"));
     await ended(window, mindId, before);
     const answers = (await readFile(join(bin, "mode.answers"), "utf8"))
       .split("\n")
@@ -372,11 +358,13 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
           behavior: "allow",
           destination: "localSettings",
         },
+        { type: "addDirectories", directories: [expect.any(String)], destination: "session" },
+        { type: "setMode", mode: "acceptEdits", destination: "session" },
       ],
     });
     await pointAndClick(window, column.getByTestId("note-column-steps-toggle").last());
     expect((await stepsIn(column)).slice(-2)).toEqual([
-      `Ran ${COMMAND} · allowed in this conversation`,
+      `Ran ${COMMAND} · allowed, not asked again`,
       `Ran ${COMMAND}`,
     ]);
     const conversations = join(dataDir, "Own AI conversations");
@@ -385,11 +373,11 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
       (await readFile(join(conversations, folder ?? "", "RAN.txt"), "utf8")).split("\n"),
     ).toEqual([COMMAND, COMMAND, ""]);
 
-    // After it read a page the User didn't write, nothing it asks offers more than this once,
-    // and the card says what it read.
+    // After it read a page the User didn't write, the card names it.
     before = (await outcomesOf(window, mindId)).length;
     card = await ask(window, "ask-after-web", "Read the notice, then count");
-    expect(await answersOf(card)).toEqual(["Deny", "Allow once"]);
+    // What it read is named; Claude Code's own answers are offered all the same.
+    expect(await answersOf(card)).toEqual(["Deny", "Don’t ask again", "Allow once"]);
     await expect(card.getByTestId("own-ask-read")).toHaveText(
       "This conversation read text you didn’t write: a web page on kestrelbay-harbour.example",
     );
@@ -432,8 +420,10 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
       "Claude Code 用它自己的工具来做，IncarnaMind 看不到，也无法撤销。",
     );
     await expect(card).toContainText("ferry-data · 在 Claude Code 中设置");
-    // It read a command's output before: nothing it suggests is offered, and the card says why.
-    expect(await answersOf(card)).toEqual(["拒绝", "允许一次"]);
+    // It read a command's output before: the card names it, and offers Claude Code's own answers.
+    const zh = await answersOf(card);
+    expect([zh[0], zh[2], zh.length]).toEqual(["拒绝", "允许一次", 3]);
+    expect(await rowsOf(card)).toBe(1);
     await expect(card.getByTestId("own-ask-read")).toHaveText(
       "这个对话读过不是你写的内容：命令的输出",
     );
@@ -461,6 +451,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     // the conversation, with the line before its first step.
     let before = (await outcomesOf(window, mindId)).length;
     await writeFile(join(bin, "mode.hold"), "hold");
+    await writeFile(join(bin, "mode.settings-model"), "haiku");
     await nextRun("auto");
     await pointAndClick(window, group(window).getByTestId("note-ask-input"));
     await window.keyboard.type("Count them");
@@ -473,6 +464,8 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     await rm(join(bin, "mode.hold"), { force: true });
     await ended(window, mindId, before);
     await expect(group(window).getByTestId("note-ask-mode")).toHaveCount(0);
+    // The User's own setting named Haiku, not the list's default: the box shows the one that ran.
+    await expect(group(window).getByTestId("note-ask-model")).toHaveText("Haiku 5.5");
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
     const panel = group(window).getByTestId("note-ask-panel");
     await expect(panel.getByTestId("own-mode")).toHaveText(

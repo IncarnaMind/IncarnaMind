@@ -770,13 +770,13 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       ? (JSON.parse(end.reply) as { id: string; answer: Record<string, unknown> }[])
       : [];
 
-  // protects=a question reaches IncarnaMind read as what will happen (the whole command) with each answer Claude Code suggests, in its order; the one the User picks goes back exactly as Claude Code gave it, kept where it said, nothing widened or narrowed; fails_when=a question is lost, its command is cut, or an answer is sent other than as Claude Code gave it
-  it("passes on each answer Claude Code suggests, and sends the one picked back as it gave it", async () => {
+  // protects=a question reaches IncarnaMind read as what will happen (the whole command) with each answer Claude Code suggests, in its order; its "don't ask again" sends every one of them back exactly as Claude Code gave it, as its own prompt's choice does, nothing widened or narrowed; fails_when=a question is lost, its command is cut, or a suggestion is sent other than as Claude Code gave it
+  it("passes on the answers Claude Code suggests, and sends them all back as it gave them", async () => {
     useClaude({ run: asking([COMMAND]) });
     const asked: OwnAiAsk[] = [];
     const { end } = await converse(async (question) => {
       asked.push(question);
-      return 0;
+      return "suggested";
     });
     expect(asked).toEqual([
       {
@@ -799,7 +799,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         answer: {
           behavior: "allow",
           updatedInput: COMMAND.input,
-          updatedPermissions: [COMMAND.permission_suggestions[0]],
+          updatedPermissions: COMMAND.permission_suggestions,
         },
       },
     ]);
@@ -935,6 +935,8 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           rules("localSettings", { toolName: "Bash", ruleContent: "rm -rf *:*" }),
           rules("session", { toolName: "Read", ruleContent: "//etc/**" }),
           rules("localSettings", { toolName: "WebSearch" }),
+          rules("localSettings", { toolName: "Bash", ruleContent: "echo ok *" }),
+          rules("session", { toolName: "Edit", ruleContent: "/.claude/skills/x/**" }),
           rules("elsewhere", { toolName: "Bash", ruleContent: "git log:*" }),
           {
             type: "addRules",
@@ -984,6 +986,12 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           rules: [{ kind: "files", change: false, folder: "/etc" }],
         },
         { kind: "rules", kept: "conversation", rules: [{ kind: "searches" }] },
+        { kind: "rules", kept: "conversation", rules: [{ kind: "commands", start: "echo ok" }] },
+        {
+          kind: "rules",
+          kept: "request",
+          rules: [{ kind: "files", change: true, folder: join(".claude", "skills", "x") }],
+        },
         { kind: "other", kept: "request", text: "addRules deny Bash(rm:*)" },
         { kind: "mode", kept: "everywhere", mode: "plan" },
       ],
@@ -1032,6 +1040,68 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     } finally {
       await rm(elsewhere, { recursive: true, force: true });
     }
+  });
+
+  // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
+  it("registers a hook that makes every write to Claude Code's own steering files ask", async () => {
+    const calls = [
+      { tool_name: "Write", tool_input: { file_path: "CLAUDE.md", content: "x" } },
+      {
+        tool_name: "Edit",
+        tool_input: { file_path: "/w/CLAUDE.local.md", old_string: "a", new_string: "b" },
+      },
+      { tool_name: "Write", tool_input: { file_path: "/w/.mcp.json", content: "{}" } },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: "/w/.claude/settings.local.json", content: "{}" },
+      },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: "/w/.claude/skills/x/SKILL.md", content: "x" },
+      },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: "/h/.claude/projects/p/memory/MEMORY.md", content: "x" },
+      },
+      { tool_name: "Bash", tool_input: { command: "cp notes.md CLAUDE.md" } },
+      { tool_name: "Write", tool_input: { file_path: "/w/notes.md", content: "x" } },
+      { tool_name: "Bash", tool_input: { command: "echo ok > notes.txt" } },
+    ];
+    useClaude({
+      run: `
+        const lines = require("node:readline").createInterface({ input: process.stdin });
+        const say = (value) => console.log(JSON.stringify(value));
+        const calls = ${JSON.stringify(calls)};
+        let hooks = null;
+        const answers = [];
+        lines.on("line", (line) => {
+          const v = JSON.parse(line);
+          if (v.type === "control_request") {
+            hooks = v.request.hooks ?? null;
+            say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [] } } });
+          } else if (v.type === "user") {
+            say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "acceptEdits", tools: ["Bash", "Write"], mcp_servers: [] });
+            const id = hooks?.PreToolUse?.[0]?.hookCallbackIds?.[0] ?? "";
+            calls.forEach((input, n) => say({ type: "control_request", request_id: "h" + n, request: { subtype: "hook_callback", callback_id: id, input: { hook_event_name: "PreToolUse", ...input } } }));
+          } else if (v.type === "control_response") {
+            answers.push(v.response.response);
+            if (answers.length === calls.length) say({ type: "result", subtype: "success", is_error: false, result: JSON.stringify({ hooks, answers }) });
+          }
+        });
+      `,
+    });
+    const { end } = await converse(async () => "deny");
+    const { hooks, answers } = JSON.parse(end.kind === "finished" ? end.reply : "{}") as {
+      hooks: { PreToolUse: { matcher: string; onFailure: string }[] };
+      answers: { hookSpecificOutput?: { permissionDecision: string } }[];
+    };
+    expect(hooks.PreToolUse[0]).toMatchObject({
+      matcher: expect.stringContaining("Write"),
+      onFailure: "block",
+    });
+    expect(answers.map((each) => each.hookSpecificOutput?.permissionDecision ?? "goes on")).toEqual(
+      ["ask", "ask", "ask", "ask", "ask", "ask", "ask", "goes on", "goes on"],
+    );
   });
 
   // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
