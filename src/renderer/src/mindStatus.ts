@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { useApprovals } from "./approvals";
 import { core } from "./core";
+import { useNoteAsks } from "./ownAiInNote";
 import { useQuestions } from "./questions";
 
 /**
@@ -59,7 +60,12 @@ export function useMindStatus(mindId: string): MindStatus {
   );
   const consenting = useWritingAnswers((state) => Object.values(state.consenting).includes(mindId));
   const writing = useWritingAnswers((state) => Object.values(state.minds).includes(mindId));
-  return approving || consenting ? "waiting-for-approval" : writing ? "writing" : null;
+  // What the User's own AI asks in the Note's conversation waits on them as an approval does (#3653).
+  const asking = useNoteAsks((state) => {
+    const ask = state.byMind[mindId];
+    return ask?.state === "working" && ask.questions.length > 0;
+  });
+  return approving || consenting || asking ? "waiting-for-approval" : writing ? "writing" : null;
 }
 
 /**

@@ -11,9 +11,20 @@
 // Citations; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
 // a new Note, proposes a change to the Note the mode file's ".other" file names, and makes a page.
 // The init event names the model `--model` asked for, as Claude Code's does, and an `initialize`
-// control request is answered with the models it offers, only in a run started with a run's flags
-// and environment: asked anywhere else, it answers with an error, so a spec sees no list.
-import { appendFileSync, readFileSync } from "node:fs";
+// control request is answered with the models it offers, only in a run started with a Note
+// conversation's own flags: asked anywhere else, it answers with an error, so a spec sees no list.
+// A Note's conversation runs with its own abilities (#3653), and these modes ask the host as Claude
+// Code 2.1.331 does: "ask-command", "ask-write", "ask-change", "ask-read", "ask-web", "ask-search"
+// and "ask-tool" ask one question of that kind, act on the answer and say how it went; "ask-twice"
+// asks for a command, then runs it again, asking again only without a rule kept for the session;
+// "ask-two" asks two questions at once; "ask-after-web" opens a page unasked, then asks for a
+// command; "ask-child" starts a process that leads its own group, writes its id to the mode file's
+// ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
+// with no input; "ask-other" asks for a tool the host can't show; "auto" runs a command unasked,
+// its own mode named in the mode file's ".permission" ("auto" when it names none). Each answer is
+// appended to the mode file's ".answers".
+import { spawn } from "node:child_process";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -82,23 +93,55 @@ const gate = async (n) => {
   while (Number(readOr(`${modeFile}.step`, "0")) < n) await sleep(100);
 };
 
+/** A Note's conversation, with its own abilities: the host answers its questions (#3653). */
+const own = args[args.indexOf("--permission-prompt-tool") + 1] === "stdio";
+const permission = readOr(`${modeFile}.permission`, mode === "auto" ? "auto" : "default");
+const answered = new Map();
+let questionsAsked = 0;
+/** Asks the host as Claude Code does, and resolves with its answer. */
+const ask = (request) =>
+  new Promise((resolve) => {
+    const id = `ask-${++questionsAsked}`;
+    answered.set(id, resolve);
+    say({
+      type: "control_request",
+      request_id: id,
+      request: { subtype: "can_use_tool", ...request },
+    });
+  });
+/** The rules the host kept for this process, as Claude Code keeps a "session" answer. */
+const kept = [];
+
 createInterface({ input: process.stdin }).on("line", async (line) => {
   const message = JSON.parse(line);
+  if (message.type === "control_response") {
+    const response = message.response ?? {};
+    const answer = response.response ?? {};
+    appendFileSync(`${modeFile}.answers`, `${JSON.stringify(answer)}\n`);
+    for (const each of answer.updatedPermissions ?? []) kept.push(each);
+    answered.get(response.request_id)?.(answer);
+    answered.delete(response.request_id);
+    return;
+  }
   if (message.type === "control_request") {
     if (message.request?.subtype === "initialize") {
+      // Only a Note's conversation asks, with its own flags: none of a sealed run's.
       const held =
-        ["--restricted", "--disable-slash-commands", "--strict-mcp-config"].every((flag) =>
-          args.includes(flag),
+        own &&
+        args.includes("--append-system-prompt-file") &&
+        args[args.indexOf("--allowedTools") + 1] === "mcp__incarnamind" &&
+        !["--restricted", "--strict-mcp-config", "--permission-mode", "--setting-sources"].some(
+          (flag) => args.includes(flag),
         ) &&
-        args[args.indexOf("--permission-mode") + 1] === "dontAsk" &&
-        process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC === "1" &&
-        process.env.ENABLE_CLAUDEAI_MCP_SERVERS === "false" &&
-        process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS === "1" &&
-        process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY === "1";
+        process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS === undefined;
       say({
         type: "control_response",
         response: held
-          ? { subtype: "success", request_id: message.request_id, response: { models: MODELS } }
+          ? {
+              subtype: "success",
+              request_id: message.request_id,
+              response: { models: MODELS, current_permission_mode: permission },
+            }
           : { subtype: "error", request_id: message.request_id, error: "not a run's flags" },
       });
       return;
@@ -128,9 +171,19 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     type: "system",
     subtype: "init",
     model,
-    tools: tools.map((tool) => `mcp__incarnamind__${tool.name}`),
+    session_id: "fake-session",
+    ...(own && { permissionMode: permission }),
+    tools: [
+      ...(own ? ["Bash", "Write", "Edit", "Read", "WebFetch", "WebSearch"] : []),
+      ...tools.map((tool) => `mcp__incarnamind__${tool.name}`),
+    ],
     mcp_servers: [{ name: "incarnamind", status: "connected" }],
   });
+  if (own && (mode.startsWith("ask-") || mode === "auto")) {
+    await agent.close();
+    await askingModes();
+    return;
+  }
   if (mode === "wait") {
     // Says what it is about to do, as the instructions ask, then works on until it is stopped.
     say({
@@ -345,3 +398,181 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   await agent.close();
   say({ type: "result", subtype: "success", is_error: false, result: "Checked." });
 });
+
+/** What Claude Code's own tools would do in the folder it runs in, for the asking modes. */
+const QUESTIONS = {
+  command: {
+    tool_name: "Bash",
+    input: { command: "python3 late_crossings.py --crossing 07:40 delays-2026.csv > late.md" },
+    permission_suggestions: [
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "python3 late_crossings.py:*" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+      { type: "setMode", mode: "acceptEdits", destination: "session" },
+    ],
+  },
+  write: {
+    tool_name: "Write",
+    input: {
+      file_path: `${process.cwd()}/drafts/late-crossings.md`,
+      content: "# Late crossings\n\n07:40 · 12 times\n",
+    },
+    permission_suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+  },
+  change: {
+    tool_name: "Edit",
+    input: {
+      file_path: `${process.env.HOME ?? ""}/Documents/Kestrel Bay/board/ferry-review.md`,
+      old_string: "The 07:40 crossing leaves at 07:40.",
+      new_string: "The 07:40 crossing leaves at about 07:55 on weekdays.",
+    },
+    permission_suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+  },
+  read: {
+    tool_name: "Read",
+    input: { file_path: `${process.env.HOME ?? ""}/Documents/Kestrel Bay/timetable-2026.csv` },
+    permission_suggestions: [],
+  },
+  web: {
+    tool_name: "WebFetch",
+    input: {
+      url: "https://kestrelbay-harbour.example/notices/ramp-works?year=2027",
+      prompt: "What does it say?",
+    },
+    permission_suggestions: [
+      {
+        type: "addRules",
+        rules: [{ toolName: "WebFetch", ruleContent: "domain:kestrelbay-harbour.example" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+    ],
+  },
+  search: {
+    tool_name: "WebSearch",
+    input: { query: "Kestrel Bay ferry second ramp 2027" },
+    permission_suggestions: [],
+  },
+  tool: {
+    tool_name: "mcp__ferry-data__search_tickets",
+    mcp_server: { name: "ferry-data", source: "user" },
+    input: { route: "Kestrel Bay – Port Arden", from: "2026-09-01", crossing: "07:40" },
+    permission_suggestions: [
+      {
+        type: "addRules",
+        rules: [{ toolName: "mcp__ferry-data__search_tickets" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+    ],
+  },
+};
+
+let calls = 0;
+/** One call of a tool of its own: asked about when `asking`, then done or not as the answer says. */
+async function ownCall(question, asking = true) {
+  const id = `toolu_${++calls}`;
+  say({
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id, name: question.tool_name, input: question.input }],
+    },
+  });
+  const answer = asking ? await ask({ ...question, tool_use_id: id }) : { behavior: "allow" };
+  const allowed = answer.behavior === "allow";
+  if (allowed && question.tool_name === "Bash")
+    appendFileSync(`${process.cwd()}/RAN.txt`, `${question.input.command}\n`);
+  say({
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: id,
+          is_error: !allowed,
+          content: allowed ? "done" : String(answer.message ?? "denied"),
+        },
+      ],
+    },
+  });
+  return allowed;
+}
+
+const end = (result) => say({ type: "result", subtype: "success", is_error: false, result });
+
+async function askingModes() {
+  if (mode === "auto") {
+    say({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Counting the late crossings." }] },
+    });
+    await ownCall(QUESTIONS.command, false);
+    end("I counted the late crossings with a script.");
+    return;
+  }
+  if (mode === "ask-close") {
+    await ask({ ...QUESTIONS.command, tool_use_id: "toolu_close" });
+    return;
+  }
+  if (mode === "ask-bad") {
+    say({
+      type: "control_request",
+      request_id: "ask-bad",
+      request: { subtype: "can_use_tool", tool_name: "Bash" },
+    });
+    await new Promise((resolve) => answered.set("ask-bad", resolve));
+    end("I couldn't ask for that.");
+    return;
+  }
+  if (mode === "ask-other") {
+    const allowed = await ownCall({
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Which crossing?" }] },
+      permission_suggestions: [],
+    });
+    end(allowed ? "Asked." : "Which crossing do you mean?");
+    return;
+  }
+  if (mode === "ask-child") {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    writeFileSync(`${modeFile}.child`, String(child.pid));
+    child.unref();
+    await ownCall(QUESTIONS.command);
+    end("Ran it.");
+    return;
+  }
+  if (mode === "ask-two") {
+    const [first, second] = await Promise.all([ownCall(QUESTIONS.command), ownCall(QUESTIONS.web)]);
+    end(
+      `${first ? "Ran" : "Didn't run"} the script; ${second ? "opened" : "didn't open"} the page.`,
+    );
+    return;
+  }
+  if (mode === "ask-twice") {
+    const first = await ownCall(QUESTIONS.command);
+    const rule = kept.some((each) => each.destination === "session" && each.type === "addRules");
+    const second = await ownCall(QUESTIONS.command, !rule);
+    end(`${first ? "Ran" : "Didn't run"} it, then ${second ? "ran" : "didn't run"} it again.`);
+    return;
+  }
+  if (mode === "ask-after-web") {
+    await ownCall(QUESTIONS.web, false);
+    const ran = await ownCall(QUESTIONS.command);
+    end(ran ? "Read the notice and ran the script." : "Read the notice; the script didn't run.");
+    return;
+  }
+  const kind = mode.slice("ask-".length);
+  sayText(readOr(`${modeFile}.said`, "Looking at the late crossings."));
+  const allowed = await ownCall(QUESTIONS[kind]);
+  end(allowed ? "Done with my own tools." : "You said no, so I didn't do it.");
+}
+
+function sayText(text) {
+  say({ type: "assistant", message: { content: [{ type: "text", text }] } });
+}

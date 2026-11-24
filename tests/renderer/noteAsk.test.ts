@@ -81,6 +81,8 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   model: null,
   steps: [],
   documentsFound: 0,
+  questions: [],
+  mode: null,
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {

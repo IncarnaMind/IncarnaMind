@@ -9747,6 +9747,20 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.stop(mindId);
     },
+    answerInNote: async (mindId, questionId, answer) => {
+      if (
+        typeof mindId !== "string" ||
+        typeof questionId !== "string" ||
+        (answer !== "deny" && answer !== "request" && answer !== "once")
+      )
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.answer(mindId, questionId, answer);
+    },
+    noteTurnNow: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.now(mindId);
+    },
     noteConversation: async (mindId) => {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });

@@ -1,10 +1,11 @@
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { NoteStep, NoteTurn } from "../../../../core/api";
+import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { core } from "../../core";
 import { useT } from "../../i18n";
 import {
+  askInNote,
   firstWordsOf,
   type NoteTrail,
   setColumnOpen,
@@ -17,6 +18,7 @@ import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
+import { OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -64,6 +66,7 @@ function readsOf(steps: readonly NoteStep[]) {
 
 const stepText = (step: NoteStep, t: Translate, going: boolean): string => {
   if (step.kind === "said") return firstWordsOf(step.text);
+  if (step.kind === "own") return step.action.value;
   if (!going && step.tool === "read_passages" && step.part !== undefined) {
     return t("noteColumn.readPart", { summary: step.summary, part: step.part });
   }
@@ -96,6 +99,28 @@ function foldedOf(trail: NoteTrail, t: Translate): string {
   if (part > 0) return t("noteColumn.readOf.part", { n: count, total, part, seconds });
   return t("noteColumn.readOf", { n: count, total, seconds });
 }
+
+/** One step as a line of the conversation: a step of the AI's own, or a Tool call or its words. */
+function StepLine({ step, going }: { step: NoteStep; going: boolean }) {
+  const t = useT();
+  if (step.kind === "own") {
+    return (
+      <OwnStepText
+        action={step.action}
+        by={step.by}
+        going={going || step.going}
+        className="note-column-step"
+      />
+    );
+  }
+  return <span className="note-column-step">{stepText(step, t, going)}</span>;
+}
+
+/** Whether a step is one the AI took with a tool of its own and didn't ask about. */
+export const unasked = (step: NoteStep) => step.kind === "own" && step.by === undefined;
+
+/** The AI's own modes that ask nothing: its auto mode, and the one that skips every question. */
+const ASKS_NOTHING = new Set(["auto", "bypassPermissions"]);
 
 /** What a stopped run had done: what it read, as one line. */
 function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
@@ -202,6 +227,11 @@ export function NoteConversationBody({
   const body = useRef<HTMLDivElement>(null);
   const [turns, setTurns] = useState<readonly NoteTurn[] | null>(null);
   const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
+  // Once in the conversation, above the first step the AI took with a tool of its own unasked, a
+  // line says it does so (#3653); and once, at the first request its own mode asks nothing in.
+  const firstOwn = turns?.find((turn) => (trails[turn.id]?.steps ?? []).some(unasked))?.id ?? null;
+  const modeTurn =
+    turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
   useEffect(() => {
@@ -227,7 +257,7 @@ export function NoteConversationBody({
       : null;
     if (turn) element.scrollTop = turn.offsetTop - 8;
     else element.scrollTop = element.scrollHeight;
-  }, [turns, trails, waiting, at]);
+  }, [turns, trails, waiting, at, ask?.questions]);
 
   return (
     <div ref={body} data-testid="note-conversation-body" className={className}>
@@ -237,9 +267,17 @@ export function NoteConversationBody({
       {turns?.map((turn, index) => (
         <Turn
           key={turn.id}
+          mindId={mindId}
           turn={turn}
           trail={trails[turn.id]}
           agent={agent}
+          questions={
+            index === turns.length - 1 && working && ask?.turnId === turn.id
+              ? ask.questions
+              : turn.questions
+          }
+          first={turn.id === firstOwn}
+          modeLine={turn.id === modeTurn}
           // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
           accept={
             index === turns.length - 1 && !working && ask && ask.turnId === turn.id ? (
@@ -253,14 +291,22 @@ export function NoteConversationBody({
 }
 
 function Turn({
+  mindId,
   turn,
   trail,
   agent,
+  questions,
+  first,
+  modeLine,
   accept,
 }: {
+  mindId: string;
   turn: NoteTurn;
   trail?: NoteTrail;
   agent: string;
+  questions: readonly NoteQuestion[];
+  first: boolean;
+  modeLine: boolean;
   accept: ReactNode;
 }) {
   const t = useT();
@@ -278,13 +324,67 @@ function Turn({
         {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
         <p>{turn.request}</p>
       </div>
-      {state === "working" && trail && <LiveSteps trail={trail} steps={steps} />}
-      {state === "stopped" && (
-        <p data-testid="note-column-interrupted" className="note-column-interrupted">
-          {/* What a run read lives in the window: after a restart only that it stopped is known. */}
-          {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
+      {modeLine && (
+        <p data-testid="own-mode" className="note-column-notice">
+          {t(`ownAsk.mode.${trail?.mode ?? turn.mode}` as MessageKey, { agent })}
         </p>
       )}
+      {state === "working" && trail && (
+        <LiveSteps
+          trail={trail}
+          steps={steps}
+          first={first}
+          question={questions[0]}
+          agent={agent}
+        />
+      )}
+      {state === "working" && questions[0] && (
+        <QuestionCard question={questions[0]} agent={agent} mindId={mindId} />
+      )}
+      {state === "stopped" && trail && steps.some((step) => step.kind === "own") && (
+        <ol className="note-column-list">
+          {steps
+            .filter((step) => step.kind === "own")
+            .map((step, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+              <li key={index} className="note-column-step-item">
+                <StepLine step={step} going={false} />
+              </li>
+            ))}
+        </ol>
+      )}
+      {state === "stopped" && turn.closed && !trail && (
+        <ol className="note-column-list">
+          <li className="note-column-step-item">
+            <OwnStepText action={turn.closed} by="closed" className="note-column-step" />
+          </li>
+        </ol>
+      )}
+      {state === "stopped" &&
+        (turn.closed && !trail ? (
+          <p data-testid="note-column-interrupted" className="note-column-interrupted own-closed">
+            {t("ownAsk.closed", { agent })}{" "}
+            <button
+              type="button"
+              data-testid="own-ask-again"
+              onClick={() =>
+                void askInNote(mindId, {
+                  words: turn.request,
+                  quote: turn.quote,
+                  selection: null,
+                }).catch(useAppStore.getState().reportError)
+              }
+              className="note-ask-pill-action"
+            >
+              {t("ownAsk.askAgain")}
+            </button>
+          </p>
+        ) : (
+          <p data-testid="note-column-interrupted" className="note-column-interrupted">
+            {/* What a run read lives in the window: after a restart only that it stopped is known. */}
+            {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
+          </p>
+        ))}
       {state === "failed" && turn.problem && (
         <p className="note-column-interrupted">
           {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
@@ -310,7 +410,8 @@ function Turn({
               {steps.map((step, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
                 <li key={index} className="note-column-step-item">
-                  <span className="note-column-step">{stepText(step, t, false)}</span>
+                  {first && step === steps.find(unasked) && <FirstOwnLine agent={agent} />}
+                  <StepLine step={step} going={false} />
                   {madeKind(step) && <MadeCard step={step} />}
                 </li>
               ))}
@@ -400,46 +501,103 @@ function MadeCard({ step }: { step: NoteStep }) {
   );
 }
 
-/** The steps as they happen: each done one in the past tense, the one going grey and in the present. */
-function LiveSteps({ trail, steps }: { trail: NoteTrail; steps: readonly NoteStep[] }) {
+/** Said once in a conversation, above the first step the AI took with a tool of its own unasked. */
+function FirstOwnLine({ agent }: { agent: string }) {
   const t = useT();
+  return (
+    <p data-testid="own-first" className="own-first">
+      {t("ownAsk.first", { agent })}
+    </p>
+  );
+}
+
+/**
+ * The steps as they happen: each done one in the past tense, the one going grey and in the
+ * present; while the AI's question waits, the waiting line in the going one's place (#3653).
+ */
+function LiveSteps({
+  trail,
+  steps,
+  first,
+  question,
+  agent,
+}: {
+  trail: NoteTrail;
+  steps: readonly NoteStep[];
+  first: boolean;
+  question: NoteQuestion | undefined;
+  agent: string;
+}) {
+  const t = useT();
+  const announce = useAnnounce(question, agent);
   const [, tick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, []);
   const thinking = trail.doing?.kind === "thinking";
-  const done = thinking ? steps : steps.slice(0, -1);
-  const going = thinking ? null : (steps.at(-1) ?? null);
+  const last = steps.at(-1) ?? null;
+  // A step of its own that waits on the question is listed only once it is answered.
+  const shown =
+    question && last?.kind === "own" && last.by === undefined ? steps.slice(0, -1) : steps;
+  const done = thinking || question ? shown : shown.slice(0, -1);
+  const going = thinking || question ? null : (shown.at(-1) ?? null);
   const seconds = secondsOf(trail);
   const reads = readsOf(steps).count;
   const total = Math.max(trail.documentsFound, reads);
-  const goingText =
-    going?.kind === "call" && going.tool === "read_passages" && total > 1
-      ? t("noteAsk.doing.read_passages.of", { n: reads, total, summary: going.summary })
-      : going
-        ? stepText(going, t, true)
-        : t(thinking ? "noteAsk.pill.thinking" : "noteAsk.pill.working");
+  const firstOwn = first ? steps.find(unasked) : undefined;
+  const time =
+    seconds >= 3 ? (
+      <span className="note-ask-pill-time">{t("noteAsk.seconds", { count: seconds })}</span>
+    ) : null;
   return (
     <ol data-testid="note-column-live" className="note-column-list">
       {done.map((step, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
         <li key={index} className="note-column-step-item">
-          <span className="note-column-step">{stepText(step, t, false)}</span>
+          {step === firstOwn && <FirstOwnLine agent={agent} />}
+          <StepLine step={step} going={false} />
           {madeKind(step) && <MadeCard step={step} />}
         </li>
       ))}
-      <li className="note-column-step note-column-step--now">
-        <span aria-hidden="true" className="note-ask-dots">
-          <span />
-          <span />
-          <span />
-        </span>
-        <span className="min-w-0 flex-1 truncate">{goingText}</span>
-        {seconds >= 3 && (
-          <span className="note-ask-pill-time">{t("noteAsk.seconds", { count: seconds })}</span>
-        )}
-      </li>
+      {question ? (
+        <li
+          data-testid="own-waiting"
+          className="note-column-step note-column-step--now own-waiting"
+        >
+          <WaitingLine
+            seconds={seconds >= 3 ? t("noteAsk.seconds", { count: seconds }) : null}
+            announce={announce}
+          />
+        </li>
+      ) : (
+        <>
+          {going === firstOwn && going && <FirstOwnLine agent={agent} />}
+          <li className="note-column-step note-column-step--now">
+            <span aria-hidden="true" className="note-ask-dots">
+              <span />
+              <span />
+              <span />
+            </span>
+            {going?.kind === "own" ? (
+              <OwnStepText action={going.action} by={going.by} going className="min-w-0 flex-1" />
+            ) : (
+              <span className="min-w-0 flex-1 truncate">
+                {going?.kind === "call" && going.tool === "read_passages" && total > 1
+                  ? t("noteAsk.doing.read_passages.of", {
+                      n: reads,
+                      total,
+                      summary: going.summary,
+                    })
+                  : going
+                    ? stepText(going, t, true)
+                    : t(thinking ? "noteAsk.pill.thinking" : "noteAsk.pill.working")}
+              </span>
+            )}
+            {time}
+          </li>
+        </>
+      )}
     </ol>
   );
 }

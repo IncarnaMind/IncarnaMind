@@ -7,13 +7,14 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { object, older, processes, StalledError, short } from "./agentCommand";
 import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
+import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 import { modelsIn } from "./ownAiModels";
 
@@ -210,12 +211,67 @@ export function createOwnAi({
       const cwd = conversation ? folderOf(conversation.key) : scratch;
       const ours = (tool: unknown) =>
         typeof tool === "string" && tool.startsWith(`mcp__${SERVER}__`);
+      const { own } = request;
       // A call to one of IncarnaMind's other Tools is denied by Claude Code and refused by the
-      // server; any other call, of a tool of its own or one its servers run, stops the run.
+      // server; any other call, of a tool of its own or one its servers run, stops a sealed run.
       const stray = (part: Record<string, unknown>) =>
+        !own &&
         typeof part.type === "string" &&
         part.type.endsWith("tool_use") &&
         !(part.type === "tool_use" && ours(part.name));
+      // A run with its own abilities (#3653): its own calls as they go, by their ids, and the
+      // questions it asked that wait on the User, each stopped by the run's end or its withdrawal.
+      const ownCalls = new Map<string, NonNullable<ReturnType<typeof actionOf>>>();
+      const asking = new Map<string, AbortController>();
+      let places: Places = { folders: [cwd], home: process.env.HOME || homedir() };
+      const mode = (value: unknown) => {
+        if (own && typeof value === "string" && value !== "") {
+          request.progress?.({ kind: "mode", mode: value });
+        }
+      };
+      const ask = (
+        id: string,
+        asked: Record<string, unknown>,
+        reply: (answer: Record<string, unknown>) => void,
+      ) => {
+        if (!own) return;
+        if (oursIn(SERVER)(asked.tool_name)) {
+          reply(allowed(asked));
+          return;
+        }
+        const question = questionOf(asked, places);
+        if (!question) {
+          reply(REFUSED);
+          const step = typeof asked.tool_use_id === "string" ? asked.tool_use_id : id;
+          request.progress?.({
+            kind: "own",
+            id: step,
+            action: ownCalls.get(step) ?? {
+              kind: "other",
+              value: typeof asked.tool_name === "string" ? asked.tool_name : "",
+            },
+            state: "refused",
+          });
+          return;
+        }
+        const waiting = new AbortController();
+        asking.set(id, waiting);
+        own
+          .ask(
+            { step: question.step, action: question.action, wider: question.wider },
+            waiting.signal,
+          )
+          .then(
+            (answer) => {
+              if (asking.get(id) === waiting && !waiting.signal.aborted)
+                reply(question.answer(answer));
+            },
+            () => undefined,
+          )
+          .finally(() => {
+            if (asking.get(id) === waiting) asking.delete(id);
+          });
+      };
       // The category of the request that failed last, if Claude Code named one IncarnaMind words.
       let failure: OwnAiFailure | null = null;
       let begun = false;
@@ -261,6 +317,7 @@ export function createOwnAi({
       };
       try {
         if (conversation) await mkdir(cwd, { recursive: true, mode: 0o700 });
+        if (own) places = { ...places, folders: [cwd, await realpath(cwd).catch(() => cwd)] };
         const configFile = join(scratch, "mcp.json");
         const { command: server, args, env } = request.server;
         await writeFile(
@@ -283,15 +340,28 @@ export function createOwnAi({
           ...(conversation && {
             session: { id: conversation.sessionId, resume: conversation.resume },
           }),
-          permissionMode: request.permissionMode,
+          ...(own && {
+            own: {
+              asked: ask,
+              withdrawn: (id: string) => {
+                asking.get(id)?.abort();
+                asking.delete(id);
+              },
+            },
+          }),
           ...(request.model && { model: request.model }),
-          ...(request.listModels && {
-            onModels: (answer: Record<string, unknown>) =>
-              request.progress?.({ kind: "models", models: modelsIn(answer) }),
+          ...((request.listModels || own) && {
+            onModels: (answer: Record<string, unknown>) => {
+              if (request.listModels) {
+                request.progress?.({ kind: "models", models: modelsIn(answer) });
+              }
+              mode(answer.current_permission_mode);
+            },
           }),
           partial: true,
           stallMs,
-          busy: () => running.size > 0 || compacting !== null,
+          // A question waits on the User for as long as they take.
+          busy: () => running.size > 0 || compacting !== null || asking.size > 0,
           onMessage(message) {
             // A retry's notice says the AI isn't answering, rather than that it is.
             const retry = message.type === "system" && message.subtype === "api_retry";
@@ -302,7 +372,19 @@ export function createOwnAi({
             if (message.type === "user") {
               const content = object(message.message).content;
               for (const part of Array.isArray(content) ? content.map(object) : []) {
-                if (part.type === "tool_result") running.delete(String(part.tool_use_id));
+                if (part.type !== "tool_result") continue;
+                const id = String(part.tool_use_id);
+                running.delete(id);
+                const action = ownCalls.get(id);
+                if (action) {
+                  ownCalls.delete(id);
+                  request.progress?.({
+                    kind: "own",
+                    id,
+                    action,
+                    state: part.is_error === true ? "failed" : "done",
+                  });
+                }
               }
               return;
             }
@@ -331,6 +413,7 @@ export function createOwnAi({
               // As Claude Code 2.1.330 says it: "compacting", then the next status (with how it went)
               // and the boundary. A line of another session, or before the start, counts for nothing.
               if (session === null || message.session_id !== session) return;
+              mode(message.permissionMode);
               if (message.subtype === "status" && message.status === "compacting")
                 compactionStarts();
               else compactionEnds();
@@ -344,17 +427,19 @@ export function createOwnAi({
             if (message.type === "system" && message.subtype === "init") {
               const { tools, mcp_servers: servers } = message;
               // Only IncarnaMind's server, connected, and its Tools: anything else, a flag didn't hold.
-              if (!Array.isArray(tools) || !tools.every(ours)) {
+              if (!own && (!Array.isArray(tools) || !tools.every(ours))) {
                 throw new StrayRunError("a tool of its own, or no list of its tools");
               }
               if (
-                !Array.isArray(servers) ||
-                servers.length !== 1 ||
-                object(servers[0]).name !== SERVER ||
-                object(servers[0]).status !== "connected"
+                !own &&
+                (!Array.isArray(servers) ||
+                  servers.length !== 1 ||
+                  object(servers[0]).name !== SERVER ||
+                  object(servers[0]).status !== "connected")
               ) {
                 throw new StrayRunError("another server, or IncarnaMind's not connected");
               }
+              mode(message.permissionMode);
               session = typeof message.session_id === "string" ? message.session_id : null;
               begun = true;
               if (typeof message.model === "string" && message.model !== "")
@@ -381,7 +466,16 @@ export function createOwnAi({
                 request.progress?.({ kind: "said", text: part.text.slice(0, MAX_REPLY_CHARS) });
               }
               if (stray(part)) throw new StrayRunError("a call to a tool of its own");
-              if (part.type === "tool_use") running.add(String(part.id));
+              if (part.type !== "tool_use") continue;
+              if (ours(part.name) || !own) {
+                running.add(String(part.id));
+                continue;
+              }
+              const action = actionOf(String(part.name ?? ""), part.input, places);
+              if (action) {
+                ownCalls.set(String(part.id), action);
+                request.progress?.({ kind: "own", id: String(part.id), action, state: "going" });
+              }
             }
           },
         });
@@ -406,6 +500,8 @@ export function createOwnAi({
         );
         return { kind: "failed", reason: failure ?? "other" };
       } finally {
+        for (const waiting of asking.values()) waiting.abort();
+        asking.clear();
         if (compacting !== null) clearTimeout(compacting);
         await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() =>
           console.warn("Could not remove the temporary folder of a run of the User's own AI."),

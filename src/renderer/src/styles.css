@@ -3141,6 +3141,193 @@
     overflow: auto;
     padding: 4px var(--note-ask-end) 12px var(--note-ask-start);
   }
+  .own-ask-panel .note-ask-panel-body {
+    padding-top: 10px;
+  }
+  /* A question from the User's own command-line AI in a Note's conversation (#3653). */
+  .own-ask-card {
+    container: own-ask / inline-size;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
+    code,
+    pre,
+    .own-ask-value,
+    .own-ask-input,
+    .own-ask-args dt {
+      font-variant-ligatures: none;
+    }
+  }
+  .own-ask-card .approval-title {
+    align-items: flex-start;
+  }
+  .own-ask-card .approval-dot {
+    margin-top: 7px;
+  }
+  .own-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .own-clamp--2 {
+    -webkit-line-clamp: 2;
+  }
+  .own-ask-details {
+    gap: 8px;
+  }
+  .own-ask-details[data-all] .own-clamp {
+    display: block;
+    overflow: visible;
+  }
+  .own-ask-details[data-all] .approval-args {
+    max-height: none;
+  }
+  .own-ask-value {
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  /* A command is never cut: past twelve lines it scrolls inside its box. */
+  .own-ask-value--command {
+    max-height: calc(12 * 18px + 12px);
+    overflow-y: auto;
+  }
+  .own-ask-value-tail {
+    display: block;
+  }
+  .own-ask-link {
+    align-self: flex-start;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 600;
+    color: var(--color-accent);
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+  }
+  .own-ask-args {
+    gap: 2px 12px;
+    dd {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+  .own-ask-input {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .own-ask-change {
+    max-height: 160px;
+    margin: 0;
+    padding: 6px 8px;
+    overflow: auto;
+    border-radius: 4px;
+    background: var(--color-frame);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .own-ask-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 12px 12px 32px;
+  }
+  .own-ask-scope {
+    margin: 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+  }
+  .own-ask-answers {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    & .approval-button--ghost {
+      margin-left: 0;
+      padding-inline: 8px;
+    }
+    & .approval-button {
+      padding-inline: 10px;
+    }
+    & .approval-button--primary {
+      padding-inline: 12px;
+    }
+  }
+  /* Four answers that can't share one row go two by two, in the same order, Allow once last. */
+  @container own-ask (max-width: 460px) {
+    .own-ask-answers[data-count="4"] {
+      display: grid;
+      grid-template-columns: repeat(2, auto);
+      justify-content: end;
+    }
+  }
+  .own-ask-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-inline: 4px;
+    border-radius: 9999px;
+    background: var(--color-attention);
+  }
+  .own-waiting,
+  .own-ask-pill {
+    color: var(--color-ink-secondary);
+  }
+  .own-step-parts {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .own-step-fixed {
+    flex: none;
+    white-space: pre;
+  }
+  .own-step-code {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-ligatures: none;
+  }
+  .own-step-by {
+    color: var(--color-ink-meta);
+  }
+  .own-first {
+    margin: 2px 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    white-space: normal;
+  }
+  .own-closed .note-ask-pill-action {
+    margin-left: 4px;
+  }
+  .note-ask-pill-own {
+    min-width: 0;
+    flex: 1;
+  }
   /*
    * The check badge with the Note's own controls at its top right, left of the conversation button
    * and ⋯ (#3677): at rest a mark and its count in the Note's tone, its words its tooltip.

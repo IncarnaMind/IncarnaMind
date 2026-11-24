@@ -3,12 +3,14 @@
  * Meetings' requests, with no tools at all, and for a check the User pressed, with IncarnaMind's
  * server and the Tools it may call. The `claude` the login shell finds runs in a folder of its own,
  * with none of its built-in tools, hooks, connectors, slash commands, CLAUDE.md files or memory;
- * anything not allowed is denied, never asked.
+ * anything not allowed is denied, never asked. A turn of a Note's conversation keeps Claude Code's
+ * own abilities instead, on the User's own settings, and asks its host what they say to ask (#3653).
  */
 import type { ChildProcess } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { object, processes, readJsonLines } from "./agentCommand";
+import type { Writable } from "node:stream";
+import { object, processes, readJsonLines, wholeTree } from "./agentCommand";
 
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
@@ -32,8 +34,21 @@ export interface ClaudeCodeTurn {
    * as a check and Meetings' requests do.
    */
   session?: { id: string; resume: boolean };
-  /** How Claude Code answers its own permission prompts; nothing it may ask is allowed here. */
-  permissionMode?: "dontAsk";
+  /**
+   * Claude Code keeps its own tools, servers, skills, hooks, CLAUDE.md files and memory, on the
+   * User's own settings, with IncarnaMind's server beside them and IncarnaMind's instructions
+   * added to its own (#3653). Each permission question it asks comes to `asked`, with `reply` to
+   * answer it while the turn goes; `withdrawn` hears one it took back. Its `initialize` answer
+   * comes to `onModels`. Absent: the sealed turn above.
+   */
+  own?: {
+    asked(
+      id: string,
+      request: Record<string, unknown>,
+      reply: (answer: Record<string, unknown>) => void,
+    ): void;
+    withdrawn(id: string): void;
+  };
   /** A model alias or name Claude Code offers; absent: its own default. */
   model?: string;
   /** Each message before the result, from the first; one that throws stops the turn. */
@@ -62,6 +77,34 @@ const SYSTEM_PROMPT_FILE = "system-prompt.txt";
 
 function argsOf(turn: ClaudeCodeTurn): string[] {
   const { server } = turn;
+  const kept = [
+    ...(turn.model ? ["--model", turn.model] : []),
+    ...(turn.session
+      ? [turn.session.resume ? "--resume" : "--session-id", turn.session.id]
+      : ["--no-session-persistence"]),
+    "--input-format",
+    "stream-json",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    ...(turn.partial ? ["--include-partial-messages"] : []),
+  ];
+  if (turn.own && server) {
+    // No permission mode, settings or setting sources of IncarnaMind's: the User's own apply.
+    return [
+      "-p",
+      "--mcp-config",
+      server.configFile,
+      "--allowedTools",
+      `mcp__${server.name}`,
+      "--permission-prompt-tool",
+      "stdio",
+      ...kept,
+      // Added to Claude Code's own system prompt, which its tools need, and from a file, as below.
+      "--append-system-prompt-file",
+      join(turn.scratch, SYSTEM_PROMPT_FILE),
+    ];
+  }
   return [
     "-p",
     // Safe mode drops every MCP server, the one given on the command line too.
@@ -82,17 +125,8 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
       : []),
     "--disable-slash-commands",
     "--permission-mode",
-    turn.permissionMode ?? "dontAsk",
-    ...(turn.model ? ["--model", turn.model] : []),
-    ...(turn.session
-      ? [turn.session.resume ? "--resume" : "--session-id", turn.session.id]
-      : ["--no-session-persistence"]),
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    ...(turn.partial ? ["--include-partial-messages"] : []),
+    "dontAsk",
+    ...kept,
     "--settings",
     '{"disableAllHooks":true,"disableClaudeAiConnectors":true}',
     // On Windows an npm-installed `claude.cmd` runs through cmd.exe, where a line break in an
@@ -109,16 +143,18 @@ export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<st
     cwd: turn.cwd,
     env: {
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-      ENABLE_CLAUDEAI_MCP_SERVERS: "false",
-      // The User's CLAUDE.md files and Claude Code's memory are not IncarnaMind's to give the turn.
-      CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
-      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      ...(!turn.own && {
+        ENABLE_CLAUDEAI_MCP_SERVERS: "false",
+        // The User's CLAUDE.md files and Claude Code's memory are not IncarnaMind's to give the turn.
+        CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
+        CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      }),
       // A Tool input streams as it is written, so a run writing a long one isn't quiet meanwhile.
       ...(turn.partial && { CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1" }),
     },
     processGroup: true,
   });
-  return readTurn(child, turn);
+  return turn.own ? readOwnTurn(child, turn, turn.own) : readTurn(child, turn);
 }
 
 /** How much more than `maxResponseBytes` a turn may print with its words and calls as they come. */
@@ -186,6 +222,86 @@ function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
       // A result ends this turn even when the CLI keeps its stream open. Before the prompt went,
       // Claude Code ended at its start (a conversation it doesn't have, say): nothing of the
       // request was sent, and its result says why.
+      if (msg.type === "result") return msg;
+      turn.onMessage?.(msg);
+      return undefined;
+    },
+  });
+}
+
+const write = (stdin: Writable, message: Record<string, unknown>) => {
+  if (stdin.writable) stdin.write(`${JSON.stringify(message)}\n`);
+};
+
+/**
+ * A turn with Claude Code's own abilities (#3653): its `initialize` answer is asked first and the
+ * prompt goes at once after it, and the input stays open until the result, since each permission
+ * question is answered there. A question of another kind than a tool's gets an error, so it never
+ * waits on a host that can't answer it. It ends with everything it started.
+ */
+function readOwnTurn(
+  child: ChildProcess,
+  turn: ClaudeCodeTurn,
+  own: NonNullable<ClaudeCodeTurn["own"]>,
+) {
+  const closed = new Promise((resolve) => child.once("close", resolve));
+  const tree = wholeTree(child, closed);
+  return readJsonLines(child, {
+    agent: "Claude Code",
+    signal: turn.signal,
+    end: tree.end,
+    maxBytes: turn.maxResponseBytes,
+    rawMaxBytes: turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes,
+    counted: (message) => message.type !== "stream_event",
+    ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
+    ...(turn.busy && { busy: turn.busy }),
+    begin(stdin) {
+      write(stdin, {
+        type: "control_request",
+        request_id: "models",
+        request: { subtype: "initialize" },
+      });
+      write(stdin, {
+        type: "user",
+        message: { role: "user", content: turn.prompt },
+        parent_tool_use_id: null,
+        session_id: "",
+      });
+    },
+    onMessage(msg, stdin) {
+      if (msg.type === "control_response") {
+        const control = object(msg.response);
+        if (control.request_id === "models") {
+          turn.onModels?.(control.subtype === "success" ? object(control.response) : {});
+        }
+        return undefined;
+      }
+      if (msg.type === "control_request") {
+        const id = typeof msg.request_id === "string" ? msg.request_id : "";
+        const request = object(msg.request);
+        if (request.subtype === "can_use_tool" && id !== "") {
+          own.asked(id, request, (answer) =>
+            write(stdin, {
+              type: "control_response",
+              response: { subtype: "success", request_id: id, response: answer },
+            }),
+          );
+        } else {
+          write(stdin, {
+            type: "control_response",
+            response: {
+              subtype: "error",
+              request_id: id,
+              error: "IncarnaMind doesn't answer this.",
+            },
+          });
+        }
+        return undefined;
+      }
+      if (msg.type === "control_cancel_request") {
+        if (typeof msg.request_id === "string") own.withdrawn(msg.request_id);
+        return undefined;
+      }
       if (msg.type === "result") return msg;
       turn.onMessage?.(msg);
       return undefined;

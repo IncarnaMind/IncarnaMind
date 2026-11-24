@@ -3457,6 +3457,30 @@ export const migrations: readonly Migration[] = [
           WHERE key = 'linkedFoldersToBind' AND deleted_at IS NULL);
     `,
   },
+  {
+    version: 163,
+    description: "What the User's own AI asks in a Note's conversation, and its mode (#3653)",
+    sql: `
+      -- Each question the User's own AI asked before it used a tool of its own in a Note's
+      -- conversation, and how it was answered: kept so that one still waiting when IncarnaMind
+      -- closed reads, after a restart, as asked and not run. On this device only, as own_ai_turns
+      -- is; a deleted one keeps no words: its row stays only as the deletion.
+      CREATE TABLE own_ai_questions (
+        id TEXT PRIMARY KEY,
+        turn_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        server TEXT,
+        answer TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX own_ai_questions_by_turn ON own_ai_questions (turn_id) WHERE deleted_at IS NULL;
+      -- The AI's own permission mode a request ran in, as the AI named it.
+      ALTER TABLE own_ai_turns ADD COLUMN mode TEXT;
+    `,
+  },
 ];
 
 /**

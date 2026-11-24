@@ -7,8 +7,10 @@ import { spawn as spawnNode } from "node:child_process";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OwnAiAsk, OwnAiProgress } from "../../src/core/adapters";
+import type { NoteAnswer } from "../../src/core/api";
 import { runClaudeCodeTurn } from "../../src/main/claudeCode";
 import { createOwnAi } from "../../src/main/ownAi";
 
@@ -81,7 +83,9 @@ function useClaude({
         settings: await read(args[at + 1] ?? ""),
         instructions: args.includes("--system-prompt-file")
           ? await read(args[args.indexOf("--system-prompt-file") + 1] ?? "")
-          : null,
+          : args.includes("--append-system-prompt-file")
+            ? await read(args[args.indexOf("--append-system-prompt-file") + 1] ?? "")
+            : null,
       };
     }
     const child = spawnNode(process.execPath, ["-e", program], {
@@ -471,16 +475,16 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       client: "claude-code",
       server: SERVER,
       tools: "all",
-      permissionMode: "dontAsk",
+      own: { ask: async () => "deny" },
       instructions: INSTRUCTIONS,
       prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
       conversation: { key: KEY, sessionId: SESSION, resume },
       signal: new AbortController().signal,
     });
 
-  // protects=a request keeps its conversation in the Note's own working folder, started under IncarnaMind's id and continued with it, with every Tool of IncarnaMind's server and nothing of its own; fails_when=a follow-up starts a new conversation, runs in a shared folder, or keeps no session
-  it("starts the conversation in the Note's folder, then continues it", async () => {
-    useClaude({ run: session([init(["mcp__incarnamind__read_mind"]), done]) });
+  // protects=a request keeps its conversation in the Note's own working folder, started under IncarnaMind's id and continued with it, with every Tool of IncarnaMind's server beside Claude Code's own abilities on the User's own settings: no mode, settings, setting sources, tool list or switch of IncarnaMind's, its questions asked of IncarnaMind, its instructions added to Claude Code's own from a private file (#3653); fails_when=a follow-up starts a new conversation, runs in a shared folder, keeps no session, or a flag of the sealed check run holds the conversation
+  it("starts the conversation in the Note's folder with Claude Code's own abilities, then continues it", async () => {
+    useClaude({ run: session([init(["Bash", "mcp__incarnamind__read_mind"]), done]) });
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
     try {
       await expect(ask(conversations, false)).resolves.toEqual({
@@ -491,8 +495,32 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       expect(command).toBe("claude");
       expect(args).toEqual(expect.arrayContaining(["--session-id", SESSION]));
       expect(args).toEqual(expect.arrayContaining(["--allowedTools", "mcp__incarnamind"]));
-      expect(args).not.toContain("--no-session-persistence");
-      expect(args).not.toContain("--resume");
+      expect(args).toEqual(expect.arrayContaining(["--permission-prompt-tool", "stdio"]));
+      for (const sealed of [
+        "--no-session-persistence",
+        "--resume",
+        "--restricted",
+        "--tools",
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+        "--permission-mode",
+        "--setting-sources",
+        "--settings",
+        "--system-prompt-file",
+        "--safe-mode",
+      ]) {
+        expect(args).not.toContain(sealed);
+      }
+      expect(Object.keys(options.env)).toEqual(
+        expect.not.arrayContaining([
+          "ENABLE_CLAUDEAI_MCP_SERVERS",
+          "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+          "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+        ]),
+      );
+      expect(seen?.instructions).toEqual({ mode: 0o600, text: INSTRUCTIONS });
+      expect(seen?.settings.mode).toBe(0o600);
+      expect(args.join(" ")).not.toContain(SERVER.env.INCARNAMIND_AGENT_TOKEN);
       expect(options.cwd).toBe(join(conversations, KEY));
 
       await ask(conversations, true);
@@ -573,7 +601,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
         client: "claude-code",
         server: SERVER,
         tools: "all",
-        permissionMode: "dontAsk",
+        own: { ask: async () => "deny" },
         instructions: INSTRUCTIONS,
         prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
         conversation: { key: KEY, sessionId: SESSION, resume: false },
@@ -600,28 +628,12 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     expect(launch.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["--model", "haiku"]));
   });
 
-  // protects=a Claude Code whose settings fail the isolation check gives no list; fails_when=a list from a Claude Code with a managed plugin is used
-  it("hears no models from a run that isn't isolated", async () => {
+  // protects=a conversation runs beside the User's own hooks and plugins, which are theirs to have, and still hears the models (#3653); fails_when=the sealed check's isolation check stops a conversation
+  it("hears the models with the User's own plugins on", async () => {
     useClaude({ run: listing(true) });
     const managed = await listen();
-    expect(managed.end).toEqual({ kind: "failed", reason: "isolation" });
-    expect(managed.models).toEqual([]);
-  });
-
-  // protects=models that come before a settings check that fails are never heard; fails_when=a list from a Claude Code with a managed plugin is used because it answered first
-  it("hears no models that came before a failing isolation check", async () => {
-    useClaude({ run: listing(true, "first") });
-    const managed = await listen();
-    expect(managed.end).toEqual({ kind: "failed", reason: "isolation" });
-    expect(managed.models).toEqual([]);
-  });
-
-  // protects=models that come before a settings check that passes are heard once it has; fails_when=the order of the answers loses the list
-  it("hears models that came first once the isolation check has passed", async () => {
-    useClaude({ run: listing(false, "first") });
-    const first = await listen();
-    expect(first.end).toEqual({ kind: "finished", reply: "Checked." });
-    expect(first.models).toHaveLength(1);
+    expect(managed.end).toEqual({ kind: "finished", reply: "Checked." });
+    expect(managed.models).toHaveLength(1);
   });
 
   // protects=a models question Claude Code answers with an error, or not at all, leaves the request as it was; fails_when=the request waits on it or fails
@@ -669,6 +681,365 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       await rm(conversations, { recursive: true, force: true });
     }
   });
+});
+
+describe("what Claude Code asks in a Note's conversation, and does with its own tools (#3653)", () => {
+  const KEY = "5a1c9e2b-7d3f-4b8a-9c6e-1f2a3b4c5d6e";
+  /**
+   * A stand-in that answers `initialize` with `mode`, then once the prompt comes sends each of
+   * `questions` as Claude Code 2.1.331 does (its call first, then the question), and ends with the
+   * answers it got, as its reply. `meanwhile` runs before the questions go.
+   */
+  const asking = (questions: unknown[], { mode = "default", meanwhile = "" } = {}) => `
+    const lines = require("node:readline").createInterface({ input: process.stdin });
+    const say = (value) => console.log(JSON.stringify(value));
+    const questions = ${JSON.stringify(questions)};
+    const answers = [];
+    lines.on("line", (line) => {
+      const v = JSON.parse(line);
+      if (v.type === "control_request") {
+        say({ type: "control_response", response: { subtype: "success", request_id: v.request_id,
+          response: { models: [], current_permission_mode: ${JSON.stringify(mode)} } } });
+      } else if (v.type === "user") {
+        say({ type: "system", subtype: "init", session_id: "s1", permissionMode: ${JSON.stringify(mode)},
+          tools: ["Bash", "Write", "mcp__incarnamind__read_mind"], mcp_servers: [{ name: "incarnamind", status: "connected" }, { name: "ferry-data", status: "connected" }] });
+        ${meanwhile}
+        questions.forEach((q, n) => {
+          if (q.tool_use_id) say({ type: "assistant", message: { content: [{ type: "tool_use", id: q.tool_use_id, name: q.tool_name, input: q.input ?? {} }] } });
+          if (!q.unasked) say({ type: "control_request", request_id: "q" + n, request: { subtype: "can_use_tool", ...q } });
+        });
+        if (questions.length === 0 || questions.every((q) => q.unasked)) {
+          for (const q of questions) say({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: q.tool_use_id, is_error: false, content: "ok" }] } });
+          say({ type: "result", subtype: "success", is_error: false, result: "[]" });
+        }
+      } else if (v.type === "control_response") {
+        answers.push({ id: v.response.request_id, answer: v.response.response });
+        if (answers.length === questions.filter((q) => !q.unasked).length) {
+          say({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(answers) });
+        }
+      }
+    });
+  `;
+  const COMMAND = {
+    tool_name: "Bash",
+    tool_use_id: "toolu_1",
+    input: {
+      command: "python3 late_crossings.py --crossing 07:40 delays-2026.csv",
+      description: "Count",
+    },
+    permission_suggestions: [
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "python3 late_crossings.py:*" }],
+        behavior: "allow",
+        destination: "localSettings",
+      },
+      { type: "addDirectories", directories: ["/elsewhere"], destination: "session" },
+      { type: "setMode", mode: "acceptEdits", destination: "session" },
+    ],
+  };
+  const converse = async (
+    answer: (asked: OwnAiAsk, signal: AbortSignal) => Promise<NoteAnswer>,
+    signal = new AbortController().signal,
+  ) => {
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    const steps: OwnAiProgress[] = [];
+    try {
+      const end = await createOwnAi({ conversations }).run({
+        client: "claude-code",
+        server: SERVER,
+        tools: "all",
+        own: { ask: answer },
+        instructions: INSTRUCTIONS,
+        prompt: "In their note “Tides” (mindId: m1), the User asks: count the late crossings",
+        conversation: {
+          key: KEY,
+          sessionId: "8d2c4b6a-1e3f-4a5b-9c7d-0e2f4a6b8c1d",
+          resume: false,
+        },
+        progress: (step) => steps.push(step),
+        signal,
+      });
+      return { end, steps, folder: join(conversations, KEY) };
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
+    }
+  };
+  const answersIn = (end: Awaited<ReturnType<typeof converse>>["end"]) =>
+    end.kind === "finished"
+      ? (JSON.parse(end.reply) as { id: string; answer: Record<string, unknown> }[])
+      : [];
+
+  // protects=a question reaches IncarnaMind read as what will happen (the whole command, in the conversation's folder) with the rules Claude Code's own wider answer would keep; "for this request" goes back as those rules kept for the session only, never in a settings file; fails_when=a question is lost, its command is cut, or a wider answer would write the User's settings
+  it("asks IncarnaMind, and answers for this request with Claude Code's own rules kept for the session only", async () => {
+    useClaude({ run: asking([COMMAND]) });
+    const asked: OwnAiAsk[] = [];
+    const { end } = await converse(async (question) => {
+      asked.push(question);
+      return "request";
+    });
+    expect(asked).toEqual([
+      {
+        step: "toolu_1",
+        action: { kind: "command", value: COMMAND.input.command, inFolder: true },
+        wider: { rules: ["Bash(python3 late_crossings.py:*)"] },
+      },
+    ]);
+    expect(answersIn(end)).toEqual([
+      {
+        id: "q0",
+        answer: {
+          behavior: "allow",
+          updatedInput: COMMAND.input,
+          updatedPermissions: [{ ...COMMAND.permission_suggestions[0], destination: "session" }],
+        },
+      },
+    ]);
+    expect(JSON.stringify(answersIn(end))).not.toMatch(
+      /localSettings|userSettings|projectSettings/,
+    );
+  });
+
+  // protects=Allow once allows this call alone and Deny says no, which Claude Code takes as the call's error; fails_when=Allow once keeps a rule, or Deny lets it run
+  it.each([
+    ["once", { behavior: "allow", updatedInput: COMMAND.input }],
+    ["deny", { behavior: "deny", message: expect.stringContaining("said no") }],
+  ] as const)("answers %s as Claude Code takes it", async (answer, sent) => {
+    useClaude({ run: asking([COMMAND]) });
+    const { end } = await converse(async () => answer);
+    expect(answersIn(end)).toEqual([{ id: "q0", answer: sent }]);
+  });
+
+  // protects=a file it would write in the conversation's folder reads from there, one elsewhere from home as "~", with how many lines; a page reads by its site; a tool of the User's own server by its server and its input; fails_when=the card shows a path that hides where the file goes
+  it("reads each kind of question as the card shows it", async () => {
+    const home = process.env.HOME ?? "";
+    useClaude({
+      run: asking([
+        { tool_name: "Write", input: { file_path: "drafts/late.md", content: "a\nb\n" } },
+        {
+          tool_name: "Edit",
+          input: {
+            file_path: `${home}/Documents/review.md`,
+            old_string: "07:40",
+            new_string: "07:55",
+          },
+        },
+        {
+          tool_name: "WebFetch",
+          input: { url: "https://kestrelbay-harbour.example/notice?year=2027", prompt: "Say" },
+        },
+        { tool_name: "WebSearch", input: { query: "Kestrel Bay ramp" } },
+        { tool_name: "Read", input: { file_path: "/etc/hosts" } },
+        {
+          tool_name: "mcp__ferry-data__search_tickets",
+          mcp_server: { name: "ferry-data" },
+          input: { route: "Kestrel Bay", days: 30 },
+        },
+      ]),
+    });
+    const asked: OwnAiAsk[] = [];
+    await converse(async (question) => {
+      asked.push(question);
+      return "once";
+    });
+    expect(asked.map((each) => each.action)).toEqual([
+      {
+        kind: "write",
+        value: join("drafts", "late.md"),
+        inFolder: true,
+        size: { kind: "new", count: 2 },
+      },
+      {
+        kind: "change",
+        value: join("~", "Documents", "review.md"),
+        inFolder: false,
+        size: { kind: "changes", count: 1 },
+        change: "- 07:40\n+ 07:55",
+      },
+      {
+        kind: "web",
+        value: "https://kestrelbay-harbour.example/notice?year=2027",
+        host: "kestrelbay-harbour.example",
+      },
+      { kind: "search", value: "Kestrel Bay ramp" },
+      { kind: "read", value: "/etc/hosts", inFolder: false },
+      {
+        kind: "tool",
+        value: "search_tickets",
+        server: "ferry-data",
+        input: [
+          { name: "route", value: "Kestrel Bay" },
+          { name: "days", value: "30" },
+        ],
+      },
+    ]);
+  });
+
+  // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
+  it("allows a call of IncarnaMind's own without asking", async () => {
+    useClaude({
+      run: asking([{ tool_name: "mcp__incarnamind__read_mind", input: { mindId: "m1" } }]),
+    });
+    const ask = vi.fn(async () => "deny" as const);
+    const { end } = await converse(ask);
+    expect(ask).not.toHaveBeenCalled();
+    expect(answersIn(end)).toEqual([
+      { id: "q0", answer: { behavior: "allow", updatedInput: { mindId: "m1" } } },
+    ]);
+  });
+
+  // protects=a question IncarnaMind can't show, or can't read, is denied with a word the model can act on, and its step says so; fails_when=it waits for ever, or is allowed unseen
+  it.each([
+    [
+      "a tool it can't show",
+      { tool_name: "AskUserQuestion", tool_use_id: "toolu_9", input: { questions: [] } },
+    ],
+    ["one with no input", { tool_name: "Bash", tool_use_id: "toolu_9" }],
+  ])("denies %s, and says so in its step", async (_name, question) => {
+    useClaude({ run: asking([question]) });
+    const ask = vi.fn(async () => "once" as const);
+    const { end, steps } = await converse(ask);
+    expect(ask).not.toHaveBeenCalled();
+    expect(answersIn(end)).toEqual([
+      { id: "q0", answer: { behavior: "deny", message: expect.stringContaining("can't show") } },
+    ]);
+    expect(steps).toContainEqual(
+      expect.objectContaining({ kind: "own", id: "toolu_9", state: "refused" }),
+    );
+  });
+
+  // protects=two questions open at once each reach IncarnaMind and each answer goes to its own question, whichever comes first; fails_when=answers cross
+  it("keeps two questions open at once apart", async () => {
+    useClaude({
+      run: asking([
+        COMMAND,
+        { tool_name: "WebFetch", tool_use_id: "toolu_2", input: { url: "https://a.example/x" } },
+      ]),
+    });
+    const { end } = await converse(async (question) => {
+      if (question.action.kind === "command") {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return "deny";
+      }
+      return "once";
+    });
+    expect(answersIn(end)).toEqual([
+      { id: "q1", answer: expect.objectContaining({ behavior: "allow" }) },
+      { id: "q0", answer: expect.objectContaining({ behavior: "deny" }) },
+    ]);
+  });
+
+  // protects=what Claude Code does with its own tools without asking shows as steps, begun and done; its own mode is heard from its start and its changes; fails_when=a command it ran unasked shows nowhere, or a mode that asks nothing goes unsaid
+  it("tells its steps done unasked, and its own mode", async () => {
+    useClaude({
+      run: asking([{ ...COMMAND, unasked: true }], {
+        mode: "auto",
+        meanwhile: `say({ type: "system", subtype: "status", status: null, permissionMode: "acceptEdits", session_id: "s1" });`,
+      }),
+    });
+    const { steps } = await converse(async () => "deny");
+    expect(steps.filter((step) => step.kind === "own" || step.kind === "mode")).toEqual([
+      { kind: "mode", mode: "auto" },
+      { kind: "mode", mode: "auto" },
+      { kind: "mode", mode: "acceptEdits" },
+      {
+        kind: "own",
+        id: "toolu_1",
+        action: { kind: "command", value: COMMAND.input.command, inFolder: true },
+        state: "going",
+      },
+      {
+        kind: "own",
+        id: "toolu_1",
+        action: { kind: "command", value: COMMAND.input.command, inFolder: true },
+        state: "done",
+      },
+    ]);
+  });
+
+  // protects=a question Claude Code takes back stops waiting on the User; fails_when=a withdrawn question keeps its card
+  it("hears a question taken back", async () => {
+    useClaude({
+      run: asking([COMMAND], {
+        meanwhile: `setTimeout(() => { say({ type: "control_cancel_request", request_id: "q0" }); say({ type: "result", subtype: "success", is_error: false, result: "[]" }); }, 100);`,
+      }),
+    });
+    let withdrawn = false;
+    await converse(
+      (_question, signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            withdrawn = true;
+            reject(new Error("withdrawn"));
+          });
+        }),
+    );
+    expect(withdrawn).toBe(true);
+  });
+
+  // protects=a Claude Code that exits while its question is open ends the run, and the question stops waiting; fails_when=the card waits on a process that is gone
+  it("ends when Claude Code exits mid-question", async () => {
+    useClaude({ run: asking([COMMAND], { meanwhile: "setTimeout(() => process.exit(1), 100);" }) });
+    let stopped = false;
+    const { end } = await converse(
+      (_question, signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            stopped = true;
+            reject(new Error("over"));
+          });
+        }),
+    );
+    expect(end).toEqual({ kind: "failed", reason: "other" });
+    expect(stopped).toBe(true);
+  });
+
+  // protects=Stop with a question open ends Claude Code and every process it started, one that leads a group of its own as Claude Code's shells do included, and an answer after Stop writes nothing; fails_when=a command it moved to the background keeps running after Stop
+  it.skipIf(process.platform === "win32")(
+    "ends everything it started when stopped with a question open",
+    async () => {
+      const marker = join(await mkdtemp(join(tmpdir(), "own-ai-child-")), "child.pid");
+      useClaude({
+        run: asking([COMMAND], {
+          meanwhile: `const child = require("node:child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+            require("node:fs").writeFileSync(${JSON.stringify(marker)}, String(child.pid));
+            child.unref();`,
+        }),
+      });
+      const stop = new AbortController();
+      const late: { answer?: (answer: NoteAnswer) => void } = {};
+      const going = converse(
+        (_question) =>
+          new Promise((resolve) => {
+            late.answer = resolve;
+            // The tree is looked up as the run goes; Stop comes once the child is there.
+            setTimeout(() => stop.abort(), 2_500);
+          }),
+        stop.signal,
+      );
+      await expect(going).rejects.toThrow();
+      late.answer?.("once");
+      const pid = Number(await readFile(marker, "utf8"));
+      const alive = () => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      try {
+        for (let wait = 0; wait < 50 && alive(); wait++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(alive()).toBe(false);
+      } finally {
+        if (alive()) process.kill(pid, "SIGKILL");
+        await rm(dirname(marker), { recursive: true, force: true });
+      }
+    },
+    15_000,
+  );
 });
 
 describe("a run that goes quiet, and one that says what it does (#3677)", () => {

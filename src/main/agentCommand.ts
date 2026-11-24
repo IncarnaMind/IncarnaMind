@@ -4,7 +4,7 @@
  * reading the stream of JSON lines a run prints, bounded in size and in silence, stopped with every
  * process it started.
  */
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -182,9 +182,126 @@ export class UnreadableLineError extends Error {
   }
 }
 
+/** How long a run asked to end may take to end what it started, before all of it is killed. */
+const END_GRACE_MS = 2_000;
+
+/** How often the processes a run with its own tools started are looked up while it runs. */
+const TREE_EVERY_MS = 2_000;
+
+type Row = { pid: number; ppid: number; pgid: number };
+
+/** Each process's id, parent and group, as `ps` lists them; none where it can't be read. */
+const listProcesses = (): Promise<Row[]> =>
+  new Promise((resolve) => {
+    execFile(
+      "/bin/ps",
+      ["-axo", "pid=,ppid=,pgid="],
+      { maxBuffer: 8 * 1024 * 1024 },
+      (error, out) => {
+        if (error) {
+          console.warn("Could not list the processes a run started:", error.message);
+          resolve([]);
+          return;
+        }
+        resolve(
+          out.split("\n").flatMap((line) => {
+            const [pid, ppid, pgid] = line.trim().split(/\s+/).map(Number);
+            return pid !== undefined && ppid !== undefined && pgid !== undefined && pgid > 0
+              ? [{ pid, ppid, pgid }]
+              : [];
+          }),
+        );
+      },
+    );
+  });
+
+/** Every process under `root` in `rows`. */
+function treeIn(rows: readonly Row[], root: number) {
+  const under = new Set([root]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const { pid, ppid } of rows) {
+      if (under.has(ppid) && !under.has(pid)) {
+        under.add(pid);
+        grew = true;
+      }
+    }
+  }
+  return rows.filter(({ pid }) => under.has(pid) && pid !== root);
+}
+
+const killNow = (target: number) => {
+  try {
+    process.kill(target, "SIGKILL");
+  } catch {
+    // Gone already.
+  }
+};
+
+/**
+ * Keeps track of the processes a run with its own tools starts, and ends them all (#3653). Claude
+ * Code runs each command in a shell that leads a group of its own, so killing the run's group
+ * alone leaves a command it moved to the background running: the run is asked to end first, as it
+ * then ends what it started, and then every process seen under it, and its group, is killed. On
+ * Windows `taskkill /T` already ends the whole tree.
+ */
+export function wholeTree(child: ChildProcess, closed: Promise<unknown>) {
+  const { pid } = child;
+  const posix = pid !== undefined && process.platform !== "win32";
+  const seen = new Map<number, number>();
+  let ownGroup: number | null = null;
+  const look = async () => {
+    if (!posix || pid === undefined) return;
+    const rows = await listProcesses();
+    ownGroup ??= rows.find((row) => row.pid === process.pid)?.pgid ?? null;
+    for (const each of treeIn(rows, pid)) seen.set(each.pid, each.pgid);
+  };
+  void look();
+  const watch = setInterval(() => void look(), TREE_EVERY_MS);
+  watch.unref?.();
+  let ending = false;
+  return {
+    end(): void {
+      if (ending) return;
+      ending = true;
+      clearInterval(watch);
+      if (!posix || pid === undefined) {
+        stopProcessTree(child);
+        return;
+      }
+      void (async () => {
+        await look();
+        try {
+          process.kill(-pid, "SIGTERM");
+        } catch {
+          // Gone already, or not a group leader: what it started is killed below either way.
+        }
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([
+          closed,
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, END_GRACE_MS);
+          }),
+        ]);
+        clearTimeout(timer);
+        // Never IncarnaMind's own group, which a process that didn't start a group of its own shares.
+        for (const group of new Set([pid, ...seen.values()])) {
+          if (group > 1 && group !== ownGroup) killNow(-group);
+        }
+        for (const each of [...seen.keys(), pid]) killNow(each);
+      })();
+    },
+  };
+}
+
 export interface JsonLines<T> {
   /** The agent's name, in what is logged and thrown. */
   agent: string;
+  /**
+   * Ends the command and everything it started, in place of killing its process group: for a run
+   * whose commands lead groups of their own.
+   */
+  end?(): void;
   signal: AbortSignal;
   /** The most its whole messages may hold; past it, it is stopped. */
   maxBytes: number;
@@ -219,7 +336,8 @@ export async function readJsonLines<T>(child: ChildProcess, run: JsonLines<T>): 
   // The whole group, whatever its leader's own state: a process it started can hold the output
   // after the leader exits. A group's id isn't reused while any member of it lives.
   const kill = () => {
-    if (open) stopProcessTree(child);
+    if (run.end) run.end();
+    else if (open) stopProcessTree(child);
   };
   child.on("error", kill);
   child.stdin?.on("error", kill);

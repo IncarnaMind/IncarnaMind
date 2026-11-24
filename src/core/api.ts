@@ -13438,7 +13438,71 @@ export interface NoteTurn {
    * reply that isn't here is not one of them, and is not shown as a Citation.
    */
   citations: NoteCitation[];
+  /** While it works: what its AI asks now and waits on, oldest first (#3653). */
+  questions: NoteQuestion[];
+  /** What its AI asked and waited on when IncarnaMind closed: it didn't run (#3653). */
+  closed: NoteAction | null;
+  /**
+   * The AI's own mode for this request, as it named it (#3653): "auto" and "bypassPermissions"
+   * ask nothing. Null when it named none.
+   */
+  mode: string | null;
 }
+
+/**
+ * What the User's own AI does, or asks to do, with a tool of its own in a Note's conversation
+ * (#3653): a command; a file it writes anew, changes or reads (`value` its path, from the
+ * conversation's folder when `inFolder`); a web page it opens (`host` its site) or a web search;
+ * a tool of a server the User set up in it; any other tool of its own, by name.
+ */
+export interface NoteAction {
+  kind: "command" | "write" | "change" | "read" | "web" | "search" | "tool" | "other";
+  /** Exactly what it would run, write, read, open or search, or the tool's name: whole. */
+  value: string;
+  /** For a command and a file: it is in the conversation's own folder. */
+  inFolder?: boolean;
+  host?: string;
+  /** For a tool: the server it is on, and the input it would send, one row per field. */
+  server?: string;
+  input?: { name: string; value: string }[];
+  /** For a file it writes or changes: a new file, a whole file written again, or lines changed. */
+  size?: { kind: "new" | "whole" | "changes"; count: number };
+  /** For a change: the lines taken out ("- ") and put in ("+ "). */
+  change?: string;
+}
+
+/**
+ * The answers a question offers, in the card's order: "deny"; "request", the AI's own answer
+ * that holds until the request ends (Claude Code's session scope, which nothing writes down);
+ * "once".
+ */
+export type NoteAnswer = "deny" | "request" | "once";
+
+/** What a request read that the User didn't write, as a question names it (#3653). */
+export type NoteReadText =
+  | { kind: "web"; host: string }
+  | { kind: "search" }
+  | { kind: "tool"; tool: string; server: string }
+  | { kind: "command" }
+  | { kind: "document"; name: string };
+
+/** What the User's own AI asks before it does something with a tool of its own (#3653). */
+export interface NoteQuestion {
+  id: string;
+  action: NoteAction;
+  /** Two to four, plainest first and "once" last. */
+  answers: NoteAnswer[];
+  /**
+   * What "request" covers, in the AI's own terms: the rules it won't ask about again, or its mode
+   * that makes file changes without asking, until the request ends.
+   */
+  wider: { rules: string[] } | { mode: "acceptEdits" } | null;
+  /** The request had read text the User didn't write: "request" isn't offered. */
+  read: NoteReadText | null;
+}
+
+/** How a step of the AI's own went with its question: answered, or ended before it was. */
+export type NoteAnswered = NoteAnswer | "stopped" | "closed" | "refused";
 
 /** A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document and its quote. */
 export interface NoteCitation {
@@ -13478,11 +13542,20 @@ export interface NoteTurnEvent {
   steps: NoteStep[];
   /** How many Documents its searches found and its reads reached, for "Reading 3 of 10". */
   documentsFound: number;
+  /** What its AI asks now and waits on, oldest first; the card shows the first (#3653). */
+  questions: NoteQuestion[];
+  /** The AI's own mode, as it named it; null until it does (#3653). */
+  mode: string | null;
 }
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
 export type NoteStep =
   | { kind: "said"; text: string }
+  /**
+   * A step the AI took with a tool of its own (#3653): `by`, how its question was answered, absent
+   * when it asked none; `going` while it runs.
+   */
+  | { kind: "own"; action: NoteAction; by?: NoteAnswered; going?: boolean }
   | {
       kind: "call";
       tool: AgentToolName;
@@ -13515,6 +13588,8 @@ export interface NoteModel {
  */
 export type NoteDoing =
   | { kind: "call"; tool: AgentToolName; summary: string; count: number }
+  /** A step with a tool of its own (#3653). */
+  | { kind: "own"; action: NoteAction }
   | { kind: "said"; text: string }
   | { kind: "thinking" }
   | { kind: "compacting" };
@@ -16183,6 +16258,16 @@ export interface CoreApi {
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
   /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
   stopInNote(mindId: string): Promise<void>;
+  /**
+   * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
+   * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
+   */
+  answerInNote(mindId: string, questionId: string, answer: NoteAnswer): Promise<void>;
+  /**
+   * The request running at the Note's foot as it is now, as "agents.noteTurn" last told it, for a
+   * window opened while it runs (#3653); null when none runs. Looking starts nothing.
+   */
+  noteTurnNow(mindId: string): Promise<NoteTurnEvent | null>;
   /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
   noteConversation(mindId: string): Promise<NoteTurn[]>;
   /** Whether the Note has a conversation kept, reading none of it (#3677). */
@@ -17038,6 +17123,8 @@ const methods: Record<CoreApiMethod, true> = {
   stopOwnAiCheck: true,
   askInNote: true,
   stopInNote: true,
+  answerInNote: true,
+  noteTurnNow: true,
   noteConversation: true,
   noteConversationKept: true,
   noteModels: true,
