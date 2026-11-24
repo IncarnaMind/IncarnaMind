@@ -472,6 +472,7 @@ export class ChangeRefused extends Error {
       | "agents.propose.visualAdded"
       | "agents.propose.emptyTab"
       | "agents.propose.visualKept"
+      | "agents.propose.blockKeeps"
       | (typeof REFUSAL_WORDS)[keyof typeof REFUSAL_WORDS]["agent"],
     readonly paragraph: string,
     /** The picture or chart a replacement couldn't put in, which kept the old one (#3429). */
@@ -804,12 +805,30 @@ function addAfter(
     const items = nodes.flatMap((node) =>
       (node.content ?? []).map((each) => proposedElement(each, options)),
     );
-    list.insert(list.toArray().indexOf(item) + 1, items);
+    list.insert(pastAdded(list.toArray(), list.toArray().indexOf(item)), items);
     return;
   }
   let top: Y.XmlElement = paragraph;
   while (top.parent instanceof Y.XmlElement) top = top.parent;
-  blocks.insert(blocks.toArray().indexOf(top) + 1, proposedBlocks(nodes, options));
+  blocks.insert(
+    pastAdded(blocks.toArray(), blocks.toArray().indexOf(top)),
+    proposedBlocks(nodes, options),
+  );
+}
+
+/**
+ * Where what is added after the Block at `at` goes: after the Blocks already waiting to be added
+ * right after it, so a second addition after one paragraph comes after the first (#3747).
+ */
+function pastAdded(siblings: readonly unknown[], at: number): number {
+  let next = at + 1;
+  while (true) {
+    const sibling = siblings[next];
+    if (!(sibling instanceof Y.XmlElement)) return next;
+    if (readProposalAttribute(sibling.getAttribute(PROPOSAL_ATTRIBUTE))?.kind !== "insert")
+      return next;
+    next += 1;
+  }
 }
 
 /**
@@ -926,6 +945,29 @@ export function proposeNamed(
   }
 }
 
+/** Whether Markdown holds a Block other than paragraphs and tables, which a rewrite writes as words. */
+function holdsOtherBlocks(written: string): boolean {
+  return markdownToBlocks(withoutName(written)).some(
+    (block) => block.type !== "paragraph" && block.type !== "table",
+  );
+}
+
+/**
+ * Where "¶0+" adds: before the Note's first named paragraph, at its top, after a tab's start that
+ * opens it; at the end of a Note with none.
+ */
+function topIndex(
+  blocks: Y.XmlFragment,
+  note: NamedNote,
+  elements: ReadonlyMap<string, Y.XmlElement>,
+): number {
+  const first = note.paragraphs[0];
+  let top = first ? elements.get(first.blockId) : undefined;
+  if (!top) return blocks.length;
+  while (top.parent instanceof Y.XmlElement) top = top.parent;
+  return blocks.toArray().indexOf(top);
+}
+
 function writeNamed(
   blocks: Y.XmlFragment,
   note: NamedNote,
@@ -978,6 +1020,17 @@ function writeNamed(
       (holdsTab(change.text) || (options.visuals && holdsVisual(change.text)))
     ) {
       throw new ChangeRefused("agents.propose.visualAdded", paragraph.name);
+    }
+    // A top-level paragraph written as a heading, a list, a quote, code or a rule takes its place
+    // whole, as the Blocks it means (#3747): a rewrite of its words would keep their marks as
+    // words. One inside a list or a table is rewritten as one there, its marks read as its kind.
+    // What it holds by handle can't go into other Blocks, so the agent is told.
+    if (change.kind === "rewrite" && element.parent === blocks && holdsOtherBlocks(change.text)) {
+      if (change.text.search(HANDLE) >= 0) {
+        throw new ChangeRefused("agents.propose.blockKeeps", paragraph.name);
+      }
+      replaces.push({ element, name: paragraph.name, text: change.text });
+      continue;
     }
     const { from, to } = wholeOf(element, paragraph.blockId);
     const read = readSelection(blocks, from, to);
@@ -1099,7 +1152,7 @@ function writeNamed(
   for (const { element, nodes } of additions) {
     if (nodes.length === 0) continue;
     if (element) addAfter(blocks, element, nodes, options);
-    else blocks.push(proposedBlocks(nodes, options));
+    else blocks.insert(topIndex(blocks, note, elements), proposedBlocks(nodes, options));
   }
   if (!holdsOnlyPlaced(blocks, options.request, placed)) return refused({ notPlaced: true });
   const waiting = waitingChanges(blocks, (each) => each.request === options.request);
