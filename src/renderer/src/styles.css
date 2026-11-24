@@ -5114,7 +5114,8 @@
     margin: 0;
     line-height: 20px;
   }
-  .mind-editor .applied-line--band {
+  /* Two classes, to beat the wrapping `.mind-editor .applied-line` further down: the band is one row high. */
+  .mind-editor .applied-line.applied-line--band {
     flex-wrap: nowrap;
     overflow: hidden;
 
@@ -5123,7 +5124,7 @@
     }
   }
   .mind-editor .applied-line--band .applied-count {
-    flex: 1 1 0%;
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
