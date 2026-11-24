@@ -143,6 +143,17 @@ function NoteAskBox({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // The card never takes the focus: Shift+Tab from the input reaches its answers, on Deny (#3653).
+    if (event.key === "Tab" && event.shiftKey && question) {
+      const deny = document.querySelector<HTMLButtonElement>(
+        `[data-testid="own-ask-card"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="own-ask-deny"]`,
+      );
+      if (deny) {
+        event.preventDefault();
+        deny.focus();
+        return;
+      }
+    }
     if (event.key === "Escape") {
       if (working) void stopInNote(mindId);
       else if (open) setColumnOpen(mindId, false);

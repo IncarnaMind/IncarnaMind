@@ -1583,6 +1583,47 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect((await core.listDocuments()).map((each) => each.name)).toContain("Ferry delays");
   });
 
+  // protects=a conversation begun before its AI kept its own abilities, whose kept system prompt said it had none, begins anew once, under a new id, and says so; IncarnaMind's record of it stays; later requests continue the new one; fails_when=it resumes the old one and the AI refuses every tool of its own, or every request starts anew
+  it("begins a conversation from before anew, once", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "Done." }));
+    const { core, mindId, ended, dataDir, turns } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "make it shorter" });
+    await ended(1);
+    await core.close();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run("UPDATE own_ai_conversations SET renewed = 1");
+    } finally {
+      db.close();
+    }
+    const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    const told: NoteTurnEvent[] = [];
+    again.on("agents.noteTurn", (turn) => told.push(turn));
+    const endOf = (count: number) =>
+      expect
+        .poll(() => told.filter((turn) => turn.state !== "working").length, { timeout: 5_000 })
+        .toBe(count)
+        .then(() => told.filter((turn) => turn.state !== "working").at(-1));
+    try {
+      await again.askInNote({ mindId, words: "count the late crossings" });
+      expect(await endOf(1)).toMatchObject({ state: "landed", renewed: true, fresh: false });
+      await again.askInNote({ mindId, words: "and once more" });
+      expect(await endOf(2)).toMatchObject({ state: "landed", renewed: false });
+      const [first, renewed, next] = run.runs;
+      expect(renewed?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+      expect(renewed?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
+      expect(next?.conversation).toEqual({ ...renewed?.conversation, resume: true });
+      expect((await again.noteConversation(mindId)).map((turn) => turn.request)).toEqual([
+        "make it shorter",
+        "count the late crossings",
+        "and once more",
+      ]);
+      expect(turns.every((turn) => !turn.renewed)).toBe(true);
+    } finally {
+      await again.close();
+    }
+  });
+
   // protects=what the AI asked goes with the conversation; fails_when=a deleted conversation keeps the commands it asked to run
   it("deletes what was asked with the conversation", async () => {
     const run = asking(asked("toolu_1"));

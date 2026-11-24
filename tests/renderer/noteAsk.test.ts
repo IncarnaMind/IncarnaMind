@@ -77,6 +77,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   waiting: [],
   made: [],
   fresh: false,
+  renewed: false,
   quiet: false,
   model: null,
   steps: [],

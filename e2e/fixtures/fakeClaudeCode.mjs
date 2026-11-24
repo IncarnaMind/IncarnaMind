@@ -18,8 +18,8 @@
 // and "ask-tool" ask one question of that kind, act on the answer and say how it went; "ask-twice"
 // asks for a command, then runs it again, asking again only without a rule kept for the session;
 // "ask-two" asks two questions at once; "ask-after-web" opens a page unasked, then asks for a
-// command; "ask-child" starts a process that leads its own group, writes its id to the mode file's
-// ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
+// command; "ask-child" starts a process that leads its own group, writes its own id and that
+// process's to the mode file's ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
 // with no input; "ask-other" asks for a tool the host can't show; "auto" runs a command unasked,
 // its own mode named in the mode file's ".permission" ("auto" when it names none). Each answer is
 // appended to the mode file's ".answers".
@@ -540,8 +540,9 @@ async function askingModes() {
     const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
     });
-    writeFileSync(`${modeFile}.child`, String(child.pid));
+    writeFileSync(`${modeFile}.child`, `${process.pid} ${child.pid}`);
     child.unref();
     await ownCall(QUESTIONS.command);
     end("Ran it.");

@@ -227,9 +227,17 @@ export function NoteConversationBody({
   const body = useRef<HTMLDivElement>(null);
   const [turns, setTurns] = useState<readonly NoteTurn[] | null>(null);
   const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
-  // Once in the conversation, above the first step the AI took with a tool of its own unasked, a
-  // line says it does so (#3653); and once, at the first request its own mode asks nothing in.
-  const firstOwn = turns?.find((turn) => (trails[turn.id]?.steps ?? []).some(unasked))?.id ?? null;
+  // Once in the conversation, above the first step the AI took with a tool of its own, a line says
+  // it does so (#3653), unless that step asked, whose card said it already; and once, at the first
+  // request its own mode asks nothing in.
+  const firstStep = turns
+    ?.flatMap((turn) =>
+      (trails[turn.id]?.steps ?? []).flatMap((step) =>
+        step.kind === "own" ? [{ turn: turn.id, step }] : [],
+      ),
+    )
+    .at(0);
+  const firstOwn = firstStep && unasked(firstStep.step) ? firstStep.turn : null;
   const modeTurn =
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
 
@@ -320,6 +328,11 @@ function Turn({
   return (
     <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
+      {trail?.renewed && (
+        <p data-testid="note-column-renewed" className="note-column-notice">
+          {t("noteAsk.renewed", { agent })}
+        </p>
+      )}
       <div className="note-column-bubble">
         {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
         <p>{turn.request}</p>

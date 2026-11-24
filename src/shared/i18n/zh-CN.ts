@@ -8735,6 +8735,7 @@ export const zhCN = {
   "noteAsk.doing.publish_canvas": "正在制作页面",
   "noteAsk.stopped": "已停止。",
   "noteAsk.fresh": "已开始新的对话：之前的对话已清除。",
+  "noteAsk.renewed": "已开始新的对话：这次可以使用 {agent} 自己的工具。",
   "noteAsk.done.changed.one": "在这篇笔记中修改了 1 段。",
   "noteAsk.done.changed.other": "在这篇笔记中修改了 {count} 段。",
   "noteAsk.done.waiting.one": "“{title}”中有 1 处修改等你确认。",

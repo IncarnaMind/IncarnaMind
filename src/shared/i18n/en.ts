@@ -9300,6 +9300,7 @@ export const en = {
   "noteAsk.doing.publish_canvas": "Making a page",
   "noteAsk.stopped": "Stopped.",
   "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
+  "noteAsk.renewed": "Started a new conversation: this one can use {agent}’s own tools.",
   "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
   "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
   "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",

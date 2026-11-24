@@ -3479,6 +3479,11 @@ export const migrations: readonly Migration[] = [
       CREATE INDEX own_ai_questions_by_turn ON own_ai_questions (turn_id) WHERE deleted_at IS NULL;
       -- The AI's own permission mode a request ran in, as the AI named it.
       ALTER TABLE own_ai_turns ADD COLUMN mode TEXT;
+      -- A conversation begun before its AI kept its own abilities: Claude Code keeps the system
+      -- prompt a conversation began with, which said it had none, so its next request begins a new
+      -- one, under a new id, and says so once.
+      ALTER TABLE own_ai_conversations ADD COLUMN renewed INTEGER NOT NULL DEFAULT 0;
+      UPDATE own_ai_conversations SET renewed = 1 WHERE deleted_at IS NULL;
     `,
   },
 ];

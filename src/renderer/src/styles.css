@@ -3174,14 +3174,14 @@
   .own-clamp--2 {
     -webkit-line-clamp: 2;
   }
-  .own-ask-details {
+  .own-ask-card .own-ask-details {
     gap: 8px;
   }
   .own-ask-details[data-all] .own-clamp {
     display: block;
     overflow: visible;
   }
-  .own-ask-details[data-all] .approval-args {
+  .own-ask-card .own-ask-details[data-all] .approval-args {
     max-height: none;
   }
   .own-ask-value {
@@ -3217,7 +3217,7 @@
       text-underline-offset: 3px;
     }
   }
-  .own-ask-args {
+  .own-ask-card .own-ask-args {
     gap: 2px 12px;
     dd {
       white-space: normal;
@@ -3243,7 +3243,7 @@
     overflow-wrap: anywhere;
     user-select: text;
   }
-  .own-ask-actions {
+  .own-ask-card .own-ask-actions {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;

@@ -13534,6 +13534,11 @@ export interface NoteTurnEvent {
   /** The Notes it wrote, to open from the line. */
   made: { mindId: string; title: string }[];
   fresh: boolean;
+  /**
+   * The Note's conversation began before its AI kept its own abilities, so this request began a
+   * new one, which can use them (#3653).
+   */
+  renewed: boolean;
   /** While it works: the AI has sent nothing for a while, and no call of it runs here. */
   quiet: boolean;
   /** The model the run answers on, as its start names it ("claude-haiku-5-5"); null until it starts. */

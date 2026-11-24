@@ -160,6 +160,7 @@ export function QuestionCard({
       aria-labelledby={titleId}
       aria-describedby={ownId}
       data-testid="own-ask-card"
+      data-mind-id={mindId}
       data-kind={action.kind}
       className="approval-card own-ask-card"
     >

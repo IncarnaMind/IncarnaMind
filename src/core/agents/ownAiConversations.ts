@@ -134,6 +134,7 @@ interface ConversationRow {
   mind_id: string;
   pairing_id: string;
   session_id: string;
+  renewed: number;
 }
 
 interface TurnRow {
@@ -245,7 +246,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
   const conversationOf = (mindId: string, pairingId: string) =>
     db.get<ConversationRow>(
-      `SELECT id, mind_id, pairing_id, session_id FROM own_ai_conversations
+      `SELECT id, mind_id, pairing_id, session_id, renewed FROM own_ai_conversations
        WHERE mind_id = ? AND pairing_id = ? AND deleted_at IS NULL`,
       [mindId, pairingId],
     ) ?? null;
@@ -270,6 +271,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       mind_id: mindId,
       pairing_id: pairingId,
       session_id: options.newId(),
+      renewed: 0,
     };
     db.run(
       `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at)
@@ -319,6 +321,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         waiting: [],
         made: [],
         fresh: false,
+        renewed: false,
         quiet: false,
         model: null,
         steps: [],
@@ -510,6 +513,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     >();
     let mode: string | null = null;
     let outside: NoteReadText | null = null;
+    // Claude Code keeps the system prompt a conversation began with: one begun before its AI kept
+    // its own abilities, told it had none, so it begins anew, once (#3653).
+    const renewed = conversation.renewed === 1;
     // The Documents its searches found and its reads reached, and how many Passages of each it read.
     const found = new Set<string>();
     const readOf = new Map<string, number>();
@@ -530,6 +536,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       waiting: [...waiting.values()],
       made,
       fresh: false,
+      renewed,
       quiet,
       model: answeredOn,
       steps: steps.map((step) => ({ ...step })),
@@ -865,10 +872,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     let fresh = false;
     let end: Awaited<ReturnType<typeof runOnce>>;
+    let { session_id: sessionId } = conversation;
+    if (renewed) {
+      sessionId = options.newId();
+      db.run(
+        "UPDATE own_ai_conversations SET session_id = ?, renewed = 0, updated_at = ? WHERE id = ?",
+        [sessionId, options.now(), conversation.id],
+      );
+    }
     let listening: ReturnType<typeof setInterval> | undefined;
     try {
       listening = listen();
-      end = await runOnce(hasEarlierTurns(conversation.id, turnId), conversation.session_id);
+      end = await runOnce(!renewed && hasEarlierTurns(conversation.id, turnId), sessionId);
       if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
         // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
         fresh = true;
@@ -909,6 +924,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     endTurn({ mindId, pairingId: pairing.id, turnId }, outcome, {
       reply,
       fresh,
+      renewed,
       applied,
       waiting: [...waiting.values()],
       made,

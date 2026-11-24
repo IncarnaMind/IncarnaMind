@@ -78,6 +78,8 @@ export interface NoteTrail {
   startedAt: string;
   endedAt: string | null;
   fresh: boolean;
+  /** This request began a new conversation that can use the AI's own tools (#3653). */
+  renewed: boolean;
   documentsFound: number;
   /** The AI's own mode, as it named it (#3653). */
   mode: string | null;
@@ -151,6 +153,7 @@ function keepTrail(event: NoteTurnEvent): void {
           startedAt: was?.startedAt ?? event.startedAt,
           endedAt: ended ? new Date().toISOString() : null,
           fresh: event.fresh || (was?.fresh ?? false),
+          renewed: event.renewed || (was?.renewed ?? false),
           documentsFound: Math.max(event.documentsFound, was?.documentsFound ?? 0),
           mode: event.mode ?? was?.mode ?? null,
         },
@@ -236,6 +239,11 @@ function heard(event: NoteTurnEvent): void {
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
   // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
+  if (event.renewed) {
+    useNotices
+      .getState()
+      .confirm("noteAsk.renewed", { agent: nameOf(event.mindId, event.pairingId) });
+  }
   const byNote = new Map<string, NoteChangeApplied[]>();
   // A change in a Note the agent wrote applied already, with its own Undo there.
   for (const each of event.applied.filter((change) => !change.own))
