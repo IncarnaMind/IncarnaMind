@@ -473,6 +473,10 @@ export const zhCN = {
   "command.settings.meetingWords.keywords": "名字 热词 词表 转写 会议 mingzi reci zhuanxie huiyi",
   "command.settings.localMode.keywords": "本地 离线 隐私 云端 关闭 设置 bendi lixian yinsi",
   "command.settings.callHelpModel": "通话助手模型",
+  "command.settings.repairAllAgents": "修复全部 AI 应用连接",
+  "command.settings.disconnectAllAgents": "断开全部 AI 应用…",
+  "command.settings.allAgents.keywords":
+    "设置 你的 AI 应用 智能体 连接 修复 断开 移除 xiufu duankai lianjie zhinengti",
   "command.settings.callHelpModel.keywords":
     "最快 快速 速度 回答 会议 设置 zuikuai sudu huida huiyi",
   "palette.label": "搜索",
@@ -8388,6 +8392,12 @@ export const zhCN = {
   "agents.settings.connectButton": "连接",
   "agents.settings.help": "分步说明",
   "agents.settings.skillLeft": "已断开{agent}。因为你改过技能文件，它仍保留在 {path}。",
+  "agents.settings.repairAll": "全部修复（{count} 个）",
+  "agents.settings.disconnectAll": "全部断开…",
+  "agents.settings.disconnectAll.ask":
+    "断开全部 {count} 个？它们在 IncarnaMind 中写下的内容会保留。",
+  "agents.settings.disconnectAll.confirm": "全部断开",
+  "agents.settings.disconnectAll.keep": "保留",
   "agents.setup.bundle": "一键连接：打开 Claude 进行安装",
   "agents.setup.link": "一键连接：打开{agent}进行安装",
   "agents.setup.file": "IncarnaMind 会把自己添加到{agent}的设置中",

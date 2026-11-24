@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import type { AgentClient, AgentSettings, LibraryGroup } from "../../../../core/api";
+import type { AgentClient, AgentPairing, AgentSettings, LibraryGroup } from "../../../../core/api";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
 import { noModelSetUp } from "../../noModelSetUp";
@@ -17,12 +17,19 @@ import {
 import { buttonStyle, noticeClass } from "../ui";
 import { AgentFinder } from "./AgentFinder";
 import { AgentPairingRow, type JustSetUp } from "./AgentPairingRow";
+import {
+  DisconnectAll,
+  type LeftBehind,
+  RepairAll,
+  useAgentsNeedingRepair,
+} from "./AllAgentsActions";
 import { clientName, clientNote, setupWords } from "./agentWords";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 import { type AgentChoice, useAgentConnection } from "./ConnectAgentFields";
 
 /** One empty list for every read before the Library is: a new one each time would redraw forever. */
 const NO_FOLDERS: readonly LibraryGroup[] = [];
+const NO_PAIRINGS: readonly AgentPairing[] = [];
 
 export interface AgentsRead {
   settings: AgentSettings | null;
@@ -93,6 +100,15 @@ export function useAgentsRead(): AgentsRead {
   return { settings, failed, clients, clientsFailed, switchShown, setSettings, retry };
 }
 
+/** The Skills each Disconnect left because the User changed them, by the app that had them. */
+const skillsLeftBy = (left: readonly LeftBehind[]) =>
+  left
+    .filter((each) => each.left.skillsLeft.length > 0)
+    .map((each) => ({
+      agent: each.agent,
+      paths: each.left.skillsLeft.map((skill) => skill.shown),
+    }));
+
 /**
  * Settings › AI › Your AI (#351, #3645): the AI the User already uses (Claude Code, Codex, Claude's
  * app…), searching what they share, with checked Citations. It leads the page. While nothing is
@@ -122,12 +138,13 @@ export function YourAiSection({
   const [connecting, setConnecting] = useState<AgentClient | null>(null);
   const connection = useAgentConnection();
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
-  // The Skill a Disconnect left because the User changed it, said until the page goes.
-  const [skillLeft, setSkillLeft] = useState<{ agent: string; paths: string[] } | null>(null);
+  // The Skills a Disconnect left because the User changed them, said until the page goes.
+  const [skillLeft, setSkillLeft] = useState<{ agent: string; paths: string[] }[]>([]);
   const [addingAnother, setAddingAnother] = useState(false);
   const list = useRef<HTMLDivElement>(null);
 
-  const connected = settings?.pairings ?? [];
+  const connected = settings?.pairings ?? NO_PAIRINGS;
+  const repair = useAgentsNeedingRepair(connected);
   // Open while nothing at all is set up; otherwise one row unfolds it.
   const listed = (connected.length === 0 && noModel) || addingAnother;
 
@@ -156,7 +173,7 @@ export function YourAiSection({
     const done = await connection.connect(client, choice, { enable: true });
     if (!done) return;
     setJustSetUp(done);
-    setSkillLeft(null);
+    setSkillLeft([]);
     setConnecting(null);
     setAddingAnother(false);
   };
@@ -214,11 +231,16 @@ export function YourAiSection({
         </p>
       )}
 
-      {skillLeft && (
-        <p data-testid="agent-skill-left" role="status" className={noticeClass}>
+      {skillLeft.map((each) => (
+        <p
+          key={each.paths.join("\n")}
+          data-testid="agent-skill-left"
+          role="status"
+          className={noticeClass}
+        >
           <Slotted
-            message={t("agents.settings.skillLeft", { agent: skillLeft.agent, path: SLOT })}
-            slot={skillLeft.paths.map((path, at) => (
+            message={t("agents.settings.skillLeft", { agent: each.agent, path: SLOT })}
+            slot={each.paths.map((path, at) => (
               <Fragment key={path}>
                 {at > 0 && (language === "zh-CN" ? "、" : ", ")}
                 <InlinePath path={path} />
@@ -226,11 +248,20 @@ export function YourAiSection({
             ))}
           />
         </p>
-      )}
+      ))}
 
       <SettingsSection
         testId="agents-connected"
         title={t("setupPage.ai.title")}
+        action={
+          <RepairAll
+            ids={connected
+              .filter((pairing) => repair.needs?.has(pairing.id))
+              .map((pairing) => pairing.id)}
+            ready={repair.needs !== null}
+            onRepaired={() => void repair.read()}
+          />
+        }
         help={
           listed &&
           clients &&
@@ -264,6 +295,8 @@ export function YourAiSection({
                   skillOutOfDate={settings.skillsOutOfDate.includes(pairing.id)}
                   awaitingInstall={settings.awaitingInstall.includes(pairing.id)}
                   shimOutOfDate={settings.shimsOutOfDate.includes(pairing.id)}
+                  broken={repair.needs?.has(pairing.id) ?? false}
+                  onRepaired={() => void repair.read()}
                   isBundleClient={
                     clients?.some(
                       (each) => each.id === pairing.client && each.setup === "bundle",
@@ -279,13 +312,7 @@ export function YourAiSection({
                       rotated,
                     })
                   }
-                  onDisconnected={(agent, left) =>
-                    setSkillLeft(
-                      left.skillsLeft.length > 0
-                        ? { agent, paths: left.skillsLeft.map((each) => each.shown) }
-                        : null,
-                    )
-                  }
+                  onDisconnected={(agent, left) => setSkillLeft(skillsLeftBy([{ agent, left }]))}
                 />
               ))}
               {!listed && (
@@ -301,6 +328,10 @@ export function YourAiSection({
               )}
             </SettingsGroup>
           )}
+          <DisconnectAll
+            pairings={connected}
+            onDisconnected={(left) => setSkillLeft(skillsLeftBy(left))}
+          />
           {listed && clientsFailed && (
             <ProblemLine
               testId="agents-list-failed"

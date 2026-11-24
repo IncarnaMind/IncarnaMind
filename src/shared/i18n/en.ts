@@ -494,6 +494,10 @@ export const en = {
     "names hotwords vocabulary transcription spelling meetings",
   "command.settings.localMode.keywords": "local offline private cloud off settings privacy",
   "command.settings.callHelpModel": "Call help model",
+  "command.settings.repairAllAgents": "Repair all AI app connections",
+  "command.settings.disconnectAllAgents": "Disconnect all AI apps…",
+  "command.settings.allAgents.keywords":
+    "settings your AI apps agents connections connected repair fix broken moved disconnect remove",
   "command.settings.callHelpModel.keywords": "fastest quick speed slow answers meetings settings",
   "palette.label": "Search",
   "palette.placeholder": "Search notes, conversations, Documents, Folders, Tags and actions…",
@@ -8923,6 +8927,12 @@ export const en = {
   "agents.settings.connectButton": "Connect",
   "agents.settings.help": "Step-by-step help",
   "agents.settings.skillLeft": "Disconnected {agent}. Its Skill stays at {path}: you changed it.",
+  "agents.settings.repairAll": "Repair all ({count})",
+  "agents.settings.disconnectAll": "Disconnect all…",
+  "agents.settings.disconnectAll.ask":
+    "Disconnect all {count}? What they wrote in IncarnaMind stays.",
+  "agents.settings.disconnectAll.confirm": "Disconnect all",
+  "agents.settings.disconnectAll.keep": "Keep them",
   "agents.setup.bundle": "One click: Claude opens to install it",
   "agents.setup.link": "One click: {agent} opens to install it",
   "agents.setup.file": "IncarnaMind adds itself to the settings of {agent}",

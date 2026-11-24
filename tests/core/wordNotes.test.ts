@@ -29,6 +29,7 @@ import { createTempDataFolder, startCore } from "../helpers/core";
 import { unzip } from "../helpers/docx";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { editMind, readMind } from "../helpers/minds";
+import { fakePrinter } from "../helpers/printer";
 import {
   field,
   note,
@@ -1024,6 +1025,104 @@ describe("a Note imported before its notes were its own", () => {
       expect(result.word?.notKept).toEqual([]);
     },
   );
+});
+
+describe("a Word file's endnotes in a PDF, HTML or Markdown export", () => {
+  /** Footnotes and endnotes taking turns, the endnotes lettered as the file numbers them. */
+  const lettered = (): WordFileInput => ({
+    body: [
+      paragraph(`${run("The lease ends in 2030.")}${noteMark("footnote", 1)}`),
+      paragraph(`${run("See the schedule.")}${noteMark("endnote", 1)}`),
+      paragraph(`${run("Rent is reviewed yearly.")}${noteMark("footnote", 2)}`),
+      paragraph(`${run("Fittings stay with the flat.")}${noteMark("endnote", 2)}`),
+    ].join(""),
+    footnotes: [note("footnote", 1, ["Clause 2."]), note("footnote", 2, ["Clause 4.2."])].join(""),
+    endnotes: [
+      note("endnote", 1, ["Schedule 3 lists the fittings."]),
+      note("endnote", 2, ["As agreed on 2 May."]),
+    ].join(""),
+    settings: `<w:footnotePr><w:numFmt w:val="decimal"/></w:footnotePr><w:endnotePr><w:numFmt w:val="upperLetter"/></w:endnotePr>`,
+  });
+
+  async function setUpPrinted() {
+    const printer = fakePrinter();
+    const core = startCore(await createTempDataFolder(), { printer: printer.printer });
+    const imported = await importWordBytes(
+      core,
+      await createTempDataFolder(),
+      wordFile(lettered()),
+      {
+        origin: "own",
+      },
+    );
+    return { core, printer, mindId: imported.mindId };
+  }
+  const text = (data: Uint8Array) => new TextDecoder().decode(data);
+
+  test("a PDF prints the endnotes after the text, lettered as the file has them, and only the footnotes at the pages' foot", async () => {
+    const { core, printer, mindId } = await setUpPrinted();
+    const result = await core.exportMind(mindId, { format: "pdf" });
+    const printed = printer.printed[0];
+    expect(printed?.notes).toEqual(["Clause 2.", "Clause 4.2."]);
+    expect(result.footnotes).toBe(2);
+    expect(printed?.body).toContain('See the schedule.<sup class="endnote-ref">A</sup>');
+    expect(printed?.body).toContain(
+      'Rent is reviewed yearly.<sup class="note-ref" data-note="2">2</sup>',
+    );
+    expect(
+      printed?.body.endsWith(
+        '<h2 class="endnotes-title">Endnotes</h2>' +
+          '<ol class="numbered endnotes">' +
+          '<li data-marker="A"><p>Schedule 3 lists the fittings.</p></li>' +
+          '<li data-marker="B"><p>As agreed on 2 May.</p></li></ol>',
+      ),
+    ).toBe(true);
+  });
+
+  test("an HTML file links each endnote's letter to its endnote after the text, and back, and numbers the footnotes on their own", async () => {
+    const { core, mindId } = await setUpPrinted();
+    const html = text((await core.exportMind(mindId, { format: "html" })).data);
+    expect(html).toContain(
+      'See the schedule.<sup class="endnote-ref" id="endnote-ref-1"><a href="#endnote-1">A</a></sup>',
+    );
+    expect(html).toContain(
+      'Rent is reviewed yearly.<sup class="note-ref" id="ref-2"><a href="#note-2">2</a></sup>',
+    );
+    expect(html).not.toContain('href="#note-3"');
+    const endnotes = html.indexOf('<h2 class="endnotes-title">Endnotes</h2>');
+    expect(endnotes).toBeGreaterThan(html.indexOf("Fittings stay with the flat."));
+    expect(endnotes).toBeLessThan(html.indexOf("</main>"));
+    expect(html).toContain(
+      '<li id="endnote-2" data-marker="B"><p>As agreed on 2 May.<a class="backref" href="#endnote-ref-2"',
+    );
+    expect(html.indexOf('<li id="note-2">Clause 4.2.')).toBeGreaterThan(html.indexOf("</main>"));
+  });
+
+  test("Markdown writes each endnote's letter raised in the text and the endnotes after it, before the footnotes", async () => {
+    const { core, mindId } = await setUpPrinted();
+    const markdown = text((await core.exportMind(mindId, { format: "markdown" })).data);
+    expect(markdown).toBe(
+      [
+        "The lease ends in 2030.[^1]",
+        "See the schedule.<sup>A</sup>",
+        "Rent is reviewed yearly.[^2]",
+        "Fittings stay with the flat.<sup>B</sup>",
+        "# Endnotes",
+        "<sup>A</sup> Schedule 3 lists the fittings.",
+        "<sup>B</sup> As agreed on 2 May.",
+        "[^1]: Clause 2.\n[^2]: Clause 4.2.\n",
+      ].join("\n\n"),
+    );
+  });
+
+  test("in Chinese, the endnotes are headed 尾注", async () => {
+    const { core, printer, mindId } = await setUpPrinted();
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    await core.exportMind(mindId, { format: "pdf" });
+    expect(printer.printed[0]?.body).toContain('<h2 class="endnotes-title">尾注</h2>');
+    const markdown = text((await core.exportMind(mindId, { format: "markdown" })).data);
+    expect(markdown).toContain("\n\n# 尾注\n\n<sup>A</sup> Schedule 3 lists the fittings.\n\n");
+  });
 });
 
 describe("note numbers", () => {

@@ -35,6 +35,8 @@ export type SettingsTarget =
   | "background"
   | "call-offers"
   | "check-decision"
+  | "repair-all-agents"
+  | "disconnect-all-agents"
   | SignInRoute;
 
 export const offeredSettingsPages: readonly SettingsPage[] = settingsPages;

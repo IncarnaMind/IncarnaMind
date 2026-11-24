@@ -15,7 +15,8 @@ export interface PrintDocument {
   /**
    * The body, as HTML the core escaped. Each footnote's marker is
    * `<sup class="note-ref" data-note="N">N</sup>`, N counting from 1 in reading order; a marker
-   * right after another is `<sup class="note-ref" data-note="N">,N</sup>`.
+   * right after another is `<sup class="note-ref" data-note="N">,N</sup>`. A Word file's endnotes
+   * are in the body, after the text, their markers `<sup class="endnote-ref">` (#746).
    */
   body: string;
   /** Each footnote's text, as HTML: footnote N is `notes[N - 1]`. */
