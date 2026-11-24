@@ -656,8 +656,21 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   // protects=a change that applies at once in the Note asked from reads, in the same run, as in the Note: in the result and in a later read, with the Note's names and version; a second change to that paragraph is refused as the agent's own, never as one for the User to accept; a change that waits, here or in another Note, and an outside agent's, read as waiting; fails_when=the agent is shown the Note as if its change hadn't landed, and may write it again
   it("reads the Note with this request's own change in, and never as if it hadn't landed", async () => {
     const seen: Record<string, unknown> = {};
+    let outside: Agent | null = null;
+    let otherId = "";
     const run = runner(async (agent, request) => {
       const mindId = mindIdOf(request);
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages;
+      const cite =
+        structured<{ citations: { cite: string | null }[] }>(
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.map(({ passageId }) => ({ passageId, quote: FERRY })) },
+          }),
+        ).citations.find((each) => each.cite !== null)?.cite ?? "";
+      seen.cite = cite;
       const read = structured<{ markdown: string; version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
       );
@@ -669,12 +682,35 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
             version: read.version,
             changes: [
               { paragraph: "¶2", text: "Fares rose by a tenth." },
-              { paragraph: "¶2+", text: "The council meets the ferry company in January." },
+              {
+                paragraph: "¶2+",
+                text: `The council meets the ferry company in January. ${FERRY} ${cite}`,
+              },
             ],
           },
         }),
       );
       seen.result = done;
+      // Meanwhile an outside agent over the connection reads the Note as it is: the change waits.
+      seen.outside = outside
+        ? structured<{ markdown: string }>(
+            await outside.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+          )
+        : null;
+      // A change this run makes in another Note waits there, and reads as waiting.
+      const other = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: otherId, named: true } }),
+      );
+      seen.elsewhere = structured<{ status: string; markdown: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: otherId,
+            version: other.version,
+            changes: [{ paragraph: "¶1", text: "Fares rose by a tenth." }],
+          },
+        }),
+      );
       seen.again = structured<{ markdown: string; version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
       );
@@ -690,20 +726,36 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       );
       return { kind: "finished", reply: "Shortened the fares." };
     });
-    const { core, mindId, client, ended } = await written(run.adapter);
+    const paired = await written(run.adapter);
+    const { core, mindId, client, ended, claude } = paired;
+    otherId = paired.otherId;
+    outside = await connectLegacyAgent(claude.launch);
     await core.askInNote({ mindId, words: "shorten the fares and add the January meeting" });
     const end = await ended();
     const yours = translate("en", "agents.mind.yours");
+    const waiting = translate("en", "agents.mind.waiting");
     const result = seen.result as { status: string; markdown: string; version: string };
     const again = seen.again as { markdown: string; version: string };
     expect(result.status).toBe("applied");
-    // The result and a later read show the change in, marked as this request's own: not waiting.
+    // The result and a later read show the change in, marked as this request's own: not waiting,
+    // its Citation read back as a token, as an ordinary read gives it.
     for (const markdown of [result.markdown, again.markdown]) {
       expect(markdown).toContain(`¶2 ${yours} Fares rose by a tenth.`);
       expect(markdown).toContain(`${yours} The council meets the ferry company in January.`);
-      expect(markdown).not.toContain(translate("en", "agents.mind.waiting"));
+      expect(markdown).toMatch(
+        new RegExp(
+          `${yours.replace(/[()]/g, "\\$&")} The council meets[^\\n]*\\[cite:[a-z0-9]+\\]`,
+        ),
+      );
+      expect(markdown).not.toContain(waiting);
       expect(markdown).not.toContain(FARES);
     }
+    // An outside agent reads the Note as it is meanwhile; another Note's change waits there.
+    expect((seen.outside as { markdown: string }).markdown).toContain(`¶2 ${waiting} ${FARES}`);
+    const elsewhere = seen.elsewhere as { status: string; markdown: string };
+    expect(elsewhere.status).toBe("waiting");
+    expect(elsewhere.markdown).toContain(`¶1 ${waiting}`);
+    expect(elsewhere.markdown).not.toContain(yours);
     // Its names and version are the Note's, so a next change is placed as it reads.
     expect(again.version).toBe(result.version);
     expect(seen.twice).toBe(translate("en", "agents.problem.yours", { paragraph: "¶2" }));
@@ -715,11 +767,50 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       requests: (end?.applied ?? []).map((each) => each.request),
     });
     await client.settled();
-    expect(shownWithChanges(client)).toEqual([
-      FERRY,
-      "Fares rose by a tenth.",
+    await client.settled();
+    expect(shownWithChanges(client).slice(0, 2)).toEqual([FERRY, "Fares rose by a tenth."]);
+    expect(shownWithChanges(client)).toHaveLength(3);
+    expect(shownWithChanges(client)[2]).toContain(
       "The council meets the ferry company in January.",
-    ]);
+    );
+  });
+
+  // protects=after Stop the change stays waiting, and the next request reads it truthfully as waiting, not as its own; fails_when=a later run reads another run's change as in the Note
+  it("reads a stopped request's change as waiting in the next request", async () => {
+    let first = true;
+    let read = "";
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      if (first) {
+        first = false;
+        const named = structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        );
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: named.version,
+            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+          },
+        });
+        return untilStopped(agent, request);
+      }
+      read = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      ).markdown;
+      return { kind: "finished", reply: "Read it." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "shorten the fares" });
+    await expect.poll(() => run.runs.length).toBe(1);
+    await pause(300);
+    await core.stopInNote(mindId);
+    await ended();
+    await core.askInNote({ mindId, words: "what does it say now?" });
+    await ended(2);
+    expect(read).toContain(`¶2 ${translate("en", "agents.mind.waiting")} ${FARES}`);
+    expect(read).not.toContain(translate("en", "agents.mind.yours"));
   });
 
   // protects=a change that waits reads as waiting, to the run that made it and to an outside agent over the connection, as before; fails_when=a waiting change reads as in the Note

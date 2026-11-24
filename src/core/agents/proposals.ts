@@ -264,17 +264,40 @@ export function heldByOwn(
   return false;
 }
 
-/** A paragraph's words once its changes are in: what they add kept, what they remove left out. */
-function changedWords(element: Y.XmlElement): string {
-  let text = "";
-  for (const { node } of layout(element)) {
-    if (!(node instanceof Y.XmlText)) continue;
-    for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
-      if (typeof run.insert === "string" && !hasMarkIn(PROPOSAL_DELETE_MARK, run.attributes))
-        text += run.insert;
+/**
+ * How a paragraph reads once `own`'s changes are in, as an ordinary read reads it (its Citations as
+ * tokens, its footnotes as handles, names escaped): read on a copy of the Note with them accepted.
+ */
+function readerOnceIn(
+  blocks: Y.XmlFragment,
+  own: ReadonlySet<string>,
+  words: NamedWords,
+): (blockId: string) => string {
+  let read: ((blockId: string) => string) | null = null;
+  return (blockId) => {
+    if (!read) {
+      const copy = new Y.Doc();
+      if (blocks.doc) Y.applyUpdate(copy, Y.encodeStateAsUpdate(blocks.doc));
+      const changed = copy.getXmlFragment(MIND_CONTENT_FIELD);
+      copy.transact(() =>
+        resolveProposals(changed, (proposal) => own.has(proposal.request), "accept"),
+      );
+      const elements = new Map(
+        namedBlocks(changed).map(({ element }) => [
+          element.getAttribute(BLOCK_ID_ATTRIBUTE),
+          element,
+        ]),
+      );
+      read = (id) => {
+        const element = elements.get(id);
+        if (!element) return "";
+        const { from, to } = wholeOf(element, id);
+        const selection = readSelection(changed, from, to);
+        return selection.ok ? shownText(selection.selection, words) : "";
+      };
     }
-  }
-  return text.replace(/\s+/g, " ").trim();
+    return read(blockId);
+  };
 }
 
 /** A held paragraph's words as the Note holds them: what its changes would add left out. */
@@ -345,6 +368,7 @@ export function namedNote(
   const asChanged = new Map<number, string>();
   const added: { at: number; text: string }[] = [];
   const own = words.yours ? options.ownPending : undefined;
+  const onceIn = own && own.size > 0 ? readerOnceIn(blocks, own, words) : null;
   const seen = new Set<string>();
   let titled = false;
   const first = blocks.get(0);
@@ -355,7 +379,7 @@ export function namedNote(
     seen.add(blockId);
     const adding = addingRequest(element);
     if (adding !== null) {
-      const text = own?.has(adding) && visual === null ? changedWords(element) : "";
+      const text = onceIn && own?.has(adding) && visual === null ? onceIn(blockId) : "";
       if (text !== "") added.push({ at: topOf(element, tops), text: `${words.yours} ${text}` });
       continue;
     }
@@ -377,7 +401,7 @@ export function namedNote(
     const read = readSelection(blocks, from, to);
     const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
     const text = read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element));
-    const changed = held === "waiting" && onlyOwn(element, own) ? changedWords(element) : null;
+    const changed = onceIn && held === "waiting" && onlyOwn(element, own) ? onceIn(blockId) : null;
     if (text.trim() === "" && !changed) continue;
     const title =
       options.title === true &&
@@ -395,7 +419,7 @@ export function namedNote(
     places.push(topOf(element, tops));
     if (changed !== null) {
       const name = paragraphs.at(-1)?.name ?? "";
-      asChanged.set(paragraphs.length - 1, `${name} ${words.yours} ${escapeNames(changed)}`);
+      asChanged.set(paragraphs.length - 1, `${name} ${words.yours} ${changed}`);
     }
   }
   const line = (paragraph: NamedParagraph) =>

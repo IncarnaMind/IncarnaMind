@@ -76,8 +76,8 @@ export interface OwnAiConversationsOptions {
   db: Database;
   /** The agents the User can ask about this Note now, the one connected or used last first. */
   askable(mindId: string): AgentPairing[];
-  /** The Citation IncarnaMind gave this connection under `token`, or null for any other. */
-  citationOf(pairingId: string, token: string): NoteCitation | null;
+  /** Of `tokens`, the Citations IncarnaMind gave this connection, found in their Document now. */
+  citationsOf(pairingId: string, tokens: readonly string[]): NoteCitation[];
   /** A grant for one run, which tells it of its own calls and changes, and of no one else's. */
   conversationGrant(
     pairingId: string,
@@ -710,24 +710,47 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         [mindId],
       );
       if (!latest) return [];
-      return db
-        .all<TurnRow>(
-          `SELECT id, request, selection, reply, outcome, problem, created_at FROM own_ai_turns
-           WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
-          [latest.id],
-        )
-        .map((row) => ({
-          id: row.id,
-          request: row.request,
-          quote: row.selection,
-          reply: row.reply,
-          outcome: row.outcome,
-          problem: (row.problem as NoteTurnProblem | null) ?? null,
-          at: row.created_at,
-          citations: [...new Set([...row.reply.matchAll(CITATION_TOKEN)].map(([, token]) => token))]
-            .map((token) => (token ? options.citationOf(latest.pairing_id, token) : null))
-            .filter((cited) => cited !== null),
-        }));
+      const rows = db.all<TurnRow>(
+        `SELECT id, request, selection, reply, outcome, problem, created_at FROM own_ai_turns
+         WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
+        [latest.id],
+      );
+      const tokensOf = (reply: string) => [
+        ...new Set(
+          [...reply.matchAll(CITATION_TOKEN)].flatMap(([, token]) => (token ? [token] : [])),
+        ),
+      ];
+      // One look at every token of the conversation, each against its Document as it is now.
+      const found = new Map(
+        options
+          .citationsOf(latest.pairing_id, [...new Set(rows.flatMap((row) => tokensOf(row.reply)))])
+          .map((cited) => [cited.token, cited]),
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        request: row.request,
+        quote: row.selection,
+        reply: row.reply,
+        outcome: row.outcome,
+        problem: (row.problem as NoteTurnProblem | null) ?? null,
+        at: row.created_at,
+        citations: tokensOf(row.reply).flatMap((token) => {
+          const cited = found.get(token);
+          return cited ? [cited] : [];
+        }),
+      }));
+    },
+
+    /** Whether the Note has a conversation kept, reading none of its turns. */
+    kept(mindId: string): boolean {
+      return (
+        db.get<{ one: number }>(
+          `SELECT 1 AS one FROM own_ai_conversations c
+           JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
+           WHERE c.mind_id = ? AND c.deleted_at IS NULL LIMIT 1`,
+          [mindId],
+        ) !== undefined
+      );
     },
 
     /**

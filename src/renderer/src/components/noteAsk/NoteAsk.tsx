@@ -326,8 +326,8 @@ function useKeptConversation(mindId: string, state: string | null): boolean {
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request ends.
   useEffect(() => {
     let current = true;
-    core.noteConversation(mindId).then((turns) => {
-      if (current) setKept(turns.length > 0);
+    core.noteConversationKept(mindId).then((kept) => {
+      if (current) setKept(kept);
     }, useAppStore.getState().reportError);
     return () => {
       current = false;

@@ -43,6 +43,13 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       createdAt: AT,
       propose: false,
     }),
+    reachOf: (pairingId) => ({
+      id: pairingId,
+      name: "Codex",
+      folderIds: ["coast"],
+      createdAt: AT,
+      propose: false,
+    }),
     folders: () => [{ id: "coast", name: "Coast", parentId: null, keepInside: false }],
     wallOf: () => null,
     foldersInScope: (folderIds) => [...folderIds],
@@ -714,7 +721,10 @@ for (const language of ["en", "zh-CN"] as const) {
     label: string;
   }[];
 
-  function transcriptAccess(location: CitationLocation | null) {
+  function transcriptAccess(
+    location: CitationLocation | null,
+    more: Partial<AgentAccessDeps> = {},
+  ) {
     const kept: AgentCitation = {
       token: "k3x9a2b7",
       pairingId: "pairing",
@@ -775,12 +785,33 @@ for (const language of ["en", "zh-CN"] as const) {
         show,
         say: (key, params) => translate(language, key, params),
         newId: () => `id-${++id}`,
+        ...more,
       },
     );
     return { access, show, cite: `[cite:${kept.token}]` };
   }
 
   describe(`outside-agent Transcript Citation rechecks, ${language}`, () => {
+    // protects=a reply's Citation is checked against its Document as a change's is, and the look records no use of the connection (no last-used time, no change told) (#3677); fails_when=reading a conversation reorders the connections or tells every window they changed
+    it.each(cases)(
+      "citationsNow checks $name as a change does, admitting nothing",
+      ({ location, check, label }) => {
+        const { access, cite } = transcriptAccess(location, {
+          admit: () => {
+            throw new Error("A reply's Citation is looked at without admitting a call.");
+          },
+        });
+        expect(access.citationsNow([cite.slice("[cite:".length, -1)])[0]).toEqual({
+          cite,
+          check,
+          document: "Review",
+          location: label,
+          quote,
+          changed: true,
+        });
+      },
+    );
+
     it.each(cases)("checkCitations preserves $name", async ({ location, check, label }) => {
       const { access, cite } = transcriptAccess(location);
       const result = await access.checkCitations({ text: `${quote} ${cite}` });

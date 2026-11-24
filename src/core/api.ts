@@ -16133,6 +16133,8 @@ export interface CoreApi {
   stopInNote(mindId: string): Promise<void>;
   /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
   noteConversation(mindId: string): Promise<NoteTurn[]>;
+  /** Whether the Note has a conversation kept, reading none of it (#3677). */
+  noteConversationKept(mindId: string): Promise<boolean>;
   /**
    * The models the User's own command-line AI offers for a request from this Note (#3677), as a
    * request's run heard them before its prompt went: looking starts nothing. [] until a request
@@ -16977,6 +16979,7 @@ const methods: Record<CoreApiMethod, true> = {
   askInNote: true,
   stopInNote: true,
   noteConversation: true,
+  noteConversationKept: true,
   noteModels: true,
   ownAiRunsHere: true,
   handedFileOf: true,

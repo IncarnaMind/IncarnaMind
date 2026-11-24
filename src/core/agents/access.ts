@@ -588,10 +588,11 @@ export interface AgentAccess {
   cite(input: AgentCiteInput): Promise<AgentCiteResult>;
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
   /**
-   * A token IncarnaMind gave this connection, checked against its Document as it is now, as a
-   * change to a Note checks one; it records nothing, being no call of the agent's (#3677).
+   * Tokens IncarnaMind gave this connection, each checked against its Document as it is now, as a
+   * change to a Note checks one; it records nothing, being no call of the agent's (#3677). A token
+   * is read in its Document again only once that Document's content changed.
    */
-  citationNow(token: string): AgentCheckedCitation;
+  citationsNow(tokens: readonly string[]): AgentCheckedCitation[];
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -726,6 +727,11 @@ export interface AgentAccessDeps {
   sorting: AgentSorting;
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
+  /**
+   * The pairing as it reaches now, for reading IncarnaMind's own record of it (a Citation it gave):
+   * no use is recorded and nothing is told; throws `AgentRefusedError` once it is gone.
+   */
+  reachOf(pairingId: string): AdmittedPairing;
   /** The live Folders. */
   folders(): { id: string; name: string; parentId: string | null; keepInside: boolean }[];
   /** The walled Folder a Folder is behind, or is; null outside every wall. */
@@ -1437,6 +1443,8 @@ export function createAgentAccess(
    * (ADR-0034): the Note reads with them in, so the agent never sees its change as not landed.
    */
   const ownPending = new Set<string>();
+  /** A reply's tokens as last read in their Document, by the content they were read in (#3677). */
+  const rechecked = new Map<string, { hash: string | null; now: CitationRecheck }>();
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
   let askedFromIncarnaMind = false;
   const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
@@ -1886,6 +1894,7 @@ export function createAgentAccess(
     inScope: ReadonlySet<string>,
     live: readonly LiveDocument[],
     token: string,
+    recheck: (kept: AgentCitation) => CitationRecheck = recheckKept,
   ): { cited: CitedToken | null; report: AgentCheckedCitation } => {
     const kept = deps.citations.find(pairing.id, token);
     if (!kept || !usable(inScope, kept.documentId)) {
@@ -1901,7 +1910,7 @@ export function createAgentAccess(
         },
       };
     }
-    const now = recheckKept(kept);
+    const now = recheck(kept);
     const check = now.check === "found" || now.check === "cant-check" ? now.check : "not-found";
     const changed = now.contentHash !== null && now.contentHash !== kept.contentHash;
     const asMinted = {
@@ -2730,10 +2739,20 @@ export function createAgentAccess(
       });
     },
 
-    citationNow(token) {
-      const pairing = deps.admit(pairingId);
+    citationsNow(tokens) {
+      const pairing = deps.reachOf(pairingId);
       const inScope = new Set(scopeOf(pairing, undefined));
-      return checkToken(pairing, inScope, deps.liveDocuments(), token).report;
+      const live = deps.liveDocuments();
+      const hashes = new Map(live.map((document) => [document.id, document.contentHash]));
+      const recheck = (kept: AgentCitation) => {
+        const hash = hashes.get(kept.documentId) ?? null;
+        const was = rechecked.get(kept.token);
+        if (was && was.hash === hash) return was.now;
+        const now = recheckKept(kept);
+        rechecked.set(kept.token, { hash, now });
+        return now;
+      };
+      return tokens.map((token) => checkToken(pairing, inScope, live, token, recheck).report);
     },
 
     checkCitations(input) {
