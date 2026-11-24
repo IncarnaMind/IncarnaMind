@@ -210,33 +210,36 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
     expectKept(title);
   }, 60_000);
 
-  // protects=a paragraph asked for as a title and a list, written as the title in its place and the list after it (¶1, then ¶+), the list keeping the paragraph's Citation and footnote by handle, lands as a heading and a list holding them, as Haiku 5.5 wrote it four times in six; fails_when=the handles land as words and the Citation and footnote go
-  it("keeps the handles of a list written after the paragraph it rewrites as a title", async () => {
-    const { agent, client, mindId } = await citedNote();
-    const read = (await agent.callTool({
-      name: "read_mind",
-      arguments: { mindId, named: true },
-    })) as { structuredContent?: { version?: string } };
-    const result = (await agent.callTool({
-      name: "propose_changes",
-      arguments: {
-        mindId,
-        version: read.structuredContent?.version,
-        changes: [
-          { paragraph: "¶1", text: "## Spring tides" },
-          {
-            paragraph: "¶+",
-            text: "- The ferry waits for the tide [kept:1]\n- Seen in March [note:1]",
-          },
-        ],
-      },
-    })) as { isError?: boolean; content?: { text?: string }[] };
-    expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
-    await client.settled();
-    expect(await decided(client, "accept")).toEqual(["heading:2", "bulletList", "p:2"]);
-    const [, list] = readMind(client).toJSON().content ?? [];
-    expectKept(list);
-    expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
+  // protects=a paragraph asked for as a title and a list, written as the title in its place and the list after it (¶1, then ¶+), or taken out with the title and the list added after it, the list keeping the paragraph's Citation and footnote by handle, lands as a heading and a list holding them, in order, as Haiku 5.5 wrote it; fails_when=the handles land as words and the Citation and footnote go, or the title lands after the list
+  it("keeps the handles of a list written after the paragraph it rewrites or takes out", async () => {
+    const list = "- The ferry waits for the tide [kept:1]\n- Seen in March [note:1]";
+    for (const changes of [
+      [
+        { paragraph: "¶1", text: "## Spring tides" },
+        { paragraph: "¶+", text: list },
+      ],
+      [
+        { paragraph: "¶1", remove: true },
+        { paragraph: "¶1+", text: "## Spring tides" },
+        { paragraph: "¶+", text: list },
+      ],
+    ]) {
+      const { agent, client, mindId } = await citedNote();
+      const read = (await agent.callTool({
+        name: "read_mind",
+        arguments: { mindId, named: true },
+      })) as { structuredContent?: { version?: string } };
+      const result = (await agent.callTool({
+        name: "propose_changes",
+        arguments: { mindId, version: read.structuredContent?.version, changes },
+      })) as { isError?: boolean; content?: { text?: string }[] };
+      expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
+      await client.settled();
+      expect(await decided(client, "accept")).toEqual(["heading:2", "bulletList", "p:2"]);
+      const [, kept] = readMind(client).toJSON().content ?? [];
+      expectKept(kept);
+      expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
+    }
   }, 60_000);
 });
 

@@ -1018,27 +1018,33 @@ function topIndex(
 }
 
 /**
- * The changes, with each addition after a paragraph the same changes rewrite that keeps that
- * paragraph's Citations or footnotes by handle written at the end of its rewrite (#3747): a model
- * asked for a paragraph as a title and a list writes the title in its place and the list after it,
- * and as an addition the handles would be words and what they kept would go.
+ * The changes, with what is added after a paragraph the same changes rewrite or remove written at
+ * the end of its rewrite when any of it keeps that paragraph's Citations or footnotes by handle
+ * (#3747): a model asked for a paragraph as a title and a list writes the title in its place, or
+ * takes the paragraph out, and adds the list after it; as additions the handles would be words and
+ * what they kept would go.
  */
 function withKeptAdditions(changes: readonly NamedChange[]): NamedChange[] {
-  const rewritten = new Set(
-    changes.flatMap((change) => (change.kind === "rewrite" ? change.at : [])),
+  const replaced = new Set(changes.flatMap((change) => (change.kind === "add" ? [] : change.at)));
+  const keeping = new Set(
+    changes.flatMap((change) =>
+      change.kind === "add" &&
+      change.after !== null &&
+      replaced.has(change.after) &&
+      change.text.search(HANDLE) >= 0
+        ? change.after
+        : [],
+    ),
   );
-  const joins = (change: NamedChange) =>
-    change.kind === "add" &&
-    change.after !== null &&
-    rewritten.has(change.after) &&
-    change.text.search(HANDLE) >= 0;
+  const after = (at: number) =>
+    changes.flatMap((each) => (each.kind === "add" && each.after === at ? each.text : []));
   return changes.flatMap((change): NamedChange[] => {
-    if (joins(change)) return [];
-    if (change.kind !== "rewrite") return [change];
-    const rest = changes.flatMap((each) =>
-      joins(each) && each.kind === "add" && each.after === change.at ? each.text : [],
-    );
-    return [{ ...change, text: [change.text, ...rest].join("\n\n") }];
+    if (change.kind === "add") {
+      return change.after !== null && keeping.has(change.after) ? [] : [change];
+    }
+    if (!keeping.has(change.at)) return [change];
+    const own = change.kind === "rewrite" ? [change.text] : [];
+    return [{ kind: "rewrite", at: change.at, text: [...own, ...after(change.at)].join("\n\n") }];
   });
 }
 
