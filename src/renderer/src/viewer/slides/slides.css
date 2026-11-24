@@ -170,3 +170,67 @@
     @apply mb-1 text-[14px] font-semibold text-ink-meta;
   }
 }
+
+/*
+ * Direct editing on a slide (SlideEditor): a shape's hit area over its drawing, the selected
+ * shape's frame with a handle at each corner, and its text open for typing in place.
+ */
+.slide-editor {
+  position: relative;
+  touch-action: none;
+}
+.slide-editor-hit {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform-origin: center;
+  cursor: move;
+}
+.slide-editor-frame {
+  position: absolute;
+  transform-origin: center;
+  pointer-events: none;
+  outline: 1px solid var(--color-accent);
+}
+.slide-editor-frame--typing {
+  outline-style: dashed;
+}
+.slide-editor-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px;
+  pointer-events: auto;
+  background: #ffffff;
+  border: 1px solid var(--color-accent);
+}
+.slide-editor-handle--nw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+}
+.slide-editor-handle--ne {
+  right: 0;
+  top: 0;
+  margin-right: -4px;
+  cursor: nesw-resize;
+}
+.slide-editor-handle--sw {
+  left: 0;
+  bottom: 0;
+  margin-bottom: -4px;
+  cursor: nesw-resize;
+}
+.slide-editor-handle--se {
+  right: 0;
+  bottom: 0;
+  margin-right: -4px;
+  margin-bottom: -4px;
+  cursor: nwse-resize;
+}
+.slide-text-editing {
+  outline: none;
+  cursor: text;
+  caret-color: currentColor;
+}

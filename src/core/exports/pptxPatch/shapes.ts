@@ -35,10 +35,18 @@ const SHAPE_KINDS = new Set(["p:sp", "p:pic", "p:graphicFrame", "p:grpSp", "p:cx
 
 /** The shape with this id on a slide: a text shape, picture, frame (chart, table), group or connector. */
 export function shapeById(root: XmlElement, id: string): XmlElement | undefined {
-  for (const element of walk(root)) {
-    if (SHAPE_KINDS.has(element.name) && nonVisualOf(element)?.attrs.id === id) return element;
-  }
-  return undefined;
+  return shapesById(root, id)[0];
+}
+
+/**
+ * Every copy of the shape with this id: one, or two when it sits in
+ * `mc:AlternateContent`, whose choice PowerPoint draws and whose fallback
+ * other readers draw (ours among them). An edit writes both.
+ */
+export function shapesById(root: XmlElement, id: string): XmlElement[] {
+  return [...walk(root)].filter(
+    (element) => SHAPE_KINDS.has(element.name) && nonVisualOf(element)?.attrs.id === id,
+  );
 }
 
 const prefixOf = (element: XmlElement) =>

@@ -154,6 +154,8 @@ export type Origin = "slide" | "layout" | "master";
 interface ItemBase {
   box: Box;
   origin: Origin;
+  /** The shape's id on the slide (`p:cNvPr`), for the slide's own items: what an edit names it by. */
+  shapeId?: string;
 }
 
 export interface ShapeItem extends ItemBase {
@@ -629,6 +631,8 @@ interface Scope {
   slideNumber: number;
   /** The fill a shape set to `grpFill` takes: its group's. */
   groupFill: Fill | undefined;
+  /** Whether the shapes read are the slide's own, which an edit names by id; not a SmartArt drawing's. */
+  addressable: boolean;
 }
 
 async function readMaster(deck: Deck, part: string): Promise<Master> {
@@ -762,6 +766,7 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
     origin,
     slideNumber: number,
     groupFill: undefined,
+    addressable: origin === "slide",
   });
 
   // The background: the slide's own, else its layout's, else its master's.
@@ -990,9 +995,13 @@ async function readTree(tree: XmlElement | undefined, scope: Scope): Promise<Ite
   return items;
 }
 
-const isHidden = (element: XmlElement) => {
+const cNvPrOf = (element: XmlElement) => {
   const nv = elements(element).find((each) => local(each.name).startsWith("nv"));
-  const cNvPr = nv && child(nv, "cNvPr");
+  return nv && child(nv, "cNvPr");
+};
+
+const isHidden = (element: XmlElement) => {
+  const cNvPr = cNvPrOf(element);
   return cNvPr?.attrs.hidden === "1" || cNvPr?.attrs.hidden === "true";
 };
 
@@ -1004,6 +1013,16 @@ async function readElement(element: XmlElement, scope: Scope): Promise<Item[] | 
     return choice ? readTree(choice, scope) : undefined;
   }
   if (isHidden(element)) return undefined;
+  const items = await readShapeElement(element, name, scope);
+  const shapeId = scope.addressable ? cNvPrOf(element)?.attrs.id : undefined;
+  return shapeId ? items?.map((item) => ({ ...item, shapeId })) : items;
+}
+
+async function readShapeElement(
+  element: XmlElement,
+  name: string,
+  scope: Scope,
+): Promise<Item[] | undefined> {
   // A layout's or master's placeholders are prompts, not drawn on its slides.
   if (scope.origin !== "slide" && placeholderOf(element) && name !== "grpSp") return undefined;
   switch (name) {
@@ -1491,7 +1510,12 @@ async function readDiagram(
   if (!xml) return undefined;
   const tree = descendants(parseXml(xml), "spTree")[0];
   const drawingRels = await scope.deck.pkg.internalRelationships(drawingRel.target);
-  const children = await readTree(tree, { ...scope, part: drawingRel.target, rels: drawingRels });
+  const children = await readTree(tree, {
+    ...scope,
+    part: drawingRel.target,
+    rels: drawingRels,
+    addressable: false,
+  });
   if (children.length === 0) return undefined;
   return { kind: "group", box, origin: scope.origin, children };
 }

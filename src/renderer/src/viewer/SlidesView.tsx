@@ -18,7 +18,6 @@ import {
   type DeckDrawing,
   drawPptx,
   type FailedSlide,
-  type Item,
   type SlideDrawing,
 } from "../../../core/documents/formats/pptxDrawing";
 import { withoutArea } from "../../../shared/locations";
@@ -55,7 +54,7 @@ import {
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
-import { findInDrawing, rangesByKey } from "./slides/pieces";
+import { findInDrawing, pictureParts, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
@@ -137,26 +136,6 @@ function findInNotes(slide: SlideOutline, quote: string): Map<string, TextRange[
     slide.notes.map((text, index) => ({ key: notesKey(index), text, breakAfter: true })),
     quote,
   );
-}
-
-/** The package parts of every picture a drawing shows, its backgrounds' and fills' too. */
-function pictureParts(slide: SlideDrawing): string[] {
-  const parts: string[] = [];
-  if (slide.background.kind === "image") parts.push(slide.background.part);
-  const walk = (items: readonly Item[]) => {
-    for (const item of items) {
-      if (item.kind === "picture" && item.part) parts.push(item.part);
-      if (item.kind === "shape" && item.fill.kind === "image") parts.push(item.fill.part);
-      if (item.kind === "group") walk(item.children);
-      if (item.kind === "table") {
-        for (const row of item.rows) {
-          for (const cell of row.cells) if (cell.fill.kind === "image") parts.push(cell.fill.part);
-        }
-      }
-    }
-  };
-  walk(slide.items);
-  return parts;
 }
 
 // A slide's speaker notes are part of its Unit (ADR-0011).

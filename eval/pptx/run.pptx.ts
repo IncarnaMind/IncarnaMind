@@ -6,8 +6,7 @@
  * Office: bytes, parts and the chart's two copies of its data. CI adds the
  * schema check and LibreOffice (.github/workflows/pptx-spike.yml).
  */
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
@@ -39,6 +38,7 @@ import { formulaCells, Workbook } from "../../src/core/exports/pptxPatch/workboo
 import { evalCache } from "../lib/cache";
 import { createLog } from "../lib/log";
 import { CORPUS, type CorpusDeck } from "./corpus";
+import { fetchPinned } from "./pinned";
 
 const ROOT = resolve(__dirname, "../..");
 
@@ -47,23 +47,6 @@ const TEMPLATE = {
   url: "https://raw.githubusercontent.com/scanny/python-pptx/278b47b1dedd5b46ee84c286e77cdfb0bf4594be/src/pptx/templates/default.pptx",
   sha256: "e10cc9e120961f6bd4074a373c9c80d2a06c497157e8f4972977b7bea83a8f34",
 };
-
-const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-
-async function fetchPinned(url: string, expected: string, cache: string): Promise<Uint8Array> {
-  const file = join(cache, `${expected}.pptx`);
-  if (existsSync(file)) {
-    const kept = new Uint8Array(readFileSync(file));
-    if (sha256(kept) === expected) return kept;
-  }
-  const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
-  if (!response.ok) throw new Error(`${url} answered ${response.status}.`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const got = sha256(bytes);
-  if (got !== expected) throw new Error(`${url} has changed: SHA-256 ${got}, pinned ${expected}.`);
-  await writeFile(file, bytes);
-  return bytes;
-}
 
 const sameRaw = (a: ZipArchive, b: ZipArchive, name: string) => {
   const x = a.raw(name);
