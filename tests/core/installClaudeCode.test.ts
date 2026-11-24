@@ -25,6 +25,7 @@ interface StandInControls {
   auth: ClaudeCodeAuthCheck;
   installCalls: number;
   signInCalls: number;
+  authCalls: number;
   findGate: ReturnType<typeof deferred<string | null>> | null;
   authGate: ReturnType<typeof deferred<ClaudeCodeAuthCheck>> | null;
   installGate: ReturnType<typeof deferred<ClaudeCodeAdapterInstallResult>> | null;
@@ -39,6 +40,7 @@ function createStandIn(): StandInControls {
     auth: { kind: "signed-out" },
     installCalls: 0,
     signInCalls: 0,
+    authCalls: 0,
     findGate: null,
     authGate: null,
     installGate: null,
@@ -92,6 +94,7 @@ function createStandIn(): StandInControls {
         });
       },
       async checkAuth() {
+        controls.authCalls++;
         if (controls.authGate) return controls.authGate.promise;
         return controls.auth;
       },
@@ -416,14 +419,35 @@ describe("Claude Code one-press installation through CoreApi (#3638)", () => {
       standIn.signInGate.resolve({ kind: "signed-in" });
       await waitForState(seen, (s) => s.kind === "failed" && s.reason === "sign-in-failed");
 
-      // Cancelling while checkAuth() is pending prevents stale probe from starting sign-in.
+      // Cancelling or pressing Install again after the installer exits while checkAuth() is still
+      // pending neither runs a second handoff nor opens sign-in.
+      standIn.binary = null;
+      standIn.installCalls = 0;
       standIn.signInCalls = 0;
+      standIn.authCalls = 0;
+      standIn.installGate = deferred<ClaudeCodeAdapterInstallResult>();
       standIn.authGate = deferred<ClaudeCodeAuthCheck>();
-      const pendingInstall = core.installClaudeCode();
-      await core.cancelClaudeCodeInstall();
+      await core.installClaudeCode();
+      standIn.installGate.resolve({
+        kind: "installed",
+        binaryPath: "/tmp/fake-home/.local/bin/claude",
+      });
+      standIn.installGate = null;
+      for (let i = 0; i < 50 && standIn.authCalls === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(standIn.authCalls).toBe(1);
+
+      // A second Install press in this post-install auth-probe window starts nothing.
+      await core.installClaudeCode();
+      expect(standIn.installCalls).toBe(1);
+      expect(standIn.authCalls).toBe(1);
+
+      // Cancelling in this window returns idle immediately and resolving auth opens NO sign-in.
+      expect(await core.cancelClaudeCodeInstall()).toEqual({ kind: "idle" });
       standIn.authGate.resolve({ kind: "signed-out" });
       standIn.authGate = null;
-      await pendingInstall;
+      await new Promise((r) => setTimeout(r, 30));
       expect(await core.getClaudeCodeInstallState()).toEqual({ kind: "idle" });
       expect(standIn.signInCalls).toBe(0);
     } finally {

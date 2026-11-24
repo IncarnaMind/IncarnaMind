@@ -141,7 +141,7 @@ describe("createClaudeCodeInstaller host adapter (#3638)", () => {
     }
   });
 
-  it("validates the final redirect URL and refuses non-Anthropic or non-HTTPS redirects before executing", async () => {
+  it("validates every manual redirect hop, allows trusted claude.ai hops even with empty response.url, and refuses untrusted, HTTP, or empty Location redirects", async () => {
     expect(isTrustedInstallerUrl("https://claude.ai/install.sh")).toBe(true);
     expect(
       isTrustedInstallerUrl("https://downloads.claude.ai/claude-code-releases/bootstrap.sh"),
@@ -154,19 +154,93 @@ describe("createClaudeCodeInstaller host adapter (#3638)", () => {
     const home = await mkdtemp(join(tmpdir(), "im-installer-redirect-"));
     try {
       const marker = join(home, "ran.txt");
-      const response = new Response(`#!/bin/bash\ntouch "${marker}"\n`, { status: 200 });
-      Object.defineProperty(response, "url", { value: "https://evil.example/install.sh" });
-      const installer = createClaudeCodeInstaller({
+
+      // 1. Trusted 302 redirect (claude.ai -> downloads.claude.ai) with empty response.url (as Electron net.fetch returns).
+      const visited: string[] = [];
+      const redirectOk = createClaudeCodeInstaller({
         home,
         env: { PATH: "/usr/bin:/bin" },
         isRoot: () => false,
-        fetch: async () => response,
+        fetch: async (url, init) => {
+          expect(init?.redirect).toBe("manual");
+          visited.push(url);
+          if (url === "https://claude.ai/install.sh") {
+            return new Response(null, {
+              status: 302,
+              headers: {
+                location: "https://downloads.claude.ai/claude-code-releases/bootstrap.sh",
+              },
+            });
+          }
+          return new Response(
+            `#!/bin/bash\nmkdir -p "$HOME/.local/bin"\nprintf '#!/bin/sh\\nexit 0\\n' > "$HOME/.local/bin/claude"\nchmod +x "$HOME/.local/bin/claude"\n`,
+            { status: 200 },
+          );
+        },
       });
-      expect(await installer.install({ signal: new AbortController().signal })).toEqual({
+      expect(await redirectOk.install({ signal: new AbortController().signal })).toEqual({
+        kind: "installed",
+        binaryPath: join(home, ".local", "bin", "claude"),
+      });
+      expect(visited).toEqual([
+        "https://claude.ai/install.sh",
+        "https://downloads.claude.ai/claude-code-releases/bootstrap.sh",
+      ]);
+
+      // Remove binary for refusal checks.
+      await rm(join(home, ".local"), { recursive: true, force: true });
+
+      // 2. Untrusted redirect target is refused before following or executing.
+      const evilVisited: string[] = [];
+      const evilRedirect = createClaudeCodeInstaller({
+        home,
+        env: { PATH: "/usr/bin:/bin" },
+        isRoot: () => false,
+        fetch: async (url) => {
+          evilVisited.push(url);
+          if (url === "https://claude.ai/install.sh") {
+            return new Response(null, {
+              status: 302,
+              headers: { location: "https://evil.example/install.sh" },
+            });
+          }
+          return new Response(`#!/bin/bash\ntouch "${marker}"\n`, { status: 200 });
+        },
+      });
+      expect(await evilRedirect.install({ signal: new AbortController().signal })).toEqual({
         kind: "failed",
         reason: "network",
       });
+      expect(evilVisited).toEqual(["https://claude.ai/install.sh"]);
       expect(existsSync(marker)).toBe(false);
+
+      // 3. Plain HTTP downgrade redirect is refused before following.
+      const httpRedirect = createClaudeCodeInstaller({
+        home,
+        env: { PATH: "/usr/bin:/bin" },
+        isRoot: () => false,
+        fetch: async () =>
+          new Response(null, {
+            status: 302,
+            headers: { location: "http://downloads.claude.ai/bootstrap.sh" },
+          }),
+      });
+      expect(await httpRedirect.install({ signal: new AbortController().signal })).toEqual({
+        kind: "failed",
+        reason: "network",
+      });
+
+      // 4. Redirect with empty/missing Location header is refused.
+      const missingLocation = createClaudeCodeInstaller({
+        home,
+        env: { PATH: "/usr/bin:/bin" },
+        isRoot: () => false,
+        fetch: async () => new Response(null, { status: 302 }),
+      });
+      expect(await missingLocation.install({ signal: new AbortController().signal })).toEqual({
+        kind: "failed",
+        reason: "network",
+      });
     } finally {
       await rm(home, { recursive: true, force: true });
     }

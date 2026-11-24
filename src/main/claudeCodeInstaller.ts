@@ -17,6 +17,7 @@ const MAC_LINUX_INSTALLER_URL = "https://claude.ai/install.sh";
 const WINDOWS_INSTALLER_URL = "https://claude.ai/install.ps1";
 
 const FETCH_TIMEOUT_MS = 30_000;
+const MAX_REDIRECTS = 5;
 const AUTH_STATUS_TIMEOUT_MS = 15_000;
 const CANCEL_EXIT_WAIT_MS = 3_000;
 const MAX_CAPTURE_BYTES = 16 * 1024;
@@ -53,6 +54,41 @@ export function isTrustedInstallerUrl(rawUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Fetches Anthropic's installer script following redirects manually so every single hop is verified
+ * against `isTrustedInstallerUrl` (HTTPS on `claude.ai` / `*.claude.ai`). Electron's `net.fetch`
+ * leaves `response.url` empty when `redirect: "follow"` is used, so checking `Location` headers on
+ * manual hops guarantees the script cannot come from an untrusted or non-HTTPS redirect target.
+ */
+async function fetchTrustedInstallerScript(
+  startUrl: string,
+  doFetch: (input: string, init?: RequestInit) => Promise<Response>,
+  signal: AbortSignal,
+): Promise<string | null> {
+  let currentUrl = startUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!isTrustedInstallerUrl(currentUrl)) return null;
+    const response = await doFetch(currentUrl, { signal, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location")?.trim();
+      if (!location) return null;
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(location, currentUrl).toString();
+      } catch {
+        return null;
+      }
+      if (!isTrustedInstallerUrl(nextUrl)) return null;
+      currentUrl = nextUrl;
+      continue;
+    }
+    if (!response.ok) return null;
+    const text = await response.text();
+    return text.trim() ? text : null;
+  }
+  return null;
 }
 
 function childEnvironment(
@@ -186,15 +222,9 @@ export function createClaudeCodeInstaller(
       let scriptText: string;
       try {
         const fetchSignal = AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]);
-        const response = await doFetch(installerUrl, { signal: fetchSignal, redirect: "follow" });
-        if (!response.ok) {
-          return { kind: "failed", reason: "network" };
-        }
-        if (response.url && !isTrustedInstallerUrl(response.url)) {
-          return { kind: "failed", reason: "network" };
-        }
-        scriptText = await response.text();
-        if (!scriptText.trim()) return { kind: "failed", reason: "network" };
+        const fetched = await fetchTrustedInstallerScript(installerUrl, doFetch, fetchSignal);
+        if (fetched === null) return { kind: "failed", reason: "network" };
+        scriptText = fetched;
       } catch (error: unknown) {
         if (signal.aborted) return { kind: "cancelled" };
         const text = error instanceof Error ? `${error.name}: ${error.message}` : "";

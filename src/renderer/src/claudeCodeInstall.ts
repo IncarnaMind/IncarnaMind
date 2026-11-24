@@ -97,11 +97,13 @@ export async function startClaudeCodeInstall(): Promise<void> {
   }
 }
 
-/** Moves focus to the Claude Code offer in Settings › AI › Your AI where its disclosure sits. */
+/** Moves focus to the Claude Code row in Settings › AI › Your AI in any install state. */
 export function focusClaudeCodeInstallOffer(): void {
-  const offer = document.querySelector<HTMLElement>('[data-testid="claude-code-install-offer"]');
-  offer?.scrollIntoView({ behavior: "smooth", block: "center" });
-  const button = document.querySelector<HTMLButtonElement>('[data-testid="install-claude-code"]');
+  const row = document.querySelector<HTMLElement>('[data-testid^="claude-code-install-"]');
+  row?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const button =
+    row?.querySelector<HTMLButtonElement>('[data-testid="install-claude-code"]') ??
+    row?.querySelector<HTMLButtonElement>("button");
   button?.focus({ preventScroll: true });
 }
 

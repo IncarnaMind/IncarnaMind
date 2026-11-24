@@ -1173,7 +1173,10 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
           claudeCodeInstaller: createClaudeCodeInstaller({
             home: homeFolder(),
             environment: () => loginShellProcesses.environment(),
-            fetch: (input, init) => net.fetch(input, init),
+            fetch: (input, init) =>
+              init?.redirect === "manual"
+                ? unfollowed(input, init)
+                : net.fetch(input, { ...init, credentials: "omit" }),
           }),
         }
       : {

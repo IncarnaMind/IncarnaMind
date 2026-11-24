@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { type ElectronApplication, expect, test } from "@playwright/test";
@@ -202,7 +202,7 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
       await expect(signIn).toBeVisible();
     }
 
-    // Audit what Anthropic's Windows installer changes in HKCU User PATH outside the temp home.
+    // Audit what Anthropic's installer created in the temporary home (shell profiles on POSIX) or HKCU User PATH on Windows.
     if (process.platform === "win32") {
       const userPathAfter = readWindowsUserPath();
       const beforeParts = new Set((userPathBefore?.value ?? "").split(";").filter(Boolean));
@@ -212,6 +212,9 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
       console.info(
         `[windows-user-path-audit] changed=${userPathAfter?.value !== userPathBefore?.value} added=${JSON.stringify(added)}`,
       );
+    } else {
+      const homeEntries = (await readdir(home)).sort();
+      console.info(`[posix-home-dotfiles-audit] entries=${JSON.stringify(homeEntries)}`);
     }
 
     // Official binary is installed under the temporary home and runs cleanly.

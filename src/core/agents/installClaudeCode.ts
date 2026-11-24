@@ -47,7 +47,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
 
   let state: ClaudeCodeInstallState = { kind: "idle" };
   let generation = 0;
-  let activeInstall: { stop: AbortController; done: Promise<void> } | null = null;
+  let activeInstall: { stop: AbortController; installDone: Promise<void> } | null = null;
   let activeSignIn: { stop: AbortController; done: Promise<void> } | null = null;
 
   const setState = (next: ClaudeCodeInstallState): ClaudeCodeInstallState => {
@@ -128,11 +128,12 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
   const handOffAfterInstalled = async (
     adapter: ClaudeCodeInstaller,
     token: number,
+    signal: AbortSignal,
   ): Promise<ClaudeCodeInstallState> => {
-    if (token !== generation) return state;
+    if (token !== generation || signal.aborted) return state;
     options.onClientsChanged();
     const auth = await adapter.checkAuth();
-    if (token !== generation) return state;
+    if (token !== generation || signal.aborted) return state;
     if (auth.kind === "signed-in") return setState({ kind: "signed-in" });
     if (auth.kind === "no-plan") return setState({ kind: "no-plan" });
     if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
@@ -172,18 +173,19 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       }
       if (activeInstall) return state;
 
-      // Claim the install slot synchronously before any await so rapid double presses can never
-      // start two concurrent installs or race on partial-download cleanup.
+      // Claim the install slot synchronously before any await and hold it until the entire
+      // install + auth-probe handoff settles, so rapid presses cannot race and Cancel during the
+      // post-install auth probe never opens sign-in.
       const token = ++generation;
       const stop = new AbortController();
       const signal = AbortSignal.any([options.lifetime, stop.signal]);
-      const { promise: done, resolve: finishDone } = Promise.withResolvers<void>();
-      const entry = { stop, done };
+      const { promise: installDone, resolve: finishInstall } = Promise.withResolvers<void>();
+      const entry = { stop, installDone };
       activeInstall = entry;
 
       const release = () => {
         if (activeInstall === entry) activeInstall = null;
-        finishDone();
+        finishInstall();
       };
 
       const existing = await installer.findBinary();
@@ -192,8 +194,12 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
         return state;
       }
       if (existing !== null) {
-        release();
-        return handOffAfterInstalled(installer, token);
+        finishInstall();
+        try {
+          return await handOffAfterInstalled(installer, token, signal);
+        } finally {
+          if (activeInstall === entry) activeInstall = null;
+        }
       }
 
       if (options.localOnly()) {
@@ -231,8 +237,8 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
               }
             },
           });
+          finishInstall();
           if (activeInstall !== entry || token !== generation) return;
-          activeInstall = null;
           if (signal.aborted || result.kind === "cancelled") {
             setState(
               options.localOnly() ? { kind: "failed", reason: "local-mode" } : { kind: "idle" },
@@ -248,9 +254,9 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
             });
             return;
           }
-          await handOffAfterInstalled(installer, token);
+          await handOffAfterInstalled(installer, token, signal);
         } catch (error: unknown) {
-          if (activeInstall === entry) activeInstall = null;
+          finishInstall();
           if (token !== generation) return;
           if (signal.aborted) {
             setState(
@@ -263,7 +269,8 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
           });
           setState({ kind: "failed", reason: "failed" });
         } finally {
-          finishDone();
+          if (activeInstall === entry) activeInstall = null;
+          finishInstall();
         }
       })();
       return started;
@@ -314,7 +321,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       activeInstall = null;
       if (installing) {
         installing.stop.abort();
-        await installing.done.catch(() => undefined);
+        await installing.installDone.catch(() => undefined);
       }
       await stopSignIn();
       return setState({ kind: "idle" });
@@ -333,7 +340,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       activeInstall = null;
       if (installing) {
         installing.stop.abort();
-        await installing.done.catch(() => undefined);
+        await installing.installDone.catch(() => undefined);
       }
       await stopSignIn();
       setState({ kind: "failed", reason: "local-mode" });
