@@ -4,7 +4,7 @@
  * words (the path Fetch again writes its new version by).
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, stat, utimes } from "node:fs/promises";
 import { dirname } from "node:path";
 import { hashBytes } from "./files";
 
@@ -24,14 +24,34 @@ export async function writeWholeFile(
   await mkdir(dirname(path), { recursive: true });
   const partial = `${path}.${randomUUID()}.part`;
   try {
-    await writeFile(partial, bytes, { mode: 0o600 });
+    // On the disk before it is named, and its name too: a deck kept before the User's own file is
+    // written over must survive a power cut that follows (#149).
+    const file = await open(partial, "wx", 0o600);
+    try {
+      await file.writeFile(bytes);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     const taken = at === undefined ? null : new Date(at);
     if (taken !== null && !Number.isNaN(taken.getTime())) await utimes(partial, taken, taken);
     await rename(partial, path);
+    await syncFolder(dirname(path));
   } catch (error) {
     await rm(partial, { force: true });
     throw error;
   }
   const { mtimeMs } = await stat(path);
   return { path, contentHash: hashBytes(bytes), size: bytes.byteLength, mtimeMs };
+}
+
+/** Flushes a folder's entries to the disk; Windows opens no folder for that, and flushes them itself. */
+async function syncFolder(folder: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const handle = await open(folder, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }

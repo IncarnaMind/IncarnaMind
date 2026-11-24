@@ -3,14 +3,9 @@
  * or its non-visual properties, are spliced; the rest of the slide keeps its
  * bytes, animations included.
  */
-import {
-  child,
-  descendants,
-  elements,
-  local,
-  walk,
-  type XmlElement,
-} from "../../documents/formats/xml";
+
+import { copiesOfShape } from "../../documents/formats/pptxShapeIds";
+import { child, descendants, elements, local, type XmlElement } from "../../documents/formats/xml";
 import { PackagePartError } from "../packagePatch/package";
 import {
   appendInside,
@@ -26,12 +21,9 @@ import { escapeXml } from "../wordml";
 import {
   type Deck,
   NAMESPACE_DECLARATIONS,
-  nonVisualOf,
   PRESENTATION_CONTENT_TYPES,
   PRESENTATION_RELATIONSHIPS,
 } from "./deck";
-
-const SHAPE_KINDS = new Set(["p:sp", "p:pic", "p:graphicFrame", "p:grpSp", "p:cxnSp"]);
 
 /** The shape with this id on a slide: a text shape, picture, frame (chart, table), group or connector. */
 export function shapeById(root: XmlElement, id: string): XmlElement | undefined {
@@ -41,12 +33,15 @@ export function shapeById(root: XmlElement, id: string): XmlElement | undefined 
 /**
  * Every copy of the shape with this id: one, or two when it sits in
  * `mc:AlternateContent`, whose choice PowerPoint draws and whose fallback
- * other readers draw (ours among them). An edit writes both.
+ * other readers draw (ours among them). An edit writes both. Throws when
+ * shapes that aren't copies of one another share the id: an edit can't tell
+ * them apart, so it changes neither.
  */
 export function shapesById(root: XmlElement, id: string): XmlElement[] {
-  return [...walk(root)].filter(
-    (element) => SHAPE_KINDS.has(element.name) && nonVisualOf(element)?.attrs.id === id,
-  );
+  const copies = copiesOfShape(root, id);
+  if (copies === null)
+    throw new PackagePartError("slide", `has more than one shape with id ${id}.`);
+  return copies;
 }
 
 const prefixOf = (element: XmlElement) =>

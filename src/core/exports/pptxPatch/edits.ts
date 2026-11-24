@@ -206,7 +206,18 @@ export async function setShapeRuns(
     if (fit?.kind === "grow") {
       const holder = child(shape, "spPr");
       if (holder) {
-        const wanted = inShapeSpace(fit.box, shape, parents);
+        // A fit sets the height alone: the box's place and width stay the file's, so a fit made
+        // on a slide drawn before a move landed can't take the move back.
+        const sized = inShapeSpace(fit.box, shape, parents);
+        const own = child(holder, "xfrm");
+        const off = own && child(own, "off");
+        const ext = own && child(own, "ext");
+        const wanted = {
+          x: off?.attrs.x ?? sized.x,
+          y: off?.attrs.y ?? sized.y,
+          cx: ext?.attrs.cx ?? sized.cx,
+          cy: sized.cy,
+        };
         written.push(
           ...transformSplices(part.text, part.root, holder, "sp", wanted, () => {
             throw new PackagePartError(slidePart, `shape ${shapeId} has no transform.`);

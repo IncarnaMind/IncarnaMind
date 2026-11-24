@@ -312,6 +312,19 @@ describe("Shapes in a group, table cells and text that follows its box", () => {
       },
     ]);
     expect(await slideXml(grown)).toContain('<a:ext cx="4572000" cy="914400"/>');
+    // A fit measured on the box where it was drawn before a move landed keeps the file's place.
+    const stale = await applyShapeEdits(grown, [
+      {
+        kind: "text",
+        slide: 1,
+        shape: "3",
+        paragraphs,
+        fit: { kind: "grow", box: { x: 10, y: 20, w: 300, h: 120 } },
+      },
+    ]);
+    expect(await slideXml(stale)).toContain(
+      '<a:off x="914400" y="914400"/><a:ext cx="4572000" cy="1143000"/>',
+    );
     const shrunk = await applyShapeEdits(box(""), [
       {
         kind: "text",
@@ -363,5 +376,35 @@ describe("A gesture's edits as the window sends them", () => {
     ]) {
       expect(() => parseShapeEdits(bad)).toThrow();
     }
+  });
+});
+
+describe("Two shapes that share an id", () => {
+  // protects=shapes that happen to share a cNvPr id are never edited as one (#149 review); fails_when=typing in one box rewrites the other; no_claim=which of them PowerPoint keeps if it renumbers.
+  test("are never edited as one: the edit is refused, and neither is offered for editing", async () => {
+    const box = (name: string, words: string, y: number) =>
+      sp({
+        id: 3,
+        name,
+        spPr: xfrm(914400, y, 4572000, 457200),
+        body: txBody(`<a:p><a:r><a:rPr lang="en-GB"/><a:t>${words}</a:t></a:r></a:p>`),
+      });
+    const bytes = slideOf(
+      box("First", "North quay", 914400) + box("Second", "South quay", 2743200),
+    );
+    await expect(
+      applyShapeEdits(bytes, [
+        {
+          kind: "text",
+          slide: 1,
+          shape: "3",
+          paragraphs: [{ source: 0, runs: runs(0, ["North quay, dredged"]) }],
+        },
+      ]),
+    ).rejects.toThrow(/more than one shape/);
+    const drawn = await drawPptx(bytes);
+    const slide = drawn.slides[0];
+    const ids = slide && "items" in slide ? slide.items.map((item) => item.shapeId) : [];
+    expect(ids).toEqual([undefined, undefined]);
   });
 });

@@ -32,8 +32,9 @@ export interface ShapeBox {
 
 /**
  * How a text box follows its text after an edit, as its autofit kind asks: one that grows to fit
- * (`spAutoFit`) takes this box; one that shrinks its text on overflow (`normAutofit`) takes this
- * scale of its fonts and reduction of its line spacing, fractions of 1.
+ * (`spAutoFit`) takes this box's height, keeping its place and width (the box gives them only to a
+ * placeholder placed by its layout); one that shrinks its text on overflow (`normAutofit`) takes
+ * this scale of its fonts and reduction of its line spacing, fractions of 1.
  */
 export type TextFit =
   | { kind: "grow"; box: ShapeBox }

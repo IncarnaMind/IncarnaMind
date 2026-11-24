@@ -4196,9 +4196,14 @@ export interface DeckUnwritable {
   kind: "unwritable";
   sittingId: string;
   documentId: string;
-  why: "read-only" | "locked" | "gone" | "full";
+  /** "unkept": IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't write it. */
+  why: "read-only" | "locked" | "gone" | "full" | "unkept";
   /** The file's name. */
   name: string;
+  /** The deck with the change that waits: what the viewer draws, and a copy would hold. */
+  bytes: Uint8Array;
+  /** The SHA-256 of `bytes`. */
+  contentHash: string;
 }
 
 /** What one hand edit of a deck, its Undo or its Redo did (#149). */
@@ -4234,6 +4239,8 @@ export interface DeckRestored {
   bytes: Uint8Array;
   /** The SHA-256 of `bytes`: the version shown once the file is read again, to undo from. */
   contentHash: string;
+  /** When each kept state this let go was kept, ISO 8601, UTC: the line says so. */
+  letGo: string[];
 }
 
 /** A version of a Canvas, as its versions list shows it. */
@@ -16228,6 +16235,8 @@ export interface CoreApi {
   saveDeckCopy(sittingId: string): Promise<DeckEdit>;
   /** The deck's viewer closed: its next hand edit begins another sitting (#149). */
   closeDeckSitting(sittingId: string): Promise<void>;
+  /** Writes the change that waits for its file again, as the file may take it now (#149). */
+  retryDeckEdit(sittingId: string): Promise<DeckEdit>;
   /** A deck of the User's own as it stood before each sitting of editing it, the newest first (#149). */
   keptDeckStates(documentId: string): Promise<KeptDeckState[]>;
   /**
@@ -17084,6 +17093,7 @@ const methods: Record<CoreApiMethod, true> = {
   closeDeckSitting: true,
   keptDeckStates: true,
   restoreKeptDeck: true,
+  retryDeckEdit: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

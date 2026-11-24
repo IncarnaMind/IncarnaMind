@@ -608,6 +608,8 @@ export interface Core extends CoreApi, CoreEventSource {
    * how many changes still wait and where, for the host to record. Never throws.
    */
   sessionEnding(): UnsavedAtEnd;
+  /** Resolves once every hand edit of a deck being written now is written; null while none is. */
+  writingDecks(): Promise<void> | null;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /**
@@ -6445,14 +6447,12 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const keptDecks = createKeptDecks({ db, dataDir, now });
+  const documentLive = (documentId: string) =>
+    db.get("SELECT 1 AS one FROM documents WHERE id = ? AND purged_at IS NULL", [documentId]) !==
+    undefined;
   keptDecks
-    .dropGone(
-      (documentId) =>
-        db.get("SELECT 1 AS one FROM documents WHERE id = ? AND purged_at IS NULL", [
-          documentId,
-        ]) !== undefined,
-    )
-    .catch((error: unknown) => console.error(error));
+    .dropGone(documentLive)
+    .catch((error: unknown) => console.error("The kept decks couldn't be tidied.", error));
   const deckPlaces: DeckPlaceDeps = {
     dataDir,
     document: (documentId) => documents.get(documentId),
@@ -6493,6 +6493,15 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     newId: () => crypto.randomUUID(),
   });
+
+  /** Hand edits of decks being written now: the host waits for them before it quits. */
+  const decksBeingWritten = new Set<Promise<unknown>>();
+  const writingDeck = <T>(writing: Promise<T>): Promise<T> => {
+    decksBeingWritten.add(writing);
+    const done = () => decksBeingWritten.delete(writing);
+    writing.then(done, done);
+    return writing;
+  };
 
   /** The words of a Block, as its text reads without marks. */
   const textOfBlock = (element: Y.XmlElement): string =>
@@ -8810,6 +8819,7 @@ export function createCore(adapters: CoreAdapters): Core {
         canvases.dropPurged(),
         ownAiConversations.dropPurged(),
       ]);
+      await keptDecks.dropGone(documentLive);
       transcripts?.dropPurged();
       // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
       if (notRemoved.some((mindId) => purged.includes(mindId))) {
@@ -9806,10 +9816,11 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),
-    editDeck: (input) => deckSittings.edit(input),
-    undoDeckEdit: (sittingId, stepId) => deckSittings.undo(sittingId, stepId),
-    redoDeckEdit: (sittingId, stepId) => deckSittings.redo(sittingId, stepId),
-    saveDeckCopy: (sittingId) => deckSittings.saveCopy(sittingId),
+    editDeck: (input) => writingDeck(deckSittings.edit(input)),
+    undoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.undo(sittingId, stepId)),
+    redoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.redo(sittingId, stepId)),
+    saveDeckCopy: (sittingId) => writingDeck(deckSittings.saveCopy(sittingId)),
+    retryDeckEdit: (sittingId) => writingDeck(deckSittings.retry(sittingId)),
     closeDeckSitting: async (sittingId) => deckSittings.close(sittingId),
     keptDeckStates: async (documentId) =>
       typeof documentId === "string"
@@ -9818,11 +9829,17 @@ export function createCore(adapters: CoreAdapters): Core {
             .reverse()
             .map(({ id, keptAt }) => ({ id, keptAt }))
         : [],
-    restoreKeptDeck: async (input) => {
-      const restored = await restoreKept(deckPlaces, readDeck, input ?? {});
-      deckSittings.endOn(restored.documentId);
-      return restored;
-    },
+    restoreKeptDeck: (input) =>
+      writingDeck(
+        restoreKept(deckPlaces, readDeck, input ?? {}).then((restored) => {
+          deckSittings.endOn(restored.documentId);
+          return restored;
+        }),
+      ),
+    writingDecks: () =>
+      decksBeingWritten.size === 0
+        ? null
+        : Promise.allSettled([...decksBeingWritten]).then(() => undefined),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

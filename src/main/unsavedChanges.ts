@@ -97,6 +97,8 @@ export function guardQuit(
   };
   /** True once nothing waits, or the User chose to quit anyway or saved copies; false if they keep the app open. */
   const settle = async (): Promise<boolean> => {
+    // A deck being written by hand finishes first, so the gesture isn't lost half way (#149).
+    await core.writingDecks();
     if (!(await settleSummaries())) return false;
     let copyFailed: string | null = null;
     for (;;) {
@@ -122,7 +124,7 @@ export function guardQuit(
     quit();
   };
   app.on("before-quit", (event) => {
-    if (leaving || (!unsaved && !summariesWaiting())) return;
+    if (leaving || (!unsaved && !summariesWaiting() && !core.writingDecks())) return;
     event.preventDefault();
     // Whatever goes wrong here, IncarnaMind stays open: quitting would lose what waits.
     decide().catch((error: unknown) => {

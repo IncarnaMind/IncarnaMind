@@ -16,8 +16,8 @@ import type { AgentFiles } from "../agentFiles/index";
 import type { DeckRestored, DeckUnwritable, Document, SavedFile } from "../api";
 import { hashBytes, hashFile, isGone, isInside } from "../documents/files";
 import { writeWholeFile } from "../documents/writeWhole";
-import { NotFoundError, TranslatableError } from "../errors";
-import { replaceFile } from "../fileNames";
+import { LinkedFolderWritesDeclinedError, NotFoundError, TranslatableError } from "../errors";
+import { removeStalePartials, replaceFile } from "../fileNames";
 import type { NewFile } from "../outputFiles";
 import type { KeptDecks } from "./kept";
 import type { DeckPlace, PlaceWritten } from "./sittings";
@@ -38,7 +38,7 @@ export interface DeckPlaceDeps {
   /** Saves a new file in the Output location, or in `folder` inside a Linked folder (ADR-0010). */
   save(file: NewFile): Promise<SavedFile>;
   handed: Pick<AgentFiles, "holding" | "addVersion" | "rewriteVersion">;
-  kept: Pick<KeptDecks, "keep" | "fileFor" | "byId">;
+  kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId">;
   /** Writes of a deck IncarnaMind keeps take turns with agents' hand-overs of it. */
   inHandOverTurn<T>(run: () => Promise<T>): Promise<T>;
   now(): string;
@@ -109,6 +109,24 @@ function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array):
   };
 }
 
+/** The lock files another app leaves beside a file it has open: PowerPoint's and WPS's, LibreOffice's. */
+const lockFilesOf = (path: string) => {
+  const name = basename(path);
+  return [join(dirname(path), `~$${name}`), join(dirname(path), `.~lock.${name}#`)];
+};
+
+async function lockedByAnotherApp(path: string): Promise<boolean> {
+  for (const lock of lockFilesOf(path)) {
+    try {
+      await access(lock);
+      return true;
+    } catch {
+      // No lock file: the other app, if any, doesn't hold this one.
+    }
+  }
+  return false;
+}
+
 /**
  * A deck of the User's own, written itself. `base` is what the sitting read, which the viewer
  * showed; `keptAlready` when there is nothing to keep (a copy this sitting just made).
@@ -122,6 +140,8 @@ export function ownFile(
   let wrote = hashBytes(base);
   let keptId: string | null = null;
   let kept = keptAlready;
+  /** A state this sitting kept that wasn't there before: the first write that succeeds lets older go. */
+  let keptNew = false;
   return {
     async write(bytes) {
       const { path } = deps.document(documentId);
@@ -131,25 +151,35 @@ export function ownFile(
         info = await stat(path);
         // A file the User made read-only stays as it is, though its folder would let a rename in.
         await access(path, constants.W_OK);
+        await access(dirname(path), constants.W_OK);
       } catch (error) {
         const why = unwritable(error);
         if (why) return { kind: "unwritable", why, name };
         throw error;
       }
+      // An app that has the file open writes its own copy over ours when it saves.
+      if (await lockedByAnotherApp(path)) return { kind: "unwritable", why: "locked", name };
       if (!(await holds(path, wrote))) return CHANGED;
-      let letGo: string[] = [];
+      await removeStalePartials(dirname(path));
       if (!kept) {
-        const id = deps.newId();
-        const file = deps.kept.fileFor(documentId, id);
-        await writeWholeFile(join(deps.dataDir, file), base);
-        const dropped = await deps.kept.keep(documentId, {
-          id,
-          file,
-          contentHash: hashBytes(base),
-          size: base.byteLength,
-        });
-        letGo = dropped.map((each) => each.keptAt);
-        keptId = id;
+        const contentHash = hashBytes(base);
+        const already = deps.kept.find(documentId, contentHash);
+        if (already) keptId = already.id;
+        else {
+          const id = deps.newId();
+          const file = deps.kept.fileFor(documentId, id);
+          try {
+            await writeWholeFile(join(deps.dataDir, file), base);
+          } catch (error) {
+            // Not kept, not written: the change waits, and the file stays as it is.
+            if ((error as NodeJS.ErrnoException | null)?.code)
+              return { kind: "unwritable", why: "unkept", name };
+            throw error;
+          }
+          deps.kept.add(documentId, { id, file, contentHash, size: base.byteLength });
+          keptId = id;
+          keptNew = true;
+        }
         kept = true;
       }
       const expected = wrote;
@@ -162,11 +192,20 @@ export function ownFile(
         );
         if (!replaced) return CHANGED;
       } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        // The file and its folder could be written: a rename refused now is another app's hold on it.
+        if (code === "EPERM" || code === "EACCES")
+          return { kind: "unwritable", why: "locked", name };
         const why = unwritable(error);
         if (why) return { kind: "unwritable", why, name };
         throw error;
       }
       wrote = hashBytes(bytes);
+      let letGo: string[] = [];
+      if (keptNew) {
+        keptNew = false;
+        letGo = (await deps.kept.letGo(documentId)).map((each) => each.keptAt);
+      }
       await deps.readAgain(path);
       return {
         kind: "written",
@@ -194,7 +233,8 @@ export async function copyBeside(
     // The User chose this place by its name, "Save a copy beside it" (#1110 allows one file so).
     file = await deps.save({ ...asked, folder: dirname(path), approved: true });
   } catch (error) {
-    if (!unwritable(error)) throw error;
+    // A folder that can't be written, or a Linked folder the User keeps new files out of.
+    if (!unwritable(error) && !(error instanceof LinkedFolderWritesDeclinedError)) throw error;
     file = await deps.save(asked);
   }
   let made: string | null = null;
@@ -209,8 +249,13 @@ export async function copyBeside(
 /** The one place that decides where a sitting on this Document writes. */
 export function deckPlaceFor(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
   const { path, linkedFolderId } = deps.document(documentId);
-  const keptHere = linkedFolderId === null && isInside(deps.dataDir, path);
-  return keptHere ? keptVersion(deps, documentId, base) : ownFile(deps, documentId, base);
+  // Only an item an agent handed over has versions; any other file, the data folder's copies of
+  // converted decks among them, is written itself, kept first.
+  const handed =
+    linkedFolderId === null &&
+    isInside(deps.dataDir, path) &&
+    deps.handed.holding(documentId).length > 0;
+  return handed ? keptVersion(deps, documentId, base) : ownFile(deps, documentId, base);
 }
 
 /**
@@ -252,5 +297,6 @@ export async function restoreKept(
     before: written.saved.kind === "file" ? written.saved.keptId : null,
     bytes,
     contentHash: kept.contentHash,
+    letGo: written.saved.kind === "file" ? written.saved.letGo : [],
   };
 }

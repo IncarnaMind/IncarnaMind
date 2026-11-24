@@ -1,17 +1,21 @@
 /**
  * A deck of the User's own as it stood before each sitting of editing it by hand (#149, ADR-0010
- * 2026-11-24): kept whole in the data folder's "Kept decks", the newest `MAX_KEPT` for each
- * Document, so the User can put the deck back as it was. A newer one lets the oldest go, and the
- * line that says what was saved says so too.
+ * 2026-11-24): kept whole in the data folder's "Kept decks", so the User can put the deck back as
+ * it was. For each Document, the first state kept (the file as it was before IncarnaMind first
+ * wrote it) stays while the deck is in the Library, with the newest others up to `MAX_KEPT` in all,
+ * and the others across every deck up to `MAX_KEPT_BYTES`; a state already kept isn't kept twice.
+ * What goes is let go only after a write succeeds, and the line that says what was saved says so.
  */
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database } from "../storage";
 
 /** The data folder's folder of kept decks, one folder a Document. */
 export const KEPT_DECKS_FOLDER = "Kept decks";
-/** How many earlier states of one deck are kept. */
+/** How many states of one deck are kept, its first among them. */
 export const MAX_KEPT = 10;
+/** How large the kept states other than each deck's first may be together. */
+export const MAX_KEPT_BYTES = 2 * 1024 ** 3;
 
 export interface KeptDeck {
   id: string;
@@ -44,8 +48,15 @@ const toKept = (row: Row): KeptDeck => ({
   keptAt: row.created_at,
 });
 
-export function createKeptDecks(options: { db: Database; dataDir: string; now(): string }) {
+export function createKeptDecks(options: {
+  db: Database;
+  dataDir: string;
+  now(): string;
+  /** `MAX_KEPT_BYTES`, smaller in a test. */
+  maxBytes?: number;
+}) {
   const { db, dataDir, now } = options;
+  const maxBytes = options.maxBytes ?? MAX_KEPT_BYTES;
 
   const of = (documentId: string): KeptDeck[] =>
     db
@@ -62,6 +73,17 @@ export function createKeptDecks(options: { db: Database; dataDir: string; now():
     await rm(join(dataDir, kept.file), { force: true });
   };
 
+  /** Every Document's kept states but its first, oldest first. */
+  const others = (): KeptDeck[] =>
+    db
+      .all<Row>(
+        `SELECT ${COLUMNS} FROM deck_kept AS k WHERE deleted_at IS NULL AND rowid <> (
+           SELECT rowid FROM deck_kept WHERE document_id = k.document_id AND deleted_at IS NULL
+           ORDER BY created_at, rowid LIMIT 1)
+         ORDER BY created_at, rowid`,
+      )
+      .map(toKept);
+
   return {
     /** The Document's kept states, the oldest first. */
     of,
@@ -75,31 +97,51 @@ export function createKeptDecks(options: { db: Database; dataDir: string; now():
       return row ? toKept(row) : null;
     },
 
+    /** The Document's state with these bytes, if one is kept already. */
+    find(documentId: string, contentHash: string): KeptDeck | null {
+      return of(documentId).find((each) => each.contentHash === contentHash) ?? null;
+    },
+
     /** Where a new kept state's file goes, relative to the data folder. */
     fileFor: (documentId: string, keptId: string): string =>
       join(KEPT_DECKS_FOLDER, documentId, `${keptId}.pptx`),
 
-    /**
-     * Records a state as kept, its file written already, and lets the oldest go past `MAX_KEPT`:
-     * the ones let go, for the line to say.
-     */
-    async keep(
+    /** Records a state as kept, its file written already. Lets nothing go: see `letGo`. */
+    add(
       documentId: string,
       input: { id: string; file: string; contentHash: string; size: number },
-    ): Promise<KeptDeck[]> {
+    ): void {
       const at = now();
       db.run(
         `INSERT INTO deck_kept (id, document_id, file, content_hash, size, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [input.id, documentId, input.file, input.contentHash, BigInt(input.size), at, at],
       );
-      const all = of(documentId);
-      const letGo = all.slice(0, Math.max(0, all.length - MAX_KEPT));
-      for (const each of letGo) await forget(each);
-      return letGo;
     },
 
-    /** Forgets the kept states of Documents the Library deleted for good, and their files. */
+    /**
+     * Once a write that kept a state has succeeded: lets the Document's states past `MAX_KEPT` go,
+     * never its first, then the oldest others of every deck past `MAX_KEPT_BYTES`. Returns the
+     * Document's own let go, for the line to say.
+     */
+    async letGo(documentId: string): Promise<KeptDeck[]> {
+      const all = of(documentId);
+      const gone = all.slice(1, Math.max(1, all.length - (MAX_KEPT - 1)));
+      for (const each of gone) await forget(each);
+      let total = others().reduce((sum, each) => sum + each.size, 0);
+      for (const each of others()) {
+        if (total <= maxBytes) break;
+        await forget(each);
+        if (each.documentId === documentId) gone.push(each);
+        total -= each.size;
+      }
+      return gone;
+    },
+
+    /**
+     * Forgets the kept states of Documents the Library deleted for good, and takes out any file in
+     * "Kept decks" no kept state names (one a crash left between writing it and recording it).
+     */
     async dropGone(exists: (documentId: string) => boolean): Promise<void> {
       const documents = db.all<{ document_id: string }>(
         "SELECT DISTINCT document_id FROM deck_kept WHERE deleted_at IS NULL",
@@ -108,6 +150,20 @@ export function createKeptDecks(options: { db: Database; dataDir: string; now():
         if (exists(documentId)) continue;
         for (const each of of(documentId)) await forget(each);
         await rm(join(dataDir, KEPT_DECKS_FOLDER, documentId), { recursive: true, force: true });
+      }
+      const named = new Set(
+        db
+          .all<{ file: string }>("SELECT file FROM deck_kept WHERE deleted_at IS NULL")
+          .map((row) => join(dataDir, row.file)),
+      );
+      const root = join(dataDir, KEPT_DECKS_FOLDER);
+      for (const folder of await readdir(root).catch(() => [] as string[])) {
+        const inside = await readdir(join(root, folder)).catch(() => [] as string[]);
+        const left = inside.filter((name) => !named.has(join(root, folder, name)));
+        for (const name of left)
+          await rm(join(root, folder, name), { recursive: true, force: true });
+        if (left.length === inside.length)
+          await rm(join(root, folder), { recursive: true, force: true });
       }
     },
   };

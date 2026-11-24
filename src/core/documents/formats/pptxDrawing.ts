@@ -57,6 +57,7 @@ import {
   relationshipOfType,
 } from "./officePackage";
 import { type ChartData, chartLines, readChart } from "./pptxChart";
+import { sharedShapeIds } from "./pptxShapeIds";
 import { child, descendants, elements, local, parseXml, textOf, type XmlElement } from "./xml";
 import { openPackage, type ZipArchive } from "./zip";
 
@@ -645,6 +646,8 @@ interface Scope {
   groupFill: Fill | undefined;
   /** Whether the shapes read are the slide's own, which an edit names by id; not a SmartArt drawing's. */
   addressable: boolean;
+  /** Ids two of the slide's shapes share, which name no shape an edit could change. */
+  sharedIds: ReadonlySet<string>;
 }
 
 async function readMaster(deck: Deck, part: string): Promise<Master> {
@@ -767,6 +770,7 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
   map = readColourMap(layout?.colourOverride, map);
   map = readColourMap(colourOverrideOf(root), map);
   const colours: ColourContext = { theme: master.theme, map };
+  const sharedIds = root ? sharedShapeIds(root) : new Set<string>();
 
   const scope = (origin: Origin, partName: string, partRels: Relationships): Scope => ({
     deck,
@@ -779,6 +783,7 @@ async function drawSlide(deck: Deck, part: string, number: number): Promise<Slid
     slideNumber: number,
     groupFill: undefined,
     addressable: origin === "slide",
+    sharedIds,
   });
 
   // The background: the slide's own, else its layout's, else its master's.
@@ -1026,7 +1031,8 @@ async function readElement(element: XmlElement, scope: Scope): Promise<Item[] | 
   }
   if (isHidden(element)) return undefined;
   const items = await readShapeElement(element, name, scope);
-  const shapeId = scope.addressable ? cNvPrOf(element)?.attrs.id : undefined;
+  const id = scope.addressable ? cNvPrOf(element)?.attrs.id : undefined;
+  const shapeId = id !== undefined && !scope.sharedIds.has(id) ? id : undefined;
   return shapeId ? items?.map((item) => ({ ...item, shapeId })) : items;
 }
 

@@ -2516,13 +2516,16 @@ export const en = {
   "viewer.deck.edit.text": "Changed the text on slide\u00a0{slide}",
   "viewer.deck.edit.cell": "Changed a table cell on slide\u00a0{slide}",
   "viewer.deck.edit.fitted": "Shrank the text to fit on slide\u00a0{slide}",
+  "viewer.deck.edit.tried": "Wrote the change that waited",
   "viewer.deck.edit.copied": "Made a copy with your change",
   "viewer.deck.saved.file": "saved in “{name}”",
   "viewer.deck.saved.version": "saved as version {number}",
   "viewer.deck.saved.kept": "saved",
-  "viewer.deck.saved.letGo": "(the version kept {date} was let go: IncarnaMind keeps the last 10)",
+  "viewer.deck.saved.letGo":
+    "(the version kept {date} was let go: IncarnaMind keeps the deck as it first was and its latest 9)",
   "viewer.deck.undoRefused": "The deck changed since, so this can’t be taken back here.",
   "viewer.deck.waiting.undo": "The file can’t be written now, so this wasn’t taken back.",
+  "viewer.deck.tryAgain": "Try again",
   "viewer.deck.saveCopy": "Save a copy beside it",
   "viewer.deck.unwritableLine": "{problem} {kept}",
   "viewer.deck.changeKept": "Your change is kept here until it’s saved",
@@ -6074,16 +6077,25 @@ export const en = {
   "error.deck.changed":
     "The deck changed since it was shown here, so nothing was written over it. It shows the newest now.",
   "error.deck.noSitting": "That change belongs to a deck that’s no longer open for editing.",
+  "error.deck.unrewritable":
+    "This deck’s file is stored in a way IncarnaMind can’t write back whole, so it isn’t edited here.",
   "error.deck.notEditable": "That part of the deck can’t be changed by hand here.",
-  "error.deck.waiting":
-    "Save the change that couldn’t be written as a copy first, or close the deck.",
+  "error.deck.waiting": "Save the change that couldn’t be written as a copy, or try again, first.",
   "error.deck.noStep": "There’s nothing here to undo or redo.",
   "error.deck.keptGone": "That earlier version of the deck is no longer kept.",
   "error.deck.unwritable.read-only":
     "“{name}” can’t be changed: it’s read-only, or its folder can’t be written.",
-  "error.deck.unwritable.locked": "“{name}” can’t be changed: another app has it open.",
+  "error.deck.unwritable.locked":
+    "“{name}” can’t be changed while another app has it open: close it there, then try again.",
   "error.deck.unwritable.gone":
     "“{name}” is no longer where it was: it may have been moved or deleted.",
+  "error.deck.unwritable.unkept":
+    "“{name}” wasn’t changed: IncarnaMind couldn’t keep it as it was first, in its data folder.",
+  "error.deck.protected.signed":
+    "This deck is signed, so IncarnaMind doesn’t edit it: an edit would break its signature.",
+  "error.deck.protected.final": "This deck is marked as final, so IncarnaMind doesn’t edit it.",
+  "error.deck.protected.protected":
+    "This deck needs a password to change it, so IncarnaMind doesn’t edit it.",
   "error.deck.unwritable.full": "“{name}” can’t be changed: the disk is full.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",

@@ -842,7 +842,14 @@ app.on("window-all-closed", () => {
     appEnd.quit("lastWindow");
 });
 
-app.on("will-quit", () => {
+app.on("will-quit", (event) => {
+  // Words a window's open slide text box handed over as it closed may still be being written.
+  const writing = core?.writingDecks();
+  if (writing) {
+    event.preventDefault();
+    void writing.finally(() => app.quit());
+    return;
+  }
   globalShortcut.unregisterAll();
   core?.close();
 });

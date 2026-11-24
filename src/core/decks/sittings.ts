@@ -18,6 +18,7 @@ import { Deck } from "../exports/pptxPatch/deck";
 import { applyShapeEdits } from "../exports/pptxPatch/edits";
 import type { ShapeEdit } from "../exports/pptxPatch/shapeEdit";
 import { parseShapeEdits } from "./parse";
+import { protectionOf } from "./protection";
 
 /** What writing a sitting's deck did: where it is now, that it changed under it, or why it couldn't. */
 export type PlaceWritten =
@@ -101,6 +102,14 @@ async function slideCounts(base: Uint8Array, now: Uint8Array) {
 export function createDeckSittings(deps: DeckSittingDeps) {
   const sittings = new Map<string, Sitting>();
 
+  /** Each holds its deck twice in memory: the oldest closed ones go, their steps with them. */
+  const letClosedGo = () => {
+    const closed = [...sittings.values()].filter((each) => each.closed);
+    for (const old of closed.slice(0, Math.max(0, closed.length - KEPT_CLOSED))) {
+      sittings.delete(old.id);
+    }
+  };
+
   /** Runs a sitting's writes one after another, so two never write over each other. */
   const inTurn = <T>(sitting: Sitting, run: () => Promise<T>): Promise<T> => {
     const next = sitting.turn.then(run);
@@ -169,6 +178,8 @@ export function createDeckSittings(deps: DeckSittingDeps) {
         documentId: sitting.documentId,
         why: written.why,
         name: written.name,
+        bytes,
+        contentHash: hashBytes(bytes),
       };
     }
     sitting.waiting = null;
@@ -180,6 +191,15 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     const base = await deps.read(documentId);
     // The viewer showed another version than the file holds now: nothing is applied to it.
     if (hashBytes(base) !== shown) throw changedError();
+    const zip = openPackage(base);
+    if (!zip.rewritable) throw new TranslatableError({ key: "error.deck.unrewritable" });
+    const protection = await protectionOf(zip);
+    if (protection) throw new TranslatableError({ key: `error.deck.protected.${protection}` });
+    // One sitting a deck goes on at a time: one a window left (it closed or reloaded) is closed.
+    for (const other of sittings.values()) {
+      if (other.documentId === documentId) other.closed = true;
+    }
+    letClosedGo();
     const sitting: Sitting = {
       id: deps.newId(),
       documentId,
@@ -225,11 +245,32 @@ export function createDeckSittings(deps: DeckSittingDeps) {
           ? going
           : await start(input.documentId, input.shown);
       return inTurn(sitting, async () => {
-        requireNothingWaiting(sitting);
+        if (sitting.ended) throw changedError();
+        const { waiting } = sitting;
+        if (waiting) {
+          // A gesture while a change waits is made on it, and joins it: one change, one Undo.
+          const before = sitting.steps.slice(0, waiting.done - 1);
+          if (sitting.steps[waiting.done - 1] !== waiting.step) requireNothingWaiting(sitting);
+          const step: Step = { id: waiting.step.id, edits: [...waiting.step.edits, ...edits] };
+          const bytes = await patched(waiting.bytes, edits);
+          sitting.steps = [...before, step];
+          return write(sitting, bytes, step, waiting.done);
+        }
         const bytes = await patched(sitting.current, edits);
         const step: Step = { id: deps.newId(), edits };
         sitting.steps = [...sitting.steps.slice(0, sitting.done), step];
         return write(sitting, bytes, step, sitting.steps.length);
+      });
+    },
+
+    /** Writes the change that waits again: its file may take it now. */
+    retry(sittingId: unknown): Promise<DeckEdit> {
+      const sitting = requireSitting(sittingId);
+      return inTurn(sitting, async () => {
+        if (sitting.ended) throw changedError();
+        const { waiting } = sitting;
+        if (!waiting) throw new InvalidInputError({ key: "error.deck.noStep" });
+        return write(sitting, waiting.bytes, waiting.step, waiting.done);
       });
     },
 
@@ -283,11 +324,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       if (!sitting) return;
       sitting.closed = true;
       if (sitting.steps.length === 0) sittings.delete(sitting.id);
-      // Each holds its deck twice in memory: the oldest closed ones go, their steps with them.
-      const closed = [...sittings.values()].filter((each) => each.closed);
-      for (const old of closed.slice(0, Math.max(0, closed.length - KEPT_CLOSED))) {
-        sittings.delete(old.id);
-      }
+      letClosedGo();
     },
 
     /** Every sitting on a Document ends: it was put back as it was, or changed elsewhere. */

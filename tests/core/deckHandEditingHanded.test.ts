@@ -149,6 +149,15 @@ describe("a deck an agent handed over, edited by hand", () => {
     await set.core.close();
   });
 
+  it("no Tool an outside agent can call writes a deck: the hand edits are the window's alone", async () => {
+    const set = await started();
+    const agent = await connectLegacyAgent(set.writer.launch);
+    const tools = ((await agent.listTools()).tools ?? []).map((each) => each.name);
+    expect(tools.length).toBeGreaterThan(10);
+    expect(tools.filter((name) => /deck|slide|restore|put_back|kept/i.test(name))).toEqual([]);
+    await set.core.close();
+  });
+
   it("one handed over from a Linked folder is that file, written itself, kept as it stood first", async () => {
     const set = await started();
     await linkWithoutFolder(set.core, set.files);
