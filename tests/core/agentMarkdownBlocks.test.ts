@@ -7,10 +7,11 @@
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { OwnAiRunner } from "../../src/core/adapters";
+import { type CitedToken, namedNote, proposeNamed } from "../../src/core/agents/proposals";
 import { CITATION_NODE, FOOTNOTE_NODE } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
 import { decideProposals, waitingChanges } from "../../src/shared/proposals";
-import { harbours, tides } from "../helpers/agentChanges";
+import { citingIn, harbours, optionsWith, SPRING, tides, userNote } from "../helpers/agentChanges";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, readMind, writeMind } from "../helpers/minds";
@@ -241,8 +242,8 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
       expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
     }
   }, 60_000);
-  // protects=in one call, each of two paragraphs rewritten as a title with a list added after it joins its own list, and the list keeps only the handles it names: the first keeps its Citation and not its footnote, the second its own Citation; fails_when=a list joins the other paragraph's rewrite, a handle keeps the other paragraph's Citation, or a handle left out still keeps its footnote
-  it("joins each paragraph's additions to its own rewrite, keeping only the handles they name", async () => {
+  // protects=in one call, each of two paragraphs rewritten as a title with a list added after it: each list keeps only the handles it names, of the paragraph it follows; the first keeps its Citation and not its footnote, the second its own Citation; fails_when=a handle keeps the other paragraph's Citation, or a handle left out still keeps its footnote
+  it("keeps, after each of two rewritten paragraphs, only the handles named of the paragraph it follows", async () => {
     const { agent, client, mindId } = await citedNote([
       {
         type: "paragraph",
@@ -284,6 +285,82 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
     expect(citingOf(second)).toEqual({ cites: [harbours.documentId], footnote: false });
     expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
   }, 60_000);
+  // protects=a paragraph inside a list, rewritten with something added after it that keeps its Citation by handle, lands where the same call without the handle lands (a list item after it in its list, a paragraph after the list), with the Citation; a paragraph in a table cell likewise; fails_when=a piece moves out of its list, above it or elsewhere, or the handle lands as words
+  it("adds what keeps a list item's or a table cell's handles where it adds it without them", async () => {
+    const item = (content: JSONContent) => ({ type: "listItem", content: [content] });
+    const list = (): JSONContent => ({
+      type: "bulletList",
+      content: [item(note("First item.")), item(citedParagraph()), item(note("Third item."))],
+    });
+    const table = (): JSONContent => ({
+      type: "table",
+      content: [
+        {
+          type: "tableRow",
+          content: [
+            { type: "tableCell", content: [note("Monday")] },
+            { type: "tableCell", content: [citedParagraph()] },
+          ],
+        },
+      ],
+    });
+    for (const [blocks, at, rewrite, added] of [
+      [list, "¶2", "Spring tides", "- The ferry waits for the tide"],
+      [list, "¶2", "Spring tides delay the ferry.", "The harbour master saw it."],
+      [table, "¶2", "Spring tides", "The ferry waits for the tide."],
+    ] as const) {
+      const without = await landed(
+        [blocks(), note(P2)],
+        [
+          { paragraph: at, text: rewrite },
+          { paragraph: "¶+", text: added },
+        ],
+      );
+      const kept = await landed(
+        [blocks(), note(P2)],
+        [
+          { paragraph: at, text: rewrite },
+          { paragraph: "¶+", text: `${added} [kept:1]` },
+        ],
+      );
+      expect(
+        wordsOf(kept).map((words) => words.trimEnd()),
+        added,
+      ).toEqual(wordsOf(without).map((words) => words.trimEnd()));
+      expect(citingOf(kept), added).toEqual({ cites: [tides.documentId], footnote: false });
+      expect(JSON.stringify(kept)).not.toMatch(/kept:|note:/);
+    }
+  }, 120_000);
+});
+
+describe("a token of a Citation the paragraph already holds (#3747)", () => {
+  // protects=a token the agent may not cite with, of the Citation the paragraph holds, keeps that Citation in a rewrite written as words and in one written as a heading; fails_when=written as blocks the token reads as not found and the paragraph's Citation goes
+  it("keeps the paragraph's own Citation, whether the rewrite is words or blocks", () => {
+    const own = (token: string): CitedToken | null =>
+      token === "tides1"
+        ? {
+            minted: { documentId: tides.documentId, quote: tides.quote, pageFrom: null },
+            attributes: { ...tides },
+            citable: false,
+          }
+        : null;
+    for (const text of [
+      "Spring tides come at new moon [cite:tides1].",
+      "## Spring tides [cite:tides1]",
+    ]) {
+      const { doc, blocks } = userNote();
+      const note = namedNote(blocks, { citation: () => null, waiting: "", busy: "" });
+      let ids = 0;
+      doc.transact(() =>
+        proposeNamed(blocks, note, [{ kind: "rewrite", at: 0, text }], {
+          ...optionsWith(() => `own-${++ids}`),
+          cited: own,
+        }),
+      );
+      doc.transact(() => decideProposals(blocks, () => true, "accept"));
+      expect(citingIn(blocks)[`tides: ${SPRING}`], text).toBe(1);
+    }
+  });
 });
 
 /** The Citations in `node`, by Document, and whether a footnote is in it. */
@@ -299,8 +376,27 @@ function citingOf(node: JSONContent | undefined): { cites: unknown[]; footnote: 
   return { cites, footnote };
 }
 
-/** A Note whose first paragraph holds the User's Citation of Tides and a footnote that cites. */
-async function citedNote(rest: JSONContent[] = [note(P2)]) {
+/** A paragraph of the User's holding a Citation of Tides and a footnote that cites. */
+const citedParagraph = (): JSONContent => ({
+  type: "paragraph",
+  attrs: { id: "cited" },
+  content: [
+    { type: "text", text: "Spring tides delay the ferry " },
+    { type: CITATION_NODE, attrs: tides },
+    {
+      type: FOOTNOTE_NODE,
+      attrs: { id: "n1" },
+      content: [
+        { type: "text", text: "Seen by the harbour master " },
+        { type: CITATION_NODE, attrs: harbours },
+      ],
+    },
+    { type: "text", text: "." },
+  ],
+});
+
+/** A Note of `blocks`, and an outside agent that may propose changes to it. */
+async function noteWith(blocks: JSONContent[]) {
   const { core } = await startAgentsCore(replyingModel());
   await core.setAgentsEnabled(true);
   const { launch } = await core.connectAgent({
@@ -309,28 +405,49 @@ async function citedNote(rest: JSONContent[] = [note(P2)]) {
     propose: true,
   });
   const agent = await connectLegacyAgent(launch);
-  const cited: JSONContent = {
-    type: "paragraph",
-    attrs: { id: "cited" },
-    content: [
-      { type: "text", text: "Spring tides delay the ferry " },
-      { type: CITATION_NODE, attrs: tides },
-      {
-        type: FOOTNOTE_NODE,
-        attrs: { id: "n1" },
-        content: [
-          { type: "text", text: "Seen by the harbour master " },
-          { type: CITATION_NODE, attrs: harbours },
-        ],
-      },
-      { type: "text", text: "." },
-    ],
-  };
   const mind = await core.createMind({ title: "Ferry notes" });
   const client = await connectToMind(core, mind.id);
-  writeMind(client, [cited, ...rest]);
+  writeMind(client, blocks);
   await client.settled();
   return { agent, client, mindId: mind.id };
+}
+
+/** A Note whose first paragraph holds the User's Citation of Tides and a footnote that cites. */
+const citedNote = (rest: JSONContent[] = [note(P2)]) => noteWith([citedParagraph(), ...rest]);
+
+/** `blocks` as they read once an outside agent's `changes` to them are accepted. */
+async function landed(
+  blocks: JSONContent[],
+  changes: { paragraph: string; text?: string; remove?: boolean }[],
+): Promise<JSONContent> {
+  const { agent, client, mindId } = await noteWith(blocks);
+  const read = (await agent.callTool({
+    name: "read_mind",
+    arguments: { mindId, named: true },
+  })) as { structuredContent?: { version?: string } };
+  const result = (await agent.callTool({
+    name: "propose_changes",
+    arguments: { mindId, version: read.structuredContent?.version, changes },
+  })) as { isError?: boolean; content?: { text?: string }[] };
+  expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
+  await client.settled();
+  await decided(client, "accept");
+  return readMind(client).toJSON();
+}
+
+/** Each Block's words, a list item or a table cell by its own, the way they stand. */
+function wordsOf(json: JSONContent): string[] {
+  const words = (node: JSONContent): string =>
+    node.text ?? (node.content ?? []).map(words).join("");
+  const out: string[] = [];
+  const visit = (node: JSONContent, depth: number) => {
+    if (node.type === "paragraph" || node.type === "heading")
+      out.push(`${"  ".repeat(depth)}${words(node)}`);
+    else
+      for (const child of node.content ?? []) visit(child, depth + (node.type === "doc" ? 0 : 1));
+  };
+  visit(json, 0);
+  return out;
 }
 
 /** `block` holds the same Citation of Tides and the same footnote, its own Citation in it. */
