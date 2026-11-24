@@ -304,6 +304,8 @@ for (const language of ["en", "zh-CN"] as const) {
 
           await renameInTab(window, name);
           await expect(pill).toBeVisible();
+          // Resting on Undo keeps the real timer from expiring during the layout measurements (#1741).
+          await undo.hover();
           await motionSettled(window);
           const pillBox = await boxOf(pill);
           const card = await boxOf(window.getByTestId("card"));
@@ -364,6 +366,7 @@ for (const language of ["en", "zh-CN"] as const) {
               ),
             });
           }
+          await undo.hover();
           await slideSelect(window, line, words.word);
           expect(await selectedText(window)).toBe(words.word);
           await expect(frontMindName(window)).toHaveText(name);
@@ -372,6 +375,7 @@ for (const language of ["en", "zh-CN"] as const) {
           await window.keyboard.press("ArrowRight");
 
           // A press on the pill's own words, not its button, does nothing either.
+          await undo.hover();
           const message = await boxOf(pill.getByTestId("undo-message"));
           await window.mouse.click(message.x + message.width / 2, message.y + message.height / 2);
           await expect(frontMindName(window)).toHaveText(name);
