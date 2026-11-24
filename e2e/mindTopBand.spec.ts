@@ -4,6 +4,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   askInAssistant,
   blocksUpdate,
+  capture,
   createDataFolder,
   dismissChatSetup,
   emit,
@@ -398,6 +399,48 @@ for (const [language, longCount] of [
     expect(
       await window.evaluate(() => document.documentElement.scrollWidth <= globalThis.innerWidth),
     ).toBe(true);
+    await app.close();
+  });
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  test(`at 1280px in ${language}, Undo and Review changes follow the change count on one line, not the band's far edge`, async () => {
+    test.setTimeout(90_000);
+    const { app, window } = await launchApp(dataDir, { fakeChat: true });
+    await setWindowSize(app, window, 1280, 800);
+    await dismissChatSetup(window);
+    await useLocalChatModel(window);
+    await setLanguage(window, language);
+    await mindOf(window, "a heading first");
+    await askInAssistant(window, "Add a section on the risks");
+    const line = window.locator('[data-testid="mind-editor"]:visible').getByTestId("applied-line");
+    const count = line.getByTestId("applied-count");
+    const undo = line.getByTestId("applied-undo");
+    const review = line.getByTestId("applied-review");
+    await expect(line).toBeVisible();
+    await expect(undo).toBeVisible();
+    await expect(review).toBeVisible();
+    await capture(window, `band-actions-${language}`);
+
+    const wordsEnd = await count.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect().right;
+    });
+    const countBox = await count.boundingBox();
+    const undoBox = await undo.boundingBox();
+    const reviewBox = await review.boundingBox();
+    if (!countBox || !undoBox || !reviewBox) throw new Error("The count or an action has no box.");
+
+    // Only the separator dot sits between them, and its glyph's width differs by platform: 16px apart on macOS, 24px on Linux.
+    expect(undoBox.x).toBeGreaterThanOrEqual(wordsEnd);
+    expect(undoBox.x - wordsEnd).toBeLessThanOrEqual(40);
+    expect(reviewBox.x).toBeGreaterThanOrEqual(undoBox.x + undoBox.width);
+    for (const box of [undoBox, reviewBox]) {
+      expect(
+        Math.abs(box.y + box.height / 2 - (countBox.y + countBox.height / 2)),
+      ).toBeLessThanOrEqual(2);
+    }
     await app.close();
   });
 }
