@@ -779,7 +779,7 @@ describe("Keeping a Meeting's audio, and saving it (#687)", () => {
       const refused = await core.resumeMeeting(id).catch((error: unknown) => error);
       expect(refused).toMatchObject({ wording: { key: "error.meeting.resumeAudioNotDeleted" } });
       expect(translate("en", "error.meeting.resumeAudioNotDeleted")).toBe(
-        "This meeting’s earlier audio couldn’t be deleted yet, so recording can’t resume. Try again in a minute.",
+        "Recording can’t resume until the earlier audio is deleted. Try again in a minute.",
       );
       expect(translate("zh-CN", "error.meeting.resumeAudioNotDeleted")).toBe(
         "这场会议之前的音频尚未删除，暂时无法继续录制。一分钟后再试。",

@@ -205,7 +205,8 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     expect(await urlsOpened(app)).toEqual([]);
     expect(await copied(window)).toBe("");
 
-    // A run that can't start, and one that fails, say why, with Check again.
+    // A run that can't start, and one that fails, say why, with Check again; Claude Code is the way
+    // this card checks, so it offers no model to set up (#3756).
     const second = await writeNote(
       window,
       "Harbour notes, second draft",
@@ -216,13 +217,14 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await nextRun("signed-out");
     await press(window);
     await expect(asked).toHaveText(
-      "Claude Code isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
+      "Claude Code isn’t signed in: sign in to it in a terminal, then Check again.",
     );
     await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Check again");
+    await expect(window.getByTestId("checks-asked-set-up")).toHaveCount(0);
+    await expect(window.getByTestId("check-card")).not.toContainText("Set up a model");
     await both(app, window, "background-signed-out", async () => {
-      await expect(asked).toHaveText(
-        "Claude Code 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
-      );
+      await expect(asked).toHaveText("Claude Code 尚未登录：在终端中登录后，再点“核对”。");
+      await expect(window.getByTestId("check-card")).not.toContainText("设置 AI 模型");
     });
     await nextRun("limit");
     await pointAndClick(window, window.getByTestId("checks-asked-line-ask"));
@@ -366,7 +368,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await nextRun("outside");
     await pointAndClick(window, window.getByTestId("checks-asked-line-ask"));
     await expect(asked).toHaveText(
-      "Codex stopped because it requested an action outside this check. Open the check in Codex.",
+      "Codex asked to act outside this check and was stopped. Open the check in Codex.",
     );
     await both(app, window, "codex-outside", async () => {
       await expect(asked).toHaveText(
@@ -392,7 +394,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await nextRun("outside");
     await press(window);
     await expect(asked).toHaveText(
-      "Codex stopped because it requested an action outside this check. Open the check in Codex.",
+      "Codex asked to act outside this check and was stopped. Open the check in Codex.",
     );
     const claudeCode = await window.evaluate(async (folderId) => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;

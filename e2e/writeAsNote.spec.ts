@@ -56,7 +56,7 @@ const WORDS = {
     placeholder: "Ask, or say ‘write a note on…’",
     chat: "This note’s chat",
     startGuide: "Start in three steps",
-    answerGuide: "The Answer appears on the right; add it to your note with one click.",
+    answerGuide: "add the Answer to your note with one click.",
     connectApp: "Connect an app…",
   },
   "zh-CN": {
@@ -72,7 +72,7 @@ const WORDS = {
     placeholder: "提问，或说“写一篇关于……的笔记”",
     chat: "这篇笔记的对话",
     startGuide: "三步开始",
-    answerGuide: "回答会出现在右侧，一键加入笔记。",
+    answerGuide: "一键把回答加入笔记。",
     connectApp: "连接应用…",
   },
 } as const;

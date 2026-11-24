@@ -24,12 +24,8 @@ describe("An Answer's figures it couldn't calculate", () => {
     const one = figuresOf([
       call({ uncalculated: 1, uncalculatedFigures: [{ marker: 3, written: "6.55" }] }),
     ]);
-    expect(uncalculatedWords(one, en, "en")).toBe(
-      "1 figure couldn’t be calculated: 6.55. It was written without a calculation IncarnaMind could check.",
-    );
-    expect(uncalculatedWords(one, zh, "zh-CN")).toBe(
-      "1 个数字未能计算：6.55。写入时没有可核对的算式。",
-    );
+    expect(uncalculatedWords(one, en, "en")).toBe("1 figure couldn’t be calculated: 6.55");
+    expect(uncalculatedWords(one, zh, "zh-CN")).toBe("1 个数字未能计算：6.55");
   });
 
   test("lists three figures in the language's pattern, never as a and b and c", () => {
@@ -44,11 +40,9 @@ describe("An Answer's figures it couldn't calculate", () => {
       }),
     ]);
     expect(uncalculatedWords(three, en, "en")).toBe(
-      "3 figures couldn’t be calculated: 6.55, 4.2, and 7.1. They were written without a calculation IncarnaMind could check.",
+      "3 figures couldn’t be calculated: 6.55, 4.2, and 7.1",
     );
-    expect(uncalculatedWords(three, zh, "zh-CN")).toBe(
-      "3 个数字未能计算：6.55、4.2和7.1。写入时没有可核对的算式。",
-    );
+    expect(uncalculatedWords(three, zh, "zh-CN")).toBe("3 个数字未能计算：6.55、4.2和7.1");
   });
 
   test("a figure with no number written before it keeps the count, never a raw marker", () => {

@@ -294,7 +294,7 @@ try {
       {
         title: "IncarnaMind couldn’t start",
         content:
-          "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
+          "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
         ready: true,
       },
     ]);
@@ -488,8 +488,7 @@ test("a data folder kept busy by a stuck copy starts nothing, and says so once t
     expect(shown).toEqual([
       {
         title: "IncarnaMind couldn’t start",
-        content:
-          "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+        content: "Another copy may still be starting. Try again in a moment.",
         ready: true,
       },
     ]);
@@ -637,8 +636,8 @@ async function startWhileQuitting(
           title: language === "zh-CN" ? "IncarnaMind 无法启动" : "IncarnaMind couldn’t start",
           content:
             language === "zh-CN"
-              ? "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。"
-              : "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
+              ? "另一个副本正在退出。请重新打开 IncarnaMind，数据未改动。"
+              : "Another copy was quitting. Open IncarnaMind again; your data is unchanged.",
           ready: true,
         },
       ]);

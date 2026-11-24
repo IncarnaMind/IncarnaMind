@@ -70,7 +70,7 @@ const LANGUAGES = {
     keep: "Keep citing the old version",
     kept: "Kept citing the old version",
     changedNotice: "The Document changed after this was cited.",
-    fetchedAgain: "This page was fetched again on",
+    fetchedAgain: "Fetched again on",
   },
   "zh-CN": {
     recheck: "需重新核对",
@@ -81,7 +81,7 @@ const LANGUAGES = {
     keep: "继续引用旧版本",
     kept: "已继续引用旧版本",
     changedNotice: "此文档在被引用后有改动。",
-    fetchedAgain: "此网页在你引用后于",
+    fetchedAgain: "你引用后于",
   },
 } as const;
 

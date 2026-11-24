@@ -151,8 +151,8 @@ test("Always run shows a risk warning first; confirmed, the Skill's scripts run 
   const sandboxed = (await scriptSandbox(window)) === "os";
   await expect(warning).toContainText(
     sandboxed
-      ? "From now on, greeter’s scripts run without asking. They run in a sandbox, but can still read some files on this computer."
-      : "From now on, greeter’s scripts run without asking. With no sandbox, they can delete your files and send your data online.",
+      ? "They run in a sandbox, but can still read some files on this computer."
+      : "With no sandbox, they can delete your files and send your data online.",
   );
   await expect(warning).toContainText("Only for a Skill you trust. Reset in Settings › Approvals.");
   if (sandboxed) {

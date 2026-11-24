@@ -109,7 +109,7 @@ describe("the refusal to turn a Folder's wall on or off", () => {
     await show({ folder: { id: "b", name: "Client B" } });
     const line = container.querySelector('[data-testid="command-yours"]');
     expect(line?.textContent).toContain(
-      "Whether “Client B” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+      "Whether “Client B” keeps its work inside it is yours to change, not mine: see its ⋯ menu.",
     );
     const open = container.querySelector('[data-testid="command-yours-open"]');
     expect(open?.textContent).toBe("Open the Folder’s menu");
@@ -123,7 +123,7 @@ describe("the refusal to turn a Folder's wall on or off", () => {
   test("with no Folder to name, says where, with no button", async () => {
     await show({});
     expect(container.querySelector('[data-testid="command-yours"]')?.textContent).toContain(
-      "Whether a Folder keeps its work inside it is yours to change, not mine. It’s in each Folder’s ⋯ menu.",
+      "Whether a Folder keeps its work inside it is yours to change, not mine: see its ⋯ menu.",
     );
     expect(container.querySelector('[data-testid="command-yours-open"]')).toBeNull();
   });

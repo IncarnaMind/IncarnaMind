@@ -22,7 +22,7 @@ describe("The line under a reply that says a Tool ran when none did", () => {
     expect(unrunToolLines(en, { unrunTools: ["calculate"] })).toEqual([
       {
         tool: "calculate",
-        text: "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
+        text: "No calculation ran, so the figures this reply works out are unchecked",
         retry: true,
       },
     ]);
@@ -52,7 +52,7 @@ describe("The line under a reply that says a Tool ran when none did", () => {
         content: [
           {
             type: "text",
-            text: "未运行计算：这条回答中算出的数字不是 IncarnaMind 计算得出的，尚未核对",
+            text: "未运行计算，这条回答中算出的数字尚未核对",
             marks: [{ type: "italic" }],
           },
         ],
@@ -94,7 +94,7 @@ describe("The line under a reply that says it did something in the app", () => {
     ).toEqual([
       {
         what: "privacy",
-        text: "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › AI and Settings › Privacy",
+        text: "Not changed: only you can change what leaves this computer, in Settings › AI and Settings › Privacy",
         retry: false,
       },
       {
@@ -109,7 +109,7 @@ describe("The line under a reply that says it did something in the app", () => {
       },
       {
         what: "approvals",
-        text: "What the assistant may do without asking wasn’t changed. Only you can change it, in Settings › Privacy",
+        text: "Not changed: only you can change what the assistant may do unasked, in Settings › Privacy",
         retry: false,
       },
       {
@@ -119,7 +119,7 @@ describe("The line under a reply that says it did something in the app", () => {
       },
       {
         what: "wall",
-        text: "Whether a Folder keeps its work inside it wasn’t changed. Only you can change it, in the Folder’s ⋯ menu",
+        text: "Not changed: only you can set whether a Folder keeps its work inside it, in its ⋯ menu",
         retry: false,
       },
       {
@@ -144,10 +144,7 @@ describe("The line under a reply that says it did something in the app", () => {
         line.retry,
       ]),
     ).toEqual([
-      [
-        "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › AI”和“设置 › 隐私”里更改",
-        false,
-      ],
+      ["没有更改：哪些内容离开这台电脑，只有你能在“设置 › AI”和“设置 › 隐私”里更改", false],
       ["助手没有在应用中完成这条回答说的全部操作", true],
     ]);
   });

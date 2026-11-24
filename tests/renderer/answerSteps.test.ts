@@ -745,24 +745,24 @@ describe("an Answer's steps", () => {
     });
     const limit = { limit: "$0.25", model: "Claude Fable 5" };
     expect(en("citation.reason.answer-limit-unfinished", limit)).toBe(
-      "Not checked: this Answer’s $0.25 checking limit was reached before Claude Fable 5 finished checking this sentence.",
+      "Not checked: this Answer hit its $0.25 checking limit before Claude Fable 5 finished.",
     );
     expect(zh("citation.reason.answer-limit-unfinished", limit)).toBe(
-      "未核对：Claude Fable 5 还没核对完这句，就已达本回答 $0.25 的核对上限。",
+      "未核对：Claude Fable 5 核对完之前，本回答已达 $0.25 的核对上限。",
     );
     const model = { model: "Claude Fable 5" };
     expect(en("citation.reason.monthly-limit-unfinished", model)).toBe(
-      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
+      "Not checked: your monthly limit was reached before Claude Fable 5 finished.",
     );
     expect(zh("citation.reason.monthly-limit-unfinished", model)).toBe(
-      "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
+      "未核对：Claude Fable 5 核对完之前，已达每月上限。",
     );
     // In a Note, whose card has no Answer to name the model by.
     expect(en("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
-      "Not checked: this Answer’s $0.25 checking limit was reached before this sentence’s check finished.",
+      "Not checked: this Answer hit its $0.25 checking limit first.",
     );
     expect(zh("citation.reason.answer-limit-unfinished.unnamed", { limit: "$0.25" })).toBe(
-      "未核对：这句还没核对完，就已达本回答 $0.25 的核对上限。",
+      "未核对：本回答已先达到 $0.25 的核对上限。",
     );
     expect(zh("citation.reason.monthly-limit-unfinished.unnamed")).toBe(
       "未核对：这句还没核对完，就已达每月上限。",
