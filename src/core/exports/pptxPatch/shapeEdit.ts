@@ -22,6 +22,50 @@ export interface EditedParagraph {
   runs: EditedRun[];
 }
 
+/** Runs next to each other from the same source, joined: the DOM may split one into several nodes. */
+export function joinedRuns(runs: readonly EditedRun[]): EditedRun[] {
+  const out: EditedRun[] = [];
+  for (const run of runs) {
+    if (run.text === "") continue;
+    const last = out.at(-1);
+    const same =
+      last &&
+      last.text !== "\n" &&
+      run.text !== "\n" &&
+      last.source?.paragraph === run.source?.paragraph &&
+      last.source?.run === run.source?.run;
+    if (last && same) last.text += run.text;
+    else out.push({ source: run.source, text: run.text });
+  }
+  return out;
+}
+
+/**
+ * Whether a paragraph's edited runs (joined) are its own pieces that show, in their order, so the
+ * paragraph keeps every piece, a run with no text where it was, and only their text changes;
+ * otherwise it is written anew, a piece for each run. `pieces`: its runs, breaks and fields as
+ * the file holds them, a break's text "\n". The deck's patch and the window's stand-in for typed
+ * words both go by it, so they number a paragraph's runs alike.
+ */
+export function writtenInPlace(
+  pieces: readonly string[],
+  index: number,
+  runs: readonly EditedRun[],
+): boolean {
+  const shown = pieces.map((text, at) => ({ text, at })).filter(({ text }) => text !== "");
+  return (
+    runs.length === shown.length &&
+    shown.every(({ text, at }, place) => {
+      const run = runs[place];
+      return (
+        run?.source?.paragraph === index &&
+        run.source.run === at &&
+        (text === "\n") === (run.text === "\n")
+      );
+    })
+  );
+}
+
 /** A shape's box on its slide, CSS pixels at 96 dpi, as the slide shows it: a group's shape's too. */
 export interface ShapeBox {
   x: number;

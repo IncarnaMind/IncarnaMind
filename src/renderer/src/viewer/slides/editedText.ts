@@ -5,11 +5,13 @@
  * copies those spans as text is typed, joined and deleted, so the mark goes
  * with the text; text typed where no span is has no run.
  */
-import type { TextBody } from "../../../../core/documents/formats/pptxDrawing";
-import type {
-  EditedParagraph,
-  EditedRun,
-  RunSource,
+import type { Paragraph, Run, TextBody } from "../../../../core/documents/formats/pptxDrawing";
+import {
+  type EditedParagraph,
+  type EditedRun,
+  joinedRuns,
+  type RunSource,
+  writtenInPlace,
 } from "../../../../core/exports/pptxPatch/shapeEdit";
 import type { MeasuredFit } from "./textFit";
 
@@ -127,29 +129,58 @@ function same(paragraphs: readonly EditedParagraph[], body: TextBody): boolean {
 }
 
 /**
- * The box's text as typed, in the looks of the runs and paragraphs it was typed into, as the deck's
- * patch writes it: drawn in the box's place until the write that holds it is drawn. Null when the
- * box has no run to take a look from.
+ * The box's text as typed, as the deck's patch will write it: drawn in the box's place until that
+ * write is drawn. Its runs are numbered as the file will number them (a paragraph kept in place
+ * keeps its runs with no text; one written anew has a run for each typed), so an edit made on it
+ * names the file's runs. Null when the box has no run to take a look from.
  */
 export function typedText(body: TextBody, edited: readonly EditedParagraph[]): TextBody | null {
   const anyRun = body.paragraphs
     .flatMap((paragraph) => paragraph.runs)
     .find((run) => !run.lineBreak);
-  const last = body.paragraphs.at(-1);
-  if (!anyRun || !last) return null;
+  const first = body.paragraphs[0];
+  if (!anyRun || !first) return null;
+  let like: Paragraph = first;
   const runAt = (source: RunSource | null) =>
     source ? body.paragraphs[source.paragraph]?.runs[source.run] : undefined;
+  const used = new Set<number>();
   return {
     ...body,
     paragraphs: edited.map((paragraph) => {
-      const from =
-        (paragraph.source === null ? undefined : body.paragraphs[paragraph.source]) ?? last;
-      let look = from.runs.find((run) => !run.lineBreak) ?? anyRun;
+      const runs = joinedRuns(paragraph.runs);
+      const own = paragraph.source === null ? undefined : body.paragraphs[paragraph.source];
+      if (own) like = own;
+      if (own && paragraph.source !== null && !used.has(paragraph.source)) {
+        used.add(paragraph.source);
+        const pieces = own.runs.map((run) => (run.lineBreak ? "\n" : run.text));
+        if (writtenInPlace(pieces, paragraph.source, runs)) {
+          let next = 0;
+          return {
+            ...own,
+            runs: own.runs.map((run) => {
+              if (!run.lineBreak && run.text === "") return run;
+              const typed = runs[next++];
+              return run.lineBreak || !typed ? run : { ...run, text: typed.text };
+            }),
+          };
+        }
+      }
+      // Written anew, a run for each: in its own run's looks, typed text in the run's before it,
+      // else after it.
+      let previous: Run | undefined;
       return {
-        ...from,
-        runs: paragraph.runs.map((run) => {
-          const own = runAt(run.source);
-          if (own && !own.lineBreak) look = own;
+        ...like,
+        runs: runs.map((run, at) => {
+          const typedInto = runAt(run.source);
+          const look =
+            typedInto ??
+            previous ??
+            runs
+              .slice(at + 1)
+              .map((each) => runAt(each.source))
+              .find((each) => each && !each.lineBreak) ??
+            anyRun;
+          if (!look.lineBreak && run.text !== "\n") previous = look;
           return { ...look, text: run.text, lineBreak: run.text === "\n" };
         }),
       };

@@ -25,13 +25,15 @@ import {
 } from "../packagePatch/text";
 import { escapeXml } from "../wordml";
 import { Deck, NAMESPACES } from "./deck";
-import type {
-  EditedParagraph,
-  EditedRun,
-  RunSource,
-  ShapeBox,
-  ShapeEdit,
-  TextFit,
+import {
+  type EditedParagraph,
+  type EditedRun,
+  joinedRuns,
+  type RunSource,
+  type ShapeBox,
+  type ShapeEdit,
+  type TextFit,
+  writtenInPlace,
 } from "./shapeEdit";
 import { animatesParagraphs, shapesById } from "./shapes";
 
@@ -68,24 +70,6 @@ function textSplice(text: string, piece: XmlElement, value: string): Splice {
   return { from: t.openEnd ?? 0, to: (t.end ?? 0) - `</${t.name}>`.length, text: escapeXml(value) };
 }
 
-/** Runs next to each other from the same source, joined: the DOM may split one into several nodes. */
-function joined(runs: readonly EditedRun[]): EditedRun[] {
-  const out: EditedRun[] = [];
-  for (const run of runs) {
-    if (run.text === "") continue;
-    const last = out.at(-1);
-    const same =
-      last &&
-      last.text !== "\n" &&
-      run.text !== "\n" &&
-      last.source?.paragraph === run.source?.paragraph &&
-      last.source?.run === run.source?.run;
-    if (last && same) last.text += run.text;
-    else out.push({ source: run.source, text: run.text });
-  }
-  return out;
-}
-
 /** A piece of the slide's text with its own text set: a run's or field's `a:t`, the rest kept. */
 function withText(text: string, piece: XmlElement, value: string): string {
   const from = startOf(piece);
@@ -106,17 +90,13 @@ function inPlace(
   index: number,
   runs: readonly EditedRun[],
 ): string | null {
-  const shown = piecesOf(paragraph)
-    .map((piece, at) => ({ piece, at }))
-    .filter(({ piece }) => local(piece.name) === "br" || textOfPiece(piece) !== "");
-  if (runs.length !== shown.length) return null;
+  const pieces = piecesOf(paragraph);
+  if (!writtenInPlace(pieces.map(textOfPiece), index, runs)) return null;
+  const shown = pieces.filter((piece) => textOfPiece(piece) !== "");
   const splices: Splice[] = [];
-  for (const [place, { piece, at }] of shown.entries()) {
+  for (const [place, piece] of shown.entries()) {
     const run = runs[place];
-    if (!run || run.source?.paragraph !== index || run.source.run !== at) return null;
-    const isBreak = local(piece.name) === "br";
-    if (isBreak !== (run.text === "\n")) return null;
-    if (!isBreak && run.text !== textOfPiece(piece))
+    if (run && local(piece.name) !== "br" && run.text !== textOfPiece(piece))
       splices.push(textSplice(text, piece, run.text));
   }
   const from = startOf(paragraph);
@@ -359,7 +339,7 @@ function paragraphSplices(
   const used = new Set<number>();
   let like = first;
   const written = paragraphs.map((paragraph) => {
-    const runs = joined(paragraph.runs);
+    const runs = joinedRuns(paragraph.runs);
     const own = paragraph.source !== null ? existing[paragraph.source] : undefined;
     if (own) like = own;
     if (own && paragraph.source !== null && !used.has(paragraph.source)) {

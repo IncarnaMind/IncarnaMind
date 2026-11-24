@@ -37,56 +37,61 @@ const zhRun = (text: string, bold = false) =>
   `<a:r><a:rPr lang="zh-CN" altLang="en-US" sz="2400"${bold ? ` b="1"` : ""}/><a:t>${text}</a:t></a:r>`;
 
 /** An invented deck: a title, a line with a bold figure, a blue box; a Chinese line; a box that can't grow. */
-const DECK = pptxOf({
-  slides: [
-    {
-      shapes:
-        sp({
-          id: 2,
-          name: "Title",
-          spPr: xfrm(457200, 300000, 8000000, 700000),
-          body: txBody(para([run("Harbour plan 2027")])),
-        }) +
-        sp({
-          id: 3,
-          name: "Revenue",
-          txBox: true,
-          spPr: xfrm(457200, 1300000, 5200000, 600000),
-          body: txBody(
-            para([run("Revenue grew "), run("4 per cent", true), run(", checked.")]),
-            `<a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr>`,
-          ),
-        }) +
-        sp({ id: 4, name: "Box", spPr: xfrm(6400000, 1300000, 1800000, 1200000) + BLUE }) +
-        `<p:pic><p:nvPicPr><p:cNvPr id="7" name="Quay" descr="The east quay"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rQuay"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(457200, 3000000, 914400, 914400)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`,
-      rels: rel("rQuay", "image", "../media/quay.png"),
-    },
-    {
-      shapes:
-        sp({
-          id: 5,
-          name: "收入",
-          txBox: true,
-          spPr: xfrm(457200, 600000, 6000000, 600000),
-          body: txBody(
-            para([zhRun("收入增长"), zhRun("百分之四", true), zhRun("，已核对。")]),
-            `<a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr>`,
-          ),
-        }) +
-        sp({
-          id: 6,
-          name: "Note",
-          txBox: true,
-          spPr: xfrm(457200, 2000000, 3000000, 500000),
-          body: txBody(para([run("Moorings stay as they are.")]), `<a:bodyPr wrap="square"/>`),
-        }),
-    },
-  ],
-  parts: [
-    { name: "_rels/.rels", data: ROOT_RELS },
-    { name: "ppt/media/quay.png", data: gradientPng(64) },
-  ],
-});
+/** The test deck, its revenue line's runs given. */
+const deckWith = (revenue: string) =>
+  pptxOf({
+    slides: [
+      {
+        shapes:
+          sp({
+            id: 2,
+            name: "Title",
+            spPr: xfrm(457200, 300000, 8000000, 700000),
+            body: txBody(para([run("Harbour plan 2027")])),
+          }) +
+          sp({
+            id: 3,
+            name: "Revenue",
+            txBox: true,
+            spPr: xfrm(457200, 1300000, 5200000, 600000),
+            body: txBody(revenue, `<a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr>`),
+          }) +
+          sp({ id: 4, name: "Box", spPr: xfrm(6400000, 1300000, 1800000, 1200000) + BLUE }) +
+          `<p:pic><p:nvPicPr><p:cNvPr id="7" name="Quay" descr="The east quay"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rQuay"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(457200, 3000000, 914400, 914400)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`,
+        rels: rel("rQuay", "image", "../media/quay.png"),
+      },
+      {
+        shapes:
+          sp({
+            id: 5,
+            name: "收入",
+            txBox: true,
+            spPr: xfrm(457200, 600000, 6000000, 600000),
+            body: txBody(
+              para([zhRun("收入增长"), zhRun("百分之四", true), zhRun("，已核对。")]),
+              `<a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr>`,
+            ),
+          }) +
+          sp({
+            id: 6,
+            name: "Note",
+            txBox: true,
+            spPr: xfrm(457200, 2000000, 3000000, 500000),
+            body: txBody(para([run("Moorings stay as they are.")]), `<a:bodyPr wrap="square"/>`),
+          }),
+      },
+    ],
+    parts: [
+      { name: "_rels/.rels", data: ROOT_RELS },
+      { name: "ppt/media/quay.png", data: gradientPng(64) },
+    ],
+  });
+
+const DECK = deckWith(para([run("Revenue grew "), run("4 per cent", true), run(", checked.")]));
+/** The same deck, a run with no text before its revenue line's words, as PowerPoint leaves some. */
+const DECK_EMPTY_RUN = deckWith(
+  para([run(""), run("Revenue grew "), run("4 per cent", true), run(", checked.")]),
+);
 
 /** The deck as another app saved it: the same deck, its properties its own. */
 const DECK_THEIRS = pptxOf({
@@ -139,9 +144,9 @@ async function still(window: Page, name: string) {
 }
 
 /** The deck added on its own, opened beside the Mind, its slides drawn. */
-async function opened(language: "en" | "zh-CN" = "en") {
+async function opened(language: "en" | "zh-CN" = "en", deck: Uint8Array = DECK) {
   const path = join(sources, NAME);
-  await writeFile(path, DECK);
+  await writeFile(path, deck);
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1440, 900);
   await dismissChatSetup(window);
@@ -714,6 +719,40 @@ test("words typed while their write is on its way stay drawn, and the box opened
     await expect(first).toContainText(", checked. Rising fast");
     await hold(false);
     await expect.poll(async () => slideOnDisk(path, 1)).toContain(", checked. Rising fast");
+  } finally {
+    await hold(false);
+    await app.close();
+  }
+});
+
+test("two edits of a box with a run that has no text, the second made while the first is on its way, keep the bold run bold", async () => {
+  const { app, window, path, first } = await opened("en", DECK_EMPTY_RUN);
+  const hold = (held: boolean) =>
+    window.evaluate(
+      (held) =>
+        (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks?.holdDeckWrites(
+          held,
+        ),
+      held,
+    );
+  try {
+    await hold(true);
+    for (const typed of [" Rising", " fast"]) {
+      const words = await centre(first.getByText(", checked."));
+      await window.mouse.dblclick(words.x, words.y);
+      await expect(first.locator('[contenteditable="true"]')).toBeFocused();
+      await window.keyboard.press(LINE_END);
+      await window.keyboard.type(typed);
+      await window.keyboard.press("Escape");
+      await expect(first.locator('[contenteditable="true"]')).toHaveCount(0);
+    }
+    await hold(false);
+    await expect.poll(async () => slideOnDisk(path, 1)).toContain(", checked. Rising fast");
+    const xml = await slideOnDisk(path, 1);
+    // The run that was bold in the file is the run that is bold on disk.
+    expect(
+      [...xml.matchAll(/<a:rPr[^>]*b="1"[^>]*\/><a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]),
+    ).toEqual(["4 per cent"]);
   } finally {
     await hold(false);
     await app.close();
