@@ -295,6 +295,13 @@ function shrinkSplices(
     .flatMap(([name, value]) => (value === null ? [] : [` ${name}="${value}"`]))
     .join("");
   const written = `<${a}:normAutofit${attributes}/>`;
+  // noAutofit, spAutoFit and normAutofit are one choice in the schema: the shrink takes its place.
+  const other = elements(bodyPr).find((each) =>
+    ["noAutofit", "spAutoFit"].includes(local(each.name)),
+  );
+  if (other) {
+    return [{ from: startOf(other), to: other.end ?? 0, text: written }];
+  }
   if (selfClosing(bodyPr)) {
     const tag = sliceOf(text, bodyPr).replace(/\s*\/>$/, ">");
     return [

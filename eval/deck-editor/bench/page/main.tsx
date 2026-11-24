@@ -48,14 +48,16 @@ async function shownOf(bytes: Uint8Array, number: number, editable: boolean, wid
   return { drawing, slide, images, scale: Math.min(1, width / drawing.width), editable };
 }
 
-async function edited(edit: ShapeEdit, number: number, width: number) {
+async function edited(edits: ShapeEdit[], number: number, width: number): Promise<boolean> {
   state.pending++;
   try {
-    state.bytes = await bench.edit(state.bytes, [edit]);
-    state.edits.push(edit);
+    state.bytes = await bench.edit(state.bytes, edits);
+    state.edits.push(...edits);
     state.show(await shownOf(state.bytes, number, true, width));
+    return true;
   } catch (error) {
     state.errors.push(error instanceof Error ? error.message : String(error));
+    return false;
   } finally {
     state.pending--;
   }
@@ -83,7 +85,7 @@ function Page() {
                 height={height}
                 images={images}
                 scale={scale}
-                onEdit={(edit) => void edited(edit, slide.number, 1400)}
+                onEdit={(edits) => edited(edits, slide.number, 1400)}
               />
             ) : (
               <SlideCanvas slide={slide} width={width} height={height} images={images} ranges={null} />

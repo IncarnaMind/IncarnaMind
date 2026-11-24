@@ -37,7 +37,7 @@ export interface DeckPlaceDeps {
   inLinkedFolder(path: string): boolean;
   /** Saves a new file in the Output location, or in `folder` inside a Linked folder (ADR-0010). */
   save(file: NewFile): Promise<SavedFile>;
-  handed: Pick<AgentFiles, "holding" | "addVersion" | "rewriteVersion">;
+  handed: Pick<AgentFiles, "holding" | "versions" | "addVersion" | "rewriteVersion">;
   kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId">;
   /** Writes of a deck IncarnaMind keeps take turns with agents' hand-overs of it. */
   inHandOverTurn<T>(run: () => Promise<T>): Promise<T>;
@@ -81,6 +81,17 @@ function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array):
         if (!(await holds(path, wrote))) return CHANGED;
         const contentHash = hashBytes(bytes);
         const item = deps.handed.holding(documentId)[0];
+        // A version that has a check Note of its own (a hand-over of these bytes may have given it
+        // one) keeps the bytes the Note describes: the next write makes a new version.
+        const stored =
+          item && version
+            ? deps.handed.versions(item.id).find((each) => each.id === version?.id)
+            : undefined;
+        if (
+          stored &&
+          (stored.mindId !== null || stored.checkedAt !== null || stored.unread !== null)
+        )
+          version = null;
         if (item && !version) {
           const number = item.version + 1;
           const file = join(HANDED_FOLDER, item.id, `v${number}`, basename(path));

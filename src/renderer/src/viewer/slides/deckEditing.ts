@@ -188,6 +188,10 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
     if (stored && stored.key !== steady) endHere(document.id);
   }, [stored, steady, document.id]);
 
+  // The line about text past its box names words of the version it was said of.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: what names the deck changed
+  useEffect(() => setOverflow(null), [steady]);
+
   useEffect(() => {
     void refreshKept(document.id).catch((error: unknown) =>
       console.error("The deck's kept states couldn't be read.", error),

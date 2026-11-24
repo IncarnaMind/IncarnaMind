@@ -109,6 +109,9 @@ function withBox(items: readonly Item[], path: string, box: ShapeBox): Item[] {
 
 const rotated = (box: Box) => (box.rotation ? `rotate(${box.rotation}deg)` : undefined);
 
+/** Rotated or flipped: its own axes aren't the slide's. */
+const turned = (box: Box) => box.rotation % 360 !== 0 || box.flipH || box.flipV;
+
 /** A shape's own words, or a picture's description, to name its hit area. */
 function labelOf(item: Item): string | undefined {
   if (item.kind === "picture") return item.alt || undefined;
@@ -207,6 +210,9 @@ export function SlideEditor({
     at: { x: number; y: number } | null;
   } | null>(null);
   const gesture = useRef<Gesture | null>(null);
+  /** Takes the gesture's window listeners off: at its end, or as the slide goes. */
+  const stopGesture = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopGesture.current?.(), []);
   const nudge = useRef<{
     path: string;
     box: ShapeBox;
@@ -266,6 +272,8 @@ export function SlideEditor({
       root.current?.focus({ preventScroll: true });
       // A click inside the group already selected selects the shape in it, as PowerPoint does.
       setSelected(path);
+      // A run of nudges is written first: the drag starts where they left the shape.
+      handOverNudge.current();
       gesture.current = {
         path,
         corner,
@@ -273,9 +281,10 @@ export function SlideEditor({
         box,
         moved: false,
       };
+      const pointer = event.pointerId;
       const move = (moveEvent: PointerEvent) => {
         const now = gesture.current;
-        if (!now) return;
+        if (!now || moveEvent.pointerId !== pointer) return;
         const dx = (moveEvent.clientX - now.from.x) / scale;
         const dy = (moveEvent.clientY - now.from.y) / scale;
         const travelled = Math.hypot(
@@ -286,9 +295,22 @@ export function SlideEditor({
         now.moved = true;
         setDraft({ path: now.path, box: resized(now.box, now.corner, dx, dy) });
       };
-      const end = (upEvent: PointerEvent) => {
+      const stop = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", cancel);
+        stopGesture.current = null;
+      };
+      // Cancelled by the system (a lost pointer, a gesture taken over): nothing is written.
+      const cancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointer) return;
+        stop();
+        if (gesture.current?.moved) setDraft(null);
+        gesture.current = null;
+      };
+      const end = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointer) return;
+        stop();
         const now = gesture.current;
         gesture.current = null;
         if (!now?.moved) return;
@@ -304,6 +326,8 @@ export function SlideEditor({
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", cancel);
+      stopGesture.current = stop;
     },
     [shown, scale, moved],
   );
@@ -343,6 +367,12 @@ export function SlideEditor({
         const box = slideBox(now.items, owner);
         const item = at.item;
         let written: ShapeEdit = { kind: "text", slide: now.number, shape, paragraphs };
+        // A turned box's text is measured along the slide's axes, not its own: its words are
+        // written, and how it fits them is left as it was.
+        if (turned(item.box)) {
+          edit.current([written], "text");
+          return;
+        }
         if (fit?.kind === "grow" && box && item.kind === "shape") {
           const text = item.textBox?.h ?? box.h;
           const h = Math.max(1, box.h + fit.height - text);
@@ -428,7 +458,12 @@ export function SlideEditor({
     ? selected.slice(0, selected.lastIndexOf("."))
     : selected;
   const group = groupPath ? located(shown.items, groupPath)?.item : undefined;
-  const inner = group?.kind === "group" && groupPath ? selectable(group.children, groupPath) : [];
+  // A rotated or flipped group's shapes are drawn turned, and placed here unturned: they move with
+  // their group, not alone, so a move never lands where the pointer didn't put it.
+  const inner =
+    group?.kind === "group" && groupPath && !turned(group.box)
+      ? selectable(group.children, groupPath)
+      : [];
   // As in PowerPoint, a drag over a shape's words selects them, selected or not; such a shape
   // moves by its edge. A shape with no words moves from anywhere on it.
   const shapes = [...top, ...inner];
@@ -603,6 +638,8 @@ export function SlideEditor({
           }}
         >
           {selected !== null &&
+            // A turned shape's corners would size it along the slide's axes, not its own: it moves only.
+            !turned(frameItem.box) &&
             CORNERS.map((corner) => (
               <div
                 key={corner}

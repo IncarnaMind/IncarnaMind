@@ -9842,10 +9842,14 @@ export function createCore(adapters: CoreAdapters): Core {
         : [],
     restoreKeptDeck: (input) =>
       writingDeck(
-        restoreKept(deckPlaces, readDeck, input ?? {}).then((restored) => {
-          deckSittings.endOn(restored.documentId);
-          return restored;
-        }),
+        deckSittings
+          .inDocumentTurn(String(input?.documentId), () =>
+            restoreKept(deckPlaces, readDeck, input ?? {}),
+          )
+          .then((restored) => {
+            deckSittings.endOn(restored.documentId);
+            return restored;
+          }),
       ),
     writingDecks: () =>
       decksBeingWritten.size === 0

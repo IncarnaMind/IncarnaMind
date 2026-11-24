@@ -110,6 +110,18 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     }
   };
 
+  /** The writes of every sitting on one Document, and its Put back, one after another. */
+  const documentTurns = new Map<string, Promise<unknown>>();
+  const inDocumentTurn = <T>(documentId: string, run: () => Promise<T>): Promise<T> => {
+    const next = (documentTurns.get(documentId) ?? Promise.resolve()).then(run);
+    const settled = next.catch(() => undefined);
+    documentTurns.set(documentId, settled);
+    void settled.then(() => {
+      if (documentTurns.get(documentId) === settled) documentTurns.delete(documentId);
+    });
+    return next;
+  };
+
   /** Runs a sitting's writes one after another, so two never write over each other. */
   const inTurn = <T>(sitting: Sitting, run: () => Promise<T>): Promise<T> => {
     const next = sitting.turn.then(run);
@@ -165,7 +177,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
     step: Step,
     done: number,
   ): Promise<DeckEdit> {
-    const written = await sitting.place.write(bytes);
+    const written = await inDocumentTurn(sitting.documentId, () => sitting.place.write(bytes));
     if (written.kind === "changed") {
       sitting.ended = true;
       throw changedError();
@@ -244,6 +256,12 @@ export function createDeckSittings(deps: DeckSittingDeps) {
         going && !going.ended && !going.closed && going.documentId === input.documentId
           ? going
           : await start(input.documentId, input.shown);
+      const begun = sitting !== going;
+      // A sitting whose first gesture was refused was never handed out: it goes.
+      const forgetUnused = (error: unknown) => {
+        if (begun && sitting.steps.length === 0 && !sitting.waiting) sittings.delete(sitting.id);
+        throw error;
+      };
       return inTurn(sitting, async () => {
         if (sitting.ended) throw changedError();
         const { waiting } = sitting;
@@ -260,8 +278,11 @@ export function createDeckSittings(deps: DeckSittingDeps) {
         const step: Step = { id: deps.newId(), edits };
         sitting.steps = [...sitting.steps.slice(0, sitting.done), step];
         return write(sitting, bytes, step, sitting.steps.length);
-      });
+      }).catch(forgetUnused);
     },
+
+    /** Runs a write of this Document outside a sitting (Put back) in turn with the sittings' writes. */
+    inDocumentTurn,
 
     /** Writes the change that waits again: its file may take it now. */
     retry(sittingId: unknown): Promise<DeckEdit> {

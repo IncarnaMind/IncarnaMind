@@ -337,6 +337,21 @@ describe("Shapes in a group, table cells and text that follows its box", () => {
     expect(await slideXml(shrunk)).toContain(
       '<a:bodyPr wrap="square"><a:normAutofit fontScale="77500" lnSpcReduction="10000"/></a:bodyPr>',
     );
+    // A box that said it doesn't fit its text takes the shrink in place of that: the two are one choice.
+    for (const was of ["<a:noAutofit/>", "<a:spAutoFit/>"]) {
+      const replaced = await applyShapeEdits(box(was), [
+        {
+          kind: "text",
+          slide: 1,
+          shape: "3",
+          paragraphs,
+          fit: { kind: "shrink", fontScale: 0.775, lineReduction: 0.1 },
+        },
+      ]);
+      expect(await slideXml(replaced)).toContain(
+        '<a:bodyPr wrap="square"><a:normAutofit fontScale="77500" lnSpcReduction="10000"/></a:bodyPr>',
+      );
+    }
     const drawn = await drawPptx(shrunk);
     const slide = drawn.slides[0];
     const body = slide && "items" in slide ? (slide.items[0] as ShapeItem) : null;
