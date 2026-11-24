@@ -482,7 +482,7 @@ export function createAgentServer(
     {
       title: "Change a Note",
       description:
-        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change. With no named paragraphs, start with ¶0+. Write Markdown as in create_mind, with its [cite:…] tokens. Changes apply in Notes you wrote and wait for review elsewhere.",
+        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change, ¶0+ adds at the top. Write Markdown as in create_mind, with its [cite:…] tokens. Changes apply in Notes you wrote and wait for review elsewhere.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
