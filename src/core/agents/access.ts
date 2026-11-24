@@ -2260,6 +2260,7 @@ export function createAgentAccess(
     },
     placeToWriteIn,
     waitMs: deps.checkWaitMs ?? CHECK_WAIT_MS,
+    within: grant?.kind === "conversation" ? (grant.front.folder ?? "") : null,
   });
 
   const canvasTools = createCanvasTools({

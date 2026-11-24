@@ -57,8 +57,16 @@ export type SelectedInBlock = NoteSelectionBlock;
 export interface ConversationRun extends ConversationHears {
   kind: "conversation";
   tools: readonly AgentToolName[];
-  /** The Note asked from, the words selected in it, and what the User typed. */
-  front: { mindId: string; selection: readonly SelectedInBlock[] | null; words: string };
+  /**
+   * The Note asked from, the words selected in it, and what the User typed; and the real path of
+   * the conversation's own folder, the only place a file by its path is taken from (null: none is).
+   */
+  front: {
+    mindId: string;
+    selection: readonly SelectedInBlock[] | null;
+    words: string;
+    folder: string | null;
+  };
 }
 
 /** What a conversation's run hears of its own calls, and only its own (#3627). */

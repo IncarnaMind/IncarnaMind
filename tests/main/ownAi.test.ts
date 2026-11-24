@@ -5,7 +5,7 @@
  */
 import { spawn as spawnNode } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -770,19 +770,27 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       ? (JSON.parse(end.reply) as { id: string; answer: Record<string, unknown> }[])
       : [];
 
-  // protects=a question reaches IncarnaMind read as what will happen (the whole command, in the conversation's folder) with the rules Claude Code's own wider answer would keep; "for this request" goes back as those rules kept for the session only, never in a settings file; fails_when=a question is lost, its command is cut, or a wider answer would write the User's settings
-  it("asks IncarnaMind, and answers for this request with Claude Code's own rules kept for the session only", async () => {
+  // protects=a question reaches IncarnaMind read as what will happen (the whole command) with each answer Claude Code suggests, in its order; the one the User picks goes back exactly as Claude Code gave it, kept where it said, nothing widened or narrowed; fails_when=a question is lost, its command is cut, or an answer is sent other than as Claude Code gave it
+  it("passes on each answer Claude Code suggests, and sends the one picked back as it gave it", async () => {
     useClaude({ run: asking([COMMAND]) });
     const asked: OwnAiAsk[] = [];
     const { end } = await converse(async (question) => {
       asked.push(question);
-      return "request";
+      return 0;
     });
     expect(asked).toEqual([
       {
         step: "toolu_1",
-        action: { kind: "command", value: COMMAND.input.command, inFolder: true },
-        wider: { rules: ["Bash(python3 late_crossings.py:*)"] },
+        action: { kind: "command", value: COMMAND.input.command },
+        suggested: [
+          {
+            kind: "rules",
+            kept: "conversation",
+            rules: [{ kind: "commands", start: "python3 late_crossings.py" }],
+          },
+          { kind: "folders", kept: "request", folders: ["/elsewhere"] },
+          { kind: "mode", kept: "request", mode: "acceptEdits" },
+        ],
       },
     ]);
     expect(answersIn(end)).toEqual([
@@ -791,13 +799,10 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         answer: {
           behavior: "allow",
           updatedInput: COMMAND.input,
-          updatedPermissions: [{ ...COMMAND.permission_suggestions[0], destination: "session" }],
+          updatedPermissions: [COMMAND.permission_suggestions[0]],
         },
       },
     ]);
-    expect(JSON.stringify(answersIn(end))).not.toMatch(
-      /localSettings|userSettings|projectSettings/,
-    );
   });
 
   // protects=Allow once allows this call alone and Deny says no, which Claude Code takes as the call's error; fails_when=Allow once keeps a rule, or Deny lets it run
@@ -816,6 +821,17 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     useClaude({
       run: asking([
         { tool_name: "Write", input: { file_path: "drafts/late.md", content: "a\nb\n" } },
+        {
+          tool_name: "Bash",
+          input: {
+            command: "cd ~ && npm run watch",
+            run_in_background: true,
+            dangerouslyDisableSandbox: true,
+          },
+        },
+        { tool_name: "Write", input: { file_path: ".claude/settings.json", content: "{}" } },
+        { tool_name: "Edit", input: { file_path: "CLAUDE.md", old_string: "a", new_string: "b" } },
+        { tool_name: "Skill", input: { skill: "harbour-report", args: "--week 47" } },
         {
           tool_name: "Edit",
           input: {
@@ -848,7 +864,26 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         value: join("drafts", "late.md"),
         inFolder: true,
         size: { kind: "new", count: 2 },
+        content: "a\nb\n",
       },
+      { kind: "command", value: "cd ~ && npm run watch", background: true, unsandboxed: true },
+      {
+        kind: "write",
+        value: join(".claude", "settings.json"),
+        inFolder: true,
+        size: { kind: "new", count: 1 },
+        content: "{}",
+        steers: true,
+      },
+      {
+        kind: "change",
+        value: "CLAUDE.md",
+        inFolder: true,
+        steers: true,
+        size: { kind: "changes", count: 1 },
+        change: "- a\n+ b",
+      },
+      { kind: "skill", value: "harbour-report", input: [{ name: "args", value: "--week 47" }] },
       {
         kind: "change",
         value: join("~", "Documents", "review.md"),
@@ -875,6 +910,130 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
+  // protects=each answer Claude Code suggests reads as what it covers, for how long and where it is kept: a rule in plain words where they say exactly what it covers, any other rule as it is; one kept where the card can't say isn't offered, nor any when Claude Code says a lasting answer mustn't be; fails_when=the card says less than an answer does, or offers one Claude Code said not to
+  it("reads each answer Claude Code suggests as the card says it", async () => {
+    const rules = (destination: string, ...each: Record<string, string>[]) => ({
+      type: "addRules",
+      behavior: "allow",
+      destination,
+      rules: each,
+    });
+    const call = (permission_suggestions: unknown, more: Record<string, unknown> = {}) => ({
+      tool_name: "Bash",
+      input: { command: "git log -3" },
+      permission_suggestions,
+      ...more,
+    });
+    useClaude({
+      run: asking([
+        call([
+          rules("session", { toolName: "Bash", ruleContent: "touch crossings.txt" }),
+          rules("userSettings", { toolName: "WebFetch", ruleContent: "domain:kestrelbay.example" }),
+          rules("projectSettings", { toolName: "mcp__ferry-data__search_tickets" }),
+        ]),
+        call([
+          rules("localSettings", { toolName: "Bash", ruleContent: "rm -rf *:*" }),
+          rules("session", { toolName: "Read", ruleContent: "//etc/**" }),
+          rules("localSettings", { toolName: "WebSearch" }),
+          rules("elsewhere", { toolName: "Bash", ruleContent: "git log:*" }),
+          {
+            type: "addRules",
+            behavior: "deny",
+            destination: "session",
+            rules: [{ toolName: "Bash", ruleContent: "rm:*" }],
+          },
+          { type: "setMode", mode: "plan", destination: "userSettings" },
+        ]),
+        call([rules("localSettings", { toolName: "Bash", ruleContent: "git log:*" })], {
+          suppress_always_allow_rule: true,
+        }),
+      ]),
+    });
+    const asked: OwnAiAsk[] = [];
+    await converse(async (question) => {
+      asked.push(question);
+      return "once";
+    });
+    expect(asked.map((each) => each.suggested)).toEqual([
+      [
+        {
+          kind: "rules",
+          kept: "request",
+          rules: [{ kind: "command", value: "touch crossings.txt" }],
+        },
+        {
+          kind: "rules",
+          kept: "everywhere",
+          rules: [{ kind: "site", host: "kestrelbay.example" }],
+        },
+        {
+          kind: "rules",
+          kept: "conversation",
+          rules: [{ kind: "tool", tool: "search_tickets", server: "ferry-data" }],
+        },
+      ],
+      [
+        {
+          kind: "rules",
+          kept: "conversation",
+          rules: [{ kind: "rule", rule: "Bash(rm -rf *:*)" }],
+        },
+        {
+          kind: "rules",
+          kept: "request",
+          rules: [{ kind: "files", change: false, folder: "/etc" }],
+        },
+        { kind: "rules", kept: "conversation", rules: [{ kind: "searches" }] },
+        { kind: "other", kept: "request", text: "addRules deny Bash(rm:*)" },
+        { kind: "mode", kept: "everywhere", mode: "plan" },
+      ],
+      [],
+    ]);
+  });
+
+  // protects=a core that can't hold a question (it rejects it, not taken back) gets Claude Code a no at once, logged; fails_when=the question waits unanswered until the run's limit
+  it("refuses a question the core couldn't hold", async () => {
+    useClaude({ run: asking([COMMAND]) });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { end } = await converse(async () => {
+        throw new Error("The database is closing.");
+      });
+      expect(answersIn(end)).toEqual([
+        { id: "q0", answer: { behavior: "deny", message: expect.stringContaining("can't show") } },
+      ]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("couldn't wait on the User"),
+        "The database is closing.",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // protects=a file written through a link in the conversation's folder that leads out of it shows where it really goes, not as in the folder; fails_when=the card says "this conversation's folder" for a write to the User's home
+  it("names a file by where a link in the folder really takes it", async () => {
+    const elsewhere = await realpath(await mkdtemp(join(tmpdir(), "own-ai-elsewhere-")));
+    useClaude({
+      run: asking([{ tool_name: "Write", input: { file_path: "linked/notes.md", content: "x" } }], {
+        meanwhile: `require("node:fs").symlinkSync(${JSON.stringify(elsewhere)}, "linked");`,
+      }),
+    });
+    const asked: OwnAiAsk[] = [];
+    try {
+      await converse(async (question) => {
+        asked.push(question);
+        return "deny";
+      });
+      expect(asked[0]?.action).toMatchObject({
+        value: join(elsewhere, "notes.md"),
+        inFolder: false,
+      });
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
   // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
   it("allows a call of IncarnaMind's own without asking", async () => {
     useClaude({
@@ -895,6 +1054,15 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       { tool_name: "AskUserQuestion", tool_use_id: "toolu_9", input: { questions: [] } },
     ],
     ["one with no input", { tool_name: "Bash", tool_use_id: "toolu_9" }],
+    [
+      "one whose card is its own",
+      {
+        tool_name: "Bash",
+        tool_use_id: "toolu_9",
+        input: { command: "ls" },
+        requires_user_interaction: true,
+      },
+    ],
   ])("denies %s, and says so in its step", async (_name, question) => {
     useClaude({ run: asking([question]) });
     const ask = vi.fn(async () => "once" as const);
@@ -945,13 +1113,13 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       {
         kind: "own",
         id: "toolu_1",
-        action: { kind: "command", value: COMMAND.input.command, inFolder: true },
+        action: { kind: "command", value: COMMAND.input.command },
         state: "going",
       },
       {
         kind: "own",
         id: "toolu_1",
-        action: { kind: "command", value: COMMAND.input.command, inFolder: true },
+        action: { kind: "command", value: COMMAND.input.command },
         state: "done",
       },
     ]);
@@ -1037,6 +1205,37 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         if (alive()) process.kill(pid, "SIGKILL");
         await rm(dirname(marker), { recursive: true, force: true });
       }
+    },
+    15_000,
+  );
+
+  // protects=ending a run asks Claude Code to end at once, before anything is awaited: an IncarnaMind that quits never comes back to a slower step, and a run left without its signal would go on with what its rules allow; fails_when=the first signal waits on a look at the processes
+  it.skipIf(process.platform === "win32")(
+    "asks Claude Code to end at once when the run ends, as when IncarnaMind quits",
+    async () => {
+      const marker = join(await mkdtemp(join(tmpdir(), "own-ai-term-")), "term");
+      useClaude({
+        run: asking([COMMAND], {
+          meanwhile: `process.on("SIGTERM", () => { require("node:fs").writeFileSync(${JSON.stringify(marker)}, "term"); process.exit(0); });`,
+        }),
+      });
+      const quit = new AbortController();
+      let endedWhileQuitting = false;
+      const going = converse(
+        () =>
+          new Promise<NoteAnswer>(() => {
+            setTimeout(() => {
+              quit.abort();
+              // A quitting app runs nothing more of its own: no timer, no look at the processes.
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_500);
+              endedWhileQuitting = existsSync(marker);
+            }, 500);
+          }),
+        quit.signal,
+      );
+      await expect(going).rejects.toThrow();
+      expect(endedWhileQuitting).toBe(true);
+      await rm(dirname(marker), { recursive: true, force: true });
     },
     15_000,
   );

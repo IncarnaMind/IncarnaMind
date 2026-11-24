@@ -119,6 +119,12 @@ export interface HandedFileToolContext {
   placeToWriteIn(pairing: AdmittedPairing, folderId: unknown): { id: string | null; name: string };
   /** How long a call waits for the check before it answers "running". */
   waitMs: number;
+  /**
+   * For a Note's conversation, the real path of its own folder: a file is taken only from under
+   * it, so nothing the AI's own tools would have asked about reaches the Library unasked (#3653).
+   * Null for an agent the User runs, whose files are its own.
+   */
+  within: string | null;
 }
 
 const WRITES_LIBRARY: Effect = { action: "write", scope: { kind: "library" } };
@@ -191,6 +197,14 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         }
         if (read.kind !== "read") {
           throw new AgentRefusedError("invalid", t("agents.handOver.unreadable"));
+        }
+        const { within } = context;
+        if (
+          within !== null &&
+          (within === "" ||
+            !(read.path.startsWith(`${within}/`) || read.path.startsWith(`${within}\\`)))
+        ) {
+          throw new AgentRefusedError("invalid", t("agents.handOver.outsideConversation"));
         }
         const done = await deps.handOver({
           pairingId: pairing.id,

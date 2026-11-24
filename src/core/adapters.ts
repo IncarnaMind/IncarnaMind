@@ -28,7 +28,7 @@ import type {
   ExternalService,
   NoteAction,
   NoteAnswer,
-  NoteQuestion,
+  NoteSuggested,
   OpenAtLogin,
   SandboxLevel,
   SandboxProblem,
@@ -1740,13 +1740,13 @@ export type OwnAiProgress =
 
 /**
  * What a run with its own abilities asks before it does something with a tool of its own (#3653):
- * the action, the id of its step, and what the agent's own answer for the rest of the run covers,
- * if it offers one.
+ * the action, the id of its step, and the answers its question suggests.
  */
 export interface OwnAiAsk {
   step: string | null;
   action: NoteAction;
-  wider: NoteQuestion["wider"];
+  /** The answers its question suggests, in its order, as the card says them. */
+  suggested: NoteSuggested[];
 }
 
 /** A model the User's command-line AI offers, as it lists them itself. */
@@ -1809,6 +1809,11 @@ export interface OwnAiRunner {
    * the agent couldn't be asked, so its own sweep deletes the transcript later.
    */
   purge(key: string): Promise<boolean>;
+  /**
+   * The real path a kept conversation's working folder has, by its key; null, or absent, where
+   * the runner keeps none.
+   */
+  folder?(key: string): Promise<string | null>;
 }
 
 export type ClaudeCodeAdapterInstallResult =

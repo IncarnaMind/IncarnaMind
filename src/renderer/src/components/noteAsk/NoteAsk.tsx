@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { core } from "../../core";
 import { useT } from "../../i18n";
@@ -37,7 +38,7 @@ import {
 import { type InputCarry, NoteAskInput } from "./NoteAskInput";
 import { NoteAskPill } from "./NoteAskPill";
 import { NoteColumn, NoteConversationBody } from "./NoteColumn";
-import { QuestionCard } from "./OwnAsk";
+import { ASKS_NOTHING, QuestionCard } from "./OwnAsk";
 
 /** Under this width the column can't stand beside the Note: it opens as a sheet over it. */
 const BESIDE_FROM = 1100;
@@ -87,6 +88,7 @@ function NoteAskBox({
   columnSlot: HTMLElement | null;
   overSlot: HTMLElement | null;
 }) {
+  const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const [words, setWords] = useState("");
   const carry = useRef<InputCarry | null>(null);
@@ -101,14 +103,18 @@ function NoteAskBox({
   useEffect(listen, []);
   // A window opened while a request runs hears of it, and of what its AI asks, from the record.
   useEffect(() => {
-    void seedRunning(mindId);
+    seedRunning(mindId).catch((error: unknown) =>
+      console.warn("The request running in this Note couldn't be read:", error),
+    );
   }, [mindId]);
   const working = ask?.state === "working";
   const [question] = ask?.state === "working" ? ask.questions : [];
   // Folded, a question shows its card in the box, which grows over the Note as the conversation
   // does upward, and goes back once it is answered (#3653).
   const asking = question !== undefined && !open;
-  const floating = (upward && open) || asking;
+  // An AI set to ask nothing says so once in the box too, where the User sees it (#3653).
+  const unasking = working && !open && ASKS_NOTHING.has(ask?.mode ?? "") ? ask?.mode : undefined;
+  const floating = (upward && open) || asking || unasking !== undefined;
   // With no conversation yet there is nothing to open: no handle, and the box is its input row.
   const kept = useKeptConversation(mindId, ask?.state ?? null);
 
@@ -229,6 +235,12 @@ function NoteAskBox({
             <div className="note-ask-panel-body">
               <QuestionCard question={question} agent={agent} mindId={mindId} />
             </div>
+          </div>
+        ) : unasking ? (
+          <div data-testid="note-ask-panel" className="note-ask-panel own-ask-panel">
+            <p data-testid="note-ask-mode" className="note-ask-panel-body own-mode">
+              {t(`ownAsk.mode.${unasking}` as MessageKey, { agent })}
+            </p>
           </div>
         ) : upward && open ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">

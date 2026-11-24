@@ -7,7 +7,7 @@
  * the conversation goes with the Note, the connection and the consent.
  */
 
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import type {
   NoteAction,
   NoteAnswer,
   NoteSelectionBlock,
+  NoteSuggested,
   NoteTurnEvent,
 } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
@@ -101,17 +102,22 @@ const untilStopped = (_agent: Agent, request: RunRequest) =>
     request.signal.addEventListener("abort", end, { once: true });
   });
 
-/** A runner whose command line is `act`, connected by `connect`: it records each run and each purge. */
+/**
+ * A runner whose command line is `act`, connected by `connect`: it records each run and each purge.
+ * `folders`: where it keeps each conversation's folder, by its key.
+ */
 function runner(
   act: (agent: Agent, request: RunRequest) => Promise<RunEnd>,
   status: OwnAiStatus = { kind: "ready" },
   connect: (launch: AgentLaunch) => Promise<Agent> = connectLegacyAgent,
+  folders?: string,
 ) {
   const runs: RunRequest[] = [];
   const purged: string[] = [];
   const adapter: OwnAiRunner = {
     installed: async () => true,
     status: async () => status,
+    ...(folders && { folder: async (key: string) => join(folders, key) }),
     async purge(key) {
       purged.push(key);
       return true;
@@ -1361,6 +1367,35 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(asked).toEqual(["hosted-agents"]);
   });
 
+  // protects=a connection whose consent came before its AI kept its own abilities in a conversation (it named the request's words and selection, not what the AI adds of the User's own setup) is asked once more at its next request, naming that; a new connection's sheet says it, so it isn't; fails_when=a run loads the User's CLAUDE.md, memory and servers and sends them on with no ask
+  it("asks once more, at the next request, of a consent from before the AI kept its own abilities", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "Done." }));
+    const { core, mindId, dataDir, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "shorter" });
+    await ended();
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      db.run(
+        `UPDATE data_flow_consents
+         SET data_kinds = '["scoped-passages","scoped-minds","note-requests","selection"]'
+         WHERE flow = 'hosted-agents' AND deleted_at IS NULL`,
+      );
+    } finally {
+      db.close();
+    }
+    const asked: { flow: string; kinds: readonly string[] }[] = [];
+    core.on("consent.requested", (request) => {
+      asked.push({ flow: request.flow.id, kinds: request.newKinds });
+      void core.respondToConsent(request.requestId, true);
+    });
+    await core.askInNote({ mindId, words: "and again" });
+    await ended(2);
+    expect(asked).toEqual([{ flow: "hosted-agents", kinds: ["own-ai-context"] }]);
+    await core.askInNote({ mindId, words: "once more" });
+    await ended(3);
+    expect(asked).toHaveLength(1);
+  });
+
   // protects=the Note deleted for good deletes its conversation, IncarnaMind's record and the agent's copy; Recently deleted keeps it; fails_when=a conversation outlives its Note
   it("deletes the conversation with its Note", async () => {
     const run = runner(async () => ({ kind: "finished", reply: "Done." }));
@@ -1392,33 +1427,46 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
   const COMMAND: NoteAction = {
     kind: "command",
     value: "python3 late_crossings.py --crossing 07:40 delays-2026.csv",
-    inFolder: true,
   };
+  const SUGGESTED: NoteSuggested[] = [
+    {
+      kind: "rules",
+      kept: "conversation",
+      rules: [{ kind: "commands", start: "python3 late_crossings.py" }],
+    },
+    { kind: "mode", kept: "request", mode: "acceptEdits" },
+  ];
   const asked = (step: string, action: NoteAction = COMMAND): OwnAiAsk => ({
     step,
     action,
-    wider: { rules: ["Bash(python3 late_crossings.py:*)"] },
+    suggested: SUGGESTED,
   });
   /** The command line: asks `question` with its step begun, then ends it as answered. */
-  const asking = (question: OwnAiAsk, before?: (request: RunRequest) => void) =>
-    runner(async (_agent, request) => {
-      before?.(request);
-      const step = question.step ?? "";
-      request.progress?.({ kind: "own", id: step, action: question.action, state: "going" });
-      let answer: NoteAnswer;
-      try {
-        answer = (await request.own?.ask(question, request.signal)) ?? "deny";
-      } catch {
-        return { kind: "finished", reply: "" };
-      }
-      request.progress?.({
-        kind: "own",
-        id: step,
-        action: question.action,
-        state: answer === "deny" ? "failed" : "done",
-      });
-      return { kind: "finished", reply: answer === "deny" ? "Didn't run it." : "Ran it." };
-    });
+  const asking = (question: OwnAiAsk, before?: (request: RunRequest) => void) => {
+    const answered: NoteAnswer[] = [];
+    return {
+      answered,
+      ...runner(async (_agent, request) => {
+        before?.(request);
+        const step = question.step ?? "";
+        request.progress?.({ kind: "own", id: step, action: question.action, state: "going" });
+        let answer: NoteAnswer;
+        try {
+          answer = (await request.own?.ask(question, request.signal)) ?? "deny";
+        } catch {
+          return { kind: "finished", reply: "" };
+        }
+        answered.push(answer);
+        request.progress?.({
+          kind: "own",
+          id: step,
+          action: question.action,
+          state: answer === "deny" ? "failed" : "done",
+        });
+        return { kind: "finished", reply: answer === "deny" ? "Didn't run it." : "Ran it." };
+      }),
+    };
+  };
   const waitingIn = (turns: NoteTurnEvent[]) =>
     expect
       .poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 })
@@ -1433,8 +1481,8 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const [question] = await waitingIn(turns);
     expect(question).toMatchObject({
       action: COMMAND,
-      answers: ["deny", "request", "once"],
-      wider: { rules: ["Bash(python3 late_crossings.py:*)"] },
+      answers: ["deny", 0, 1, "once"],
+      suggested: SUGGESTED,
       read: null,
     });
     expect(run.runs[0]?.own).toBeDefined();
@@ -1442,20 +1490,21 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     // A window opened meanwhile reads it too.
     expect((await core.noteTurnNow(mindId))?.questions).toEqual([question]);
     expect((await core.noteConversation(mindId)).at(-1)?.questions).toEqual([question]);
-    await core.answerInNote(mindId, question?.id ?? "", "request");
+    await core.answerInNote(mindId, question?.id ?? "", 0);
     const end = await ended();
     expect(end).toMatchObject({ state: "landed", reply: "Ran it.", questions: [] });
-    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "request" });
+    expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "conversation" });
+    expect(run.answered).toEqual([0]);
   });
 
   // protects=Deny keeps the step from running and the step says it was denied; an answer the question doesn't offer, or for a question no longer waiting, does nothing; fails_when=a denied step reads as run, or a stray answer allows something
   it("denies, and does nothing with an answer not offered", async () => {
-    const run = asking({ ...asked("toolu_1"), wider: null });
+    const run = asking({ ...asked("toolu_1"), suggested: [] });
     const { core, mindId, turns, ended } = await written(run.adapter);
     await core.askInNote({ mindId, words: "count the late crossings" });
     const [question] = await waitingIn(turns);
     expect(question?.answers).toEqual(["deny", "once"]);
-    await core.answerInNote(mindId, question?.id ?? "", "request");
+    await core.answerInNote(mindId, question?.id ?? "", 0);
     await core.answerInNote(mindId, "another-question", "once");
     expect((await core.noteTurnNow(mindId))?.questions).toHaveLength(1);
     await core.answerInNote(mindId, question?.id ?? "", "deny");
@@ -1480,10 +1529,91 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const [question] = await waitingIn(turns);
     expect(question).toMatchObject({
       answers: ["deny", "once"],
-      wider: null,
+      suggested: [],
       read: { kind: "web", host: "kestrelbay-harbour.example" },
     });
     await core.stopInNote(mindId);
+  });
+
+  // protects=what the AI read that the User didn't write stays in its mind for the conversation, so a later request offers none of its suggested answers either; a file it read with its own tools, and any Document it read through IncarnaMind, count; fails_when=a page read in one request gives itself a standing yes in the next, or a file someone else wrote doesn't count
+  it.each([
+    [
+      "a file it read",
+      (request: RunRequest) => {
+        const file: NoteAction = { kind: "read", value: "notice.txt", inFolder: true };
+        request.progress?.({ kind: "own", id: "toolu_0", action: file, state: "going" });
+        request.progress?.({ kind: "own", id: "toolu_0", action: file, state: "done" });
+      },
+      { kind: "file", path: "notice.txt" },
+    ],
+  ])(
+    "offers no suggested answer for the rest of the conversation after %s",
+    async (_name, read, said) => {
+      let first = true;
+      const run = runner(async (_agent, request) => {
+        if (first) {
+          first = false;
+          read(request);
+          return { kind: "finished", reply: "Read it." };
+        }
+        const answer = await request.own?.ask(asked("toolu_1"), request.signal).catch(() => "deny");
+        return { kind: "finished", reply: String(answer) };
+      });
+      const { core, mindId, turns, ended } = await written(run.adapter);
+      await core.askInNote({ mindId, words: "read the notice" });
+      await ended(1);
+      await core.askInNote({ mindId, words: "now count the late crossings" });
+      const [question] = await waitingIn(turns);
+      expect(question).toMatchObject({ answers: ["deny", "once"], suggested: [], read: said });
+      await core.stopInNote(mindId);
+    },
+  );
+
+  // protects=a Document read through IncarnaMind counts as text the User didn't write, whatever its kind; fails_when=a file of someone else's in the Library gives a standing yes
+  it("offers no suggested answer after it read a Document", async () => {
+    const run = runner(async (agent, request) => {
+      await agent.callTool({ name: "search", arguments: { query: "ferry" } });
+      const answer = await request.own?.ask(asked("toolu_1"), request.signal).catch(() => "deny");
+      return { kind: "finished", reply: String(answer) };
+    });
+    const { core, mindId, turns } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "count the late crossings" });
+    const [question] = await waitingIn(turns);
+    expect(question).toMatchObject({
+      answers: ["deny", "once"],
+      suggested: [],
+      read: { kind: "document", name: expect.any(String) },
+    });
+    await core.stopInNote(mindId);
+  });
+
+  // protects=the answers are decided as the card shows them: a page read while a question waits takes its suggested answers away, and one sent after does nothing; fails_when=a question that came before a parallel fetch returned keeps a standing yes
+  it("takes the suggested answers away from a waiting question once a page is read", async () => {
+    const page: NoteAction = {
+      kind: "web",
+      value: "https://kestrelbay-harbour.example/notice",
+      host: "kestrelbay-harbour.example",
+    };
+    const late = gate();
+    const run = runner(async (_agent, request) => {
+      const answer = request.own?.ask(asked("toolu_1"), request.signal);
+      await late.shut;
+      request.progress?.({ kind: "own", id: "toolu_2", action: page, state: "going" });
+      request.progress?.({ kind: "own", id: "toolu_2", action: page, state: "done" });
+      return { kind: "finished", reply: String(await answer?.catch(() => "stopped")) };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "check the notice and count" });
+    const [question] = await waitingIn(turns);
+    expect(question?.answers).toEqual(["deny", 0, 1, "once"]);
+    late.open();
+    await expect
+      .poll(async () => (await core.noteTurnNow(mindId))?.questions[0]?.answers, { timeout: 5_000 })
+      .toEqual(["deny", "once"]);
+    await core.answerInNote(mindId, question?.id ?? "", 0);
+    expect((await core.noteTurnNow(mindId))?.questions).toHaveLength(1);
+    await core.answerInNote(mindId, question?.id ?? "", "once");
+    expect(await ended()).toMatchObject({ reply: "once" });
   });
 
   // protects=two questions open at once both wait, oldest first, and each answer goes to its own; fails_when=the second hides the first, or answers cross
@@ -1512,7 +1642,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const run = asking(asked("toolu_1"), (request) => {
       signal = request.signal;
     });
-    const { core, mindId, turns, ended } = await written(run.adapter);
+    const { core, mindId, turns, ended, dataDir } = await written(run.adapter);
     await core.askInNote({ mindId, words: "count the late crossings" });
     const [question] = await waitingIn(turns);
     await core.stopInNote(mindId);
@@ -1521,19 +1651,32 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(end).toMatchObject({ state: "stopped" });
     expect(signal?.aborted).toBe(true);
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND, by: "stopped" });
+    expect(run.answered).toEqual([]);
     expect((await core.noteConversation(mindId)).at(-1)).toMatchObject({
       outcome: "stopped",
       questions: [],
-      closed: null,
+      closed: [],
     });
+    const db = openDatabase(join(dataDir, DATABASE_FILE));
+    try {
+      expect(db.all("SELECT answer FROM own_ai_questions")).toEqual([{ answer: "stopped" }]);
+    } finally {
+      db.close();
+    }
   });
 
-  // protects=a question open when IncarnaMind closes reads, after the next start, as asked and not run, so it never hangs the conversation; fails_when=the turn says only that it stopped, or reads as still asking
+  // protects=every question open when IncarnaMind closes reads, after the next start, as asked and not run, so it never hangs the conversation; fails_when=the turn says only that it stopped, reads as still asking, or keeps one of two
   it("says after a restart what was asked and that it didn't run", async () => {
-    const run = asking(asked("toolu_1"));
+    const page: NoteAction = { kind: "web", value: "https://a.example/x", host: "a.example" };
+    const run = runner(async (_agent, request) => {
+      const ask = (step: string, action: NoteAction) =>
+        request.own?.ask(asked(step, action), request.signal) ?? Promise.resolve("deny" as const);
+      await Promise.all([ask("toolu_1", COMMAND), ask("toolu_2", page)]).catch(() => undefined);
+      return { kind: "finished", reply: "" };
+    });
     const { core, mindId, turns, dataDir } = await written(run.adapter);
     await core.askInNote({ mindId, words: "count the late crossings" });
-    await waitingIn(turns);
+    await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(2);
     await core.close();
     const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
     try {
@@ -1541,7 +1684,10 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         request: "count the late crossings",
         outcome: "stopped",
         questions: [],
-        closed: { kind: "command", value: COMMAND.value },
+        closed: [
+          { kind: "command", value: COMMAND.value },
+          { kind: "web", value: page.value },
+        ],
       });
     } finally {
       await again.close();
@@ -1559,28 +1705,56 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     const { core, mindId, ended } = await written(run.adapter);
     await core.askInNote({ mindId, words: "count the late crossings" });
     const end = await ended();
-    expect(end).toMatchObject({ mode: "auto" });
+    expect(end).toMatchObject({ mode: "auto", modeNew: true });
     expect(end?.steps).toContainEqual({ kind: "own", action: COMMAND });
     expect((await core.noteConversation(mindId)).at(-1)?.mode).toBe("auto");
   });
 
-  // protects=a deck the AI made with its own tools reaches the Library from the conversation by hand_over_file, as from a paired agent; fails_when=the conversation's grant refuses it
-  it("hands a file it made over to the Library", async () => {
-    const folder = await mkdtemp(join(tmpdir(), "own-ai-made-"));
-    const deck = join(folder, "Ferry delays.pptx");
-    await writeFile(deck, plainDeck([{ title: "Ferry delays" }, { lines: [FERRY] }]));
-    let handed: unknown = null;
-    const run = runner(async (agent) => {
-      handed = structured(
-        await agent.callTool({ name: "hand_over_file", arguments: { path: deck } }),
-      );
-      return { kind: "finished", reply: "Handed over." };
-    });
+  // protects=a deck the AI made in the conversation's own folder reaches the Library by hand_over_file; a file anywhere else, a link out of the folder included, is refused, since the AI's own tools would have asked before reading it; fails_when=a file in the User's home reaches the Library, and the model, with no card
+  it("hands over a file it made in the conversation's folder, and no other", async () => {
+    const folders = await realpath(await mkdtemp(join(tmpdir(), "own-ai-folders-")));
+    const elsewhere = await mkdtemp(join(tmpdir(), "own-ai-elsewhere-"));
+    const outside = join(elsewhere, "Harbour dues.pptx");
+    await writeFile(outside, plainDeck([{ title: "Harbour dues" }, { lines: [FERRY] }]));
+    const handed: unknown[] = [];
+    const run = runner(
+      async (agent, request) => {
+        const folder = join(folders, request.conversation?.key ?? "");
+        await mkdir(folder, { recursive: true });
+        const deck = join(folder, "Ferry delays.pptx");
+        await writeFile(deck, plainDeck([{ title: "Ferry delays" }, { lines: [FERRY] }]));
+        await symlink(outside, join(folder, "Linked.pptx"));
+        for (const path of [deck, outside, join(folder, "Linked.pptx")]) {
+          const result = (await agent.callTool({
+            name: "hand_over_file",
+            arguments: { path },
+          })) as {
+            isError?: boolean;
+            structuredContent?: unknown;
+            content?: { text?: string }[];
+          };
+          handed.push(
+            result.isError ? { error: result.content?.[0]?.text ?? "" } : result.structuredContent,
+          );
+        }
+        return { kind: "finished", reply: "Handed over." };
+      },
+      { kind: "ready" },
+      connectLegacyAgent,
+      folders,
+    );
     const { core, mindId, ended } = await written(run.adapter);
     await core.askInNote({ mindId, words: "make a deck of the delays" });
     await ended();
-    expect(handed).toMatchObject({ title: "Ferry delays" });
-    expect((await core.listDocuments()).map((each) => each.name)).toContain("Ferry delays");
+    expect(handed[0]).toMatchObject({ title: "Ferry delays" });
+    expect(handed.slice(1)).toEqual([
+      { error: expect.stringContaining("conversation’s own folder") },
+      { error: expect.stringMatching(/conversation’s own folder|a link/) },
+    ]);
+    const names = (await core.listDocuments()).map((each) => each.name);
+    expect(names).toContain("Ferry delays");
+    expect(names).not.toContain("Harbour dues");
+    expect(names).not.toContain("Linked");
   });
 
   // protects=a conversation begun before its AI kept its own abilities, whose kept system prompt said it had none, begins anew once, under a new id, and says so; IncarnaMind's record of it stays; later requests continue the new one; fails_when=it resumes the old one and the AI refuses every tool of its own, or every request starts anew

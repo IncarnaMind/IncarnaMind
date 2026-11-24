@@ -87,6 +87,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   documentsFound: 0,
   questions: [],
   mode: null,
+  modeNew: false,
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {
@@ -269,9 +270,9 @@ describe("the input at a Note's foot (#3627)", () => {
 describe("what the User's own AI asks (#3653)", () => {
   const question = {
     id: "q1",
-    action: { kind: "command" as const, value: "python3 late.py", inFolder: true },
+    action: { kind: "command" as const, value: "python3 late.py" },
     answers: ["deny" as const, "once" as const],
-    wider: null,
+    suggested: [],
     read: null,
   };
 

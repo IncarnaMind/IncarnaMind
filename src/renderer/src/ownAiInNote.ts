@@ -57,6 +57,8 @@ export interface NoteAsk {
   documentsFound: number;
   /** What its AI asks now and waits on, oldest first (#3653). */
   questions: NoteQuestion[];
+  /** While it works, the AI's own mode when no earlier request of the conversation ran in it. */
+  mode: string | null;
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -234,16 +236,12 @@ function heard(event: NoteTurnEvent): void {
     quiet: event.state === "working" && event.quiet,
     documentsFound: event.documentsFound,
     questions: event.state === "working" ? event.questions : [],
+    mode: event.state === "working" && event.modeNew ? event.mode : null,
     asked: was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
   // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
-  if (event.renewed) {
-    useNotices
-      .getState()
-      .confirm("noteAsk.renewed", { agent: nameOf(event.mindId, event.pairingId) });
-  }
   const byNote = new Map<string, NoteChangeApplied[]>();
   // A change in a Note the agent wrote applied already, with its own Undo there.
   for (const each of event.applied.filter((change) => !change.own))
@@ -315,6 +313,7 @@ export async function askInNote(
     quiet: false,
     documentsFound: 0,
     questions: [],
+    mode: null,
     asked,
   };
   if (start.kind === "started") askedHere.add(start.turnId);

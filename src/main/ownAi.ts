@@ -9,9 +9,9 @@
  */
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
-import { object, older, processes, StalledError, short } from "./agentCommand";
+import { endLeftRuns, object, older, processes, StalledError, short } from "./agentCommand";
 import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
@@ -153,12 +153,26 @@ export function createOwnAi({
   sweepCodexRuns().catch((error: unknown) =>
     console.warn("Could not look for Codex runs' folders left behind:", error),
   );
+  // What a conversation's run started, noted while it ran, still running after a crash (#3653).
+  const noted = conversations ? join(conversations, ".running") : undefined;
+  if (noted) {
+    endLeftRuns(noted).catch((error: unknown) =>
+      console.warn("Could not end what a run left running:", error),
+    );
+  }
   const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
 
   return {
     async installed(client) {
       if (client === "codex") return (await codex()) !== null;
       return command !== null && (await resolveCommand(command)) !== null;
+    },
+
+    async folder(key) {
+      if (!conversations) return null;
+      // Its parent, made already: the folder itself is made as its first run starts.
+      await mkdir(conversations, { recursive: true });
+      return join(await realpath(conversations), basename(folderOf(key)));
     },
 
     async purge(key) {
@@ -258,7 +272,7 @@ export function createOwnAi({
         asking.set(id, waiting);
         own
           .ask(
-            { step: question.step, action: question.action, wider: question.wider },
+            { step: question.step, action: question.action, suggested: question.suggested },
             waiting.signal,
           )
           .then(
@@ -266,7 +280,15 @@ export function createOwnAi({
               if (asking.get(id) === waiting && !waiting.signal.aborted)
                 reply(question.answer(answer));
             },
-            () => undefined,
+            (error: unknown) => {
+              // Taken back, or the run ended: Claude Code waits on nothing.
+              if (asking.get(id) !== waiting || waiting.signal.aborted) return;
+              console.warn(
+                "A question of Claude Code's couldn't wait on the User, so it was refused:",
+                error instanceof Error ? error.message : String(error),
+              );
+              reply(REFUSED);
+            },
           )
           .finally(() => {
             if (asking.get(id) === waiting) asking.delete(id);
@@ -347,6 +369,7 @@ export function createOwnAi({
                 asking.get(id)?.abort();
                 asking.delete(id);
               },
+              ...(noted && { processes: noted }),
             },
           }),
           ...(request.model && { model: request.model }),

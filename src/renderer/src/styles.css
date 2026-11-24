@@ -3190,10 +3190,22 @@
     overflow-wrap: anywhere;
     user-select: text;
   }
-  /* A command is never cut: past twelve lines it scrolls inside its box. */
-  .own-ask-value--command {
+  /* Twelve lines at most until Show all, which the card says how many lines more it shows. */
+  .own-ask-whole {
     max-height: calc(12 * 18px + 12px);
-    overflow-y: auto;
+    overflow: hidden;
+    &[data-all] {
+      max-height: none;
+    }
+  }
+  .own-ask-content {
+    color: var(--color-ink-secondary);
+  }
+  /* What runs is read in the order it is stored: nothing in it can turn its text around. */
+  .own-ask-text,
+  .own-ask-text * {
+    unicode-bidi: bidi-override;
+    direction: ltr;
   }
   .own-ask-value-tail {
     display: block;
@@ -3241,11 +3253,27 @@
     gap: 8px;
     padding: 10px 12px 12px 32px;
   }
+  .own-ask-scopes {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  /* One line each; the answer pointed at shows its whole line. */
   .own-ask-scope {
     margin: 0;
+    overflow: hidden;
     font-size: 12px;
     line-height: 16px;
     color: var(--color-ink-meta);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    &[data-open] {
+      color: var(--color-ink-secondary);
+      white-space: normal;
+    }
   }
   .own-ask-answers {
     display: flex;
@@ -3312,6 +3340,13 @@
     line-height: 16px;
     color: var(--color-ink-meta);
     white-space: normal;
+  }
+  .own-mode {
+    margin: 0;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
   }
   .own-closed .note-ask-pill-action {
     margin-left: 4px;

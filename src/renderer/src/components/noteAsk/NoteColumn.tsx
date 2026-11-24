@@ -18,7 +18,7 @@ import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
-import { OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
+import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -120,7 +120,6 @@ function StepLine({ step, going }: { step: NoteStep; going: boolean }) {
 export const unasked = (step: NoteStep) => step.kind === "own" && step.by === undefined;
 
 /** The AI's own modes that ask nothing: its auto mode, and the one that skips every question. */
-const ASKS_NOTHING = new Set(["auto", "bypassPermissions"]);
 
 /** What a stopped run had done: what it read, as one line. */
 function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
@@ -366,32 +365,34 @@ function Turn({
             ))}
         </ol>
       )}
-      {state === "stopped" && turn.closed && !trail && (
-        <ol className="note-column-list">
-          <li className="note-column-step-item">
-            <OwnStepText action={turn.closed} by="closed" className="note-column-step" />
-          </li>
-        </ol>
-      )}
       {state === "stopped" &&
-        (turn.closed && !trail ? (
-          <p data-testid="note-column-interrupted" className="note-column-interrupted own-closed">
-            {t("ownAsk.closed", { agent })}{" "}
-            <button
-              type="button"
-              data-testid="own-ask-again"
-              onClick={() =>
-                void askInNote(mindId, {
-                  words: turn.request,
-                  quote: turn.quote,
-                  selection: null,
-                }).catch(useAppStore.getState().reportError)
-              }
-              className="note-ask-pill-action"
-            >
-              {t("ownAsk.askAgain")}
-            </button>
-          </p>
+        (turn.closed.length > 0 && !trail ? (
+          <ol data-testid="note-column-interrupted" className="note-column-list own-closed">
+            {turn.closed.map((action, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: what was asked never reorders
+              <li key={index} className="note-column-step-item">
+                <OwnStepText action={action} by="closed" className="note-column-step" />
+                {/* The words it was asked about can't be selected again for it: only a request
+                    on the whole Note is sent again, or its changes would apply unlimited. */}
+                {index === turn.closed.length - 1 && turn.quote === "" && (
+                  <button
+                    type="button"
+                    data-testid="own-ask-again"
+                    onClick={() =>
+                      void askInNote(mindId, {
+                        words: turn.request,
+                        quote: "",
+                        selection: null,
+                      }).catch(useAppStore.getState().reportError)
+                    }
+                    className="note-ask-pill-action"
+                  >
+                    {t("ownAsk.askAgain")}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ol>
         ) : (
           <p data-testid="note-column-interrupted" className="note-column-interrupted">
             {/* What a run read lives in the window: after a restart only that it stopped is known. */}

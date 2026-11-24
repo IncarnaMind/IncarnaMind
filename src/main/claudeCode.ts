@@ -48,6 +48,8 @@ export interface ClaudeCodeTurn {
       reply: (answer: Record<string, unknown>) => void,
     ): void;
     withdrawn(id: string): void;
+    /** Where what the turn starts is noted while it runs, for the next start to end after a crash. */
+    processes?: string;
   };
   /** A model alias or name Claude Code offers; absent: its own default. */
   model?: string;
@@ -245,7 +247,7 @@ function readOwnTurn(
   own: NonNullable<ClaudeCodeTurn["own"]>,
 ) {
   const closed = new Promise((resolve) => child.once("close", resolve));
-  const tree = wholeTree(child, closed);
+  const tree = wholeTree(child, closed, own.processes);
   return readJsonLines(child, {
     agent: "Claude Code",
     signal: turn.signal,

@@ -95,13 +95,15 @@ export const AGENT_FLOW_SENDS: readonly DataKind[] = ["scoped-passages", "scoped
 export const HOSTED_CHECK_SENDS: readonly DataKind[] = ["scoped-passages", "scoped-minds"];
 
 /**
- * And for a request typed at a Note's foot (ADR-0034): its words and the words selected. A User
- * who allowed only the check's kinds is asked once more, at their first request.
+ * And for a request typed at a Note's foot (ADR-0034): its words and the words selected, and what
+ * the agent adds of the User's by its own setup, since it runs with its own abilities there
+ * (#3653). A User who allowed less is asked once more, at their next request.
  */
 export const HOSTED_FLOW_SENDS: readonly DataKind[] = [
   ...HOSTED_CHECK_SENDS,
   "note-requests",
   "selection",
+  "own-ai-context",
 ];
 
 /** The agents IncarnaMind can start for a check, by the client their pairing was set up for. */
@@ -112,7 +114,7 @@ export const HOSTED_CLIENTS: readonly string[] = ["claude-code", "codex"];
  * check alone, so a request typed at a Note's foot still asks (#3639).
  */
 const HOSTED_UNNAMED: Readonly<Record<string, readonly DataKind[]>> = {
-  codex: ["note-requests", "selection"],
+  codex: ["note-requests", "selection", "own-ai-context"],
 };
 
 /** The device setting that turns connecting agents on. */
