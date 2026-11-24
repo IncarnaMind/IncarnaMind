@@ -1750,7 +1750,11 @@ export type ClaudeCodeAdapterInstallResult =
   | { kind: "installed"; binaryPath: string }
   | { kind: "already-installed"; binaryPath: string }
   | { kind: "cancelled" }
-  | { kind: "failed"; reason: "network" | "checksum" | "unsupported" | "failed"; detail?: string };
+  | {
+      kind: "failed";
+      reason: "network" | "checksum" | "unsupported" | "root" | "failed";
+      detail?: string;
+    };
 
 export type ClaudeCodeSignInResult =
   | { kind: "signed-in" }
@@ -1772,6 +1776,8 @@ export type ClaudeCodeAuthCheck =
 export interface ClaudeCodeInstaller {
   /** Display folder where Anthropic's installer places the launcher (`~/.local/bin`, `%USERPROFILE%\.local\bin`). */
   readonly installDirectoryDisplay: string;
+  /** True when the app itself runs as root on POSIX, where Anthropic's user-space installer refuses to run. */
+  isRoot?(): boolean;
   /** Returns the existing `claude` executable path if already installed, without starting it. */
   findBinary(): Promise<string | null>;
   /**

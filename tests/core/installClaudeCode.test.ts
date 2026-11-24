@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type {
   ClaudeCodeAdapterInstallResult,
   ClaudeCodeAuthCheck,
@@ -21,9 +21,11 @@ function deferred<T>() {
 interface StandInControls {
   installer: ClaudeCodeInstaller;
   binary: string | null;
+  root: boolean;
   auth: ClaudeCodeAuthCheck;
   installCalls: number;
   signInCalls: number;
+  findGate: ReturnType<typeof deferred<string | null>> | null;
   installGate: ReturnType<typeof deferred<ClaudeCodeAdapterInstallResult>> | null;
   signInGate: ReturnType<typeof deferred<ClaudeCodeSignInResult>> | null;
   onStageRef: { fn?: (stage: "downloading" | "installing") => void };
@@ -32,15 +34,19 @@ interface StandInControls {
 function createStandIn(): StandInControls {
   const controls: StandInControls = {
     binary: null,
+    root: false,
     auth: { kind: "signed-out" },
     installCalls: 0,
     signInCalls: 0,
+    findGate: null,
     installGate: null,
     signInGate: null,
     onStageRef: {},
     installer: {
       installDirectoryDisplay: "~/.local/bin",
+      isRoot: () => controls.root,
       async findBinary() {
+        if (controls.findGate) return controls.findGate.promise;
         return controls.binary;
       },
       async install({ signal, onStage }) {
@@ -317,6 +323,89 @@ describe("Claude Code one-press installation through CoreApi (#3638)", () => {
       await rm(home, { recursive: true, force: true });
     }
   });
-});
 
-void vi;
+  it("prevents concurrent double-press installs even while findBinary is pending", async () => {
+    const data = await createTempDataFolder();
+    const home = await createTempDataFolder();
+    const standIn = createStandIn();
+    standIn.findGate = deferred<string | null>();
+    standIn.installGate = deferred<ClaudeCodeAdapterInstallResult>();
+    const core = await startCore(data, {
+      paths: { home },
+      claudeCodeInstaller: standIn.installer,
+      agents: { applications: [] },
+    });
+
+    try {
+      const first = core.installClaudeCode();
+      const second = core.installClaudeCode();
+      standIn.findGate.resolve(null);
+      standIn.findGate = null;
+      await Promise.all([first, second]);
+      expect(standIn.installCalls).toBe(1);
+      await core.cancelClaudeCodeInstall();
+    } finally {
+      await core.close();
+      await rm(data, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces sign-in failures, never treats exit 0 without positive auth status as signed in, refuses root, and honours Local mode on every path", async () => {
+    const data = await createTempDataFolder();
+    const home = await createTempDataFolder();
+    const standIn = createStandIn();
+    const core = await startCore(data, {
+      paths: { home },
+      claudeCodeInstaller: standIn.installer,
+      agents: { applications: [] },
+    });
+    const seen: ClaudeCodeInstallState[] = [];
+    core.on("claudeCodeInstall.changed", (next) => seen.push(next));
+
+    try {
+      // Running as root refuses before touching network or recording consent.
+      standIn.root = true;
+      expect(await core.installClaudeCode()).toEqual({ kind: "failed", reason: "root" });
+      expect(standIn.installCalls).toBe(0);
+      const flowsBefore = await core.listDataFlows();
+      expect(flowsBefore.find((f) => f.flow.id === "agent-install")).toBeUndefined();
+      standIn.root = false;
+
+      // Local mode turned on mid-install cancels immediately and reports local-mode.
+      standIn.installGate = deferred<ClaudeCodeAdapterInstallResult>();
+      await core.installClaudeCode();
+      expect((await core.getClaudeCodeInstallState()).kind).toBe("installing");
+      await core.setLocalOnly(true);
+      await waitForState(seen, (s) => s.kind === "failed" && s.reason === "local-mode");
+      standIn.installGate = null;
+
+      // Local mode also blocks sign-in when binary already exists or on "Try another account".
+      standIn.binary = "/opt/homebrew/bin/claude";
+      standIn.auth = { kind: "signed-out" };
+      expect(await core.installClaudeCode()).toEqual({ kind: "failed", reason: "local-mode" });
+      expect(await core.openClaudeCodeSignIn()).toEqual({ kind: "failed", reason: "local-mode" });
+      expect(standIn.signInCalls).toBe(0);
+      await core.setLocalOnly(false);
+
+      // Sign-in command failing surfaces a plain sign-in-failed state instead of staying on awaiting-sign-in.
+      seen.length = 0;
+      standIn.signInGate = deferred<ClaudeCodeSignInResult>();
+      await core.openClaudeCodeSignIn();
+      standIn.signInGate.resolve({ kind: "failed", detail: "spawn-error" });
+      await waitForState(seen, (s) => s.kind === "failed" && s.reason === "sign-in-failed");
+
+      // Sign-in exiting 0 when checkAuth still reports signed-out or unknown is NOT treated as signed in.
+      seen.length = 0;
+      standIn.auth = { kind: "unknown" };
+      standIn.signInGate = deferred<ClaudeCodeSignInResult>();
+      await core.openClaudeCodeSignIn();
+      standIn.signInGate.resolve({ kind: "signed-in" });
+      await waitForState(seen, (s) => s.kind === "failed" && s.reason === "sign-in-failed");
+    } finally {
+      await core.close();
+      await rm(data, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});

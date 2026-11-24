@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -35,7 +35,39 @@ function pathWithoutClaude(): Record<string, string> {
   return { [key]: filtered.join(delimiter) };
 }
 
-async function isolatedHomeEnv(home: string): Promise<Record<string, string>> {
+function readWindowsUserPath(): string | null {
+  if (process.platform !== "win32") return null;
+  const out = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "[Environment]::GetEnvironmentVariable('Path', 'User')",
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  return out.status === 0 ? out.stdout.trim() : null;
+}
+
+function restoreWindowsUserPath(value: string): void {
+  if (process.platform !== "win32") return;
+  spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "[Environment]::SetEnvironmentVariable('Path', $env:IM_RESTORE_PATH, 'User')",
+    ],
+    { env: { ...process.env, IM_RESTORE_PATH: value }, encoding: "utf8", windowsHide: true },
+  );
+}
+
+async function isolatedHomeEnv(
+  root: string,
+  home: string,
+): Promise<{ env: Record<string, string>; browserOpenedFile: string | null }> {
   const env: Record<string, string> = {
     ...pathWithoutClaude(),
     DISABLE_AUTOUPDATER: "1",
@@ -47,11 +79,15 @@ async function isolatedHomeEnv(home: string): Promise<Record<string, string>> {
     await mkdir(appData, { recursive: true });
     env.LOCALAPPDATA = localAppData;
     env.APPDATA = appData;
-  } else {
-    // Keep `claude auth login` from opening a real desktop browser during automated runs.
-    env.BROWSER = "/usr/bin/true";
+    return { env, browserOpenedFile: null };
   }
-  return env;
+  // Record the exact URL `claude auth login` asks the browser to open without opening a desktop browser.
+  const browserOpenedFile = join(root, "browser-opened.txt");
+  const opener = join(root, "browser-opener.sh");
+  await writeFile(opener, `#!/bin/sh\nprintf "%s\\n" "$1" > "${browserOpenedFile}"\n`, "utf8");
+  await chmod(opener, 0o755);
+  env.BROWSER = opener;
+  return { env, browserOpenedFile };
 }
 
 let folders: string[] = [];
@@ -77,7 +113,7 @@ test.afterEach(async () => {
   dataFolder = null;
 });
 
-test("packaged app installs real Claude Code into a temporary home and reaches the browser sign-in handoff without signing in (#3638)", async () => {
+test("packaged app installs real Claude Code into a temporary home and reaches the real browser sign-in handoff without signing in (#3638)", async () => {
   test.skip(!existsSync(packagedExecutable), `Build first: ${packagedExecutable}`);
 
   const root = await mkdtemp(join(tmpdir(), "incarnamind-packaged-install-"));
@@ -88,7 +124,8 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
   folders = [root];
   dataFolder = data;
 
-  const extraEnv = await isolatedHomeEnv(home);
+  const userPathBefore = readWindowsUserPath();
+  const { env: extraEnv, browserOpenedFile } = await isolatedHomeEnv(root, home);
   const app = await launchPackaged(home, data, { extraEnv });
   try {
     const window = await app.firstWindow();
@@ -118,6 +155,26 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
     await expect(signIn).toBeVisible({ timeout: 3 * 60_000 });
     await expect(signIn).toContainText("Sign in to Claude Code in your browser");
 
+    // Prove the real `claude auth login` subprocess actually launched headless and handed off to Anthropic's OAuth URL.
+    if (browserOpenedFile) {
+      await expect
+        .poll(() => (existsSync(browserOpenedFile) ? readFile(browserOpenedFile, "utf8") : ""), {
+          timeout: 20_000,
+        })
+        .toMatch(/^https:\/\/(claude\.ai|claude\.com)\/.*oauth\/authorize/i);
+    } else {
+      await window.waitForTimeout(2_000);
+      await expect(signIn).toBeVisible();
+    }
+
+    // Audit what Anthropic's Windows installer changes in HKCU User PATH outside the temp home.
+    if (process.platform === "win32") {
+      const userPathAfter = readWindowsUserPath();
+      console.info(
+        `[windows-user-path-audit] changed=${userPathAfter !== userPathBefore} beforeLen=${userPathBefore?.length ?? 0} afterLen=${userPathAfter?.length ?? 0}`,
+      );
+    }
+
     // Official binary is installed under the temporary home and runs cleanly.
     expect(existsSync(installedBinary)).toBe(true);
     const version = spawnSync(installedBinary, ["--version"], {
@@ -144,10 +201,14 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
     await expect(window.getByTestId("claude-code-install-offer")).toHaveCount(0);
   } finally {
     await app.close();
+    if (userPathBefore !== null) {
+      const userPathAfter = readWindowsUserPath();
+      if (userPathAfter !== userPathBefore) restoreWindowsUserPath(userPathBefore);
+    }
   }
 });
 
-test("cancelling a packaged Claude Code install stops the installer and leaves a clean state (#3638)", async () => {
+test("cancelling while the real packaged installer subprocess is running stops the process tree and cleans up (#3638)", async () => {
   test.skip(!existsSync(packagedExecutable), `Build first: ${packagedExecutable}`);
 
   const root = await mkdtemp(join(tmpdir(), "incarnamind-packaged-cancel-"));
@@ -158,20 +219,36 @@ test("cancelling a packaged Claude Code install stops the installer and leaves a
   folders = [root];
   dataFolder = data;
 
-  const extraEnv = await isolatedHomeEnv(home);
+  const { env: extraEnv } = await isolatedHomeEnv(root, home);
   const app = await launchPackaged(home, data, { extraEnv });
   try {
     const window = await app.firstWindow();
     await dismissChatSetup(window);
     await openSettings(window, "ai");
 
+    const downloadsDir = join(home, ".claude", "downloads");
     await window.getByTestId("install-claude-code").click();
     const progress = window.getByTestId("claude-code-install-progress");
     await expect(progress).toBeVisible();
+
+    // Wait until the real installer script has launched and created `~/.claude/downloads` so Cancel
+    // provably terminates the running installer process tree rather than only aborting the script fetch.
+    await expect
+      .poll(() => existsSync(downloadsDir), {
+        timeout: 30_000,
+        intervals: [50, 100, 200],
+      })
+      .toBe(true);
+
     await progress.getByTestId("claude-code-install-cancel").click();
 
     await expect(window.getByTestId("claude-code-install-offer")).toBeVisible({ timeout: 15_000 });
-    expect(existsSync(join(home, ".claude", "downloads"))).toBe(false);
+    expect(existsSync(downloadsDir)).toBe(false);
+    expect(existsSync(join(home, ".local", "bin", binaryName))).toBe(false);
+
+    // Confirm no lingering child process recreates partial downloads after Cancel returns.
+    await window.waitForTimeout(1_500);
+    expect(existsSync(downloadsDir)).toBe(false);
     expect(existsSync(join(home, ".local", "bin", binaryName))).toBe(false);
   } finally {
     await app.close();
@@ -189,8 +266,9 @@ test("packaged Claude Code install shows plain failure words, Try again, and Ant
   folders = [root];
   dataFolder = data;
 
+  const { env: baseIsolated } = await isolatedHomeEnv(root, home);
   const extraEnv = {
-    ...(await isolatedHomeEnv(home)),
+    ...baseIsolated,
     HTTPS_PROXY: "http://127.0.0.1:9",
     HTTP_PROXY: "http://127.0.0.1:9",
   };

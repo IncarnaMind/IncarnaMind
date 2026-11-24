@@ -1,8 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { constants, existsSync } from "node:fs";
-import { access, mkdtemp, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import type {
   ClaudeCodeAdapterInstallResult,
   ClaudeCodeAuthCheck,
@@ -10,6 +10,7 @@ import type {
   ClaudeCodeSignInResult,
 } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
+import { envValue, localClaudeBinaryPath, resolveCommandOnPath } from "./claudeBinary";
 
 /** Official unmodified Anthropic Claude Code installer URLs over HTTPS (#3638). */
 const MAC_LINUX_INSTALLER_URL = "https://claude.ai/install.sh";
@@ -26,36 +27,32 @@ const CHECKSUM_ERROR_RE = /Checksum verification failed/i;
 const UNSUPPORTED_ERROR_RE =
   /Unsupported operating system|Unsupported architecture|32-bit Windows/i;
 const NO_PLAN_RE =
-  /does not include|not included|subscription|upgrade your plan|free plan|no.*access.*claude code|billing_error|plan does not support/i;
+  /does not include claude code|not included in your (?:current )?plan|upgrade your plan to use claude code|free plan does not include|no access to claude code|billing_error|plan does not support claude code/i;
 
 export interface ClaudeCodeInstallerOptions {
   home: string;
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
+  /** Login shell environment provider; defaults to `env` / `process.env`. */
+  environment?: () => Promise<Readonly<Record<string, string | undefined>>>;
   fetch?: (input: string, init?: RequestInit) => Promise<Response>;
+  /** Override for unit tests; defaults to `process.geteuid?.() === 0` on POSIX. */
+  isRoot?: () => boolean;
 }
-
-const binaryNameFor = (platform: NodeJS.Platform): string =>
-  platform === "win32" ? "claude.exe" : "claude";
 
 const installDirectoryDisplayFor = (platform: NodeJS.Platform): string =>
   platform === "win32" ? "%USERPROFILE%\\.local\\bin" : "~/.local/bin";
 
-async function isRunnableFile(path: string, platform: NodeJS.Platform): Promise<boolean> {
-  const info = await stat(path).catch(() => null);
-  if (!info?.isFile()) return false;
-  if (platform === "win32") return true;
-  return access(path, constants.X_OK).then(
-    () => true,
-    () => false,
-  );
-}
-
-function envValue(env: NodeJS.ProcessEnv, name: string): string {
-  for (const [key, value] of Object.entries(env)) {
-    if (key.toUpperCase() === name.toUpperCase() && typeof value === "string") return value;
+/** True only for HTTPS URLs on Anthropic's own `claude.ai` domain (including `downloads.claude.ai`). */
+export function isTrustedInstallerUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return host === "claude.ai" || host.endsWith(".claude.ai");
+  } catch {
+    return false;
   }
-  return "";
 }
 
 function childEnvironment(
@@ -64,8 +61,7 @@ function childEnvironment(
   platform: NodeJS.Platform,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
-  // Never inherit sudo or Electron Node-mode flags into Anthropic's user-space installer.
-  delete env.SUDO_USER;
+  // Never inherit Electron Node-mode flags, but preserve SUDO_USER so Anthropic's own root guard stays active.
   delete env.ELECTRON_RUN_AS_NODE;
   env.HOME = home;
   if (platform === "win32") env.USERPROFILE = home;
@@ -132,40 +128,28 @@ export function createClaudeCodeInstaller(
 ): ClaudeCodeInstaller {
   const platform = options.platform ?? process.platform;
   const baseEnv = options.env ?? process.env;
+  const environment = options.environment ?? (async () => baseEnv);
   const doFetch =
     options.fetch ?? ((input: string, init?: RequestInit) => globalThis.fetch(input, init));
+  const checkIsRoot =
+    options.isRoot ??
+    (() =>
+      platform !== "win32" && typeof process.geteuid === "function" && process.geteuid() === 0);
   const home = options.home;
-  const binaryName = binaryNameFor(platform);
-  const localBinDir = join(home, ".local", "bin");
-  const localBinaryPath = join(localBinDir, binaryName);
+  const localBinaryPath = localClaudeBinaryPath(home, platform);
 
-  async function findBinary(): Promise<string | null> {
-    if (await isRunnableFile(localBinaryPath, platform)) return localBinaryPath;
-    const pathValue = envValue(baseEnv, "PATH");
-    const names =
-      platform === "win32"
-        ? (envValue(baseEnv, "PATHEXT") || ".EXE;.CMD;.BAT;.COM")
-            .split(";")
-            .filter(Boolean)
-            .map((ext) => `claude${ext}`)
-        : ["claude"];
-    for (const dir of pathValue.split(delimiter).filter(Boolean)) {
-      if (!isAbsolute(dir)) continue;
-      for (const name of names) {
-        const candidate = join(dir, name);
-        if (await isRunnableFile(candidate, platform)) return candidate;
-      }
-    }
-    return null;
-  }
+  const findBinary = (): Promise<string | null> =>
+    resolveCommandOnPath("claude", { environment, home, platform });
 
   return {
     installDirectoryDisplay: installDirectoryDisplayFor(platform),
+    isRoot: checkIsRoot,
     findBinary,
 
     async install({ signal, onStage }): Promise<ClaudeCodeAdapterInstallResult> {
       const existing = await findBinary();
       if (existing !== null) return { kind: "already-installed", binaryPath: existing };
+      if (checkIsRoot()) return { kind: "failed", reason: "root" };
       if (signal.aborted) return { kind: "cancelled" };
 
       onStage?.("downloading");
@@ -175,6 +159,9 @@ export function createClaudeCodeInstaller(
         const fetchSignal = AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]);
         const response = await doFetch(installerUrl, { signal: fetchSignal, redirect: "follow" });
         if (!response.ok) {
+          return { kind: "failed", reason: "network" };
+        }
+        if (response.url && !isTrustedInstallerUrl(response.url)) {
           return { kind: "failed", reason: "network" };
         }
         scriptText = await response.text();
@@ -359,7 +346,6 @@ export function createClaudeCodeInstaller(
       }
       const parsed = parseAuthStatusJson(output);
       if (parsed) return parsed;
-      if (result.code === 0) return { kind: "signed-in" };
       if (result.code === 1) return { kind: "signed-out" };
       return { kind: "unknown" };
     },

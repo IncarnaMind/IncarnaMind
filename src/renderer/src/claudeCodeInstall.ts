@@ -8,12 +8,14 @@ interface Store {
   availability: ClaudeCodeInstallAvailability | null;
   state: ClaudeCodeInstallState;
   loaded: boolean;
+  starting: boolean;
 }
 
 const useStore = create<Store>(() => ({
   availability: null,
   state: { kind: "idle" },
   loaded: false,
+  starting: false,
 }));
 
 let subscribed = false;
@@ -71,18 +73,36 @@ export function useClaudeCodeInstallState(): ClaudeCodeInstallState {
   return useStore((s) => s.state);
 }
 
+export function useClaudeCodeInstallStarting(): boolean {
+  return useStore((s) => s.starting);
+}
+
 export function refreshClaudeCodeInstallAvailability(): void {
   refreshAvailability();
 }
 
 export async function startClaudeCodeInstall(): Promise<void> {
+  if (useStore.getState().starting) return;
+  useStore.setState({ starting: true });
   ensureLoaded();
   try {
     const next = await core.installClaudeCode();
-    useStore.setState({ state: next, loaded: true });
+    if (next && typeof next === "object" && "kind" in next) {
+      useStore.setState({ state: next, loaded: true });
+    }
   } catch (error: unknown) {
     useAppStore.getState().reportError(error);
+  } finally {
+    useStore.setState({ starting: false });
   }
+}
+
+/** Moves focus to the Claude Code offer in Settings › AI › Your AI where its disclosure sits. */
+export function focusClaudeCodeInstallOffer(): void {
+  const offer = document.querySelector<HTMLElement>('[data-testid="claude-code-install-offer"]');
+  offer?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const button = document.querySelector<HTMLButtonElement>('[data-testid="install-claude-code"]');
+  button?.focus({ preventScroll: true });
 }
 
 export async function openClaudeCodeSignIn(): Promise<void> {

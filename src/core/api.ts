@@ -13125,6 +13125,8 @@ export type ClaudeCodeInstallFailureReason =
   | "checksum"
   | "unsupported"
   | "local-mode"
+  | "root"
+  | "sign-in-failed"
   | "failed";
 
 /** Lifecycle state of the one-press Claude Code installation and browser sign-in flow (#3638). */

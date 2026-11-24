@@ -8197,6 +8197,11 @@ export const zhCN = {
     "Anthropic 安装程序不支持此电脑。请按 Anthropic 官方说明安装。",
   "agents.install.failed.localMode":
     "已开启“所有内容都留在这台电脑上”，未进行下载。关闭后即可安装 Claude Code。",
+  "agents.install.failed.localModeAction": "关闭并安装",
+  "agents.install.failed.root": "请使用普通用户账号运行 IncarnaMind 后再安装 Claude Code。",
+  "agents.install.failed.signInTitle": "无法完成 Claude Code 登录",
+  "agents.install.failed.signIn":
+    "无法在浏览器中完成 Anthropic 登录。请重试，或按 Anthropic 官方说明安装。",
   "agents.install.failed.generic":
     "Anthropic 安装程序未能完成。请重试，或按 Anthropic 官方说明安装。",
   "agents.install.failed.retry": "重试",

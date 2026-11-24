@@ -6,12 +6,12 @@
  * IncarnaMind's server with a grant, in a settings file only the User's account can read, inside
  * a folder of its own that goes when the run ends; nothing of the run is kept.
  */
-import { constants } from "node:fs";
-import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
+import { resolveCommandOnPath } from "./claudeBinary";
 import {
   ClaudeCodeIsolationError,
   ClaudeCodeStalledError,
@@ -124,41 +124,13 @@ async function short(command: string, args: string[]): Promise<Short> {
   return { kind: "no-answer" };
 }
 
-/** A file the User's account may run. */
-const runnable = async (path: string) =>
-  (await stat(path).catch(() => null))?.isFile() === true &&
-  (await access(path, constants.X_OK).then(
-    () => true,
-    () => false,
-  ));
-
-/** Default user-folder location where Anthropic's official Claude Code installer places the launcher. */
-function localClaudePath(): string {
+/** Resolves `command` on the login shell's PATH first, falling back to `~/.local/bin/claude`. */
+function resolveCommand(command: string): Promise<string | null> {
   const home = process.env.HOME || process.env.USERPROFILE || homedir();
-  return join(home, ".local", "bin", process.platform === "win32" ? "claude.exe" : "claude");
-}
-
-/** Resolves `command` on the login shell's PATH, falling back to `~/.local/bin/claude` for freshly installed Claude Code. */
-async function resolveCommand(command: string): Promise<string | null> {
-  if (isAbsolute(command)) return (await runnable(command)) ? command : null;
-  if (command === "claude") {
-    const local = localClaudePath();
-    if (await runnable(local)) return local;
-  }
-  const environment = await processes.environment();
-  const value = (name: string) =>
-    Object.entries(environment).find(([key]) => key.toUpperCase() === name)?.[1] ?? "";
-  const names =
-    process.platform === "win32"
-      ? (value("PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";").map((ext) => `${command}${ext}`)
-      : [command];
-  for (const folder of value("PATH").split(delimiter).filter(Boolean)) {
-    for (const name of names) {
-      const candidate = join(folder, name);
-      if (await runnable(candidate)) return candidate;
-    }
-  }
-  return null;
+  return resolveCommandOnPath(command, {
+    environment: () => processes.environment(),
+    home,
+  });
 }
 
 /** Whether the login shell's PATH holds `command`, as a terminal would find it, looked up without starting it. */

@@ -1628,6 +1628,7 @@ export function createCore(adapters: CoreAdapters): Core {
   let connectorsLocalModeChanged = () => {};
   /** Set once calendars exist: Local mode stops reading Google and Microsoft. */
   let calendarsLocalModeChanged = () => {};
+  let claudeCodeInstallLocalModeChanged = () => {};
   /**
    * Local mode on or off: embeddings may switch back to the built-in model,
    * rerank pauses, usage data stops, and outside agents pause.
@@ -1652,6 +1653,7 @@ export function createCore(adapters: CoreAdapters): Core {
       agentsLocalModeChanged();
       connectorsLocalModeChanged();
       calendarsLocalModeChanged();
+      claudeCodeInstallLocalModeChanged();
       await rerankChanged();
       // Questions to a cloud model are refused now (or allowed again): the chat model's readiness changed.
       await readinessChanged();
@@ -7131,6 +7133,9 @@ export function createCore(adapters: CoreAdapters): Core {
     lifetime: lifetime.signal,
     log: adapters.log ?? silentLogger,
   });
+  claudeCodeInstallLocalModeChanged = () => {
+    void claudeCodeInstall.onLocalOnlyChanged();
+  };
   // A connection's conversations go with the connection, and with its consent to start it (ADR-0034).
   const forgetConversations = (pairingId: string) =>
     ownAiConversations

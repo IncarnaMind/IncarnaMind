@@ -8,7 +8,10 @@ import type {
 } from "../../../../core/api";
 import { modelName } from "../../../../shared/modelName";
 import { searchesTheWeb } from "../../../../shared/webSearch";
-import { startClaudeCodeInstall, useClaudeCodeInstallAvailability } from "../../claudeCodeInstall";
+import {
+  focusClaudeCodeInstallOffer,
+  useClaudeCodeInstallAvailability,
+} from "../../claudeCodeInstall";
 import { useLanguage, useT } from "../../i18n";
 import type { SettingsTarget } from "../../settingsPages";
 import { useSettingsTarget } from "../../settingsTarget";
@@ -79,7 +82,7 @@ export function JobsSection({
               <button
                 type="button"
                 data-testid="ai-jobs-install-claude-code"
-                onClick={() => void startClaudeCodeInstall()}
+                onClick={focusClaudeCodeInstallOffer}
                 className="rounded-sm text-[13px] font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
               >
                 {t("agents.install.action")}

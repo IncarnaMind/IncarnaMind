@@ -346,14 +346,21 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   await expect(window.getByTestId("ai-jobs-install-claude-code")).toHaveText("Install Claude Code");
   await shot(window, "settings-offer-en-1440");
 
-  // Local mode refuses before any download request is sent.
+  // Pressing the Jobs row link navigates to the offer beside its disclosure; it never downloads directly.
+  await window.getByTestId("ai-jobs-install-claude-code").click();
+  await expect(window.getByTestId("install-claude-code")).toBeFocused();
+  expect(standIn.installCalls).toBe(1);
+
+  // Local mode refuses before any download request is sent, and its action names both steps.
   await window.evaluate(() =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.setLocalOnly(true),
   );
   await window.getByTestId("install-claude-code").click();
   const failed = window.getByTestId("claude-code-install-failed");
   await expect(failed).toHaveAttribute("data-reason", "local-mode");
-  await expect(failed.getByTestId("claude-code-install-local-mode-off")).toBeVisible();
+  await expect(failed.getByTestId("claude-code-install-local-mode-off")).toHaveText(
+    "Turn it off and install",
+  );
   expect(standIn.installCalls).toBe(1);
 });
 

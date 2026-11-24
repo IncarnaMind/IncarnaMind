@@ -8696,6 +8696,12 @@ export const en = {
     "Anthropic’s installer doesn’t support this computer. Follow Anthropic’s own instructions.",
   "agents.install.failed.localMode":
     "“Keep everything on this computer” is on, so nothing was downloaded. Turn it off to install Claude Code.",
+  "agents.install.failed.localModeAction": "Turn it off and install",
+  "agents.install.failed.root":
+    "Run IncarnaMind as your normal user account to install Claude Code.",
+  "agents.install.failed.signInTitle": "Couldn’t finish signing in to Claude Code",
+  "agents.install.failed.signIn":
+    "Couldn’t complete Anthropic’s sign-in in your browser. Try again, or follow Anthropic’s own instructions.",
   "agents.install.failed.generic":
     "Anthropic’s installer didn’t finish. Try again, or follow Anthropic’s own instructions.",
   "agents.install.failed.retry": "Try again",

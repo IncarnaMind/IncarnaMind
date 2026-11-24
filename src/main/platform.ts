@@ -1172,6 +1172,7 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
           ownAi: createOwnAi({ conversations: join(dataDir, "Own AI conversations") }),
           claudeCodeInstaller: createClaudeCodeInstaller({
             home: homeFolder(),
+            environment: () => loginShellProcesses.environment(),
             fetch: (input, init) => net.fetch(input, init),
           }),
         }

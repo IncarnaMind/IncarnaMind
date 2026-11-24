@@ -7,6 +7,7 @@ import {
   resetClaudeCodeInstall,
   startClaudeCodeInstall,
   useClaudeCodeInstallAvailability,
+  useClaudeCodeInstallStarting,
   useClaudeCodeInstallState,
 } from "../../claudeCodeInstall";
 import { useT } from "../../i18n";
@@ -29,6 +30,10 @@ function failureKey(reason: ClaudeCodeInstallFailureReason) {
       return "agents.install.failed.unsupported" as const;
     case "local-mode":
       return "agents.install.failed.localMode" as const;
+    case "root":
+      return "agents.install.failed.root" as const;
+    case "sign-in-failed":
+      return "agents.install.failed.signIn" as const;
     case "failed":
       return "agents.install.failed.generic" as const;
   }
@@ -62,6 +67,7 @@ export function ClaudeCodeInstallRow({
   const t = useT();
   const availability = useClaudeCodeInstallAvailability();
   const state = useClaudeCodeInstallState();
+  const starting = useClaudeCodeInstallStarting();
   const handedOff = useRef(false);
 
   useEffect(() => {
@@ -183,6 +189,8 @@ export function ClaudeCodeInstallRow({
 
   if (state.kind === "failed") {
     const localMode = state.reason === "local-mode";
+    const signInFailed = state.reason === "sign-in-failed";
+    const rootBlocked = state.reason === "root";
     return (
       <div
         data-testid="claude-code-install-failed"
@@ -195,16 +203,17 @@ export function ClaudeCodeInstallRow({
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[13.5px] leading-5 font-semibold text-ink">
-            {t("agents.install.failed.title")}
+            {t(signInFailed ? "agents.install.failed.signInTitle" : "agents.install.failed.title")}
           </div>
           <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">
             {t(failureKey(state.reason))}
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
-            {localMode ? (
+            {localMode && (
               <button
                 type="button"
                 data-testid="claude-code-install-local-mode-off"
+                disabled={starting}
                 onClick={() =>
                   void turnOffLocalMode().then(
                     () => startClaudeCodeInstall(),
@@ -213,13 +222,17 @@ export function ClaudeCodeInstallRow({
                 }
                 className={buttonStyle("primary", "sm")}
               >
-                {t("localMode.turnOff")}
+                {t("agents.install.failed.localModeAction")}
               </button>
-            ) : (
+            )}
+            {!localMode && !rootBlocked && (
               <button
                 type="button"
                 data-testid="claude-code-install-retry"
-                onClick={() => void startClaudeCodeInstall()}
+                disabled={starting}
+                onClick={() =>
+                  void (signInFailed ? openClaudeCodeSignIn() : startClaudeCodeInstall())
+                }
                 className={buttonStyle("primary", "sm")}
               >
                 {t("agents.install.failed.retry")}
@@ -299,7 +312,6 @@ export function ClaudeCodeInstallRow({
     );
   }
 
-  // Idle offer state (State 1 in First Run / State 2 in Settings › AI)
   const title =
     variant === "first-run"
       ? t("agents.install.firstRun.title")
@@ -321,10 +333,12 @@ export function ClaudeCodeInstallRow({
         <button
           type="button"
           data-testid="install-claude-code"
+          disabled={starting}
+          aria-busy={starting || undefined}
           onClick={() => void startClaudeCodeInstall()}
           className={buttonStyle("primary", "sm")}
         >
-          {t("agents.install.action")}
+          {starting ? t("agents.install.progress.title") : t("agents.install.action")}
         </button>
       </div>
     </div>

@@ -32,7 +32,7 @@ export interface ClaudeCodeInstallControllerOptions {
  * Coordinates one-press installation of Anthropic's official Claude Code binary and the handoff
  * to Anthropic's own browser sign-in (#3638). Never runs in the background without an explicit
  * User press, records consent via `consent.ts` (ADR-0022), leaves an already-installed `claude`
- * untouched, and never handles or stores credentials.
+ * untouched, honours Local mode on every path, and never handles or stores credentials.
  */
 export function createClaudeCodeInstallController(options: ClaudeCodeInstallControllerOptions) {
   const { installer, consent, log } = options;
@@ -64,6 +64,9 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
   };
 
   const beginSignIn = (adapter: ClaudeCodeInstaller): ClaudeCodeInstallState => {
+    if (options.localOnly()) {
+      return setState({ kind: "failed", reason: "local-mode" });
+    }
     if (activeSignIn) {
       activeSignIn.stop.abort();
       activeSignIn = null;
@@ -84,11 +87,13 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
         if (outcome.kind === "signed-in") {
           const auth = await adapter.checkAuth();
           if (signal.aborted) return;
-          if (auth.kind === "no-plan") {
-            setState({ kind: "no-plan" });
-          } else {
+          if (auth.kind === "signed-in") {
             options.onClientsChanged();
             setState({ kind: "signed-in" });
+          } else if (auth.kind === "no-plan") {
+            setState({ kind: "no-plan" });
+          } else {
+            setState({ kind: "failed", reason: "sign-in-failed" });
           }
           return;
         }
@@ -100,12 +105,15 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
           log.warn("agents.claudeCodeSignInFailed", {
             detail: outcome.detail ?? "unknown",
           });
+          setState({ kind: "failed", reason: "sign-in-failed" });
         }
       } catch (error: unknown) {
+        if (activeSignIn === entry) activeSignIn = null;
         if (!signal.aborted) {
           log.warn("agents.claudeCodeSignInError", {
             error: error instanceof Error ? error.name : "unknown",
           });
+          setState({ kind: "failed", reason: "sign-in-failed" });
         }
       } finally {
         if (activeSignIn === entry) activeSignIn = null;
@@ -121,6 +129,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
     const auth = await adapter.checkAuth();
     if (auth.kind === "signed-in") return setState({ kind: "signed-in" });
     if (auth.kind === "no-plan") return setState({ kind: "no-plan" });
+    if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
     return beginSignIn(adapter);
   };
 
@@ -156,31 +165,55 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       }
       if (activeInstall) return state;
 
-      // Never overwrite or re-download an existing Claude Code installation.
+      // Claim the install slot synchronously before any await so rapid double presses can never
+      // start two concurrent installs or race on partial-download cleanup.
+      const stop = new AbortController();
+      const signal = AbortSignal.any([options.lifetime, stop.signal]);
+      const { promise: done, resolve: finishDone } = Promise.withResolvers<void>();
+      const entry = { stop, done };
+      activeInstall = entry;
+
+      const release = () => {
+        if (activeInstall === entry) activeInstall = null;
+        finishDone();
+      };
+
       const existing = await installer.findBinary();
+      if (activeInstall !== entry || signal.aborted) {
+        release();
+        return state;
+      }
       if (existing !== null) {
+        release();
         return handOffAfterInstalled(installer);
       }
 
       if (options.localOnly()) {
+        release();
         return setState({ kind: "failed", reason: "local-mode" });
+      }
+      if (installer.isRoot?.()) {
+        release();
+        return setState({ kind: "failed", reason: "root" });
       }
 
       await stopSignIn();
+      if (activeInstall !== entry || signal.aborted) {
+        release();
+        return state;
+      }
+      if (options.localOnly()) {
+        release();
+        return setState({ kind: "failed", reason: "local-mode" });
+      }
+
       // The explicit User press is the consent for downloading Anthropic's installer (ADR-0022).
       consent.choose(["agent-install"], INSTALLER_SERVICE);
 
-      const stop = new AbortController();
-      const signal = AbortSignal.any([options.lifetime, stop.signal]);
       const directory = installer.installDirectoryDisplay;
       const started = setState({ kind: "installing", stage: "downloading", directory });
 
-      const entry: { stop: AbortController; done: Promise<void> } = {
-        stop,
-        done: Promise.resolve(),
-      };
-      activeInstall = entry;
-      entry.done = (async () => {
+      void (async () => {
         try {
           const result = await installer.install({
             signal,
@@ -193,7 +226,9 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
           if (activeInstall !== entry) return;
           activeInstall = null;
           if (signal.aborted || result.kind === "cancelled") {
-            setState({ kind: "idle" });
+            setState(
+              options.localOnly() ? { kind: "failed", reason: "local-mode" } : { kind: "idle" },
+            );
             return;
           }
           if (result.kind === "failed") {
@@ -209,13 +244,17 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
         } catch (error: unknown) {
           if (activeInstall === entry) activeInstall = null;
           if (signal.aborted) {
-            setState({ kind: "idle" });
+            setState(
+              options.localOnly() ? { kind: "failed", reason: "local-mode" } : { kind: "idle" },
+            );
             return;
           }
           log.warn("agents.claudeCodeInstallError", {
             error: error instanceof Error ? error.name : "unknown",
           });
           setState({ kind: "failed", reason: "failed" });
+        } finally {
+          finishDone();
         }
       })();
       return started;
@@ -224,10 +263,12 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
     async openSignIn(): Promise<ClaudeCodeInstallState> {
       if (!installer) return setState({ kind: "failed", reason: "unsupported" });
       if (activeInstall) return state;
+      if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
       const existing = await installer.findBinary();
       if (existing === null) {
         return setState({ kind: "failed", reason: "failed" });
       }
+      if (options.localOnly()) return setState({ kind: "failed", reason: "local-mode" });
       return beginSignIn(installer);
     },
 
@@ -260,6 +301,24 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
       }
       await stopSignIn();
       return setState({ kind: "idle" });
+    },
+
+    async onLocalOnlyChanged(): Promise<void> {
+      if (!options.localOnly()) return;
+      const hadActive =
+        activeInstall !== null ||
+        activeSignIn !== null ||
+        state.kind === "installing" ||
+        state.kind === "awaiting-sign-in";
+      if (!hadActive) return;
+      const installing = activeInstall;
+      activeInstall = null;
+      if (installing) {
+        installing.stop.abort();
+        await installing.done.catch(() => undefined);
+      }
+      await stopSignIn();
+      setState({ kind: "failed", reason: "local-mode" });
     },
 
     async reset(): Promise<ClaudeCodeInstallState> {
