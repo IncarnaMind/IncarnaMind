@@ -8,9 +8,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "@playwright/test";
 import { type Arm, armA, armB } from "./arms";
-import { lane } from "./bench";
+import { workDir } from "./bench";
 
-const stills = join(lane, "stills");
+const stills = join(workDir, "stills");
 
 async function slideArea(arm: Arm) {
   if (arm.name === "A") {
@@ -29,7 +29,7 @@ async function slideArea(arm: Arm) {
 
 async function pictures(arm: Arm) {
   mkdirSync(stills, { recursive: true });
-  const deck = join(lane, "decks/test-deck.pptx");
+  const deck = join(workDir, "decks/test-deck.pptx");
   await arm.open(deck, 2);
   const area = await slideArea(arm);
   const clip = { x: area.x - 8, y: area.y - 8, width: area.width + 16, height: area.height + 16 };

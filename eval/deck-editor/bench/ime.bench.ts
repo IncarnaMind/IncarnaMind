@@ -13,7 +13,7 @@ import { child, elements, local, parseXml } from "../../../src/core/documents/fo
 import { openPackage } from "../../../src/core/documents/formats/zip";
 import { shapeById } from "../../../src/core/exports/pptxPatch/shapes";
 import { type Arm, armA, armB } from "./arms";
-import { lane } from "./bench";
+import { workDir } from "./bench";
 
 interface RunText {
   text: string;
@@ -46,7 +46,7 @@ const PLACES = [
 ] as const;
 
 async function measure(arm: Arm) {
-  const deck = join(lane, "decks/test-deck.pptx");
+  const deck = join(workDir, "decks/test-deck.pptx");
   await arm.open(deck, 2);
   const cdp = await arm.window.context().newCDPSession(arm.window);
   const results: Record<string, unknown>[] = [];
@@ -186,7 +186,7 @@ async function measure(arm: Arm) {
       each.landedOnce && each.rightPlace && each.boldKept && each.propertiesKept && each.inPlainRun,
   ).length;
   writeFileSync(
-    join(lane, `logs/ime-${arm.name}.json`),
+    join(workDir, `logs/ime-${arm.name}.json`),
     JSON.stringify({ passed, total: results.length, results }, null, 1),
   );
   await arm.window.evaluate(() => undefined);

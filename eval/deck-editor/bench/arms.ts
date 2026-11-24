@@ -5,7 +5,7 @@
  */
 import { join } from "node:path";
 import type { ElectronApplication, Locator, Page } from "@playwright/test";
-import { lane, openBench } from "./bench";
+import { openBench, workDir } from "./bench";
 
 export interface Arm {
   name: "A" | "B";
@@ -37,7 +37,7 @@ const pick = async (locator: Locator) => {
 };
 
 export async function armA(name: string): Promise<Arm> {
-  const { app, window, requests } = await openBench(join(lane, "bench/A/index.html"), name);
+  const { app, window, requests } = await openBench(join(workDir, "bench/A/index.html"), name);
   await window.waitForFunction(() => "benchA" in window);
   const settled = () =>
     window.waitForFunction(
@@ -93,7 +93,7 @@ export async function armA(name: string): Promise<Arm> {
 }
 
 export async function armB(name: string): Promise<Arm> {
-  const { app, window, requests } = await openBench(join(lane, "armB/page/index.html"), name);
+  const { app, window, requests } = await openBench(join(workDir, "armB/page/index.html"), name);
   await window.waitForFunction(() => "benchB" in window);
   const goTo = async (slide: number) => {
     await window

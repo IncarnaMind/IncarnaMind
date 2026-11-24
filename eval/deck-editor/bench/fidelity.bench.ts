@@ -16,7 +16,7 @@ import {
 import { CORPUS } from "../../pptx/corpus";
 import { CHINESE_DECKS } from "../corpus";
 import { type Arm, armA, armB } from "./arms";
-import { lane } from "./bench";
+import { workDir } from "./bench";
 
 const DECKS = ["c84", "c73", "c32", "c25", "c44", "c22", "c00", "z04", "z05", "c71"];
 
@@ -130,14 +130,14 @@ function findQuote(args: { quote: string; arm: string }): {
 }
 
 async function run(arm: Arm) {
-  const shots = join(lane, "shots", "fidelity");
+  const shots = join(workDir, "shots", "fidelity");
   mkdirSync(shots, { recursive: true });
   const pins = [...CORPUS, ...CHINESE_DECKS];
   const results: Record<string, unknown>[] = [];
   for (const id of DECKS) {
     const pin = pins.find((each) => each.id === id);
     if (!pin) continue;
-    const path = join(lane, "decks/cache", `${pin.sha256}.pptx`);
+    const path = join(workDir, "decks/cache", `${pin.sha256}.pptx`);
     const drawing = await drawPptx(new Uint8Array(readFileSync(path)));
     const drawn = drawing.slides.filter((slide): slide is SlideDrawing => "items" in slide);
     const busiest = [...drawn].sort((a, b) => count(b.items) - count(a.items))[0]?.number ?? 1;
@@ -181,7 +181,7 @@ async function run(arm: Arm) {
     }
     results.push({ deck: id, busiest, pictured: [...new Set([1, busiest])] });
   }
-  writeFileSync(join(lane, `logs/fidelity-${arm.name}.json`), JSON.stringify(results, null, 1));
+  writeFileSync(join(workDir, `logs/fidelity-${arm.name}.json`), JSON.stringify(results, null, 1));
   const quoteResults = results.filter((each) => "quote" in each || "found" in each);
   console.log(
     arm.name,

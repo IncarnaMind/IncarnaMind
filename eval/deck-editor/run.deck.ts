@@ -21,10 +21,10 @@ import { type CopyReport, compareCopy, type Kind } from "./compare";
 import { DECKS } from "./corpus";
 import { chooseTargets, type DeckTargets, editsOf } from "./targets";
 
-const lane = process.env.INCARNAMIND_EVAL_CACHE ?? "";
+const workDir = process.env.INCARNAMIND_EVAL_CACHE ?? "";
 const phase = process.env.DECK_EDITOR_PHASE ?? "a";
-const decksDir = join(lane, "decks", "cache");
-const outDir = join(lane, "out");
+const decksDir = join(workDir, "decks", "cache");
+const outDir = join(workDir, "out");
 const KINDS = ["noedit", "text", "box"] as const;
 
 async function produceArmA(): Promise<void> {
@@ -129,7 +129,7 @@ const said = (target: DeckTargets, kind: "text" | "box") =>
       );
 
 async function personCheck(): Promise<void> {
-  const into = join(lane, "person-check");
+  const into = join(workDir, "person-check");
   await mkdir(into, { recursive: true });
   const dataDir = await createTempDataFolder();
   const files = await createSourceFolder();
@@ -209,7 +209,7 @@ async function personCheck(): Promise<void> {
 }
 
 test("the slide editor bake-off", async () => {
-  if (!lane) throw new Error("Set DECK_EDITOR_LANE to the folder for decks and copies.");
+  if (!workDir) throw new Error("Set DECK_EDITOR_DIR to the folder for decks and copies.");
   if (phase === "a") await produceArmA();
   else if (phase === "person") await personCheck();
   else await compareArms();

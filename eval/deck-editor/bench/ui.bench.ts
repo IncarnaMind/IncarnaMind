@@ -14,7 +14,7 @@ import { CORPUS } from "../../pptx/corpus";
 import { CHINESE_DECKS } from "../corpus";
 import type { DeckTargets } from "../targets";
 import { type Arm, armA, armB } from "./arms";
-import { lane } from "./bench";
+import { workDir } from "./bench";
 
 const DECKS = ["c84", "c73", "c32", "c25", "c44", "c22", "c00", "z04", "z05", "c71"];
 const EMU_PER_PX = 9525;
@@ -28,7 +28,7 @@ async function editDeck(
 ) {
   const pin = [...CORPUS, ...CHINESE_DECKS].find((each) => each.id === id);
   if (!pin) return;
-  const path = join(lane, "decks/cache", `${pin.sha256}.pptx`);
+  const path = join(workDir, "decks/cache", `${pin.sha256}.pptx`);
   const drawing = await drawPptx(new Uint8Array(readFileSync(path)));
   const first = kind === "text" ? targets.text[0] : targets.box[0];
   await arm.open(path, first?.slide ?? 1);
@@ -145,7 +145,7 @@ async function editDeck(
       await arm.window.mouse.click(5, 5);
     }
   }
-  const out = join(lane, "out", `${arm.name}-ui`);
+  const out = join(workDir, "out", `${arm.name}-ui`);
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, `${id}-${kind}.pptx`), await arm.bytes());
 }
@@ -154,13 +154,13 @@ for (const name of ["A", "B"] as const) {
   for (const id of DECKS) {
     test(`arm ${name}: edits made in its editor, ${id}`, async () => {
       const targets = JSON.parse(
-        readFileSync(join(lane, "out/targets.json"), "utf8"),
+        readFileSync(join(workDir, "out/targets.json"), "utf8"),
       ) as DeckTargets[];
       const deck = targets.find((each) => each.id === id);
       if (!deck) return;
       const log: string[] = [];
       for (const kind of ["text", "box"] as const) {
-        if (existsSync(join(lane, "out", `${name}-ui`, `${id}-${kind}.pptx`))) continue;
+        if (existsSync(join(workDir, "out", `${name}-ui`, `${id}-${kind}.pptx`))) continue;
         const arm =
           name === "A"
             ? await armA(`ui-${name}-${id}-${kind}`)
@@ -174,7 +174,7 @@ for (const name of ["A", "B"] as const) {
         }
         await arm.app.close();
       }
-      appendFileSync(join(lane, `logs/ui-${name}.log`), log.map((line) => `${line}\n`).join(""));
+      appendFileSync(join(workDir, `logs/ui-${name}.log`), log.map((line) => `${line}\n`).join(""));
     });
   }
 }

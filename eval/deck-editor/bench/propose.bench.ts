@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "@playwright/test";
 import { armB } from "./arms";
-import { lane } from "./bench";
+import { workDir } from "./bench";
 
 type Page = import("@playwright/test").Page;
 
@@ -32,7 +32,7 @@ test("arm B: an AI's change through propose, beside a hand edit", async () => {
   const arm = await armB("propose-b");
   const { window } = arm;
   const results: Record<string, unknown> = {};
-  await arm.open(join(lane, "decks/test-deck.pptx"), 2);
+  await arm.open(join(workDir, "decks/test-deck.pptx"), 2);
   const part = "/ppt/slides/slide2.xml";
   const text = (id: number) =>
     call<string>(window, `benchB.shapeText(${JSON.stringify(part)}, ${id})`);
@@ -122,7 +122,7 @@ test("arm B: an AI's change through propose, beside a hand edit", async () => {
   results.violations = await window.evaluate(
     () => (window as unknown as { violations: unknown[] }).violations,
   );
-  writeFileSync(join(lane, "logs/propose-b.json"), JSON.stringify(results, null, 1));
+  writeFileSync(join(workDir, "logs/propose-b.json"), JSON.stringify(results, null, 1));
   console.log(JSON.stringify(results, null, 1).slice(0, 3000));
   await arm.app.close();
   console.log(
