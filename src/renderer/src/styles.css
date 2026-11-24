@@ -704,6 +704,37 @@
     min-height: 0;
     background: var(--color-sheet);
   }
+  /*
+   * The Note's conversation as a column the tab group's full height (#3677), as the
+   * sidebar is the window's. The strip, and its Export, split and ⋯, end at the Note's right edge.
+   */
+  .tab-group-column {
+    display: none;
+  }
+  .tab-group:has(> .tab-group-column:not(:empty)) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    > .tab-strip {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    > .tab-body {
+      grid-column: 1;
+      grid-row: 2;
+    }
+    > .tab-group-column {
+      display: flex;
+      grid-column: 2;
+      grid-row: 1 / -1;
+      min-height: 0;
+    }
+  }
+  /* Its own top row at the strip's height, its rule level with the strip's foot. */
+  .tab-group-column .note-column-head {
+    height: 36px;
+    border-bottom: 1px solid var(--color-rule);
+  }
 
   /*
    * A group's strip, Chrome-style (option A): the 36px band in tab-strip, a
@@ -1689,9 +1720,7 @@
     color: var(--color-ink-meta);
   }
   /* "Changes (3)" at the page's top right, while the pane is folded or over the page. */
-  /* Show conversation (#3677) beside it at the Note's top right, alike. */
-  .review-fold,
-  .note-ask-toggle {
+  .review-fold {
     height: 28px;
     padding: 0 8px;
     border-radius: 6px;
@@ -2556,53 +2585,187 @@
     color: var(--color-ink-placeholder);
   }
   /*
-   * The input at a Note's foot (#3627), under the text in the Note's own column and measure: it
-   * stays at the page's foot as the text scrolls, the line above it says what the AI is doing,
-   * and the Note's conversation opens above that.
+   * The Note's one input (#3627, #3677): one rounded box, narrower than the text and
+   * centred at the Note's foot, or as wide as the column at the column's foot. The box alone draws
+   * the outline; its rows only lay out inside it, on one pair of left and right edges: the line's
+   * first letter stands over the words' first, and its right end, or the check badge, over Send's.
    */
   .note-ask-foot {
     container: mind / inline-size;
     flex: none;
     background: var(--color-sheet);
 
-    /* Nothing of it shows, nor takes room, for a Note without the input. */
+    /* Nothing of it shows, nor takes room, without the input or while the column holds it. */
     &:has(.note-ask) {
       padding-block: 4px 16px;
     }
   }
   .note-ask {
+    position: relative;
+    width: min(100%, 560px);
+    margin-inline: auto;
+  }
+  .note-ask-box {
+    --note-ask-start: 18px;
+    --note-ask-end: 10px;
+    container: note-ask-input / inline-size;
+    position: relative;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    border: 1px solid var(--color-rule);
+    border-radius: 22px;
+    background: var(--color-sheet);
+    font-family: var(--font-sans);
+    font-size: var(--text-ui);
+    line-height: var(--text-ui--line-height);
+    color: var(--color-ink);
+    transition: border-color 80ms ease-out;
+    &:has(.note-ask-input-text:focus) {
+      border-color: var(--color-accent);
+    }
   }
-  /* The row above the input, with the line alone: small in the middle while a request runs. */
-  .note-ask-over {
+  /* At the Note's foot it floats over the page; in the column it is part of a flat pane. */
+  .note-ask > .note-ask-box {
+    box-shadow: var(--shadow-popover);
+  }
+  /* The top row: the AI's line, shrinking first, and the check badge at its right end. */
+  .note-ask-top {
     display: flex;
-    justify-content: center;
-    min-height: 28px;
-  }
-  .note-ask-pill {
-    display: inline-flex;
     align-items: center;
     gap: 8px;
-    max-width: min(100%, 560px);
-    height: 28px;
-    padding: 0 12px;
-    border: 1px solid var(--color-rule);
-    border-radius: 999px;
-    background: var(--color-sheet);
-    box-shadow: var(--shadow-popover);
+    min-width: 0;
+    padding: 8px var(--note-ask-end) 0 var(--note-ask-start);
+    /* The line takes the row, so its one action ends where Send ends. */
+    > .note-ask-pill {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+  }
+  .note-ask-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 2px;
+    min-width: 0;
+    padding: 5px var(--note-ask-end) 5px var(--note-ask-start);
+  }
+  /* From no width up, so the words take the room left and never push Send to a line of its own. */
+  .note-ask-input-text {
+    flex: 1 1 0;
+    min-width: 4rem;
+    min-height: 32px;
+    /* Eight lines, then it scrolls. */
+    max-height: 176px;
+    padding: 6px 0;
+    border: 0;
+    outline: none;
+    resize: none;
+    field-sizing: content;
+    background: transparent;
+    font: inherit;
+    color: var(--color-ink);
+    &::placeholder {
+      color: var(--color-ink-placeholder);
+    }
+  }
+  /* The selection the request is about, before the words; its × makes it about the whole Note. */
+  .note-ask-input-about {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 45%;
+  }
+  .note-ask-input-quote {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+    height: 24px;
+    margin: 4px 6px 4px 0;
+    padding: 0 4px 0 10px;
+    border-radius: 12px;
+    background: var(--color-chip);
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+  }
+  .note-ask-model {
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    height: 32px;
+    padding: 0 8px;
+    border-radius: 16px;
+    font-size: 13px;
+    line-height: 18px;
+    white-space: nowrap;
+    color: var(--color-ink-meta);
+  }
+  .note-ask-model-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note-ask-model--button {
+    &:hover:not(:disabled),
+    &[aria-expanded="true"] {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:disabled {
+      color: var(--color-ink-placeholder);
+      cursor: default;
+    }
+  }
+  /* Where the model's name would squeeze the words, the chevron alone; its label names the model.
+     The width is the box's, its rows' padding included. */
+  @container note-ask-input (width < 300px) {
+    .note-ask-model-name {
+      display: none;
+    }
+  }
+  /* In the column's width the selection takes a row of its own above the words. */
+  @container note-ask-input (width < 440px) {
+    .note-ask-input-about {
+      flex: 0 0 100%;
+      max-width: 100%;
+    }
+  }
+  .note-ask-round {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    background: var(--color-ink);
+    color: var(--color-on-primary);
+    transition: background-color 80ms ease-out;
+    &:hover:not(:disabled) {
+      background: var(--color-ink-strong);
+    }
+    &:disabled {
+      background: var(--color-frame);
+      color: var(--color-ink-placeholder);
+      cursor: default;
+    }
+  }
+  /* The AI's line in the box's top row: it takes the row's room and gives way first. */
+  .note-ask-pill {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    height: 24px;
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink-meta);
-  }
-  /* Once it ends, as wide as the input, its one action at the end. */
-  .note-ask-pill.note-ask-end {
-    width: 100%;
-    max-width: none;
-    justify-content: space-between;
-    border-radius: 10px;
   }
   .note-ask-pill-text {
     min-width: 0;
@@ -2619,8 +2782,10 @@
       text-underline-offset: 3px;
     }
   }
+  /* At the line's right end, where its ellipsis or its action would be. */
   .note-ask-pill-time {
     flex: none;
+    margin-left: auto;
     font-variant-numeric: tabular-nums;
   }
   .note-ask-pill-action {
@@ -2703,33 +2868,397 @@
       }
     }
   }
-  .note-ask-quote {
-    padding: 8px 12px 0 11px;
+  /*
+   * The Note's conversation as a column (#3677): the request as a bubble, the steps folded to one
+   * line, the reply in full, the Note's one input at its foot.
+   */
+  /*
+   * In a narrow window: a sheet over the Note from its right, above the Note's input, under the
+   * Note's own controls (16px down, 28px tall, .mind-menu-slot), which stay pressable while it is
+   * open: the check badge, Show conversation and ⋯.
+   */
+  .note-column-over-slot {
+    position: absolute;
+    top: 52px;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    display: flex;
+    &:empty {
+      display: none;
+    }
+    > .note-column {
+      border-left: 0;
+      border-top-left-radius: 8px;
+      border-bottom-left-radius: 8px;
+      box-shadow: var(--shadow-popover);
+    }
   }
-  .note-ask-quote > .question-skill {
-    max-width: 100%;
-  }
-  .note-ask-conversation {
-    max-height: 30vh;
-    overflow: auto;
-    padding-block: 8px;
-    border-top: 1px solid var(--color-rule);
+  .note-column {
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    min-height: 0;
+    border-left: 1px solid var(--color-rule);
+    background: var(--color-sheet);
     font-family: var(--font-sans);
+  }
+  .note-column-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 44px;
+    padding: 0 8px 0 16px;
+  }
+  .note-column-title {
+    flex: 1;
+    min-width: 0;
     font-size: var(--text-ui);
-    line-height: var(--text-ui--line-height);
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
   }
-  .note-ask-turn + .note-ask-turn {
-    margin-top: 12px;
+  .note-column-icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    color: var(--color-ink-meta);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
   }
-  .note-ask-request {
-    margin: 0;
+  .note-column-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 20px;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px 16px 16px;
+  }
+  .note-column-turn {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .note-column-bubble {
+    align-self: flex-end;
+    max-width: 85%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--color-chip);
+    font-size: var(--text-ui);
+    line-height: 20px;
     color: var(--color-ink);
   }
-  .note-ask-turn-quote,
-  .note-ask-reply,
-  .note-ask-empty {
-    margin: 0;
+  .note-column-bubble-quote {
+    margin-bottom: 2px;
     color: var(--color-ink-meta);
+  }
+  .note-column-steps {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+  .note-column-fold {
+    margin: 0 0 0 -6px;
+    &:hover {
+      background: var(--color-hover);
+    }
+    &[aria-expanded="true"] {
+      color: var(--color-ink-secondary);
+    }
+  }
+  .note-column-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  .note-column-step {
+    min-width: 0;
+    font-size: 13px;
+    line-height: 18px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--color-ink-secondary);
+  }
+  .note-column-step--now {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-ink-meta);
+  }
+  .note-column-interrupted,
+  .note-column-notice {
+    margin: 0;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
+  .note-column-notice {
+    text-align: center;
+  }
+  .note-column-reply {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    .note-ask-reply-text {
+      line-height: 22px;
+      color: var(--color-ink-answer);
+    }
+  }
+  .note-column-reply-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 28px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+  }
+  .note-column-reply-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    /* Unseen until the reply is pointed at or holds the focus, yet reachable by Tab. */
+    opacity: 0;
+  }
+  .note-column-reply:is(:hover, :focus-within) .note-column-reply-meta {
+    opacity: 1;
+  }
+  .note-column-step-item > .note-column-step {
+    max-width: 100%;
+  }
+  .note-column-step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+  }
+  .note-column-made {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+  /* What the AI made or changed, beside the Note in front: a card that opens it. */
+  .note-column-made-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: 8px;
+    background: var(--color-sheet);
+    text-align: left;
+    &:hover {
+      background: var(--color-hover);
+    }
+  }
+  .note-column-made-title {
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 500;
+    color: var(--color-ink);
+  }
+  .note-column-made-kind {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+  }
+  /* The end line: the reply's first words, and its one action at the line's right end. */
+  .note-ask-end {
+    justify-content: space-between;
+    > .note-ask-pill-reply {
+      flex: 1;
+    }
+  }
+  /* The top row as the handle that opens the conversation upward: the line, then its controls. */
+  .note-ask-handle {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 24px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
+    text-align: left;
+    > .note-ask-pill {
+      flex: 1 1 auto;
+    }
+  }
+  .note-ask-chevron {
+    flex: none;
+    color: var(--color-ink-meta);
+    transition: none;
+  }
+  /* The conversation, opened upward inside the box, over the Note's foot. */
+  .note-ask[data-upward-open] > .note-ask-box {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+  }
+  .note-ask-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* About half the Note's visible height at the window sizes the app opens at. */
+    max-height: 40vh;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .note-ask-panel-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+    overflow: auto;
+    padding: 4px var(--note-ask-end) 12px var(--note-ask-start);
+  }
+  /*
+   * The check badge with the Note's own controls at its top right, left of the conversation button
+   * and ⋯ (#3677): at rest a mark and its count in the Note's tone, its words its tooltip.
+   */
+  .note-head-badge {
+    display: flex;
+    align-items: center;
+    margin-right: 4px;
+    .check-badge {
+      height: 28px;
+      padding: 0;
+      background: none;
+      box-shadow: none;
+    }
+  }
+  .check-badge-quiet {
+    display: none;
+    align-items: center;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-secondary);
+  }
+  .note-head-badge {
+    .check-badge-words,
+    .check-badge-more,
+    .check-badge-short,
+    .check-badge-mark[data-quiet-marks] {
+      display: none;
+    }
+    .check-badge-quiet {
+      display: inline-flex;
+    }
+    .check-badge-mark:not([data-quiet-marks]) + .check-badge-quiet {
+      margin-left: 4px;
+    }
+    .check-badge[data-tone="success"] .check-badge-quiet {
+      color: var(--color-success);
+    }
+    .check-badge[data-tone="warning"] .check-badge-quiet {
+      color: var(--color-warning);
+    }
+    .check-badge[data-tone="error"] .check-badge-quiet {
+      color: var(--color-danger);
+    }
+    /* Each problem's count in its own mark's colour. */
+    .check-badge-quiet .check-badge-mark[data-part="contradicted"] {
+      color: var(--color-danger);
+    }
+    .check-badge-quiet .check-badge-mark:is([data-part="unsupported"], [data-part="notFound"]) {
+      color: var(--color-warning);
+    }
+    /* What a checked Note left unsettled is in the margin's tone for those sentences, never the
+       checked green. */
+    .check-badge-quiet
+      .check-badge-mark:is(
+        [data-part="needs-recheck"],
+        [data-part="not-checked"],
+        [data-part="notYetCited"]
+      ),
+    .check-badge-quiet
+      .check-badge-mark:is(
+        [data-part="needs-recheck"],
+        [data-part="not-checked"],
+        [data-part="notYetCited"]
+      )
+      .mind-health-icon {
+      color: var(--color-ink-meta);
+    }
+  }
+  /* "Show conversation", at the Note's top right beside its menu. */
+  .note-conversation-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    color: var(--color-ink-secondary);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &[aria-expanded="true"] {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .note-column-accept {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .note-column-foot {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 12px 12px;
+  }
+  .note-column-model-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 18px;
+    text-align: left;
+    &:is(:hover, :focus-visible) {
+      background: var(--color-hover);
+    }
+  }
+  .note-column-model-check {
+    flex: none;
+    width: 14px;
+    padding-top: 2px;
+    color: var(--color-ink);
   }
   /*
    * Once the text runs past one line it takes the full width, and the controls

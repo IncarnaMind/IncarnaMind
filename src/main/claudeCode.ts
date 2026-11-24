@@ -34,8 +34,15 @@ export interface ClaudeCodeTurn {
   session?: { id: string; resume: boolean };
   /** How Claude Code answers its own permission prompts; nothing it may ask is allowed here. */
   permissionMode?: "dontAsk";
+  /** A model alias or name Claude Code offers; absent: its own default. */
+  model?: string;
   /** Each message before the result, from the first; one that throws stops the turn. */
   onMessage?(message: Record<string, unknown>): void;
+  /**
+   * Asks Claude Code, before the prompt goes, which models it offers (its `initialize` answer, no
+   * model call), and hears that answer once the isolation check has passed.
+   */
+  onModels?(answer: Record<string, unknown>): void;
   /** The stream carries the words and each Tool call as they come (`stream_event` messages). */
   partial?: boolean;
   /**
@@ -76,6 +83,7 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
     "--disable-slash-commands",
     "--permission-mode",
     turn.permissionMode ?? "dontAsk",
+    ...(turn.model ? ["--model", turn.model] : []),
     ...(turn.session
       ? [turn.session.resume ? "--resume" : "--session-id", turn.session.id]
       : ["--no-session-persistence"]),
@@ -119,6 +127,12 @@ const RAW_TIMES = 8;
 function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
   const { signal } = turn;
   let sent = false;
+  let models: Record<string, unknown> | null = null;
+  const hearModels = () => {
+    if (!sent || !models) return;
+    turn.onModels?.(models);
+    models = null;
+  };
   return readJsonLines(child, {
     agent: "Claude Code",
     signal,
@@ -132,8 +146,18 @@ function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
       stdin.write(
         `${JSON.stringify({ type: "control_request", request_id: "settings", request: { subtype: "get_settings" } })}\n`,
       );
+      if (turn.onModels) {
+        stdin.write(
+          `${JSON.stringify({ type: "control_request", request_id: "models", request: { subtype: "initialize" } })}\n`,
+        );
+      }
     },
     onMessage(msg, stdin) {
+      if (msg.type === "control_response" && object(msg.response).request_id === "models") {
+        models = object(object(msg.response).response);
+        hearModels();
+        return undefined;
+      }
       if (msg.type === "control_response" && !sent) {
         const control = object(msg.response);
         const settings = object(control.response);
@@ -156,6 +180,7 @@ function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
         stdin.end(
           `${JSON.stringify({ type: "user", message: { role: "user", content: turn.prompt } })}\n`,
         );
+        hearModels();
         return undefined;
       }
       // A result ends this turn even when the CLI keeps its stream open. Before the prompt went,

@@ -148,6 +148,10 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
   await expect(checks.getByTestId("health-look")).toContainText("1 needs a look");
   await screenshot(window, "contradictions-found-en");
+  // The card opens down from the badge at the Note's top right, over the marks beside the Note's
+  // first lines (#3677): it closes before the mark is pressed.
+  await window.keyboard.press("Escape");
+  await expect(checks).toHaveCount(0);
 
   await pointAndClick(window, mark);
   const card = window.getByTestId("claim-card");

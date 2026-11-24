@@ -222,8 +222,7 @@ import { CheckLineIcon, MineLineIcon } from "./lineIcons";
 import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
 import { meetingTemplateSlashItems } from "./meetings/MeetingTemplatePicker";
-import { NoteAsk } from "./noteAsk/NoteAsk";
-import { NoteConversationToggle } from "./noteAsk/NoteConversationToggle";
+import { NoteAsk, NoteConversationButton } from "./noteAsk/NoteAsk";
 import { useTabPlace } from "./tabs/tabItems";
 
 /** The Block at the top of the Note's view, and how far into it the view starts. */
@@ -545,6 +544,9 @@ function MindEditorView({
   const place = useCardPlace(mindId);
   const dock = useContext(ComposerDockContext);
   const slots = useContext(PageSlotsContext);
+  // The check badge stands with the Note's own controls at its top right (#3677).
+  const [headSlot, setHeadSlot] = useState<HTMLElement | null>(null);
+  const badgeTarget = headSlot ?? slots.badge ?? null;
   const sheetSlot = useContext(CompareSheetSlotContext);
   const comparing = useComparisons((state) => state.sheets[mindId] !== undefined);
   /**
@@ -1300,8 +1302,11 @@ function MindEditorView({
               {showingNotes && reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
-              {showingNotes && !readOnly && <NoteConversationToggle mindId={mindId} />}
+              {showingNotes && (
+                <div ref={setHeadSlot} data-testid="note-head-badge" className="note-head-badge" />
+              )}
               {showingNotes && <CommentsButton editor={editor} mindId={mindId} doc={doc} />}
+              {showingNotes && !readOnly && <NoteConversationButton mindId={mindId} />}
               <PageMenu
                 editor={editor}
                 doc={doc}
@@ -1330,9 +1335,17 @@ function MindEditorView({
         {showingNotes &&
           !readOnly &&
           slots.ask &&
-          createPortal(<NoteAsk mindId={mindId} editor={editor} />, slots.ask)}
+          createPortal(
+            <NoteAsk
+              mindId={mindId}
+              editor={editor}
+              columnSlot={slots.column ?? null}
+              overSlot={slots.columnOver ?? null}
+            />,
+            slots.ask,
+          )}
         {showingNotes &&
-          slots.badge &&
+          badgeTarget &&
           createPortal(
             <CheckBadge
               editor={editor}
@@ -1341,7 +1354,7 @@ function MindEditorView({
               verification={verification}
               quiet={firstOpen && isExample}
             />,
-            slots.badge,
+            badgeTarget,
           )}
         {readOnly && <MindNotice kind="read-only" />}
         <div

@@ -394,20 +394,17 @@ for (const language of ["en", "zh-CN"] as const) {
       expect
         .soft(fromRight, `${width}: the badge is at least 16px from the pane's right`)
         .toBeGreaterThanOrEqual(16 - 0.5);
+      // It stands with the Note's own controls at its top right (#3677).
       expect
-        .soft(pane.y + pane.height - (badgeBox.y + badgeBox.height), `${width}: the badge's foot`)
-        .toBeGreaterThanOrEqual(16 - 1);
+        .soft(badgeBox.y - pane.y, `${width}: the badge at the pane's top`)
+        .toBeLessThanOrEqual(48);
       expect
         .soft((await badge.innerText()).length, `${width}: the badge counts`)
         .toBeGreaterThan(0);
-      if (!folded)
-        expect
-          .soft(fromRight, `${width}: the badge stands under the check column`)
-          .toBeGreaterThanOrEqual(Math.max(16, (columnBox.width - 784) / 2) - 24);
     }
 
-    // The badge's label follows the Note pane, not the window: kept at 480 and dropped at 399, with
-    // a Document beside the Note, as in a split window.
+    // At rest the badge is its mark and its count at every width, its words its name (#3677): at
+    // 480 and under 400, with a Document beside the Note, as in a split window.
     await setWindowSize(app, window, 1600, 900);
     await setGroupBeside(window, true);
     await sizeNote(app, window, 480);
@@ -415,7 +412,9 @@ for (const language of ["en", "zh-CN"] as const) {
     const page = window.locator(".mind-tab-page");
     const paneWidth = async () => (await page.boundingBox())?.width ?? 0;
     expect(await paneWidth(), "a Note at about 480px").toBeGreaterThanOrEqual(430);
-    await expect(badgeWords, "the label at a 480px Note").toBeVisible();
+    const count = badge.locator(".check-badge-quiet");
+    await expect(badgeWords, "no label at a 480px Note").toBeHidden();
+    await expect(count, "the count at a 480px Note").toBeVisible();
     // The boundary under 400px: the rule is the Note pane's own width, here held at 390.
     await page.evaluate(() => {
       const element = document.querySelector(".mind-tab-page") as HTMLElement;
@@ -425,7 +424,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const narrow = await paneWidth();
     expect(narrow, "a Note under 400px").toBeLessThan(400);
     await expect(badgeWords, `no label under a 400px Note (${narrow}px)`).toBeHidden();
-    await expect(badge.locator(".check-badge-short")).toBeVisible();
+    await expect(count, `the count under a 400px Note (${narrow}px)`).toBeVisible();
     await app.close();
   });
 }

@@ -373,6 +373,9 @@ for (const language of ["en", "zh-CN"] as const) {
       // Its quiet ring is there before the check ends: point at it once it has its verdict.
       await expect(mark).toHaveAttribute("data-check", "unsupported", { timeout: 60_000 });
       await expect(mark).toBeVisible();
+      // The check card opens down from the badge at the Note's top right, over the Note's first lines (#3677): it closes first.
+      await window.keyboard.press("Escape");
+      await expect(window.getByTestId("check-card")).toHaveCount(0);
       await window.mouse.move(0, 0);
       await pointAt(window, mark);
       const claimCard = window.getByTestId("claim-card");

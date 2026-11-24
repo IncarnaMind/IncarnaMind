@@ -6,16 +6,18 @@
  * each request and reply; it never reads the agent's transcript, and deletes both copies when the
  * Note is deleted for good, the connection is removed or the consent is taken back.
  */
-import type { Logger, OwnAiFailure, OwnAiProgress, OwnAiRunner } from "../adapters";
+import type { Logger, OwnAiFailure, OwnAiModel, OwnAiProgress, OwnAiRunner } from "../adapters";
 import {
   AGENT_TOOLS,
   type AgentLaunch,
   type AgentPairing,
   type AgentToolName,
   type NoteChangeApplied,
+  type NoteCitation,
   type NoteDoing,
   type NoteRequestInput,
   type NoteRequestStart,
+  type NoteStep,
   type NoteTurn,
   type NoteTurnEvent,
   type NoteTurnProblem,
@@ -23,6 +25,13 @@ import {
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
 import type { ConversationHears, ConversationRun, SelectedInBlock } from "./askedChecks";
+import { CITATION_TOKEN } from "./citations";
+
+/**
+ * A control character in a model's name, which reaches the agent's command line as `--model`: on
+ * Windows an npm-installed claude.cmd runs through cmd.exe, where a line break ends the command.
+ */
+const CONTROL = /\p{Cc}/u;
 
 /** IncarnaMind's instructions, the same for every request of a conversation: Claude Code keeps the first. */
 const INSTRUCTIONS = [
@@ -73,6 +82,8 @@ export interface OwnAiConversationsOptions {
   db: Database;
   /** The agents the User can ask about this Note now, the one connected or used last first. */
   askable(mindId: string): AgentPairing[];
+  /** Of `tokens`, the Citations IncarnaMind gave this connection, found in their Document now. */
+  citationsOf(pairingId: string, tokens: readonly string[]): NoteCitation[];
   /** A grant for one run, which tells it of its own calls and changes, and of no one else's. */
   conversationGrant(
     pairingId: string,
@@ -162,6 +173,8 @@ function promptOf(
 }
 
 export function createOwnAiConversations(options: OwnAiConversationsOptions) {
+  /** The models the agent offers, as its last run here answered; held in memory only. */
+  let listed: readonly OwnAiModel[] | null = null;
   const { db } = options;
   const running = new Map<
     string,
@@ -254,6 +267,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         made: [],
         fresh: false,
         quiet: false,
+        model: null,
+        steps: [],
+        documentsFound: 0,
         ...rest,
         ...outcome,
         reply,
@@ -313,6 +329,15 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const caret = input.caret === undefined ? "" : words(input.caret, MAX_CARET);
     const selection = selectionOf(input.selection);
     const pairingId = input.pairingId === undefined ? undefined : words(input.pairingId, 200);
+    const model = input.model === undefined ? undefined : words(input.model, 100);
+    // Only a model the agent itself offered goes to it as `--model`, and never one with a control
+    // character, which the agent's own list can't bring either.
+    if (
+      model !== undefined &&
+      (CONTROL.test(model) || !listed?.some((each) => each.value === model))
+    ) {
+      throw new InvalidInputError({ key: "error.agent.askRequest" });
+    }
 
     const already = running.get(mindId);
     if (already) return { kind: "started", pairing: already.pairing, turnId: already.turnId };
@@ -359,6 +384,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       quote,
       caret,
       selection,
+      model,
       stop,
     }).catch((error: unknown) => {
       // Whatever went wrong, the request doesn't stay working: the User can send it again.
@@ -381,6 +407,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     quote: string;
     caret: string;
     selection: SelectedInBlock[] | null;
+    model: string | undefined;
     stop: AbortController;
   }): Promise<void> {
     const { mindId, pairing, turnId, conversation, stop } = turn;
@@ -394,6 +421,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const made: { mindId: string; title: string }[] = [];
     let readOnly = false;
     let lost: NoteTurnProblem | null = null;
+    let answeredOn: string | null = null;
+    const steps: NoteStep[] = [];
+    // The Documents its searches found and its reads reached, and how many Passages of each it read.
+    const found = new Set<string>();
+    const readOf = new Map<string, number>();
+    const passagesIn = (documentId: string) =>
+      db.get<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM passages WHERE document_id = ? AND deleted_at IS NULL",
+        [documentId],
+      )?.count ?? 0;
     const event = (rest: Partial<NoteTurnEvent> & Pick<NoteTurnEvent, "state">): NoteTurnEvent => ({
       mindId,
       turnId,
@@ -407,6 +444,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       made,
       fresh: false,
       quiet,
+      model: answeredOn,
+      steps: [...steps],
+      documentsFound: found.size,
       ...rest,
     });
     const tell = (each: NoteTurnEvent) => {
@@ -473,7 +513,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         tellWorking();
         return;
       }
-      if (step.kind === "said") {
+      if (step.kind === "models") {
+        const offered = step.models.filter((each) => !CONTROL.test(each.value));
+        if (offered.length > 0) listed = offered;
+        return;
+      }
+      if (step.kind === "model") {
+        answeredOn = step.model;
+      } else if (step.kind === "said") {
+        // The words of one line grow as they come; a line that doesn't start as the last did is new.
+        const last = steps.at(-1);
+        if (last?.kind === "said" && step.text.startsWith(last.text)) last.text = step.text;
+        else steps.push({ kind: "said", text: step.text });
         written = step.text;
         if (step.text.trim().length < SAID_FROM) return;
         doing = { kind: "said", text: step.text };
@@ -525,6 +576,37 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             }
           }
           doingCall(call.tool, call.summary);
+          const ids = call.documentIds ?? [];
+          if (call.outcome === "done" && call.tool === "search")
+            for (const id of ids) found.add(id);
+          const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
+          const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
+          const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
+          if (read) {
+            found.add(read);
+            const sofar = (readOf.get(read) ?? 0) + (call.count ?? 0);
+            readOf.set(read, sofar);
+            const total = passagesIn(read);
+            const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
+            steps.push({
+              kind: "call",
+              tool: call.tool,
+              summary: call.summary,
+              documentId: read,
+              ...(part !== undefined && { part }),
+            });
+          } else {
+            steps.push({
+              kind: "call",
+              tool: call.tool,
+              summary: call.summary,
+              done: call.outcome === "done",
+              ...(other && call.outcome === "done" && { mindId: other }),
+              ...(other &&
+                call.tool === "propose_changes" &&
+                call.count && { waiting: call.count }),
+            });
+          }
           tellWorking();
         },
       },
@@ -552,6 +634,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
                 turn.caret,
               ),
               conversation: { key: conversation.id, sessionId, resume },
+              ...(turn.model !== undefined && { model: turn.model }),
+              listModels: true,
               progress,
               signal,
             })
@@ -614,6 +698,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       applied,
       waiting: [...waiting.values()],
       made,
+      model: answeredOn,
+      steps,
+      documentsFound: found.size,
     });
   }
 
@@ -626,29 +713,66 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     /** The Note's conversation, as IncarnaMind keeps it, with the agent asked last, oldest first. */
     turns(mindId: string): NoteTurn[] {
-      const latest = db.get<{ id: string }>(
-        `SELECT c.id FROM own_ai_conversations c
+      const latest = db.get<{ id: string; pairing_id: string }>(
+        `SELECT c.id, c.pairing_id FROM own_ai_conversations c
          JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
          WHERE c.mind_id = ? AND c.deleted_at IS NULL
          ORDER BY t.created_at DESC LIMIT 1`,
         [mindId],
       );
       if (!latest) return [];
-      return db
-        .all<TurnRow>(
-          `SELECT id, request, selection, reply, outcome, problem, created_at FROM own_ai_turns
-           WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
-          [latest.id],
-        )
-        .map((row) => ({
-          id: row.id,
-          request: row.request,
-          quote: row.selection,
-          reply: row.reply,
-          outcome: row.outcome,
-          problem: (row.problem as NoteTurnProblem | null) ?? null,
-          at: row.created_at,
-        }));
+      const rows = db.all<TurnRow>(
+        `SELECT id, request, selection, reply, outcome, problem, created_at FROM own_ai_turns
+         WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
+        [latest.id],
+      );
+      const tokensOf = (reply: string) => [
+        ...new Set(
+          [...reply.matchAll(CITATION_TOKEN)].flatMap(([, token]) => (token ? [token] : [])),
+        ),
+      ];
+      // One look at every token of the conversation, each against its Document as it is now.
+      const found = new Map(
+        options
+          .citationsOf(latest.pairing_id, [...new Set(rows.flatMap((row) => tokensOf(row.reply)))])
+          .map((cited) => [cited.token, cited]),
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        request: row.request,
+        quote: row.selection,
+        reply: row.reply,
+        outcome: row.outcome,
+        problem: (row.problem as NoteTurnProblem | null) ?? null,
+        at: row.created_at,
+        citations: tokensOf(row.reply).flatMap((token) => {
+          const cited = found.get(token);
+          return cited ? [cited] : [];
+        }),
+      }));
+    },
+
+    /** Whether the Note has a conversation kept, reading none of its turns. */
+    kept(mindId: string): boolean {
+      return (
+        db.get<{ one: number }>(
+          `SELECT 1 AS one FROM own_ai_conversations c
+           JOIN own_ai_turns t ON t.conversation_id = c.id AND t.deleted_at IS NULL
+           WHERE c.mind_id = ? AND c.deleted_at IS NULL LIMIT 1`,
+          [mindId],
+        ) !== undefined
+      );
+    },
+
+    /**
+     * The models the agent offers for a request from this Note, as a run here answered before its
+     * prompt went: asking starts nothing. [] until a run has answered, and while no request from
+     * the Note could run (no connection that runs here, no consent, local mode).
+     */
+    models(mindId: string): readonly OwnAiModel[] {
+      const pairing = options.askable(mindId).find(canRun);
+      if (!listed || !pairing || options.heldBack(pairing, mindId)) return [];
+      return listed;
     },
 
     /** Deletes the conversations of Notes deleted for good. */

@@ -600,6 +600,12 @@ test("with no model, one press of Check asks the User's own AI and the Note says
       await expect(asked).toHaveCount(0);
       await expect(badge).toHaveCount(0);
       await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
+      // The check card opens down from the badge at the Note's top right, over the marks beside the
+      // Note's first lines (#3677): it closes first.
+      if ((await window.getByTestId("check-card").count()) > 0) {
+        await window.keyboard.press("Escape");
+        await expect(window.getByTestId("check-card")).toHaveCount(0);
+      }
       await pointAndClick(
         window,
         window.locator('[data-testid="claim-mark"][data-check="unsupported"]').first(),
@@ -733,6 +739,12 @@ test("with no model, a check the User asks of their own AI lands its marks on a 
       expect(reported.isError ?? false).toBe(false);
       await expect(asked).toHaveCount(0);
       await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
+      // The check card opens down from the badge at the Note's top right, over the marks beside the
+      // Note's first lines (#3677): it closes first.
+      if ((await window.getByTestId("check-card").count()) > 0) {
+        await window.keyboard.press("Escape");
+        await expect(window.getByTestId("check-card")).toHaveCount(0);
+      }
       await pointAndClick(
         window,
         window.locator('[data-testid="claim-mark"][data-check="unsupported"]').first(),

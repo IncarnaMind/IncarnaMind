@@ -223,6 +223,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   expect(await paletteOffers(window, "check.chooseCitation", "Choose the Citation")).toBe(0);
 
   // Editing a claim makes its check need a re-check, as Check against Documents' do: a row of its own.
+  // The card opens down from the badge at the Note's top right, over its first lines (#3677): it
+  // closes first.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
   const first = editor.locator(":scope > p").nth(1);
   await slideSelect(window, first, "Spring");
   await window.keyboard.type("Some spring");
@@ -234,6 +238,10 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await expect.poll(caretIn).toContain("Some spring tides");
 
   // A claim the model refused is still not checked once it is edited: it never counts as checked.
+  // The cards stand over the Note's first lines (#3677): they close first.
+  await window.keyboard.press("Escape");
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
+  await expect(window.getByTestId("claim-card")).toHaveCount(0);
   const refused = editor.locator(":scope > p").filter({ hasText: REFUSED });
   await slideSelect(window, refused, "refuse");
   await window.keyboard.type("decline");

@@ -33,6 +33,7 @@ import { EventBar } from "../meetings/EventBar";
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
+import { GroupColumnContext } from "./groupColumn";
 import { useTabPlace } from "./tabItems";
 
 /**
@@ -49,10 +50,13 @@ export function MindTab({ mindId }: { mindId: string }) {
   const [count, setCount] = useState<HTMLElement | null>(null);
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [ask, setAsk] = useState<HTMLElement | null>(null);
+  const [columnOver, setColumnOver] = useState<HTMLElement | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLElement | null>(null);
   const [outlineButton, setOutlineButton] = useState<HTMLElement | null>(null);
   const [outline, setOutline] = useState<HTMLElement | null>(null);
   const assistantSlot = useContext(ComposerDockContext);
+  // The Note's conversation at its right is a column the tab group's full height (#3677).
+  const groupColumn = useContext(GroupColumnContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
   const meeting = useMeetingOf(mindId);
@@ -130,6 +134,8 @@ export function MindTab({ mindId }: { mindId: string }) {
                         outlineButton,
                         outline,
                         ask,
+                        column: groupColumn,
+                        columnOver,
                       }}
                     >
                       <CompareSheetSlotContext.Provider value={sheetSlot}>
@@ -145,6 +151,8 @@ export function MindTab({ mindId }: { mindId: string }) {
               )}
             </div>
             {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
+            {/* In a narrow window the Note's conversation opens over the Note, above its input (#3677). */}
+            <div ref={setColumnOver} className="note-column-over-slot" />
             <div className="mind-menu-slot">
               {hasViews && tabId && meeting.status === "stopped" && (
                 <MeetingViewChip meeting={meeting} tabId={tabId} />

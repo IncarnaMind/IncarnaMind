@@ -7,8 +7,8 @@ const GAP = 8;
  * Where a sentence's check card goes: under its mark, flipped above when the
  * window leaves no room below, no taller than the room on that side (a card of
  * many rows scrolls within it, so its actions stay in the window), and moved
- * clear of the page's check badge (#1686), which sits at the page's bottom
- * right, where a card opened near the foot would cover it.
+ * clear of the page's check badge (#1686), where a card opened near it would
+ * cover it.
  */
 export function claimCardPlace(anchor: Element | VirtualElement): Middleware[] {
   return [
@@ -48,13 +48,19 @@ export function movedClearOfBadge(
   return lower >= GAP ? { y: lower } : null;
 }
 
-/** The corner of the page that holds its check badge, which a card keeps clear of. */
+/**
+ * The corner of the page that holds its check badge, which a card keeps clear of: with the Note's
+ * own controls at its top right (#3677), or at the page's foot.
+ */
 export function badgeCorner(anchor: Element | VirtualElement): Element | null | undefined {
   const context = anchor instanceof Element ? anchor : anchor.contextElement;
-  return context?.closest(".mind-tab-page")?.querySelector(".mind-foot-badge");
+  return context
+    ?.closest(".mind-tab-page")
+    ?.querySelector(".note-head-badge:has(.check-badge), .mind-foot-badge:has(.check-badge)");
 }
 
-function clearOfBadge(anchor: Element | VirtualElement): Middleware {
+/** Moves a card off the page's check badge, as `movedClearOfBadge` says. */
+export function clearOfBadge(anchor: Element | VirtualElement): Middleware {
   return {
     name: "clearOfBadge",
     fn({ x, y, rects }) {

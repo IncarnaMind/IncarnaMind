@@ -399,6 +399,12 @@ for (const language of ["en", "zh-CN"] as const) {
       // 6. One Citation opens the file at its quote.
       const first = walk.said[0];
       if (!first) throw new Error("The walk says nothing.");
+      // The check card opens down from the badge at the Note's top right, over the ends of the
+      // Note's first lines (#3677): it closes first.
+      if ((await window.getByTestId("check-card").count()) > 0) {
+        await window.keyboard.press("Escape");
+        await expect(window.getByTestId("check-card")).toHaveCount(0);
+      }
       await window.mouse.move(0, 0);
       await pointAt(window, note.getByTestId("citation-chip").first());
       const citation = window.getByTestId("citation-card");
