@@ -9,6 +9,8 @@ import type { NotedChange } from "../shownChanges";
 export interface ExportLabels {
   question: string;
   notes: string;
+  /** A Word file's endnotes' heading after the text (#746): "Endnotes", "尾注". */
+  endnotes: string;
   backToText: string;
   unverified: string;
   chart(title: string): string;
@@ -65,6 +67,7 @@ export function exportLabels(language: Language): ExportLabels {
     question: t("export.question"),
     contents: t("export.contents"),
     notes: t("export.html.notes"),
+    endnotes: t("editor.endnotes.title"),
     backToText: t("export.html.back"),
     unverified: t("export.unverified"),
     chart: (title) => (title ? t("export.chart.titled", { title }) : t("export.chart")),
