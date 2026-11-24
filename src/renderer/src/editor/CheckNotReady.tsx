@@ -113,7 +113,7 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
     background && ["outside", "unreadable"].includes(asked.asked.problem?.problem ?? "");
   // An agent that can run it in the background does so again; any other is asked by its link.
   const ask = async (each: AgentPairing) => {
-    if (byLink || !(await checkInBackground(mindId, each.id)))
+    if ((byLink && each.id === agent.id) || !(await checkInBackground(mindId, each.id)))
       await askAgent(each, mindId, { kind: "check" });
   };
   return (

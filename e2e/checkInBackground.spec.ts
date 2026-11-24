@@ -5,6 +5,7 @@ import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { openDatabase } from "../src/core/storage";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
+import { processRunning } from "../tests/helpers/processRunning";
 import {
   acceptPlainTextKeys,
   agentsToConnect,
@@ -281,19 +282,10 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
   }
 });
 
-/** Whether a process with this id is still running. */
-const running = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 test("with no model, a press checks the Note on the User's own Codex in the background; Stop ends it and the server it started; a stopped or failed run says why; a Codex that can't run here keeps the link; connecting it says what it reads", async () => {
   const { app, window } = await launchApp(dataDir, {
     home,
+    ownAi: join(bin, "claude"),
     ownCodex: join(bin, "codex"),
     extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
   });
@@ -327,7 +319,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     const pids = (await readFile(join(bin, "pids"), "utf8")).split(" ").map(Number);
     await pointAndClick(window, window.getByTestId("checks-asked-stop"));
     await expect(asked).toHaveCount(0);
-    await expect.poll(() => pids.filter(running)).toEqual([]);
+    await expect.poll(() => pids.filter(processRunning)).toEqual([]);
     await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(0);
 
     // One press, and its marks land; nothing opens and nothing is copied.
@@ -372,6 +364,38 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect((await urlsOpened(app))[0]).toMatch(/^codex:\/\/new\?prompt=/);
 
+    // Another agent picked from that line still checks in the background, as it can.
+    const third = await writeNote(
+      window,
+      "Harbour notes, third draft",
+      [{ text: "The harbour handled 1,240 ship calls in 2025." }],
+      { folderId },
+    );
+    await open(window, third);
+    await nextRun("outside");
+    await press(window);
+    await expect(asked).toHaveText(
+      "Codex stopped because it requested an action outside this check. Open the check in Codex.",
+    );
+    const claudeCode = await window.evaluate(async (folderId) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const made = await bridge.connectAgent({
+        name: "Claude Code",
+        client: "claude-code",
+        folderIds: [folderId],
+      });
+      return made.pairing.id;
+    }, folderId);
+    await nextRun("check");
+    await pointAndClick(window, window.getByTestId("checks-asked-line-others"));
+    await pointAndClick(window, window.getByRole("menuitem", { name: "Ask Claude Code" }));
+    await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(1);
+    expect(await urlsOpened(app)).toHaveLength(1);
+    await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.disconnectAgent(id);
+    }, claudeCode);
+
     // A Codex that can't be held to the check's Tools, or isn't signed in, keeps the link, with no line saying so.
     for (const [mode, opened] of [
       ["extra-tool", 2],
@@ -407,11 +431,11 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await press(window);
     const dialog = window.getByTestId("consent-dialog");
     await expect(dialog.getByTestId("consent-codex-note")).toHaveText(
-      "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
+      "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
     );
     await both(app, window, "codex-consent", async () => {
       await expect(dialog.getByTestId("consent-codex-note")).toHaveText(
-        "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md。",
+        "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
       );
     });
     await pointAndClick(window, dialog.getByTestId("consent-allow"));
@@ -429,11 +453,11 @@ test("with no model, a press checks the Note on the User's own Codex in the back
       .click();
     const sheet = window.getByTestId("connect-agent-dialog");
     await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-      "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key. In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
+      "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key. In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
     );
     await both(app, window, "codex-connect-sheet", async () => {
       await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
-        "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md。",
+        "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
       );
     });
   } finally {
