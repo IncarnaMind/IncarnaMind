@@ -60,10 +60,33 @@ const doneWords =
   (t) =>
     t(`viewer.deck.edit.${what}`, { slide });
 
-/** Where the deck was saved, said after what was done. */
+/**
+ * This window's name for itself as it gives the core a gesture, new with each load: the core lets
+ * a gesture join its sitting on the version it began from only when it is the same viewer's.
+ */
+const VIEWER = crypto.randomUUID();
+
+/** Deck writes held back by a smoke test, to see the window while a write takes long. */
+let heldWrites: Promise<void> = Promise.resolve();
+let releaseWrites: (() => void) | null = null;
+
+/** Holds every hand edit of a deck before it reaches the core, or lets the held ones go (tests). */
+export function holdDeckWrites(hold: boolean): void {
+  if (hold && !releaseWrites) {
+    heldWrites = new Promise((done) => {
+      releaseWrites = done;
+    });
+  } else if (!hold && releaseWrites) {
+    releaseWrites();
+    releaseWrites = null;
+    heldWrites = Promise.resolve();
+  }
+}
+
 /** The name of the folder a file's path is in, whichever separator the system uses. */
 const folderName = (path: string) => path.split(/[\\/]/).slice(-2, -1)[0] ?? "";
 
+/** Where the deck was saved, said after what was done. */
 function savedWords(saved: DeckSaved, language: Language): WordsInLine {
   return (t, cut) => {
     const where =
@@ -340,6 +363,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
     async (run: () => Promise<DeckEdit>): Promise<DeckEdit> => {
       const done = beginWrite(document.id, latest.current);
       try {
+        await heldWrites;
         // A write that takes long (a slow or stalled share) says so where Undo's line is.
         const result = await sayWhileSlow(
           (t) => t("viewer.deck.saving", { name: document.name }),
@@ -403,6 +427,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
                 // What is drawn: a new sitting begins only on the file as the viewer read it.
                 shown: drawn ?? latest.current,
                 edits,
+                viewer: VIEWER,
               }),
             ),
           );

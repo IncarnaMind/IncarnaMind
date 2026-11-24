@@ -5795,6 +5795,7 @@ export const zhCN = {
   "error.deck.unwritable.changed": "“{name}”已在另一个应用里改过，修改尚未保存。",
   "error.deck.unwritable.lockFile": "仍被占用。如果没有应用打开它，请删除旁边的“{lock}”。",
   "error.deck.unwritable.folder": "无法写入文件夹“{folder}”，修改尚未保存。",
+  "error.deck.copySlow": "它所在的文件夹 10 秒内没有响应。",
   "error.deck.unwritable.full": "磁盘已满。腾出空间后重试。",
   "error.verify.notAllRead": "Word 文件有一部分没能读入这篇笔记，暂时无法找出其中的说法。",
   "error.mindCheck.request": "无法读取这个核对笔记的请求。",

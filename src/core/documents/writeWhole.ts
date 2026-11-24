@@ -50,11 +50,21 @@ export async function writeWholeFile(
     for (let folder = dirname(path); made && folder !== dirname(made); folder = dirname(folder)) {
       folders.push(dirname(folder));
     }
-    for (const folder of folders) await syncFolder(folder);
+    for (const folder of folders) {
+      await syncFolder(folder).catch((error: unknown) => {
+        // A file system that keeps no folder flush (some network and FUSE mounts) has nothing to
+        // flush: as on Windows, that counts as flushed. Any other failure fails the copy.
+        if (!FLUSH_UNSUPPORTED.has((error as NodeJS.ErrnoException | null)?.code ?? ""))
+          throw error;
+      });
+    }
   }
   const { mtimeMs } = await stat(path);
   return { path, contentHash: hashBytes(bytes), size: bytes.byteLength, mtimeMs };
 }
+
+/** The errors of a folder flush the file system doesn't do at all. */
+const FLUSH_UNSUPPORTED = new Set(["EINVAL", "ENOTSUP", "EOPNOTSUPP", "ENOSYS"]);
 
 /** Flushes a folder's entries to the disk; Windows opens no folder for that, and flushes them itself. */
 async function syncFolder(folder: string): Promise<void> {

@@ -1,5 +1,10 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Box, Item, SlideDrawing } from "../../../../core/documents/formats/pptxDrawing";
+import type {
+  Box,
+  Item,
+  SlideDrawing,
+  TextBody,
+} from "../../../../core/documents/formats/pptxDrawing";
 import type {
   EditedParagraph,
   ShapeBox,
@@ -8,7 +13,7 @@ import type {
 import type { TextRange } from "../../../../shared/quoteMatch";
 import { beginChange } from "../../undo";
 import type { DeckGesture, Overflow } from "./deckEditing";
-import type { TextEditing } from "./editedText";
+import { type TextEditing, typedText } from "./editedText";
 import { SlideCanvas } from "./SlideCanvas";
 import type { MeasuredFit } from "./textFit";
 
@@ -105,6 +110,62 @@ function withBox(items: readonly Item[], path: string, box: ShapeBox): Item[] {
     const inner = { ...box, x: box.x - item.box.x, y: box.y - item.box.y };
     return { ...item, children: withBox(item.children, rest.join("."), inner) };
   });
+}
+
+/** A text path's shape path, and its table cell's row and column when it is a cell's. */
+function textPlace(path: string): { owner: string; cell: { row: number; column: number } | null } {
+  const cell = /^(.*)\/(\d+)\.(\d+)$/.exec(path);
+  return {
+    owner: cell?.[1] ?? path,
+    cell: cell ? { row: Number(cell[2]), column: Number(cell[3]) } : null,
+  };
+}
+
+/** The text a path names on the slide: a shape's, or its table cell's. */
+function textAt(items: readonly Item[], path: string): TextBody | null {
+  const { owner, cell } = textPlace(path);
+  const item = located(items, owner)?.item;
+  if (!item) return null;
+  if (cell)
+    return item.kind === "table" ? (item.rows[cell.row]?.cells[cell.column]?.text ?? null) : null;
+  return item.kind === "shape" ? item.text : null;
+}
+
+/** The items with the text at `path` (a shape's, or its table cell's) drawn as `body`. */
+function withText(items: readonly Item[], path: string, body: TextBody): Item[] {
+  const { owner, cell } = textPlace(path);
+  const [first, ...rest] = indexesOf(owner);
+  return items.map((item, index) => {
+    if (index !== first) return item;
+    if (rest.length > 0) {
+      if (item.kind !== "group") return item;
+      const inner = `${rest.join(".")}${cell ? `/${cell.row}.${cell.column}` : ""}`;
+      return { ...item, children: withText(item.children, inner, body) };
+    }
+    if (!cell) return item.kind === "shape" ? { ...item, text: body } : item;
+    if (item.kind !== "table") return item;
+    return {
+      ...item,
+      rows: item.rows.map((row, at) =>
+        at !== cell.row
+          ? row
+          : {
+              ...row,
+              cells: row.cells.map((each, column) =>
+                column === cell.column ? { ...each, text: body } : each,
+              ),
+            },
+      ),
+    };
+  });
+}
+
+/** Words typed in a box, drawn in its place until the write that holds them is drawn. */
+interface TypedWords {
+  path: string;
+  body: TextBody;
+  /** Its write came back: the next slide drawn holds the words. */
+  landed: boolean;
 }
 
 const rotated = (box: Box) => (box.rotation ? `rotate(${box.rotation}deg)` : undefined);
@@ -205,6 +266,7 @@ export function SlideEditor({
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
+  const [typed, setTyped] = useState<readonly TypedWords[]>([]);
   const [typing, setTyping] = useState<{
     path: string;
     at: { x: number; y: number } | null;
@@ -222,9 +284,9 @@ export function SlideEditor({
   } | null>(null);
   const onEditNow = useRef(onEdit);
   onEditNow.current = onEdit;
-  /** Writes a gesture; one refused leaves the slide as drawn, the shape's stand-in let go. */
   /** Counts the gestures handed over, so what an earlier one says can't follow a later one. */
   const gestures = useRef(0);
+  /** Writes a gesture; one refused leaves the slide as drawn, the shape's stand-in let go. */
   const edit = useRef(
     (edits: ShapeEdit[], what: DeckGesture, leaving = false): Promise<boolean> => {
       gestures.current++;
@@ -242,12 +304,18 @@ export function SlideEditor({
   const root = useRef<HTMLDivElement>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a slide drawn again replaces the moved shape's stand-in
-  useEffect(() => setDraft(null), [slide]);
+  useEffect(() => {
+    setDraft(null);
+    // Words whose write came back are in the slide now; words still on their way stay drawn.
+    setTyped((now) => (now.some((each) => each.landed) ? now.filter((each) => !each.landed) : now));
+  }, [slide]);
 
-  const shown = useMemo(
-    () => (draft ? { ...slide, items: withBox(slide.items, draft.path, draft.box) } : slide),
-    [slide, draft],
-  );
+  const shown = useMemo(() => {
+    let items = slide.items;
+    for (const words of typed) items = withText(items, words.path, words.body);
+    if (draft) items = withBox(items, draft.path, draft.box);
+    return items === slide.items ? slide : { ...slide, items };
+  }, [slide, draft, typed]);
   slideNow.current = shown;
 
   const shapeIdAt = useCallback(
@@ -357,21 +425,39 @@ export function SlideEditor({
         const at = located(now.items, owner);
         const shape = at?.item.shapeId;
         if (!shape || !at) return;
-        if (cell) {
-          void edit.current(
-            [
-              {
-                kind: "cell",
-                slide: now.number,
-                shape,
-                row: Number(cell[2]),
-                column: Number(cell[3]),
-                paragraphs,
-              },
-            ],
-            "cell",
-            leaving,
+        // The typed words stay drawn, and a box opened again opens on them, until their write is
+        // drawn: built on the words before them, a second edit would put those back.
+        const before = textAt(now.items, typing.path);
+        const body = before ? typedText(before, paragraphs) : null;
+        if (body) {
+          setTyped((was) => [
+            ...was.filter((each) => each.path !== typing.path),
+            { path: typing.path, body, landed: false },
+          ]);
+        }
+        const settled = (written: boolean) =>
+          setTyped((was) =>
+            written
+              ? was.map((each) => (each.body === body ? { ...each, landed: true } : each))
+              : was.filter((each) => each.body !== body),
           );
+        if (cell) {
+          void edit
+            .current(
+              [
+                {
+                  kind: "cell",
+                  slide: now.number,
+                  shape,
+                  row: Number(cell[2]),
+                  column: Number(cell[3]),
+                  paragraphs,
+                },
+              ],
+              "cell",
+              leaving,
+            )
+            .then(settled);
           return;
         }
         const box = slideBox(now.items, owner);
@@ -380,7 +466,7 @@ export function SlideEditor({
         // A turned box's text is measured along the slide's axes, not its own: its words are
         // written, and how it fits them is left as it was.
         if (turned(item.box)) {
-          void edit.current([written], "text", leaving);
+          void edit.current([written], "text", leaving).then(settled);
           return;
         }
         if (fit?.kind === "grow" && box && item.kind === "shape") {
@@ -393,6 +479,7 @@ export function SlideEditor({
           written = { ...written, fit };
         }
         const taken = edit.current([written], "text", leaving);
+        void taken.then(settled);
         const gesture = gestures.current;
         if (fit?.kind === "overflow") {
           const overflow = {

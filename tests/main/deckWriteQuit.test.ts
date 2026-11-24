@@ -124,13 +124,13 @@ async function waiting(options: { note: boolean }) {
 }
 
 /** Asks to quit, and waits until the question has been answered `answers.length` times or more. */
-async function quitAnswering(answers: string[], asked = answers.length) {
+async function quitAnswering(answers: string[], asked = answers.length, timeout = 1000) {
   const { app } = await import("electron");
   dialogs.answers = [...answers];
   const event = { defaultPrevented: false, preventDefault: () => (event.defaultPrevented = true) };
   app.emit("before-quit", event);
   expect(event.defaultPrevented).toBe(true);
-  await vi.waitFor(() => expect(dialogs.asked.length).toBeGreaterThanOrEqual(asked));
+  await vi.waitFor(() => expect(dialogs.asked.length).toBeGreaterThanOrEqual(asked), { timeout });
   // What the answer does next (a copy, a quit) settles before the test looks.
   await new Promise((done) => setTimeout(done, 200));
 }
@@ -163,6 +163,17 @@ describe("Quitting with a hand edit of a deck that waits to be saved", () => {
       "Plan.pptx",
     ]);
   });
+
+  // protects=a copy that never finishes (a stalled share) doesn't hold the quit with nothing on screen (#149 review); fails_when=the quit waits on it for ever; no_claim=the copy, which may still land later.
+  test("a copy that doesn't finish within 10 seconds is said as failed, and the app stays open", async () => {
+    const { core, quit } = await waiting({ note: false });
+    vi.spyOn(core, "saveDeckCopyUnasked").mockReturnValue(new Promise(() => undefined));
+    await quitAnswering(["Save a copy beside it"], 2, 15_000);
+    expect(dialogs.asked[1]?.detail).toBe(
+      "The copy of “Plan.pptx” couldn’t be saved. Its folder didn’t answer within 10 seconds.",
+    );
+    expect(quit).not.toHaveBeenCalled();
+  }, 30_000);
 
   // protects=Quit anyway quits, as the User chose (#149); fails_when=the app stays open; no_claim=none.
   test("Quit anyway quits", async () => {
@@ -234,9 +245,10 @@ describe("Quitting where a deck's copy can't go beside it", () => {
     await writeFile(join(shut, "Budget.pptx"), new Uint8Array(plainDeck([{ title: "Two" }])));
     const started = startCore(dataDir);
     core = started;
+    // The deck whose copy fails is first: the one after it is still saved.
     const documents = await addAndProcess(started, [
-      join(good, "Plan.pptx"),
       join(shut, "Budget.pptx"),
+      join(good, "Plan.pptx"),
     ]);
     // The budget's folder takes nothing, and nor does the Output location its copy then goes to.
     await started.setOutputLocation(nowhere);

@@ -125,3 +125,34 @@ function same(paragraphs: readonly EditedParagraph[], body: TextBody): boolean {
     );
   });
 }
+
+/**
+ * The box's text as typed, in the looks of the runs and paragraphs it was typed into, as the deck's
+ * patch writes it: drawn in the box's place until the write that holds it is drawn. Null when the
+ * box has no run to take a look from.
+ */
+export function typedText(body: TextBody, edited: readonly EditedParagraph[]): TextBody | null {
+  const anyRun = body.paragraphs
+    .flatMap((paragraph) => paragraph.runs)
+    .find((run) => !run.lineBreak);
+  const last = body.paragraphs.at(-1);
+  if (!anyRun || !last) return null;
+  const runAt = (source: RunSource | null) =>
+    source ? body.paragraphs[source.paragraph]?.runs[source.run] : undefined;
+  return {
+    ...body,
+    paragraphs: edited.map((paragraph) => {
+      const from =
+        (paragraph.source === null ? undefined : body.paragraphs[paragraph.source]) ?? last;
+      let look = from.runs.find((run) => !run.lineBreak) ?? anyRun;
+      return {
+        ...from,
+        runs: paragraph.runs.map((run) => {
+          const own = runAt(run.source);
+          if (own && !own.lineBreak) look = own;
+          return { ...look, text: run.text, lineBreak: run.text === "\n" };
+        }),
+      };
+    }),
+  };
+}

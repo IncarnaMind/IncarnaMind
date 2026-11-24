@@ -10,6 +10,7 @@ import { chmod, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
+import type { TestHooks } from "../src/shared/testHooks";
 import { part, unzip } from "../tests/helpers/docx";
 import { gradientPng } from "../tests/helpers/png";
 import { para, pptxOf, rel, sp, txBody, xfrm } from "../tests/helpers/pptx";
@@ -678,6 +679,43 @@ test("words typed in an open text box are written when its tab closes", async ()
     await expect(viewer).toHaveCount(0);
     await expect.poll(async () => slideOnDisk(path, 1)).toContain(", checked. Rising");
   } finally {
+    await app.close();
+  }
+});
+
+test("words typed while their write is on its way stay drawn, and the box opened again opens on them", async () => {
+  const { app, window, path, first } = await opened();
+  const hold = (held: boolean) =>
+    window.evaluate(
+      (held) =>
+        (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks?.holdDeckWrites(
+          held,
+        ),
+      held,
+    );
+  try {
+    // The write is held, as a large deck or a slow share holds it.
+    await hold(true);
+    const words = await centre(first.getByText(", checked."));
+    await window.mouse.dblclick(words.x, words.y);
+    await expect(first.locator('[contenteditable="true"]')).toBeFocused();
+    await window.keyboard.press(LINE_END);
+    await window.keyboard.type(" Rising");
+    await window.keyboard.press("Escape");
+    await expect(first.locator('[contenteditable="true"]')).toHaveCount(0);
+    await expect(first).toContainText(", checked. Rising");
+    // Opened again to fix a word before the write lands: it opens on the words typed.
+    const again = await centre(first.getByText(", checked. Rising"));
+    await window.mouse.dblclick(again.x, again.y);
+    await expect(first.locator('[contenteditable="true"]')).toContainText(", checked. Rising");
+    await window.keyboard.press(LINE_END);
+    await window.keyboard.type(" fast");
+    await window.keyboard.press("Escape");
+    await expect(first).toContainText(", checked. Rising fast");
+    await hold(false);
+    await expect.poll(async () => slideOnDisk(path, 1)).toContain(", checked. Rising fast");
+  } finally {
+    await hold(false);
     await app.close();
   }
 });

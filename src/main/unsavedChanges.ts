@@ -185,7 +185,16 @@ export function guardQuit(
       // but never waiting on a question: there may be no window to ask it in.
       for (const deck of decks) {
         try {
-          const copied = await core.saveDeckCopyUnasked(deck.sittingId);
+          // A copy that never finishes (a stalled share) doesn't hold the quit: it is said as failed.
+          const copied = await Promise.race([
+            core.saveDeckCopyUnasked(deck.sittingId),
+            new Promise<never>((_, fail) =>
+              setTimeout(
+                () => fail(new TranslatableError({ key: "error.deck.copySlow" })),
+                DECK_WRITE_WAIT_MS,
+              ),
+            ),
+          ]);
           deckFailed.delete(deck.sittingId);
           if (copied.kind === "saved" && copied.saved.kind === "copy" && !copied.saved.beside) {
             elsewhere.push({ name: copied.saved.name, folder: folderName(copied.saved.path) });

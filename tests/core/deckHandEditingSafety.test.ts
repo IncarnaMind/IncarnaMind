@@ -18,7 +18,7 @@ import {
   createSourceFolder,
   linkWithoutFolderAndProcess,
 } from "../helpers/documents";
-import { pptxOf, sp, xfrm } from "../helpers/pptx";
+import { para, pptxOf, sp, txBody, xfrm } from "../helpers/pptx";
 import type { ZipInput } from "../helpers/zip";
 
 const ROOT_RELS = {
@@ -431,19 +431,21 @@ describe("What a crash leaves", () => {
 
 describe("Changes that wait and gestures from a window that is going", () => {
   // protects=a gesture handed over before its window learnt its sitting (the window closing while the first write is under way) joins that sitting, behind the write (#149 review); fails_when=it starts a sitting of its own that is refused as changed, and its words are lost; no_claim=the window's own queue.
-  it("a gesture with no sitting, made on the same version while a write is under way, joins it and both land", async () => {
+  it("a gesture of the same viewer with no sitting, made on the same version while a write is under way, joins it and both land", async () => {
     const { core, path, document } = await opened();
     const first = core.editDeck({
       documentId: document.id,
       sittingId: null,
       shown: document.contentHash,
       edits: moveBox(200),
+      viewer: "window-a",
     });
     const second = core.editDeck({
       documentId: document.id,
       sittingId: null,
       shown: document.contentHash,
       edits: [{ kind: "box", slide: 1, shape: "4", box: { x: 200, y: 150, w: 192, h: 96 } }],
+      viewer: "window-a",
     });
     const [one, two] = [saved(await first), saved(await second)];
     expect(two.sittingId).toBe(one.sittingId);
@@ -455,6 +457,49 @@ describe("Changes that wait and gestures from a window that is going", () => {
       String(150 * 9525),
     ]);
   });
+
+  // protects=words typed on the version before another window's write never land over it (#149 review); fails_when=a gesture from another window, or this window reloaded, made on the sitting's first version joins it and puts back what the first write changed; no_claim=how the window says it.
+  it.each([
+    ["another window, while the first write is under way", "window-b", false],
+    ["the same window reloaded, while the first write is under way", "window-a-reloaded", false],
+    ["another window, after the first write landed", "window-b", true],
+  ])(
+    "a gesture on the first version from %s is refused as changed, and the first words stay",
+    async (_, viewer, landedFirst) => {
+      const { core, path, document } = await opened(wordsDeck(), "Words.pptx");
+      const typed = (words: string) => [
+        {
+          kind: "text" as const,
+          slide: 1,
+          shape: "5",
+          paragraphs: [{ source: 0, runs: [{ source: { paragraph: 0, run: 0 }, text: words }] }],
+        },
+      ];
+      const first = core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: typed("Moorings stay, agreed."),
+        viewer: "window-a",
+      });
+      if (landedFirst) saved(await first);
+      const late = core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: typed("Moorings stay as they ar"),
+        viewer,
+      });
+      await expect(late).rejects.toMatchObject({ wording: { key: "error.deck.changed" } });
+      saved(await first);
+      const xml =
+        (await openPackage(new Uint8Array(await readFile(path))).readText(
+          "ppt/slides/slide1.xml",
+        )) ?? "";
+      expect(xml).toContain("Moorings stay, agreed.");
+      expect(xml).not.toContain("Moorings stay as they ar<");
+    },
+  );
 
   // protects=a change that waits is never left behind by a new sitting on its deck (#149 review); fails_when=a gesture with no sitting begins one while another's change waits; no_claim=the window's line, which takes the change up.
   it("a change that waits on a closed sitting refuses a new sitting with the waiting words", async () => {
@@ -523,5 +568,26 @@ describe("Changes that wait and gestures from a window that is going", () => {
     }
   });
 });
+
+/** A deck whose one text box says "Moorings stay as they are." */
+const wordsDeck = () =>
+  new Uint8Array(
+    pptxOf({
+      slides: [
+        {
+          shapes: sp({
+            id: 5,
+            name: "Words",
+            txBox: true,
+            spPr: xfrm(914400, 914400, 4572000, 457200),
+            body: txBody(
+              para([`<a:r><a:rPr lang="en-GB"/><a:t>Moorings stay as they are.</a:t></a:r>`]),
+            ),
+          }),
+        },
+      ],
+      parts: [ROOT_RELS],
+    }),
+  );
 
 const basenameOf = (path: string) => path.split(/[\\/]/).at(-1) ?? "";

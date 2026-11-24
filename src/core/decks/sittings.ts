@@ -76,7 +76,11 @@ interface Sitting {
   ended: boolean;
   /** Its deck's viewer closed: the next gesture begins another sitting. */
   closed: boolean;
+  /** The viewer whose gesture began it, if it said: only its gestures join it on `base`. */
+  viewer: string | null;
   turn: Promise<unknown>;
+  /** Gestures, Undos and copies taken in its turn and not done yet: `current` doesn't hold them. */
+  inFlight: number;
 }
 
 const changedError = () => new TranslatableError({ key: "error.deck.changed" });
@@ -152,7 +156,10 @@ export function createDeckSittings(deps: DeckSittingDeps) {
 
   /** Runs a sitting's writes one after another, so two never write over each other. */
   const inTurn = <T>(sitting: Sitting, run: () => Promise<T>): Promise<T> => {
-    const next = sitting.turn.then(run);
+    sitting.inFlight++;
+    const next = sitting.turn.then(run).finally(() => {
+      sitting.inFlight--;
+    });
     sitting.turn = next.catch(() => undefined);
     return next;
   };
@@ -231,22 +238,26 @@ export function createDeckSittings(deps: DeckSittingDeps) {
    * The sitting a gesture with none joins or begins. In the Document's turn, so a write under way
    * lands first and two gestures arriving together don't both begin one.
    */
-  const start = (documentId: string, shown: string): Promise<Sitting> =>
-    inDocumentTurn(documentId, () => begin(documentId, shown));
+  const start = (documentId: string, shown: string, viewer: string | null): Promise<Sitting> =>
+    inDocumentTurn(documentId, () => begin(documentId, shown, viewer));
 
-  async function begin(documentId: string, shown: string): Promise<Sitting> {
+  async function begin(documentId: string, shown: string, viewer: string | null): Promise<Sitting> {
     const others = [...sittings.values()].filter((other) => other.documentId === documentId);
     if (others.some((other) => other.waiting)) {
       throw new InvalidInputError({ key: "error.deck.waiting" });
     }
-    // One sitting a deck while any tab shows it: a gesture from a window that hasn't learnt the
-    // sitting going on (its first write still under way as the window closed, or another window)
-    // joins it, in its turn.
+    // One sitting a deck while any tab shows it. A gesture of the viewer that began it joins it,
+    // made on what it holds or on the version it began from (the window closed before the first
+    // write came back): that viewer's words were made on its own. Another viewer's joins only
+    // when made on what the sitting holds with nothing of its own still on the way: otherwise
+    // its words would put back what those changed.
     const going = others.find(
       (other) =>
         !other.closed &&
         !other.ended &&
-        (hashBytes(other.current) === shown || hashBytes(other.base) === shown),
+        (viewer !== null && other.viewer === viewer
+          ? hashBytes(other.current) === shown || hashBytes(other.base) === shown
+          : other.inFlight === 0 && hashBytes(other.current) === shown),
     );
     if (going) return going;
     const base = await deps.read(documentId);
@@ -270,7 +281,9 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       waiting: null,
       ended: false,
       closed: false,
+      viewer,
       turn: Promise.resolve(),
+      inFlight: 0,
     };
     sittings.set(sitting.id, sitting);
     return sitting;
@@ -293,6 +306,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       sittingId: unknown;
       shown: unknown;
       edits: unknown;
+      viewer?: unknown;
     }): Promise<DeckEdit> {
       if (typeof input?.documentId !== "string" || typeof input.shown !== "string") {
         throw new InvalidInputError({ key: "error.deck.noSitting" });
@@ -302,7 +316,11 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       const sitting =
         going && !going.ended && !going.closed && going.documentId === input.documentId
           ? going
-          : await start(input.documentId, input.shown);
+          : await start(
+              input.documentId,
+              input.shown,
+              typeof input.viewer === "string" ? input.viewer : null,
+            );
       const begun = sitting !== going;
       // A sitting whose first gesture was refused was never handed out: it goes.
       const forgetUnused = (error: unknown) => {

@@ -6097,6 +6097,7 @@ export const en = {
     "Still locked. If no app has it open, delete “{lock}” beside it.",
   "error.deck.unwritable.folder":
     "The folder “{folder}” can’t be written, so the change isn’t saved yet.",
+  "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
   "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",

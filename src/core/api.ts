@@ -16301,13 +16301,17 @@ export interface CoreApi {
    * Makes one gesture's edits on a deck the User edits by hand and writes it (#149): a new version
    * of a deck IncarnaMind keeps, or the User's own file itself, the file as it stood kept first.
    * `shown` is the content hash of the version the viewer shows; the first gesture of a sitting
-   * applies nothing to another. Throws when the file changed under the sitting.
+   * applies nothing to another. Throws when the file changed under the sitting. `viewer`: the
+   * window's own name for itself, new with each load; a gesture from the viewer that began the
+   * sitting joins it though made on the version it began from (its window closing before the
+   * first write came back).
    */
   editDeck(input: {
     documentId: string;
     sittingId: string | null;
     shown: string;
     edits: ShapeEdit[];
+    viewer?: string;
   }): Promise<DeckEdit>;
   /** Takes back a deck's newest step done by hand, writing the deck as it was before it (#149). */
   undoDeckEdit(sittingId: string, stepId: string): Promise<DeckEdit>;
