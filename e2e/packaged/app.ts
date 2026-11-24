@@ -27,12 +27,15 @@ export async function launchPackaged(
     documents,
     extraArgs = [],
     extraEnv,
+    env = {},
   }: {
     speech?: string;
     testHooks?: boolean;
     documents?: boolean;
     extraArgs?: readonly string[];
     extraEnv?: Record<string, string | undefined>;
+    /** More of the app's environment: a PATH with a stand-in command on it, say. */
+    env?: Record<string, string>;
   } = {},
 ): Promise<ElectronApplication> {
   const temp = join(home, "Temp");
@@ -60,6 +63,7 @@ export async function launchPackaged(
       TEMP: temp,
       INCARNAMIND_DATA_DIR: data,
       INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
+      ...env,
       ...extraEnv,
     }),
   });

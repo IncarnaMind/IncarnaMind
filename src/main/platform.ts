@@ -190,6 +190,9 @@ const testOllamaApp =
  * background. Without it a test build runs none, so no test starts the computer's own `claude`.
  */
 const testOwnAi = import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OWN_AI : undefined;
+/** Test-only launch flag: the same for the User's Codex (#3639), so no test starts the computer's own `codex`. */
+const testOwnCodex =
+  import.meta.env.MODE === "test" ? process.env.INCARNAMIND_TEST_OWN_CODEX : undefined;
 
 function ollamaApp(): OllamaApp {
   if (import.meta.env.MODE === "test") {
@@ -1180,9 +1183,10 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
           }),
         }
       : {
-          ...(testOwnAi && {
+          ...((testOwnAi || testOwnCodex) && {
             ownAi: createOwnAi({
-              command: testOwnAi,
+              command: testOwnAi ?? null,
+              codexCommand: testOwnCodex ?? null,
               conversations: join(dataDir, "Own AI conversations"),
             }),
           }),

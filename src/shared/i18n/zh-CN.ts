@@ -8621,6 +8621,10 @@ export const zhCN = {
   "agents.share.folders": "选择文件夹",
   "agents.connect.background":
     "没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 {agent}，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 Claude 订阅或 API 密钥。",
+  "agents.connect.background.codex":
+    "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。",
+  "agents.connect.codexInstructions":
+    "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
@@ -8707,6 +8711,10 @@ export const zhCN = {
   "agents.ownCheck.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
   "agents.ownCheck.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
   "agents.ownCheck.problem.failed": "{agent} 未完成就停止了。再试一次。",
+  "agents.ownCheck.problem.outside":
+    "{agent} 要执行这次核对以外的操作，已停止。在 {agent} 中打开这次核对。",
+  "agents.ownCheck.problem.unreadable": "{agent} 未完成就停止了。在 {agent} 中打开这次核对。",
+  "agents.ownCheck.problem.service": "{agent} 未完成就停止了。在 {agent} 中检查登录状态和用量。",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
   "noteAsk.placeholder": "描述要做的修改…",
   "noteAsk.send": "发送",

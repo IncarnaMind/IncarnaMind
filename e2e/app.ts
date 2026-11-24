@@ -328,6 +328,8 @@ export interface LaunchOptions {
    * (#3606). Without it a test build runs none, and a Check asks by the link.
    */
   ownAi?: string;
+  /** The command that stands in for the User's Codex the same way (#3639). */
+  ownCodex?: string;
   /**
    * Origin of a local HTTP server standing in for the one-press Claude Code installer (#3638).
    */
@@ -439,6 +441,7 @@ export async function launchApp(
     calendarSyncMs,
     ownAi,
     claudeInstaller,
+    ownCodex,
     extraEnv,
     extraArgs = [],
     trace = false,
@@ -502,6 +505,7 @@ export async function launchApp(
     INCARNAMIND_TEST_AGENT_APPS: JSON.stringify(agentApps),
     INCARNAMIND_TEST_OWN_AI: ownAi,
     INCARNAMIND_TEST_CLAUDE_INSTALLER: claudeInstaller,
+    INCARNAMIND_TEST_OWN_CODEX: ownCodex,
     ...extraEnv,
   });
 

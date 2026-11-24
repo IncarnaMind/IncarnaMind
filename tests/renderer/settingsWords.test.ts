@@ -88,8 +88,11 @@ const CONSENT_FACTS = [
   "agents.pairing.readsAll",
   "agents.connect.backup",
   "agents.connect.body",
-  // That connecting Claude Code lets IncarnaMind start it for a check, on the User's plan (#3606).
+  // That connecting Claude Code lets IncarnaMind start it for a check, on the User's plan (#3606),
+  // and Codex too, which reads the User's own instructions file in those runs (#3639).
   "agents.connect.background",
+  "agents.connect.background.codex",
+  "agents.connect.codexInstructions",
   // One-press Claude Code install disclosure, browser sign-in security fact, and plan fallback (#3638).
   "agents.install.disclosure",
   "agents.install.firstRun.detail",

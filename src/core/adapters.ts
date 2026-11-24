@@ -1667,19 +1667,22 @@ export interface CoreAdapters {
 }
 
 /** The command-line AIs IncarnaMind can start for a check, by the client their pairing was set up for. */
-export type OwnAiClient = "claude-code";
+export type OwnAiClient = "claude-code" | "codex";
 
 /**
  * Whether the agent's command is on this computer, as its login shell finds it: missing, older than
  * IncarnaMind needs, not signed in, ready, or unknown when it couldn't be started or didn't answer
- * in time. Read without any model call.
+ * in time; "unsupported": there, but not one IncarnaMind runs in the background as it is (Codex
+ * too old, signed out or not answering), so the job goes by its link with nothing said. Read
+ * without any model call.
  */
 export type OwnAiStatus =
   | { kind: "ready" }
   | { kind: "missing" }
   | { kind: "signed-out" }
   | { kind: "too-old"; found: string; lowest: string }
-  | { kind: "unknown" };
+  | { kind: "unknown" }
+  | { kind: "unsupported" };
 
 /** Why a run of the User's own AI ended before it finished. */
 export type OwnAiFailure =
@@ -1694,6 +1697,17 @@ export type OwnAiFailure =
   | "stalled"
   /** Claude Code began compacting its conversation and didn't finish in time. */
   | "compaction"
+  /**
+   * Before anything reached the model, the agent turned out not to be one IncarnaMind can hold to
+   * its Tools as it is (Codex's tool list wasn't the expected one): the job goes by its link.
+   */
+  | "unsupported"
+  /** The agent's stream showed something other than its words, its reasoning and the allowed Tools. */
+  | "outside"
+  /** A line of the agent's stream couldn't be read. */
+  | "unreadable"
+  /** The agent's service ended the request with an error it gave no category for. */
+  | "service"
   | "other";
 
 /**
@@ -1712,7 +1726,7 @@ export type OwnAiProgress =
 
 /**
  * The User's own command-line AI, started once for a job the User pressed, with no window and no
- * chat kept (ADR-0032). The desktop app runs Claude Code (src/main/ownAi.ts).
+ * chat kept (ADR-0032). The desktop app runs Claude Code and Codex (src/main/ownAi.ts).
  */
 export interface OwnAiRunner {
   /** Whether the agent's command is on this computer, found without starting anything of it. */
@@ -1737,6 +1751,11 @@ export interface OwnAiRunner {
     conversation?: { key: string; sessionId: string; resume: boolean };
     /** Hears what the run is doing as it goes: its words as they come, each call as it starts. */
     progress?(step: OwnAiProgress): void;
+    /**
+     * Called once, as the request is about to reach the agent's model; a run that ends before it
+     * sent nothing. One that ends "unsupported" always ends before it.
+     */
+    started?(): void;
     signal: AbortSignal;
   }): Promise<{ kind: "finished"; reply: string } | { kind: "failed"; reason: OwnAiFailure }>;
   /**
