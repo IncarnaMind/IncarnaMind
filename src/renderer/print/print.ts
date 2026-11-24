@@ -23,7 +23,7 @@ const FOOTER_PX = 12;
 const PACK_TEXT_PX = 84;
 
 /** Inline elements a line can't be broken inside: a footnote's number, maths, a picture. */
-const ATOMIC = "sup.note-ref, math, img, br, code.math-source, span.image-missing";
+const ATOMIC = "sup.note-ref, sup.endnote-ref, math, img, br, code.math-source, span.image-missing";
 
 interface Page {
   body: HTMLElement;

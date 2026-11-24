@@ -10,12 +10,15 @@
  * Someone's changes from a Word file still waiting are marked as Word prints
  * them, inserted words underlined and deleted ones struck, each with a note of
  * who made it and when (#734).
+ * A Word file's endnotes are printed after the text, under their heading, in the file's own
+ * numbering and apart from the footnotes (#746).
  */
 import { footnoteSubjectKey } from "../../shared/citations";
 import { FootnoteNumbering, sharedMarkOf } from "../../shared/footnoteNumbers";
 import { cssString } from "../../shared/mindStyle";
 import { paragraphFormatDeclarations } from "../../shared/paragraphFormat";
-import type { ParagraphFormat, StyledRun } from "../api";
+import { noteLabel } from "../../shared/wordNotes";
+import type { ParagraphFormat, StyledRun, WordNoteNumbering } from "../api";
 import {
   type Block,
   type Footnote,
@@ -88,7 +91,7 @@ export function renderPrintHtml(
     headingEntries(blocks),
     noteChecks(blocks),
   );
-  const body = writer.finish(writer.blocks(blocks));
+  const body = writer.finish(writer.blocks(blocks) + writer.endnotesHtml());
   return { body, notes, footnotes: notes.length };
 }
 
@@ -202,6 +205,7 @@ class PrintWriter {
    * so a change never moves a Citation's number away from the Note's (#2292).
    */
   private readonly changeNotes: string[] = [];
+  private readonly endnotes: { label: string; note: string }[] = [];
 
   constructor(
     private readonly labels: PrintLabels,
@@ -239,6 +243,36 @@ class PrintWriter {
     const number = this.numbering.footnote();
     this.notes.push(note);
     return this.markerAt(number, adjacent);
+  }
+
+  private endnoteMarker(
+    note: string,
+    numbering: WordNoteNumbering["endnote"],
+    adjacent: boolean,
+  ): string {
+    const number = this.endnotes.length + 1;
+    const label = escapeHtml(noteLabel(number, numbering));
+    this.endnotes.push({ label, note });
+    const separator = adjacent ? "," : "";
+    if (this.linkNotes) {
+      return `<sup class="endnote-ref" id="endnote-ref-${number}">${separator}<a href="#endnote-${number}">${label}</a></sup>`;
+    }
+    return `<sup class="endnote-ref">${separator}${label}</sup>`;
+  }
+
+  /**
+   * The endnotes after the text, a list each item of which shows its label as a numbered list's
+   * item does, and with links its way back to its marker.
+   */
+  endnotesHtml(): string {
+    if (this.endnotes.length === 0) return "";
+    const back = escapeHtml(this.labels.backToText);
+    const items = this.endnotes.map(({ label, note }, index) => {
+      const number = index + 1;
+      if (!this.linkNotes) return `<li data-marker="${label}"><p>${note}</p></li>`;
+      return `<li id="endnote-${number}" data-marker="${label}"><p>${note}<a class="backref" href="#endnote-ref-${number}" aria-label="${back}" title="${back}">↩\ufe0e</a></p></li>`;
+    });
+    return `<h2 class="endnotes-title">${escapeHtml(this.labels.endnotes)}</h2><ol class="numbered endnotes">${items.join("")}</ol>`;
   }
 
   /**
@@ -484,10 +518,14 @@ class PrintWriter {
             lastWasNote = true;
           }
           break;
-        case "footnote":
-          html += this.marker(this.inline(item.content, true), state.lastWasNote);
+        case "footnote": {
+          const note = this.inline(item.content, true);
+          html += item.endnote
+            ? this.endnoteMarker(note, item.endnote, state.lastWasNote)
+            : this.marker(note, state.lastWasNote);
           lastWasNote = true;
           break;
+        }
         case "cite": {
           const marker = item.unverified ? unverifiedHtml(this.labels) : "";
           if (item.note && !inNote) {

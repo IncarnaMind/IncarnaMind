@@ -193,7 +193,8 @@ p {
   font-weight: 600;
 }
 
-sup.note-ref {
+sup.note-ref,
+sup.endnote-ref {
   margin-left: 0.5pt;
   font-family: var(--sans);
   font-size: 0.65em;
@@ -534,4 +535,35 @@ img {
 
 .record-summary td div + div {
   margin-top: 2pt;
+}
+
+/* A Word file's endnotes after the text (#746), under Word's short rule, set as the page's notes are. */
+.endnotes-title {
+  margin: 18pt 0 6pt;
+  font-family: var(--sans);
+  font-size: 10pt;
+}
+
+.endnotes-title::before {
+  content: "";
+  display: block;
+  width: 33%;
+  margin-bottom: 8pt;
+  border-top: 0.75pt solid var(--rule-strong);
+}
+
+ol.endnotes {
+  padding-left: calc(1.4em + 6pt);
+  font-size: 9pt;
+  line-height: 1.4;
+  color: var(--ink-answer);
+}
+
+ol.endnotes > li::marker {
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+
+ol.endnotes li > p {
+  margin-bottom: 2pt;
 }

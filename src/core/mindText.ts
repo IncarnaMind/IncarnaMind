@@ -84,7 +84,8 @@ import {
 } from "../shared/proposals";
 import type { ScopeKind } from "../shared/searchScope";
 import { comparisonCellTarget } from "../shared/signOffs";
-import { readWordAtom, wordAtomText } from "../shared/wordFiles";
+import { readWordAtom, wordAtomText, wordNoteNumberingOf } from "../shared/wordFiles";
+import { DEFAULT_NOTE_NUMBERING } from "../shared/wordNotes";
 import {
   ANALYSIS_TABLE_ATTRIBUTE,
   ANALYSIS_TABLE_NODE,
@@ -132,8 +133,12 @@ import {
   WORD_ATOM_NODE,
   WORD_BLOCK_NODE,
   WORD_CHANGE_ID,
+  type WordNoteNumbering,
 } from "./api";
 import { isRecord } from "./errors";
+
+const endnoteNumbering = (element: Y.XmlElement): WordNoteNumbering["endnote"] =>
+  ((element.doc && wordNoteNumberingOf(element.doc)) ?? DEFAULT_NOTE_NUMBERING).endnote;
 
 /** The table a caption's marker names: the one top-level table bound as the marker is (#2378). */
 function boundTableOf(marker: Y.XmlElement, binding: AnalysisTableBinding): Y.XmlElement | null {
@@ -312,8 +317,15 @@ export type Inline = (
    * A footnote the User wrote, at its marker: its text. A Citation in it is
    * part of that text (written as its source), not a footnote of its own.
    * An Analysis table's note (#2378) names, in `cites`, the input rows its text speaks of.
+   * A Word file's endnote (#746) carries how that file numbers its endnotes: it is printed
+   * after the text, in that numbering, apart from the footnotes.
    */
-  | { kind: "footnote"; content: Inline[]; cites?: Footnote[] }
+  | {
+      kind: "footnote";
+      content: Inline[];
+      cites?: Footnote[];
+      endnote?: WordNoteNumbering["endnote"];
+    }
   | { kind: "image"; image: Image }
   /**
    * Citations written in a citation style (#289) by the exports (./exports/citations), never
@@ -1415,7 +1427,11 @@ function readInlineElement(
       // A Word file's footnote reads as a footnote, as one the User wrote does.
       if ((atom.kind === "footnote" || atom.kind === "endnote") && !inFootnote && atom.text) {
         if (options.trimBeforeFootnote ?? options.trimBeforeCitation) trimTrailingSpace(content);
-        add({ kind: "footnote", content: [{ kind: "text", text: atom.text, marks: NO_MARKS }] });
+        add({
+          kind: "footnote",
+          content: [{ kind: "text", text: atom.text, marks: NO_MARKS }],
+          ...(atom.kind === "endnote" && { endnote: endnoteNumbering(child) }),
+        });
         break;
       }
       const text = wordAtomText(atom);
@@ -1440,7 +1456,12 @@ function readInlineElement(
         break;
       }
       if (options.trimBeforeFootnote ?? options.trimBeforeCitation) trimTrailingSpace(content);
-      add({ kind: "footnote", content: readInline(child.toArray(), options, true) });
+      const endnote = (child.getAttributes() as Record<string, unknown>).endnote === true;
+      add({
+        kind: "footnote",
+        content: readInline(child.toArray(), options, true),
+        ...(endnote && { endnote: endnoteNumbering(child) }),
+      });
       break;
     }
     case DOCUMENT_CHIP_NODE: {

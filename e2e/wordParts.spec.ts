@@ -174,6 +174,52 @@ test("a Word file's footnotes and endnotes are edited where the Note shows them,
   await app.close();
 });
 
+test("in its PDF a Word file's endnote comes after the text, in the file's numbering, and only the footnotes are at the page's foot", async () => {
+  const path = join(files, "Lease brief.docx");
+  await writeFile(path, brief());
+  const { app, window } = await launchApp(dataDir, { home });
+  await dismissChatSetup(window);
+  await importFile(app, window, path);
+  await expect(window.getByTestId("mind-editor").getByTestId("footnote-marker")).toHaveText([
+    "1",
+    "2",
+    "i",
+  ]);
+  const exported = async (format: "pdf" | "html", name: string) => {
+    const data = new Uint8Array(
+      await window.evaluate(async (as) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const [mind] = await core.listMinds();
+        if (!mind) throw new Error("There is no Mind.");
+        return Array.from((await core.exportMind(mind.id, { format: as })).data);
+      }, format),
+    );
+    const folder = process.env.INCARNAMIND_SCREENSHOTS;
+    if (folder) {
+      await mkdir(folder, { recursive: true });
+      await writeFile(join(folder, `${name}.${format}`), data);
+    }
+    return data;
+  };
+  const pageOf = async (pdf: Uint8Array) => {
+    const pages = (await pdfText(pdf)).map((page) => page.replace(/\s+/g, " ").trim());
+    expect(pages).toHaveLength(1);
+    return pages[0] ?? "";
+  };
+
+  // The text, its endnote under their heading, then the footnotes at the foot, then the page's number.
+  expect(await pageOf(await exported("pdf", "word-endnotes-en"))).toMatch(
+    /The fittings are listed in the schedule\. ?i Endnotes i Schedule 3 lists the fittings\. 1 See Hale v Nair, 2019\. 2 Clause 4\.2\. 1$/,
+  );
+  await exported("html", "word-endnotes-en");
+
+  await setLanguage(window, "zh-CN");
+  expect(await pageOf(await exported("pdf", "word-endnotes-zh"))).toMatch(
+    /schedule\. ?i 尾注 i Schedule 3 lists the fittings\. 1 See Hale v Nair, 2019\. 2 Clause 4\.2\. 1$/,
+  );
+  await app.close();
+});
+
 test("page and section breaks show as a line; a page break deletes like a Block and comes back with ⌘Z; ⌘K and ⌘↵ put one in, but ⌘↵ in a waiting change accepts it", async () => {
   const path = join(files, "Two parts.docx");
   await writeFile(
