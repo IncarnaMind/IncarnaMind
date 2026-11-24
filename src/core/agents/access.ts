@@ -2172,6 +2172,7 @@ export function createAgentAccess(
     waiting: t("agents.mind.waiting"),
     busy: t("agents.mind.busy"),
     yours: t("agents.mind.yours"),
+    yoursRemoved: t("agents.mind.yoursRemoved"),
     untitledTab: (number: number) => t("noteTabs.defaultTitle", { n: number }),
   });
 

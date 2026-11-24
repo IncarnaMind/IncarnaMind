@@ -27,6 +27,12 @@ import type { Database } from "../storage";
 import type { ConversationHears, ConversationRun, SelectedInBlock } from "./askedChecks";
 import { CITATION_TOKEN } from "./citations";
 
+/**
+ * A control character in a model's name, which reaches the agent's command line as `--model`: on
+ * Windows an npm-installed claude.cmd runs through cmd.exe, where a line break ends the command.
+ */
+const CONTROL = /\p{Cc}/u;
+
 /** IncarnaMind's instructions, the same for every request of a conversation: Claude Code keeps the first. */
 const INSTRUCTIONS = [
   "You work for the User in IncarnaMind, through its Tools only. Each message is a request the User typed at the foot of one of their notes: it names that note, and the words they selected in it, if any.",
@@ -324,8 +330,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const selection = selectionOf(input.selection);
     const pairingId = input.pairingId === undefined ? undefined : words(input.pairingId, 200);
     const model = input.model === undefined ? undefined : words(input.model, 100);
-    // Only a model the agent itself offered goes to it as `--model`.
-    if (model !== undefined && !listed?.some((each) => each.value === model)) {
+    // Only a model the agent itself offered goes to it as `--model`, and never one with a control
+    // character, which the agent's own list can't bring either.
+    if (
+      model !== undefined &&
+      (CONTROL.test(model) || !listed?.some((each) => each.value === model))
+    ) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
 
@@ -504,7 +514,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         return;
       }
       if (step.kind === "models") {
-        if (step.models.length > 0) listed = step.models;
+        const offered = step.models.filter((each) => !CONTROL.test(each.value));
+        if (offered.length > 0) listed = offered;
         return;
       }
       if (step.kind === "model") {

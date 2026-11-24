@@ -8377,6 +8377,7 @@ export const zhCN = {
   "agents.chart.refused.needsTwo": "散点图需要两列数字",
   "agents.mind.waiting": "（修订待处理）",
   "agents.mind.yours": "（你在本次请求中的修改，请求结束后即写入笔记）",
+  "agents.mind.yoursRemoved": "（你在本次请求中删去了这一段，请求结束后即从笔记中移除）",
   "agents.mind.busy": "（正在写入）",
   "agents.mind.usersWrote": "（用户写的）",
   "agents.mind.usersChanged": "（用户改过）",

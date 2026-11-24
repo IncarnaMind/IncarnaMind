@@ -137,6 +137,34 @@ function gate(): Gate {
   return { shut, open: () => open(), at, reached: () => reached() };
 }
 
+/** A paragraph of the User's holding a Citation the agent can't cite, a footnote and a formula. */
+const heldParagraph = () => ({
+  type: "paragraph",
+  attrs: { id: "held" },
+  content: [
+    { type: "text", text: "Spring tides delay the ferry " },
+    {
+      type: "citation",
+      attrs: {
+        passageId: "passage-tides",
+        documentId: "tides",
+        documentName: "Tides",
+        contentHash: "hash-tides",
+        quote: "Spring tides.",
+        check: "found",
+      },
+    },
+    {
+      type: "footnote",
+      attrs: { id: "n1" },
+      content: [{ type: "text", text: "Counted at the quay." }],
+    },
+    { type: "text", text: " by " },
+    { type: "inlineMath", attrs: { latex: "x" } },
+    { type: "text", text: " minutes." },
+  ],
+});
+
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const PAGE = { title: "Ferry page", html: "<p>The ferry carried passengers.</p>" };
@@ -653,6 +681,124 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=this run's own rewrite reads back with the Citation and footnote it keeps by handle and its inline formula, and a paragraph it adds with its Citation as a token and its formula, as an ordinary read gives them; fails_when=the agent reads its own paragraphs without their Citations, footnotes or formulas, and may write them again
+  it("reads its own paragraphs back with their Citations, footnotes and formulas", async () => {
+    const seen: { again?: string; cite?: string } = {};
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages;
+      seen.cite =
+        structured<{ citations: { cite: string | null }[] }>(
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.map(({ passageId }) => ({ passageId, quote: FERRY })) },
+          }),
+        ).citations.find((each) => each.cite !== null)?.cite ?? "";
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: read.version,
+          changes: [
+            {
+              paragraph: "¶1",
+              text: "Spring tides delay the ferry [kept:1] [note:1] by $x+1$ minutes.",
+            },
+            { paragraph: "¶1+", text: `The report counts them. ${FERRY} ${seen.cite} by $y^2$.` },
+          ],
+        },
+      });
+      seen.again = structured<{ markdown: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      ).markdown;
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    writeMind(client, [heldParagraph(), note(FARES)]);
+    await client.settled();
+    await core.askInNote({ mindId, words: "rewrite the first paragraph and add the count" });
+    await ended();
+    const yours = translate("en", "agents.mind.yours");
+    expect(seen.again).toContain(
+      `¶1 ${yours} Spring tides delay the ferry [kept:1] [note:1] by $x+1$ minutes.`,
+    );
+    expect(seen.again).toContain(
+      `${yours} The report counts them. ${FERRY} ${seen.cite} by $y^2$.`,
+    );
+  });
+
+  // protects=a whole paragraph this run takes out reads as taken out by it, under its own name, in the Note asked from; a second change to it is refused as the run's own; in another Note, where the removal waits for the User, it reads as waiting with its words; fails_when=the paragraph reads as words this request keeps, or as an empty paragraph of its own
+  it("reads a paragraph it took out as taken out, and one waiting elsewhere as waiting", async () => {
+    let otherId = "";
+    const seen: { result?: string; again?: string; twice?: string; elsewhere?: string } = {};
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const done = structured<{ status: string; markdown: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [{ paragraph: "¶2", remove: true }],
+          },
+        }),
+      );
+      expect(done.status).toBe("applied");
+      seen.result = done.markdown;
+      const again = structured<{ markdown: string; version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      seen.again = again.markdown;
+      seen.twice = refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: again.version,
+            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+          },
+        }),
+      );
+      const other = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId: otherId, named: true } }),
+      );
+      seen.elsewhere = structured<{ status: string; markdown: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId: otherId,
+            version: other.version,
+            changes: [{ paragraph: "¶1", remove: true }],
+          },
+        }),
+      ).markdown;
+      return { kind: "finished", reply: "Done." };
+    });
+    const paired = await written(run.adapter);
+    otherId = paired.otherId;
+    await paired.core.askInNote({ mindId: paired.mindId, words: "drop the fares" });
+    await paired.ended();
+    const removed = translate("en", "agents.mind.yoursRemoved");
+    const yours = translate("en", "agents.mind.yours");
+    for (const markdown of [seen.result, seen.again]) {
+      expect(markdown).toContain(`¶2 ${removed}`);
+      expect(markdown).not.toContain(FARES);
+      expect(markdown).not.toContain(`¶2 ${yours}`);
+    }
+    expect(seen.twice).toBe(translate("en", "agents.problem.yours", { paragraph: "¶2" }));
+    expect(seen.elsewhere).toContain(`¶1 ${translate("en", "agents.mind.waiting")} ${FARES}`);
+    expect(seen.elsewhere).not.toContain(removed);
+    expect(translate("zh-CN", "agents.mind.yoursRemoved")).not.toBe(removed);
+  });
+
   // protects=a change that applies at once in the Note asked from reads, in the same run, as in the Note: in the result and in a later read, with the Note's names and version; a second change to that paragraph is refused as the agent's own, never as one for the User to accept; a change that waits, here or in another Note, and an outside agent's, read as waiting; fails_when=the agent is shown the Note as if its change hadn't landed, and may write it again
   it("reads the Note with this request's own change in, and never as if it hadn't landed", async () => {
     const seen: Record<string, unknown> = {};
@@ -1000,7 +1146,10 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
   // protects=only a model the User's agent itself offered goes to it as its model; anything else is refused before anything starts; fails_when=a value the renderer sends reaches the command line unchecked
   it("sends only a model the agent offered", async () => {
     const run = runner(async (_agent, request) => {
-      request.progress?.({ kind: "models", models: MODELS });
+      request.progress?.({
+        kind: "models",
+        models: [...MODELS, { ...MODELS[1], value: "haiku\r\ncalc.exe" }] as typeof MODELS,
+      });
       return { kind: "finished", reply: "Done." };
     });
     const { core, mindId, ended } = await written(run.adapter);
@@ -1018,6 +1167,16 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await core.askInNote({ mindId, words: "shorter", model: "haiku" });
     await ended(2);
     expect(run.runs[1]?.model).toBe("haiku");
+    // A line break ends the command on Windows' cmd.exe: never sent, even when the agent lists it.
+    for (const model of ["haiku\r\ncalc.exe", "sonnet\ncalc.exe"]) {
+      await expect(core.askInNote({ mindId, words: "shorter", model })).rejects.toThrow(
+        translate("en", "error.agent.askRequest"),
+      );
+    }
+    expect(run.runs).toHaveLength(2);
+    expect((await core.noteModels(mindId)).map((each) => each.value)).not.toContain(
+      "haiku\r\ncalc.exe",
+    );
   });
 
   // protects=a lost connection or a consent taken back ends the run with its reason, and deletes the connection's conversations, the agent's copy too; fails_when=a run goes on without its connection or consent, or its conversation stays on disk

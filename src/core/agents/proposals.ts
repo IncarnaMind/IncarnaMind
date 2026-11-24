@@ -128,6 +128,8 @@ export interface NamedWords {
   busy: string;
   /** Before the words of a paragraph this run changed or added, in once its request ends. */
   yours?: string;
+  /** In place of the words of a paragraph this run takes out, gone once its request ends. */
+  yoursRemoved?: string;
   /**
    * The title a tab of the Note (#3414) shows when it has none of its own, by its number from 1.
    * Absent: tabs aren't read.
@@ -280,13 +282,14 @@ export function heldByOwn(
 /**
  * How a paragraph reads once `own`'s changes are in, as an ordinary read reads it (its Citations as
  * tokens, its footnotes as handles, names escaped): read on a copy of the Note with them accepted.
+ * Null for a paragraph they take out.
  */
 function readerOnceIn(
   blocks: Y.XmlFragment,
   own: ReadonlySet<string>,
   words: NamedWords,
-): (blockId: string) => string {
-  let read: ((blockId: string) => string) | null = null;
+): (blockId: string) => string | null {
+  let read: ((blockId: string) => string | null) | null = null;
   return (blockId) => {
     if (!read) {
       const copy = new Y.Doc();
@@ -303,7 +306,7 @@ function readerOnceIn(
       );
       read = (id) => {
         const element = elements.get(id);
-        if (!element) return "";
+        if (!element) return null;
         const { from, to } = wholeOf(element, id);
         const selection = readSelection(changed, from, to);
         return selection.ok ? shownText(selection.selection, words) : "";
@@ -392,7 +395,7 @@ export function namedNote(
     seen.add(blockId);
     const adding = addingRequest(element);
     if (adding !== null) {
-      const text = onceIn && own?.has(adding) && visual === null ? onceIn(blockId) : "";
+      const text = (onceIn && own?.has(adding) && visual === null ? onceIn(blockId) : null) ?? "";
       if (text !== "") added.push({ at: topOf(element, tops), text: `${words.yours} ${text}` });
       continue;
     }
@@ -414,7 +417,8 @@ export function namedNote(
     const read = readSelection(blocks, from, to);
     const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
     const text = read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element));
-    const changed = onceIn && held === "waiting" && onlyOwn(element, own) ? onceIn(blockId) : null;
+    const changed =
+      onceIn && held === "waiting" && onlyOwn(element, own) ? onceIn(blockId) : undefined;
     if (text.trim() === "" && !changed) continue;
     const title =
       options.title === true &&
@@ -430,9 +434,16 @@ export function namedNote(
       users: options.users && !title ? usersWordsIn(element) : null,
     });
     places.push(topOf(element, tops));
-    if (changed !== null) {
+    // A paragraph this run takes out keeps its name and its held state, so a change to it is
+    // refused as now; it reads as taken out, never as words this request keeps.
+    if (changed !== undefined) {
       const name = paragraphs.at(-1)?.name ?? "";
-      asChanged.set(paragraphs.length - 1, `${name} ${words.yours} ${changed}`);
+      asChanged.set(
+        paragraphs.length - 1,
+        changed === null
+          ? `${name} ${words.yoursRemoved ?? words.yours}`
+          : `${name} ${words.yours} ${changed}`,
+      );
     }
   }
   const line = (paragraph: NamedParagraph) =>
