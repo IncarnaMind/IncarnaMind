@@ -195,6 +195,9 @@ for (const width of [900, 1280]) {
         await expect(details).toContainText(
           translate(language, "agents.connect.body", { agent: "Claude Code" }),
         );
+        await expect(details.getByTestId("connect-agent-later")).toHaveText(
+          translate(language, "agents.connect.reads.later"),
+        );
         await expect(details.getByTestId("connect-agent-skill")).toBeHidden();
         await expect(allow).toBeEnabled();
         await expectInView(window, allow);

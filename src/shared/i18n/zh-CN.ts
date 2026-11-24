@@ -8616,9 +8616,11 @@ export const zhCN = {
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
     "它写的笔记立即出现；它对你笔记的修改等你处理。IncarnaMind 只读取它指明或提交的文件。",
-  "agents.connect.reads.all": "它可以读取你的全部文档和笔记，内容会发给它的 AI 模型。",
-  "agents.connect.reads": "内容会发给它的 AI 模型。",
-  "agents.connect.reads.walled": "内容会发给它的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
+  "agents.connect.reads.all": "它可以读取你的全部文档和笔记，读到的内容会发给它的 AI 模型。",
+  "agents.connect.reads.later": "也包括你以后添加的文档和笔记。",
+  "agents.connect.reads": "读到的内容会发给它的 AI 模型。",
+  "agents.connect.reads.walled":
+    "读到的内容会发给它的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
   "agents.share.all": "我的全部文档和笔记，包括以后添加的",
   "agents.share.folders": "选择文件夹",
   "agents.connect.background": "核对和笔记请求在后台运行 {agent}，用你的订阅或 API 密钥。",

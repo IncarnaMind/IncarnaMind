@@ -307,6 +307,9 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await expect(details).toContainText(
     translate("en", "agents.connect.body", { agent: "Claude Code" }),
   );
+  await expect(details.getByTestId("connect-agent-later")).toHaveText(
+    translate("en", "agents.connect.reads.later"),
+  );
   await expect(details.getByTestId("connect-agent-skill")).toBeHidden();
   for (const width of WIDTHS) {
     await setWindowSize(app as ElectronApplication, window, width, 900);

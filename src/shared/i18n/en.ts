@@ -9165,7 +9165,9 @@ export const en = {
   "agents.propose.hint":
     "Its notes appear at once; its changes to your notes wait for you. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
-  "agents.connect.reads.all": "It can read all your Documents and notes, which go to its AI model.",
+  "agents.connect.reads.all":
+    "It can read all your Documents and notes. What it reads goes to its AI model.",
+  "agents.connect.reads.later": "That includes the Documents and notes you add later.",
   "agents.connect.reads": "What it reads goes to its AI model.",
   "agents.connect.reads.walled":
     "What it reads goes to its AI model. A Folder that keeps its work inside it is shared only on its own.",

@@ -197,6 +197,11 @@ export function ConnectAgentFields({
           {t("agents.connect.details")}
         </summary>
         <div className="mt-2 flex flex-col gap-2">
+          {!anyFolder && (
+            <p data-testid="connect-agent-later" className={dialogTextClass}>
+              {t("agents.connect.reads.later")}
+            </p>
+          )}
           <p className={dialogTextClass}>{t("agents.connect.body", { agent })}</p>
           <p className={dialogTextClass}>{t("agents.propose.hint")}</p>
           {client.id === "claude-code" && (
