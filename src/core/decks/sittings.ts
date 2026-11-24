@@ -74,6 +74,9 @@ interface Sitting {
 
 const changedError = () => new TranslatableError({ key: "error.deck.changed" });
 
+/** How many closed sittings keep their steps for Undo. */
+const KEPT_CLOSED = 5;
+
 const sameStored = (a: ZipArchive, b: ZipArchive, name: string) => {
   const x = a.raw(name);
   const y = b.raw(name);
@@ -280,6 +283,11 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       if (!sitting) return;
       sitting.closed = true;
       if (sitting.steps.length === 0) sittings.delete(sitting.id);
+      // Each holds its deck twice in memory: the oldest closed ones go, their steps with them.
+      const closed = [...sittings.values()].filter((each) => each.closed);
+      for (const old of closed.slice(0, Math.max(0, closed.length - KEPT_CLOSED))) {
+        sittings.delete(old.id);
+      }
     },
 
     /** Every sitting on a Document ends: it was put back as it was, or changed elsewhere. */
