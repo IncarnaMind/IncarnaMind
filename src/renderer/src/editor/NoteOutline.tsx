@@ -124,13 +124,16 @@ export function NoteOutline({
     }
     jumped.current = null;
     const top = scroller.getBoundingClientRect().top;
+    // Chrome above the editor taller than a single 32px notice (e.g. a wrapped readiness line in a
+    // narrow column or a meeting bar) pushes the first line past READING_LINE while at scrollTop 0.
+    const extra = Math.max(0, editor.view.dom.getBoundingClientRect().top - top - 70);
     const tops = shownHeadings(editor.state).map(({ pos }) => {
       const element = editor.view.nodeDOM(pos);
       return element instanceof HTMLElement
         ? element.getBoundingClientRect().top - top
         : Number.POSITIVE_INFINITY;
     });
-    setCurrent(headingAt(tops, READING_LINE));
+    setCurrent(headingAt(tops, READING_LINE + extra));
   }, [editor, scrollerOf]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the headings changing is when to forget it.

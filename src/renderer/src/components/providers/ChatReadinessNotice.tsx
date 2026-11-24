@@ -6,10 +6,7 @@ import {
 } from "../../../../core/providers/signInRoutes";
 import { useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { signInAgain } from "../../chatGptSignIn";
-import {
-  installClaudeCodeFromEntry,
-  useClaudeCodeInstallAvailability,
-} from "../../claudeCodeInstall";
+import { useClaudeCodeInstallAvailability } from "../../claudeCodeInstall";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
 import { useSettingUp } from "../../modelSetup";
@@ -18,7 +15,6 @@ import { wayBackRun } from "../../routeSignIn";
 import type { SettingsPage, SettingsTarget } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
-import { buttonStyle } from "../ui";
 import { readinessKey, serviceName } from "./shared";
 
 /** Where to fix it: a declined data flow is allowed again on the Privacy page, the rest under Models. */
@@ -137,47 +133,24 @@ export function ReadinessLine({
       testId: `${testId}-connect-ai`,
       onClick: () => openSettings("ai"),
     };
-    if (!offerInstall) {
-      return (
-        <ProblemLine
-          role="status"
-          testId={testId}
-          {...(className && { className })}
-          action={connectAi}
-        >
-          <ReadinessExplanation readiness={readiness} inLine />
-        </ProblemLine>
-      );
-    }
+    const installAi = offerInstall
+      ? {
+          label: t("agents.install.action"),
+          title: t("agents.install.disclosure"),
+          testId: "readiness-install-claude-code",
+          onClick: () => openSettings("ai"),
+        }
+      : undefined;
     return (
-      <div
+      <ProblemLine
         role="status"
-        data-testid={testId}
-        className={`flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5 text-[13px] leading-5 text-ink-secondary ${className ?? ""}`}
+        testId={testId}
+        {...(className && { className })}
+        action={connectAi}
+        also={installAi}
       >
-        <span>
-          <ReadinessExplanation readiness={readiness} />
-        </span>
-        <button
-          type="button"
-          data-testid="readiness-install-claude-code"
-          onClick={installClaudeCodeFromEntry}
-          className={buttonStyle("primary", "sm")}
-        >
-          {t("agents.install.action")}
-        </button>
-        <button
-          type="button"
-          data-testid={connectAi.testId}
-          onClick={connectAi.onClick}
-          className="rounded-sm text-[12.5px] font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0"
-        >
-          {connectAi.label}
-        </button>
-        <span className="w-full text-[12px] leading-[17px] text-ink-meta">
-          {t("agents.install.disclosure")}
-        </span>
-      </div>
+        <ReadinessExplanation readiness={readiness} inLine />
+      </ProblemLine>
     );
   }
   if (readiness.reason === "local-mode") {

@@ -294,17 +294,14 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
     timeout: 15_000,
   });
 
-  // Note workspace empty states: Composer readiness line and Checks panel.
+  // Note workspace empty states: one-line Composer readiness and Checks panel with disclosure.
   await newMind(window);
   const readiness = window.getByTestId("chat-readiness");
-  await expect(readiness).toContainText("Asking needs your AI.");
+  await expect(readiness).toContainText("Asking needs your AI");
   await expect(readiness.getByTestId("readiness-install-claude-code")).toHaveText(
     "Install Claude Code",
   );
   await expect(readiness.getByTestId("chat-readiness-connect-ai")).toHaveText("Connect your AI");
-  await expect(readiness).toContainText(
-    "Downloads and installs Claude Code from Anthropic into your user folder.",
-  );
 
   await window.getByTestId("mind-editor").click();
   await window.keyboard.type("The northern estuary stations showed stable salinity readings.");
@@ -316,19 +313,33 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
     "Install Claude Code",
   );
   await expect(checksProblem.getByTestId("checks-connect-ai")).toHaveText("Connect your AI");
+  await expect(checksProblem).toContainText(
+    "Downloads and installs Claude Code from Anthropic into your user folder.",
+  );
   await shot(window, "empty-states-en-1440");
 
   await setWindowSize(app, window, 900, 760);
   await setLanguage(window, "zh-CN");
-  await expect(readiness).toContainText("提问需要连接你的 AI。");
+  await expect(readiness).toContainText("提问需要连接你的 AI");
   await expect(checksProblem).toContainText("核对需要连接你的 AI");
   await assertNoHorizontalOverflow(window);
   await shot(window, "empty-states-zh-900");
   await setLanguage(window, "en");
   await setWindowSize(app, window, 1440, 900);
 
-  // Pressing Install Claude Code from the readiness line opens Settings › AI and starts installing.
+  // Pressing Install Claude Code on the one-line readiness bar opens Settings › AI beside the
+  // disclosure rather than downloading without showing it first.
   await readiness.getByTestId("readiness-install-claude-code").click();
+  await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
+  await expect(window.getByTestId("claude-code-install-offer")).toBeVisible();
+  expect(standIn.installCalls).toBe(0);
+  await window.keyboard.press("Escape");
+
+  // Pressing Install Claude Code from the Checks card (beside its disclosure) opens Settings › AI
+  // and starts installing in one press.
+  await window.getByTestId("check-badge-open").click();
+  await window.getByTestId("badge-check-mind").click();
+  await checksProblem.getByTestId("checks-install-claude-code").click();
   await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "ai");
   const progress = window.getByTestId("claude-code-install-progress");
   await expect(progress).toBeVisible();
