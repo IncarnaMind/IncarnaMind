@@ -4,13 +4,18 @@
  * makes arm A's copies through the same function the editor's edits go to
  * (applyShapeEdits): saved with no edit, with three text edits, and with
  * three shapes moved and sized. The "compare" phase measures every arm's
- * copies against their originals the same way (./compare).
+ * copies against their originals the same way (./compare). The "person" phase
+ * makes the ten files a person opens in PowerPoint and WPS (#149), each a deck
+ * of its own edited through the core as the viewer edits one, one gesture at a
+ * time, with CHECK.md saying what changed and what to send back.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "vitest";
 import { applyShapeEdits } from "../../src/core/exports/pptxPatch/edits";
+import { createTempDataFolder, startCore } from "../../tests/helpers/core";
+import { addAndProcess, createSourceFolder } from "../../tests/helpers/documents";
 import { fetchPinned } from "../pptx/pinned";
 import { type CopyReport, compareCopy, type Kind } from "./compare";
 import { DECKS } from "./corpus";
@@ -98,8 +103,114 @@ async function compareArms(): Promise<void> {
   }
 }
 
+/** The decks a person opens, and what is done to each: words typed, or shapes moved and sized. */
+const PERSON: readonly (readonly [string, "text" | "box", string])[] = [
+  ["c84", "text", "English words typed into three text boxes"],
+  ["c73", "text", "Chinese words typed into three text boxes"],
+  ["c51", "text", "Chinese words typed into shapes PowerPoint stores twice"],
+  ["z04", "text", "Chinese words typed, a deck saved by WPS"],
+  ["z05", "text", "Chinese words typed into long paragraphs"],
+  ["c32", "box", "shapes and a picture moved and sized"],
+  ["c44", "box", "shapes moved and sized"],
+  ["c22", "box", "shapes moved and sized"],
+  ["c00", "box", "shapes moved and sized"],
+  ["c71", "box", "pictures moved and sized"],
+];
+
+const said = (target: DeckTargets, kind: "text" | "box") =>
+  kind === "text"
+    ? target.text.map(
+        (each) =>
+          `slide ${each.slide}: “${target.cjk ? "（已核对）" : " (checked)"}” typed at the end of the first paragraph of shape ${each.shapeId}`,
+      )
+    : target.box.map(
+        (each) =>
+          `slide ${each.slide}: shape ${each.shapeId} moved 24 px right and 12 px down, and made a tenth wider`,
+      );
+
+async function personCheck(): Promise<void> {
+  const into = join(lane, "person-check");
+  await mkdir(into, { recursive: true });
+  const dataDir = await createTempDataFolder();
+  const files = await createSourceFolder();
+  const core = startCore(dataDir);
+  const sections: string[] = [];
+  const rows: string[] = [];
+  try {
+    for (const [index, [id, kind, what]] of PERSON.entries()) {
+      const entry = DECKS.find((each) => each.id === id);
+      if (!entry) throw new Error(`${id} isn't in the corpus.`);
+      const bytes = await fetchPinned(entry.url, entry.sha256, decksDir);
+      const targets = await chooseTargets(id, bytes, entry.has.includes("cjk"));
+      const prefix = `${String(index + 1).padStart(2, "0")}-${id}`;
+      const path = join(files, `${prefix}-edited.pptx`);
+      await writeFile(path, bytes);
+      const [document] = await addAndProcess(core, [path]);
+      if (!document) throw new Error(`${id} wasn't added.`);
+      let sittingId: string | null = null;
+      for (const edit of editsOf(targets, kind)) {
+        const result = await core.editDeck({
+          documentId: document.id,
+          sittingId,
+          shown: document.contentHash,
+          edits: [edit],
+        });
+        if (result.kind !== "saved") throw new Error(`${id} couldn't be written: ${result.why}`);
+        sittingId = result.sittingId;
+      }
+      await writeFile(join(into, `${prefix}-original.pptx`), bytes);
+      await writeFile(join(into, `${prefix}-edited.pptx`), readFileSync(path));
+      sections.push(
+        [
+          `## ${prefix}: ${what}`,
+          "",
+          `- \`${prefix}-original.pptx\` is the deck as published.`,
+          `- \`${prefix}-edited.pptx\` was edited by hand in IncarnaMind and saved over itself, one gesture at a time:`,
+          ...said(targets, kind).map((line) => `  - ${line}`),
+          "  - Everything else should look as it does in the original.",
+        ].join("\n"),
+      );
+      rows.push(`| ${prefix}-edited.pptx | | | |`);
+    }
+  } finally {
+    core.close();
+  }
+  const check = [
+    "# Decks edited by hand: PowerPoint, WPS and an input method",
+    "",
+    "Ten public decks, each edited by hand in IncarnaMind and saved over itself, beside the deck as published. About 30 minutes.",
+    "",
+    "## 1. Opening the saved files",
+    "",
+    "Open each `-edited.pptx` in PowerPoint, and then in WPS. Note whether either offers to repair the file, and whether anything looks different from the original apart from what its section says changed.",
+    "",
+    ...sections.flatMap((section) => [section, ""]),
+    "## 2. Typing through an input method, on macOS and on Windows",
+    "",
+    "In IncarnaMind, add a copy of `02-c73-original.pptx` from this folder and open it. Double-click a text box with Chinese words, put the caret in the middle of a word, and type a few words with the system's Chinese input method (Pinyin), picking candidates with the space bar and with the number keys. Then press Esc.",
+    "",
+    "- Do the words appear once, where the caret was, in the box's font and colour?",
+    "- Does the box show nothing odd while the input method's candidate window is open?",
+    "- Opened again in PowerPoint, does the file show the words?",
+    "",
+    "## What to send back",
+    "",
+    "| File | PowerPoint asks to repair? | WPS asks to repair? | Looks different, apart from the edit? |",
+    "|---|---|---|---|",
+    ...rows,
+    "",
+    "| Input method | Words once, where the caret was? | Anything odd while composing? | PowerPoint shows them? |",
+    "|---|---|---|---|",
+    "| macOS, Pinyin | | | |",
+    "| Windows, Microsoft Pinyin | | | |",
+    "",
+  ].join("\n");
+  await writeFile(join(into, "CHECK.md"), check);
+}
+
 test("the slide editor bake-off", async () => {
   if (!lane) throw new Error("Set DECK_EDITOR_LANE to the folder for decks and copies.");
   if (phase === "a") await produceArmA();
+  else if (phase === "person") await personCheck();
   else await compareArms();
 });

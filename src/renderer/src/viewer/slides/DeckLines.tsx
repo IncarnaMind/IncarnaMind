@@ -1,4 +1,4 @@
-import { ProblemLine } from "../../components/ProblemLine";
+import { ProblemLine, ProblemMark } from "../../components/ProblemLine";
 import { Tip } from "../../components/Tip";
 import { useT } from "../../i18n";
 import { closeTip, useFeatureTip } from "../../tips";
@@ -25,7 +25,11 @@ export function DeckLines({ editing }: { editing: DeckEditing }) {
             testId: "viewer-deck-save-copy",
           }}
         >
-          {`${t(`error.deck.unwritable.${waiting.why}`, { name: waiting.name })} ${t("viewer.deck.changeKept")}`}
+          <ProblemMark />
+          {t("viewer.deck.unwritableLine", {
+            problem: t(`error.deck.unwritable.${waiting.why}`, { name: waiting.name }),
+            kept: t("viewer.deck.changeKept"),
+          })}
         </ProblemLine>
       )}
       {overflow && (

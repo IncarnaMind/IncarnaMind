@@ -63,13 +63,11 @@ const doneWords =
 function savedWords(saved: DeckSaved, language: Language): WordsInLine {
   return (t, cut) => {
     const where =
-      saved.kind === "version"
-        ? saved.number === null
+      saved.kind !== "version"
+        ? t("viewer.deck.saved.file", { name: cut(saved.name) })
+        : saved.number === null
           ? t("viewer.deck.saved.kept")
-          : t("viewer.deck.saved.version", { number: saved.number })
-        : saved.kind === "copy"
-          ? t("viewer.deck.saved.copy", { name: cut(saved.name) })
-          : t("viewer.deck.saved.file", { name: cut(saved.name) });
+          : t("viewer.deck.saved.version", { number: saved.number });
     const letGo =
       saved.kind === "file" && saved.letGo.length > 0
         ? t("viewer.deck.saved.letGo", {
@@ -207,6 +205,7 @@ export function useDeckEditing(
     (result: Extract<DeckEdit, { kind: "saved" }>, said: Words) => {
       const { sittingId, stepId } = result;
       const again = async (run: () => Promise<DeckEdit>) => {
+        setOverflow(null);
         let done: DeckEdit;
         try {
           done = await writing(run);
@@ -229,6 +228,8 @@ export function useDeckEditing(
   const edit = useCallback(
     (edits: ShapeEdit[], what: DeckGesture) => {
       const slide = edits[0]?.slide ?? 1;
+      // Text past its box is said of the deck as the last gesture left it.
+      setOverflow(null);
       void makeInTurn(async () => {
         try {
           const result = took(

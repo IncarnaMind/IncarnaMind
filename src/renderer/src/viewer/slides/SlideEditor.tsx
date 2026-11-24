@@ -14,9 +14,10 @@ import type { MeasuredFit } from "./textFit";
 type Corner = "nw" | "ne" | "sw" | "se";
 
 const CORNERS: readonly Corner[] = ["nw", "ne", "sw", "se"];
+const SIDES = ["top", "right", "bottom", "left"] as const;
 
-/** How far a press must travel before it is a drag, not a click. */
-const DRAG_SLOP = 3;
+/** How far a press must travel on screen, in pixels, before it is a drag that moves a shape, not a click. */
+const DRAG_SLOP = 4;
 /** Arrow keys move a shape this far, or ten times as far with Shift, as Keynote's do. */
 const NUDGE = 1;
 /** A run of arrow-key moves ends, as one step to undo, once the keys rest this long. */
@@ -163,15 +164,15 @@ function selectable(items: readonly Item[], prefix: string): { item: Item; path:
 }
 
 /**
- * One slide drawn as the viewer draws it, with PowerPoint's direct editing over it. Reading comes
- * first: a drag across a shape's words selects them, to quote or ask about, as before. A click
- * selects one of the slide's own shapes (a second click inside a selected group selects the shape
- * in it); a drag moves the selected shape, or any shape with no words of its own; a corner sizes
- * it; the arrow keys move it; and a double click on a text shape or a table's cell, or Enter,
- * opens its text for typing in place, as a double click on a picture opens the picture. Each
- * gesture is handed to `onEdit` once it is made (the drag ended, the text box lost the focus, the
- * arrow keys rested), for the host to write into the deck; the shape stays where it was put until
- * the slide is drawn again.
+ * One slide drawn as the viewer draws it, with PowerPoint's direct editing over it. As in
+ * PowerPoint, a drag across a shape's words selects them, selected or not, to quote or ask about,
+ * and such a shape moves by a band along its edge; a shape with no words of its own moves from
+ * anywhere on it. A click selects one of the slide's own shapes (a second click inside a selected
+ * group selects the shape in it); a corner sizes it; the arrow keys move it; and a double click on
+ * a text shape or a table's cell, or Enter, opens its text for typing in place, as a double click
+ * on a picture opens the picture. Each gesture is handed to `onEdit` once it is made (the drag
+ * ended, the text box lost the focus, the arrow keys rested), for the host to write into the deck;
+ * the shape stays where it was put until the slide is drawn again.
  */
 export function SlideEditor({
   slide,
@@ -263,7 +264,11 @@ export function SlideEditor({
         if (!now) return;
         const dx = (moveEvent.clientX - now.from.x) / scale;
         const dy = (moveEvent.clientY - now.from.y) / scale;
-        if (!now.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
+        const travelled = Math.hypot(
+          moveEvent.clientX - now.from.x,
+          moveEvent.clientY - now.from.y,
+        );
+        if (!now.moved && travelled < DRAG_SLOP) return;
         now.moved = true;
         setDraft({ path: now.path, box: resized(now.box, now.corner, dx, dy) });
       };
@@ -405,10 +410,11 @@ export function SlideEditor({
     : selected;
   const group = groupPath ? located(shown.items, groupPath)?.item : undefined;
   const inner = group?.kind === "group" && groupPath ? selectable(group.children, groupPath) : [];
-  // Presses on a shape with words select them, unless it is the one selected: it is dragged.
-  const pressable = [...top, ...inner].filter(
-    (each) => each.path === selected || !hasWords(each.item),
-  );
+  // As in PowerPoint, a drag over a shape's words selects them, selected or not; such a shape
+  // moves by its edge. A shape with no words moves from anywhere on it.
+  const shapes = [...top, ...inner];
+  const pressable = shapes.filter((each) => !hasWords(each.item));
+  const edged = shapes.filter((each) => hasWords(each.item));
   const frame = selected !== null ? slideBox(shown.items, selected) : null;
   const frameItem = selected !== null ? located(shown.items, selected)?.item : undefined;
 
@@ -424,6 +430,39 @@ export function SlideEditor({
         return box !== null && contains(box, each.item.box.rotation, x, y);
       }) ?? null;
     return under(inner) ?? under(top);
+  };
+
+  /** The band along a shape's edge that moves it, its words inside left to select. */
+  const edge = ({ item, path }: { item: Item; path: string }) => {
+    const box = slideBox(shown.items, path);
+    if (!box) return null;
+    return (
+      <div
+        key={path}
+        className="slide-editor-edge"
+        style={{
+          left: box.x,
+          top: box.y,
+          width: box.w,
+          height: box.h,
+          transform: rotated(item.box),
+        }}
+      >
+        {SIDES.map((side) => (
+          <button
+            key={side}
+            type="button"
+            tabIndex={-1}
+            aria-label={labelOf(item)}
+            data-shape-id={item.shapeId}
+            data-path={path}
+            data-edge={side}
+            className={`slide-editor-edge-side slide-editor-edge-side--${side}`}
+            onPointerDown={(event) => start(event, path, null)}
+          />
+        ))}
+      </div>
+    );
   };
 
   const hit = ({ item, path }: { item: Item; path: string }) => {
@@ -466,7 +505,8 @@ export function SlideEditor({
         const words = window.getSelection();
         if (words && !words.isCollapsed && root.current?.contains(words.anchorNode)) return;
         const found = shapeAt(event.clientX, event.clientY);
-        if (found) words?.removeAllRanges();
+        // The slide takes the keys that move and open the shape a click selected.
+        if (found) root.current?.focus({ preventScroll: true });
         setSelected(found?.path ?? null);
       }}
       onBlur={(event) => {
@@ -527,6 +567,7 @@ export function SlideEditor({
         editing={editing}
       />
       {!typing && pressable.map(hit)}
+      {!typing && edged.map(edge)}
       {frame && frameItem && !typing && (
         <div
           className="slide-editor-frame"

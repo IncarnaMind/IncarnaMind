@@ -191,6 +191,49 @@
   cursor: move;
   touch-action: none;
 }
+/*
+ * A shape with words moves by a band along its edge, 8 px on screen (as wide as a corner handle),
+ * half outside the shape and half inside, where its text inset keeps words away from the edge.
+ */
+.slide-editor-edge {
+  position: absolute;
+  transform-origin: center;
+  pointer-events: none;
+  --edge: calc(8px / var(--slide-scale, 1));
+}
+.slide-editor-edge-side {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+.slide-editor-edge-side--top,
+.slide-editor-edge-side--bottom {
+  left: calc(var(--edge) / -2);
+  right: calc(var(--edge) / -2);
+  height: var(--edge);
+}
+.slide-editor-edge-side--left,
+.slide-editor-edge-side--right {
+  top: calc(var(--edge) / -2);
+  bottom: calc(var(--edge) / -2);
+  width: var(--edge);
+}
+.slide-editor-edge-side--top {
+  top: calc(var(--edge) / -2);
+}
+.slide-editor-edge-side--bottom {
+  bottom: calc(var(--edge) / -2);
+}
+.slide-editor-edge-side--left {
+  left: calc(var(--edge) / -2);
+}
+.slide-editor-edge-side--right {
+  right: calc(var(--edge) / -2);
+}
 .slide-editor-frame {
   position: absolute;
   transform-origin: center;

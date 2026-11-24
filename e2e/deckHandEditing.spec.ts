@@ -9,6 +9,7 @@
 import { chmod, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { CoreBridge } from "../src/core/api";
 import { part, unzip } from "../tests/helpers/docx";
 import { gradientPng } from "../tests/helpers/png";
 import { para, pptxOf, rel, sp, txBody, xfrm } from "../tests/helpers/pptx";
@@ -16,7 +17,9 @@ import {
   addDocuments,
   createDataFolder,
   dismissChatSetup,
+  documentIdOf,
   launchApp,
+  openDocumentAt,
   pointAndClick,
   removeDataFolder,
   runFromPalette,
@@ -360,7 +363,7 @@ test("a file that can't be written keeps the edit and saves it as a copy beside 
     await still(window, "12-cannot-write-en");
     await problem.getByTestId("viewer-deck-save-copy").click();
     await expect(undoLine(window)).toContainText(
-      "Saved your change as a copy · saved in the copy “Harbour plan 2.pptx”",
+      "Made a copy with your change · saved in “Harbour plan 2.pptx”",
     );
     expect(await readdir(sources)).toContain("Harbour plan 2.pptx");
     expect(Buffer.compare(await readFile(path), shown)).toBe(0);
@@ -369,3 +372,92 @@ test("a file that can't be written keeps the edit and saves it as a copy beside 
     await app.close();
   }
 });
+
+test("a Citation's mark stays on its words after an edit elsewhere, and says when the words it checked were changed", async () => {
+  const { app, window, viewer, path, first } = await opened();
+  try {
+    const documentId = await documentIdOf(window, "Harbour plan");
+    const contentHash = await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await bridge.listDocuments()).find((each) => each.id === id)?.contentHash ?? "";
+    }, documentId);
+    await openDocumentAt(window, {
+      documentId,
+      pageFrom: 1,
+      pageTo: 1,
+      quote: "Revenue grew 4 per cent",
+      citation: { check: "found", number: 1, label: "slide 1", contentHash },
+    });
+    const mark = viewer.getByTestId("viewer-quote-mark");
+    await expect(mark).toHaveAttribute("data-check", "found");
+    const before = await slideOnDisk(path, 1);
+
+    // A move elsewhere on the slide: the deck stays the one edited, the mark on its words.
+    await first.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    await expect.poll(async () => slideOnDisk(path, 1)).not.toBe(before);
+    await expect(undoLine(window)).toContainText("Moved a shape on slide 1");
+    await expect(viewer.getByTestId("viewer-as-cited")).toHaveCount(0);
+    await expect(first.locator("[data-quote-highlight]").first()).toBeVisible();
+    await expect(mark).toHaveAttribute("data-check", "found");
+
+    // The words it checked are changed: its earlier check is no longer shown as current.
+    const at = await centre(first.getByText("4 per cent"));
+    await window.mouse.dblclick(at.x, at.y);
+    await expect(first.locator('[contenteditable="true"]')).toBeFocused();
+    await window.keyboard.type("0");
+    await window.keyboard.press("Escape");
+    await expect.poll(async () => slideOnDisk(path, 1)).not.toContain("<a:t>4 per cent</a:t>");
+    await expect(mark).toHaveAttribute("data-check", "cant-check");
+    await expect(mark).toHaveAttribute("aria-label", /changed since it was checked/);
+    await expect(viewer.getByTestId("viewer-as-cited")).toHaveCount(0);
+    await still(window, "15-citation-changed-en");
+  } finally {
+    await app.close();
+  }
+});
+
+for (const [language, index, shape, words, moved] of [
+  ["en", 0, 3, "Revenue grew", "Moved a shape on slide 1"],
+  ["zh-CN", 1, 5, "收入增长", "已移动第 2 张幻灯片上的形状"],
+] as const) {
+  test(`a text box moves by its edge, as in PowerPoint; a drag over its words selects them, selected or not (${language})`, async () => {
+    const { app, window, viewer, path } = await opened(language);
+    try {
+      const slide = viewer.getByTestId("viewer-slide-editor").nth(index);
+      await slide.scrollIntoViewIfNeeded();
+      const number = index + 1;
+      const before = await slideOnDisk(path, number);
+
+      // One click on its words selects the box; a drag over them then selects words, and writes nothing.
+      const text = slide.getByText(words);
+      await text.click();
+      const frame = slide.getByTestId("viewer-slide-selection");
+      await expect(frame).toBeVisible();
+      const span = await text.boundingBox();
+      if (!span) throw new Error("No words.");
+      expect(["auto", "text"]).toContain(await pointerAt(window, await centre(text)));
+      await window.mouse.move(span.x + 2, span.y + span.height / 2);
+      await window.mouse.down();
+      await window.mouse.move(span.x + span.width - 2, span.y + span.height / 2, { steps: 8 });
+      await window.mouse.up();
+      expect(await window.evaluate(() => document.getSelection()?.toString())).toContain(words);
+      await expect(frame).toBeVisible();
+      await window.waitForTimeout(700);
+      expect(await slideOnDisk(path, number)).toBe(before);
+      await expect(undoLine(window)).not.toContainText(moved);
+
+      // Its edge moves it, under the move pointer.
+      const edge = slide.locator(`[data-edge="top"][data-shape-id="${shape}"]`);
+      const from = await centre(edge);
+      expect(await pointerAt(window, from)).toBe("move");
+      await drag(window, from, { x: 40, y: 20 });
+      await expect
+        .poll(async () => placeOf(await slideOnDisk(path, number), shape).x)
+        .toBeGreaterThan(placeOf(before, shape).x);
+      await expect(undoLine(window)).toContainText(moved);
+    } finally {
+      await app.close();
+    }
+  });
+}

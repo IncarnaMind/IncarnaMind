@@ -3,6 +3,7 @@
  * what each writes into the slide, and that every byte it doesn't write stays.
  */
 import { describe, expect, test } from "vitest";
+import { parseShapeEdits } from "../../src/core/decks/parse";
 import { drawPptx, type ShapeItem } from "../../src/core/documents/formats/pptxDrawing";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { applyShapeEdits } from "../../src/core/exports/pptxPatch/edits";
@@ -227,5 +228,140 @@ describe("Moving and sizing a shape", () => {
     const layout = (bytes: Uint8Array) =>
       openPackage(bytes).raw("ppt/slideLayouts/slideLayout1.xml")?.data;
     expect(Buffer.from(layout(saved) ?? []).equals(Buffer.from(layout(bytes) ?? []))).toBe(true);
+  });
+});
+
+/** A slide of its own shapes, its XML whole, so a test names exactly what the file holds. */
+const slideOf = (tree: string) =>
+  new Uint8Array(
+    pptxOf({
+      slides: [
+        {
+          shapes: "",
+          raw: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${tree}</p:spTree></p:cSld></p:sld>`,
+        },
+      ],
+      parts: [ROOT_RELS],
+    }),
+  );
+
+describe("Shapes in a group, table cells and text that follows its box", () => {
+  // protects=a shape in a group is moved in the group's own child space; fails_when=the slide's position is written as if the group weren't scaled or moved; no_claim=moving the group itself.
+  test("moves a shape inside a scaled group in the group's own space", async () => {
+    // The group is drawn at 1 inch from the slide's corner, half the size of its child space.
+    const group = `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="5" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="914400" y="914400"/><a:ext cx="1828800" cy="1828800"/><a:chOff x="0" y="0"/><a:chExt cx="3657600" cy="3657600"/></a:xfrm></p:grpSpPr>${sp({ id: 6, name: "Inner", spPr: xfrm(0, 0, 1828800, 914400) })}</p:grpSp>`;
+    const bytes = slideOf(group);
+    // On the slide the inner shape starts at 96 px; moved 48 px right on the slide.
+    const saved = await applyShapeEdits(bytes, [
+      { kind: "box", slide: 1, shape: "6", box: { x: 144, y: 96, w: 96, h: 48 } },
+    ]);
+    // 48 px on the slide is 96 px, 914400 EMU, in the group's space, which is drawn at half size.
+    expect(await slideXml(saved)).toBe(
+      (await slideXml(bytes)).replace(
+        '<a:off x="0" y="0"/><a:ext cx="1828800" cy="914400"/>',
+        '<a:off x="914400" y="0"/><a:ext cx="1828800" cy="914400"/>',
+      ),
+    );
+  });
+
+  // protects=typing in a table cell changes only that cell's run; fails_when=another cell, the grid or the frame changes; no_claim=new rows or columns.
+  test("changes only the text of the table cell typed in", async () => {
+    const cell = (text: string) =>
+      `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-GB"/><a:t>${text}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>`;
+    const table = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="7" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="3657600" cy="731520"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="1828800"/><a:gridCol w="1828800"/></a:tblGrid><a:tr h="365760">${cell("Quay")}${cell("Boats")}</a:tr><a:tr h="365760">${cell("North")}${cell("42")}</a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+    const bytes = slideOf(table);
+    const saved = await applyShapeEdits(bytes, [
+      {
+        kind: "cell",
+        slide: 1,
+        shape: "7",
+        row: 1,
+        column: 1,
+        paragraphs: [{ source: 0, runs: runs(0, ["44"]) }],
+      },
+    ]);
+    expect(difference(await slideXml(bytes), await slideXml(saved))).toEqual({
+      was: "2",
+      now: "4",
+    });
+  });
+
+  // protects=a box that grows with its text is written its new height, and one that shrinks its text its font scale and line reduction, as PowerPoint writes them; fails_when=the text runs past its box in PowerPoint; no_claim=PowerPoint's exact line breaks.
+  test("writes how a box follows its text: its new height, or its shrink", async () => {
+    const box = (autofit: string) =>
+      slideOf(
+        sp({
+          id: 3,
+          name: "Body",
+          txBox: true,
+          spPr: xfrm(914400, 914400, 4572000, 457200),
+          body: txBody(RUNS, `<a:bodyPr wrap="square">${autofit}</a:bodyPr>`),
+        }),
+      );
+    const paragraphs = [
+      { source: 0, runs: runs(0, ["收入增长", "百分之四", "，已核对"]) },
+      { source: 1, runs: runs(1, ["Margin held, and more"]) },
+    ];
+    const grown = await applyShapeEdits(box("<a:spAutoFit/>"), [
+      {
+        kind: "text",
+        slide: 1,
+        shape: "3",
+        paragraphs,
+        fit: { kind: "grow", box: { x: 96, y: 96, w: 480, h: 96 } },
+      },
+    ]);
+    expect(await slideXml(grown)).toContain('<a:ext cx="4572000" cy="914400"/>');
+    const shrunk = await applyShapeEdits(box(""), [
+      {
+        kind: "text",
+        slide: 1,
+        shape: "3",
+        paragraphs,
+        fit: { kind: "shrink", fontScale: 0.775, lineReduction: 0.1 },
+      },
+    ]);
+    expect(await slideXml(shrunk)).toContain(
+      '<a:bodyPr wrap="square"><a:normAutofit fontScale="77500" lnSpcReduction="10000"/></a:bodyPr>',
+    );
+    const drawn = await drawPptx(shrunk);
+    const slide = drawn.slides[0];
+    const body = slide && "items" in slide ? (slide.items[0] as ShapeItem) : null;
+    expect(body?.text?.autofit).toEqual({ kind: "shrink", fontScale: 0.775, lineReduction: 0.1 });
+  });
+});
+
+describe("A gesture's edits as the window sends them", () => {
+  // protects=the core checks every edit before making any; fails_when=a malformed edit reaches the file; no_claim=what the window means by it.
+  test("are refused when malformed, and taken as they are when sound", () => {
+    const sound = [
+      { kind: "box", slide: 1, shape: "3", box: { x: 1, y: 2, w: 3, h: 4 } },
+      {
+        kind: "text",
+        slide: 1,
+        shape: "3",
+        paragraphs: [{ source: null, runs: [{ source: null, text: "新" }] }],
+        fit: { kind: "shrink", fontScale: 0.5, lineReduction: 0.2 },
+      },
+    ];
+    expect(parseShapeEdits(sound)).toEqual(sound);
+    for (const bad of [
+      [],
+      [{ kind: "box", slide: 1, shape: "3; drop", box: { x: 1, y: 2, w: 3, h: 4 } }],
+      [{ kind: "box", slide: -1, shape: "3", box: { x: 1, y: 2, w: 3, h: 4 } }],
+      [{ kind: "box", slide: 1, shape: "3", box: { x: 1, y: 2, w: -3, h: 4 } }],
+      [
+        {
+          kind: "text",
+          slide: 1,
+          shape: "3",
+          paragraphs: [],
+          fit: { kind: "shrink", fontScale: 2, lineReduction: 0 },
+        },
+      ],
+      [{ kind: "picture", slide: 1, shape: "3" }],
+    ]) {
+      expect(() => parseShapeEdits(bad)).toThrow();
+    }
   });
 });

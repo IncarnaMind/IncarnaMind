@@ -24,6 +24,14 @@ DECK_EDITOR_PHASE=compare npx vitest run -c eval/deck-editor/vitest.config.ts  #
 
 `compare.ts` measures each copy against its original: parts whose stored bytes or content changed, parts lost or added, the elements a changed part lost, changes on an edited slide outside the edited shapes, whether our reader reads the copy back with the edits, whether every written part is well-formed XML, and whether every relationship's target is there.
 
+## The person's check (#149)
+
+The "person" phase makes the files a person opens in PowerPoint and WPS: ten decks, each added to a core of its own and edited by hand through `editDeck`, the viewer's own path, one gesture at a time, so each file is written over itself as a User's deck is. They go in `$DECK_EDITOR_LANE/person-check`, each beside the deck as published, with `CHECK.md` saying what changed, how to check typing through an input method on macOS and Windows, and the table to send back.
+
+```sh
+DECK_EDITOR_PHASE=person npx vitest run -c eval/deck-editor/vitest.config.ts
+```
+
 ## The bench (measures 2 to 8 through the editors)
 
 `bench/` opens one arm's page in an Electron window with a home, data folder and request log of its own (`bench/host.ts`), and drives it as a person would (`bench/*.bench.ts`): typing through an input method over the DevTools Protocol, dragging and sizing shapes, finding a quote's words in the page, and picturing slides.
