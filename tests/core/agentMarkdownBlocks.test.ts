@@ -417,6 +417,27 @@ describe("a token of a Citation the paragraph already holds (#3747)", () => {
       expect(citingIn(blocks)[`tides: ${SPRING}`], text).toBe(1);
     }
   });
+
+  // protects=a handle named twice, once with a leading zero ([kept:1] and [kept:01], [note:1] and [note:01]), keeps the paragraph's Citation and footnote once, in a rewrite as blocks as in one as words, the second naming landing as words; fails_when=the Note holds the same Citation or footnote twice under one id
+  it("keeps a handle named twice with a leading zero once", async () => {
+    for (const text of [
+      "## Spring tides [kept:1] [kept:01] [note:1] [note:01]",
+      "Spring tides [kept:1] [kept:01] [note:1] [note:01].",
+    ]) {
+      const json = await landed([citedParagraph(), note(P2)], [{ paragraph: "¶1", text }]);
+      const cites: unknown[] = [];
+      const notes: unknown[] = [];
+      const visit = (node: JSONContent) => {
+        if (node.type === CITATION_NODE) cites.push(node.attrs?.documentId);
+        if (node.type === FOOTNOTE_NODE) notes.push(node.attrs?.id);
+        else for (const child of node.content ?? []) visit(child);
+      };
+      visit(json);
+      expect(cites, text).toEqual([tides.documentId]);
+      expect(notes, text).toHaveLength(1);
+      expect(JSON.stringify(json), text).toMatch(/kept:01/);
+    }
+  }, 60_000);
 });
 
 /** The Citations in `node`, by Document, and whether a footnote is in it. */

@@ -687,14 +687,16 @@ export function newBlocks(
   const handles: { citation?: Attributes; footnote?: Y.XmlElement; back: boolean }[] = [];
   const keep = (handle: string): string | null => {
     const read = /^\[(note|kept):(\d+)\]$/.exec(handle);
-    if (!keeps || !read || keeps.named.has(handle)) return null;
+    if (!keeps || !read) return null;
+    const key = handleKey(read[1] ?? "", Number(read[2]));
+    if (keeps.named.has(key)) return null;
     const n = Number(read[2]) - 1;
     const own =
       read[1] === "note"
         ? { footnote: keeps.selection.footnotes[n] }
         : { citation: keeps.selection.citations[n] };
     if (!(own.footnote ?? own.citation)) return null;
-    keeps.named.add(handle);
+    keeps.named.add(key);
     handles.push({ ...own, back: false });
     return heldKept(handles.length - 1);
   };
@@ -1027,6 +1029,9 @@ function topIndex(
   return blocks.toArray().indexOf(top);
 }
 
+/** A handle as the once-only check knows it, by kind and number however it is written ("01" is 1). */
+const handleKey = (kind: string, n: number) => `${kind}:${n}`;
+
 /** What a change keeps of a paragraph by handle: its own Citations and footnotes. */
 interface Kept {
   citations: Attributes[];
@@ -1148,7 +1153,9 @@ function writeNamed(
         ? { text: "", fresh: new Map<number, Attributes>(), kept: [] }
         : rewriteText(change.text, read.selection, paragraph.name, options);
     for (const marker of written.kept) {
-      keeps.named.add(`[${marker.startsWith("[^") ? "note" : "kept"}:${/\d+/.exec(marker)?.[0]}]`);
+      keeps.named.add(
+        handleKey(marker.startsWith("[^") ? "note" : "kept", Number(/\d+/.exec(marker)?.[0])),
+      );
     }
     rewrites.push({ element, selection: read.selection, name: paragraph.name, ...written });
   }
