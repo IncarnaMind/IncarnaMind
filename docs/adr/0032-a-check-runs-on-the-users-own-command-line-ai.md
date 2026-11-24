@@ -98,3 +98,7 @@ It amends ADR-0026's decision 6, "Background work never uses a hosted agent… c
 - `src/core/agents/` gains run grants beside pairings, each holding its Note and the check's Tools (`./askedChecks`) and the connections opened with it, and the run itself (`./ownRun`).
 - `dataFlowIds` gains "hosted-agents"; the Privacy page, `docs/privacy.md` and `docs/where-your-data-goes.md` name it.
 - **Before it is offered,** Claude Code passes a real run with no model set up in IncarnaMind. Codex follows in a record of its own, once a design holds what decision 3 found its code mode still reaches.
+
+## Addendum, 2026-11-24: decision 3 is the check's, not the conversation's (#3653)
+
+Decision 3's flags, its settings check before the prompt and its watch now hold a check and Meetings' requests only. A request in a Note's conversation runs the User's Claude Code with its own abilities, on the User's own settings, as ADR-0034's addendum of the same day says. Decision 7's list of what is read gains, for the conversation, the current permission mode in the `initialize` answer. A check still runs on IncarnaMind's Tools only, unattended, and never asks.
