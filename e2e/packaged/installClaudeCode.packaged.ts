@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
 import { dismissChatSetup, openSettings } from "../app";
 import { launchPackaged, packagedExecutable, packagedLogLines } from "./app";
@@ -79,6 +79,7 @@ async function isolatedHomeEnv(
     ...pathWithoutCliAgents(),
     DISABLE_AUTOUPDATER: "1",
   };
+  const browserOpenedFile = join(root, "browser-opened.txt");
   if (process.platform === "win32") {
     const localAppData = join(home, "AppData", "Local");
     const appData = join(home, "AppData", "Roaming");
@@ -86,15 +87,42 @@ async function isolatedHomeEnv(
     await mkdir(appData, { recursive: true });
     env.LOCALAPPDATA = localAppData;
     env.APPDATA = appData;
+    const opener = join(root, "browser-opener.cmd");
+    await writeFile(opener, `@echo off\r\necho %~1> "${browserOpenedFile}"\r\n`, "utf8");
+    env.BROWSER = opener;
     return { env, browserOpenedFile: null };
   }
   // Record the exact URL `claude auth login` asks the browser to open without opening a desktop browser.
-  const browserOpenedFile = join(root, "browser-opened.txt");
   const opener = join(root, "browser-opener.sh");
   await writeFile(opener, `#!/bin/sh\nprintf "%s\\n" "$1" > "${browserOpenedFile}"\n`, "utf8");
   await chmod(opener, 0o755);
   env.BROWSER = opener;
   return { env, browserOpenedFile };
+}
+
+/**
+ * Closes a launched packaged Electron app without hanging indefinitely on Windows if a detached
+ * browser child opened by `claude auth login` inherited Electron's Playwright stdio pipe handles.
+ */
+async function closePackaged(app: ElectronApplication): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      app.close(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          try {
+            app.process().kill();
+          } catch {
+            // Process may already have exited.
+          }
+          resolve();
+        }, 15_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 let folders: string[] = [];
@@ -211,7 +239,7 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
     await expect(signIn).toHaveCount(0);
     await expect(window.getByTestId("claude-code-install-offer")).toHaveCount(0);
   } finally {
-    await app.close();
+    await closePackaged(app);
     if (userPathBefore !== null) {
       const userPathAfter = readWindowsUserPath();
       if (userPathAfter?.value !== userPathBefore.value) restoreWindowsUserPath(userPathBefore);
@@ -262,7 +290,7 @@ test("cancelling while the real packaged installer subprocess is running stops t
     expect(existsSync(downloadsDir)).toBe(false);
     expect(existsSync(join(home, ".local", "bin", binaryName))).toBe(false);
   } finally {
-    await app.close();
+    await closePackaged(app);
   }
 });
 
@@ -304,6 +332,6 @@ test("packaged Claude Code install shows plain failure words, Try again, and Ant
     );
     expect(existsSync(join(home, ".local", "bin", binaryName))).toBe(false);
   } finally {
-    await app.close();
+    await closePackaged(app);
   }
 });
