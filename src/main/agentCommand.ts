@@ -52,13 +52,14 @@ const MAX_SHORT_OUTPUT = 16 * 1024 * 1024;
 
 /**
  * A short command's exit code and what it printed. `env`: variables of its own on top of the login
- * shell's; `cwd`: the folder it runs in.
+ * shell's; `cwd`: the folder it runs in; `signal`: stops it, and then it gave no answer.
  */
 export async function short(
   command: string,
   args: string[],
-  { env, cwd }: { env?: Record<string, string>; cwd?: string } = {},
+  { env, cwd, signal }: { env?: Record<string, string>; cwd?: string; signal?: AbortSignal } = {},
 ): Promise<Short> {
+  if (signal?.aborted) return { kind: "no-answer" };
   let child: Awaited<ReturnType<typeof processes.spawn>>;
   try {
     child = await processes.spawn(command, args, {
@@ -85,11 +86,15 @@ export async function short(
   });
   const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
   let timer: NodeJS.Timeout | undefined;
+  let onAbort: (() => void) | undefined;
   const deadline = new Promise<"late">((resolve) => {
     timer = setTimeout(() => resolve("late"), SHORT_MS);
+    onAbort = () => resolve("late");
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
   const code = await Promise.race([closed, deadline]);
   clearTimeout(timer);
+  if (onAbort) signal?.removeEventListener("abort", onAbort);
   if (code !== "late") {
     return {
       kind: "exited",

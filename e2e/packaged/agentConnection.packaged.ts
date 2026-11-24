@@ -14,6 +14,7 @@ import {
   modernAgentClient,
   redactAgentKeys,
 } from "../../tests/helpers/agentClients";
+import { processRunning } from "../../tests/helpers/processRunning";
 import { acceptPlainTextKeys, coreOf, dismissChatSetup, setWindowSize, writeNote } from "../app";
 import { launchPackaged, packagedExecutable, packagedLogLines } from "./app";
 
@@ -298,16 +299,6 @@ for (const [protocol, documents] of [
   });
 }
 
-/** Whether a process with this id is still running. */
-const running = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /*
  * A check pressed with no model set up runs on the User's own Codex in the background (#3639): the
  * packaged app finds `codex` on the login shell's PATH and starts it, and Codex starts the packaged
@@ -414,9 +405,9 @@ test("a check on the User's own Codex lands through the packaged shim, from a te
       });
       await expect.poll(() => existsSync(join(bin, "pids")), { timeout: 60_000 }).toBe(true);
       const pids = (await readFile(join(bin, "pids"), "utf8")).split(" ").map(Number);
-      expect(pids.filter(running)).toEqual(pids);
+      expect(pids.filter(processRunning)).toEqual(pids);
       await core.evaluate((bridge, id) => bridge.stopOwnAiCheck(id), other);
-      await expect.poll(() => pids.filter(running), { timeout: 10_000 }).toEqual([]);
+      await expect.poll(() => pids.filter(processRunning), { timeout: 10_000 }).toEqual([]);
     });
   } finally {
     await app.close();

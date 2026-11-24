@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sweepCodexRuns } from "../../src/main/codex";
 import { createOwnAi } from "../../src/main/ownAi";
+import { processRunning } from "../helpers/processRunning";
 
 const launch = vi.hoisted(() => vi.fn());
 /** The login shell's PATH, as the launcher reads it. */
@@ -62,6 +63,8 @@ beforeEach(async () => {
   modeFile = join(bin, "mode");
   await writeFile(join(bin, "codex"), "#!/bin/sh\nexit 0\n");
   await chmod(join(bin, "codex"), 0o755);
+  // Windows finds a command only by a PATHEXT extension.
+  if (process.platform === "win32") await writeFile(join(bin, "codex.cmd"), "@exit /b 0\r\n");
   await writeFile(join(bin, "server.cjs"), SERVER_PROGRAM);
   shell.PATH = bin;
   starts = [];
@@ -232,6 +235,7 @@ describe("a check run on the User's own Codex (#3639)", () => {
     ["limit", "service"],
     ["late", "unsupported"],
     ["early-item", "unsupported"],
+    ["resource-list-all", "outside"],
     ["resource-read-codex", "outside"],
     ["resource-list-other", "outside"],
   ])("ends a run that shows %s", async (shown, reason) => {
@@ -279,12 +283,15 @@ describe("a check run on the User's own Codex (#3639)", () => {
       await run();
       await mode("late-debug");
       await run();
+      await mode("late-split");
+      await run();
       const logged = info.mock.calls.map((call) => call.join(" ")).join("\n");
       expect(logged).toContain("functions.request_user_input");
       expect(logged).toContain("unknown configuration field");
       expect(logged).toContain("xxxx[hidden] end");
       expect(logged).not.toContain("DEBUG-MARKER");
       expect(logged).not.toContain(TOKEN.slice(0, 10));
+      expect(logged).toContain("Error: 配置无效");
     } finally {
       info.mockRestore();
     }
@@ -293,8 +300,10 @@ describe("a check run on the User's own Codex (#3639)", () => {
   // protects=a path holding a character Windows' cmd.exe acts on (an & in a profile folder's name) reaches Codex whole: no setting carries it bare, and the run still lands; fails_when=such a User's every check goes by the link, or a setting is cut at the &
   it("writes what cmd.exe acts on as TOML escapes, and the run still lands", async () => {
     const odd = await mkdtemp(join(tmpdir(), "codex-a&b-"));
-    const before = process.env.TMPDIR;
-    process.env.TMPDIR = odd;
+    // os.tmpdir() reads TMPDIR on macOS and Linux, TEMP and then TMP on Windows.
+    const names = ["TMPDIR", "TEMP", "TMP"] as const;
+    const before = names.map((name) => process.env[name]);
+    for (const name of names) process.env[name] = odd;
     try {
       await expect(run()).resolves.toEqual({ kind: "finished", reply: "Checked." });
       const exec = execOf();
@@ -303,10 +312,42 @@ describe("a check run on the User's own Codex (#3639)", () => {
       expect(sqlite).toContain("\\u0026");
       expect(JSON.parse(sqlite)).toContain("codex-a&b-");
     } finally {
-      if (before === undefined) delete process.env.TMPDIR;
-      else process.env.TMPDIR = before;
+      names.forEach((name, at) => {
+        const was = before[at];
+        if (was === undefined) delete process.env[name];
+        else process.env[name] = was;
+      });
       await rm(odd, { recursive: true, force: true });
     }
+  });
+
+  // protects=Stop pressed while Codex lists its tools ends that command, and no turn starts after it; fails_when=a stopped check's setup goes on and starts Codex's turn after Stop
+  it.skipIf(process.platform === "win32")(
+    "ends the preflight when stopped during it, and starts no turn",
+    async () => {
+      await mode("slow-preflight");
+      const stop = new AbortController();
+      const job = run(stop.signal);
+      await vi.waitFor(async () => expect(existsSync(join(bin, "preflight-pid"))).toBe(true), {
+        timeout: 15_000,
+      });
+      const preflight = Number(await readFile(join(bin, "preflight-pid"), "utf8"));
+      stop.abort();
+      await expect(job).rejects.toThrow();
+      await vi.waitFor(() => expect(processRunning(preflight)).toBe(false), { timeout: 5_000 });
+      expect(execOf()).toBeUndefined();
+    },
+    30_000,
+  );
+
+  // protects=a Codex gone or unrunnable between its preflight and its turn sends the check by its link, as one that ends before its turn does; fails_when=such a check ends as an error of its own
+  it("goes by the link when Codex can't start its turn", async () => {
+    const start = launch.getMockImplementation();
+    launch.mockImplementation(async (command: string, args: string[], options: object) => {
+      if (args[0] === "exec") throw Object.assign(new Error("spawn EACCES"), { code: "EACCES" });
+      return start?.(command, args, options);
+    });
+    await expect(run()).resolves.toEqual({ kind: "failed", reason: "unsupported" });
   });
 
   // protects=Stop ends Codex and IncarnaMind's server it started in a process group of its own, and the run's folder goes; fails_when=a stopped run leaves Codex, its server or its folder behind
@@ -322,9 +363,9 @@ describe("a check run on the User's own Codex (#3639)", () => {
       const [codex, server] = (await readFile(join(bin, "pids"), "utf8")).split(" ").map(Number);
       stop.abort();
       await expect(job).rejects.toThrow();
-      await vi.waitFor(() => expect(() => process.kill(codex ?? 0, 0)).toThrow());
+      await vi.waitFor(() => expect(processRunning(codex ?? 0)).toBe(false));
       // Its stdin closed with Codex: IncarnaMind's server ends too, and the grant's end closes it in the app.
-      await vi.waitFor(() => expect(() => process.kill(server ?? 0, 0)).toThrow(), {
+      await vi.waitFor(() => expect(processRunning(server ?? 0)).toBe(false), {
         timeout: 5_000,
       });
       const preflight = starts.find((start) => start.args[1] === "prompt-input");

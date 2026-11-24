@@ -8,15 +8,17 @@
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped, writing
 // its own and its server's process ids beside the mode file; "outside" asks for a command of its
 // own; "unreadable" prints a line that isn't JSON; "limit" ends as a plan's limit does; "late"
-// exits before its turn starts, and "late-debug" first prints debug lines, as with RUST_LOG set,
-// and puts the grant in its last line; "old" is 0.169.0; "signed-out" isn't signed in; "extra-tool" offers
+// exits before its turn starts, "late-debug" first prints debug lines, as with RUST_LOG set, and
+// puts the grant in its last line, and "late-split" splits a Chinese character of its error
+// across two writes; "slow-preflight" lists its tools only once stopped; "old" is 0.169.0; "signed-out" isn't signed in; "extra-tool" offers
 // a tool of its own in the preflight; "renamed" no longer knows the feature shell_snapshot, as a
 // later Codex might; "bad-catalog" prints a catalog that isn't one; "other-tool" and "other-server"
 // call an IncarnaMind Tool it wasn't allowed, or another server's; "early-item" prints an item
-// before its turn starts; "resources" lists and reads resources as Codex 0.170.0 reports it, then
-// checks; "resource-read-codex" and "resource-list-other" show a read under Codex's own name and a
-// list naming another server, as it doesn't; "stall" goes silent after its turn starts; "slow"
-// thinks for ever.
+// before its turn starts; "resources" lists and reads IncarnaMind's resources as Codex 0.170.0
+// reports it, then checks; "resource-list-all" lists every server's, which asks any other server
+// configured; "resource-read-codex" and "resource-list-other" show a read under Codex's own name
+// and a list naming another server; "stall" goes silent after its turn starts; "slow" thinks for
+// ever.
 //
 // Like Codex 0.170.0, it refuses a feature it doesn't know.
 import { spawn } from "node:child_process";
@@ -172,6 +174,11 @@ function ownTools() {
 }
 
 if (args[0] === "debug" && args[1] === "prompt-input") {
+  if (mode === "slow-preflight") {
+    writeFileSync(join(dirname(modeFile), "preflight-pid"), String(process.pid));
+    setInterval(() => undefined, 1000);
+    await new Promise(() => undefined);
+  }
   const started = await server();
   say([
     {
@@ -205,6 +212,13 @@ if (mode === "late-debug") {
     console.error(`2026-11-24T00:00:00Z DEBUG codex_core: line ${at} DEBUG-MARKER`);
   console.error(`Error: ${"x".repeat(280)}${process.env.INCARNAMIND_AGENT_TOKEN ?? ""} end`);
   process.exit(1);
+}
+if (mode === "late-split") {
+  const error = Buffer.from("Error: 配置无效\n");
+  process.stderr.write(error.subarray(0, 9));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  process.stderr.write(error.subarray(9), () => process.exit(1));
+  await new Promise(() => undefined);
 }
 const started = await server();
 say({ type: "thread.started", thread_id: "00000000-0000-7000-8000-000000000000" });
@@ -252,11 +266,24 @@ if (mode === "wait") {
     },
   });
   setInterval(() => undefined, 1000);
-} else if (mode === "resource-read-codex" || mode === "resource-list-other") {
-  const call =
-    mode === "resource-read-codex"
-      ? { server: "codex", tool: "read_mcp_resource", arguments: { uri: "x://y" } }
-      : { server: "codex", tool: "list_mcp_resources", arguments: { server: "elsewhere" } };
+} else if (
+  mode === "resource-list-all" ||
+  mode === "resource-read-codex" ||
+  mode === "resource-list-other"
+) {
+  const call = {
+    "resource-list-all": { server: "codex", tool: "list_mcp_resources", arguments: {} },
+    "resource-read-codex": {
+      server: "codex",
+      tool: "read_mcp_resource",
+      arguments: { uri: "x://y" },
+    },
+    "resource-list-other": {
+      server: "codex",
+      tool: "list_mcp_resources",
+      arguments: { server: "elsewhere" },
+    },
+  }[mode];
   say({
     type: "item.started",
     item: { id: `item_${item++}`, type: "mcp_tool_call", ...call, status: "in_progress" },
@@ -286,9 +313,12 @@ if (mode === "wait") {
   };
   if (mode === "resources") {
     for (const call of [
-      { server: "codex", tool: "list_mcp_resources", arguments: {} },
-      { server: "codex", tool: "list_mcp_resource_templates", arguments: {} },
       { server: "incarnamind", tool: "list_mcp_resources", arguments: { server: "incarnamind" } },
+      {
+        server: "incarnamind",
+        tool: "list_mcp_resource_templates",
+        arguments: { server: "incarnamind" },
+      },
       {
         server: "incarnamind",
         tool: "read_mcp_resource",

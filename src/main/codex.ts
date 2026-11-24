@@ -209,10 +209,15 @@ interface Defaults {
  * Writes the catalog built from the installed binary into the run's folder, and gives the models
  * Codex could use there with none set: null when the binary gives none IncarnaMind can read.
  */
-async function writeCatalog(path: string, folder: Folder): Promise<Defaults | null> {
+async function writeCatalog(
+  path: string,
+  folder: Folder,
+  signal: AbortSignal,
+): Promise<Defaults | null> {
   const printed = await short(path, ["debug", "models", "--bundled"], {
     env: { CODEX_HOME: folder.codexHome },
     cwd: folder.work,
+    signal,
   });
   if (printed.kind !== "exited" || printed.code !== 0) return null;
   let models: Record<string, unknown>[] | null;
@@ -317,6 +322,7 @@ async function preflight(
   tools: readonly string[],
   instructions: string,
   defaults: Defaults,
+  signal: AbortSignal,
 ): Promise<boolean> {
   const expected = [
     ...RESOURCE_TOOLS.map((tool) => `functions.${tool}`),
@@ -333,7 +339,7 @@ async function preflight(
           ...overrides(folder, server, tools, instructions),
           ...(model ? ["-c", `model=${toml(model)}`] : []),
         ],
-        { env: { ...server.env, CODEX_HOME: folder.codexHome }, cwd: folder.work },
+        { env: { ...server.env, CODEX_HOME: folder.codexHome }, cwd: folder.work, signal },
       );
       return printed.kind === "exited" && printed.code === 0 ? toolsOffered(printed.stdout) : null;
     }),
@@ -342,6 +348,7 @@ async function preflight(
     (names) => names === null || JSON.stringify([...names].sort()) !== JSON.stringify(expected),
   );
   if (unexpected === undefined) return true;
+  if (signal.aborted) return false;
   console.info(
     "Codex's preflight didn't list the check's Tools alone; the check goes by its link. It listed:",
     unexpected === null ? "(nothing it could read)" : [...unexpected].sort().join(" "),
@@ -383,15 +390,24 @@ class OutsideError extends Error {
 export async function runCodex(run: CodexRun): Promise<CodexEnd> {
   const folder = await runFolder();
   try {
-    const defaults = await writeCatalog(run.path, folder);
+    run.signal.throwIfAborted();
+    const defaults = await writeCatalog(run.path, folder, run.signal);
+    run.signal.throwIfAborted();
     if (!defaults) {
       console.info("Codex gave no model catalog IncarnaMind can read; the check goes by its link.");
       return { kind: "failed", reason: "unsupported" };
     }
-    if (!(await preflight(run.path, folder, run.server, run.tools, run.instructions, defaults))) {
-      return { kind: "failed", reason: "unsupported" };
-    }
+    const offered = await preflight(
+      run.path,
+      folder,
+      run.server,
+      run.tools,
+      run.instructions,
+      defaults,
+      run.signal,
+    );
     run.signal.throwIfAborted();
+    if (!offered) return { kind: "failed", reason: "unsupported" };
     return await execute(run, folder);
   } finally {
     await rm(folder.root, { recursive: true, force: true, maxRetries: 3 }).catch((error: unknown) =>
@@ -401,23 +417,30 @@ export async function runCodex(run: CodexRun): Promise<CodexEnd> {
 }
 
 async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
-  const child = await processes.spawn(
-    run.path,
-    [
-      "exec",
-      "--json",
-      "--ephemeral",
-      "--ignore-user-config",
-      "--ignore-rules",
-      "--strict-config",
-      "--skip-git-repo-check",
-      "--sandbox",
-      "read-only",
-      ...overrides(folder, run.server, run.tools, run.instructions),
-      "-",
-    ],
-    { cwd: folder.work, env: { ...run.server.env }, processGroup: true },
-  );
+  const child = await processes
+    .spawn(
+      run.path,
+      [
+        "exec",
+        "--json",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        ...overrides(folder, run.server, run.tools, run.instructions),
+        "-",
+      ],
+      { cwd: folder.work, env: { ...run.server.env }, processGroup: true },
+    )
+    .catch((error: unknown) => {
+      // Gone or unrunnable since its preflight: nothing reached a model.
+      console.info("Codex didn't start its turn; the check goes by its link.", errorCode(error));
+      return null;
+    });
+  if (child === null) return { kind: "failed", reason: "unsupported" };
   let begun = false;
   let reply = "";
   let notice = "";
@@ -426,9 +449,10 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
   // cut. Only its last line, Codex's own error, reaches the log: with RUST_LOG set in the User's
   // shell, the rest is Codex's debug output.
   let errors: string | undefined = "";
-  child.stderr?.on("data", (chunk: Buffer) => {
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => {
     if (begun || errors === undefined) return;
-    errors += chunk.toString("utf8");
+    errors += chunk;
     if (errors.length > STDERR_KEPT) errors = undefined;
   });
   // The calls of IncarnaMind's Tools under way: the run waits on them silently.
@@ -547,15 +571,18 @@ const lastLine = (text: string) =>
     .at(-1) ?? "";
 
 /**
- * Codex's resource operations, as Codex 0.170.0 reports them: one that names no server comes under
- * Codex's own name and lists every server's, which is only IncarnaMind's; one that names a server
- * comes under that server's name. A read always names one. IncarnaMind's serves no resources.
+ * A resource operation that asks IncarnaMind's server alone, which serves none. Codex 0.170.0 shows
+ * one naming no server under its own name, and it asks every server configured, one a managed
+ * configuration adds among them, so it stops the run; one naming a server Codex doesn't have comes
+ * as no item and asks none.
  */
 function resourceCall(item: Record<string, unknown>): boolean {
-  if (typeof item.tool !== "string" || !RESOURCE_TOOLS.includes(item.tool)) return false;
-  const named = object(item.arguments).server;
-  if (named === undefined) return item.server === "codex" && item.tool !== "read_mcp_resource";
-  return named === SERVER && item.server === SERVER;
+  return (
+    typeof item.tool === "string" &&
+    RESOURCE_TOOLS.includes(item.tool) &&
+    item.server === SERVER &&
+    object(item.arguments).server === SERVER
+  );
 }
 
 /** `text` with every value of the server's variables, the grant among them, taken out. */
