@@ -7177,6 +7177,7 @@ export function createCore(adapters: CoreAdapters): Core {
     askable: (mindId) => agents.askable(mindId),
     conversationGrant: (pairingId, front, hears) =>
       agents.conversationGrant(pairingId, front, hears),
+    citationsOf: (pairingId, tokens) => agents.citationsOf(pairingId, tokens),
     consented: (pairing) => hostedConsent(pairing, HOSTED_FLOW_SENDS),
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
@@ -9813,6 +9814,16 @@ export function createCore(adapters: CoreAdapters): Core {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       return ownAiConversations.turns(mindId);
+    },
+    noteConversationKept: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return ownAiConversations.kept(mindId);
+    },
+    noteModels: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      return [...ownAiConversations.models(mindId)];
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),

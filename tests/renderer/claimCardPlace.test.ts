@@ -37,6 +37,16 @@ describe("a check card near the page's check badge (#1686)", () => {
     expect(apart(519, moved?.y ?? 0, narrow, tall)).toBe(true);
   });
 
+  // The Citation's card over a Citation near a Note's top, at 900 px in Chinese on Linux, and the
+  // badge with the Note's own controls at its top right (#3677).
+  test("one over the badge at the Note's head goes left of it, still over its mark", () => {
+    const head = { left: 808, top: 64, right: 835, bottom: 82 };
+    const card = { width: 360, height: 250 };
+    const moved = movedClearOfBadge({ ...card, x: 530, y: 74 }, 328, head);
+    expect(moved).toEqual({ x: 440 });
+    expect(apart(moved?.x ?? 0, 74, head, card)).toBe(true);
+  });
+
   test("with nowhere to go, it stays where it is", () => {
     const huge = { ...CARD, height: 700 };
     expect(movedClearOfBadge({ ...huge, x: 0, y: 0 }, 40, { ...BADGE, left: 0, right: 900 })).toBe(

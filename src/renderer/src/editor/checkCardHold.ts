@@ -27,6 +27,11 @@ export interface HeldRoom {
   chrome: number;
   /** The badge the card hangs from. */
   badge: { top: number; bottom: number };
+  /**
+   * The window's height, for a card that opens down from a badge at the Note's top right (#3677):
+   * it hangs from its top edge instead, and only its foot goes down.
+   */
+  downTo?: number;
 }
 
 /**
@@ -37,7 +42,10 @@ export interface HeldRoom {
  * would have the card placed again, with its foot moved: the body stays as it was. What doesn't
  * fit stays in the body, which scrolls.
  */
-export function firstHeight({ natural, rest, card, chrome, badge }: HeldRoom): number {
+export function firstHeight({ natural, rest, card, chrome, badge, downTo }: HeldRoom): number {
+  if (downTo !== undefined) {
+    return Math.max(0, Math.min(natural, downTo - CARD_MARGIN - card.top - chrome));
+  }
   if (isBelow(card, badge)) return rest;
   return Math.max(0, Math.min(natural, card.bottom - CARD_MARGIN - chrome));
 }
@@ -52,8 +60,16 @@ export function isBelowOf(body: HTMLElement, badge: Element): boolean {
   return card !== undefined && isBelow(card, badge.getBoundingClientRect());
 }
 
-/** `firstHeight` for the body as it is laid out now, under the badge it hangs from. */
-export function firstHeightOf(body: HTMLElement, badge: Element, rest: number): number {
+/**
+ * `firstHeight` for the body as it is laid out now, under the badge it hangs from; `down` for a
+ * card that opens down from its badge.
+ */
+export function firstHeightOf(
+  body: HTMLElement,
+  badge: Element,
+  rest: number,
+  down = false,
+): number {
   const element = body.closest<HTMLElement>(".check-card");
   if (!element) return body.offsetHeight;
   return firstHeight({
@@ -63,5 +79,46 @@ export function firstHeightOf(body: HTMLElement, badge: Element, rest: number): 
     // Its scroll height, not its box: a body taller than the room has already clamped the card.
     chrome: element.scrollHeight - body.offsetHeight,
     badge: badge.getBoundingClientRect(),
+    ...(down && { downTo: window.innerHeight }),
   });
+}
+
+/**
+ * The part of the Note's pane a sentence Next goes to can be read in: the pane, less what the
+ * check card covers of the text when it stays open over it. The card at the Note's top right
+ * (#3677) leaves the room under it; one at a page's foot, the room above it.
+ */
+export function roomBeside(
+  pane: { top: number; bottom: number },
+  card: { top: number; bottom: number; left: number; right: number } | null,
+  text: { left: number; right: number },
+): { top: number; bottom: number } {
+  if (!card || card.left >= text.right || card.right <= text.left) return pane;
+  if (card.bottom <= pane.top || card.top >= pane.bottom) return pane;
+  const below = pane.bottom - Math.max(pane.top, card.bottom);
+  const above = Math.min(pane.bottom, card.top) - pane.top;
+  return below >= above
+    ? { top: Math.max(pane.top, card.bottom), bottom: pane.bottom }
+    : { top: pane.top, bottom: Math.min(pane.bottom, card.top) };
+}
+
+/** Whether any line of the text block that holds `node` is under `card`. */
+export function textUnder(
+  node: Node,
+  card: { top: number; bottom: number; left: number; right: number },
+): boolean {
+  const block = (node instanceof Element ? node : node.parentElement)?.closest(
+    "p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th",
+  );
+  if (!block) return false;
+  const range = document.createRange();
+  range.selectNodeContents(block);
+  return [...range.getClientRects()].some(
+    (line) =>
+      line.width > 0 &&
+      line.left < card.right &&
+      card.left < line.right &&
+      line.top < card.bottom &&
+      card.top < line.bottom,
+  );
 }

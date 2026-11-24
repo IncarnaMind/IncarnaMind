@@ -33,6 +33,7 @@ import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
 import type { BadgeMark } from "./badgeState";
 import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
+import { roomBeside, textUnder } from "./checkCardHold";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import {
@@ -317,6 +318,7 @@ export function HealthCard({
    * own position, not its paragraph's, which can be taller than the page, and clear of the fade and
    * the badge at the page's foot.
    */
+  const rowsRef = useRef<HTMLDivElement>(null);
   const goToNext = (row: CheckRow) => {
     if (editor.isDestroyed) return;
     const targets = placesOf(row);
@@ -328,15 +330,26 @@ export function HealthCard({
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(doc.resolve(at))));
     editor.view.focus();
     const scroller = editor.view.dom.closest(".mind-scroller");
+    const card = rowsRef.current?.closest(".check-card") ?? null;
     if (scroller) {
       const caret = editor.view.coordsAtPos(at);
-      const area = scroller.getBoundingClientRect();
-      scroller.scrollTop += (caret.top + caret.bottom) / 2 - (area.top + area.bottom) / 2;
+      const { top, bottom } = roomBeside(
+        scroller.getBoundingClientRect(),
+        card?.getBoundingClientRect() ?? null,
+        editor.view.dom.getBoundingClientRect(),
+      );
+      scroller.scrollTop += (caret.top + caret.bottom) / 2 - (top + bottom) / 2;
     }
     const claim = shownClaims(editor.state).find(
       (each) => each.sentence.from <= at && at < each.sentence.to,
     );
-    if (!claim) return;
+    if (!claim) {
+      // In the Note's first lines, or a pane the card nearly fills, no scroll clears the sentence:
+      // the card makes way, and the caret stays at the sentence, where the walk goes on (#3677).
+      if (card && textUnder(editor.view.domAtPos(at).node, card.getBoundingClientRect()))
+        setCheckCardOpen(place, false);
+      return;
+    }
     setCheckCardOpen(place, false);
     if (claim.kind === "chart") {
       void openFigureSchedule(mindId).catch(useAppStore.getState().reportError);
@@ -415,7 +428,7 @@ export function HealthCard({
         </p>
       )}
       <AddedDocumentsLine doc={doc} mindId={mindId} />
-      <div className="check-rows" data-testid="mind-health">
+      <div ref={rowsRef} className="check-rows" data-testid="mind-health">
         {rows.map(({ row: part }) => row(part))}
       </div>
       {(kept.length > 0 || opinionsHere) && (

@@ -8837,6 +8837,8 @@ export const en = {
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
     "This note changed after the agent read it. Read it again, then propose the changes again.",
+  "agents.problem.yours":
+    "{paragraph} already has your change from this request, which is in the note once the request ends. Change another paragraph, or say what else to change in your reply.",
   "agents.problem.waiting":
     "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
   "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
@@ -8958,6 +8960,11 @@ export const en = {
   "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
+  // A paragraph this run changed or added from the box at the Note's foot, which the window that
+  // asked puts in once the request ends (ADR-0034).
+  "agents.mind.yours": "(your change from this request, in the note once the request ends)",
+  "agents.mind.yoursRemoved":
+    "(taken out by your change from this request, gone from the note once the request ends)",
   "agents.mind.busy": "(being written)",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",
@@ -9372,6 +9379,40 @@ export const en = {
   "noteAsk.hideConversation": "Hide conversation",
   "noteAsk.conversation": "This note’s conversation with your AI",
   "noteAsk.conversationEmpty": "Nothing asked yet.",
+  "noteColumn.title": "Conversation",
+  "noteAsk.doing.read_passages.of": "Reading {n} of {total}: “{summary}”",
+  "noteColumn.readOf": "Read {n} of {total} Documents · {seconds}s",
+  "noteColumn.readOf.part": "Read {n} of {total} Documents, {part} only in part · {seconds}s",
+  "noteColumn.readPart": "Read about {part}% of “{summary}”: it is long",
+  "noteColumn.stopped": "Stopped. It had read {what}.",
+  "noteColumn.stopped.nothing": "Stopped before it read anything.",
+  "noteColumn.what.mindAnd": "“{mind}” and {count} Documents",
+  "noteColumn.what.mindAndOne": "“{mind}” and “{document}”",
+  "noteColumn.what.mind": "“{mind}”",
+  "noteColumn.what.docs": "{count} Documents",
+  "noteColumn.what.doc": "“{document}”",
+  "noteColumn.made.note": "Note",
+  "noteColumn.made.waiting.one": "1 change waits",
+  "noteColumn.made.waiting.other": "{count} changes wait",
+  "noteColumn.close": "Hide conversation",
+  "noteColumn.worked": "Worked for {seconds}s",
+  "noteColumn.answered": "Answered by {model} in {seconds}s",
+  "noteColumn.model": "Model for this note’s conversation",
+  "noteAsk.modelBusy": "The model can be changed once this request ends",
+  "noteColumn.moveRight": "Move to the right",
+  "noteColumn.moveDown": "Move back under the note",
+  "noteColumn.copy": "Copy",
+  "noteColumn.citation": "Citation {number}",
+  "noteAsk.did.read_mind": "Read “{summary}”",
+  "noteAsk.did.list_minds": "Looked through your notes",
+  "noteAsk.did.search": "Searched your Documents for “{summary}”",
+  "noteAsk.did.read_passages": "Read “{summary}”",
+  "noteAsk.did.cite": "Checked quotes",
+  "noteAsk.did.propose_changes": "Changed “{summary}”",
+  "noteAsk.did.create_mind": "Wrote “{summary}”",
+  "noteAsk.did.run_analysis": "Worked out figures",
+  "noteAsk.did.publish_canvas": "Made a page",
+  "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
   "noteAsk.action.improve": "Improve the writing",
@@ -9402,6 +9443,11 @@ export const en = {
   "noteAsk.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
   "noteAsk.problem.failed": "{agent} stopped before it finished. Try again.",
+  "noteAsk.problem.outside":
+    "{agent} stopped because it asked for something outside this request. Try again.",
+  "noteAsk.problem.unreadable": "{agent} stopped before it finished. Try again.",
+  "noteAsk.problem.service":
+    "{agent} stopped before it finished. Check your sign-in and usage in {agent}.",
   "noteAsk.problem.read-only": "{agent} may only read. Let it propose changes?",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":

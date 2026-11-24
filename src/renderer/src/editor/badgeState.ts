@@ -1,3 +1,4 @@
+import type { NoteState } from "../noteState";
 export const BADGE_MARKS = [
   "contradicted",
   "unsupported",
@@ -81,3 +82,16 @@ export function badgeOf(input: BadgeInput): Badge | null {
   if (!shown) return null;
   return { marks, toCheck, running: input.running, checked: input.checked };
 }
+
+/**
+ * What a checked Note left unsettled, also beside the sentences it has not yet cited, each by the
+ * mark its sentences carry in the margin: changed since their check, and those a check can't settle
+ * or whose figure wasn't worked out again.
+ */
+export const caveatMarks = (state: NoteState) =>
+  state.kind !== "checked" && state.kind !== "not-yet-cited"
+    ? []
+    : [
+        { state: "needs-recheck" as const, count: state.needsCheck },
+        { state: "not-checked" as const, count: state.cantCheck + state.notRecalculated },
+      ].filter((each) => each.count > 0);

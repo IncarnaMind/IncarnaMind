@@ -48,7 +48,7 @@ import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { AskAgentAllButton, useAskAll } from "./AskAgentAll";
-import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
+import { type Badge, type BadgeInput, badgeOf, caveatMarks } from "./badgeState";
 import { CheckFasterLine } from "./CheckFasterLine";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
@@ -576,6 +576,9 @@ function BadgeFrame({
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // From a badge at the Note's top right (#3677) the card opens down, hanging from its top edge;
+  // from one at a page's foot it opens up, hanging from its foot.
+  const fromTop = anchor !== null && anchor.getBoundingClientRect().top < window.innerHeight / 2;
   // The card takes its first paint's height, so what lands later never moves what is above it;
   // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
@@ -599,8 +602,9 @@ function BadgeFrame({
       return;
     }
     // A card that opened with nothing in it has nothing to move: what lands in it sets its height,
-    // once, when it has stopped landing (#2313). Under its badge it keeps the body it had at
-    // once, so what lands never covers the badge.
+    // once, when it has stopped landing (#2313). Hanging from its foot under its badge it keeps
+    // the body it had at once, so what lands never covers the badge; opening down from a badge at
+    // the Note's top right (#3677), its foot goes down instead.
     const content = element.firstElementChild;
     if (!content || !anchor) return;
     const rest = element.offsetHeight;
@@ -610,7 +614,7 @@ function BadgeFrame({
     const hold = () => {
       watching.disconnect();
       window.clearTimeout(settle);
-      setHeldHeight(firstHeightOf(element, anchor, rest));
+      setHeldHeight(firstHeightOf(element, anchor, rest, fromTop));
     };
     // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
     const touched = () => {
@@ -618,7 +622,7 @@ function BadgeFrame({
     };
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
-      if (isBelowOf(element, anchor)) {
+      if (!fromTop && isBelowOf(element, anchor)) {
         watching.disconnect();
         flushSync(() => setHeldHeight(rest));
         return;
@@ -637,7 +641,7 @@ function BadgeFrame({
       card?.removeEventListener("pointerenter", touched);
       card?.removeEventListener("focusin", touched);
     };
-  }, [open, heldHeight, anchor]);
+  }, [open, heldHeight, anchor, fromTop]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -683,8 +687,8 @@ function BadgeFrame({
       {open && anchor && (
         <Popover
           anchor={anchor}
-          placement="top-end"
-          fromBottom
+          placement={fromTop ? "bottom-end" : "top-end"}
+          fromBottom={!fromTop}
           middleware={placing}
           aria-label={t("health.label")}
           data-testid="check-card"
@@ -765,6 +769,64 @@ function StateMark({ state }: { state: NoteState }) {
   }
 }
 
+/**
+ * The resting state as a mark and its count, as the badge shows it with the Note's own controls
+ * (#3677): "○ 3" to check, each problem's mark and count ("≠ 1 · ! 1"), "✓ 24" checked. A checked
+ * Note with something left rests on that, never on the ✓: its words stay its name.
+ */
+function QuietCount({
+  state,
+  badge,
+  format,
+}: {
+  state: NoteState;
+  badge: Badge;
+  format(value: number): string;
+}) {
+  if (state.kind === "needs-look" && badge.marks.length > 0) {
+    return (
+      <span className="check-badge-quiet">
+        {badge.marks.map(({ part, count }) => (
+          <span key={part} className="check-badge-mark" data-part={part}>
+            <PartMark part={part} />
+            {format(count)}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  const left = caveatMarks(state);
+  if (left.length > 0) {
+    return (
+      <span className="check-badge-quiet">
+        {state.kind === "not-yet-cited" && (
+          <span className="check-badge-mark" data-part="notYetCited">
+            <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />
+            {format(state.canBeCited)}
+          </span>
+        )}
+        {left.map((each) => (
+          <span key={each.state} className="check-badge-mark" data-part={each.state}>
+            <ClaimMarkIcon state={each.state} className="mind-health-icon" />
+            {format(each.count)}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  const count =
+    state.kind === "not-checked"
+      ? state.notRecalculated > 0
+        ? state.notRecalculated
+        : state.toCheck
+      : state.kind === "not-yet-cited"
+        ? state.canBeCited
+        : state.kind === "checked"
+          ? state.checkable
+          : state.look;
+  return count > 0 ? <span className="check-badge-quiet">{format(count)}</span> : null;
+}
+
 function BadgePill({
   badge,
   state,
@@ -819,7 +881,17 @@ function BadgePill({
     );
   } else if (state && resting) {
     parts.push(
-      <span key="state" className="check-badge-mark" data-part={state.mark} data-tone={state.tone}>
+      <span
+        key="state"
+        className="check-badge-mark"
+        data-part={state.mark}
+        data-tone={state.tone}
+        data-quiet-marks={
+          (state.kind === "needs-look" && badge.marks.length > 0) || caveatMarks(state).length > 0
+            ? ""
+            : undefined
+        }
+      >
         <StateMark state={state} />
         <span className="check-badge-words">{resting[0]}</span>
         {state.kind === "needs-look" && (
@@ -850,6 +922,7 @@ function BadgePill({
         ))}
       </span>,
     );
+    parts.push(<QuietCount key="quiet" state={state} badge={badge} format={format} />);
   } else {
     for (const { part, count } of badge.marks) {
       parts.push(
@@ -900,6 +973,7 @@ function BadgePill({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={badge.running && running ? undefined : label}
+        title={badge.running && running ? undefined : label}
         onClick={onToggle}
       >
         {parts}

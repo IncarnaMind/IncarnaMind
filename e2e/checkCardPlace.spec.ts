@@ -15,11 +15,9 @@ import {
 } from "./app";
 
 /*
- * A check card that opens with only its title opens above its badge, at the smallest Note pane
- * the app allows: the window at its least height with the assistant at the
- * side, and with it at the bottom, dragged as tall as it goes. Below its badge such a card would
- * hold a body a title high, and what lands in it would show nothing, so a change to the pane's
- * least height, the badge's place or the card's first lines must not bring that back unseen.
+ * A check card that opens with only its title opens down from its badge at the Note's top right
+ * (#3677), inside the window, at the smallest Note pane the app allows: the window at its least
+ * height with the assistant at the side, and with it at the bottom, dragged as tall as it goes.
  */
 
 let dataDir: string;
@@ -32,7 +30,7 @@ test.afterEach(async () => {
 
 for (const language of ["en", "zh-CN"] as const) {
   for (const layout of ["at the side", "at the bottom, dragged tallest"] as const) {
-    test(`a title-only card opens above its badge in the smallest Note pane, the assistant ${layout} (${language})`, async () => {
+    test(`a title-only card opens below its badge in the smallest Note pane, the assistant ${layout} (${language})`, async () => {
       test.setTimeout(120_000);
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
       await dismissChatSetup(window);
@@ -67,10 +65,10 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(pane.height, "the pane is the smallest the app allows").toBeLessThan(
         layout === "at the side" ? 560 : 260,
       );
-      expect(shown.y + shown.height, "the card is above its badge").toBeLessThanOrEqual(
-        badge.y + 0.5,
+      expect(shown.y, "the card is below its badge").toBeGreaterThanOrEqual(
+        badge.y + badge.height - 0.5,
       );
-      expect(shown.y, "and inside the window").toBeGreaterThanOrEqual(0);
+      expect(shown.y + shown.height, "and inside the window").toBeLessThanOrEqual(560);
       await app.close();
     });
   }

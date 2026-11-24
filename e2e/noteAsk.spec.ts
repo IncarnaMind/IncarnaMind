@@ -166,17 +166,30 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await expect(box.getByTestId("note-ask-quote")).toContainText("ship calls in 2025.");
     await nextRun("change");
     await send("Put these in capitals");
-    // The line, as wide as the input, says it in the AI's own words, with Undo at its end; the
+    // The line, in the box's top row, says it in the AI's own words, with Undo at its end; the
     // Note marks what changed, with its own Undo.
     await expect(pill).toHaveAttribute("data-state", "landed");
     await expect(words).toHaveText("Put the selected words in capitals.");
     const undo = box.getByTestId("note-ask-undo");
     await expect(undo).toHaveText("Undo");
-    const [lineBox, inputBox] = [
-      await pill.boundingBox(),
-      await box.getByTestId("note-ask-input").locator("xpath=../..").boundingBox(),
-    ];
-    expect(Math.abs((lineBox?.width ?? 0) - (inputBox?.width ?? 0))).toBeLessThanOrEqual(2);
+    // The line's words start where the input row's do, and the top row's last control, the fold,
+    // ends where Send ends: one box, its two rows on one pair of edges.
+    const edges = await box.evaluate((element) => {
+      const of = (id: string) =>
+        element.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect() ?? null;
+      const row = element.querySelector('[data-testid="note-ask-row"]');
+      const [line, send, fold] = [
+        of("note-ask-pill"),
+        of("note-ask-send"),
+        of("note-ask-handle-toggle"),
+      ];
+      if (!row || !line || !send || !fold) return null;
+      const start =
+        row.getBoundingClientRect().left + Number.parseFloat(getComputedStyle(row).paddingLeft);
+      return { left: line.left - start, right: send.right - fold.right };
+    });
+    expect(Math.abs(edges?.left ?? 99)).toBeLessThanOrEqual(1);
+    expect(Math.abs(edges?.right ?? 99)).toBeLessThanOrEqual(1);
     await expect(frontMind(window)).toContainText("The harbour handled 1,240 SHIP CALLS IN 2025.");
     await expect(frontMind(window)).toContainText(SECOND);
     expect(await urlsOpened(app)).toEqual([]);
@@ -219,19 +232,20 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await nextRun("explain");
     await send("What does this count?");
     await expect(pill).toHaveText("It counts the ship calls the harbour handled in 2025.");
-    // Pressed, the line opens the conversation at that reply: the reply is in one place at a time.
-    await expect(toggle).toHaveText("Show conversation");
+    // Pressed, the line opens the conversation upward in the box, at that reply: the reply is in
+    // one place at a time, and the top row keeps only what the conversation doesn't show.
+    await expect(toggle).toHaveAttribute("aria-label", "Show conversation");
     await pointAndClick(window, words);
-    const conversation = box.getByTestId("note-ask-conversation");
-    await expect(conversation.getByTestId("note-ask-turn")).toHaveCount(3);
-    await expect(conversation.getByTestId("note-ask-turn").last()).toContainText(
+    const conversation = box.getByTestId("note-ask-panel");
+    await expect(conversation.getByTestId("note-column-turn")).toHaveCount(3);
+    await expect(conversation.getByTestId("note-column-turn").last()).toContainText(
       "It counts the ship calls the harbour handled in 2025.",
     );
     await expect(conversation).toContainText("Put these in capitals");
     await expect(pill).toHaveCount(0);
-    await expect(toggle).toHaveText("Hide conversation");
+    await expect(toggle).toHaveAttribute("aria-label", "Hide conversation");
     await both(app, window, "note-ask-conversation", async () => {
-      await expect(toggle).toHaveText("隐藏对话");
+      await expect(toggle).toHaveAttribute("aria-label", "隐藏对话");
     });
     await pointAndClick(window, toggle);
     await expect(conversation).toHaveCount(0);

@@ -217,6 +217,10 @@ for (const widened of [false, true]) {
     ).toHaveCount(1);
 
     if (widened) {
+      // The check card opens down from the badge at the Note's top right, over the claim card's
+      // place (#3677): it closes first.
+      await window.keyboard.press("Escape");
+      await expect(window.getByTestId("check-card")).toHaveCount(0);
       const unsupported = window
         .getByTestId("claim-mark")
         .and(window.locator('[data-check="unsupported"]'));

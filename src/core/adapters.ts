@@ -1722,7 +1722,19 @@ export type OwnAiProgress =
   | { kind: "compacted" }
   | { kind: "said"; text: string }
   | { kind: "tool"; name: string }
-  | { kind: "thinking" };
+  | { kind: "thinking" }
+  /** The model the run answers on, as its start names it. */
+  | { kind: "model"; model: string }
+  /** The models the agent offers, as it answered `listModels` before the prompt went. */
+  | { kind: "models"; models: OwnAiModel[] };
+
+/** A model the User's command-line AI offers, as it lists them itself. */
+export interface OwnAiModel {
+  value: string;
+  resolvedModel: string;
+  displayName: string;
+  description: string;
+}
 
 /**
  * The User's own command-line AI, started once for a job the User pressed, with no window and no
@@ -1749,6 +1761,13 @@ export interface OwnAiRunner {
     instructions: string;
     prompt: string;
     conversation?: { key: string; sessionId: string; resume: boolean };
+    /** One of the values a run's "models" step gave; absent: the agent's own default. */
+    model?: string;
+    /**
+     * Asks the agent, in this run's own process and before the prompt goes, which models it
+     * offers: a question it answers itself, with no model call. Heard as a "models" step.
+     */
+    listModels?: boolean;
     /** Hears what the run is doing as it goes: its words as they come, each call as it starts. */
     progress?(step: OwnAiProgress): void;
     /**

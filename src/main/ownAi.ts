@@ -15,6 +15,7 @@ import { object, older, processes, StalledError, short } from "./agentCommand";
 import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
+import { modelsIn } from "./ownAiModels";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
 export const LOWEST_CLAUDE_CODE = "2.1.248";
@@ -283,6 +284,11 @@ export function createOwnAi({
             session: { id: conversation.sessionId, resume: conversation.resume },
           }),
           permissionMode: request.permissionMode,
+          ...(request.model && { model: request.model }),
+          ...(request.listModels && {
+            onModels: (answer: Record<string, unknown>) =>
+              request.progress?.({ kind: "models", models: modelsIn(answer) }),
+          }),
           partial: true,
           stallMs,
           busy: () => running.size > 0 || compacting !== null,
@@ -351,6 +357,8 @@ export function createOwnAi({
               }
               session = typeof message.session_id === "string" ? message.session_id : null;
               begun = true;
+              if (typeof message.model === "string" && message.model !== "")
+                request.progress?.({ kind: "model", model: message.model });
               return;
             }
             if (message.type === "system" && message.subtype === "api_retry") {

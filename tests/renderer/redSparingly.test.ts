@@ -31,6 +31,9 @@ const RED_RULES = [
   "src/styles.css .claim-wash--contradicted",
   // A note's state when a claim is contradicted (D266): the margin's red, in words.
   'src/styles.css .check-badge[data-tone="error"] .check-badge-words',
+  // The same state at rest with the Note's own controls, its mark and count (#3677).
+  'src/styles.css .note-head-badge .check-badge[data-tone="error"] .check-badge-quiet',
+  'src/styles.css .note-head-badge .check-badge-quiet .check-badge-mark[data-part="contradicted"]',
   'src/styles.css .home-recent-state[data-tone="error"]',
   // The outline of a picture a contradicted quote was read from.
   'src/viewer/viewer.css [data-quote-tone="contradicted"]',

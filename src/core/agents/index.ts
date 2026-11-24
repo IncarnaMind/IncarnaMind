@@ -43,6 +43,7 @@ import {
   type Effect,
   type ExternalService,
   NOT_IN_A_FOLDER_ID,
+  type NoteCitation,
 } from "../api";
 import type { Consent } from "../consent";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
@@ -170,6 +171,7 @@ export interface AgentsOptions {
   access: Omit<
     AgentAccessDeps,
     | "admit"
+    | "reachOf"
     | "record"
     | "notesWrittenSince"
     | "checkRuns"
@@ -524,6 +526,9 @@ export function createAgents(options: AgentsOptions) {
       throw refusal("consent");
     }
     use?.(pairing.id);
+    return reachOfPairing(pairing);
+  };
+  const reachOfPairing = (pairing: AgentPairing): AdmittedPairing => {
     const live = new Set(options.access.folders().map((folder) => folder.id));
     const folderIds = pairing.folderIds.filter((id) => isEntry(id) || live.has(id));
     assertFoldersCanShare(folderIds);
@@ -537,6 +542,12 @@ export function createAgents(options: AgentsOptions) {
     };
   };
   const admit = (pairingId: string) => admissible(pairingId, touch);
+  /** The pairing's reach, read for IncarnaMind's own record of it: no use is recorded. */
+  const reachOf = (pairingId: string): AdmittedPairing => {
+    const pairing = findPairing(pairingId);
+    if (!pairing) throw refusal("unpaired");
+    return reachOfPairing(pairing);
+  };
 
   /** Keeps a call for the activity list, and lets the list's oldest go. */
   const record = (activity: Omit<AgentActivity, "id" | "at" | "request">, requestId?: string) => {
@@ -597,9 +608,12 @@ export function createAgents(options: AgentsOptions) {
     return Number(row?.done ?? 0);
   };
 
+  /** One access per connection for its replies' Citations, which keeps what it read (#3677). */
+  const replyCitations = new Map<string, ReturnType<typeof createAgentAccess>>();
   const accessDeps: AgentAccessDeps = {
     ...options.access,
     admit,
+    reachOf,
     record,
     notesWrittenSince,
     doneSince,
@@ -1167,6 +1181,33 @@ export function createAgents(options: AgentsOptions) {
         tools: CONVERSATION_TOOLS,
         front,
         ...hears,
+      });
+    },
+
+    /**
+     * Of `tokens`, the Citations IncarnaMind gave this connection that are found in their Document
+     * as it is now, within the connection's reach; none once the connection is gone.
+     */
+    citationsOf(pairingId: string, tokens: readonly string[]): NoteCitation[] {
+      if (tokens.length === 0) return [];
+      let access = replyCitations.get(pairingId);
+      if (!access) {
+        access = createAgentAccess(accessDeps, pairingId);
+        replyCitations.set(pairingId, access);
+      }
+      let checked: ReturnType<typeof access.citationsNow>;
+      try {
+        checked = access.citationsNow(tokens);
+      } catch (error) {
+        if (!(error instanceof AgentRefusedError)) throw error;
+        replyCitations.delete(pairingId);
+        return [];
+      }
+      return checked.flatMap((now, index) => {
+        const token = tokens[index];
+        return now.check === "found" && token && now.document !== null && now.quote !== null
+          ? [{ token, documentName: now.document, quote: now.quote }]
+          : [];
       });
     },
 

@@ -131,6 +131,7 @@ import {
   type CitedToken,
   HANDLE,
   HeldParagraph,
+  heldByOwn,
   type NamedChange,
   type NamedNote,
   type NamedOptions,
@@ -586,6 +587,12 @@ export interface AgentAccess {
   readPassages(input: AgentReadInput): Promise<AgentReadResult>;
   cite(input: AgentCiteInput): Promise<AgentCiteResult>;
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
+  /**
+   * Tokens IncarnaMind gave this connection, each checked against its Document as it is now, as a
+   * change to a Note checks one; it records nothing, being no call of the agent's (#3677). A token
+   * is read in its Document again only once that Document's content changed.
+   */
+  citationsNow(tokens: readonly string[]): AgentCheckedCitation[];
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -720,6 +727,11 @@ export interface AgentAccessDeps {
   sorting: AgentSorting;
   /** The pairing, if it may call now; otherwise throws `AgentRefusedError`. */
   admit(pairingId: string): AdmittedPairing;
+  /**
+   * The pairing as it reaches now, for reading IncarnaMind's own record of it (a Citation it gave):
+   * no use is recorded and nothing is told; throws `AgentRefusedError` once it is gone.
+   */
+  reachOf(pairingId: string): AdmittedPairing;
   /** The live Folders. */
   folders(): { id: string; name: string; parentId: string | null; keepInside: boolean }[];
   /** The walled Folder a Folder is behind, or is; null outside every wall. */
@@ -1427,6 +1439,13 @@ export function createAgentAccess(
   grant?: RunGrant,
 ): AgentAccess {
   const t: Say = (key, params) => deps.say(key, params);
+  /**
+   * The requests of this run whose changes the window that asked applies once the request ends
+   * (ADR-0034): the Note reads with them in, so the agent never sees its change as not landed.
+   */
+  const ownPending = new Set<string>();
+  /** A reply's tokens as last read in their Document, by the content they were read in (#3677). */
+  const rechecked = new Map<string, { hash: string | null; now: CitationRecheck }>();
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
   let askedFromIncarnaMind = false;
   const opened = (item: AgentOpened["item"]) => deps.opened({ item, front: askedFromIncarnaMind });
@@ -1876,6 +1895,7 @@ export function createAgentAccess(
     inScope: ReadonlySet<string>,
     live: readonly LiveDocument[],
     token: string,
+    recheck: (kept: AgentCitation) => CitationRecheck = recheckKept,
   ): { cited: CitedToken | null; report: AgentCheckedCitation } => {
     const kept = deps.citations.find(pairing.id, token);
     if (!kept || !usable(inScope, kept.documentId)) {
@@ -1891,7 +1911,7 @@ export function createAgentAccess(
         },
       };
     }
-    const now = recheckKept(kept);
+    const now = recheck(kept);
     const check = now.check === "found" || now.check === "cant-check" ? now.check : "not-found";
     const changed = now.contentHash !== null && now.contentHash !== kept.contentHash;
     const asMinted = {
@@ -2103,8 +2123,31 @@ export function createAgentAccess(
    * How a Note is named for an agent: its title as ¶0, and in a Note the agent wrote, what the
    * User wrote there marked as theirs (#3371).
    */
+  /**
+   * As `proposeNamed`; a paragraph held by this run's own change is the agent's, in the Note once
+   * the request ends, not one for the User to accept or reject first.
+   */
+  const proposeYours: typeof proposeNamed = (blocks, ...rest) => {
+    try {
+      return proposeNamed(blocks, ...rest);
+    } catch (error) {
+      if (
+        error instanceof HeldParagraph &&
+        error.held === "waiting" &&
+        heldByOwn(blocks, error.paragraph.blockId, ownPending)
+      ) {
+        throw new AgentRefusedError(
+          "waiting",
+          t("agents.problem.yours", { paragraph: error.paragraph.name }),
+        );
+      }
+      throw error;
+    }
+  };
+
   const namingOf = (own: boolean): NamedOptions => ({
     title: true,
+    ownPending,
     ...(own && {
       users: { wrote: t("agents.mind.usersWrote"), changed: t("agents.mind.usersChanged") },
     }),
@@ -2128,6 +2171,8 @@ export function createAgentAccess(
     },
     waiting: t("agents.mind.waiting"),
     busy: t("agents.mind.busy"),
+    yours: t("agents.mind.yours"),
+    yoursRemoved: t("agents.mind.yoursRemoved"),
     untitledTab: (number: number) => t("noteTabs.defaultTitle", { n: number }),
   });
 
@@ -2696,6 +2741,22 @@ export function createAgentAccess(
       });
     },
 
+    citationsNow(tokens) {
+      const pairing = deps.reachOf(pairingId);
+      const inScope = new Set(scopeOf(pairing, undefined));
+      const live = deps.liveDocuments();
+      const hashes = new Map(live.map((document) => [document.id, document.contentHash]));
+      const recheck = (kept: AgentCitation) => {
+        const hash = hashes.get(kept.documentId) ?? null;
+        const was = rechecked.get(kept.token);
+        if (was && was.hash === hash) return was.now;
+        const now = recheckKept(kept);
+        rechecked.set(kept.token, { hash, now });
+        return now;
+      };
+      return tokens.map((token) => checkToken(pairing, inScope, live, token, recheck).report);
+    },
+
     checkCitations(input) {
       return call("check_citations", "", [READ_DOCUMENTS], (pairing) => {
         const draft = text(input?.text, "text", MAX_DRAFT_CHARS);
@@ -3158,7 +3219,7 @@ export function createAgentAccess(
           askedHere =
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
-          const proposed = proposeNamed(blocks, note, placed, {
+          const proposed = proposeYours(blocks, note, placed, {
             request,
             made: {
               source: "outside-agent",
@@ -3175,6 +3236,7 @@ export function createAgentAccess(
           });
           const kinds = changeKinds(blocks, mine);
           if (own) decideProposals(blocks, mine, "accept");
+          if (askedHere) ownPending.add(request);
           const now = namedNote(blocks, namedWords(pairing, inScope, []), naming);
           return { ...proposed, kinds, now, waitingInNote: waitingChanges(blocks) };
         };
