@@ -48,7 +48,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
   let state: ClaudeCodeInstallState = { kind: "idle" };
   let generation = 0;
   let activeInstall: { stop: AbortController; installDone: Promise<void> } | null = null;
-  let activeSignIn: { stop: AbortController; done: Promise<void> } | null = null;
+  let activeSignIn: { stop: AbortController; signInDone: Promise<void> } | null = null;
 
   const setState = (next: ClaudeCodeInstallState): ClaudeCodeInstallState => {
     state = next;
@@ -61,7 +61,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
     if (!running) return;
     activeSignIn = null;
     running.stop.abort();
-    await running.done.catch(() => undefined);
+    await running.signInDone.catch(() => undefined);
   };
 
   const beginSignIn = (adapter: ClaudeCodeInstaller, token: number): ClaudeCodeInstallState => {
@@ -76,14 +76,13 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
     const stop = new AbortController();
     const signal = AbortSignal.any([options.lifetime, stop.signal]);
     const current = setState({ kind: "awaiting-sign-in" });
-    const entry: { stop: AbortController; done: Promise<void> } = {
-      stop,
-      done: Promise.resolve(),
-    };
+    const { promise: signInDone, resolve: finishSignIn } = Promise.withResolvers<void>();
+    const entry = { stop, signInDone };
     activeSignIn = entry;
-    entry.done = (async () => {
+    void (async () => {
       try {
         const outcome = await adapter.startSignIn({ signal });
+        finishSignIn();
         if (activeSignIn !== entry || signal.aborted || token !== generation) return;
         if (outcome.kind === "signed-in") {
           const auth = await adapter.checkAuth();
@@ -111,6 +110,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
           setState({ kind: "failed", reason: "sign-in-failed" });
         }
       } catch (error: unknown) {
+        finishSignIn();
         if (activeSignIn === entry) activeSignIn = null;
         if (!signal.aborted && token === generation) {
           log.warn("agents.claudeCodeSignInError", {
@@ -120,6 +120,7 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
         }
       } finally {
         if (activeSignIn === entry) activeSignIn = null;
+        finishSignIn();
       }
     })();
     return current;

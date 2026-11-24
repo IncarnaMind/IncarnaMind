@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, rmdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import crossSpawn from "cross-spawn";
 import type {
   ClaudeCodeAdapterInstallResult,
   ClaudeCodeAuthCheck,
@@ -105,8 +106,9 @@ function childEnvironment(
 }
 
 /**
- * Spawns a discovered `claude` command. On Windows, npm-installed `.cmd` / `.bat` shims cannot be
- * spawned directly under Node 24 without `cmd.exe`, whereas native `.exe` and POSIX binaries run directly.
+ * Spawns a discovered `claude` command via `cross-spawn` so Windows `.cmd`/`.bat` shims
+ * (including paths with spaces or shell metacharacters) are escaped properly while native
+ * `.exe` and POSIX binaries execute directly.
  */
 function spawnClaudeCommand(
   binary: string,
@@ -114,15 +116,7 @@ function spawnClaudeCommand(
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
 ): ChildProcess {
-  if (platform === "win32" && /\.(cmd|bat)$/i.test(binary)) {
-    const comspec = envValue(env, "ComSpec") || "cmd.exe";
-    return spawn(comspec, ["/d", "/s", "/c", binary, ...args], {
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-  }
-  return spawn(binary, args, {
+  return crossSpawn(binary, [...args], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
     detached: platform !== "win32",

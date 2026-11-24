@@ -450,6 +450,25 @@ describe("Claude Code one-press installation through CoreApi (#3638)", () => {
       await new Promise((r) => setTimeout(r, 30));
       expect(await core.getClaudeCodeInstallState()).toEqual({ kind: "idle" });
       expect(standIn.signInCalls).toBe(0);
+
+      // Cancelling while post-sign-in confirmation checkAuth() is pending also returns idle
+      // immediately and ignores the stale confirmation result.
+      standIn.binary = "/tmp/fake-home/.local/bin/claude";
+      standIn.authCalls = 0;
+      standIn.signInGate = deferred<ClaudeCodeSignInResult>();
+      standIn.authGate = deferred<ClaudeCodeAuthCheck>();
+      await core.openClaudeCodeSignIn();
+      standIn.signInGate.resolve({ kind: "signed-in" });
+      standIn.signInGate = null;
+      for (let i = 0; i < 50 && standIn.authCalls === 0; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(standIn.authCalls).toBe(1);
+      expect(await core.cancelClaudeCodeInstall()).toEqual({ kind: "idle" });
+      standIn.authGate.resolve({ kind: "signed-in" });
+      standIn.authGate = null;
+      await new Promise((r) => setTimeout(r, 30));
+      expect(await core.getClaudeCodeInstallState()).toEqual({ kind: "idle" });
     } finally {
       await core.close();
       await rm(data, { recursive: true, force: true });

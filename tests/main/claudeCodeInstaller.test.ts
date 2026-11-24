@@ -339,4 +339,49 @@ describe("createClaudeCodeInstaller host adapter (#3638)", () => {
       await rm(home, { recursive: true, force: true });
     }
   });
+
+  it("spawns claude commands from paths containing spaces (including Windows .cmd shims)", async () => {
+    const home = await mkdtemp(join(tmpdir(), "im-installer-spaces-"));
+    const spacedBin = join(home, "Jane Doe bin");
+    try {
+      await mkdir(spacedBin, { recursive: true });
+      if (process.platform === "win32") {
+        await writeFile(
+          join(spacedBin, "claude.cmd"),
+          [
+            "@echo off",
+            'if "%1 %2"=="auth status" (echo {"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"} & exit /b 0)',
+            "exit /b 0",
+          ].join("\r\n"),
+          "utf8",
+        );
+      } else {
+        const script = join(spacedBin, "claude");
+        await writeFile(
+          script,
+          [
+            "#!/bin/sh",
+            'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then echo \'{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}\'; fi',
+            "exit 0",
+          ].join("\n"),
+          "utf8",
+        );
+        await chmod(script, 0o755);
+      }
+      const sep = process.platform === "win32" ? ";" : ":";
+      const installer = createClaudeCodeInstaller({
+        home,
+        env: {
+          ...process.env,
+          PATH: `${spacedBin}${sep}${process.env.PATH ?? ""}`,
+        },
+      });
+      expect(await installer.checkAuth()).toEqual({ kind: "signed-in" });
+      expect(await installer.startSignIn({ signal: new AbortController().signal })).toEqual({
+        kind: "signed-in",
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
 });
