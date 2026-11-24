@@ -7,8 +7,10 @@
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { OwnAiRunner } from "../../src/core/adapters";
+import { CITATION_NODE, FOOTNOTE_NODE } from "../../src/core/api";
 import { translate } from "../../src/shared/i18n";
 import { decideProposals, waitingChanges } from "../../src/shared/proposals";
+import { harbours, tides } from "../helpers/agentChanges";
 import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
 import { heading, note, readMind, writeMind } from "../helpers/minds";
@@ -188,8 +190,8 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
     expect(json.content?.length).toBeGreaterThan(3);
   }, 60_000);
 
-  // protects=a paragraph holding a footnote or a Citation by handle, written as a heading, is refused with what to do instead; fails_when=it lands with its marks as words, or loses what it held
-  it("refuses a heading in place of a paragraph holding a footnote by handle, and says what to do", async () => {
+  // protects=a paragraph with the User's Citation and footnote, rewritten as a heading and a list that keep them by handle, lands as those blocks with the same Citation and footnote; a handle the Markdown would turn into code is refused; fails_when=the rewrite is refused, or the Citation or footnote is lost or changed
+  it("keeps the paragraph's Citation and footnote by handle in the blocks it becomes", async () => {
     const { core } = await startAgentsCore(replyingModel());
     await core.setAgentsEnabled(true);
     const { launch } = await core.connectAgent({
@@ -198,15 +200,54 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
       propose: true,
     });
     const agent = await connectLegacyAgent(launch);
+    const footnote = {
+      type: FOOTNOTE_NODE,
+      attrs: { id: "n1" },
+      content: [
+        { type: "text", text: "Seen by the harbour master " },
+        { type: CITATION_NODE, attrs: harbours },
+      ],
+    };
+    const cited: JSONContent = {
+      type: "paragraph",
+      attrs: { id: "cited" },
+      content: [
+        { type: "text", text: "Spring tides delay the ferry " },
+        { type: CITATION_NODE, attrs: tides },
+        footnote,
+        { type: "text", text: "." },
+      ],
+    };
     const mind = await core.createMind({ title: "Ferry notes" });
     const client = await connectToMind(core, mind.id);
-    writeMind(client, [note(P1), note(P2)]);
+    writeMind(client, [cited, note(P2)]);
     await client.settled();
-    const kept = await proposeTo(agent, mind.id, "¶1", "## Ferry [note:1]");
-    expect(kept.isError).toBe(true);
-    expect(kept.content?.[0]?.text).toBe(
-      translate("en", "agents.propose.blockKeeps", { name: "¶1" }),
+
+    const inCode = await proposeTo(agent, mind.id, "¶1", "## Ferry `[kept:1]`");
+    expect(inCode.isError).toBe(true);
+    expect(inCode.content?.[0]?.text).toBe(translate("en", "agents.propose.lost", { name: "¶1" }));
+
+    const result = await proposeTo(
+      agent,
+      mind.id,
+      "¶1",
+      "## Spring tides [kept:1] [note:1]\n\n- The ferry waits for the tide",
     );
+    expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
+    await client.settled();
+    expect(await decided(client, "accept")).toEqual(["heading:2", "bulletList", "p:2"]);
+    const [title] = readMind(client).toJSON().content ?? [];
+    const inline: JSONContent[] = title?.content ?? [];
+    expect(inline.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
+      documentId: tides.documentId,
+      quote: tides.quote,
+    });
+    const kept = inline.find((each) => each.type === FOOTNOTE_NODE);
+    expect(kept?.attrs?.id).toBe("n1");
+    expect(kept?.content?.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
+      documentId: harbours.documentId,
+      quote: harbours.quote,
+    });
   }, 60_000);
 });
 

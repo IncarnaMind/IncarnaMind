@@ -65,7 +65,14 @@ import { escapeNames, paragraphName, readName, readRemovals, unescapeNames } fro
 import { PICTURE_IN_NOTE } from "../exports/markdown";
 import type { MindContent } from "../mindContent";
 import { createChanges, refusalOf, type WriteReport, type Wrote } from "../proposals/apply";
-import { citationKey, citingKey, holdsOnlyPlaced, tally, tallyCiting } from "../proposals/placed";
+import {
+  type CitingNodes,
+  citationKey,
+  citingKey,
+  holdsOnlyPlaced,
+  tally,
+  tallyCiting,
+} from "../proposals/placed";
 import {
   blockProposal,
   layout,
@@ -195,6 +202,11 @@ const sameMarkers = (a: readonly string[], b: readonly string[]) =>
 const HELD_TOKEN = /\uE000(\d{1,4})\uE001/g;
 const heldToken = (n: number) => `\uE000${n}\uE001`;
 const HOLDING = /[\uE000\uE001]/g;
+const withoutNulls = (attributes: Attributes): Attributes =>
+  Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null));
+const HELD_KEPT = /\uE004(\d{1,4})\uE005/g;
+const heldKept = (n: number) => `\uE004${n}\uE005`;
+const HOLDING_KEPT = /[\uE004\uE005]/g;
 
 /** A Block an unaccepted Proposal adds, or one inside it: not in the Note yet. */
 function addedByProposal(element: Y.XmlElement): boolean {
@@ -472,7 +484,6 @@ export class ChangeRefused extends Error {
       | "agents.propose.visualAdded"
       | "agents.propose.emptyTab"
       | "agents.propose.visualKept"
-      | "agents.propose.blockKeeps"
       | (typeof REFUSAL_WORDS)[keyof typeof REFUSAL_WORDS]["agent"],
     readonly paragraph: string,
     /** The picture or chart a replacement couldn't put in, which kept the old one (#3429). */
@@ -670,7 +681,22 @@ export function newBlocks(
   name: string,
   options: Pick<ProposeOptions, "cited" | "notFound" | "visuals">,
   before: NodeJSON | null = null,
-): { nodes: NodeJSON[]; cited: Attributes[]; refused: VisualRefused[] } {
+  keeps?: Pick<Selection, "citations" | "footnotes">,
+): { nodes: NodeJSON[]; cited: Attributes[]; refused: VisualRefused[]; kept: Kept } {
+  const handles: { citation?: Attributes; footnote?: Y.XmlElement; back: boolean }[] = [];
+  const named = new Set<string>();
+  const holdHandles = (part: string): string =>
+    keeps
+      ? part.replace(HANDLE, (handle, kind: string, digits: string) => {
+          const n = Number(digits) - 1;
+          const own =
+            kind === "note" ? { footnote: keeps.footnotes[n] } : { citation: keeps.citations[n] };
+          if (!(own.footnote ?? own.citation) || named.has(handle)) return handle;
+          named.add(handle);
+          handles.push({ ...own, back: false });
+          return heldKept(handles.length - 1);
+        })
+      : part;
   const tokens: { token: string; attributes: Attributes | null; held: number; back: number }[] = [];
   const held = new Map<string, number>();
   const hold = (token: string): string => {
@@ -695,7 +721,13 @@ export function newBlocks(
   };
   const markdown = withTokens(
     openTabs(withoutName(written)),
-    (part) => unescapeNames(part).replace(HOLDING, "").replace(HOLDING_PICTURES, ""),
+    (part) =>
+      holdHandles(
+        unescapeNames(part)
+          .replace(HOLDING, "")
+          .replace(HOLDING_PICTURES, "")
+          .replace(HOLDING_KEPT, ""),
+      ),
     hold,
   );
   const asWritten = (text: string) =>
@@ -720,10 +752,7 @@ export function newBlocks(
       const attributes = tokens[Number(match[1])]?.attributes;
       if (!attributes) return { before, put: options.notFound };
       cited.push(attributes);
-      const node: NodeJSON = {
-        type: CITATION_NODE,
-        attrs: Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
-      };
+      const node: NodeJSON = { type: CITATION_NODE, attrs: withoutNulls(attributes) };
       madeFrom.set(node, attributes);
       return { before, put: node };
     },
@@ -756,9 +785,19 @@ export function newBlocks(
     }
     return { ...node, content: placed.content.map(beforeTheStop) };
   };
-  const parsedNodes = asGenerated(parsed.flatMap((each) => own(each)))
+  const writtenNodes = asGenerated(parsed.flatMap((each) => own(each)))
     .filter((block) => !(block.type === "paragraph" && (block.content?.length ?? 0) === 0))
     .map(beforeTheStop);
+  // What the paragraph keeps by handle goes back as it was, after the new words are marked AI's.
+  const parsedNodes = replaceMarkers(writtenNodes, HELD_KEPT, (match, before) => {
+    const each = handles[Number(match[1])];
+    if (!each) return { before, put: null };
+    each.back = true;
+    const put: NodeJSON = each.footnote
+      ? nodeOf(each.footnote)
+      : { type: CITATION_NODE, attrs: withoutNulls(each.citation ?? {}) };
+    return { before, put };
+  });
   const { nodes, refused } = options.visuals
     ? placeVisuals(parsedNodes, pictures, options.visuals, before)
     : { nodes: parsedNodes, refused: [] };
@@ -768,9 +807,19 @@ export function newBlocks(
   const lost =
     tokens.some((each) => each.back !== each.held) ||
     kept.search(HOLDING) >= 0 ||
-    kept.search(HOLDING_PICTURES) >= 0;
+    kept.search(HOLDING_PICTURES) >= 0 ||
+    handles.some((each) => !each.back) ||
+    kept.search(HOLDING_KEPT) >= 0;
   if (lost) throw new ChangeRefused("agents.propose.lost", name);
-  return { nodes: placeTabs(nodes), cited, refused };
+  return {
+    nodes: placeTabs(nodes),
+    cited,
+    refused,
+    kept: {
+      citations: handles.flatMap((each) => (each.citation ? [each.citation] : [])),
+      footnotes: handles.flatMap((each) => (each.footnote ? [each.footnote] : [])),
+    },
+  };
 }
 
 /** A Block as it reads once `request`'s changes in it are accepted. */
@@ -968,6 +1017,22 @@ function topIndex(
   return blocks.toArray().indexOf(top);
 }
 
+/** What a change keeps of a paragraph by handle: its own Citations and footnotes. */
+interface Kept {
+  citations: Attributes[];
+  footnotes: Y.XmlElement[];
+}
+
+/** Takes the citing nodes of a paragraph a change rewrites out of `placed`, and what it keeps back in. */
+function tallyKept(placed: CitingNodes, element: Y.XmlElement, request: string, kept: Kept): void {
+  tallyCiting(placed, element, request, -1);
+  for (const footnote of kept.footnotes) {
+    tally(placed, citingKey(footnote), 1);
+    tallyCiting(placed, footnote, request);
+  }
+  for (const citation of kept.citations) tally(placed, citationKey(citation), 1);
+}
+
 function writeNamed(
   blocks: Y.XmlFragment,
   note: NamedNote,
@@ -995,7 +1060,7 @@ function writeNamed(
     kept: string[];
   }[] = [];
   const adds = new Map<number | null, string[]>();
-  const replaces: { element: Y.XmlElement; name: string; text: string }[] = [];
+  const replaces: { element: Y.XmlElement; name: string; text: string; keeps?: Selection }[] = [];
   const citedAnew: Attributes[] = [];
   const leftOut: VisualRefused[] = [];
   for (const change of changes) {
@@ -1021,20 +1086,17 @@ function writeNamed(
     ) {
       throw new ChangeRefused("agents.propose.visualAdded", paragraph.name);
     }
-    // A top-level paragraph written as a heading, a list, a quote, code or a rule takes its place
-    // whole, as the Blocks it means (#3747): a rewrite of its words would keep their marks as
-    // words. One inside a list or a table is rewritten as one there, its marks read as its kind.
-    // What it holds by handle can't go into other Blocks, so the agent is told.
-    if (change.kind === "rewrite" && element.parent === blocks && holdsOtherBlocks(change.text)) {
-      if (change.text.search(HANDLE) >= 0) {
-        throw new ChangeRefused("agents.propose.blockKeeps", paragraph.name);
-      }
-      replaces.push({ element, name: paragraph.name, text: change.text });
-      continue;
-    }
     const { from, to } = wholeOf(element, paragraph.blockId);
     const read = readSelection(blocks, from, to);
     if (!read.ok) throw new HeldParagraph(paragraph, read.reason === "busy" ? "busy" : "waiting");
+    // A top-level paragraph written as a heading, a list, a quote, code or a rule takes its place
+    // whole, as the Blocks it means (#3747), with what it keeps by handle: a rewrite of its words
+    // would keep their marks as words. One inside a list or a table is rewritten as one there,
+    // its marks read as its kind.
+    if (change.kind === "rewrite" && element.parent === blocks && holdsOtherBlocks(change.text)) {
+      replaces.push({ element, name: paragraph.name, text: change.text, keeps: read.selection });
+      continue;
+    }
     const written =
       change.kind === "remove"
         ? { text: "", fresh: new Map<number, Attributes>(), kept: [] }
@@ -1044,15 +1106,14 @@ function writeNamed(
 
   const placed = tallyCiting(new Map(), blocks, options.request);
   for (const { element, selection, fresh, kept } of rewrites) {
-    tallyCiting(placed, element, options.request, -1);
-    for (const marker of kept) {
-      const n = Number(/\d+/.exec(marker)?.[0]);
-      const footnote = marker.startsWith("[^") ? selection.footnotes[n - 1] : undefined;
-      const citation = marker.startsWith("[^") ? undefined : selection.citations[n - 1];
-      if (footnote) tally(placed, citingKey(footnote), 1);
-      if (footnote) tallyCiting(placed, footnote, options.request);
-      if (citation) tally(placed, citationKey(citation), 1);
-    }
+    const numbers = (footnotes: boolean) =>
+      kept
+        .filter((marker) => marker.startsWith("[^") === footnotes)
+        .map((marker) => Number(/\d+/.exec(marker)?.[0]) - 1);
+    tallyKept(placed, element, options.request, {
+      citations: numbers(false).flatMap((n) => selection.citations.slice(n, n + 1)),
+      footnotes: numbers(true).flatMap((n) => selection.footnotes.slice(n, n + 1)),
+    });
     for (const attributes of fresh.values()) tally(placed, citationKey(attributes), 1);
   }
 
@@ -1085,17 +1146,19 @@ function writeNamed(
       ),
     );
   };
-  for (const { element, name, text } of replaces) {
+  for (const { element, name, text, keeps } of replaces) {
     const above = blocks.get(blocks.toArray().indexOf(element) - 1);
     const made = newBlocks(
       text,
       name,
       options,
       tableAbove(above instanceof Y.XmlElement ? above : null),
+      keeps,
     );
     const [left] = made.refused;
     if (left) throw new ChangeRefused("agents.propose.visualKept", name, left);
     citedAnew.push(...made.cited);
+    if (keeps) tallyKept(placed, element, options.request, made.kept);
     replaceWhole(element, made.nodes);
   }
   // A chart drawn from a table these changes correct is drawn again from it, as Update draws it.
