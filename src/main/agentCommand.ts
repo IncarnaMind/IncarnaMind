@@ -91,6 +91,8 @@ export async function short(
     timer = setTimeout(() => resolve("late"), SHORT_MS);
     onAbort = () => resolve("late");
     signal?.addEventListener("abort", onAbort, { once: true });
+    // Stopped while it was starting, before the listener was there.
+    if (signal?.aborted) resolve("late");
   });
   const code = await Promise.race([closed, deadline]);
   clearTimeout(timer);

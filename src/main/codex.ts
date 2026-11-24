@@ -12,7 +12,7 @@
  * catalog, the preflight's own Codex folder) is in a private folder of the run's, removed when it
  * ends and swept at the next start if the app didn't live to remove it.
  */
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { OwnAiFailure, OwnAiProgress, OwnAiStatus } from "../core/adapters";
@@ -38,6 +38,8 @@ export const LOWEST_CODEX = "0.170.0";
 
 const SERVER = "incarnamind";
 const RUN_FOLDER_PREFIX = "incarnamind-codex-";
+/** The file `runFolder` writes first, so the sweep removes only folders it made. */
+const RUN_MARK = ".incarnamind-codex-run";
 const CATALOG = "catalog.json";
 /** As long as a Tool of IncarnaMind's may take; Codex's own default is a minute. */
 const TOOL_TIMEOUT_SEC = 120;
@@ -140,6 +142,11 @@ export async function sweepCodexRuns(folder = tmpdir()): Promise<void> {
     names.map(async (name) => {
       const pid = Number(name.slice(RUN_FOLDER_PREFIX.length).split("-")[0]);
       if (!name.startsWith(RUN_FOLDER_PREFIX) || !Number.isInteger(pid) || alive(pid)) return;
+      const ours = await access(join(folder, name, RUN_MARK)).then(
+        () => true,
+        () => false,
+      );
+      if (!ours) return;
       await rm(join(folder, name), { recursive: true, force: true, maxRetries: 3 }).catch(
         (error: unknown) =>
           console.warn("Could not remove a Codex run's folder left behind:", errorCode(error)),
@@ -172,8 +179,14 @@ interface Folder {
 async function runFolder(): Promise<Folder> {
   const root = await mkdtemp(join(tmpdir(), `${RUN_FOLDER_PREFIX}${process.pid}-`));
   const folder = { root, work: join(root, "work"), codexHome: join(root, "codex-home") };
-  for (const each of [folder.work, folder.codexHome, join(root, "sqlite"), join(root, "logs")]) {
-    await mkdir(each, { mode: 0o700 });
+  try {
+    await writeFile(join(root, RUN_MARK), "", { mode: 0o600 });
+    for (const each of [folder.work, folder.codexHome, join(root, "sqlite"), join(root, "logs")]) {
+      await mkdir(each, { mode: 0o700 });
+    }
+  } catch (error) {
+    await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+    throw error;
   }
   return folder;
 }
@@ -227,11 +240,16 @@ async function writeCatalog(
     models = null;
   }
   if (!models) return null;
-  await writeFile(
-    join(folder.root, CATALOG),
-    JSON.stringify({ models: models.map((model) => ({ ...model, ...TOOL_FIELDS })) }),
-    { mode: 0o600 },
-  );
+  try {
+    await writeFile(
+      join(folder.root, CATALOG),
+      JSON.stringify({ models: models.map((model) => ({ ...model, ...TOOL_FIELDS })) }),
+      { mode: 0o600 },
+    );
+  } catch (error) {
+    console.info("Could not write the run's model catalog:", errorCode(error));
+    return null;
+  }
   const signedIn = defaultModel(models, false);
   const apiKey = defaultModel(models, true);
   return typeof signedIn === "string" ? { signedIn, apiKey } : null;
@@ -388,7 +406,14 @@ class OutsideError extends Error {
 
 /** Runs the check, from the catalog and the preflight to the end of Codex's turn. */
 export async function runCodex(run: CodexRun): Promise<CodexEnd> {
-  const folder = await runFolder();
+  const folder = await runFolder().catch((error: unknown) => {
+    console.info(
+      "Could not make a Codex run's folder; the check goes by its link.",
+      errorCode(error),
+    );
+    return null;
+  });
+  if (folder === null) return { kind: "failed", reason: "unsupported" };
   try {
     run.signal.throwIfAborted();
     const defaults = await writeCatalog(run.path, folder, run.signal);
@@ -533,6 +558,13 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
           run.progress?.({ kind: "tool", name: String(item.tool) });
         } else if (message.type === "item.completed") {
           calls.delete(id);
+          const found = listAll(item) ? listed(item) : "ours";
+          if (found === "elsewhere") {
+            throw new OutsideError("outside", "a resource list that reached another server");
+          }
+          if (found === "unreadable") {
+            throw new OutsideError("unreadable", "a resource list it can't read");
+          }
         }
         return undefined;
       },
@@ -571,18 +603,42 @@ const lastLine = (text: string) =>
     .at(-1) ?? "";
 
 /**
- * A resource operation that asks IncarnaMind's server alone, which serves none. Codex 0.170.0 shows
- * one naming no server under its own name, and it asks every server configured, one a managed
- * configuration adds among them, so it stops the run; one naming a server Codex doesn't have comes
- * as no item and asks none.
+ * A resource operation as Codex 0.170.0 shows it: one naming a server comes under that server's
+ * name, and passes only for IncarnaMind's, which serves none; a list naming none comes under
+ * Codex's own name and asks every server configured, so it passes at its start and `listed`
+ * reads what it found. One naming a server Codex doesn't have comes as no item and asks none.
  */
 function resourceCall(item: Record<string, unknown>): boolean {
-  return (
-    typeof item.tool === "string" &&
-    RESOURCE_TOOLS.includes(item.tool) &&
-    item.server === SERVER &&
-    object(item.arguments).server === SERVER
-  );
+  if (typeof item.tool !== "string" || !RESOURCE_TOOLS.includes(item.tool)) return false;
+  return listAll(item) || (item.server === SERVER && object(item.arguments).server === SERVER);
+}
+
+/** A list of resources naming no server: its request carries no arguments, nothing of the Note. */
+const listAll = (item: Record<string, unknown>) =>
+  item.server === "codex" &&
+  object(item.arguments).server === undefined &&
+  (item.tool === "list_mcp_resources" || item.tool === "list_mcp_resource_templates");
+
+/**
+ * What a list naming no server found, read as data: only IncarnaMind's (it serves none), another
+ * server's, or a result it can't read.
+ */
+function listed(item: Record<string, unknown>): "ours" | "elsewhere" | "unreadable" {
+  const content = object(item.result).content;
+  if (!Array.isArray(content)) return "unreadable";
+  for (const part of content.map(object)) {
+    if (part.type !== "text" || typeof part.text !== "string") return "unreadable";
+    let found: Record<string, unknown>;
+    try {
+      found = object(JSON.parse(part.text));
+    } catch {
+      return "unreadable";
+    }
+    const entries = found.resources ?? found.resourceTemplates;
+    if (!Array.isArray(entries)) return "unreadable";
+    if (entries.some((entry) => object(entry).server !== SERVER)) return "elsewhere";
+  }
+  return "ours";
 }
 
 /** `text` with every value of the server's variables, the grant among them, taken out. */
