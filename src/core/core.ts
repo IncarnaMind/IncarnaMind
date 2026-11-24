@@ -159,6 +159,8 @@ import {
   DEFAULT_MIND_KIND,
   DELETED_KINDS,
   type DecisionHostStatus,
+  type DeckEdit,
+  type DeckUnwritable,
   type DeletedAgainRef,
   type Document,
   type DocumentStatus,
@@ -224,6 +226,10 @@ import { createConsent, type DataFlowRegistry } from "./consent";
 import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
 import { inCurrency } from "./cost/price";
+import { createKeptDecks, type KeptDeck } from "./decks/kept";
+import { copyBeside, type DeckPlaceDeps, deckPlaceFor, restoreKept } from "./decks/places";
+import { protectionOf } from "./decks/protection";
+import { createDeckSittings } from "./decks/sittings";
 import {
   createDocuments,
   type DocumentFile,
@@ -238,6 +244,7 @@ import { openWordPackage } from "./documents/formats/docxPackage";
 import { readPageSetup } from "./documents/formats/docxPages";
 import { extractPptx } from "./documents/formats/pptx";
 import { readVtt } from "./documents/formats/vtt";
+import { openPackage } from "./documents/formats/zip";
 import { createOwnFiles } from "./documents/ownFiles";
 import { approximateTokens, livePassageText } from "./documents/passages";
 import { createPdfPasswords } from "./documents/pdfPasswords";
@@ -605,6 +612,15 @@ export interface Core extends CoreApi, CoreEventSource {
    * how many changes still wait and where, for the host to record. Never throws.
    */
   sessionEnding(): UnsavedAtEnd;
+  /** Resolves once every hand edit of a deck being written now is written; null while none is. */
+  writingDecks(): Promise<void> | null;
+  /** The hand edits of decks that wait to be saved: the quit asks about them with unsaved Notes. */
+  deckChangesWaiting(): DeckUnwritable[];
+  /**
+   * Saves a waiting change as a copy, as `saveDeckCopy` does, but never asks the User anything:
+   * where it would, it fails at once (the quit, which may have no window to ask in).
+   */
+  saveDeckCopyUnasked(sittingId: string): Promise<DeckEdit>;
   /** The computer woke: a Meeting the sleep stopped records again, the sleep marked as a gap. */
   systemAwake(): void;
   /**
@@ -6441,6 +6457,66 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
 
+  const keptDecks = createKeptDecks({ db, dataDir, now });
+  const documentLive = (documentId: string) =>
+    db.get("SELECT 1 AS one FROM documents WHERE id = ? AND purged_at IS NULL", [documentId]) !==
+    undefined;
+  keptDecks
+    .dropGone(documentLive, Date.now())
+    .catch((error: unknown) => console.error("The kept decks couldn't be tidied.", error));
+  const deckPlaces: DeckPlaceDeps = {
+    dataDir,
+    document: (documentId) => documents.get(documentId),
+    pathOf: (documentId) => documents.pathEvenDeleted(documentId),
+    readAgain: (path) => documents.checkNow(path),
+    documentAt: (path) => documents.placeOf(path).documentId,
+    addFile: async (path, folderId) => {
+      const added = await addDocuments([path], folderId === null ? {} : { groupId: folderId });
+      const [document] = added.documents;
+      if (!document) throw new Error(`The Library skipped it: ${added.skipped[0]?.reason}.`);
+      return document.id;
+    },
+    folderOf: (documentId) => library.folderOfDocument(documentId),
+    inLinkedFolder: (path) => documents.placeOf(path).linkedFolderId !== null,
+    save: (file) => outputs.save(file),
+    handed: handedFiles,
+    kept: keptDecks,
+    inHandOverTurn: (run) => handOver.inTurn(run),
+    now,
+    newId: () => crypto.randomUUID(),
+  };
+  const readDeck = async (documentId: string) =>
+    new Uint8Array(await readFile(await documents.filePath(documentId)));
+  const deckSittings = createDeckSittings({
+    read: readDeck,
+    placeFor: (documentId, bytes) => deckPlaceFor(deckPlaces, documentId, bytes),
+    copyBeside: async (documentId, bytes, unasked) => {
+      const copy = await copyBeside(deckPlaces, documentId, bytes, unasked);
+      return {
+        documentId: copy.documentId,
+        saved: {
+          kind: "copy",
+          name: copy.file.name,
+          path: copy.file.path,
+          inDefaultFolder: copy.file.inDefaultFolder,
+          beside: copy.beside,
+        },
+        place: copy.place,
+      };
+    },
+    newId: () => crypto.randomUUID(),
+    nameOf: (documentId) => basename(documents.pathEvenDeleted(documentId)),
+  });
+
+  /** Hand edits of decks being written now: the host waits for them before it quits. */
+  const decksBeingWritten = new Set<Promise<unknown>>();
+  const writingDeck = <T>(writing: Promise<T>): Promise<T> => {
+    decksBeingWritten.add(writing);
+    const done = () => decksBeingWritten.delete(writing);
+    writing.then(done, done);
+    return writing;
+  };
+
   /** The words of a Block, as its text reads without marks. */
   const textOfBlock = (element: Y.XmlElement): string =>
     element
@@ -8758,6 +8834,7 @@ export function createCore(adapters: CoreAdapters): Core {
         canvases.dropPurged(),
         ownAiConversations.dropPurged(),
       ]);
+      await keptDecks.dropGone(documentLive);
       transcripts?.dropPurged();
       // Said for these Notes only: one left from an earlier delete is retried, quietly, as at start.
       if (notRemoved.some((mindId) => purged.includes(mindId))) {
@@ -9778,6 +9855,46 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),
+    editDeck: (input) => writingDeck(deckSittings.edit(input)),
+    undoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.undo(sittingId, stepId)),
+    redoDeckEdit: (sittingId, stepId) => writingDeck(deckSittings.redo(sittingId, stepId)),
+    saveDeckCopy: (sittingId) => writingDeck(deckSittings.saveCopy(sittingId)),
+    saveDeckCopyUnasked: (sittingId) => writingDeck(deckSittings.saveCopy(sittingId, true)),
+    retryDeckEdit: (sittingId) => writingDeck(deckSittings.retry(sittingId)),
+    closeDeckSitting: async (sittingId) => deckSittings.close(sittingId),
+    keptDeckStates: async (documentId) => {
+      if (typeof documentId !== "string") return { sitting: null, first: null };
+      const state = (kept: KeptDeck | null) =>
+        kept && { id: kept.id, keptAt: kept.keptAt, contentHash: kept.contentHash };
+      const sitting = keptDecks.ofSitting(documentId);
+      const first = keptDecks.firstOf(documentId);
+      return {
+        sitting: state(sitting),
+        first: first && first.contentHash !== sitting?.contentHash ? state(first) : null,
+      };
+    },
+    restoreKeptDeck: (input) =>
+      writingDeck(
+        deckSittings
+          .inDocumentTurn(String(input?.documentId), () =>
+            restoreKept(deckPlaces, readDeck, input ?? {}),
+          )
+          .then((restored) => {
+            deckSittings.endOn(restored.documentId);
+            return restored;
+          }),
+      ),
+    writingDecks: () =>
+      decksBeingWritten.size === 0
+        ? null
+        : Promise.allSettled([...decksBeingWritten]).then(() => undefined),
+    deckChangesWaiting: () => deckSittings.waitingAll(),
+    deckChangeWaiting: async (documentId) => deckSittings.waitingOn(documentId),
+    deckRefusal: async (documentId) => {
+      if (typeof documentId !== "string") return null;
+      const zip = openPackage(await readDeck(documentId));
+      return zip.rewritable ? protectionOf(zip) : "unrewritable";
+    },
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

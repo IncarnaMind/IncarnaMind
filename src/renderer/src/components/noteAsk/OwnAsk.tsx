@@ -11,7 +11,6 @@ import type {
   NoteAnswer,
   NoteAnswered,
   NoteQuestion,
-  NoteReadText,
   NoteRule,
   NoteSuggested,
 } from "../../../../core/api";
@@ -151,17 +150,6 @@ function Value({ action }: { action: NoteAction }) {
     </p>
   );
 }
-
-const readWords = (t: Translate, read: NoteReadText) =>
-  read.kind === "web"
-    ? t("ownAsk.read.web", { host: visible(read.host) })
-    : read.kind === "tool"
-      ? t("ownAsk.read.tool", { tool: visible(read.tool), server: visible(read.server) })
-      : read.kind === "document"
-        ? t("ownAsk.read.document", { name: visible(read.name) })
-        : read.kind === "file"
-          ? t("ownAsk.read.file", { path: visible(read.path) })
-          : t(`ownAsk.read.${read.kind}`);
 
 function sizeWords(t: Translate, size: NonNullable<NoteAction["size"]>) {
   const key =
@@ -354,11 +342,6 @@ export function QuestionCard({
         {action.steers && (
           <p data-testid="own-ask-steers" className="approval-read-text">
             {t("ownAsk.steers", { agent })}
-          </p>
-        )}
-        {question.read && (
-          <p data-testid="own-ask-read" className="approval-read-text">
-            {t("ownAsk.read", { what: readWords(t, question.read) })}
           </p>
         )}
       </div>

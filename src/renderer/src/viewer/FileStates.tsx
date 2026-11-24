@@ -9,7 +9,8 @@ import { FileGone, OpeningDocument, ViewerMessage } from "./ViewerMessage";
 
 /**
  * A view while its file isn't ready to show: loading, gone (the quote is
- * still shown), or failed. `ready` draws it once it is.
+ * still shown), or failed. `ready` draws it once it is. `lines`: what the
+ * view still has to say whatever the file's state, under its header.
  */
 export function FileStates<T>({
   document,
@@ -17,6 +18,7 @@ export function FileStates<T>({
   quote,
   ready,
   reload,
+  lines,
 }: {
   document: Document;
   loaded: LoadedFile<T>;
@@ -24,6 +26,7 @@ export function FileStates<T>({
   ready(value: T): ReactNode;
   /** Reads the file again, for the fix's Retry: the bytes may not have changed. */
   reload?: () => void;
+  lines?: ReactNode;
 }) {
   const t = useT();
   useCitedAreaFailure(
@@ -38,6 +41,7 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
+          {lines}
           <OpeningDocument retry={reload} />
         </>
       );
@@ -45,6 +49,7 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader openable={false} />
+          {lines}
           <FileGone quote={quote} />
         </>
       );
@@ -52,6 +57,7 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
+          {lines}
           <DocumentFix
             document={document}
             view
@@ -69,6 +75,7 @@ export function FileStates<T>({
       return (
         <>
           <ViewerHeader />
+          {lines}
           <DocumentFix
             document={document}
             view

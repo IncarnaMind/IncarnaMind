@@ -262,6 +262,35 @@ const inTurn = <T>(step: () => Promise<T>): Promise<T> => {
   return turn;
 };
 
+/** Changes begun that go on the stack a moment later, each with what hands it over at once. */
+const begun = new Set<() => void>();
+
+/**
+ * A change begun that goes on the stack a moment later (a run of arrow-key nudges): it counts as
+ * being made, and Undo and Redo hand it over first, so ⌘Z takes it back rather than an earlier
+ * change. `handOver` makes it now; call the returned function once it was made by itself.
+ */
+export function beginChange(handOver: () => void): () => void {
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    begun.delete(take);
+    useUndo.setState((state) => ({ making: state.making - 1 }));
+  };
+  const take = () => {
+    end();
+    handOver();
+  };
+  begun.add(take);
+  useUndo.setState((state) => ({ making: state.making + 1 }));
+  return end;
+}
+
+const handOverBegun = () => {
+  for (const take of [...begun]) take();
+};
+
 /** Waits for the app's already-queued Undo and Redo transitions, before an Answer is regenerated. */
 export const undoSettled = (): Promise<void> => queue;
 
@@ -349,8 +378,9 @@ export const useUndo = create<UndoState>()((set, get) => {
     tell(line) {
       set({ line: { id: ++lines, told: line } });
     },
-    undo: (wanted) =>
-      inTurn(async () => {
+    undo: (wanted) => {
+      handOverBegun();
+      return inTurn(async () => {
         const change = wanted ?? lastOf(get().done, get().aside);
         if (!change || !get().done.includes(change)) return;
         set((state) => ({
@@ -377,9 +407,11 @@ export const useUndo = create<UndoState>()((set, get) => {
             ? { line: { id: ++lines, note, ...(change.shownAt && { shownAt: change.shownAt }) } }
             : change.redo && takenBack && { line: takenBackLine(change, takenBack) }),
         }));
-      }),
-    redo: (wanted) =>
-      inTurn(async () => {
+      });
+    },
+    redo: (wanted) => {
+      handOverBegun();
+      return inTurn(async () => {
         const change = wanted ?? lastOf(get().undone, get().aside);
         if (!change?.redo || !get().undone.includes(change)) return;
         set((state) => ({
@@ -397,7 +429,8 @@ export const useUndo = create<UndoState>()((set, get) => {
         }
         if (get().running?.change !== change) return;
         set((state) => ({ done: [...state.done, change], running: null, line: lineOf(change) }));
-      }),
+      });
+    },
     follow(change, step) {
       if (step === "undo" && get().done.includes(change)) {
         set((state) => ({

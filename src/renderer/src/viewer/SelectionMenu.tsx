@@ -82,7 +82,11 @@ function rangeIn(section: HTMLElement): Range | null {
     selection && !selection.isCollapsed && selection.rangeCount > 0
       ? selection.getRangeAt(0)
       : null;
-  return range && section.contains(range.commonAncestorContainer) ? range : null;
+  if (!range || !section.contains(range.commonAncestorContainer)) return null;
+  // Words being typed into a slide's text box aren't the Document's until they are written (#149).
+  const holder = range.commonAncestorContainer;
+  const element = holder instanceof Element ? holder : holder.parentElement;
+  return element?.closest('[contenteditable="true"]') ? null : range;
 }
 
 // Chromium draws no selection the focus has left: the words acted on are drawn in the

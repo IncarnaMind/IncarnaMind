@@ -42,6 +42,16 @@ import {
   samePendings,
 } from "../../mindText";
 import { diffSteps, splitWords } from "../../proposals/diff";
+import {
+  closeTag,
+  endOf,
+  type Namespaces,
+  openTag,
+  rescoped,
+  scopeOf,
+  sliceOf,
+  startOf,
+} from "../packagePatch/text";
 import { dateAttribute, escapeXml, type WordIds } from "../wordml";
 import { changeClose, changeTag, type Review, type Tracking, trackInline } from "../wordReview";
 import {
@@ -54,16 +64,6 @@ import {
   withFileFormat,
 } from "./mind";
 import { marksOfRun, Properties, runPropertiesFor, withoutFormatChange } from "./properties";
-import {
-  closeTag,
-  endOf,
-  type Namespaces,
-  openTag,
-  rescoped,
-  scopeOf,
-  sliceOf,
-  startOf,
-} from "./text";
 
 /** One thing in a paragraph's text: a character, a line break, something kept as is, or new. */
 export interface Token {

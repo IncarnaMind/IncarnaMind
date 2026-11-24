@@ -85,6 +85,7 @@ import { reviewCommands } from "./review";
 import { sortCommands } from "./sort";
 import "./objectMenus";
 import { annotationCommands } from "./annotations";
+import { deckCommands } from "./decks";
 import { mindSourceCommands } from "./mindSources";
 import { type Command, type CommandContext, commands, fromMenu } from "./registry";
 import { selectionCommands } from "./selection";
@@ -221,6 +222,7 @@ const appCommands: readonly Command[] = [
   ...calendarCommands,
   ...meetingHelpCommands,
   ...webPageCommands,
+  ...deckCommands,
   ...viewerSelectionCommands,
   ...annotationCommands,
   ...feedbackCommands,

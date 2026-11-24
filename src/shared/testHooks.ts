@@ -53,6 +53,8 @@ export interface TestHooks {
    * seconds), so a test needn't wait for it.
    */
   setViewerOpenLimitMs(ms: number): void;
+  /** Holds every hand edit of a deck before it reaches the core (true), or lets them go (false). */
+  holdDeckWrites(hold: boolean): void;
   /** Home's Coming up shows these meetings, as a calendar would give them. */
   setComingUp(meetings: { id: string; title: string; start: string }[]): void;
   /**

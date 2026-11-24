@@ -12,13 +12,13 @@ const userVersion = (db: ReturnType<typeof openDatabase>) =>
   db.get<{ user_version: number }>("PRAGMA user_version")?.user_version;
 
 describe("Migrations", () => {
-  // protects=a database from before the AI kept its own abilities in a Note's conversation (#3653) gains what it asks, its mode and what it read: every live conversation begins anew once and has read nothing yet, a deleted one is left as it was, and the requests are kept; fails_when=an existing conversation resumes the prompt that said it had no tools, or a database at 162 doesn't open
-  test("a conversation kept before 163 begins anew once, with its requests kept", async () => {
+  // protects=a database from before the AI kept its own abilities in a Note's conversation (#3653) gains what it asks and its mode: every live conversation begins anew once, a deleted one is left as it was, and the requests are kept; fails_when=an existing conversation resumes the prompt that said it had no tools, or a database at 163 doesn't open
+  test("a conversation kept before 164 begins anew once, with its requests kept", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "conversations.db"));
     try {
       migrate(
         db,
-        migrations.filter((migration) => migration.version < 163),
+        migrations.filter((migration) => migration.version < 164),
       );
       db.exec(`
         INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at, deleted_at)
@@ -27,12 +27,10 @@ describe("Migrations", () => {
           VALUES ('t1', 'live', 'count the late crossings', 'landed', '0', '0');
       `);
       migrate(db);
-      expect(db.all("SELECT id, renewed, read_text FROM own_ai_conversations ORDER BY id")).toEqual(
-        [
-          { id: "gone", renewed: 0, read_text: null },
-          { id: "live", renewed: 1, read_text: null },
-        ],
-      );
+      expect(db.all("SELECT id, renewed FROM own_ai_conversations ORDER BY id")).toEqual([
+        { id: "gone", renewed: 0 },
+        { id: "live", renewed: 1 },
+      ]);
       expect(db.all("SELECT request, mode FROM own_ai_turns")).toEqual([
         { request: "count the late crossings", mode: null },
       ]);

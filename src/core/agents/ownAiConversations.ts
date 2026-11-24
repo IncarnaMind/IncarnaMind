@@ -28,7 +28,6 @@ import {
   type NoteCitation,
   type NoteDoing,
   type NoteQuestion,
-  type NoteReadText,
   type NoteRequestInput,
   type NoteRequestStart,
   type NoteStep,
@@ -135,7 +134,6 @@ interface ConversationRow {
   pairing_id: string;
   session_id: string;
   renewed: number;
-  read_text: string | null;
 }
 
 interface TurnRow {
@@ -148,35 +146,6 @@ interface TurnRow {
   mode: string | null;
   created_at: string;
 }
-
-/** A step of the AI's own whose result it read: what it brought in, which the User didn't write. */
-const readBy = (action: NoteAction): NoteReadText | null =>
-  action.kind === "web" && action.host
-    ? { kind: "web", host: action.host }
-    : action.kind === "search"
-      ? { kind: "search" }
-      : action.kind === "tool"
-        ? { kind: "tool", tool: action.value, server: action.server ?? "" }
-        : action.kind === "command"
-          ? { kind: "command" }
-          : action.kind === "read"
-            ? { kind: "file", path: action.value }
-            : null;
-
-/** The text a conversation read that the User didn't write, as it was kept; null for none. */
-function readTextOf(kept: string | null): NoteReadText | null {
-  if (kept === null) return null;
-  try {
-    const read = JSON.parse(kept) as NoteReadText;
-    return typeof read === "object" && read !== null && typeof read.kind === "string" ? read : null;
-  } catch {
-    // Kept by this build only: one it can't read still says something was read.
-    return { kind: "command" };
-  }
-}
-
-/** The answers that kept a step from running. */
-const NOT_RUN: ReadonlySet<NoteAnswered> = new Set(["deny", "refused", "stopped", "closed"]);
 
 const canRun = (pairing: AgentPairing) => pairing.client === "claude-code";
 
@@ -258,7 +227,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
   const conversationOf = (mindId: string, pairingId: string) =>
     db.get<ConversationRow>(
-      `SELECT id, mind_id, pairing_id, session_id, renewed, read_text FROM own_ai_conversations
+      `SELECT id, mind_id, pairing_id, session_id, renewed FROM own_ai_conversations
        WHERE mind_id = ? AND pairing_id = ? AND deleted_at IS NULL`,
       [mindId, pairingId],
     ) ?? null;
@@ -284,7 +253,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       pairing_id: pairingId,
       session_id: options.newId(),
       renewed: 0,
-      read_text: null,
     };
     db.run(
       `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at)
@@ -368,7 +336,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     db.transaction(() => {
       for (const { id } of rows) {
         db.run(
-          `UPDATE own_ai_conversations SET read_text = NULL, deleted_at = ?, updated_at = ?
+          `UPDATE own_ai_conversations SET deleted_at = ?, updated_at = ?
            WHERE id = ? AND deleted_at IS NULL`,
           [at, at, id],
         );
@@ -527,40 +495,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         give(answer: NoteAnswer): void;
       }
     >();
-    // Its answers are the AI's own; the card also names the latest text read meanwhile.
+    // Its answers are the AI's own.
     const questionOf = ({ id, asked }: { id: string; asked: OwnAiAsk }): NoteQuestion => ({
       id,
       action: asked.action,
       answers: asked.suggested.length > 0 ? ["deny", "suggested", "once"] : ["deny", "once"],
       suggested: asked.suggested,
-      read: outside,
     });
     let mode: string | null = null;
     let modeNew = false;
     // Claude Code keeps the system prompt a conversation began with: one begun before its AI kept
     // its own abilities, told it had none, so it begins anew, once (#3653).
     const renewed = conversation.renewed === 1;
-    // What it read that the User didn't write stays in its mind for the whole conversation, and a
-    // card names the latest of it (#78).
-    let outside: NoteReadText | null = renewed ? null : readTextOf(conversation.read_text);
-    // The latest such text is named: the one an ask after it most likely comes from.
-    const sawOutside = (read: NoteReadText | null) => {
-      if (read === null || JSON.stringify(read) === JSON.stringify(outside)) return;
-      outside = read;
-      try {
-        db.run("UPDATE own_ai_conversations SET read_text = ?, updated_at = ? WHERE id = ?", [
-          JSON.stringify(read),
-          options.now(),
-          conversation.id,
-        ]);
-      } catch (error) {
-        options.log.warn("agents.ownAiConversation.readTextNotKept", {
-          error: error instanceof Error ? error.name : "unknown",
-        });
-      }
-      // A card already open says what was read.
-      if (waitingOn.size > 0) tellWorking();
-    };
     // The Documents its searches found and its reads reached, and how many Passages of each it read.
     const found = new Set<string>();
     const readOf = new Map<string, number>();
@@ -679,7 +625,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (step.state === "refused") taken.by = "refused";
         if (step.state === "done" || step.state === "failed") {
           delete taken.going;
-          if (!(taken.by && NOT_RUN.has(taken.by))) sawOutside(readBy(taken.action));
         } else if (step.state === "going") {
           calledSince = true;
           if (!saidForStep) doing = { kind: "own", action: step.action };
@@ -846,14 +791,6 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           const ids = call.documentIds ?? [];
           if (call.outcome === "done" && call.tool === "search")
             for (const id of ids) found.add(id);
-          // A Document's text is anyone's: the User's own files, a page, a transcript (#78).
-          if (call.outcome === "done" && ids.length > 0) {
-            const theirs = db.get<{ name: string }>(
-              `SELECT name FROM documents WHERE id IN (${ids.map(() => "?").join(", ")}) LIMIT 1`,
-              ids,
-            );
-            if (theirs) sawOutside({ kind: "document", name: theirs.name });
-          }
           const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
           const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
           const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
@@ -930,7 +867,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     if (renewed) {
       sessionId = options.newId();
       db.run(
-        `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, read_text = NULL, updated_at = ?
+        `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, updated_at = ?
          WHERE id = ?`,
         [sessionId, options.now(), conversation.id],
       );

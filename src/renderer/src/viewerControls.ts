@@ -8,7 +8,7 @@
  * is silent before its line says how long it takes, or how long a Document may take
  * to open before the viewer says it couldn't, read the command registry
  * as data, give Home's Coming up its meetings, or hold back the citation style
- * picker's list of every style.
+ * picker's list of every style, or a deck's hand edits before they reach the core.
  */
 import type { TestHooks } from "../../shared/testHooks";
 import { setSilentWaitMs } from "./answerWaitWords";
@@ -24,6 +24,7 @@ import { useOrganizeReview } from "./organizeReview";
 import { interceptSkillPicker } from "./skills";
 import { useAppStore } from "./store";
 import { setViewerOpenLimitMs } from "./viewer/openLimit";
+import { holdDeckWrites } from "./viewer/slides/deckEditing";
 
 declare global {
   interface Window {
@@ -73,6 +74,7 @@ export function installTestHooks(): void {
     setSilentWaitMs,
     setViewerOpenLimitMs,
     setComingUp: showComingUp,
+    holdDeckWrites,
     showOrganizeEstimate: (documents, dollars) =>
       useOrganizeReview.setState({
         estimate: {

@@ -502,6 +502,16 @@ describe("The assistant's commands are the window's one list (#1421)", () => {
     expect(offered.get("mind.openBeside")?.yours).toBeNull();
   });
 
+  // protects=putting a deck back writes the User's own file, which only their own hand may do (#149); fails_when=the assistant is offered document.putBack and runs it unasked; no_claim=what Undo does after.
+  test("putting a deck back as it was is never the assistant's: it writes the User's own file", () => {
+    offerEverything();
+    const offered = new Map(window.offeredCommands(null).map((entry) => [entry.id, entry]));
+    for (const id of ["document.putBack", "document.putBackFirst"]) {
+      expect(registry.commands.get(id as OfferedCommand["id"]), id).toBeDefined();
+      expect(offered.has(id as OfferedCommand["id"]), id).toBe(false);
+    }
+  });
+
   // protects=the window's Export as… is never offered, so "export this note as a PDF into <folder>" goes to the core's mind.export, which takes the format and the folder and asks before saving outside the Output location; fails_when=one is offered, and runs into the Output location unasked; no_claim=the core's export.
   test("Export as… is left to the core's export, which takes a format and a folder", () => {
     offerEverything();
