@@ -558,6 +558,13 @@ async function execute(run: CodexRun, folder: Folder): Promise<CodexEnd> {
           run.progress?.({ kind: "tool", name: String(item.tool) });
         } else if (message.type === "item.completed") {
           calls.delete(id);
+          const found = listAll(item) ? listed(item) : "ours";
+          if (found === "elsewhere") {
+            throw new OutsideError("outside", "a resource list that reached another server");
+          }
+          if (found === "unreadable") {
+            throw new OutsideError("unreadable", "a resource list it can't read");
+          }
         }
         return undefined;
       },
@@ -596,18 +603,42 @@ const lastLine = (text: string) =>
     .at(-1) ?? "";
 
 /**
- * A resource operation that asks IncarnaMind's server alone, which serves none. Codex 0.170.0 shows
- * one naming no server under its own name, and it asks every server configured, one a managed
- * configuration adds among them, so it stops the run; one naming a server Codex doesn't have comes
- * as no item and asks none.
+ * A resource operation as Codex 0.170.0 shows it: one naming a server comes under that server's
+ * name, and passes only for IncarnaMind's, which serves none; a list naming none comes under
+ * Codex's own name and asks every server configured, so it passes at its start and `listed`
+ * reads what it found. One naming a server Codex doesn't have comes as no item and asks none.
  */
 function resourceCall(item: Record<string, unknown>): boolean {
-  return (
-    typeof item.tool === "string" &&
-    RESOURCE_TOOLS.includes(item.tool) &&
-    item.server === SERVER &&
-    object(item.arguments).server === SERVER
-  );
+  if (typeof item.tool !== "string" || !RESOURCE_TOOLS.includes(item.tool)) return false;
+  return listAll(item) || (item.server === SERVER && object(item.arguments).server === SERVER);
+}
+
+/** A list of resources naming no server: its request carries no arguments, nothing of the Note. */
+const listAll = (item: Record<string, unknown>) =>
+  item.server === "codex" &&
+  object(item.arguments).server === undefined &&
+  (item.tool === "list_mcp_resources" || item.tool === "list_mcp_resource_templates");
+
+/**
+ * What a list naming no server found, read as data: only IncarnaMind's (it serves none), another
+ * server's, or a result it can't read.
+ */
+function listed(item: Record<string, unknown>): "ours" | "elsewhere" | "unreadable" {
+  const content = object(item.result).content;
+  if (!Array.isArray(content)) return "unreadable";
+  for (const part of content.map(object)) {
+    if (part.type !== "text" || typeof part.text !== "string") return "unreadable";
+    let found: Record<string, unknown>;
+    try {
+      found = object(JSON.parse(part.text));
+    } catch {
+      return "unreadable";
+    }
+    const entries = found.resources ?? found.resourceTemplates;
+    if (!Array.isArray(entries)) return "unreadable";
+    if (entries.some((entry) => object(entry).server !== SERVER)) return "elsewhere";
+  }
+  return "ours";
 }
 
 /** `text` with every value of the server's variables, the grant among them, taken out. */

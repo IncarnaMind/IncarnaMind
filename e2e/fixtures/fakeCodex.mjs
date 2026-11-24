@@ -14,10 +14,11 @@
 // a tool of its own in the preflight; "renamed" no longer knows the feature shell_snapshot, as a
 // later Codex might; "bad-catalog" prints a catalog that isn't one; "other-tool" and "other-server"
 // call an IncarnaMind Tool it wasn't allowed, or another server's; "early-item" prints an item
-// before its turn starts; "resources" lists and reads IncarnaMind's resources as Codex 0.170.0
-// reports it, then checks; "resource-list-all" lists every server's, which asks any other server
-// configured; "resource-read-codex" and "resource-list-other" show a read under Codex's own name
-// and a list naming another server; "stall" goes silent after its turn starts; "slow" thinks for
+// before its turn starts; "resources" lists every server's resources, finding none, and lists and
+// reads IncarnaMind's, as Codex 0.170.0 reports them, then checks; "resource-list-elsewhere" lists
+// every server's and finds another server's, and "resource-list-unreadable" ends such a list with a
+// result that can't be read; "resource-read-codex" and "resource-list-other" show a read under
+// Codex's own name and a list naming another server; "stall" goes silent after its turn starts; "slow" thinks for
 // ever.
 //
 // Like Codex 0.170.0, it refuses a feature it doesn't know.
@@ -272,13 +273,33 @@ if (mode === "wait") {
     },
   });
   setInterval(() => undefined, 1000);
-} else if (
-  mode === "resource-list-all" ||
-  mode === "resource-read-codex" ||
-  mode === "resource-list-other"
-) {
+} else if (mode === "resource-list-elsewhere" || mode === "resource-list-unreadable") {
+  // A list naming no server, as Codex 0.170.0 ends it when another server holds a resource, and
+  // one whose result can't be read.
   const call = {
-    "resource-list-all": { server: "codex", tool: "list_mcp_resources", arguments: {} },
+    id: `item_${item++}`,
+    type: "mcp_tool_call",
+    server: "codex",
+    tool: "list_mcp_resources",
+    arguments: {},
+  };
+  const text =
+    mode === "resource-list-elsewhere"
+      ? JSON.stringify({ resources: [{ server: "other", uri: "other://memo", name: "memo" }] })
+      : "not a listing";
+  say({ type: "item.started", item: { ...call, status: "in_progress" } });
+  say({
+    type: "item.completed",
+    item: {
+      ...call,
+      result: { content: [{ type: "text", text }] },
+      error: null,
+      status: "completed",
+    },
+  });
+  setInterval(() => undefined, 1000);
+} else if (mode === "resource-read-codex" || mode === "resource-list-other") {
+  const call = {
     "resource-read-codex": {
       server: "codex",
       tool: "read_mcp_resource",
@@ -318,6 +339,24 @@ if (mode === "wait") {
     return result;
   };
   if (mode === "resources") {
+    // A list naming no server, as Codex 0.170.0 ends it with IncarnaMind's server alone.
+    const all = {
+      id: `item_${item++}`,
+      type: "mcp_tool_call",
+      server: "codex",
+      tool: "list_mcp_resources",
+      arguments: {},
+    };
+    say({ type: "item.started", item: { ...all, status: "in_progress" } });
+    say({
+      type: "item.completed",
+      item: {
+        ...all,
+        result: { content: [{ type: "text", text: JSON.stringify({ resources: [] }) }] },
+        error: null,
+        status: "completed",
+      },
+    });
     for (const call of [
       { server: "incarnamind", tool: "list_mcp_resources", arguments: { server: "incarnamind" } },
       {

@@ -235,7 +235,8 @@ describe("a check run on the User's own Codex (#3639)", () => {
     ["limit", "service"],
     ["late", "unsupported"],
     ["early-item", "unsupported"],
-    ["resource-list-all", "outside"],
+    ["resource-list-elsewhere", "outside"],
+    ["resource-list-unreadable", "unreadable"],
     ["resource-read-codex", "outside"],
     ["resource-list-other", "outside"],
   ])("ends a run that shows %s", async (shown, reason) => {
@@ -253,7 +254,7 @@ describe("a check run on the User's own Codex (#3639)", () => {
     expect(starts.map((start) => start.args.slice(0, 2).join(" "))).toEqual(commands);
   });
 
-  // protects=Codex's own resource operations, which reach only IncarnaMind's server and which the preflight expects, don't stop a check that lists them; fails_when=an innocent resource listing ends the run as an outside call
+  // protects=Codex's resource operations naming IncarnaMind's server, and a list naming none that finds no other server's, don't stop a check; fails_when=an innocent resource listing ends the run as an outside call
   it("goes on past Codex's resource operations", async () => {
     await mode("resources");
     await expect(run()).resolves.toEqual({ kind: "finished", reply: "Checked." });
