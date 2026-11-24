@@ -82,10 +82,11 @@ export function useAgentConnection() {
 
 /**
  * What the User reads and chooses before an agent is connected (#351), which is also their
- * consent to its data flow, in three lines (#3487): what it may read, with where that goes (its
- * own AI model), whether it may write notes (#352), and that it can be disconnected at any time.
- * Under Details: what else it can read and what is sent, what a write allows, and, for an agent
- * whose settings file IncarnaMind writes, exactly what it adds there. What it reads is all of the
+ * consent to its data flow, in a few lines (#3487, #3756): what it may read, with where that goes
+ * (its own AI model), what IncarnaMind runs on the User's own account in the background, and
+ * whether it may write notes (#352), which starts ticked wherever the card is drawn. Under Details:
+ * what else it can read and what is sent, what a write allows, how the background run behaves,
+ * and, for an agent whose settings file IncarnaMind writes, exactly what it adds there. What it reads is all of the
  * User's Documents and Notes, those added later too, until they choose Folders instead (#3544),
  * which is no choice while they have no Folder; the walled Folders all leaves out are said in the
  * first line. The same lines in the connect dialog and in the setup's step (#3362); `actions`
@@ -94,14 +95,11 @@ export function useAgentConnection() {
 export function ConnectAgentFields({
   client,
   problem,
-  writes = false,
   actions,
 }: {
   client: AgentClient;
   /** Why the last try to connect failed, shown here, where it happened. */
   problem: string | null;
-  /** Whether "may write notes" starts ticked. */
-  writes?: boolean;
   actions(allow: { choice: AgentChoice; disabled: boolean }): ReactNode;
 }) {
   const t = useT();
@@ -113,7 +111,7 @@ export function ConnectAgentFields({
   const leftOut = leftOutOfAll(useAppStore((state) => state.library?.groups) ?? []);
   /** The name the User gives "Other agent". */
   const [name, setName] = useState("");
-  const [propose, setPropose] = useState(writes);
+  const [propose, setPropose] = useState(true);
   const [preview, setPreview] = useState<AgentSetupPreview | null>(null);
   /** Where the agent's key can be kept: with no keyring (Linux), only once the User allows plain text. */
   const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
@@ -124,7 +122,7 @@ export function ConnectAgentFields({
     setAll(true);
     setPicked(null);
     setName("");
-    setPropose(writes);
+    setPropose(true);
     setPreview(null);
     let current = true;
     core.previewAgentSetup(client.id).then((value) => {
@@ -136,7 +134,7 @@ export function ConnectAgentFields({
     return () => {
       current = false;
     };
-  }, [client.id, writes, reportError]);
+  }, [client.id, reportError]);
   const canKeepKey = storage?.canSave !== false;
 
   const agent = name.trim() || clientInSentence(client, t);
@@ -166,8 +164,6 @@ export function ConnectAgentFields({
       {client.id === "codex" && (
         <p data-testid="connect-agent-background" className={dialogTextClass}>
           {t("agents.connect.background.codex")}
-          {gap(t("agents.connect.background.codex"), t("agents.connect.codexInstructions"))}
-          {t("agents.connect.codexInstructions")}
         </p>
       )}
       {client.id === "other" && (
@@ -196,16 +192,33 @@ export function ConnectAgentFields({
         </fieldset>
       )}
       <ProposeChoice checked={propose} onChange={setPropose} hint={false} noFolders={shared} />
-      <p data-testid="connect-agent-disconnect" className={dialogTextClass}>
-        {t("agents.connect.disconnect")}
-      </p>
       <details data-testid="connect-agent-details" className="flex flex-col">
         <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
           {t("agents.connect.details")}
         </summary>
         <div className="mt-2 flex flex-col gap-2">
+          {!anyFolder && (
+            <p data-testid="connect-agent-later" className={dialogTextClass}>
+              {t("agents.connect.reads.later")}
+            </p>
+          )}
           <p className={dialogTextClass}>{t("agents.connect.body", { agent })}</p>
           <p className={dialogTextClass}>{t("agents.propose.hint")}</p>
+          {client.id === "claude-code" && (
+            <p data-testid="connect-agent-background-details" className={dialogTextClass}>
+              {t("agents.connect.background.details")}
+            </p>
+          )}
+          {client.id === "codex" && (
+            <p data-testid="connect-agent-background-details" className={dialogTextClass}>
+              {t("agents.connect.background.codex.details")}
+              {gap(
+                t("agents.connect.background.codex.details"),
+                t("agents.connect.codexInstructions"),
+              )}
+              {t("agents.connect.codexInstructions")}
+            </p>
+          )}
           {preview && (
             <div data-testid="connect-agent-change" className="flex flex-col gap-1">
               <p className={dialogTextClass}>

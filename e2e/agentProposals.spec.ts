@@ -127,7 +127,7 @@ test("an agent the User lets propose changes: its change waits in the Note with 
     await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     const propose = dialog.getByTestId("agent-propose");
-    await expect(propose).not.toBeChecked();
+    await expect(propose).toBeChecked();
     await expect(dialog).toContainText("Let it write notes and propose changes in these Folders");
     await propose.check();
     await shot(window, "agent-proposals-connect");
