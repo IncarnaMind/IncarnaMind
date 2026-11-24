@@ -422,21 +422,24 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(review).toBeVisible();
     await capture(window, `band-actions-${language}`);
 
-    const countWords = await count.evaluate((element) => {
+    const wordsEnd = await count.evaluate((element) => {
       const range = document.createRange();
       range.selectNodeContents(element);
-      const box = range.getBoundingClientRect();
-      return { right: box.right, middle: box.top + box.height / 2 };
+      return range.getBoundingClientRect().right;
     });
+    const countBox = await count.boundingBox();
     const undoBox = await undo.boundingBox();
     const reviewBox = await review.boundingBox();
-    if (!undoBox || !reviewBox) throw new Error("Undo or Review changes has no box.");
+    if (!countBox || !undoBox || !reviewBox) throw new Error("The count or an action has no box.");
 
-    expect(undoBox.x).toBeGreaterThanOrEqual(countWords.right);
-    expect(undoBox.x - countWords.right).toBeLessThanOrEqual(24);
+    // Only the separator dot sits between them, and its glyph's width differs by platform: 16px apart on macOS, 24px on Linux.
+    expect(undoBox.x).toBeGreaterThanOrEqual(wordsEnd);
+    expect(undoBox.x - wordsEnd).toBeLessThanOrEqual(40);
     expect(reviewBox.x).toBeGreaterThanOrEqual(undoBox.x + undoBox.width);
     for (const box of [undoBox, reviewBox]) {
-      expect(Math.abs(box.y + box.height / 2 - countWords.middle)).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(box.y + box.height / 2 - (countBox.y + countBox.height / 2)),
+      ).toBeLessThanOrEqual(2);
     }
     await app.close();
   });
