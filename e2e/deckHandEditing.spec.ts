@@ -87,6 +87,35 @@ const DECK = pptxOf({
   ],
 });
 
+/** The deck as another app saved it: the same deck, its properties its own. */
+const DECK_THEIRS = pptxOf({
+  slides: [
+    { shapes: sp({ id: 4, name: "Box", spPr: xfrm(6400000, 1300000, 1800000, 1200000) + BLUE }) },
+  ],
+  parts: [{ name: "_rels/.rels", data: ROOT_RELS }],
+});
+
+/** A slide whose text box its animation builds paragraph by paragraph, and a blue box. */
+const ANIMATED = pptxOf({
+  slides: [
+    {
+      shapes:
+        sp({
+          id: 3,
+          name: "Points",
+          txBox: true,
+          spPr: xfrm(457200, 1300000, 5200000, 600000),
+          body: txBody(
+            para([run("First point")]),
+            `<a:bodyPr wrap="square"><a:spAutoFit/></a:bodyPr>`,
+          ),
+        }) + sp({ id: 4, name: "Box", spPr: xfrm(6400000, 1300000, 1800000, 1200000) + BLUE }),
+      colourMap: `<a:masterClrMapping/></p:clrMapOvr><p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst><p:par><p:cTn id="3" fill="hold"><p:stCondLst><p:cond delay="indefinite"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="4" fill="hold"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:par><p:cTn id="5" presetID="1" presetClass="entr" presetSubtype="0" fill="hold" nodeType="clickEffect"><p:stCondLst><p:cond delay="0"/></p:stCondLst><p:childTnLst><p:set><p:cBhvr><p:cTn id="6" dur="1" fill="hold"/><p:tgtEl><p:spTgt spid="3"><p:txEl><p:pRg st="0" end="0"/></p:txEl></p:spTgt></p:tgtEl><p:attrNameLst><p:attrName>style.visibility</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="visible"/></p:to></p:set></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst></p:timing><p:clrMapOvr><a:masterClrMapping/>`,
+    },
+  ],
+  parts: [{ name: "_rels/.rels", data: ROOT_RELS }],
+});
+
 let dataDir: string;
 let sources: string;
 let home: string;
@@ -660,6 +689,149 @@ test("a box moved and typed in at once keeps the place it was moved to", async (
     const now = placeOf(await slideOnDisk(path, 1), 3);
     expect(now.y).toBeGreaterThan(before.y);
     expect(now.x).toBe(before.x);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a change that waits outlives its tab, and another app's save of the file: a copy beside it keeps it", async () => {
+  const { app, window, viewer, path } = await opened();
+  try {
+    const lock = join(sources, `~$${NAME}`);
+    await writeFile(lock, "PowerPoint");
+    const first = viewer.getByTestId("viewer-slide-editor").first();
+    await first.locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    const problem = window.getByTestId("viewer-deck-unwritable");
+    await expect(problem).toContainText(`“~$${NAME}” beside it is a lock file left behind`);
+    // The tab closes and the deck opens again: the change still waits, said where it was.
+    await pointAndClick(window, viewer.getByTestId("viewer-header"));
+    await window.keyboard.press("ControlOrMeta+w");
+    await expect(viewer).toHaveCount(0);
+    const item = window.getByTestId("document-list-item").filter({ hasText: "Harbour plan" });
+    await pointAndClick(window, item.getByTestId("open-document"));
+    await expect(viewer.getByTestId("viewer-slides")).toHaveAttribute("data-drawn", "yes");
+    await expect(problem).toBeVisible();
+    // The other app saves as it closes, and its lock file goes: the change is never written over that.
+    await writeFile(path, DECK_THEIRS);
+    await rm(lock);
+    await problem.getByTestId("viewer-deck-try-again").click();
+    await expect(problem).toContainText(`“${NAME}” was changed in another app since`);
+    await expect(problem.getByTestId("viewer-deck-try-again")).toHaveCount(0);
+    expect(Buffer.compare(await readFile(path), DECK_THEIRS)).toBe(0);
+    await problem.getByTestId("viewer-deck-save-copy").click();
+    await expect(undoLine(window)).toContainText("Made a copy with your change");
+    const copy = await slideOnDisk(join(sources, "Harbour plan 2.pptx"), 1);
+    expect(placeOf(copy, 4).y).toBe(placeOf(SLIDE_ONE, 4).y + 10 * 9525);
+  } finally {
+    await app.close();
+  }
+});
+
+test("after a second sitting, the deck as it was before IncarnaMind first changed it is one item away", async () => {
+  const { app, window, viewer, path } = await opened();
+  try {
+    const editor = () => viewer.getByTestId("viewer-slide-editor").first();
+    await editor().locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => Buffer.compare(await readFile(path), DECK)).not.toBe(0);
+    // The tab closes and opens again: a second sitting.
+    await pointAndClick(window, viewer.getByTestId("viewer-header"));
+    await window.keyboard.press("ControlOrMeta+w");
+    await expect(viewer).toHaveCount(0);
+    const item = window.getByTestId("document-list-item").filter({ hasText: "Harbour plan" });
+    await pointAndClick(window, item.getByTestId("open-document"));
+    await expect(viewer.getByTestId("viewer-slides")).toHaveAttribute("data-drawn", "yes");
+    const before = await readFile(path);
+    await editor().locator('[data-shape-id="4"]').click();
+    await window.keyboard.press("Shift+ArrowDown");
+    await expect.poll(async () => Buffer.compare(await readFile(path), before)).not.toBe(0);
+    await viewer.getByTestId("document-file-menu").first().click();
+    await expect(window.getByTestId("document.putBack")).toBeVisible();
+    await expect(window.getByTestId("document.putBackFirst")).toHaveText(
+      "Put back as it was before IncarnaMind first changed it",
+    );
+    await still(window, "15-put-back-first-en");
+    await pointAndClick(window, window.getByTestId("document.putBackFirst"));
+    await expect.poll(async () => Buffer.compare(await readFile(path), DECK)).toBe(0);
+    await expect(undoLine(window)).toContainText(
+      "Put “Harbour plan” back as it was before IncarnaMind first changed it",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("a refused edit and a refused Undo leave the slide and its sitting as they were", async () => {
+  const path = join(sources, NAME);
+  await writeFile(path, ANIMATED);
+  const { app, window } = await launchApp(dataDir, { home });
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await addDocuments(window, [path]);
+    const item = window.getByTestId("document-list-item").filter({ hasText: "Harbour plan" });
+    await pointAndClick(window, item.getByTestId("open-document"));
+    const viewer = window.getByTestId("viewer");
+    await expect(viewer.getByTestId("viewer-slides")).toHaveAttribute("data-drawn", "yes");
+    const slide = viewer.getByTestId("viewer-slide-editor").first();
+    const box = slide.locator('[data-shape-id="4"]');
+    await box.click();
+    await window.keyboard.press("Shift+ArrowLeft");
+    await expect.poll(async () => Buffer.compare(await readFile(path), ANIMATED)).not.toBe(0);
+    const moved = await box.boundingBox();
+    // A new paragraph in a box its slide animates paragraph by paragraph: refused.
+    const words = await centre(slide.getByText("First point"));
+    await window.mouse.dblclick(words.x, words.y);
+    await window.keyboard.press(LINE_END);
+    await window.keyboard.press("Enter");
+    await window.keyboard.type("Second point");
+    await window.keyboard.press("Escape");
+    await expect(window.getByTestId("error-notice")).toBeVisible();
+    await expect(slide.getByText("Second point")).toHaveCount(0);
+    expect((await box.boundingBox())?.x).toBeCloseTo(moved?.x ?? 0, 0);
+    // A gesture that waits, then an Undo it refuses: the slide keeps showing the change that waits.
+    await chmod(path, 0o444);
+    await box.click();
+    await window.keyboard.press("Shift+ArrowDown");
+    const problem = window.getByTestId("viewer-deck-unwritable");
+    await expect(problem).toBeVisible();
+    const waiting = await box.boundingBox();
+    await slide.focus();
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(undoLine(window)).toContainText(
+      "The file can’t be written now, so this wasn’t taken back.",
+    );
+    expect((await box.boundingBox())?.y).toBeCloseTo(waiting?.y ?? 0, 0);
+    // The sitting goes on: the copy holds both gestures, and one state was kept, before the first.
+    await problem.getByTestId("viewer-deck-save-copy").click();
+    await expect(undoLine(window)).toContainText("Made a copy with your change");
+    const copy = await slideOnDisk(join(sources, "Harbour plan 2.pptx"), 1);
+    const was = placeOf(part(unzip(ANIMATED), "ppt/slides/slide1.xml"), 4);
+    expect(placeOf(copy, 4)).toMatchObject({ x: was.x - 10 * 9525, y: was.y + 10 * 9525 });
+    const [folder = ""] = await readdir(join(dataDir, "Kept decks"));
+    expect(await readdir(join(dataDir, "Kept decks", folder))).toHaveLength(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a file written back by another app to a version this window wrote earlier is read again", async () => {
+  const { app, window, viewer, path } = await opened();
+  try {
+    const box = () =>
+      viewer.getByTestId("viewer-slide-editor").first().locator('[data-shape-id="4"]');
+    await box().click();
+    await window.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => Buffer.compare(await readFile(path), DECK)).not.toBe(0);
+    const once = await readFile(path);
+    const at = await box().boundingBox();
+    await window.keyboard.press("Shift+ArrowRight");
+    await expect.poll(async () => Buffer.compare(await readFile(path), once)).not.toBe(0);
+    await window.waitForTimeout(800);
+    // Another app writes the file back as this window's first gesture left it.
+    await writeFile(path, once);
+    await expect.poll(async () => (await box().boundingBox())?.x).toBeCloseTo(at?.x ?? 0, 0);
   } finally {
     await app.close();
   }

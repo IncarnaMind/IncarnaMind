@@ -12,7 +12,7 @@ import type {
   DeckSaved,
   DeckUnwritable,
   Document,
-  KeptDeckState,
+  KeptDeckStates,
 } from "../../../../core/api";
 import type { EditedParagraph, ShapeEdit } from "../../../../core/exports/pptxPatch/shapeEdit";
 import type { Language } from "../../../../core/language";
@@ -22,7 +22,7 @@ import { describeError } from "../../errors";
 import { languageNow, useLanguage } from "../../i18n";
 import type { Words, WordsInLine } from "../../lineNames";
 import { useAppStore } from "../../store";
-import { makeInTurn, UndoRefused, undoSettled, useUndo } from "../../undo";
+import { makeInTurn, sayWhileSlow, UndoRefused, undoSettled, useUndo } from "../../undo";
 import {
   adopt,
   beginWrite,
@@ -32,8 +32,8 @@ import {
   useSteadyVersion,
 } from "./handVersions";
 
-/** The deck's kept states, by Document, as its menu offers them. */
-export const useKeptDecks = create<{ byDocument: Readonly<Record<string, KeptDeckState[]>> }>(
+/** What each deck can be put back to, by Document, as its menu offers it. */
+export const useKeptDecks = create<{ byDocument: Readonly<Record<string, KeptDeckStates>> }>(
   () => ({ byDocument: {} }),
 );
 
@@ -121,8 +121,16 @@ interface Here {
   key: string;
   /** What the sitting's next gesture is made on: as last written, or with the change that waits. */
   bytes: Uint8Array;
+  /** The SHA-256 of `bytes`. */
+  hash: string;
   waiting: DeckUnwritable | null;
 }
+
+/** The version the deck is at as this window last had it: what a Put back is made from. */
+export const versionHere = (document: Document): string =>
+  useHere.getState().byDocument[document.id]?.hash ??
+  useAppStore.getState().documents.find((each) => each.id === document.id)?.contentHash ??
+  document.contentHash;
 
 const useHere = create<{ byDocument: Readonly<Record<string, Here>> }>(() => ({ byDocument: {} }));
 
@@ -198,6 +206,49 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
     );
   }, [document.id]);
 
+  // A change that waits outlives its viewer: the deck opened again, after a closed tab, a reload
+  // or in another window, takes it up from the core, which keeps it until it is saved.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asked again as the deck's version changes
+  useEffect(() => {
+    if (stored) return;
+    let live = true;
+    void core
+      .deckChangeWaiting(document.id)
+      .then((waiting) => {
+        if (!live || !waiting || useHere.getState().byDocument[document.id]) return;
+        setHere(document.id, {
+          sittingId: waiting.sittingId,
+          key: steadyVersion(useHandVersions.getState(), document.id, latest.current),
+          bytes: waiting.bytes,
+          hash: waiting.contentHash,
+          waiting,
+        });
+      })
+      .catch((error: unknown) =>
+        console.error("The deck's change that waits couldn't be read.", error),
+      );
+    return () => {
+      live = false;
+    };
+  }, [stored, steady, document.id]);
+
+  // The file back at a version this window wrote earlier (another program wrote it back): what the
+  // window wrote last isn't what the file holds, so the file is read again.
+  const seenAt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!stored || stored.waiting) return;
+    if (document.contentHash === stored.hash) {
+      seenAt.current = stored.hash;
+      return;
+    }
+    const writing = useHandVersions.getState().byDocument[document.id]?.writing ?? 0;
+    if (seenAt.current === stored.hash && writing === 0) {
+      seenAt.current = null;
+      endHere(document.id);
+      forget(document.id);
+    }
+  }, [document.contentHash, stored, document.id]);
+
   const keyOf = useCallback(
     (version: string) => steadyVersion(useHandVersions.getState(), document.id, version),
     [document.id],
@@ -211,6 +262,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
           sittingId: result.sittingId,
           key: keyOf(latest.current),
           bytes: result.bytes,
+          hash: result.contentHash,
           waiting: result,
         });
         return null;
@@ -223,6 +275,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
           sittingId: result.sittingId,
           key: steadyVersion(useHandVersions.getState(), result.documentId, result.contentHash),
           bytes: result.bytes,
+          hash: result.contentHash,
           waiting: null,
         });
         const { layout, openDocument } = useAppStore.getState();
@@ -237,6 +290,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
         sittingId: result.sittingId,
         key: keyOf(result.contentHash),
         bytes: result.bytes,
+        hash: result.contentHash,
         waiting: null,
       });
       if (result.saved.kind === "file") {
@@ -267,7 +321,11 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
     async (run: () => Promise<DeckEdit>): Promise<DeckEdit> => {
       const done = beginWrite(document.id, latest.current);
       try {
-        const result = await run();
+        // A write that takes long (a slow or stalled share) says so where Undo's line is.
+        const result = await sayWhileSlow(
+          (t) => t("viewer.deck.saving", { name: document.name }),
+          run,
+        );
         done(
           result.kind === "saved" && result.documentId === document.id ? result.contentHash : null,
         );
@@ -277,7 +335,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
         throw error;
       }
     },
-    [document.id],
+    [document.id, document.name],
   );
 
   const step = useCallback(
@@ -291,7 +349,11 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
         } catch (error) {
           console.error("A hand edit of the deck couldn't be undone or redone.", error);
           refused(error);
-          throw new UndoRefused((t) => t("viewer.deck.undoRefused"), null);
+          const waits = describeError(error).wording?.key === "error.deck.waiting";
+          throw new UndoRefused(
+            (t) => t(waits ? "viewer.deck.waiting.undo" : "viewer.deck.undoRefused"),
+            null,
+          );
         }
         if (!took(done)) throw new UndoRefused((t) => t("viewer.deck.waiting.undo"), null);
       };
@@ -407,8 +469,12 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
   };
 }
 
-/** Puts the deck back as it stood when `kept` was kept, as one step to undo and redo. */
-export function putBack(document: Document, kept: KeptDeckState, shown: string): void {
+/**
+ * Puts the deck back as it was before its latest sitting (`sitting`), or as it was before
+ * IncarnaMind first changed it (`first`), as one step to undo and redo. The version it is made
+ * from is read as its turn comes, after any gesture still being written.
+ */
+export function putBack(document: Document, which: keyof KeptDeckStates): void {
   const language = languageNow();
   /** Writes a kept state over the deck at `from`; what it put back, to go the other way from. */
   const restore = async (keptId: string, from: string) => {
@@ -420,14 +486,19 @@ export function putBack(document: Document, kept: KeptDeckState, shown: string):
   };
   const refused = () => new UndoRefused((t) => t("viewer.deck.undoRefused"), null);
   void makeInTurn(async () => {
+    const kept = useKeptDecks.getState().byDocument[document.id]?.[which];
+    if (!kept) return;
     try {
-      let now = await restore(kept.id, shown);
+      let now = await restore(kept.id, versionHere(document));
       useUndo.getState().push({
         said: (t, cut) => {
-          const restored = t("viewer.deck.restored", {
-            name: cut(document.name),
-            time: formatDateTime(kept.keptAt, language),
-          });
+          const restored =
+            which === "first"
+              ? t("viewer.deck.restoredFirst", { name: cut(document.name) })
+              : t("viewer.deck.restored", {
+                  name: cut(document.name),
+                  time: formatDateTime(kept.keptAt, language),
+                });
           const [letGo] = now.letGo;
           return letGo
             ? `${restored} ${t("viewer.deck.saved.letGo", { date: formatDateTime(letGo, language) })}`

@@ -71,6 +71,30 @@ interface Loaded {
   drawing: DeckDrawing | null;
 }
 
+type DeckRefusal = "signed" | "final" | "protected" | "unrewritable";
+
+/** Why the deck is never edited by hand, asked once a version: null while it may be, or isn't known yet. */
+function useDeckRefusal(document: Document): DeckRefusal | null {
+  const [refusal, setRefusal] = useState<{ version: string; why: DeckRefusal | null } | null>(null);
+  useEffect(() => {
+    if (document.kind !== "pptx" || document.web || document.fileStatus !== "available") return;
+    let live = true;
+    void core
+      .deckRefusal(document.id)
+      .then((why) => {
+        // A deck that may be edited draws nothing more: no new render under a gesture.
+        if (live && why) setRefusal({ version: document.contentHash, why });
+      })
+      .catch((error: unknown) =>
+        console.error("Whether the deck may be edited couldn't be read.", error),
+      );
+    return () => {
+      live = false;
+    };
+  }, [document.id, document.contentHash, document.kind, document.web, document.fileStatus]);
+  return refusal?.version === document.contentHash ? refusal.why : null;
+}
+
 /** The SHA-256 of `bytes` in hex, as the core's `hashBytes` gives it. */
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
@@ -115,7 +139,12 @@ export function SlidesView({ document, target }: { document: Document; target: V
   // A version this window's hand edits wrote is drawn from what they wrote, not read again.
   const { loaded, reload } = useDocumentFile(document.id, editing.steady, read);
   editing.read.current = loaded.kind === "ready" ? loaded.value.hash : null;
-  const editable = document.kind === "pptx" && !document.web && document.fileStatus === "available";
+  const refusal = useDeckRefusal(document);
+  const editable =
+    document.kind === "pptx" &&
+    !document.web &&
+    document.fileStatus === "available" &&
+    refusal === null;
   const [written, setWritten] = useState<Loaded | null>(null);
   // What a hand edit wrote is drawn at once, until the viewer reads the file it wrote again.
   useEffect(() => {
@@ -144,6 +173,7 @@ export function SlidesView({ document, target }: { document: Document; target: V
           document={document}
           target={target}
           editing={editable ? editing : null}
+          refusal={refusal}
         />
       )}
     />
@@ -187,12 +217,15 @@ function Slides({
   document,
   target,
   editing,
+  refusal,
 }: {
   loaded: Loaded;
   document: Document;
   target: ViewerTarget;
   /** Hand editing of the deck, where its file may be edited. */
   editing: DeckEditing | null;
+  /** Why the deck is never edited by hand, said once over its slides. */
+  refusal: DeckRefusal | null;
 }) {
   const t = useT();
   const { slides } = loaded.deck;
@@ -537,6 +570,15 @@ function Slides({
       />
       <QuoteStepsLine stepper={stepper} />
       {editing && <DeckLines editing={editing} />}
+      {refusal && (
+        <p className="viewer-deck-refusal" data-testid="viewer-deck-refusal" data-quote-skip="">
+          {t(
+            refusal === "unrewritable"
+              ? "error.deck.unrewritable"
+              : `error.deck.protected.${refusal}`,
+          )}
+        </p>
+      )}
       <QuoteStepContext.Provider value={step}>
         <div className="flex min-h-0 flex-1">
           {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}

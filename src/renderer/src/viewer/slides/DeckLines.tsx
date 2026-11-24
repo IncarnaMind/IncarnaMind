@@ -13,7 +13,8 @@ function unwritableActions(
   why: DeckUnwritable["why"],
   actions: { saveCopy: ProblemAction; tryAgain: ProblemAction },
 ): { action: ProblemAction; also?: ProblemAction } {
-  if (why === "gone") return { action: actions.saveCopy };
+  // Gone, or written by another program since: only a copy beside it keeps the change.
+  if (why === "gone" || why === "changed") return { action: actions.saveCopy };
   return why === "locked"
     ? { action: actions.tryAgain, also: actions.saveCopy }
     : { action: actions.saveCopy, also: actions.tryAgain };
@@ -49,7 +50,9 @@ export function DeckLines({ editing }: { editing: DeckEditing }) {
         >
           <ProblemMark />
           {t("viewer.deck.unwritableLine", {
-            problem: t(`error.deck.unwritable.${waiting.why}`, { name: waiting.name }),
+            problem: waiting.lock
+              ? t("error.deck.unwritable.lockFile", { name: waiting.name, lock: waiting.lock })
+              : t(`error.deck.unwritable.${waiting.why}`, { name: waiting.name }),
             kept: t("viewer.deck.changeKept"),
           })}
         </ProblemLine>

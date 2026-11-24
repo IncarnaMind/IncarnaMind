@@ -280,3 +280,7 @@
 .viewer-deck-lines {
   @apply flex flex-col gap-1 px-6 empty:hidden;
 }
+/* Why a deck isn't edited by hand (signed, final, a password to modify), said once over its slides. */
+.viewer-deck-refusal {
+  @apply px-6 text-[13px] text-ink-meta;
+}
