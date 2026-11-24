@@ -16,6 +16,7 @@ import {
   useRef,
 } from "react";
 import { enterFrom, useExitToward } from "../motion";
+import { clearOfBadge } from "./claimCardPlace";
 
 interface PopoverProps extends HTMLAttributes<HTMLDivElement> {
   /** What the popover sits next to. It follows it as the Mind scrolls. */
@@ -119,7 +120,13 @@ export function Popover({
         placement,
         strategy: "fixed",
         middleware: [
-          ...(placing.current?.() ?? [offset(4), flip(), shift({ padding: 8 })]),
+          // Nothing hanging from a Note's text covers its check badge (#1686, #3677).
+          ...(placing.current?.() ?? [
+            offset(4),
+            flip(),
+            shift({ padding: 8 }),
+            clearOfBadge(anchor),
+          ]),
           ...(fromBottom ? [heightPlaced] : []),
         ],
       }).then(({ x, y, middlewareData }) => {
