@@ -209,7 +209,8 @@ export function useDeckEditing(
         let done: DeckEdit;
         try {
           done = await writing(run);
-        } catch {
+        } catch (error) {
+          console.error("A hand edit of the deck couldn't be undone or redone.", error);
           sitting.current = null;
           setWritten(null);
           throw new UndoRefused((t) => t("viewer.deck.undoRefused"), null);
@@ -323,12 +324,14 @@ export function putBack(document: Document, kept: KeptDeckState, shown: string):
         undo: async () => {
           const before = now.before;
           if (!before) throw refused();
-          now = await restore(before, now.contentHash).catch(() => {
+          now = await restore(before, now.contentHash).catch((error: unknown) => {
+            console.error("Putting the deck back couldn't be undone.", error);
             throw refused();
           });
         },
         redo: async () => {
-          now = await restore(kept.id, now.contentHash).catch(() => {
+          now = await restore(kept.id, now.contentHash).catch((error: unknown) => {
+            console.error("Putting the deck back couldn't be done again.", error);
             throw refused();
           });
         },
