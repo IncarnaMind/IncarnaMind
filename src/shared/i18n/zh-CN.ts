@@ -8562,7 +8562,7 @@ export const zhCN = {
   "agents.connect.background.codex":
     "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。",
   "agents.connect.codexInstructions":
-    "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md。",
+    "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",

@@ -9104,7 +9104,7 @@ export const en = {
   "agents.connect.background.codex":
     "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key.",
   "agents.connect.codexInstructions":
-    "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder.",
+    "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
   "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
