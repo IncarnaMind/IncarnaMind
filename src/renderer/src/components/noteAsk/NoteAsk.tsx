@@ -195,7 +195,7 @@ function NoteAskBox({
       line={
         upward ? (
           kept || ask ? (
-            <ConversationHandle mindId={mindId} line={line} open={open} onToggle={toggle} />
+            <ConversationHandle line={line} open={open} onToggle={toggle} />
           ) : null
         ) : open ? null : (
           line
@@ -237,24 +237,20 @@ function NoteAskBox({
 
 /**
  * The box's top row with the conversation upward: the AI's line, or "Show conversation" when there
- * is none, and the chevron that opens and folds it. Open, it holds only what the conversation above
- * it doesn't: a run's words while one goes, the move to the right, and the fold; the reply and its
- * one action are in the conversation then.
+ * is none, and the chevron that opens and folds it. Open, it holds only the move to the right and
+ * the fold: a run's words, the reply and its one action are in the conversation above it then.
  */
 function ConversationHandle({
-  mindId,
   line,
   open,
   onToggle,
 }: {
-  mindId: string;
   line: ReactNode;
   open: boolean;
   onToggle(): void;
 }) {
   const t = useT();
-  const ask = useNoteAsks((state) => state.byMind[mindId]);
-  const shownLine = open ? (ask?.state === "working" ? line : null) : line;
+  const shownLine = open ? null : line;
   return (
     <div data-testid="note-ask-handle" className="note-ask-handle">
       {shownLine ??

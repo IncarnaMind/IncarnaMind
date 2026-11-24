@@ -81,6 +81,17 @@ export const useNoteTrails = create<{ byTurn: Readonly<Record<string, NoteTrail>
   byTurn: {},
 }));
 
+/** Where the User last moved the conversation, on this computer: it opens there after a restart. */
+const PLACE_KEY = "incarnamind.noteConversation.place";
+
+function savedPlace(): "upward" | "column" {
+  try {
+    return localStorage.getItem(PLACE_KEY) === "column" ? "column" : "upward";
+  } catch {
+    return "upward";
+  }
+}
+
 /**
  * Each Note's conversation: whether it is open, the model it asks on, whether it was just started
  * anew, and the reply it opens at. It opens in one place for every Note, the User's to move: upward
@@ -93,7 +104,7 @@ export const useNoteColumns = create<{
   /** The reply the conversation opens at, from the line. */
   at: Readonly<Record<string, string>>;
   place: "upward" | "column";
-}>(() => ({ open: {}, model: {}, started: {}, at: {}, place: "upward" }));
+}>(() => ({ open: {}, model: {}, started: {}, at: {}, place: savedPlace() }));
 
 /** Opens the conversation at a reply, as pressing the line does. */
 export const openColumnAt = (mindId: string, turnId: string | null) =>
@@ -109,7 +120,14 @@ export const useColumnOpen = (mindId: string): boolean =>
   useNoteColumns((state) => state.open[mindId] ?? false);
 
 /** Moves the open conversation between its two places; it stays open, and the input goes with it. */
-export const moveConversation = (place: "upward" | "column") => useNoteColumns.setState({ place });
+export function moveConversation(place: "upward" | "column"): void {
+  useNoteColumns.setState({ place });
+  try {
+    localStorage.setItem(PLACE_KEY, place);
+  } catch {
+    // Not remembered, then: it opens upward after the next restart.
+  }
+}
 
 function keepTrail(event: NoteTurnEvent): void {
   useNoteTrails.setState((state) => {

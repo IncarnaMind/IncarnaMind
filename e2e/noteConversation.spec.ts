@@ -421,3 +421,123 @@ test("a Chinese IME composition open as the conversation moves ends in its new p
     await app.close();
   }
 });
+
+const launched = () =>
+  launchApp(dataDir, {
+    home,
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+  });
+
+/** The app open on a Note in the interviews' Folder, the stand-in Claude Code connected. */
+async function harbourNote(window: Page): Promise<string> {
+  await acceptPlainTextKeys(window);
+  await dismissChatSetup(window);
+  const folderId = await connected(window);
+  const mindId = await writeNote(window, "Harbour notes", [{ text: P1 }, { text: P2 }], {
+    folderId,
+  });
+  await open(window, mindId);
+  return mindId;
+}
+
+test("while a run goes with the conversation open upward, its line shows once, in the conversation", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const panel = group.getByTestId("note-ask-panel");
+    await stepTo(0);
+    await nextRun("long");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await stepTo(3);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await expect(panel.getByTestId("note-column-live")).toContainText("Ferry interview", {
+      timeout: 20_000,
+    });
+    // The box's top row keeps only the move and the fold: the line is the conversation's.
+    await expect(group.getByTestId("note-ask-handle").getByTestId("note-ask-pill")).toHaveCount(0);
+    await stepTo(99);
+    await ended(window, mindId, before);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a run stopped after it read says what it read, and after a restart only that it stopped, which is all that is kept, in English and Chinese", async () => {
+  let { app, window } = await launched();
+  let mindId = "";
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const panel = group.getByTestId("note-ask-panel");
+    await stepTo(0);
+    await nextRun("long");
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await stepTo(4);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await expect(panel.getByTestId("note-column-live")).toContainText("Ferry interview", {
+      timeout: 20_000,
+    });
+    await pointAndClick(window, group.getByTestId("note-ask-stop"));
+    await expect(panel.getByTestId("note-column-interrupted")).toHaveText(
+      "Stopped. It had read “Harbour notes” and 2 Documents.",
+    );
+  } finally {
+    await app.close();
+  }
+  ({ app, window } = await launched());
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    const stopped = group.getByTestId("note-ask-panel").getByTestId("note-column-interrupted");
+    await expect(stopped).toHaveText("Stopped.");
+    await setLanguage(window, "zh-CN");
+    await expect(stopped).toHaveText("已停止。");
+  } finally {
+    await app.close();
+  }
+});
+
+test("the conversation moved to the column opens there again after a restart", async () => {
+  let { app, window } = await launched();
+  let mindId = "";
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await nextRun("plan");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("What does the harbour plan add?");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, group.getByTestId("conversation-move-right"));
+    await expect(window.getByTestId("note-column")).toBeVisible();
+  } finally {
+    await app.close();
+  }
+  ({ app, window } = await launched());
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await pointAndClick(window, group.getByTestId("note-ask-conversation-toggle"));
+    await expect(window.getByTestId("note-column")).toBeVisible();
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});

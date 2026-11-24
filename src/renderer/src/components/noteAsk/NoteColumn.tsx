@@ -281,7 +281,8 @@ function Turn({
       {state === "working" && trail && <LiveSteps trail={trail} steps={steps} />}
       {state === "stopped" && (
         <p data-testid="note-column-interrupted" className="note-column-interrupted">
-          {stoppedOf(steps, t)}
+          {/* What a run read lives in the window: after a restart only that it stopped is known. */}
+          {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
         </p>
       )}
       {state === "failed" && turn.problem && (
