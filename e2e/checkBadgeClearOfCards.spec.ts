@@ -16,6 +16,7 @@ import {
   blocksUpdate,
   createDataFolder,
   dismissChatSetup,
+  focusSettled,
   launchApp,
   mindNode,
   motionSettled,
@@ -315,6 +316,7 @@ async function cardsNearTheBadge(
       await expect(format, `format menu, ${place}`).toBeVisible();
       await pressable(window, badge, format);
       await editor.focus();
+      await focusSettled(window, editor);
       await window.keyboard.press("ArrowRight");
       await expect(selectionMenu).toBeHidden();
 
