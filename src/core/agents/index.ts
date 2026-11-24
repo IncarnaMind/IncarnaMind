@@ -1171,10 +1171,21 @@ export function createAgents(options: AgentsOptions) {
       });
     },
 
-    /** The Citation IncarnaMind gave this connection under `token`, or null for any other. */
+    /**
+     * The Citation IncarnaMind gave this connection under `token`, found in its Document as it is
+     * now, within the connection's reach; null for any other, or once the connection is gone.
+     */
     citationOf(pairingId: string, token: string): NoteCitation | null {
-      const kept = citations.find(pairingId, token);
-      return kept ? { token, documentName: kept.documentName, quote: kept.quote } : null;
+      let now: ReturnType<ReturnType<typeof createAgentAccess>["citationNow"]>;
+      try {
+        now = createAgentAccess(accessDeps, pairingId).citationNow(token);
+      } catch (error) {
+        if (error instanceof AgentRefusedError) return null;
+        throw error;
+      }
+      return now.check === "found" && now.document !== null && now.quote !== null
+        ? { token, documentName: now.document, quote: now.quote }
+        : null;
     },
 
     /** The requests made about a Note, of the agents still connected, the newest first (#3419). */

@@ -250,6 +250,8 @@ async function written(
   return {
     ...started,
     core,
+    sources,
+    reportId: report.id,
     mindId: mind.id,
     otherId: other.id,
     client,
@@ -871,15 +873,37 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
         reply: `The ferry carried 212,000 passengers.${given} Fares rose.[cite:k3x9a2b7]`,
       };
     });
-    const { core, mindId, ended } = await written(run.adapter);
-    await core.askInNote({ mindId, words: "what does the report say?" });
-    await ended();
-    const [turn] = await core.noteConversation(mindId);
+    const cited = async (each: Awaited<ReturnType<typeof written>>) => {
+      await each.core.askInNote({ mindId: each.mindId, words: "what does the report say?" });
+      await each.ended();
+      const [turn] = await each.core.noteConversation(each.mindId);
+      return turn;
+    };
+    const here = await written(run.adapter);
+    const turn = await cited(here);
     expect(turn?.citations).toEqual([
       { token: expect.any(String), documentName: "Report", quote: FERRY },
     ]);
     expect(turn?.reply).toContain(`[cite:${turn?.citations[0]?.token}]`);
     expect(turn?.citations.map((each) => each.token)).not.toContain("k3x9a2b7");
+
+    // Checked again against the Document as it is now: deleted, changed, or out of the
+    // connection's reach, it is no Citation any more.
+    const citationsNow = async (each: Awaited<ReturnType<typeof written>>) =>
+      (await each.core.noteConversation(each.mindId))[0]?.citations ?? [];
+    await here.core.deleteDocument(here.reportId);
+    expect(await citationsNow(here)).toEqual([]);
+
+    const changed = await written(run.adapter);
+    expect((await cited(changed))?.citations).toHaveLength(1);
+    await writeSourceFile(changed.sources, "Report.md", "# Report\n\nThe ferry ran all year.\n");
+    await addAndProcess(changed.core, [join(changed.sources, "Report.md")]);
+    expect(await citationsNow(changed)).toEqual([]);
+
+    const moved = await written(run.adapter);
+    expect((await cited(moved))?.citations).toHaveLength(1);
+    await moved.core.assignDocumentGroup(moved.reportId, null);
+    expect(await citationsNow(moved)).toEqual([]);
   });
 
   // protects=only a model the User's agent itself offered goes to it as its model; anything else is refused before anything starts; fails_when=a value the renderer sends reaches the command line unchecked

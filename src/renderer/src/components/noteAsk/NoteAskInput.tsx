@@ -7,13 +7,13 @@ import { NoteModelChoice } from "./NoteModelChoice";
 
 /**
  * Whether the input had the focus, and where its caret was, when it last left its place;
- * `composed`: it left while the IME was composing, so its words went back to what they were before.
+ * `composed`: it left while the IME was composing, so its words went back to these, before it.
  */
 export interface InputCarry {
   focused: boolean;
   start: number;
   end: number;
-  composed: boolean;
+  composed: string | null;
 }
 
 /**
@@ -56,7 +56,7 @@ export function NoteAskInput({
   const t = useT();
   const input = useRef<HTMLTextAreaElement | null>(null);
   const composing = useRef<{ words: string; at: number } | null>(null);
-  const caretAfter = useRef<number | null>(null);
+  const caretAfter = useRef<{ at: number; words: string } | null>(null);
   const wordsTo = useRef(onWords);
   wordsTo.current = onWords;
   useLayoutEffect(() => {
@@ -66,7 +66,7 @@ export function NoteAskInput({
     if (element && was?.focused) {
       element.focus();
       element.setSelectionRange(was.start, was.end);
-      if (was.composed) caretAfter.current = was.start;
+      if (was.composed !== null) caretAfter.current = { at: was.start, words: was.composed };
     }
     return () => {
       if (!element) return;
@@ -75,7 +75,7 @@ export function NoteAskInput({
         focused: document.activeElement === element,
         start: open ? open.at : element.selectionStart,
         end: open ? open.at : element.selectionEnd,
-        composed: open !== null,
+        composed: open?.words ?? null,
       };
       // A composition the IME hasn't ended can't move with the box: its letters would stay as
       // typed and the IME's end would add its characters after them. The words go back to what
@@ -83,12 +83,12 @@ export function NoteAskInput({
       if (open) wordsTo.current(open.words);
     };
   }, [carry]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: once the words went back, the caret goes to where the composition began.
+  // Once the words are back to what they were, the caret goes to where the composition began.
   useLayoutEffect(() => {
-    const at = caretAfter.current;
-    if (at === null || !input.current) return;
+    const after = caretAfter.current;
+    if (after === null || after.words !== words || !input.current) return;
     caretAfter.current = null;
-    input.current.setSelectionRange(at, at);
+    input.current.setSelectionRange(after.at, after.at);
   }, [words]);
   const placeholder = t("noteAsk.placeholder");
   return (

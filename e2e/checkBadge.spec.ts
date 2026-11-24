@@ -205,6 +205,40 @@ test("a checked Note with a sentence a check cannot settle rests on that sentenc
   const left = badge.locator('.check-badge-quiet [data-part="not-checked"]');
   await expect(left).toHaveText("1");
   await expect(badge.locator('.check-badge-mark[data-part="checked"]')).toBeHidden();
+  // In the margin's tone for those sentences, never the checked green, in both themes.
+  for (const appearance of ["light", "dark"] as const) {
+    await window.evaluate(
+      (theme) =>
+        (
+          globalThis as unknown as {
+            incarnamind: { updateSettings(patch: unknown): Promise<unknown> };
+          }
+        ).incarnamind.updateSettings({ device: { appearance: theme } }),
+      appearance,
+    );
+    await expect
+      .poll(() =>
+        window.evaluate(() => {
+          const tone = (name: string) => {
+            const probe = document.createElement("span");
+            probe.style.color = `var(${name})`;
+            document.body.append(probe);
+            const color = getComputedStyle(probe).color;
+            probe.remove();
+            return color;
+          };
+          const icon = document.querySelector(
+            '.check-badge-quiet [data-part="not-checked"] .mind-health-icon',
+          );
+          const color = icon ? getComputedStyle(icon).color : "";
+          return {
+            meta: color === tone("--color-ink-meta"),
+            green: color === tone("--color-success"),
+          };
+        }),
+      )
+      .toEqual({ meta: true, green: false });
+  }
   await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
     /^Checks: Checked .*1 sentence can’t be checked/,
   );

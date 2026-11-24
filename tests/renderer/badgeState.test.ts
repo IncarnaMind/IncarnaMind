@@ -4,7 +4,9 @@ import {
   type BadgeShown,
   badgeOf,
   badgeShows,
+  caveatMarks,
 } from "../../src/renderer/src/editor/badgeState";
+import type { NoteState } from "../../src/renderer/src/noteState";
 
 /* The check badge (#909, D266): what it shows of a Mind's health and its checks, or nothing. */
 
@@ -121,5 +123,55 @@ describe("Whether the check badge shows (#1194, #1909, D266)", () => {
   test("the quiet first open hides the state, but not a run, a problem or a question", () => {
     expect(badgeShows({ ...QUIET, checkable: 3 })).toBe(false);
     expect(badgeShows({ ...QUIET, checkable: 3, problem: true })).toBe(true);
+  });
+});
+
+/** A checked Note's state, as `noteStateOf` gives one, with `left` of what it left unsettled. */
+const checked = (left: Partial<NoteState> = {}): NoteState => ({
+  kind: "checked",
+  look: 0,
+  tone: "success",
+  mark: "checked",
+  checkedAt: "2026-11-24T09:00:00.000Z",
+  unread: 0,
+  unreadMatters: false,
+  checkable: 6,
+  cantCheck: 0,
+  notRecalculated: 0,
+  needsCheck: 0,
+  notYetCited: 0,
+  canBeCited: 0,
+  toCheck: 0,
+  notChecked: 0,
+  ...left,
+});
+
+describe("what a checked Note left unsettled, at rest (#3677)", () => {
+  test("none: it rests on the ✓", () => {
+    expect(caveatMarks(checked())).toEqual([]);
+  });
+  test("each by its sentences' own mark and count: changed since, and can't be checked or not worked out again", () => {
+    expect(caveatMarks(checked({ needsCheck: 2, cantCheck: 1, notRecalculated: 1 }))).toEqual([
+      { state: "needs-recheck", count: 2 },
+      { state: "not-checked", count: 2 },
+    ]);
+  });
+  test("beside the sentences not yet cited, every one of them shows too", () => {
+    const resting = checked({
+      kind: "not-yet-cited",
+      tone: "neutral",
+      mark: "notYetCited",
+      notYetCited: 1,
+      canBeCited: 1,
+      needsCheck: 1,
+      cantCheck: 1,
+    });
+    expect(caveatMarks(resting)).toEqual([
+      { state: "needs-recheck", count: 1 },
+      { state: "not-checked", count: 1 },
+    ]);
+  });
+  test("a Note that needs a look keeps its problems' marks instead", () => {
+    expect(caveatMarks(checked({ kind: "needs-look", needsCheck: 1 }))).toEqual([]);
   });
 });

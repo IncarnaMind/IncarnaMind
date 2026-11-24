@@ -48,7 +48,7 @@ import { useGroupsMerged } from "../useWindowWidth";
 import { checkClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { AskAgentAllButton, useAskAll } from "./AskAgentAll";
-import { type Badge, type BadgeInput, badgeOf } from "./badgeState";
+import { type Badge, type BadgeInput, badgeOf, caveatMarks } from "./badgeState";
 import { CheckFasterLine } from "./CheckFasterLine";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
@@ -770,18 +770,6 @@ function StateMark({ state }: { state: NoteState }) {
 }
 
 /**
- * What a checked Note left unsettled, each by the mark its sentences carry in the margin: changed
- * since their check, and those a check can't settle or whose figure wasn't worked out again.
- */
-const caveatMarks = (state: NoteState) =>
-  state.kind !== "checked"
-    ? []
-    : [
-        { state: "needs-recheck" as const, count: state.needsCheck },
-        { state: "not-checked" as const, count: state.cantCheck + state.notRecalculated },
-      ].filter((each) => each.count > 0);
-
-/**
  * The resting state as a mark and its count, as the badge shows it with the Note's own controls
  * (#3677): "○ 3" to check, each problem's mark and count ("≠ 1 · ! 1"), "✓ 24" checked. A checked
  * Note with something left rests on that, never on the ✓: its words stay its name.
@@ -811,6 +799,12 @@ function QuietCount({
   if (left.length > 0) {
     return (
       <span className="check-badge-quiet">
+        {state.kind === "not-yet-cited" && (
+          <span className="check-badge-mark" data-part="notYetCited">
+            <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />
+            {format(state.canBeCited)}
+          </span>
+        )}
         {left.map((each) => (
           <span key={each.state} className="check-badge-mark" data-part={each.state}>
             <ClaimMarkIcon state={each.state} className="mind-health-icon" />

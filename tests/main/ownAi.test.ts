@@ -533,21 +533,34 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     },
     { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku" },
   ];
-  /** Claude Code answering the settings request, `initialize` with OFFERED, then the prompt. */
-  const listing = (plugin: boolean) => `
+  /**
+   * Claude Code answering the settings request (with a managed plugin when `plugin`), then
+   * `initialize`: with OFFERED after the settings ("after"), before them ("first"), with an error
+   * ("error"), or never ("never"); then the prompt.
+   */
+  const listing = (plugin: boolean, models: "after" | "first" | "error" | "never" = "after") => `
     const lines = require("node:readline").createInterface({ input: process.stdin });
+    const say = (value) => console.log(JSON.stringify(value));
+    const settings = (id) => say({ type: "control_response", response: { subtype: "success",
+      request_id: id, response: { effective: { disableAllHooks: true },
+        sources: [{ source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }] } } });
+    let held = null;
     lines.on("line", (line) => {
       const v = JSON.parse(line);
       if (v.type === "control_request" && v.request.subtype === "initialize") {
-        console.log(JSON.stringify({ type: "control_response", response: { subtype: "success",
-          request_id: v.request_id, response: { models: ${JSON.stringify(OFFERED)} } } }));
+        const how = ${JSON.stringify(models)};
+        if (how === "never") return;
+        say(how === "error"
+          ? { type: "control_response", response: { subtype: "error", request_id: v.request_id, error: "no" } }
+          : { type: "control_response", response: { subtype: "success",
+              request_id: v.request_id, response: { models: ${JSON.stringify(OFFERED)} } } });
+        if (held) settings(held);
       } else if (v.type === "control_request") {
-        console.log(JSON.stringify({ type: "control_response", response: { subtype: "success",
-          request_id: v.request_id, response: { effective: { disableAllHooks: true },
-            sources: [{ source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }] } } }));
+        if (${JSON.stringify(models)} === "first") held = v.request_id;
+        else settings(v.request_id);
       } else if (v.type === "user") {
-        console.log(${JSON.stringify(JSON.stringify(init(["mcp__incarnamind__read_mind"])))});
-        console.log(${JSON.stringify(JSON.stringify(done))});
+        say(${JSON.stringify(init(["mcp__incarnamind__read_mind"]))});
+        say(${JSON.stringify(done)});
       }
     });
   `;
@@ -593,6 +606,38 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     const managed = await listen();
     expect(managed.end).toEqual({ kind: "failed", reason: "isolation" });
     expect(managed.models).toEqual([]);
+  });
+
+  // protects=models that come before a settings check that fails are never heard; fails_when=a list from a Claude Code with a managed plugin is used because it answered first
+  it("hears no models that came before a failing isolation check", async () => {
+    useClaude({ run: listing(true, "first") });
+    const managed = await listen();
+    expect(managed.end).toEqual({ kind: "failed", reason: "isolation" });
+    expect(managed.models).toEqual([]);
+  });
+
+  // protects=models that come before a settings check that passes are heard once it has; fails_when=the order of the answers loses the list
+  it("hears models that came first once the isolation check has passed", async () => {
+    useClaude({ run: listing(false, "first") });
+    const first = await listen();
+    expect(first.end).toEqual({ kind: "finished", reply: "Checked." });
+    expect(first.models).toHaveLength(1);
+  });
+
+  // protects=a models question Claude Code answers with an error, or not at all, leaves the request as it was; fails_when=the request waits on it or fails
+  it("goes on unchanged when the models question gets an error or no answer", async () => {
+    useClaude({ run: listing(false, "error") });
+    const refused = await listen();
+    expect(refused.end).toEqual({ kind: "finished", reply: "Checked." });
+    expect(refused.models).toEqual([{ kind: "models", models: [] }]);
+  });
+
+  // protects=a models question Claude Code never answers leaves the request as it was; fails_when=the request waits on it
+  it("goes on unchanged when the models question gets no answer", async () => {
+    useClaude({ run: listing(false, "never") });
+    const silent = await listen();
+    expect(silent.end).toEqual({ kind: "finished", reply: "Checked." });
+    expect(silent.models).toEqual([]);
   });
 
   // protects=deleting a Note's conversation asks Claude Code to purge the Note's folder and removes the folder; one with nothing to purge counts as done, and a purge that failed says so; fails_when=a failed purge reads as done and the transcript stays without a word

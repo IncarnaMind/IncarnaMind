@@ -13,7 +13,7 @@
 // The init event names the model `--model` asked for, as Claude Code's does, and an `initialize`
 // control request is answered with the models it offers, only in a run started with a run's flags
 // and environment: asked anywhere else, it answers with an error, so a spec sees no list.
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -28,6 +28,12 @@ const readOr = (path, fallback) => {
   }
 };
 const mode = readOr(modeFile, "check");
+// Each start, as the spec counts them: what it was started for, and the model a run was given.
+if (modeFile !== "") {
+  const what = args[0] === "-p" ? "run" : args.slice(0, 2).join(" ");
+  const asked = args.includes("--model") ? ` --model ${args[args.indexOf("--model") + 1]}` : "";
+  appendFileSync(`${modeFile}.starts`, `${what}${asked}\n`);
+}
 if (args[0] === "--version") {
   console.log("2.1.330 (Claude Code)");
   process.exit(0);

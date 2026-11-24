@@ -587,6 +587,11 @@ export interface AgentAccess {
   readPassages(input: AgentReadInput): Promise<AgentReadResult>;
   cite(input: AgentCiteInput): Promise<AgentCiteResult>;
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
+  /**
+   * A token IncarnaMind gave this connection, checked against its Document as it is now, as a
+   * change to a Note checks one; it records nothing, being no call of the agent's (#3677).
+   */
+  citationNow(token: string): AgentCheckedCitation;
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -2723,6 +2728,12 @@ export function createAgentAccess(
           documentIds: read,
         };
       });
+    },
+
+    citationNow(token) {
+      const pairing = deps.admit(pairingId);
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return checkToken(pairing, inScope, deps.liveDocuments(), token).report;
     },
 
     checkCitations(input) {

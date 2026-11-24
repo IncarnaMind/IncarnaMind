@@ -1,4 +1,4 @@
-import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -45,6 +45,12 @@ test.afterEach(async () => {
 });
 
 const nextRun = (mode: string) => writeFile(join(bin, "mode"), mode);
+/** Each start of the stand-in so far: "--version", "auth status", "run", "run --model haiku". */
+const starts = () =>
+  readFile(join(bin, "mode.starts"), "utf8").then(
+    (text) => text.split("\n").filter(Boolean),
+    () => [],
+  );
 const stepTo = (n: number) => writeFile(join(bin, "mode.step"), String(n));
 
 async function shot(window: Page, name: string) {
@@ -299,8 +305,9 @@ test("the model in the box comes with the first request's run, and the one chose
     const input = group.getByTestId("note-ask-input");
     const model = group.getByTestId("note-ask-model");
     await expect(input).toBeVisible();
-    // Nothing of Claude Code is started to list its models: before a request, the box has none.
-    await window.waitForTimeout(1000);
+    // Nothing of Claude Code is started to list its models: before a request, none started at all.
+    await window.waitForTimeout(2000);
+    expect(await starts()).toEqual([]);
     await expect(model).toHaveCount(0);
 
     await nextRun("plan");
@@ -309,8 +316,10 @@ test("the model in the box comes with the first request's run, and the one chose
     await window.keyboard.type("What does the harbour plan add?");
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
-    // The request's own run brought the list: its default first, as Claude Code names it.
+    // The request's own run brought the list: its default first, as Claude Code names it. What
+    // started is the request's checks and its one run, nothing else.
     await expect(model).toHaveText("Sonnet 5.5");
+    expect(await starts()).toEqual(["--version", "auth status", "run"]);
     await pointAndClick(window, model);
     const menu = window.getByTestId("note-ask-models");
     await expect(menu.getByRole("menuitemradio")).toHaveCount(4);
@@ -322,13 +331,29 @@ test("the model in the box comes with the first request's run, and the one chose
     await window.keyboard.type("And when?");
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
+    expect((await starts()).slice(3)).toEqual(["--version", "auth status", "run --model haiku"]);
     // Claude Code named the model it answered on: the one chosen.
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
     const reply = group.getByTestId("note-column-reply").last();
     await expect(reply.locator(".note-column-reply-meta")).toHaveText("Haiku 5.5");
-    // Copy puts the reply's words on the clipboard.
-    await reply.hover();
-    await pointAndClick(window, reply.getByTestId("note-column-copy"));
+    // Copy is reached from the keyboard alone, shown once it has the focus, and puts the reply's
+    // words on the clipboard.
+    await pointAndClick(window, input);
+    await window.mouse.move(0, 0);
+    const copy = reply.getByTestId("note-column-copy");
+    for (
+      let n = 0;
+      n < 12 && !(await copy.evaluate((button) => button === document.activeElement));
+      n++
+    )
+      await window.keyboard.press("Shift+Tab");
+    await expect(copy).toBeFocused();
+    await expect
+      .poll(() =>
+        reply.locator(".note-column-reply-meta").evaluate((meta) => getComputedStyle(meta).opacity),
+      )
+      .toBe("1");
+    await window.keyboard.press("Enter");
     const [last] = (
       await window.evaluate(
         (id) =>
@@ -379,14 +404,19 @@ test("a Chinese IME composition open as the conversation moves ends in its new p
     await expect(input).toHaveValue("坡道");
     await ime.send("Input.insertText", { text: "港" });
     await expect(input).toHaveValue("坡道港");
+    // In the middle of the words: after the move the caret is where the composition began.
+    await window.keyboard.press("ArrowLeft");
     await ime.send("Input.imeSetComposition", { text: "kou", selectionStart: 3, selectionEnd: 3 });
+    await expect(input).toHaveValue("坡道kou港");
     await pointAndClick(
       window,
       window.getByTestId("note-column").getByTestId("conversation-move-down"),
     );
     await expect(input).toBeFocused();
+    await expect(input).toHaveValue("坡道港");
+    expect(await input.evaluate((area: HTMLTextAreaElement) => area.selectionStart)).toBe(2);
     await ime.send("Input.insertText", { text: "口" });
-    await expect(input).toHaveValue("坡道港口");
+    await expect(input).toHaveValue("坡道口港");
   } finally {
     await app.close();
   }

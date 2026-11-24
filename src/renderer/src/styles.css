@@ -3031,10 +3031,11 @@
     align-items: center;
     gap: 4px;
     margin-left: auto;
-    visibility: hidden;
+    /* Unseen until the reply is pointed at or holds the focus, yet reachable by Tab. */
+    opacity: 0;
   }
   .note-column-reply:is(:hover, :focus-within) .note-column-reply-meta {
-    visibility: visible;
+    opacity: 1;
   }
   .note-column-step-item > .note-column-step {
     max-width: 100%;
@@ -3185,6 +3186,23 @@
     }
     .check-badge-quiet .check-badge-mark:is([data-part="unsupported"], [data-part="notFound"]) {
       color: var(--color-warning);
+    }
+    /* What a checked Note left unsettled is in the margin's tone for those sentences, never the
+       checked green. */
+    .check-badge-quiet
+      .check-badge-mark:is(
+        [data-part="needs-recheck"],
+        [data-part="not-checked"],
+        [data-part="notYetCited"]
+      ),
+    .check-badge-quiet
+      .check-badge-mark:is(
+        [data-part="needs-recheck"],
+        [data-part="not-checked"],
+        [data-part="notYetCited"]
+      )
+      .mind-health-icon {
+      color: var(--color-ink-meta);
     }
   }
   /* "Show conversation", at the Note's top right beside its menu. */
