@@ -188,10 +188,8 @@ for (const width of [900, 1280]) {
         await expect(dialog.getByTestId("agent-share-all")).toHaveCount(0);
         const reads = dialog.getByTestId("connect-agent-reads");
         await expect(reads).toHaveText(words.readsAll);
-        await expect(dialog.getByTestId("agent-propose")).toBeChecked({ checked: false });
-        await expect(dialog.getByTestId("connect-agent-disconnect")).toHaveText(
-          translate(language, "agents.connect.disconnect"),
-        );
+        await expect(dialog.getByTestId("agent-propose")).toBeChecked();
+        await expect(dialog.getByTestId("connect-agent-disconnect")).toHaveCount(0);
         const details = dialog.getByTestId("connect-agent-details");
         await expect(details).not.toHaveAttribute("open", "");
         await expect(details).toContainText(

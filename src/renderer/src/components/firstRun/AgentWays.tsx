@@ -16,6 +16,10 @@ import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
 import { WorksRow } from "./SetupPanel";
 
+/** Whether every agent listed, Other agent aside, is on this computer: then no tile says so (#3756). */
+const everyFound = (shown: readonly AgentClient[]) =>
+  shown.every((client) => client.id === "other" || client.installed);
+
 const linkClass =
   "rounded-sm font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
 
@@ -24,7 +28,7 @@ const linkClass =
  * computer first, then Other agent. Choosing one shows the lines Settings › AI shows before
  * it connects one, and Allow and connect does what it does there, turning connecting agents on
  * with it: the agent is then the one Settings lists. A connected agent shows as set, with what is
- * left to do in it. It reads all of the User's Documents and notes, those added later too (#3544),
+ * left to do in it, and the tiles fold away until it is undone (#3756). It reads all of the User's Documents and notes, those added later too (#3544),
  * and it may write notes unless the User unticks it, so it can write the first one.
  */
 export function AgentWays({
@@ -44,6 +48,12 @@ export function AgentWays({
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
   const connection = useAgentConnection();
   const list = useRef<HTMLFieldSetElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const chosenId = chosen?.id ?? null;
+  // The card opens under the tiles, out of view at the usual window size: its Allow must show.
+  useEffect(() => {
+    if (chosenId) card.current?.scrollIntoView({ block: "nearest" });
+  }, [chosenId]);
   // Try again goes once the agents are listed: the focus moves on to the first of them.
   const failed = useRef(clients.state === "failed");
   useEffect(() => {
@@ -154,7 +164,7 @@ export function AgentWays({
           testId="setup-agents-problem"
         />
       )}
-      {clients.state === "ready" && (
+      {clients.state === "ready" && !justSetUp && (
         <AgentFinder clients={clients.data} testId="setup-agents">
           {(shown) => (
             <fieldset
@@ -183,7 +193,7 @@ export function AgentWays({
                   <span className="min-w-0 flex-1 truncate text-ui font-semibold text-ink">
                     {clientName(client, t)}
                   </span>
-                  {client.installed && (
+                  {client.installed && !everyFound(shown) && (
                     <span className="shrink-0 text-[12px] leading-4 text-ink-meta">
                       {t("setupPage.agent.found")}
                     </span>
@@ -196,8 +206,9 @@ export function AgentWays({
       )}
       {chosen && (
         <div
+          ref={card}
           data-testid="setup-agent-connect"
-          className="flex flex-col gap-3 rounded-lg px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--color-rule)]"
+          className="flex scroll-mb-28 flex-col gap-3 rounded-lg px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--color-rule)]"
         >
           <h3 className="text-ui font-semibold text-ink">
             {t("agents.connect.title", { agent: clientInSentence(chosen, t) })}
@@ -205,7 +216,6 @@ export function AgentWays({
           <ConnectAgentFields
             client={chosen}
             problem={connection.problem}
-            writes
             actions={({ choice, disabled }) => (
               <div className="flex justify-end">
                 <button

@@ -8615,21 +8615,20 @@ export const zhCN = {
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
-    "它新建的笔记和页面立即出现，笔记还可以核对。它的页面和笔记用到的图片和文件，IncarnaMind 只复制它指明的那些。它还可以提交自己做的演示文稿、工作簿等文件：IncarnaMind 只读取那一个文件，保留每一版。它写入的内容等你点“核对”，除非你在“设置 › AI”中开启了写入后立即核对。它对你笔记的修改等你处理。",
-  "agents.connect.reads.all":
-    "它可以读取你的全部文档和笔记，包括以后添加的。它读取的内容会发送给{agent}所用的 AI 模型。",
-  "agents.connect.reads": "它读取的内容会发送给{agent}所用的 AI 模型。",
-  "agents.connect.reads.walled":
-    "它读取的内容会发送给{agent}所用的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
+    "它写的笔记立即出现；它对你笔记的修改等你处理。IncarnaMind 只读取它指明或提交的文件。",
+  "agents.connect.reads.all": "它可以读取你的全部文档和笔记，内容会发给它的 AI 模型。",
+  "agents.connect.reads": "内容会发给它的 AI 模型。",
+  "agents.connect.reads.walled": "内容会发给它的 AI 模型。只在本文件夹内工作的文件夹只能单独共享。",
   "agents.share.all": "我的全部文档和笔记，包括以后添加的",
   "agents.share.folders": "选择文件夹",
-  "agents.connect.background":
-    "没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 {agent}，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 Claude 订阅或 API 密钥。",
-  "agents.connect.background.codex":
-    "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。",
+  "agents.connect.background": "核对和笔记请求在后台运行 {agent}，用你的订阅或 API 密钥。",
+  "agents.connect.background.codex": "核对在后台运行你的 Codex，用你的 ChatGPT 订阅或 API 密钥。",
+  "agents.connect.background.details":
+    "只在没设置 AI 模型时这样运行：不打开窗口，也不新增对话，只通过 IncarnaMind 工作。",
+  "agents.connect.background.codex.details":
+    "只在没设置 AI 模型时这样运行：不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。",
   "agents.connect.codexInstructions":
     "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
-  "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
   "agents.connect.backup": "它会把该文件现在的样子保留一份在 {path}，直到你断开连接。",
