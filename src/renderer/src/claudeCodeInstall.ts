@@ -20,13 +20,28 @@ const useStore = create<Store>(() => ({
 
 let subscribed = false;
 
-function refreshAvailability(): void {
-  core.getClaudeCodeInstallAvailability().then(
-    (availability) => {
-      if (availability && typeof availability === "object") useStore.setState({ availability });
-    },
-    () => undefined,
+const UNAVAILABLE: ClaudeCodeInstallAvailability = {
+  supported: false,
+  installed: false,
+  cliAgentPresent: false,
+  directory: "",
+};
+
+function settleUnavailableIfPending(): void {
+  useStore.setState((current) =>
+    current.availability === null ? { availability: UNAVAILABLE } : current,
   );
+}
+
+function refreshAvailability(): void {
+  if (typeof core.getClaudeCodeInstallAvailability !== "function") {
+    settleUnavailableIfPending();
+    return;
+  }
+  core.getClaudeCodeInstallAvailability().then((availability) => {
+    if (availability && typeof availability === "object") useStore.setState({ availability });
+    else settleUnavailableIfPending();
+  }, settleUnavailableIfPending);
 }
 
 function ensureLoaded(): void {

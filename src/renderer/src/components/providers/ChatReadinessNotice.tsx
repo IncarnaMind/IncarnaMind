@@ -198,14 +198,21 @@ export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   const readiness = useAppStore((state) => state.chatReadiness);
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAskRead(mindId);
+  const installAvailability = useClaudeCodeInstallAvailability();
   // The setup card already says it.
   const settingUp = useSettingUp();
   if (!readiness || readiness.ready || settingUp) return null;
   // Local mode's refusal is said once, in the composer where the Question was asked (#1511): a
   // second line above the page would move the page.
   if (readiness.reason === "local-mode") return null;
-  // Until the agents are read, nothing shows that could go a moment later.
-  if (readiness.reason === "no-provider" && agents?.length !== 0) return null;
+  // Until agents and installer availability are read, hold the line back rather than showing one
+  // that could disappear or wrap taller a moment later.
+  if (
+    readiness.reason === "no-provider" &&
+    (agents?.length !== 0 || installAvailability === null)
+  ) {
+    return null;
+  }
   return (
     <ReadinessLine
       readiness={readiness}
