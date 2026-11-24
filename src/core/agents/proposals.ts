@@ -1017,6 +1017,31 @@ function topIndex(
   return blocks.toArray().indexOf(top);
 }
 
+/**
+ * The changes, with each addition after a paragraph the same changes rewrite that keeps that
+ * paragraph's Citations or footnotes by handle written at the end of its rewrite (#3747): a model
+ * asked for a paragraph as a title and a list writes the title in its place and the list after it,
+ * and as an addition the handles would be words and what they kept would go.
+ */
+function withKeptAdditions(changes: readonly NamedChange[]): NamedChange[] {
+  const rewritten = new Set(
+    changes.flatMap((change) => (change.kind === "rewrite" ? change.at : [])),
+  );
+  const joins = (change: NamedChange) =>
+    change.kind === "add" &&
+    change.after !== null &&
+    rewritten.has(change.after) &&
+    change.text.search(HANDLE) >= 0;
+  return changes.flatMap((change): NamedChange[] => {
+    if (joins(change)) return [];
+    if (change.kind !== "rewrite") return [change];
+    const rest = changes.flatMap((each) =>
+      joins(each) && each.kind === "add" && each.after === change.at ? each.text : [],
+    );
+    return [{ ...change, text: [change.text, ...rest].join("\n\n") }];
+  });
+}
+
 /** What a change keeps of a paragraph by handle: its own Citations and footnotes. */
 interface Kept {
   citations: Attributes[];
@@ -1063,7 +1088,7 @@ function writeNamed(
   const replaces: { element: Y.XmlElement; name: string; text: string; keeps?: Selection }[] = [];
   const citedAnew: Attributes[] = [];
   const leftOut: VisualRefused[] = [];
-  for (const change of changes) {
+  for (const change of withKeptAdditions(changes)) {
     if (change.kind === "add") {
       if (change.after !== null) elementAt(change.after);
       adds.set(change.after, [...(adds.get(change.after) ?? []), change.text]);

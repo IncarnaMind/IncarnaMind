@@ -192,44 +192,14 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
 
   // protects=a paragraph with the User's Citation and footnote, rewritten as a heading and a list that keep them by handle, lands as those blocks with the same Citation and footnote; a handle the Markdown would turn into code is refused; fails_when=the rewrite is refused, or the Citation or footnote is lost or changed
   it("keeps the paragraph's Citation and footnote by handle in the blocks it becomes", async () => {
-    const { core } = await startAgentsCore(replyingModel());
-    await core.setAgentsEnabled(true);
-    const { launch } = await core.connectAgent({
-      name: "Claude Code",
-      folderIds: ["all"],
-      propose: true,
-    });
-    const agent = await connectLegacyAgent(launch);
-    const footnote = {
-      type: FOOTNOTE_NODE,
-      attrs: { id: "n1" },
-      content: [
-        { type: "text", text: "Seen by the harbour master " },
-        { type: CITATION_NODE, attrs: harbours },
-      ],
-    };
-    const cited: JSONContent = {
-      type: "paragraph",
-      attrs: { id: "cited" },
-      content: [
-        { type: "text", text: "Spring tides delay the ferry " },
-        { type: CITATION_NODE, attrs: tides },
-        footnote,
-        { type: "text", text: "." },
-      ],
-    };
-    const mind = await core.createMind({ title: "Ferry notes" });
-    const client = await connectToMind(core, mind.id);
-    writeMind(client, [cited, note(P2)]);
-    await client.settled();
-
-    const inCode = await proposeTo(agent, mind.id, "¶1", "## Ferry `[kept:1]`");
+    const { agent, client, mindId } = await citedNote();
+    const inCode = await proposeTo(agent, mindId, "¶1", "## Ferry `[kept:1]`");
     expect(inCode.isError).toBe(true);
     expect(inCode.content?.[0]?.text).toBe(translate("en", "agents.propose.lost", { name: "¶1" }));
 
     const result = await proposeTo(
       agent,
-      mind.id,
+      mindId,
       "¶1",
       "## Spring tides [kept:1] [note:1]\n\n- The ferry waits for the tide",
     );
@@ -237,19 +207,92 @@ describe("Markdown blocks through propose_changes (#3747)", () => {
     await client.settled();
     expect(await decided(client, "accept")).toEqual(["heading:2", "bulletList", "p:2"]);
     const [title] = readMind(client).toJSON().content ?? [];
-    const inline: JSONContent[] = title?.content ?? [];
-    expect(inline.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
-      documentId: tides.documentId,
-      quote: tides.quote,
-    });
-    const kept = inline.find((each) => each.type === FOOTNOTE_NODE);
-    expect(kept?.attrs?.id).toBe("n1");
-    expect(kept?.content?.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
-      documentId: harbours.documentId,
-      quote: harbours.quote,
-    });
+    expectKept(title);
+  }, 60_000);
+
+  // protects=a paragraph asked for as a title and a list, written as the title in its place and the list after it (¶1, then ¶+), the list keeping the paragraph's Citation and footnote by handle, lands as a heading and a list holding them, as Haiku 5.5 wrote it four times in six; fails_when=the handles land as words and the Citation and footnote go
+  it("keeps the handles of a list written after the paragraph it rewrites as a title", async () => {
+    const { agent, client, mindId } = await citedNote();
+    const read = (await agent.callTool({
+      name: "read_mind",
+      arguments: { mindId, named: true },
+    })) as { structuredContent?: { version?: string } };
+    const result = (await agent.callTool({
+      name: "propose_changes",
+      arguments: {
+        mindId,
+        version: read.structuredContent?.version,
+        changes: [
+          { paragraph: "¶1", text: "## Spring tides" },
+          {
+            paragraph: "¶+",
+            text: "- The ferry waits for the tide [kept:1]\n- Seen in March [note:1]",
+          },
+        ],
+      },
+    })) as { isError?: boolean; content?: { text?: string }[] };
+    expect(result.isError ?? false, result.content?.[0]?.text).toBe(false);
+    await client.settled();
+    expect(await decided(client, "accept")).toEqual(["heading:2", "bulletList", "p:2"]);
+    const [, list] = readMind(client).toJSON().content ?? [];
+    expectKept(list);
+    expect(JSON.stringify(readMind(client).toJSON())).not.toMatch(/kept:|note:/);
   }, 60_000);
 });
+
+/** A Note whose first paragraph holds the User's Citation of Tides and a footnote that cites. */
+async function citedNote() {
+  const { core } = await startAgentsCore(replyingModel());
+  await core.setAgentsEnabled(true);
+  const { launch } = await core.connectAgent({
+    name: "Claude Code",
+    folderIds: ["all"],
+    propose: true,
+  });
+  const agent = await connectLegacyAgent(launch);
+  const cited: JSONContent = {
+    type: "paragraph",
+    attrs: { id: "cited" },
+    content: [
+      { type: "text", text: "Spring tides delay the ferry " },
+      { type: CITATION_NODE, attrs: tides },
+      {
+        type: FOOTNOTE_NODE,
+        attrs: { id: "n1" },
+        content: [
+          { type: "text", text: "Seen by the harbour master " },
+          { type: CITATION_NODE, attrs: harbours },
+        ],
+      },
+      { type: "text", text: "." },
+    ],
+  };
+  const mind = await core.createMind({ title: "Ferry notes" });
+  const client = await connectToMind(core, mind.id);
+  writeMind(client, [cited, note(P2)]);
+  await client.settled();
+  return { agent, client, mindId: mind.id };
+}
+
+/** `block` holds the same Citation of Tides and the same footnote, its own Citation in it. */
+function expectKept(block: JSONContent | undefined): void {
+  const all: JSONContent[] = [];
+  const visit = (node: JSONContent) => {
+    all.push(node);
+    if (node.type !== FOOTNOTE_NODE) for (const child of node.content ?? []) visit(child);
+  };
+  if (block) visit(block);
+  expect(all.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
+    documentId: tides.documentId,
+    quote: tides.quote,
+  });
+  const kept = all.find((each) => each.type === FOOTNOTE_NODE);
+  expect(kept?.attrs?.id).toBe("n1");
+  expect(kept?.content?.find((each) => each.type === CITATION_NODE)?.attrs).toMatchObject({
+    documentId: harbours.documentId,
+    quote: harbours.quote,
+  });
+}
 
 describe("Markdown blocks from the box at a Note's foot (#3747)", () => {
   beforeAll(async () => {
