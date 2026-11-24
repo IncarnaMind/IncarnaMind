@@ -5,7 +5,15 @@
  * what they inherit from the layout, master and theme stays inherited; a
  * paragraph left as it was keeps its bytes, and so does the rest of the part.
  */
-import { child, elements, local, walk, type XmlElement } from "../../documents/formats/xml";
+import {
+  child,
+  descendants,
+  elements,
+  local,
+  textOf,
+  walk,
+  type XmlElement,
+} from "../../documents/formats/xml";
 import { PackagePartError } from "../packagePatch/package";
 import {
   applySplices,
@@ -190,6 +198,21 @@ export async function setShapeRuns(
   const part = await deck.pkg.part(slidePart);
   if (!part) throw new PackagePartError(slidePart, "is missing.");
   const copies = shapesById(part.root, shapeId).filter((shape) => local(shape.name) === "sp");
+  // The edit names runs of the copy the viewer drew: another copy whose words or runs differ
+  // (a Choice that says more than its Fallback) can't take them, so neither is changed.
+  const runsOf = (shape: XmlElement) =>
+    descendants(shape, "a:r").map((run) =>
+      descendants(run, "a:t")
+        .map((t) => textOf(t))
+        .join(""),
+    );
+  const [one, ...others] = copies;
+  if (
+    one &&
+    others.some((other) => JSON.stringify(runsOf(other)) !== JSON.stringify(runsOf(one)))
+  ) {
+    throw new PackagePartError(slidePart, `shape ${shapeId}'s copies don't hold the same runs.`);
+  }
   const paragraphs = edited.length > 0 ? edited : [{ source: 0, runs: [] }];
   const parents = parentsOf(part.root);
   const splices = copies.flatMap((shape) => {

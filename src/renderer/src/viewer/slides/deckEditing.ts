@@ -85,8 +85,11 @@ const joined =
     `${first(t)} · ${then(t, cut)}`;
 
 export interface DeckEditing {
-  /** Hands a gesture's edits over to be written; false once it was refused, nothing written. */
-  edit(edits: ShapeEdit[], what: DeckGesture): Promise<boolean>;
+  /**
+   * Hands a gesture's edits over to be written; false once it was refused, nothing written.
+   * `leaving`: the window is going, so it goes to the core at once, not behind the window's queue.
+   */
+  edit(edits: ShapeEdit[], what: DeckGesture, leaving?: boolean): Promise<boolean>;
   /**
    * The deck as the sitting has it: as its last write left it, or with the change that waits. It
    * is what is drawn while the deck's version is one this window wrote; null: the file is drawn.
@@ -158,14 +161,12 @@ const shownIn = (layout: ReturnType<typeof useAppStore.getState>["layout"]) =>
   );
 
 // A deck's sitting ends once no tab shows the deck: one that was shown and isn't any more. It
-// ends after the viewer has gone and handed over the words its open text box held, and their write.
+// ends after the viewer has gone and handed over the words its open text box held, and their write,
+// which may be the gesture that began the sitting.
 useAppStore.subscribe((state, before) => {
   if (state.layout === before.layout) return;
   const now = shownIn(state.layout);
-  const was = shownIn(before.layout);
-  const gone = Object.keys(useHere.getState().byDocument).filter(
-    (documentId) => was.has(documentId) && !now.has(documentId),
-  );
+  const gone = [...shownIn(before.layout)].filter((documentId) => !now.has(documentId));
   if (gone.length === 0) return;
   setTimeout(() => {
     void undoSettled().then(() => {
@@ -367,12 +368,12 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
   );
 
   const edit = useCallback(
-    (edits: ShapeEdit[], what: DeckGesture) => {
+    (edits: ShapeEdit[], what: DeckGesture, leaving = false) => {
       const slide = edits[0]?.slide ?? 1;
       // Text past its box is said of the deck as the last gesture left it.
       setOverflow(null);
       const drawn = read.current;
-      return makeInTurn(async () => {
+      const make = async () => {
         const going = useHere.getState().byDocument[document.id];
         const on = going?.key === keyOf(latest.current) ? going : undefined;
         try {
@@ -394,7 +395,10 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
           useAppStore.getState().reportError(error);
           return false;
         }
-      });
+      };
+      // As the window goes, the core takes it in the order it comes: the sitting keeps the order of
+      // its own writes, and quitting waits for a write under way.
+      return leaving ? make() : makeInTurn(make);
     },
     [document.id, took, writing, step, refused, keyOf],
   );

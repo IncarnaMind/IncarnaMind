@@ -211,6 +211,45 @@ describe("Moving and sizing a shape", () => {
     expect(xml.match(/，已核对！/g)).toHaveLength(2);
   });
 
+  // protects=a choice and its fallback that say different words aren't both rewritten with the words the viewer drew (#149 review); fails_when=the Choice's own words are replaced by the Fallback's edit; no_claim=which copy PowerPoint shows.
+  test("refuses to type into copies whose words differ, and never edits a second Choice as a copy", async () => {
+    const copy = (prefix: string, words: string) =>
+      sp({
+        id: 3,
+        name: `${prefix} box`,
+        spPr: xfrm(914400, 914400, 4572000, 1828800),
+        body: txBody(`<a:p><a:r><a:rPr lang="en-GB"/><a:t>${words}</a:t></a:r></a:p>`),
+      });
+    const slide = (inside: string) =>
+      new Uint8Array(
+        pptxOf({
+          slides: [
+            {
+              shapes: "",
+              raw: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${inside}</p:spTree></p:cSld></p:sld>`,
+            },
+          ],
+          parts: [ROOT_RELS],
+        }),
+      );
+    const typed = [
+      {
+        kind: "text" as const,
+        slide: 1,
+        shape: "3",
+        paragraphs: [{ source: 0, runs: runs(0, ["Forecast."]) }],
+      },
+    ];
+    const differ = slide(
+      `<mc:AlternateContent><mc:Choice Requires="a14">${copy("Choice", "Internal forecast")}</mc:Choice><mc:Fallback>${copy("Fallback", "Forecast")}</mc:Fallback></mc:AlternateContent>`,
+    );
+    await expect(applyShapeEdits(differ, typed)).rejects.toThrow(/don't hold the same runs/);
+    const twoChoices = slide(
+      `<mc:AlternateContent><mc:Choice Requires="a14">${copy("One", "Forecast")}</mc:Choice><mc:Choice Requires="a14">${copy("Two", "Forecast")}</mc:Choice><mc:Fallback>${copy("Fallback", "Forecast")}</mc:Fallback></mc:AlternateContent>`,
+    );
+    await expect(applyShapeEdits(twoChoices, typed)).rejects.toThrow(/more than one shape/);
+  });
+
   // protects=a placeholder that takes its place from the layout gets a transform of its own; fails_when=the move is lost or the layout changes; no_claim=the layout's own transform.
   test("gives a placeholder that inherits its place a transform of its own", async () => {
     const bytes = deck();

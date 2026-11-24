@@ -161,22 +161,27 @@ export function SlidesView({ document, target }: { document: Document; target: V
       live = false;
     };
   }, [editing.written]);
+  // A change that waits keeps its line, and its Save a copy, when the file went missing meanwhile.
+  const waitingAside = editing.waiting !== null && (!editable || loaded.kind !== "ready");
   return (
-    <FileStates
-      document={document}
-      loaded={loaded}
-      quote={target.quote}
-      reload={reload}
-      ready={(value) => (
-        <Slides
-          loaded={written ?? value}
-          document={document}
-          target={target}
-          editing={editable ? editing : null}
-          refusal={refusal}
-        />
-      )}
-    />
+    <>
+      {waitingAside && <DeckLines editing={editing} />}
+      <FileStates
+        document={document}
+        loaded={loaded}
+        quote={target.quote}
+        reload={reload}
+        ready={(value) => (
+          <Slides
+            loaded={written ?? value}
+            document={document}
+            target={target}
+            editing={editable ? editing : null}
+            refusal={refusal}
+          />
+        )}
+      />
+    </>
   );
 }
 

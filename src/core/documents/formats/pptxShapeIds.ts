@@ -25,17 +25,20 @@ const withId = (root: XmlElement, id: string) =>
 export function copiesOfShape(root: XmlElement, id: string): XmlElement[] | null {
   const found = withId(root, id);
   if (found.length <= 1) return found;
+  if (found.length !== 2) return null;
   for (const alternate of walk(root)) {
     if (local(alternate.name) !== "AlternateContent") continue;
-    const inside = new Set(walk(alternate));
-    if (found.every((element) => inside.has(element))) {
-      // One copy in each alternative, never two in one.
-      const halves = elements(alternate).map(
-        (half) =>
-          found.filter((element) => half === element || new Set(walk(half)).has(element)).length,
-      );
-      if (halves.every((count) => count <= 1)) return found;
-    }
+    const halves = elements(alternate);
+    // One mc:Choice and its mc:Fallback, one copy in each: a second Choice is another shape.
+    if (
+      halves.length !== 2 ||
+      local(halves[0]?.name ?? "") !== "Choice" ||
+      local(halves[1]?.name ?? "") !== "Fallback"
+    )
+      continue;
+    const inHalf = (half: XmlElement | undefined) =>
+      found.filter((element) => half !== undefined && new Set(walk(half)).has(element)).length;
+    if (inHalf(halves[0]) === 1 && inHalf(halves[1]) === 1) return found;
   }
   return null;
 }

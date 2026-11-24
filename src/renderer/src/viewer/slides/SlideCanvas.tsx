@@ -550,22 +550,36 @@ const EditableTextBody = memo(
         followText(element, paragraphs.current, body.autofit);
       }
     };
-    /** Hands the words over once: at blur, or as the box goes with its tab or its window. */
-    const finish = useRef(() => {
+    /** The words and fit as the box holds them now, read while it is still in the page. */
+    const left = useRef(() => {
       const element = box.current;
-      if (finished.current || !element) return;
-      finished.current = true;
-      editing.done(
-        editedParagraphs(element, body),
-        paragraphs.current ? measuredFit(element, paragraphs.current, body.autofit) : null,
-      );
+      return element
+        ? {
+            words: editedParagraphs(element, body),
+            fit: paragraphs.current ? measuredFit(element, paragraphs.current, body.autofit) : null,
+          }
+        : null;
     });
+    /** Hands the words over once: at blur, as the box goes with its tab, or as the window goes. */
+    const finish = useRef((now = left.current(), leaving = false) => {
+      if (finished.current || !now) return;
+      finished.current = true;
+      editing.done(now.words, now.fit, leaving);
+    });
+    const mounted = useRef(false);
     useLayoutEffect(() => {
-      const leaving = () => finish.current();
+      mounted.current = true;
+      const leaving = () => finish.current(left.current(), true);
       window.addEventListener("beforeunload", leaving);
       return () => {
         window.removeEventListener("beforeunload", leaving);
-        finish.current();
+        mounted.current = false;
+        // Read now, handed over only if the box is really gone: React's development check runs
+        // this cleanup and the effect again at once, with the box still open.
+        const now = left.current();
+        queueMicrotask(() => {
+          if (!mounted.current) finish.current(now);
+        });
       };
     }, []);
     const grows = body.autofit.kind === "grow";

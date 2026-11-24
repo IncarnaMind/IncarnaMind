@@ -196,8 +196,8 @@ export function SlideEditor({
   ranges: ReadonlyMap<string, TextRange[]> | null;
   /** The slide's scale on screen, to turn the pointer's travel into slide pixels. */
   scale?: number;
-  /** Writes a gesture's edits; false once it was refused, nothing written. */
-  onEdit: (edits: ShapeEdit[], what: DeckGesture) => Promise<boolean>;
+  /** Writes a gesture's edits; false once it was refused, nothing written. `leaving`: at once. */
+  onEdit: (edits: ShapeEdit[], what: DeckGesture, leaving?: boolean) => Promise<boolean>;
   /** A text box that doesn't follow its text runs past it after typing. */
   onOverflow?: (overflow: Overflow) => void;
   /** Opens a picture on the slide, as a click on one does where the deck can't be edited. */
@@ -223,11 +223,13 @@ export function SlideEditor({
   const onEditNow = useRef(onEdit);
   onEditNow.current = onEdit;
   /** Writes a gesture; one refused leaves the slide as drawn, the shape's stand-in let go. */
-  const edit = useRef((edits: ShapeEdit[], what: DeckGesture) => {
-    void onEditNow.current(edits, what).then((written) => {
-      if (!written) setDraft(null);
-    });
-  });
+  const edit = useRef(
+    (edits: ShapeEdit[], what: DeckGesture, leaving = false): Promise<boolean> =>
+      onEditNow.current(edits, what, leaving).then((written) => {
+        if (!written) setDraft(null);
+        return written;
+      }),
+  );
   // A text box open while the slide is drawn again (a write before it landed) fits the shape as
   // it is now, a move not yet drawn from the file with it.
   const slideNow = useRef(slide);
@@ -256,7 +258,10 @@ export function SlideEditor({
       if (!shape || !was) return;
       setDraft({ path, box });
       const sized = Math.abs(was.w - box.w) > 0.01 || Math.abs(was.h - box.h) > 0.01;
-      edit.current([{ kind: "box", slide: slide.number, shape, box }], sized ? "resized" : "moved");
+      void edit.current(
+        [{ kind: "box", slide: slide.number, shape, box }],
+        sized ? "resized" : "moved",
+      );
     },
     [shapeIdAt, slide],
   );
@@ -339,7 +344,7 @@ export function SlideEditor({
     return {
       path: typing.path,
       opened: (element) => placeCaret(element, typing.at),
-      done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null) => {
+      done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null, leaving = false) => {
         setTyping(null);
         root.current?.focus({ preventScroll: true });
         // Words that didn't change write nothing, however the box would fit them.
@@ -349,7 +354,7 @@ export function SlideEditor({
         const shape = at?.item.shapeId;
         if (!shape || !at) return;
         if (cell) {
-          edit.current(
+          void edit.current(
             [
               {
                 kind: "cell",
@@ -361,6 +366,7 @@ export function SlideEditor({
               },
             ],
             "cell",
+            leaving,
           );
           return;
         }
@@ -370,7 +376,7 @@ export function SlideEditor({
         // A turned box's text is measured along the slide's axes, not its own: its words are
         // written, and how it fits them is left as it was.
         if (turned(item.box)) {
-          edit.current([written], "text");
+          void edit.current([written], "text", leaving);
           return;
         }
         if (fit?.kind === "grow" && box && item.kind === "shape") {
@@ -382,14 +388,18 @@ export function SlideEditor({
         } else if (fit?.kind === "shrink") {
           written = { ...written, fit };
         }
-        edit.current([written], "text");
+        const taken = edit.current([written], "text", leaving);
         if (fit?.kind === "overflow") {
-          overflowed.current?.({
+          const overflow = {
             slide: now.number,
             shapeId: shape,
             paragraphs,
             fontScale: fit.fontScale,
             lineReduction: fit.lineReduction,
+          };
+          // Said of an edit the core took (written, or waiting), never of one it refused.
+          void taken.then((took) => {
+            if (took) overflowed.current?.(overflow);
           });
         }
       },

@@ -92,23 +92,31 @@ function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array):
           (stored.mindId !== null || stored.checkedAt !== null || stored.unread !== null)
         )
           version = null;
-        if (item && !version) {
-          const number = item.version + 1;
-          const file = join(HANDED_FOLDER, item.id, `v${number}`, basename(path));
-          await writeWholeFile(join(deps.dataDir, file), bytes, deps.now());
-          const made = deps.handed.addVersion(item.id, {
-            contentHash,
-            size: bytes.byteLength,
-            file,
-            agent: "",
-            title: item.title,
-          });
-          version = { id: made.id, number: made.number, file };
-        } else if (version) {
-          await writeWholeFile(join(deps.dataDir, version.file), bytes, deps.now());
-          deps.handed.rewriteVersion(version.id, { contentHash, size: bytes.byteLength });
+        // A disk that refuses part way keeps the change waiting; tried again, it finishes the
+        // version it began rather than making another.
+        try {
+          if (item && !version) {
+            const number = item.version + 1;
+            const file = join(HANDED_FOLDER, item.id, `v${number}`, basename(path));
+            await writeWholeFile(join(deps.dataDir, file), bytes, deps.now());
+            const made = deps.handed.addVersion(item.id, {
+              contentHash,
+              size: bytes.byteLength,
+              file,
+              agent: "",
+              title: item.title,
+            });
+            version = { id: made.id, number: made.number, file };
+          } else if (version) {
+            await writeWholeFile(join(deps.dataDir, version.file), bytes, deps.now());
+            deps.handed.rewriteVersion(version.id, { contentHash, size: bytes.byteLength });
+          }
+          await writeWholeFile(path, bytes, deps.now());
+        } catch (error) {
+          const why = unwritable(error);
+          if (why) return { kind: "unwritable", why, name: basename(path) };
+          throw error;
         }
-        await writeWholeFile(path, bytes, deps.now());
         wrote = contentHash;
         await afterWriting("reading the file again", () => deps.readAgain(path));
         return {

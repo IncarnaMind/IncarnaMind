@@ -20,9 +20,10 @@ export interface TextEditing {
   opened: (element: HTMLElement) => void;
   /**
    * The box lost the focus: its paragraphs, or null when nothing changed, and how it follows its
-   * text now, or null when that needs nothing written.
+   * text now, or null when that needs nothing written. `leaving`: the window is going, so the
+   * words are handed to the core at once, ahead of any change still queued in the window.
    */
-  done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null) => void;
+  done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null, leaving?: boolean) => void;
 }
 
 const sourceOf = (mark: string | undefined): RunSource | null => {

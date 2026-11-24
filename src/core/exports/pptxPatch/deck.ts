@@ -119,8 +119,10 @@ export class Deck {
     const list = child(presentation.root, "p:sldIdLst");
     const slides: DeckSlide[] = [];
     for (const entry of list ? descendants(list, "p:sldId") : []) {
+      // Only a slide relationship names a slide, as the viewer lists them: an entry naming a layout
+      // or anything else isn't numbered, so an edit to slide 1 never reaches it.
       const target = relationships.existing.find(
-        (each) => each.id === entry.attrs["r:id"] && !each.external,
+        (each) => each.id === entry.attrs["r:id"] && !each.external && each.type.endsWith("/slide"),
       )?.target;
       if (!target) continue;
       const own = await this.pkg.relationshipsOf(target);
