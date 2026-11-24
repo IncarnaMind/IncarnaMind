@@ -175,9 +175,12 @@
  * Direct editing on a slide (SlideEditor): a shape's hit area over its drawing, the selected
  * shape's frame with a handle at each corner, and its text open for typing in place.
  */
+/* The slide is drawn scaled: the frame, its handles and the focus ring keep their size on screen. */
 .slide-editor {
   position: relative;
-  touch-action: none;
+}
+.slide-editor:focus-visible {
+  outline: calc(2px / var(--slide-scale, 1)) solid var(--color-accent);
 }
 .slide-editor-hit {
   position: absolute;
@@ -186,24 +189,23 @@
   background: none;
   transform-origin: center;
   cursor: move;
+  touch-action: none;
 }
 .slide-editor-frame {
   position: absolute;
   transform-origin: center;
   pointer-events: none;
-  outline: 1px solid var(--color-accent);
-}
-.slide-editor-frame--typing {
-  outline-style: dashed;
+  outline: calc(1px / var(--slide-scale, 1)) solid var(--color-accent);
 }
 .slide-editor-handle {
   position: absolute;
-  width: 8px;
-  height: 8px;
-  margin: -4px;
+  width: calc(8px / var(--slide-scale, 1));
+  height: calc(8px / var(--slide-scale, 1));
+  translate: -50% -50%;
   pointer-events: auto;
-  background: #ffffff;
-  border: 1px solid var(--color-accent);
+  touch-action: none;
+  background: var(--color-sheet);
+  border: calc(1px / var(--slide-scale, 1)) solid var(--color-accent);
 }
 .slide-editor-handle--nw {
   left: 0;
@@ -211,26 +213,27 @@
   cursor: nwse-resize;
 }
 .slide-editor-handle--ne {
-  right: 0;
+  left: 100%;
   top: 0;
-  margin-right: -4px;
   cursor: nesw-resize;
 }
 .slide-editor-handle--sw {
   left: 0;
-  bottom: 0;
-  margin-bottom: -4px;
+  top: 100%;
   cursor: nesw-resize;
 }
 .slide-editor-handle--se {
-  right: 0;
-  bottom: 0;
-  margin-right: -4px;
-  margin-bottom: -4px;
+  left: 100%;
+  top: 100%;
   cursor: nwse-resize;
 }
+/* The box being typed in draws its own edge, which follows it as it grows: a text field's accent edge. */
 .slide-text-editing {
-  outline: none;
+  outline: calc(1px / var(--slide-scale, 1)) dashed var(--color-accent);
   cursor: text;
   caret-color: currentColor;
+}
+/* The lines over a deck edited by hand: a file that can't be written, text past its box, the tip. */
+.viewer-deck-lines {
+  @apply flex flex-col gap-1 px-6 empty:hidden;
 }

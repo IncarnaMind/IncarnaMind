@@ -1,4 +1,4 @@
-import { type CSSProperties, memo, type ReactNode, useId } from "react";
+import { type CSSProperties, memo, type ReactNode, useId, useRef } from "react";
 import type {
   Box,
   ChartItem,
@@ -23,6 +23,7 @@ import { ChartView } from "./ChartView";
 import { editedParagraphs, type TextEditing } from "./editedText";
 import { geometryPaths, isLine, isRectangle, textInsets } from "./geometry";
 import { cellPath, childPath, runKey } from "./pieces";
+import { followText, measuredFit } from "./textFit";
 import "./slides.css";
 
 /** What drawing a slide needs besides the slide: its pictures, and the quote's parts. */
@@ -428,6 +429,7 @@ function TableView({ item, path, context }: { item: TableItem; path: string; con
                   <td
                     // biome-ignore lint/suspicious/noArrayIndexKey: cells never reorder
                     key={c}
+                    data-cell={`${r}.${c}`}
                     colSpan={cell.columnSpan > 1 ? cell.columnSpan : undefined}
                     rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined}
                     style={{
@@ -445,7 +447,16 @@ function TableView({ item, path, context }: { item: TableItem; path: string; con
                             : "top",
                     }}
                   >
-                    <Paragraphs body={cell.text} path={cellPath(path, r, c)} context={context} />
+                    {context.editing?.path === cellPath(path, r, c) ? (
+                      <EditableTextBody
+                        body={cell.text}
+                        path={cellPath(path, r, c)}
+                        editing={context.editing}
+                        style={{}}
+                      />
+                    ) : (
+                      <Paragraphs body={cell.text} path={cellPath(path, r, c)} context={context} />
+                    )}
                   </td>
                 ),
               )}
@@ -513,10 +524,10 @@ function TextBodyView({
 const NO_CONTEXT: Context = { images: new Map(), ranges: null, editing: null };
 
 /**
- * A text shape open for typing: the same paragraphs and runs in an editable
- * box, each marked with where it came from. React draws it once and never
- * again while it is open, so an input method's composition is never redrawn
- * under it; on blur its text is read from the page as the person left it.
+ * A text shape or table cell open for typing: the same paragraphs and runs in an editable box,
+ * each marked with where it came from. React draws it once and never again while it is open, so an
+ * input method's composition is never redrawn under it; it follows its text as its autofit kind
+ * asks (./textFit), and on blur its text is read from the page as the person left it.
  */
 const EditableTextBody = memo(
   function EditableTextBody({
@@ -530,6 +541,12 @@ const EditableTextBody = memo(
     editing: TextEditing;
     style: CSSProperties;
   }) {
+    const paragraphs = useRef<HTMLDivElement>(null);
+    let composing = false;
+    const follow = (box: HTMLElement) => {
+      if (!composing && paragraphs.current) followText(box, paragraphs.current, body.autofit);
+    };
+    const grows = body.autofit.kind === "grow";
     return (
       // biome-ignore lint/a11y/useSemanticElements: a text area can't hold the runs' own formatting.
       <div
@@ -537,7 +554,10 @@ const EditableTextBody = memo(
           if (element) editing.opened(element);
         }}
         className="slide-text slide-text-editing"
-        style={textBodyStyle(body, style)}
+        style={{
+          ...textBodyStyle(body, style),
+          ...(grows && { height: "auto", minHeight: style.height }),
+        }}
         role="textbox"
         aria-multiline="true"
         tabIndex={0}
@@ -545,7 +565,22 @@ const EditableTextBody = memo(
         suppressContentEditableWarning
         spellCheck={false}
         data-testid="viewer-slide-text-editor"
-        onBlur={(event) => editing.done(editedParagraphs(event.currentTarget, body))}
+        data-autofit={body.autofit.kind}
+        onCompositionStart={() => {
+          composing = true;
+        }}
+        onCompositionEnd={(event) => {
+          composing = false;
+          follow(event.currentTarget);
+        }}
+        onInput={(event) => follow(event.currentTarget)}
+        onBlur={(event) => {
+          const box = event.currentTarget;
+          editing.done(
+            editedParagraphs(box, body),
+            paragraphs.current ? measuredFit(box, paragraphs.current, body.autofit) : null,
+          );
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") event.currentTarget.blur();
           // A run's formatting comes from the file: the browser's own bold and italic would be lost on save.
@@ -561,7 +596,9 @@ const EditableTextBody = memo(
           document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
         }}
       >
-        <Paragraphs body={body} path={path} context={NO_CONTEXT} editable />
+        <div data-paragraphs="" ref={paragraphs}>
+          <Paragraphs body={body} path={path} context={NO_CONTEXT} editable />
+        </div>
       </div>
     );
   },

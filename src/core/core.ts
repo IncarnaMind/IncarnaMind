@@ -224,6 +224,9 @@ import { createConsent, type DataFlowRegistry } from "./consent";
 import { createConversations, type QuestionInput, type Turn } from "./conversations";
 import { createMeter } from "./cost/meter";
 import { inCurrency } from "./cost/price";
+import { createKeptDecks } from "./decks/kept";
+import { copyBeside, type DeckPlaceDeps, deckPlaceFor, restoreKept } from "./decks/places";
+import { createDeckSittings } from "./decks/sittings";
 import {
   createDocuments,
   type DocumentFile,
@@ -6441,6 +6444,56 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
 
+  const keptDecks = createKeptDecks({ db, dataDir, now });
+  keptDecks
+    .dropGone(
+      (documentId) =>
+        db.get("SELECT 1 AS one FROM documents WHERE id = ? AND purged_at IS NULL", [
+          documentId,
+        ]) !== undefined,
+    )
+    .catch((error: unknown) => console.error(error));
+  const deckPlaces: DeckPlaceDeps = {
+    dataDir,
+    document: (documentId) => documents.get(documentId),
+    readAgain: (path) => documents.checkNow(path),
+    documentAt: (path) => documents.placeOf(path).documentId,
+    addFile: async (path, folderId) => {
+      const added = await addDocuments([path], folderId === null ? {} : { groupId: folderId });
+      const [document] = added.documents;
+      if (!document) throw new Error(`The Library skipped it: ${added.skipped[0]?.reason}.`);
+      return document.id;
+    },
+    folderOf: (documentId) => library.folderOfDocument(documentId),
+    inLinkedFolder: (path) => documents.placeOf(path).linkedFolderId !== null,
+    save: (file) => outputs.save(file),
+    handed: handedFiles,
+    kept: keptDecks,
+    inHandOverTurn: (run) => handOver.inTurn(run),
+    now,
+    newId: () => crypto.randomUUID(),
+  };
+  const readDeck = async (documentId: string) =>
+    new Uint8Array(await readFile(await documents.filePath(documentId)));
+  const deckSittings = createDeckSittings({
+    read: readDeck,
+    placeFor: (documentId, bytes) => deckPlaceFor(deckPlaces, documentId, bytes),
+    copyBeside: async (documentId, bytes) => {
+      const copy = await copyBeside(deckPlaces, documentId, bytes);
+      return {
+        documentId: copy.documentId,
+        saved: {
+          kind: "copy",
+          name: copy.file.name,
+          path: copy.file.path,
+          inDefaultFolder: copy.file.inDefaultFolder,
+        },
+        place: copy.place,
+      };
+    },
+    newId: () => crypto.randomUUID(),
+  });
+
   /** The words of a Block, as its text reads without marks. */
   const textOfBlock = (element: Y.XmlElement): string =>
     element
@@ -9753,6 +9806,23 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),
+    editDeck: (input) => deckSittings.edit(input),
+    undoDeckEdit: (sittingId, stepId) => deckSittings.undo(sittingId, stepId),
+    redoDeckEdit: (sittingId, stepId) => deckSittings.redo(sittingId, stepId),
+    saveDeckCopy: (sittingId) => deckSittings.saveCopy(sittingId),
+    closeDeckSitting: async (sittingId) => deckSittings.close(sittingId),
+    keptDeckStates: async (documentId) =>
+      typeof documentId === "string"
+        ? keptDecks
+            .of(documentId)
+            .reverse()
+            .map(({ id, keptAt }) => ({ id, keptAt }))
+        : [],
+    restoreKeptDeck: async (input) => {
+      const restored = await restoreKept(deckPlaces, readDeck, input ?? {});
+      deckSittings.endOn(restored.documentId);
+      return restored;
+    },
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

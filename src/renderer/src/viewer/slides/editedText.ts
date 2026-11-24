@@ -11,14 +11,18 @@ import type {
   EditedRun,
   RunSource,
 } from "../../../../core/exports/pptxPatch/shapeEdit";
+import type { MeasuredFit } from "./textFit";
 
 export interface TextEditing {
-  /** The shape's path on its slide. */
+  /** The shape's path on its slide, or its table cell's. */
   path: string;
   /** The editable box is in the page: it takes the focus and the caret. */
   opened: (element: HTMLElement) => void;
-  /** The box lost the focus: its paragraphs, or null when nothing changed. */
-  done: (paragraphs: EditedParagraph[] | null) => void;
+  /**
+   * The box lost the focus: its paragraphs, or null when nothing changed, and how it follows its
+   * text now, or null when that needs nothing written.
+   */
+  done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null) => void;
 }
 
 const sourceOf = (mark: string | undefined): RunSource | null => {
@@ -75,7 +79,8 @@ export function editedParagraphs(root: HTMLElement, body: TextBody): EditedParag
   const paragraphs: EditedParagraph[] = [];
   let loose: EditedParagraph | null = null;
   const unmarked = new Set<EditedRun>();
-  for (const node of root.childNodes) {
+  const holder = root.querySelector<HTMLElement>(":scope > [data-paragraphs]") ?? root;
+  for (const node of holder.childNodes) {
     if (isParagraph(node)) {
       const source = node.dataset.paragraph === undefined ? null : Number(node.dataset.paragraph);
       const paragraph: EditedParagraph = { source, runs: [] };

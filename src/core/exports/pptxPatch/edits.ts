@@ -5,12 +5,26 @@
  * what they inherit from the layout, master and theme stays inherited; a
  * paragraph left as it was keeps its bytes, and so does the rest of the part.
  */
-import { child, elements, local, type XmlElement } from "../../documents/formats/xml";
+import { child, elements, local, walk, type XmlElement } from "../../documents/formats/xml";
 import { PackagePartError } from "../packagePatch/package";
-import { applySplices, type Splice, selfClosing, sliceOf, startOf } from "../packagePatch/text";
+import {
+  applySplices,
+  parentsOf,
+  type Splice,
+  selfClosing,
+  sliceOf,
+  startOf,
+} from "../packagePatch/text";
 import { escapeXml } from "../wordml";
 import { Deck, NAMESPACES } from "./deck";
-import type { EditedParagraph, EditedRun, RunSource, ShapeBox, ShapeEdit } from "./shapeEdit";
+import type {
+  EditedParagraph,
+  EditedRun,
+  RunSource,
+  ShapeBox,
+  ShapeEdit,
+  TextFit,
+} from "./shapeEdit";
 import { animatesParagraphs, shapesById } from "./shapes";
 
 const EMU_PER_PX = 9525;
@@ -161,34 +175,124 @@ function rebuilt(
 }
 
 /**
- * Sets a text shape's paragraphs as they were edited. Refused when an
- * animation builds the shape paragraph by paragraph and the count changes:
- * it would name paragraphs that are gone, and PowerPoint repairs such a file.
+ * Sets a text shape's paragraphs as they were edited, and how the shape
+ * follows its text (`fit`). Refused when an animation builds the shape
+ * paragraph by paragraph and the count changes: it would name paragraphs that
+ * are gone, and PowerPoint repairs such a file.
  */
 export async function setShapeRuns(
   deck: Deck,
   slidePart: string,
   shapeId: string,
   edited: readonly EditedParagraph[],
+  fit?: TextFit,
 ): Promise<void> {
   const part = await deck.pkg.part(slidePart);
   if (!part) throw new PackagePartError(slidePart, "is missing.");
   const copies = shapesById(part.root, shapeId).filter((shape) => local(shape.name) === "sp");
   const paragraphs = edited.length > 0 ? edited : [{ source: 0, runs: [] }];
+  const parents = parentsOf(part.root);
   const splices = copies.flatMap((shape) => {
     const txBody = child(shape, "txBody");
     const existing = txBody ? elements(txBody).filter((each) => local(each.name) === "p") : [];
-    if (existing.length === 0) return [];
+    if (!txBody || existing.length === 0) return [];
     if (paragraphs.length !== existing.length && animatesParagraphs(part.root, shapeId)) {
       throw new PackagePartError(
         slidePart,
         `shape ${shapeId} is animated by paragraph, so its ${existing.length} paragraphs can't become ${paragraphs.length}.`,
       );
     }
-    return paragraphSplices(part.text, existing, paragraphs);
+    const written = paragraphSplices(part.text, existing, paragraphs);
+    if (fit?.kind === "grow") {
+      const holder = child(shape, "spPr");
+      if (holder) {
+        const wanted = inShapeSpace(fit.box, shape, parents);
+        written.push(
+          ...transformSplices(part.text, part.root, holder, "sp", wanted, () => {
+            throw new PackagePartError(slidePart, `shape ${shapeId} has no transform.`);
+          }),
+        );
+      }
+    }
+    if (fit?.kind === "shrink") written.push(...shrinkSplices(part.text, part.root, txBody, fit));
+    return written;
   });
   if (splices.length === 0) throw new PackagePartError(slidePart, `has no text shape ${shapeId}.`);
   deck.pkg.set(slidePart, applySplices(part.text, splices));
+}
+
+/** A table's cell's paragraphs set as they were edited, in every copy of its frame. */
+export async function setCellRuns(
+  deck: Deck,
+  slidePart: string,
+  shapeId: string,
+  row: number,
+  column: number,
+  edited: readonly EditedParagraph[],
+): Promise<void> {
+  const part = await deck.pkg.part(slidePart);
+  if (!part) throw new PackagePartError(slidePart, "is missing.");
+  const paragraphs = edited.length > 0 ? edited : [{ source: 0, runs: [] }];
+  const splices = shapesById(part.root, shapeId)
+    .filter((shape) => local(shape.name) === "graphicFrame")
+    .flatMap((frame) => {
+      const table = [...walk(frame)].find((each) => local(each.name) === "tbl");
+      const tr = table && elements(table).filter((each) => local(each.name) === "tr")[row];
+      const tc = tr && elements(tr).filter((each) => local(each.name) === "tc")[column];
+      const txBody = tc && child(tc, "txBody");
+      const existing = txBody ? elements(txBody).filter((each) => local(each.name) === "p") : [];
+      return paragraphSplices(part.text, existing, paragraphs);
+    });
+  if (splices.length === 0) {
+    throw new PackagePartError(slidePart, `has no cell ${row}.${column} in table ${shapeId}.`);
+  }
+  deck.pkg.set(slidePart, applySplices(part.text, splices));
+}
+
+const FULL = 100_000;
+
+/**
+ * A text body's shrink on overflow written as PowerPoint writes it: `a:normAutofit`'s font scale
+ * and line spacing reduction, in thousandths of a percent, each left out at its default.
+ */
+function shrinkSplices(
+  text: string,
+  root: XmlElement,
+  txBody: XmlElement,
+  fit: Extract<TextFit, { kind: "shrink" }>,
+): Splice[] {
+  const bodyPr = child(txBody, "bodyPr");
+  if (!bodyPr) return [];
+  const scale = Math.round(fit.fontScale * FULL);
+  const reduction = Math.round(fit.lineReduction * FULL);
+  const values: Record<string, string | null> = {
+    fontScale: scale >= FULL ? null : String(scale),
+    lnSpcReduction: reduction <= 0 ? null : String(reduction),
+  };
+  const own = child(bodyPr, "normAutofit");
+  if (own) {
+    const changed = Object.fromEntries(
+      Object.entries(values).filter(([name, value]) => (own.attrs[name] ?? null) !== value),
+    );
+    if (Object.keys(changed).length === 0) return [];
+    const end = selfClosing(own) ? (own.end ?? 0) : (own.openEnd ?? 0);
+    return [{ from: startOf(own), to: end, text: withAttributes(text, own, changed) }];
+  }
+  // The shape takes its shrink from its layout: it gets its own, in the place the schema gives it.
+  const a = drawingPrefix(root);
+  const attributes = Object.entries(values)
+    .flatMap(([name, value]) => (value === null ? [] : [` ${name}="${value}"`]))
+    .join("");
+  const written = `<${a}:normAutofit${attributes}/>`;
+  if (selfClosing(bodyPr)) {
+    const tag = sliceOf(text, bodyPr).replace(/\s*\/>$/, ">");
+    return [
+      { from: startOf(bodyPr), to: bodyPr.end ?? 0, text: `${tag}${written}</${bodyPr.name}>` },
+    ];
+  }
+  const warp = child(bodyPr, "prstTxWarp");
+  const at = warp ? (warp.end ?? 0) : (bodyPr.openEnd ?? 0);
+  return [{ from: at, to: at, text: written }];
 }
 
 /** The splices that write a text body's paragraphs as edited, each left as it was kept byte for byte. */
@@ -227,15 +331,19 @@ function paragraphSplices(
     : [{ from: startOf(first), to: last.end ?? 0, text: written.join("") }];
 }
 
-/** An element's start tag with these attributes set, the others as they were. */
-function withAttributes(text: string, element: XmlElement, values: Record<string, string>): string {
+/** An element's start tag with these attributes set (or, null, taken out), the others as they were. */
+function withAttributes(
+  text: string,
+  element: XmlElement,
+  values: Record<string, string | null>,
+): string {
   let tag = sliceOf(text, element);
   if (!selfClosing(element)) tag = text.slice(startOf(element), element.openEnd ?? 0);
   for (const [name, value] of Object.entries(values)) {
     const pattern = new RegExp(`(\\s${name}\\s*=\\s*)("[^"]*"|'[^']*')`);
-    tag = pattern.test(tag)
-      ? tag.replace(pattern, `$1"${value}"`)
-      : tag.replace(/(\s*\/?>)$/, ` ${name}="${value}"$1`);
+    if (value === null) tag = tag.replace(new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`), "");
+    else if (pattern.test(tag)) tag = tag.replace(pattern, `$1"${value}"`);
+    else tag = tag.replace(/(\s*\/?>)$/, ` ${name}="${value}"$1`);
   }
   return tag;
 }
@@ -248,12 +356,63 @@ function drawingPrefix(root: XmlElement): string {
   return declared ? declared[0].slice("xmlns:".length) : "a";
 }
 
+interface Transform {
+  x: string;
+  y: string;
+  cx: string;
+  cy: string;
+}
+
+const numberOf = (element: XmlElement | undefined, name: string, fallback: number) => {
+  const value = Number(element?.attrs[name]);
+  return Number.isFinite(value) ? value : fallback;
+};
+
+/**
+ * A box on the slide as the shape's own transform says it: through each group around the shape,
+ * outermost first, from the group's place on its parent into its child space (`a:chOff`,
+ * `a:chExt`), as PowerPoint places a group's shapes.
+ */
+function inShapeSpace(
+  box: ShapeBox,
+  shape: XmlElement,
+  parents: ReadonlyMap<XmlElement, XmlElement>,
+): Transform {
+  const groups: XmlElement[] = [];
+  for (let at = parents.get(shape); at; at = parents.get(at)) {
+    if (local(at.name) === "grpSp") groups.unshift(at);
+  }
+  let x = box.x * EMU_PER_PX;
+  let y = box.y * EMU_PER_PX;
+  let w = box.w * EMU_PER_PX;
+  let h = box.h * EMU_PER_PX;
+  for (const group of groups) {
+    const grpSpPr = child(group, "grpSpPr");
+    const xfrm = grpSpPr && child(grpSpPr, "xfrm");
+    const off = xfrm && child(xfrm, "off");
+    const ext = xfrm && child(xfrm, "ext");
+    if (!off || !ext) continue;
+    const chOff = xfrm && child(xfrm, "chOff");
+    const chExt = xfrm && child(xfrm, "chExt");
+    const width = numberOf(ext, "cx", 0);
+    const height = numberOf(ext, "cy", 0);
+    const sx = width > 0 ? numberOf(chExt, "cx", width) / width : 1;
+    const sy = height > 0 ? numberOf(chExt, "cy", height) / height : 1;
+    x = numberOf(chOff, "x", numberOf(off, "x", 0)) + (x - numberOf(off, "x", 0)) * sx;
+    y = numberOf(chOff, "y", numberOf(off, "y", 0)) + (y - numberOf(off, "y", 0)) * sy;
+    w *= sx;
+    h *= sy;
+  }
+  const emu = (value: number) => String(Math.round(value));
+  return { x: emu(x), y: emu(y), cx: emu(w), cy: emu(h) };
+}
+
 /**
  * Moves or sizes a shape: only the offset or extent that changed is written,
  * in its own transform (a frame's `p:xfrm`, a group's, a shape's or
- * picture's), its rotation, flips and a group's child space kept. A
- * placeholder that takes its place from its layout gets a transform of its
- * own, as PowerPoint gives it one.
+ * picture's), its rotation, flips and a group's child space kept. A shape in
+ * a group is placed in the group's child space. A placeholder that takes its
+ * place from its layout gets a transform of its own, as PowerPoint gives it one.
  */
 export async function setShapeBox(
   deck: Deck,
@@ -265,16 +424,22 @@ export async function setShapeBox(
   if (!part) throw new PackagePartError(slidePart, "is missing.");
   const copies = shapesById(part.root, shapeId);
   if (copies.length === 0) throw new PackagePartError(slidePart, `has no shape ${shapeId}.`);
-  const emu = (px: number) => String(Math.round(px * EMU_PER_PX));
-  const wanted = { x: emu(box.x), y: emu(box.y), cx: emu(box.w), cy: emu(box.h) };
+  const parents = parentsOf(part.root);
   const splices = copies.flatMap((shape) => {
     const kind = local(shape.name);
     const holder =
       kind === "graphicFrame" ? shape : child(shape, kind === "grpSp" ? "grpSpPr" : "spPr");
     if (!holder) throw new PackagePartError(slidePart, `shape ${shapeId} has no properties.`);
-    return transformSplices(part.text, part.root, holder, kind, wanted, () => {
-      throw new PackagePartError(slidePart, `shape ${shapeId} has no transform to write into.`);
-    });
+    return transformSplices(
+      part.text,
+      part.root,
+      holder,
+      kind,
+      inShapeSpace(box, shape, parents),
+      () => {
+        throw new PackagePartError(slidePart, `shape ${shapeId} has no transform to write into.`);
+      },
+    );
   });
   if (splices.length > 0) deck.pkg.set(slidePart, applySplices(part.text, splices));
 }
@@ -284,7 +449,7 @@ function transformSplices(
   root: XmlElement,
   holder: XmlElement,
   kind: string,
-  wanted: { x: string; y: string; cx: string; cy: string },
+  wanted: Transform,
   missing: () => never,
 ): Splice[] {
   const xfrm = child(holder, "xfrm");
@@ -337,8 +502,13 @@ export async function applyShapeEdits(
     const slide = slides.find((each) => each.number === edit.slide);
     if (!slide)
       throw new PackagePartError(await deck.presentationPart(), `has no slide ${edit.slide}.`);
-    if (edit.kind === "text") await setShapeRuns(deck, slide.part, edit.shape, edit.paragraphs);
-    else await setShapeBox(deck, slide.part, edit.shape, edit.box);
+    if (edit.kind === "text") {
+      await setShapeRuns(deck, slide.part, edit.shape, edit.paragraphs, edit.fit);
+    } else if (edit.kind === "cell") {
+      await setCellRuns(deck, slide.part, edit.shape, edit.row, edit.column, edit.paragraphs);
+    } else {
+      await setShapeBox(deck, slide.part, edit.shape, edit.box);
+    }
   }
   return deck.save();
 }

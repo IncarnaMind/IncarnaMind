@@ -140,8 +140,20 @@ export interface Paragraph {
   rtl: boolean;
 }
 
+/**
+ * How a text box follows its text (its `a:bodyPr`'s autofit, the nearest layer's): it grows to fit
+ * it (`spAutoFit`), shrinks the text on overflow (`normAutofit`, by `fontScale` and
+ * `lineReduction`, fractions of 1, already applied to the runs and line spacing), or neither.
+ */
+export interface Autofit {
+  kind: "grow" | "shrink" | "none";
+  fontScale: number;
+  lineReduction: number;
+}
+
 export interface TextBody {
   insets: { left: number; top: number; right: number; bottom: number };
+  autofit: Autofit;
   anchor: "top" | "middle" | "bottom";
   wrap: boolean;
   vertical: "horizontal" | "vertical" | "vertical270";
@@ -1166,15 +1178,18 @@ function readTextBody(
   const attrs: Record<string, string> = {};
   let fontScale = 1;
   let lineReduction = 0;
+  let autofit: Autofit["kind"] = "none";
   for (const bodyPr of bodies) {
     Object.assign(attrs, bodyPr.attrs);
     const normal = child(bodyPr, "a:normAutofit");
     if (normal) {
       fontScale = numberAttr(normal, "fontScale", 100000) / 100000;
       lineReduction = numberAttr(normal, "lnSpcReduction", 0) / 100000;
+      autofit = "shrink";
     } else if (child(bodyPr, "a:spAutoFit") || child(bodyPr, "a:noAutofit")) {
       fontScale = 1;
       lineReduction = 0;
+      autofit = child(bodyPr, "a:spAutoFit") ? "grow" : "none";
     }
   }
   const [left, top, right, bottom] = defaults.insets ?? [91440, 45720, 91440, 45720];
@@ -1262,6 +1277,7 @@ function readTextBody(
     });
   }
   return {
+    autofit: { kind: autofit, fontScale, lineReduction },
     insets: {
       left: emu(attrs.lIns, left / 9525),
       top: emu(attrs.tIns, top / 9525),

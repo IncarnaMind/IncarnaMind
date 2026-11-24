@@ -1,4 +1,5 @@
 import type { NodeJSON } from "../shared/blockJson";
+import type { ShapeEdit } from "./exports/pptxPatch/shapeEdit";
 import type {
   AssignmentChange,
   AssignmentState,
@@ -4162,8 +4163,9 @@ export interface HandedFileVersion {
   /** The SHA-256 of its bytes. */
   contentHash: string;
   size: number;
-  /** The Note its check is in; null while it is made. */
+  /** The Note its check is in; null while it is made, and for one the User made by hand (#149). */
   mindId: string | null;
+  /** The agent that handed it over; "" for a version the User made by editing the deck by hand (#149). */
   agent: string;
   /** ISO 8601, UTC. */
   createdAt: string;
@@ -4174,6 +4176,64 @@ export interface HandedFileOfMind {
   file: HandedFile;
   version: number;
   versions: HandedFileVersion[];
+}
+
+/** Where a deck edited by hand was written (#149). */
+export type DeckSaved =
+  /** A deck IncarnaMind keeps, which an agent handed over: its new version, one a sitting. */
+  | { kind: "version"; number: number | null }
+  /**
+   * The User's own file, written itself. `keptId`: the file as it stood before this sitting,
+   * kept by this write (the sitting's first); `letGo`: when the kept states let go to make room
+   * were kept.
+   */
+  | { kind: "file"; name: string; keptId: string | null; letGo: string[] }
+  /** A copy beside the User's file, which couldn't be written, and the sitting's place from then on. */
+  | { kind: "copy"; name: string; path: string; inDefaultFolder: boolean };
+
+/** A deck's file that couldn't be written, and why; the edit waits to be saved as a copy beside it. */
+export interface DeckUnwritable {
+  kind: "unwritable";
+  sittingId: string;
+  documentId: string;
+  why: "read-only" | "locked" | "gone" | "full";
+  /** The file's name. */
+  name: string;
+}
+
+/** What one hand edit of a deck, its Undo or its Redo did (#149). */
+export type DeckEdit =
+  | {
+      kind: "saved";
+      sittingId: string;
+      stepId: string;
+      /** The Document the deck is now: the one edited, or the copy saved beside it. */
+      documentId: string;
+      /** The deck as it is now, to draw. */
+      bytes: Uint8Array;
+      /** Its SHA-256: the Document's version once its file is read again. */
+      contentHash: string;
+      saved: DeckSaved;
+      /** The slides that differ from the deck as the sitting began, and those kept exactly. */
+      slides: { changed: number; kept: number };
+    }
+  | DeckUnwritable;
+
+/** A deck of the User's own as it stood before a sitting of editing it by hand (#149). */
+export interface KeptDeckState {
+  id: string;
+  /** ISO 8601, UTC. */
+  keptAt: string;
+}
+
+/** A deck put back as it stood: when that was, and the state kept just before, to undo it with. */
+export interface DeckRestored {
+  documentId: string;
+  keptAt: string;
+  before: string | null;
+  bytes: Uint8Array;
+  /** The SHA-256 of `bytes`: the version shown once the file is read again, to undo from. */
+  contentHash: string;
 }
 
 /** A version of a Canvas, as its versions list shows it. */
@@ -16148,6 +16208,37 @@ export interface CoreApi {
    * for a Note that checks none.
    */
   handedFileOf(mindId: string): Promise<HandedFileOfMind | null>;
+  /**
+   * Makes one gesture's edits on a deck the User edits by hand and writes it (#149): a new version
+   * of a deck IncarnaMind keeps, or the User's own file itself, the file as it stood kept first.
+   * `shown` is the content hash of the version the viewer shows; the first gesture of a sitting
+   * applies nothing to another. Throws when the file changed under the sitting.
+   */
+  editDeck(input: {
+    documentId: string;
+    sittingId: string | null;
+    shown: string;
+    edits: ShapeEdit[];
+  }): Promise<DeckEdit>;
+  /** Takes back a deck's newest step done by hand, writing the deck as it was before it (#149). */
+  undoDeckEdit(sittingId: string, stepId: string): Promise<DeckEdit>;
+  /** Does again the step of a deck that was taken back last (#149). */
+  redoDeckEdit(sittingId: string, stepId: string): Promise<DeckEdit>;
+  /** Saves the edit a deck's file couldn't take as a copy beside it, where the sitting goes on (#149). */
+  saveDeckCopy(sittingId: string): Promise<DeckEdit>;
+  /** The deck's viewer closed: its next hand edit begins another sitting (#149). */
+  closeDeckSitting(sittingId: string): Promise<void>;
+  /** A deck of the User's own as it stood before each sitting of editing it, the newest first (#149). */
+  keptDeckStates(documentId: string): Promise<KeptDeckState[]>;
+  /**
+   * Puts a deck of the User's own back as it stood then, keeping it as it is now first, so this
+   * can be undone (#149). `shown`: the content hash of the version the viewer shows.
+   */
+  restoreKeptDeck(input: {
+    documentId: string;
+    keptId: string;
+    shown: string;
+  }): Promise<DeckRestored>;
   /** The live Canvases (#3406), newest first. */
   listCanvases(): Promise<Canvas[]>;
   /**
@@ -16986,6 +17077,13 @@ const methods: Record<CoreApiMethod, true> = {
   noteConversation: true,
   ownAiRunsHere: true,
   handedFileOf: true,
+  editDeck: true,
+  undoDeckEdit: true,
+  redoDeckEdit: true,
+  saveDeckCopy: true,
+  closeDeckSitting: true,
+  keptDeckStates: true,
+  restoreKeptDeck: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

@@ -41,6 +41,11 @@ export interface QuoteMark {
   label?: string;
   /** Shown after the number in place of `label`, which the tooltip then holds, e.g. a row's name. */
   shown?: string;
+  /**
+   * The quoted words aren't in the version shown, which changed after the check: the check is
+   * of words no longer there, so the mark says so, in the quiet tone (#149).
+   */
+  changed?: true;
 }
 
 export function quoteMarkOf(citation: ViewerCitation | undefined): QuoteMark | null {
@@ -134,9 +139,10 @@ export function CitationMark({
       "cant-check": "cantCheck",
     } as const
   )[mark.tone];
+  const said = mark.changed ? "changed" : word;
   const label = mark.label
-    ? t(`viewer.mark.${word}.at`, { number: mark.number, location: mark.label })
-    : t(`viewer.mark.${word}`, { number: mark.number });
+    ? t(`viewer.mark.${said}.at`, { number: mark.number, location: mark.label })
+    : t(`viewer.mark.${said}`, { number: mark.number });
 
   // The widths come from copies that are never shown, so they stay the same whether the label
   // shows or not: the mark's own width changes with it, and a room just short of the full width

@@ -101,12 +101,13 @@ export class Deck {
     return new Deck(new PackageWriter(openPackage(bytes)));
   }
 
-  /** The presentation part, "ppt/presentation.xml" in every deck PowerPoint writes. */
+  /**
+   * The presentation part, "ppt/presentation.xml" in every deck PowerPoint writes, and where the
+   * reader looks when the package names none (officePackage's `mainPart`), as the viewer drew it.
+   */
   async presentationPart(): Promise<string> {
     const root = await this.pkg.relationshipsOf("");
-    const main = root.ofType(PRESENTATION_RELATIONSHIPS.officeDocument);
-    if (!main) throw new PackagePartError("_rels/.rels", "names no presentation part.");
-    return main.target;
+    return root.ofType(PRESENTATION_RELATIONSHIPS.officeDocument)?.target ?? "ppt/presentation.xml";
   }
 
   /** The slides in the order they are shown, with each one's layout and notes. */

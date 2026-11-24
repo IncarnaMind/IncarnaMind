@@ -53,6 +53,7 @@ registerMenu("document", [
   "document.readHiddenSheets",
   "document.unlock",
   "document.fetchAgain",
+  "document.putBack",
   "document.countAsEvidence",
   "document.leaveOutOfEvidence",
   "document.dontCite",

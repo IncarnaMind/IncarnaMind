@@ -1,38 +1,79 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Box, Item, SlideDrawing } from "../../../../core/documents/formats/pptxDrawing";
-import type { EditedParagraph, ShapeEdit } from "../../../../core/exports/pptxPatch/shapeEdit";
+import type {
+  EditedParagraph,
+  ShapeBox,
+  ShapeEdit,
+} from "../../../../core/exports/pptxPatch/shapeEdit";
+import type { TextRange } from "../../../../shared/quoteMatch";
+import type { DeckGesture, Overflow } from "./deckEditing";
 import type { TextEditing } from "./editedText";
 import { SlideCanvas } from "./SlideCanvas";
+import type { MeasuredFit } from "./textFit";
 
 type Corner = "nw" | "ne" | "sw" | "se";
 
 const CORNERS: readonly Corner[] = ["nw", "ne", "sw", "se"];
 
-/** A drag of the selected shape, or of one of its corners, in slide pixels from where it started. */
+/** How far a press must travel before it is a drag, not a click. */
+const DRAG_SLOP = 3;
+/** Arrow keys move a shape this far, or ten times as far with Shift, as Keynote's do. */
+const NUDGE = 1;
+/** A run of arrow-key moves ends, as one step to undo, once the keys rest this long. */
+const NUDGE_RUN_MS = 600;
+
+/** A gesture on the selected shape, or on one of its corners, from where it started on screen. */
 interface Gesture {
-  index: number;
+  path: string;
   corner: Corner | null;
   from: { x: number; y: number };
-  box: Box;
+  box: ShapeBox;
   moved: boolean;
 }
 
-/** How far a press must travel before it is a drag, not a click. */
-const DRAG_SLOP = 3;
+/** A path's indexes: "3" is the slide's fourth item, "3.1" the second in that group. */
+const indexesOf = (path: string) => path.split(".").map(Number);
 
-function resized(box: Box, corner: Corner | null, dx: number, dy: number): Box {
+/** The item at a path, and where the group it is in starts on the slide. */
+function located(
+  items: readonly Item[],
+  path: string,
+): { item: Item; origin: { x: number; y: number } } | null {
+  let origin = { x: 0, y: 0 };
+  let list = items;
+  let found: Item | undefined;
+  for (const [depth, index] of indexesOf(path).entries()) {
+    found = list[index];
+    if (!found) return null;
+    if (depth < indexesOf(path).length - 1) {
+      if (found.kind !== "group") return null;
+      origin = { x: origin.x + found.box.x, y: origin.y + found.box.y };
+      list = found.children;
+    }
+  }
+  return found ? { item: found, origin } : null;
+}
+
+/** An item's box on the slide. */
+function slideBox(items: readonly Item[], path: string): ShapeBox | null {
+  const at = located(items, path);
+  return at
+    ? {
+        x: at.origin.x + at.item.box.x,
+        y: at.origin.y + at.item.box.y,
+        w: at.item.box.w,
+        h: at.item.box.h,
+      }
+    : null;
+}
+
+function resized(box: ShapeBox, corner: Corner | null, dx: number, dy: number): ShapeBox {
   if (!corner) return { ...box, x: box.x + dx, y: box.y + dy };
   const left = corner === "nw" || corner === "sw";
   const top = corner === "nw" || corner === "ne";
   const w = Math.max(1, left ? box.w - dx : box.w + dx);
   const h = Math.max(1, top ? box.h - dy : box.h + dy);
-  return {
-    ...box,
-    x: left ? box.x + box.w - w : box.x,
-    y: top ? box.y + box.h - h : box.y,
-    w,
-    h,
-  };
+  return { x: left ? box.x + box.w - w : box.x, y: top ? box.y + box.h - h : box.y, w, h };
 }
 
 /** The item drawn at another box, its own text rectangle moved and scaled with it. */
@@ -52,6 +93,20 @@ function placed(item: Item, box: Box): Item {
   };
 }
 
+/** The items with the one at `path` drawn at `box`, a box on the slide. */
+function withBox(items: readonly Item[], path: string, box: ShapeBox): Item[] {
+  const [first, ...rest] = indexesOf(path);
+  return items.map((item, index) => {
+    if (index !== first) return item;
+    if (rest.length === 0) return placed(item, { ...item.box, ...box });
+    if (item.kind !== "group") return item;
+    const inner = { ...box, x: box.x - item.box.x, y: box.y - item.box.y };
+    return { ...item, children: withBox(item.children, rest.join("."), inner) };
+  });
+}
+
+const rotated = (box: Box) => (box.rotation ? `rotate(${box.rotation}deg)` : undefined);
+
 /** A shape's own words, or a picture's description, to name its hit area. */
 function labelOf(item: Item): string | undefined {
   if (item.kind === "picture") return item.alt || undefined;
@@ -63,7 +118,25 @@ function labelOf(item: Item): string | undefined {
   return words ? words.slice(0, 80) : undefined;
 }
 
-const rotated = (box: Box) => (box.rotation ? `rotate(${box.rotation}deg)` : undefined);
+/** Whether an item has words of its own to read, which a drag across selects, as the viewer always did. */
+function hasWords(item: Item): boolean {
+  if (item.kind === "shape") return labelOf(item) !== undefined;
+  return item.kind === "table" || item.kind === "group" || item.kind === "chart";
+}
+
+/** Whether a point on the slide is inside a box drawn turned by `rotation` degrees about its centre. */
+function contains(box: ShapeBox, rotation: number | undefined, x: number, y: number): boolean {
+  let px = x;
+  let py = y;
+  if (rotation) {
+    const cx = box.x + box.w / 2;
+    const cy = box.y + box.h / 2;
+    const turn = (-rotation * Math.PI) / 180;
+    px = cx + (x - cx) * Math.cos(turn) - (y - cy) * Math.sin(turn);
+    py = cy + (x - cx) * Math.sin(turn) + (y - cy) * Math.cos(turn);
+  }
+  return px >= box.x && px <= box.x + box.w && py >= box.y && py <= box.y + box.h;
+}
 
 /** Puts the caret where the person double-clicked, else at the end of the text. */
 function placeCaret(element: HTMLElement, at: { x: number; y: number } | null) {
@@ -80,67 +153,109 @@ function placeCaret(element: HTMLElement, at: { x: number; y: number } | null) {
   selection.collapseToEnd();
 }
 
+/** The slide's own items that can be selected at this level: every one, or a group's. */
+function selectable(items: readonly Item[], prefix: string): { item: Item; path: string }[] {
+  return items.flatMap((item, index) =>
+    item.origin === "slide" && item.shapeId
+      ? [{ item, path: prefix ? `${prefix}.${index}` : String(index) }]
+      : [],
+  );
+}
+
 /**
- * One slide drawn as the viewer draws it, with PowerPoint's direct editing
- * over it: a click selects one of the slide's own shapes, a drag moves it,
- * a corner sizes it, and a double click on a text shape opens its text for
- * typing in place. Each change is handed to `onEdit` once it is made (the
- * drag ended, the text box lost the focus), for the host to write into the
- * deck; the shape stays where it was dropped until the slide is drawn again.
+ * One slide drawn as the viewer draws it, with PowerPoint's direct editing over it. Reading comes
+ * first: a drag across a shape's words selects them, to quote or ask about, as before. A click
+ * selects one of the slide's own shapes (a second click inside a selected group selects the shape
+ * in it); a drag moves the selected shape, or any shape with no words of its own; a corner sizes
+ * it; the arrow keys move it; and a double click on a text shape or a table's cell, or Enter,
+ * opens its text for typing in place, as a double click on a picture opens the picture. Each
+ * gesture is handed to `onEdit` once it is made (the drag ended, the text box lost the focus, the
+ * arrow keys rested), for the host to write into the deck; the shape stays where it was put until
+ * the slide is drawn again.
  */
 export function SlideEditor({
   slide,
   width,
   height,
   images,
+  ranges,
   scale = 1,
   onEdit,
+  onOverflow,
+  onOpenPicture,
 }: {
   slide: SlideDrawing;
   width: number;
   height: number;
   images: ReadonlyMap<string, string | null>;
+  ranges: ReadonlyMap<string, TextRange[]> | null;
   /** The slide's scale on screen, to turn the pointer's travel into slide pixels. */
   scale?: number;
-  onEdit: (edit: ShapeEdit) => void;
+  onEdit: (edits: ShapeEdit[], what: DeckGesture) => void;
+  /** A text box that doesn't follow its text runs past it after typing. */
+  onOverflow?: (overflow: Overflow) => void;
+  /** Opens a picture on the slide, as a click on one does where the deck can't be edited. */
+  onOpenPicture?: (picture: HTMLImageElement) => void;
 }) {
-  const [selected, setSelected] = useState<number | null>(null);
-  const [draft, setDraft] = useState<{ index: number; box: Box } | null>(null);
-  const [typing, setTyping] = useState<{ index: number; at: { x: number; y: number } } | null>(
-    null,
-  );
+  const [selected, setSelected] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
+  const [typing, setTyping] = useState<{
+    path: string;
+    at: { x: number; y: number } | null;
+  } | null>(null);
   const gesture = useRef<Gesture | null>(null);
+  const nudge = useRef<{
+    path: string;
+    box: ShapeBox;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
   const edit = useRef(onEdit);
   edit.current = onEdit;
+  const overflowed = useRef(onOverflow);
+  overflowed.current = onOverflow;
+  const root = useRef<HTMLDivElement>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a slide drawn again replaces the dropped shape's stand-in
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a slide drawn again replaces the moved shape's stand-in
   useEffect(() => setDraft(null), [slide]);
 
   const shown = useMemo(
-    () =>
-      draft
-        ? {
-            ...slide,
-            items: slide.items.map((item, index) =>
-              index === draft.index ? placed(item, draft.box) : item,
-            ),
-          }
-        : slide,
+    () => (draft ? { ...slide, items: withBox(slide.items, draft.path, draft.box) } : slide),
     [slide, draft],
   );
 
+  const shapeIdAt = useCallback(
+    (path: string) => located(slide.items, path)?.item.shapeId ?? null,
+    [slide],
+  );
+
+  const moved = useCallback(
+    (path: string, box: ShapeBox) => {
+      const shape = shapeIdAt(path);
+      const was = slideBox(slide.items, path);
+      if (!shape || !was) return;
+      setDraft({ path, box });
+      const sized = Math.abs(was.w - box.w) > 0.01 || Math.abs(was.h - box.h) > 0.01;
+      edit.current([{ kind: "box", slide: slide.number, shape, box }], sized ? "resized" : "moved");
+    },
+    [shapeIdAt, slide],
+  );
+
   const start = useCallback(
-    (event: React.PointerEvent, index: number, corner: Corner | null) => {
-      const item = shown.items[index];
-      if (!item || event.button !== 0) return;
+    (event: React.PointerEvent, path: string, corner: Corner | null) => {
+      const box = slideBox(shown.items, path);
+      if (!box || event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
-      setSelected(index);
+      // Words selected before are let go, as the press no longer reaches the page to do it.
+      document.getSelection()?.removeAllRanges();
+      root.current?.focus({ preventScroll: true });
+      // A click inside the group already selected selects the shape in it, as PowerPoint does.
+      setSelected(path);
       gesture.current = {
-        index,
+        path,
         corner,
         from: { x: event.clientX, y: event.clientY },
-        box: item.box,
+        box,
         moved: false,
       };
       const move = (moveEvent: PointerEvent) => {
@@ -150,58 +265,257 @@ export function SlideEditor({
         const dy = (moveEvent.clientY - now.from.y) / scale;
         if (!now.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
         now.moved = true;
-        setDraft({ index: now.index, box: resized(now.box, now.corner, dx, dy) });
+        setDraft({ path: now.path, box: resized(now.box, now.corner, dx, dy) });
       };
       const end = (upEvent: PointerEvent) => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", end);
         const now = gesture.current;
         gesture.current = null;
-        const shapeId = slide.items[now?.index ?? -1]?.shapeId;
-        if (!now?.moved || !shapeId) return;
-        const box = resized(
-          now.box,
-          now.corner,
-          (upEvent.clientX - now.from.x) / scale,
-          (upEvent.clientY - now.from.y) / scale,
+        if (!now?.moved) return;
+        moved(
+          now.path,
+          resized(
+            now.box,
+            now.corner,
+            (upEvent.clientX - now.from.x) / scale,
+            (upEvent.clientY - now.from.y) / scale,
+          ),
         );
-        setDraft({ index: now.index, box });
-        edit.current({
-          kind: "box",
-          slide: slide.number,
-          shape: shapeId,
-          box: { x: box.x, y: box.y, w: box.w, h: box.h },
-        });
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", end);
     },
-    [shown, slide, scale],
+    [shown, scale, moved],
   );
 
   const editing = useMemo<TextEditing | null>(() => {
     if (!typing) return null;
-    const shapeId = slide.items[typing.index]?.shapeId;
+    const cell = /^(.*)\/(\d+)\.(\d+)$/.exec(typing.path);
+    const owner = cell?.[1] ?? typing.path;
+    const at = located(slide.items, owner);
+    const shape = at?.item.shapeId;
     return {
-      path: String(typing.index),
+      path: typing.path,
       opened: (element) => placeCaret(element, typing.at),
-      done: (paragraphs: EditedParagraph[] | null) => {
+      done: (paragraphs: EditedParagraph[] | null, fit: MeasuredFit | null) => {
         setTyping(null);
-        if (paragraphs && shapeId) {
-          edit.current({ kind: "text", slide: slide.number, shape: shapeId, paragraphs });
+        root.current?.focus({ preventScroll: true });
+        if (!shape || !at) return;
+        if (cell) {
+          if (paragraphs) {
+            edit.current(
+              [
+                {
+                  kind: "cell",
+                  slide: slide.number,
+                  shape,
+                  row: Number(cell[2]),
+                  column: Number(cell[3]),
+                  paragraphs,
+                },
+              ],
+              "cell",
+            );
+          }
+          return;
+        }
+        const box = slideBox(slide.items, owner);
+        const item = at.item;
+        let written: ShapeEdit | null = null;
+        if (fit?.kind === "grow" && box && item.kind === "shape") {
+          const text = item.textBox?.h ?? box.h;
+          const h = Math.max(1, box.h + fit.height - text);
+          const grows = Math.abs(h - box.h) > 0.5;
+          if (paragraphs || grows) {
+            written = {
+              kind: "text",
+              slide: slide.number,
+              shape,
+              paragraphs: paragraphs ?? currentParagraphs(item),
+              ...(grows && { fit: { kind: "grow", box: { ...box, h } } }),
+            };
+          }
+        } else if (fit?.kind === "shrink") {
+          written = {
+            kind: "text",
+            slide: slide.number,
+            shape,
+            paragraphs: paragraphs ?? currentParagraphs(item),
+            fit,
+          };
+        } else if (paragraphs) {
+          written = { kind: "text", slide: slide.number, shape, paragraphs };
+        }
+        if (written) edit.current([written], paragraphs ? "text" : "fitted");
+        if (fit?.kind === "overflow" && written?.kind === "text") {
+          overflowed.current?.({
+            slide: slide.number,
+            shapeId: shape,
+            paragraphs: written.paragraphs,
+            fontScale: fit.fontScale,
+            lineReduction: fit.lineReduction,
+          });
         }
       },
     };
   }, [typing, slide]);
 
-  const frame = selected !== null ? shown.items[selected] : undefined;
+  const openText = (path: string, at: { x: number; y: number } | null) => {
+    const found = located(shown.items, path);
+    if (!found) return;
+    if (found.item.kind === "shape" && found.item.text) {
+      setSelected(path);
+      setTyping({ path, at });
+      return;
+    }
+    if (found.item.kind === "table" && at) {
+      const cell = document.elementFromPoint(at.x, at.y)?.closest("td[data-cell]");
+      const place = cell?.getAttribute("data-cell");
+      if (place) {
+        setSelected(path);
+        setTyping({ path: `${path}/${place}`, at });
+      }
+    }
+  };
+
+  const nudged = (dx: number, dy: number) => {
+    if (!selected) return;
+    const from =
+      nudge.current?.path === selected ? nudge.current.box : slideBox(shown.items, selected);
+    if (!from) return;
+    const box = { ...from, x: from.x + dx, y: from.y + dy };
+    if (nudge.current) clearTimeout(nudge.current.timer);
+    const path = selected;
+    setDraft({ path, box });
+    nudge.current = {
+      path,
+      box,
+      timer: setTimeout(() => {
+        nudge.current = null;
+        moved(path, box);
+      }, NUDGE_RUN_MS),
+    };
+  };
+
+  const top = selectable(shown.items, "");
+  // The shapes of the group that is selected, or holds the selected shape, take clicks of their own.
+  const groupPath = selected?.includes(".")
+    ? selected.slice(0, selected.lastIndexOf("."))
+    : selected;
+  const group = groupPath ? located(shown.items, groupPath)?.item : undefined;
+  const inner = group?.kind === "group" && groupPath ? selectable(group.children, groupPath) : [];
+  // Presses on a shape with words select them, unless it is the one selected: it is dragged.
+  const pressable = [...top, ...inner].filter(
+    (each) => each.path === selected || !hasWords(each.item),
+  );
+  const frame = selected !== null ? slideBox(shown.items, selected) : null;
+  const frameItem = selected !== null ? located(shown.items, selected)?.item : undefined;
+
+  /** The top-most shape at a point on screen, in the selected group first. */
+  const shapeAt = (clientX: number, clientY: number) => {
+    const at = root.current?.getBoundingClientRect();
+    if (!at) return null;
+    const x = (clientX - at.left) / scale;
+    const y = (clientY - at.top) / scale;
+    const under = (list: { item: Item; path: string }[]) =>
+      list.findLast((each) => {
+        const box = slideBox(shown.items, each.path);
+        return box !== null && contains(box, each.item.box.rotation, x, y);
+      }) ?? null;
+    return under(inner) ?? under(top);
+  };
+
+  const hit = ({ item, path }: { item: Item; path: string }) => {
+    const box = slideBox(shown.items, path);
+    if (!box) return null;
+    return (
+      <button
+        key={path}
+        type="button"
+        tabIndex={-1}
+        className="slide-editor-hit"
+        aria-label={labelOf(item)}
+        data-shape-id={item.shapeId}
+        data-path={path}
+        style={{
+          left: box.x,
+          top: box.y,
+          width: Math.max(box.w, 6),
+          height: Math.max(box.h, 6),
+          transform: rotated(item.box),
+        }}
+        onPointerDown={(event) => start(event, path, null)}
+      />
+    );
+  };
+
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the slide is one Tab stop; its keys select, move and open its shapes.
     <div
+      ref={root}
       className="slide-editor"
-      style={{ width, height }}
+      style={{ width, height, "--slide-scale": scale } as CSSProperties}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: Tab reaches the slide, whose keys select and move its shapes.
+      tabIndex={0}
       data-testid="viewer-slide-editor"
-      onPointerDown={() => {
-        if (!typing) setSelected(null);
+      onClick={(event) => {
+        // Here a click selects; the viewer's own click on a picture would open it.
+        event.stopPropagation();
+        if (typing) return;
+        const words = window.getSelection();
+        if (words && !words.isCollapsed && root.current?.contains(words.anchorNode)) return;
+        const found = shapeAt(event.clientX, event.clientY);
+        if (found) words?.removeAllRanges();
+        setSelected(found?.path ?? null);
+      }}
+      onBlur={(event) => {
+        // One shape is selected in the deck at a time: working elsewhere lets this one go.
+        if (!typing && !event.currentTarget.contains(event.relatedTarget)) setSelected(null);
+      }}
+      onDoubleClick={(event) => {
+        if (typing) return;
+        const found = shapeAt(event.clientX, event.clientY);
+        if (!found) return;
+        if (found.item.kind === "picture") {
+          const picture = document
+            .elementsFromPoint(event.clientX, event.clientY)
+            .find((each): each is HTMLImageElement => each instanceof HTMLImageElement);
+          if (picture && onOpenPicture) onOpenPicture(picture);
+          return;
+        }
+        openText(found.path, { x: event.clientX, y: event.clientY });
+      }}
+      onKeyDown={(event) => {
+        if (typing || event.target !== root.current) return;
+        const all = [...top, ...inner];
+        const at = all.findIndex((each) => each.path === selected);
+        const step = event.shiftKey ? 10 * NUDGE : NUDGE;
+        const moves: Record<string, [number, number]> = {
+          ArrowLeft: [-step, 0],
+          ArrowRight: [step, 0],
+          ArrowUp: [0, -step],
+          ArrowDown: [0, step],
+        };
+        const delta = moves[event.key];
+        if (delta && selected) {
+          event.preventDefault();
+          nudged(delta[0], delta[1]);
+        } else if (event.key === "Tab" && selected && all.length > 0) {
+          event.preventDefault();
+          const next = all[(at + (event.shiftKey ? all.length - 1 : 1)) % all.length];
+          if (next) setSelected(next.path);
+        } else if (event.key === "Enter" && !selected && top[0]) {
+          event.preventDefault();
+          setSelected(top[0].path);
+        } else if (event.key === "Enter" && selected) {
+          event.preventDefault();
+          openText(selected, null);
+        } else if (event.key === "Escape" && selected) {
+          event.preventDefault();
+          event.stopPropagation();
+          setSelected(groupPath && groupPath !== selected ? groupPath : null);
+        }
       }}
     >
       <SlideCanvas
@@ -209,52 +523,23 @@ export function SlideEditor({
         width={width}
         height={height}
         images={images}
-        ranges={null}
+        ranges={ranges}
         editing={editing}
       />
-      {!typing &&
-        shown.items.map((item, index) =>
-          item.origin === "slide" && item.shapeId ? (
-            <button
-              // biome-ignore lint/suspicious/noArrayIndexKey: a slide's items never reorder
-              key={index}
-              className="slide-editor-hit"
-              type="button"
-              tabIndex={-1}
-              aria-label={labelOf(item)}
-              data-shape-id={item.shapeId}
-              style={{
-                left: item.box.x,
-                top: item.box.y,
-                width: Math.max(item.box.w, 6),
-                height: Math.max(item.box.h, 6),
-                transform: rotated(item.box),
-              }}
-              onPointerDown={(event) => start(event, index, null)}
-              onDoubleClick={(event) => {
-                if (item.kind !== "shape" || !item.text) return;
-                setSelected(index);
-                setTyping({ index, at: { x: event.clientX, y: event.clientY } });
-              }}
-            />
-          ) : null,
-        )}
-      {frame && (
+      {!typing && pressable.map(hit)}
+      {frame && frameItem && !typing && (
         <div
-          className={
-            typing ? "slide-editor-frame slide-editor-frame--typing" : "slide-editor-frame"
-          }
+          className="slide-editor-frame"
           data-testid="viewer-slide-selection"
           style={{
-            left: frame.box.x,
-            top: frame.box.y,
-            width: frame.box.w,
-            height: frame.box.h,
-            transform: rotated(frame.box),
+            left: frame.x,
+            top: frame.y,
+            width: frame.w,
+            height: frame.h,
+            transform: rotated(frameItem.box),
           }}
         >
-          {!typing &&
-            selected !== null &&
+          {selected !== null &&
             CORNERS.map((corner) => (
               <div
                 key={corner}
@@ -267,4 +552,18 @@ export function SlideEditor({
       )}
     </div>
   );
+}
+
+/** A shape's paragraphs as they are, for an edit that changes only how it fits them. */
+function currentParagraphs(item: Item): EditedParagraph[] {
+  if (item.kind !== "shape" || !item.text) return [];
+  return item.text.paragraphs.map((paragraph, p) => ({
+    source: p,
+    runs: paragraph.runs
+      .map((run, r) => ({
+        source: { paragraph: p, run: r },
+        text: run.lineBreak ? "\n" : run.text,
+      }))
+      .filter((run) => run.text !== ""),
+  }));
 }

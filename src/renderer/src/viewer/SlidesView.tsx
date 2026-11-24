@@ -22,7 +22,7 @@ import {
 } from "../../../core/documents/formats/pptxDrawing";
 import { withoutArea } from "../../../shared/locations";
 import { findQuoteInPieces, type TextRange } from "../../../shared/quoteMatch";
-import { useViewerHandle } from "../commands/handles";
+import { useViewerHandle, ViewerTabContext } from "../commands/handles";
 import { ChatLineIcon } from "../components/lineIcons";
 import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { core, files } from "../core";
@@ -54,8 +54,11 @@ import {
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
+import { DeckLines } from "./slides/DeckLines";
+import { type DeckEditing, useDeckEditing } from "./slides/deckEditing";
 import { findInDrawing, pictureParts, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
+import { SlideEditor } from "./slides/SlideEditor";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 
@@ -100,14 +103,40 @@ const MARK_GAP = 8;
  * the outline it was before: title, text, tables, chart figures, images.
  */
 export function SlidesView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const { loaded, reload } = useDocumentFile(document.id, document.contentHash, read);
+  const editing = useDeckEditing(document, document.contentHash, useContext(ViewerTabContext));
+  // A version this window's hand edits wrote is drawn from what they wrote, not read again.
+  const { loaded, reload } = useDocumentFile(document.id, editing.steady, read);
+  const editable = document.kind === "pptx" && !document.web && document.fileStatus === "available";
+  const [written, setWritten] = useState<Loaded | null>(null);
+  // What a hand edit wrote is drawn at once, until the viewer reads the file it wrote again.
+  useEffect(() => {
+    const bytes = editing.written;
+    if (!bytes) {
+      setWritten(null);
+      return;
+    }
+    let live = true;
+    void read(bytes).then((value) => {
+      if (live) setWritten(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [editing.written]);
   return (
     <FileStates
       document={document}
       loaded={loaded}
       quote={target.quote}
       reload={reload}
-      ready={(value) => <Slides loaded={value} document={document} target={target} />}
+      ready={(value) => (
+        <Slides
+          loaded={written ?? value}
+          document={document}
+          target={target}
+          editing={editable ? editing : null}
+        />
+      )}
     />
   );
 }
@@ -148,10 +177,13 @@ function Slides({
   loaded,
   document,
   target,
+  editing,
 }: {
   loaded: Loaded;
   document: Document;
   target: ViewerTarget;
+  /** Hand editing of the deck, where its file may be edited. */
+  editing: DeckEditing | null;
 }) {
   const t = useT();
   const { slides } = loaded.deck;
@@ -332,7 +364,15 @@ function Slides({
       ? { slide: citedSlide, where: "none" }
       : null;
   }, [slides, drawn, target.quote, target.quotes, target.pageFrom, target.pageTo]);
-  const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  // The quote isn't in this version, which changed after it was cited: its check isn't of these words.
+  const cited = target.citation?.contentHash;
+  const quoteChanged = highlight?.where === "none" && !!cited && cited !== document.contentHash;
+  const mark = useMemo(() => {
+    const made = quoteMarkOf(target.citation);
+    return made && quoteChanged
+      ? { ...made, tone: "cant-check" as const, changed: true as const }
+      : made;
+  }, [target.citation, quoteChanged]);
   // The slides draw once the viewer is measured: the quotes found count, not those drawn yet.
   const found = useMemo(
     () =>
@@ -487,6 +527,7 @@ function Slides({
         placeGone={citedPlaceGone(target, slides.length)}
       />
       <QuoteStepsLine stepper={stepper} />
+      {editing && <DeckLines editing={editing} />}
       <QuoteStepContext.Provider value={step}>
         <div className="flex min-h-0 flex-1">
           {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
@@ -542,6 +583,7 @@ function Slides({
                     }
                     onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
                     setElement={setElement(slide.number)}
+                    editing={editing}
                   />
                 );
               })}
@@ -567,6 +609,7 @@ function SlideFrame({
   onNotesToggle,
   onAsk,
   setElement,
+  editing,
 }: {
   outline: SlideOutline;
   slide: SlideDrawing;
@@ -581,6 +624,7 @@ function SlideFrame({
   onNotesToggle(open: boolean): void;
   onAsk?: () => void;
   setElement(element: HTMLElement | null): void;
+  editing: DeckEditing | null;
 }) {
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
@@ -634,13 +678,27 @@ function SlideFrame({
         style={{ width: width * scale, height: height * scale }}
       >
         <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0", width, height }}>
-          <SlideCanvas
-            slide={slide}
-            width={width}
-            height={height}
-            images={images}
-            ranges={slideRanges}
-          />
+          {editing ? (
+            <SlideEditor
+              slide={slide}
+              width={width}
+              height={height}
+              images={images}
+              ranges={slideRanges}
+              scale={scale}
+              onEdit={editing.edit}
+              onOverflow={editing.setOverflow}
+              onOpenPicture={openDocumentPicture}
+            />
+          ) : (
+            <SlideCanvas
+              slide={slide}
+              width={width}
+              height={height}
+              images={images}
+              ranges={slideRanges}
+            />
+          )}
         </div>
         {onAsk && (
           <button

@@ -22,7 +22,7 @@ export interface EditedParagraph {
   runs: EditedRun[];
 }
 
-/** A shape's box, CSS pixels at 96 dpi, as the drawing (pptxDrawing) gives it. */
+/** A shape's box on its slide, CSS pixels at 96 dpi, as the slide shows it: a group's shape's too. */
 export interface ShapeBox {
   x: number;
   y: number;
@@ -30,6 +30,24 @@ export interface ShapeBox {
   h: number;
 }
 
+/**
+ * How a text box follows its text after an edit, as its autofit kind asks: one that grows to fit
+ * (`spAutoFit`) takes this box; one that shrinks its text on overflow (`normAutofit`) takes this
+ * scale of its fonts and reduction of its line spacing, fractions of 1.
+ */
+export type TextFit =
+  | { kind: "grow"; box: ShapeBox }
+  | { kind: "shrink"; fontScale: number; lineReduction: number };
+
 export type ShapeEdit =
-  | { kind: "text"; slide: number; shape: string; paragraphs: EditedParagraph[] }
+  | { kind: "text"; slide: number; shape: string; paragraphs: EditedParagraph[]; fit?: TextFit }
+  | {
+      kind: "cell";
+      slide: number;
+      shape: string;
+      /** The cell's row and its place in the row, merged cells counted, as the file lists them. */
+      row: number;
+      column: number;
+      paragraphs: EditedParagraph[];
+    }
   | { kind: "box"; slide: number; shape: string; box: ShapeBox };

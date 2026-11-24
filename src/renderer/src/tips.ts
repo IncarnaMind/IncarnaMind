@@ -8,6 +8,7 @@ export type TipId =
   | "check-faster"
   | "citation-style"
   | "connect-app"
+  | "deck-edits"
   | "meeting-recorded";
 
 /** Interaction rule 14: a tip never shows a third time on a device. */
