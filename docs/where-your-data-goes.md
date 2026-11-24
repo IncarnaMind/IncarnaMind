@@ -39,7 +39,7 @@ IncarnaMind registers links of its own on this computer (incarnamind://): one na
 
 An export you send yourself carries quotes from your Documents with their names; a web page to share also holds the passage around each quote and a picture of part of its page.
 
-A deck you edit by hand, on its slides, sends nothing. A deck of your own is written itself, and IncarnaMind first keeps the file as it stood in its data folder, the last 10 for each deck, so ⋯ › Put back as it was can write it back. A change an AI proposes is never written into your file.
+A deck you edit by hand, on its slides, sends nothing. A deck of your own is written itself, and IncarnaMind first keeps the file as it stood in its data folder, the file as it first was and its 9 latest versions for each deck, so ⋯ › Put back as it was can write it back. A change an AI proposes is never written into your file.
 
 An AI agent you let write can have IncarnaMind read picture files on this computer for a Note or a Canvas it writes: only the files it names in that call, each where it is, never through a link. IncarnaMind keeps them in that Note or Canvas and sends them nowhere. It can also hand over a deck, workbook, Word file or PDF it made: IncarnaMind reads that one file from the path the agent names, the same way, keeps a copy of each version in its data folder, and checks it as "Check someone else's file" does, when you press Check on its note or, with "Check what the assistant and your own AI write" on in Settings → AI, as it lands: on the AI model you chose for checks and only when you allowed checks to go to its service.
 

@@ -260,6 +260,10 @@ _Avoid_: AI content, machine text
 A saved copy of a Note as it was just before an AI change, or after a pause in writing, which the User can compare, in the Note's History, with another Checkpoint or with the Note now, and restore from. Restoring one brings its content back as a new change, after a Checkpoint of the Note as it is: nothing is overwritten, and Undo takes it back.
 _Avoid_: snapshot, version, backup, undo
 
+**Sitting**:
+The hand edits of one deck made in one go, from the first gesture on its slides until no tab of the window shows the deck any more, the deck changes elsewhere or is put back, or the window closes (#149). Each gesture of a sitting is one step of Undo. Before a deck of the User's own takes its first, IncarnaMind keeps the file as it stood (ADR-0010), which Put back as it was writes back; a deck an agent handed over takes one new version for the sitting. The interface doesn't name it.
+_Avoid_: session, editing session
+
 **Recently deleted**:
 Where a deleted Note, Conversation, Document, Folder, Tag or Canvas waits for 30 days, from where it can be restored or deleted permanently. Deleting never touches the User's files.
 _Avoid_: trash, bin, archive
