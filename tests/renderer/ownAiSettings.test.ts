@@ -42,6 +42,7 @@ const globals: Record<string, unknown> = {
 };
 for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value);
 vi.stubGlobal("navigator", { userAgent: "node" });
+Object.assign(view.HTMLElement.prototype, { scrollIntoView: () => undefined });
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -437,6 +438,128 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
       Object.assign(bridge, { getAgents: original });
       error.mockRestore();
     }
+  });
+
+  describe("every connected app at once (#3644)", () => {
+    const CURSOR: AgentPairing = {
+      ...CLAUDE_CODE,
+      id: "pairing-2",
+      name: "Cursor",
+      client: "cursor",
+    };
+    const original = { ...bridge };
+    const done: string[] = [];
+    const broken = new Set<string>();
+    beforeEach(() => {
+      done.length = 0;
+      broken.clear();
+      Object.assign(bridge, {
+        agentNeedsRepair: async (id: string) => broken.has(id),
+        repairAgent: async (id: string) => {
+          done.push(id);
+          broken.delete(id);
+        },
+        disconnectAgent: async (id: string) => {
+          done.push(id);
+          return {
+            skillsLeft:
+              id === CLAUDE_CODE.id
+                ? [{ path: "/home/skills/incarnamind", shown: "~/skills/incarnamind" }]
+                : [],
+          };
+        },
+      });
+    });
+    afterEach(() => {
+      for (const name of ["agentNeedsRepair", "repairAgent", "disconnectAgent"]) {
+        Reflect.deleteProperty(bridge, name);
+      }
+      Object.assign(bridge, original);
+    });
+    const press = (part: Element | null) =>
+      act(async () => (part as unknown as { click(): void }).click());
+
+    test("two that need repair: Repair all (2) at the title's end repairs each, and goes", async () => {
+      broken.add(CLAUDE_CODE.id).add(CURSOR.id);
+      const { part, container } = await yourAi(agents([CLAUDE_CODE, CURSOR]));
+      const all = part("agents-repair-all");
+      expect(all?.textContent).toBe("Repair all (2)");
+      expect(all?.parentElement?.querySelector("h4")?.textContent).toBe("Your AI");
+      expect(container.querySelectorAll('[data-testid="agent-pairing-repair"]')).toHaveLength(2);
+      await press(all);
+      expect(done).toEqual([CLAUDE_CODE.id, CURSOR.id]);
+      expect(part("agents-repair-all")).toBeNull();
+      expect(part("agent-pairing-repair")).toBeNull();
+    });
+
+    test("one that needs repair: its own line, and no Repair all", async () => {
+      broken.add(CURSOR.id);
+      const { part, container } = await yourAi(agents([CLAUDE_CODE, CURSOR]));
+      expect(part("agents-repair-all")).toBeNull();
+      const lines = container.querySelectorAll('[data-testid="agent-pairing-repair"]');
+      expect(lines).toHaveLength(1);
+      await press(lines[0]?.querySelector('[data-testid="agent-pairing-repair-button"]') ?? null);
+      expect(done).toEqual([CURSOR.id]);
+      expect(part("agent-pairing-repair")).toBeNull();
+    });
+
+    test("Disconnect all… asks in place; Keep them keeps them; Disconnect all disconnects each", async () => {
+      const { part } = await yourAi(agents([CLAUDE_CODE, CURSOR]));
+      expect(part("agents-disconnect-all-ask")).toBeNull();
+      await press(part("agents-disconnect-all-open"));
+      expect(part("agents-disconnect-all-ask")?.textContent).toContain(
+        "Disconnect all 2? What they wrote in IncarnaMind stays.",
+      );
+      await press(part("agents-disconnect-all-keep"));
+      expect(part("agents-disconnect-all-ask")).toBeNull();
+      expect(done).toEqual([]);
+      await press(part("agents-disconnect-all-open"));
+      await press(part("agents-disconnect-all-confirm"));
+      expect(done).toEqual([CLAUDE_CODE.id, CURSOR.id]);
+      expect(part("agents-disconnect-all-ask")).toBeNull();
+      expect(part("agent-skill-left")?.textContent).toBe(
+        "Disconnected Claude Code. Its Skill stays at ~/skills/incarnamind: you changed it.",
+      );
+    });
+
+    test("one connected: no Disconnect all, its row's Disconnect is enough", async () => {
+      const { part } = await yourAi(agents([CLAUDE_CODE]));
+      expect(part("agents-disconnect-all")).toBeNull();
+    });
+
+    test("⌘K's entries open Settings › AI there; Disconnect all opens its question", async () => {
+      const entry = (id: `settings.${string}`) => commands.get(id);
+      await act(async () => entry("settings.disconnectAllAgents")?.run({} as never));
+      expect(useAppStore.getState()).toMatchObject({
+        settingsOpen: true,
+        settingsPage: "ai",
+        settingsAt: "disconnect-all-agents",
+      });
+      const { part } = await yourAi(agents([CLAUDE_CODE, CURSOR]));
+      expect(part("agents-disconnect-all-ask")).not.toBeNull();
+      expect(useAppStore.getState().settingsAt).toBeNull();
+      expect(done).toEqual([]);
+      await unmount?.();
+      unmount = null;
+      broken.add(CLAUDE_CODE.id).add(CURSOR.id);
+      await act(async () => entry("settings.repairAllAgents")?.run({} as never));
+      expect(useAppStore.getState().settingsAt).toBe("repair-all-agents");
+      const again = await yourAi(agents([CLAUDE_CODE, CURSOR]));
+      expect(again.part("agents-repair-all")).not.toBeNull();
+      expect(useAppStore.getState().settingsAt).toBeNull();
+      expect(done).toEqual([]);
+    });
+
+    test("in Chinese", async () => {
+      broken.add(CLAUDE_CODE.id).add(CURSOR.id);
+      const { part } = await yourAi(agents([CLAUDE_CODE, CURSOR]), NO_MODEL, "zh-CN");
+      expect(part("agents-repair-all")?.textContent).toBe("全部修复（2 个）");
+      expect(part("agents-disconnect-all-open")?.textContent).toBe("全部断开…");
+      await press(part("agents-disconnect-all-open"));
+      expect(part("agents-disconnect-all-ask")?.textContent).toBe(
+        "断开全部 2 个？它们在 IncarnaMind 中写下的内容会保留。全部断开保留",
+      );
+    });
   });
 
   test("in Chinese, in Chinese words", async () => {

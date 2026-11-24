@@ -27,8 +27,8 @@ h2{font-size:1.4rem}h3{font-size:1.2rem}h4,h5,h6{font-size:1.0625rem}
 p{margin:0 0 .9rem}
 .question{font-family:var(--sans);font-size:.95rem;color:var(--ink-meta)}
 .question-label{font-weight:600}
-sup.note-ref{margin-left:.05rem;font-family:var(--sans);font-size:.7em;line-height:0}
-sup.note-ref a{text-decoration:none;color:#2457a7}
+sup.note-ref,sup.endnote-ref{margin-left:.05rem;font-family:var(--sans);font-size:.7em;line-height:0}
+sup.note-ref a,sup.endnote-ref a{text-decoration:none;color:#2457a7}
 .unverified{color:var(--warning)}
 ins.change{text-decoration:underline;text-underline-offset:.15em}
 del.change{color:var(--ink-meta);text-decoration:line-through}
@@ -64,9 +64,12 @@ img{max-width:100%;height:auto}
 .notes ol{padding-left:1.8rem}
 .notes li{margin-bottom:.3rem}
 .notes li:target{background:#fcebc0}
+.endnotes-title{margin:2.5rem -1.25rem .5rem;padding:1.5rem 1.25rem 0;border-top:1px solid var(--rule-strong);font-family:var(--sans);font-size:1rem;color:var(--ink-answer)}
+ol.endnotes{padding-left:1.8rem;font-size:.9rem;line-height:1.5;color:var(--ink-answer)}
+ol.endnotes li:target{background:#fcebc0}
 .backref{margin-left:.35rem;text-decoration:none;color:#2457a7}
-@media (prefers-color-scheme:dark){:root{--ink:#e8eaed;--ink-answer:#c3c7ce;--ink-meta:#9aa0a8;--rule-strong:#3b4048;--frame:#23262b;--warning:#e0a15a}body{background:#17191c}mark,.notes li:target{background:#5a4a1a}sup.note-ref a,.backref{color:#8ab4f8}}
-@media print{main{padding-top:0}sup.note-ref a,.backref{color:inherit}}
+@media (prefers-color-scheme:dark){:root{--ink:#e8eaed;--ink-answer:#c3c7ce;--ink-meta:#9aa0a8;--rule-strong:#3b4048;--frame:#23262b;--warning:#e0a15a}body{background:#17191c}mark,.notes li:target,ol.endnotes li:target{background:#5a4a1a}sup.note-ref a,sup.endnote-ref a,.backref{color:#8ab4f8}}
+@media print{main{padding-top:0}sup.note-ref a,sup.endnote-ref a,.backref{color:inherit}}
 `.replace(/\n/g, "");
 
 /** The Mind's own font ahead of the export's, which the reader's computer falls back to. */

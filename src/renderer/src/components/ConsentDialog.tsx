@@ -63,6 +63,9 @@ export function ConsentDialog() {
     }
   };
 
+  // Starting the User's own Codex, which reads their own instructions file in those runs (#3639).
+  const codexRun =
+    request?.flow.id === "hosted-agents" && request.flow.service.agentClient === "codex";
   const service = request?.flow.service.name ?? "";
   const purpose = request ? t(`consent.flow.${request.flow.id}.purpose`) : "";
   const isFirstAsk = request !== undefined && request.newKinds.length === request.flow.sends.length;
@@ -108,6 +111,11 @@ export function ConsentDialog() {
           {request.flow.service.id === CHATGPT_SERVICE.id && (
             <p data-testid="consent-chatgpt-note" className={dialogTextClass}>
               {t("chatgpt.consent.note")}
+            </p>
+          )}
+          {codexRun && (
+            <p data-testid="consent-codex-note" className={dialogTextClass}>
+              {t("agents.connect.codexInstructions")}
             </p>
           )}
           <p className={hintClass}>

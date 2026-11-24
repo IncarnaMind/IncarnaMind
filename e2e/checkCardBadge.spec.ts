@@ -152,7 +152,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(health).toHaveCount(0);
       await expect(card).toBeVisible();
       await expect(card).toHaveAttribute("data-check", state);
-      await expect(card.getByTestId("claim-sentence")).toHaveText(`“${sentence}”`);
+      await expect.poll(() => card.getAttribute("aria-label")).toContain(sentence);
       await expect(card.getByTestId(action)).toBeVisible();
       await motionSettled(window);
     };

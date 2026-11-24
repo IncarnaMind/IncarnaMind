@@ -204,7 +204,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, card.getByTestId("health-toCheck"));
     const claimCard = window.getByTestId("claim-card");
     await expect(claimCard).toHaveAttribute("data-check", "not-checked");
-    await expect(claimCard.getByTestId("claim-sentence")).toHaveText(`“${sentences.notChecked}”`);
+    await expect.poll(() => claimCard.getAttribute("aria-label")).toContain(sentences.notChecked);
     await window.keyboard.press("Escape");
     await expect(claimCard).toHaveCount(0);
 
@@ -214,7 +214,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor).toBeFocused();
     await window.keyboard.press("ControlOrMeta+Shift+KeyK");
     await expect(claimCard).toHaveAttribute("data-check", "not-checked");
-    await expect(claimCard.getByTestId("claim-sentence")).toHaveText(`“${sentences.notChecked}”`);
+    await expect.poll(() => claimCard.getAttribute("aria-label")).toContain(sentences.notChecked);
     await window.keyboard.press("Escape");
     await expect(claimCard).toHaveCount(0);
 

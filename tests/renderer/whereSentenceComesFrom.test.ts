@@ -440,6 +440,24 @@ describe.each(["en", "zh-CN"] as const)("a verdict the User's own AI reported (%
     expect(texts("claim-part-citation")).toEqual(two);
     expect(container.querySelector('[data-testid="claim-part-more"]')).toBeNull();
   });
+
+  // protects=where the AI named which quotes say otherwise, the card groups them first and the rest under Says so, each group showing its first quote and a count that opens the rest (#3715); fails_when=a quote it named as saying otherwise shows under Says so, or the groups come in the other order
+  test("Contradicted with the quotes that say otherwise named: grouped, otherwise first", async () => {
+    const [first, second, third] = example.seasonQuotes;
+    const check = {
+      ...reported("contradicted", example.seasonQuotes),
+      otherwise: [third ?? "", second ?? ""],
+    };
+    await card(language, example.season, check, { state: "contradicted" });
+    const groups = [...container.querySelectorAll('[data-testid="claim-group"]')];
+    expect(groups.map((group) => group.getAttribute("data-role"))).toEqual(["otherwise", "so"]);
+    expect(texts("claim-group-label")).toEqual([
+      `${t("claim.group.otherwise")}· 2`,
+      t("claim.group.so"),
+    ]);
+    expect(texts("claim-part-citation")).toEqual([third, first]);
+    expect(texts("claim-part-more")).toHaveLength(1);
+  });
 });
 
 describe.each(["en", "zh-CN"] as const)(

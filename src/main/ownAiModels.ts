@@ -1,9 +1,7 @@
 import type { OwnAiModel } from "../core/adapters";
 import { stopProcessTree } from "../core/execution";
-import { drained, object } from "./claudeCode";
-import { createLoginShellProcesses } from "./processes";
+import { drained, object, processes } from "./agentCommand";
 
-const processes = createLoginShellProcesses();
 /** How long Claude Code may take to list its models before it counts as no answer. */
 const ANSWER_MS = 15_000;
 
@@ -81,6 +79,6 @@ export async function modelsOf(command: string): Promise<OwnAiModel[]> {
       }));
   } finally {
     stopProcessTree(child);
-    await drained(child, closed);
+    await drained(child, closed, "Claude Code");
   }
 }

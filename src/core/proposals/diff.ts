@@ -40,6 +40,13 @@ export function splitWords(text: string): string[] {
   return tokens;
 }
 
+// DESIGN.md › AI edits: "about 40% or more of a paragraph's words".
+/** The share of a paragraph's words a change takes out for it to read as written anew. */
+export const REWRITTEN_SHARE = 0.4;
+
+/** Two changes this few characters apart, spaces aside, read as one. */
+export const JOINED_CHARS = 3;
+
 /** One step from the old tokens to the new: keep one, remove one, or add one. */
 export type Step = "equal" | "delete" | "insert";
 

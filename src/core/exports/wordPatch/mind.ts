@@ -43,8 +43,8 @@ export interface TextMarks {
   font: string | null;
   size: number | null;
   vertical: "superscript" | "subscript" | null;
-  /** The comment the text is on (#328), by the record's id; not a format, so a change to it rewrites no run. */
-  comment: string | null;
+  /** The comments the text is on (#328), by the records' ids; not a format, so a change to them rewrites no run. */
+  comments: readonly string[];
 }
 
 export const NO_MARKS: TextMarks = {
@@ -59,7 +59,7 @@ export const NO_MARKS: TextMarks = {
   font: null,
   size: null,
   vertical: null,
-  comment: null,
+  comments: [],
 };
 
 export function marksOf(marks: readonly MarkJSON[] | undefined): TextMarks {
@@ -79,10 +79,10 @@ export function marksOf(marks: readonly MarkJSON[] | undefined): TextMarks {
     font: readTextFont(attribute(TEXT_FONT_MARK, "family")),
     size: readTextSize(attribute(TEXT_SIZE_MARK, "size")),
     vertical: has(SUPERSCRIPT_MARK) ? "superscript" : has(SUBSCRIPT_MARK) ? "subscript" : null,
-    comment: (() => {
-      const id = attribute(COMMENT_MARK, "id");
-      return typeof id === "string" && id !== "" ? id : null;
-    })(),
+    comments: (marks ?? []).flatMap((mark) => {
+      const id = mark.type === COMMENT_MARK ? mark.attrs?.id : null;
+      return typeof id === "string" && id !== "" ? [id] : [];
+    }),
   };
 }
 

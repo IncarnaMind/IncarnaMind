@@ -116,9 +116,7 @@ test("a check looks in the Mind's chosen scope, its card says where, and a chang
 
   // Not found where it looked: the line that says so names the scope, and only it does.
   await pointAndClick(window, marks.nth(1));
-  await expect(card.getByTestId("claim-nothing")).toHaveText(
-    "I didn’t find this in “Harbour times”.",
-  );
+  await expect(card.getByTestId("claim-nothing")).toHaveText("No passage found in “Harbour times”");
   await expect(await checkedIn()).toHaveCount(0);
   await closeMenu();
   await screenshot(window, "not-found-in-scope-en");

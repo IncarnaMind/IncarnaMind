@@ -8,11 +8,7 @@
 import type { ChildProcess } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
-import { stopProcessTree } from "../core/execution";
-import { createLoginShellProcesses } from "./processes";
-
-const processes = createLoginShellProcesses();
+import { object, processes, readJsonLines } from "./agentCommand";
 
 export interface ClaudeCodeTurn {
   /** The command: `claude`, unless a test build gives another. */
@@ -57,29 +53,7 @@ export interface ClaudeCodeTurn {
   busy?(): boolean;
 }
 
-/** The turn sent nothing for as long as `stallMs`, and was stopped. */
-export class ClaudeCodeStalledError extends Error {
-  constructor() {
-    super("Claude Code stopped sending anything, so the request was stopped.");
-    this.name = "ClaudeCodeStalledError";
-  }
-}
-
 const SYSTEM_PROMPT_FILE = "system-prompt.txt";
-
-export function object(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function parseLine(line: string): Record<string, unknown> {
-  try {
-    return object(JSON.parse(line));
-  } catch {
-    throw new Error("Claude Code returned an unreadable result.");
-  }
-}
 
 function argsOf(turn: ClaudeCodeTurn): string[] {
   const { server } = turn;
@@ -145,86 +119,24 @@ export async function runClaudeCodeTurn(turn: ClaudeCodeTurn): Promise<Record<st
 /** How much more than `maxResponseBytes` a turn may print with its words and calls as they come. */
 const RAW_TIMES = 8;
 
-/** How long a stopped turn's output may take to close before IncarnaMind stops reading it. */
-const STOP_WAIT_MS = 5_000;
-
-async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
+function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
   const { signal } = turn;
-  let open = true;
-  const closed = new Promise<void>((resolve) =>
-    child.once("close", () => {
-      open = false;
-      resolve();
-    }),
-  );
-  // The whole group, whatever its leader's own state: a process it started can hold the output
-  // after the leader exits. A group's id isn't reused while any member of it lives.
-  const kill = () => {
-    if (open) stopProcessTree(child);
-  };
-  child.on("error", kill);
-  child.stdin?.on("error", kill);
-  child.stderr?.resume();
-  if (!child.stdin || !child.stdout) {
-    kill();
-    await drained(child, closed);
-    throw new Error("Claude Code input or output is unavailable.");
-  }
-  const stdin = child.stdin;
-  const lines = createInterface({ input: child.stdout });
-  // Stopped: the reading ends now, not once every holder of the output lets it go.
-  const stop = () => {
-    kill();
-    lines.close();
-  };
-  // What the turn printed, its words and calls as they came left out: they repeat what the
-  // whole messages say. With them, all of it is bounded too, more loosely.
-  let bytes = 0;
-  let raw = 0;
-  const rawLimit = turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes;
-  let tooMuch = false;
-  // A clock that stands still while the computer sleeps: a sleep isn't a stall.
-  let heard = performance.now();
-  let stalled = false;
-  child.stdout.on("data", (chunk: Buffer) => {
-    heard = performance.now();
-    raw += chunk.length;
-    if (raw <= rawLimit) return;
-    tooMuch = true;
-    stop();
-  });
-  const { stallMs } = turn;
-  const watch =
-    stallMs === undefined
-      ? undefined
-      : setInterval(
-          () => {
-            if (turn.busy?.()) heard = performance.now();
-            if (performance.now() - heard <= stallMs) return;
-            stalled = true;
-            stop();
-          },
-          Math.min(5_000, stallMs / 4),
-        );
-  watch?.unref?.();
-  signal.addEventListener("abort", stop, { once: true });
-  try {
-    signal.throwIfAborted();
-    stdin.write(
-      `${JSON.stringify({ type: "control_request", request_id: "settings", request: { subtype: "get_settings" } })}\n`,
-    );
-    let sent = false;
-    for await (const line of lines) {
-      signal.throwIfAborted();
-      // Lines read before the output passed its limit still come once it is stopped: none counts.
-      if (tooMuch) break;
-      const msg = parseLine(line);
-      if (msg.type !== "stream_event") bytes += Buffer.byteLength(line);
-      if (bytes > turn.maxResponseBytes) {
-        tooMuch = true;
-        stop();
-        break;
-      }
+  let sent = false;
+  return readJsonLines(child, {
+    agent: "Claude Code",
+    signal,
+    maxBytes: turn.maxResponseBytes,
+    rawMaxBytes: turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes,
+    // Its words and calls as they came repeat what the whole messages say.
+    counted: (message) => message.type !== "stream_event",
+    ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
+    ...(turn.busy && { busy: turn.busy }),
+    begin(stdin) {
+      stdin.write(
+        `${JSON.stringify({ type: "control_request", request_id: "settings", request: { subtype: "get_settings" } })}\n`,
+      );
+    },
+    onMessage(msg, stdin) {
       if (msg.type === "control_response" && !sent) {
         const control = object(msg.response);
         const settings = object(control.response);
@@ -247,46 +159,16 @@ async function readTurn(child: ChildProcess, turn: ClaudeCodeTurn) {
         stdin.end(
           `${JSON.stringify({ type: "user", message: { role: "user", content: turn.prompt } })}\n`,
         );
-        continue;
+        return undefined;
       }
-      if (msg.type === "result") {
-        // Before the prompt went, Claude Code ended at its start (a conversation it doesn't have,
-        // say): nothing of the request was sent, and its result says why.
-        if (!sent) return msg;
-        // A result ends this turn even when the CLI keeps its stream open.
-        return msg;
-      }
+      // A result ends this turn even when the CLI keeps its stream open. Before the prompt went,
+      // Claude Code ended at its start (a conversation it doesn't have, say): nothing of the
+      // request was sent, and its result says why.
+      if (msg.type === "result") return msg;
       turn.onMessage?.(msg);
-    }
-    signal.throwIfAborted();
-    if (stalled) throw new ClaudeCodeStalledError();
-    if (tooMuch) throw new Error("Claude Code printed more than IncarnaMind reads of one request.");
-    throw new Error("Claude Code could not complete the request.");
-  } finally {
-    clearInterval(watch);
-    signal.removeEventListener("abort", stop);
-    stop();
-    await drained(child, closed);
-  }
-}
-
-/**
- * Waits for a stopped command's output to close, up to `STOP_WAIT_MS`; past that, stops reading
- * it: a process it started can outlive the stop and hold the output (on Windows, `taskkill /T`
- * misses one whose parent has exited).
- */
-export async function drained(child: ChildProcess, closed: Promise<unknown>): Promise<void> {
-  let timer: NodeJS.Timeout | undefined;
-  const late = new Promise<boolean>((resolve) => {
-    timer = setTimeout(() => resolve(true), STOP_WAIT_MS);
+      return undefined;
+    },
   });
-  const tooLate = await Promise.race([closed.then(() => false), late]);
-  clearTimeout(timer);
-  if (!tooLate) return;
-  for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
-  console.warn(
-    "Claude Code's output stayed open after it was stopped, so IncarnaMind stopped reading it.",
-  );
 }
 
 /** Claude Code's effective settings hold a hook or an enabled plugin, which nothing here can turn off. */

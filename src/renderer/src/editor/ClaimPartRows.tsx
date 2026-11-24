@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useContext, useId } from "react";
 import type {
   CitationAttributes,
+  CitationLocation,
   ClaimCalculation,
   ClaimCheckPart,
   ClaimCheckScope,
@@ -14,7 +15,9 @@ import type {
 import type { Language } from "../../../core/language";
 import {
   citationState,
+  citedName,
   citedSpeakers,
+  type LiveDocument,
   type QuotedWordsOnPage,
   shownDocumentName,
 } from "../../../shared/citations";
@@ -27,7 +30,12 @@ import {
 import { coverageCount, isOwnView } from "../../../shared/claimParts";
 import { cardRows, hasKnownDomain } from "../../../shared/claimRows";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
-import { citationLocation, formatLocation, openKind } from "../../../shared/locations";
+import {
+  citationLocation,
+  formatLocation,
+  locationSpeaker,
+  openKind,
+} from "../../../shared/locations";
 import { checkedByMe } from "../../../shared/signOffs";
 import { MetaLine } from "../components/MetaLine";
 import { dotAfter } from "../components/metaDot";
@@ -272,12 +280,74 @@ export function useLookedIn(scope?: ClaimCheckScope): string {
 }
 
 /**
+ * A quote's Location line (#3715): who said it where the Document knows its speakers, the
+ * Document, which gives way first, then the place, which is never cut, and `children` right after
+ * it (the Citation's number, as the sentence shows it), then `extras`, each after a dot.
+ */
+export function QuoteSource({
+  citation,
+  location,
+  documents,
+  testId,
+  lineTestId,
+  extras = [],
+  children,
+}: {
+  citation: CitationAttributes;
+  location: CitationLocation | null;
+  documents: readonly LiveDocument[] | null;
+  testId: string;
+  lineTestId?: string;
+  extras?: readonly ReactNode[];
+  children?: ReactNode;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const speakers = citedSpeakers(citation, documents);
+  const who = location ? locationSpeaker(location, t, { speakers, quote: citation.quote }) : null;
+  const place = location
+    ? formatLocation(location, t, { speaker: false, speakers, quote: citation.quote })
+    : null;
+  const name = citedName(
+    {
+      ...citation,
+      documentName: shownDocumentName(citation, documents) || t("export.unnamedDocument"),
+    },
+    t,
+    language,
+  );
+  return (
+    <MetaLine
+      className="claim-quote-where claim-source-line"
+      data-testid={lineTestId}
+      parts={[
+        who && (
+          <span key="who" className="claim-source-who">
+            {who}
+          </span>
+        ),
+        <span key="name" className="claim-source-name" data-testid={testId} title={name}>
+          {name}
+        </span>,
+        (place || children) && (
+          <span key="place" className="claim-source-place">
+            {place}
+            {children}
+          </span>
+        ),
+        ...extras,
+      ]}
+    />
+  );
+}
+
+/**
  * One quote and its Location line: the Document, the place, the Citation's number where the
  * sentence cites it, a count of more that opens the rest, and what can be done with its Citation
  * (#2869). The quote opens the Document at it; its own menu (right-click, or the menu key on the
  * focused quote) opens it and signs it alone.
  */
-function PartQuote({
+export function PartQuote({
   editor,
   citation,
   decision,
@@ -309,13 +379,8 @@ function PartQuote({
   const location = citationLocation(citation);
   const property = location?.kind === "properties" ? location : null;
   const library = location?.kind === "library" ? location : null;
-  const where = location
-    ? formatLocation(location, t, {
-        speakers: citedSpeakers(citation, documents),
-        quote: citation.quote,
-      })
-    : null;
-  const source = [shownDocumentName(citation, documents), where].filter(Boolean).join(" · ");
+  const speakers = citedSpeakers(citation, documents);
+  const where = location ? formatLocation(location, t, { speakers, quote: citation.quote }) : null;
   const { records } = useContext(SignOffsContext);
   const personId = usePersonId();
   const versions = useDocumentVersions();
@@ -432,20 +497,15 @@ function PartQuote({
                 </span>
               </p>
             ))}
-          <MetaLine
-            className="claim-quote-where"
-            parts={[
-              <span key="source" className="claim-where-source">
-                <span className="claim-part-source" title={source}>
-                  {source}
-                </span>
-                {citing}
-              </span>,
-              more,
-              openPlace,
-              link,
-            ]}
-          />
+          <QuoteSource
+            citation={citation}
+            location={location}
+            documents={documents}
+            testId="claim-part-source"
+            extras={[more, openPlace, link]}
+          >
+            {citing}
+          </QuoteSource>
         </>
       )}
       {!ownNow && <SignOffLine now={signOff} />}

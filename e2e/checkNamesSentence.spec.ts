@@ -143,17 +143,9 @@ async function box(locator: Locator) {
 }
 
 /** What comes right under a card's verdict, past its ⋯, which is drawn at the end of that line (#2869). */
-const underTitle = (card: Locator) =>
-  card.getByTestId("claim-badge").evaluate((title) => {
-    let next = title.nextElementSibling;
-    while (next && (next.hasAttribute("data-object-menu") || next.getAttribute("role") === "menu"))
-      next = next.nextElementSibling;
-    return next?.getAttribute("data-testid");
-  });
-
 for (const language of ["en", "zh-CN"] as const) {
   const words = SENTENCES[language];
-  test(`each check card names its sentence and outlines it while open; Next opens a sentence's card (${language})`, async () => {
+  test(`each check card names its sentence to a screen reader and outlines it while open; Next opens a sentence's card (${language})`, async () => {
     test.setTimeout(180_000);
     await writeFile(join(sources, "Tides.pdf"), TIDES);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -288,12 +280,10 @@ for (const language of ["en", "zh-CN"] as const) {
         await pointAndClick(window, mark);
       }
       await expect(card).toHaveAttribute("data-check", kind);
-      const line = card.getByTestId("claim-sentence");
-      await expect(line).toHaveText(`“${sentence}”`);
+      // The card names its sentence to a screen reader; on the page the Note outlines it, so the
+      // card doesn't write it again (#3715).
       expect(await card.getAttribute("aria-label")).toContain(sentence);
-      expect(await underTitle(card)).toBe("claim-sentence");
-      await expect(line).toHaveCSS("font-size", "13px");
-      await expect(line).toHaveCSS("color", metaInk);
+      await expect(card.getByTestId("claim-sentence")).toHaveCount(0);
       const checkedBy = card.getByTestId("claim-checked-by");
       // The model and the time are under the card's ⋯, in About this check (#2869). A card that
       // needs a re-check keeps its last check's line as it was.
@@ -308,16 +298,6 @@ for (const language of ["en", "zh-CN"] as const) {
         await window.keyboard.press("Escape");
         await expect(about).toBeHidden();
       }
-      const shape = await line.evaluate((element) => {
-        const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-        return {
-          lines: Math.round(element.getBoundingClientRect().height / lineHeight),
-          clipped: element.scrollHeight > element.clientHeight,
-        };
-      });
-      expect(shape.lines, "at most two lines").toBeLessThanOrEqual(2);
-      expect(shape.clipped, "only a long sentence is cut").toBe(at === 0);
-
       await expect(outlined.first()).toBeVisible();
       const around = await outlinesWords(paragraphOf(sentence));
       expect(around.encloses, "it encloses the sentence").toBe(true);
@@ -345,8 +325,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, marks.nth(5));
     await expect(card).toHaveAttribute("data-check", "supported");
     await expect(card.getByTestId("claim-where").getByTestId("claim-already-chip")).toBeVisible();
-    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words.cited}”`);
-    expect(await underTitle(card)).toBe("claim-sentence");
+    expect(await card.getAttribute("aria-label")).toContain(words.cited);
     expect((await outlinesWords(paragraphOf(words.cited))).encloses).toBe(true);
     await screenshot(window, `card-already-cited-${language}-900`);
     await window.keyboard.press("Escape");
@@ -362,7 +341,7 @@ for (const language of ["en", "zh-CN"] as const) {
       });
     }, words.recheck);
     await pointAndClick(window, marks.nth(4));
-    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${edited}”`);
+    await expect.poll(() => card.getAttribute("aria-label")).toContain(edited);
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
 
@@ -420,7 +399,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(inView).toBe(true);
     expect((await outlinesWords(unsupported)).encloses).toBe(true);
     await expect(marks.nth(1)).toHaveAttribute("data-open", "true");
-    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${words.unsupported}”`);
+    expect(await card.getAttribute("aria-label")).toContain(words.unsupported);
     await screenshot(window, `next-unsupported-${language}-900`);
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
@@ -489,7 +468,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, (await checkCard(window)).getByTestId("health-look"));
     const card = window.getByTestId("claim-card");
     await expect(card).toHaveAttribute("data-check", "unsupported");
-    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${sentence}”`);
+    expect(await card.getAttribute("aria-label")).toContain(sentence);
     const outlines = window.getByTestId("claim-outline");
     await expect(outlines.first()).toBeVisible();
     await expect

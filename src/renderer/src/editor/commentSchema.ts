@@ -16,11 +16,12 @@ export const commentOfMark = (value: unknown): string | null => {
  * The mark on the words a comment is on (#328): only its id is stored, in the
  * Mind's own text. It carries no HTML in or out, so pasted text never becomes
  * a comment; the comment layer draws the quiet underline for live comments, so
- * a deleted comment leaves no mark on the page.
+ * a deleted comment leaves no mark on the page. Words can be in several comments, as in Word (#2585).
  */
 export const Comment = Mark.create({
   name: COMMENT_MARK,
   inclusive: false,
+  excludes: "",
   addAttributes: () => ({
     id: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
   }),
@@ -34,17 +35,24 @@ export const COMMENTS_REDRAWN = "commentsRedrawn";
 
 const commentDecorationsKey = new PluginKey("commentDecorations");
 
-/** Runs of text with a comment mark, as `{from, to, id, text}` in document order. */
+/** Runs of text with a comment mark, one comment each, as `{from, to, id}` in document order. */
 export function commentRuns(doc: ProseMirrorNode): { from: number; to: number; id: string }[] {
   const runs: { from: number; to: number; id: string }[] = [];
+  const open = new Map<string, { from: number; to: number; id: string }>();
   doc.descendants((node, pos) => {
     if (!node.isText) return;
-    const mark = node.marks.find((each) => each.type.name === COMMENT_MARK);
-    const id = mark && commentOfMark(mark.attrs);
-    if (!id) return;
-    const last = runs.at(-1);
-    if (last && last.to === pos && last.id === id) last.to = pos + node.nodeSize;
-    else runs.push({ from: pos, to: pos + node.nodeSize, id });
+    const to = pos + node.nodeSize;
+    for (const mark of node.marks) {
+      const id = mark.type.name === COMMENT_MARK ? commentOfMark(mark.attrs) : null;
+      if (!id) continue;
+      const last = open.get(id);
+      if (last && last.to === pos) last.to = to;
+      else {
+        const run = { from: pos, to, id };
+        runs.push(run);
+        open.set(id, run);
+      }
+    }
   });
   return runs;
 }
@@ -62,6 +70,8 @@ export function commentDecorations(live: () => ReadonlySet<string>): Extension {
       .filter((run) => shown.has(run.id))
       .map((run) =>
         Decoration.inline(run.from, run.to, {
+          // A span of its own, so comments on the same words each keep their id (#2585).
+          nodeName: "span",
           class: "comment-mark",
           "data-comment-id": run.id,
         }),

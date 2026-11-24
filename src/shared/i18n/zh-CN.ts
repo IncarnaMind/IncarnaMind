@@ -473,6 +473,10 @@ export const zhCN = {
   "command.settings.meetingWords.keywords": "名字 热词 词表 转写 会议 mingzi reci zhuanxie huiyi",
   "command.settings.localMode.keywords": "本地 离线 隐私 云端 关闭 设置 bendi lixian yinsi",
   "command.settings.callHelpModel": "通话助手模型",
+  "command.settings.repairAllAgents": "修复全部 AI 应用连接",
+  "command.settings.disconnectAllAgents": "断开全部 AI 应用…",
+  "command.settings.allAgents.keywords":
+    "设置 你的 AI 应用 智能体 连接 修复 断开 移除 xiufu duankai lianjie zhinengti",
   "command.settings.callHelpModel.keywords":
     "最快 快速 速度 回答 会议 设置 zuikuai sudu huida huiyi",
   "palette.label": "搜索",
@@ -1447,6 +1451,22 @@ export const zhCN = {
   "claim.cutUnsupported": "删去无依据的部分",
   "claim.keepAsView": "保留为我的观点",
   "claim.keptAsView": "已保留为你的观点",
+  "claim.keepAsWritten": "保留原句",
+  "claim.keptAsWritten": "已保留原句",
+  "claim.acceptChange.command": "接受核对给出的修改",
+  "claim.acceptChange": "接受修改",
+  "claim.changeAccepted": "已接受修改",
+  "claim.change.inside":
+    "这处修改会删掉引用或算出的数字，不能在这里直接修改。请让你的 AI 修改这句。",
+  "claim.change.underReview": "这些文字上有一处待你处理的修改，请先接受或拒绝它。",
+  "claim.change.title": "建议改为",
+  "claim.askToFix": "交给 {agent} 修改",
+  "claim.group.otherwise": "说法不同",
+  "claim.group.so": "说法一致",
+  "claim.quotes.show": "查看引文",
+  "claim.quotes.fold": "把引文收成一行",
+  "claim.noPassage": "未在“{scope}”中找到相关段落",
+  "claim.noPassage.more": "未在“{scope}”等 {total} 项中找到相关段落",
   "signOff.action": "我已核对",
   "signOff.mine": "由你核对 · {time}",
   "signOff.theirs": "由 {name} 核对 · {time}",
@@ -1696,8 +1716,10 @@ export const zhCN = {
   "health.state.cantCheck.short": "{count} 句无法核对",
   "health.state.needsCheck.short.one": "1 句未核对",
   "health.state.needsCheck.short": "{count} 句未核对",
-  "health.kept.one": "1 句已保留为你的观点",
-  "health.kept": "{count} 句已保留为你的观点",
+  "health.kept.one": "已保留 1 句原文",
+  "health.kept": "已保留 {count} 句原文",
+  "health.keptCharts.one": "1 张图表已保留为你的观点",
+  "health.keptCharts": "{count} 张图表已保留为你的观点",
   "badge.label": "{label}：{parts}",
   "badge.next": "下一处",
   "badge.toCheck": "条未核对",
@@ -8233,6 +8255,20 @@ export const zhCN = {
     "没有要核对的句子了：这篇笔记中需要结果的句子都已经有了结果，checked 按笔记页面的计数给出这些结果。请据此回答用户。如果要自己重新核对这些句子，用 again: true 调用 check_mind_yourself，再把结果交给 report_check：只写在回复里的结论不会改变笔记上的标记。",
   "agents.check.reportAgain":
     "还有句子没有结果。重新调用 check_mind_yourself 取剩下的句子。判为有依据或矛盾的句子，需要一条 IncarnaMind 能确认的 cite 引用、这次核对中 run_analysis 的结果，或一份计算过程（其中每个数都出自所引原文，算式能得出所给结果），且不能来自用户自己的工作文件。",
+  "agents.check.changeTakesNone":
+    "第 {sentences} 句的修改没有保留：这个结论的句子不需要修改。这句无需再做什么。",
+  "agents.check.changeSame":
+    "第 {sentences} 句的修改没有保留：替换后的文字与原文相同。这句无需再做什么。",
+  "agents.check.changeNotOnce":
+    "第 {sentences} 句的修改没有保留：要替换的文字没有在句中恰好出现一次。如需给出修改，请为这句重新交回同样的结论，replace 照句中原文逐字复制。",
+  "agents.check.changeCitation":
+    "第 {sentences} 句的修改没有保留：其中含有 [cite:…] 标记。修改只写句中的文字，引用留在原处。如需给出修改，请为这句重新交回同样的结论，修改中不带标记。",
+  "agents.check.changeLineBreak":
+    "第 {sentences} 句的修改没有保留：其中有换行。修改只写一句话，在同一行内。如需给出修改，请为这句重新交回同样的结论，修改写在一行内。",
+  "agents.check.changeObject":
+    "第 {sentences} 句的修改没有保留：其中含有句中代表引用或数字的占位字符。如需给出修改，请为这句重新交回同样的结论，只写它前后的文字。",
+  "agents.check.changeTooLong":
+    "第 {sentences} 句的修改没有保留：它比一句话能有的长度更长（{max} 个字符）。如需给出修改，请为这句重新交回同样的结论，只改这一句。",
   "agents.note.writtenBy": "{name} 写入，{when}",
   "agents.note.wrote": "{name} 新建了笔记“{mind}”",
   "agents.note.changed.one": "{name} 修改了“{mind}”中的 1 个段落",
@@ -8356,6 +8392,12 @@ export const zhCN = {
   "agents.settings.connectButton": "连接",
   "agents.settings.help": "分步说明",
   "agents.settings.skillLeft": "已断开{agent}。因为你改过技能文件，它仍保留在 {path}。",
+  "agents.settings.repairAll": "全部修复（{count} 个）",
+  "agents.settings.disconnectAll": "全部断开…",
+  "agents.settings.disconnectAll.ask":
+    "断开全部 {count} 个？它们在 IncarnaMind 中写下的内容会保留。",
+  "agents.settings.disconnectAll.confirm": "全部断开",
+  "agents.settings.disconnectAll.keep": "保留",
   "agents.setup.bundle": "一键连接：打开 Claude 进行安装",
   "agents.setup.link": "一键连接：打开{agent}进行安装",
   "agents.setup.file": "IncarnaMind 会把自己添加到{agent}的设置中",
@@ -8527,6 +8569,10 @@ export const zhCN = {
   "agents.share.folders": "选择文件夹",
   "agents.connect.background":
     "没设置 AI 模型时，“核对”和笔记底部的输入框会在后台运行你的 {agent}，不打开窗口，也不新增对话。它只通过 IncarnaMind 工作，用的是你自己的 Claude 订阅或 API 密钥。",
+  "agents.connect.background.codex":
+    "没设置 AI 模型时，如果装了 Codex 命令行，“核对”会在后台运行它，不打开窗口，也不新增对话。它只能使用 IncarnaMind，做其他事会被 IncarnaMind 停下。它用的是你自己的 ChatGPT 订阅或 API 密钥。",
+  "agents.connect.codexInstructions":
+    "这样运行时，Codex 也会读取你自己的说明文件，即 Codex 文件夹里的 AGENTS.md（如有 AGENTS.override.md，则改读它）。",
   "agents.connect.disconnect": "你可以随时断开连接。",
   "agents.connect.details": "详情",
   "agents.connect.fileChange": "IncarnaMind 会在 {path} 中添加以下内容：",
@@ -8613,6 +8659,10 @@ export const zhCN = {
   "agents.ownCheck.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
   "agents.ownCheck.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
   "agents.ownCheck.problem.failed": "{agent} 未完成就停止了。再试一次。",
+  "agents.ownCheck.problem.outside":
+    "{agent} 要执行这次核对以外的操作，已停止。在 {agent} 中打开这次核对。",
+  "agents.ownCheck.problem.unreadable": "{agent} 未完成就停止了。在 {agent} 中打开这次核对。",
+  "agents.ownCheck.problem.service": "{agent} 未完成就停止了。在 {agent} 中检查登录状态和用量。",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
   "noteAsk.placeholder": "描述要做的修改…",
   "noteAsk.send": "发送",

@@ -5,12 +5,15 @@
  * markdown-it-mark read them), and each Citation and each footnote the User
  * wrote as a footnote, numbered together in the order they appear. A Citation
  * inside the User's footnote is written into its text, as its source.
+ * A Word file's endnotes are raised labels in the text, in the file's own
+ * numbering, and their text after it, under their heading (#746).
  * Someone's changes from a Word file still waiting are CriticMarkup, each with
  * who made it and when: "{--by cheque--}{>>Deleted by Priya Nair, 2 Oct 2026<<}" (#734).
  */
 import { createHash } from "node:crypto";
 import type { TableAlign } from "../../shared/markdownTables";
 import { escapeMarkdownText } from "../../shared/markdownText";
+import { noteLabel } from "../../shared/wordNotes";
 import { CHART_FENCE } from "../agents/visuals";
 import type { StyledRun } from "../api";
 import {
@@ -103,6 +106,10 @@ export function renderMarkdown(
   if (title) parts.push(`# ${escapeMarkdownText(title, false)}`);
   const body = writer.blocks(blocks, { table: false });
   if (body) parts.push(body);
+  if (writer.endnotes.length > 0) {
+    parts.push(`# ${escapeMarkdownText(labels.endnotes, false)}`);
+    for (const { label, text } of writer.endnotes) parts.push(`<sup>${label}</sup> ${text}`);
+  }
   if (footnotes.length > 0) {
     parts.push(
       footnotes
@@ -248,6 +255,9 @@ function runsMarkdown(runs: readonly StyledRun[], table: boolean): string {
 }
 
 class MarkdownWriter {
+  /** A Word file's endnotes, in the order they are written, each with its label. */
+  readonly endnotes: { label: string; text: string }[] = [];
+
   constructor(
     private readonly labels: MarkdownLabels,
     /** Numbers a footnote: 1, 2, 3… in the order they are written. */
@@ -533,8 +543,13 @@ class MarkdownWriter {
         if (!this.citations) return "";
         if (context.note) return citationSource(item.footnote, this.labels);
         return `[^${this.number({ kind: "citation", footnote: item.footnote })}]`;
-      case "footnote":
-        return `[^${this.number({ kind: "note", text: this.inline(item.content, { table: false, note: true }) })}]`;
+      case "footnote": {
+        const text = this.inline(item.content, { table: false, note: true });
+        if (!item.endnote) return `[^${this.number({ kind: "note", text })}]`;
+        const label = escapeMarkdownText(noteLabel(this.endnotes.length + 1, item.endnote), false);
+        this.endnotes.push({ label, text });
+        return `<sup>${label}</sup>`;
+      }
       case "image":
         return this.image(item.image, context, false);
       // Markdown has no pages.

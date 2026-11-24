@@ -11,7 +11,7 @@ import { agentConnector } from "../../agentConnection";
 import { leftOutOfAll, onlyNotInAFolder } from "../../agentFolders";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
-import { useT } from "../../i18n";
+import { useGap, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { InlinePath } from "../PathText";
 import { ProblemMark } from "../ProblemLine";
@@ -105,6 +105,7 @@ export function ConnectAgentFields({
   actions(allow: { choice: AgentChoice; disabled: boolean }): ReactNode;
 }) {
   const t = useT();
+  const gap = useGap();
   const [all, setAll] = useState(true);
   /** What the User has ticked; null until they tick or untick something. */
   const [picked, setPicked] = useState<ReadonlySet<string> | null>(null);
@@ -160,6 +161,13 @@ export function ConnectAgentFields({
       {client.id === "claude-code" && (
         <p data-testid="connect-agent-background" className={dialogTextClass}>
           {t("agents.connect.background", { agent })}
+        </p>
+      )}
+      {client.id === "codex" && (
+        <p data-testid="connect-agent-background" className={dialogTextClass}>
+          {t("agents.connect.background.codex")}
+          {gap(t("agents.connect.background.codex"), t("agents.connect.codexInstructions"))}
+          {t("agents.connect.codexInstructions")}
         </p>
       )}
       {client.id === "other" && (

@@ -88,8 +88,11 @@ const CONSENT_FACTS = [
   "agents.pairing.readsAll",
   "agents.connect.backup",
   "agents.connect.body",
-  // That connecting Claude Code lets IncarnaMind start it for a check, on the User's plan (#3606).
+  // That connecting Claude Code lets IncarnaMind start it for a check, on the User's plan (#3606),
+  // and Codex too, which reads the User's own instructions file in those runs (#3639).
   "agents.connect.background",
+  "agents.connect.background.codex",
+  "agents.connect.codexInstructions",
   // What the leave to write allows: a check of its notes goes to the User's AI model (#3317), and
   // IncarnaMind copies the files it names for a Canvas (#3406).
   "agents.propose.hint",

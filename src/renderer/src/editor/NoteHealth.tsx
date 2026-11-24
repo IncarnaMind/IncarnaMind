@@ -69,6 +69,7 @@ const NO_HEALTH: Health = {
   edited: [],
   checking: [],
   kept: [],
+  keptCharts: [],
   tableCells: [],
   noCitation: [],
   ownNotes: [],
@@ -273,6 +274,17 @@ export function HealthCard({
     problem?.kind === "no-documents" ? (problem.chosen ?? null) : null,
   );
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  // A sentence is kept as written, as its card's button says; a chart as the User's view (#3715).
+  const kept = [
+    health.kept.length > 0 &&
+      t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
+        count: format(health.kept.length),
+      }),
+    health.keptCharts.length > 0 &&
+      t(health.keptCharts.length === 1 ? "health.keptCharts.one" : "health.keptCharts", {
+        count: format(health.keptCharts.length),
+      }),
+  ].filter((words): words is string => typeof words === "string");
   const signedOff = useSignOffCounts(editor);
 
   const rowText = (row: CheckRow, count: number) =>
@@ -419,13 +431,10 @@ export function HealthCard({
       <div ref={rowsRef} className="check-rows" data-testid="mind-health">
         {rows.map(({ row: part }) => row(part))}
       </div>
-      {(health.kept.length > 0 || opinionsHere) && (
+      {(kept.length > 0 || opinionsHere) && (
         <p data-testid="health-kept" className="mind-health-line">
-          {health.kept.length > 0 &&
-            t(health.kept.length === 1 ? "health.kept.one" : "health.kept", {
-              count: format(health.kept.length),
-            })}
-          {health.kept.length > 0 && opinionsHere && " · "}
+          {kept.join(" · ")}
+          {kept.length > 0 && opinionsHere && " · "}
           {opinionsHere && <OpinionsLine editor={editor} doc={doc} mindId={mindId} className="" />}
         </p>
       )}

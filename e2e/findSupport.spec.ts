@@ -167,9 +167,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await pointAndClick(window, unsupported);
   const card = window.getByTestId("claim-card");
   await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
-  await expect(card.getByTestId("claim-nothing")).toHaveText(
-    "I didn’t find this in “All Documents”.",
-  );
+  await expect(card.getByTestId("claim-nothing")).toHaveText("No passage found in “All Documents”");
   await window.keyboard.press("Escape");
   await expect(card).toBeHidden();
 
@@ -298,9 +296,7 @@ test("a card opened while its sentence is still checking stays open when the res
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-check", "unsupported");
   await expect(card.getByTestId("claim-badge")).toHaveText("Needs a look · Not found");
-  await expect(card.getByTestId("claim-nothing")).toHaveText(
-    "I didn’t find this in “All Documents”.",
-  );
+  await expect(card.getByTestId("claim-nothing")).toHaveText("No passage found in “All Documents”");
 
   // Esc closes it; a click after the check opens it again, and Esc closes that too.
   await window.keyboard.press("Escape");
@@ -384,7 +380,7 @@ test("A supported sentence's card names the Document as it is named now, after a
   const card = window.getByTestId("claim-card");
   await markShownFor(window, supported);
   await pointAt(window, supported);
-  await expect(card.getByTestId("claim-source")).toHaveText(/^Tides · /);
+  await expect(card.getByTestId("claim-where")).toHaveText(/^Tides · /);
 
   // The quote opens the Document at it, whose header renames it.
   await pointAndClick(window, card.getByTestId("claim-open-quote"));
@@ -400,7 +396,7 @@ test("A supported sentence's card names the Document as it is named now, after a
 
   await markShownFor(window, supported);
   await pointAt(window, supported);
-  await expect(card.getByTestId("claim-source")).toHaveText(/^Tides of the coast · /);
+  await expect(card.getByTestId("claim-where")).toHaveText(/^Tides of the coast · /);
 });
 
 const PENGUINS_A = "Penguins nest on a harbour cliffs.";

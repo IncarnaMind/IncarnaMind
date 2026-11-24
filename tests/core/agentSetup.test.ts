@@ -869,6 +869,31 @@ describe("a connection whose program has moved (#3644)", () => {
     const byHand = await core.connectAgent({ name: "My agent", folderIds: [coast.id] });
     expect(await core.agentNeedsRepair(byHand.pairing.id)).toBe(false);
   });
+
+  // protects=Settings' Disconnect all, which disconnects each connected app in turn, leaves every settings file as the User had it and no Skill copy behind, the shared folders' too; fails_when=an entry, a backup or a Skill copy outlives Disconnect all, or the User's own settings change
+  it("Disconnect all, each in turn, leaves every file as the User had it and no Skill copy", async () => {
+    const { core, home, coast } = await started();
+    const claude = join(home, ".claude.json");
+    const theirs = `${JSON.stringify({ userID: "b0ed6c26", mcpServers: { notes: { type: "stdio", command: "n", args: [], env: {} } } }, null, 2)}\n`;
+    await writeFile(claude, theirs);
+    await mkdir(join(home, ".codex"));
+    const codex = join(home, ".codex", "config.toml");
+    const codexTheirs = 'model = "gpt-6-luna"\n';
+    await writeFile(codex, codexTheirs);
+    const connected: string[] = [];
+    for (const client of ["claude-code", "codex", "cursor", "opencode"] as const) {
+      connected.push((await core.setUpAgent({ client, folderIds: [coast.id] })).pairing.id);
+    }
+    expect((await core.getAgents()).skills.toSorted()).toEqual(connected.toSorted());
+
+    for (const id of connected) await core.disconnectAgent(id);
+    expect(await core.getAgents()).toMatchObject({ pairings: [], skills: [] });
+    expect(await readFile(claude, "utf8")).toBe(theirs);
+    expect(await readFile(codex, "utf8")).toBe(codexTheirs);
+    await expect(stat(`${claude}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+    await expect(stat(join(home, ".agents"))).rejects.toThrow(/ENOENT/);
+    await expect(stat(join(home, ".claude", "skills", "incarnamind"))).rejects.toThrow(/ENOENT/);
+  });
 });
 
 describe("an agent is found where its installer put it (#3644)", () => {

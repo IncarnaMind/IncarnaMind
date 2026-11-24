@@ -44,7 +44,7 @@ const caretParagraph = (window: Page) =>
 const underCard = (window: Page) =>
   window.evaluate(() => {
     const card = document.querySelector('[data-testid="check-card"]')?.getBoundingClientRect();
-    const node = window.getSelection()?.anchorNode;
+    const node = document.getSelection()?.anchorNode;
     const paragraph = (node instanceof Element ? node : node?.parentElement)?.closest("p");
     if (!card || !paragraph) return false;
     const range = document.createRange();

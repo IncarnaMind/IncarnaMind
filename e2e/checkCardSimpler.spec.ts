@@ -19,6 +19,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  tokenColor,
 } from "./app";
 
 /*
@@ -224,7 +225,11 @@ async function nothingClipped(window: Page, card: Locator) {
         what: `${each.tagName} ${each.dataset.testid ?? each.className}`,
         over: each.getBoundingClientRect().right - edge.right,
         cut: each.scrollWidth - each.clientWidth,
-        clamped: each.classList.contains("claim-card-sentence"),
+        // A Document's name gives way first on its quote's Location line, whole in its title
+        // (#3715).
+        clamped:
+          each.classList.contains("claim-card-sentence") ||
+          (each.classList.contains("claim-source-name") && each.title === each.textContent),
       }))
       .filter(({ over, cut, clamped }) => over > 1 || (!clamped && cut > 1));
   });
@@ -305,7 +310,7 @@ for (const [language, width] of [
     const receipts = card.getByTestId("claim-part-receipt");
     await expect(receipts).toHaveCount(1);
     await expect(receipts.first().getByTestId("claim-part-citation")).toHaveText(words.quotes[2]);
-    await expect(receipts.first().locator(".claim-part-source")).toContainText(words.page(3));
+    await expect(receipts.first().locator(".claim-quote-where")).toContainText(words.page(3));
     // Two buttons, the first two actions this card has had (a cited sentence whose part found a
     // nearest Passage: Fix the sentence, Remove the mark), and one ⋯.
     const buttons = card.locator(".citation-card-actions button");
@@ -365,21 +370,24 @@ for (const [language, width] of [
       await expect(rows).toHaveCount(1);
     }
 
-    // One "Checked by me": it signs every Citation of the sentence and opens the folded part in the
-    // same press; a second press takes it back.
-    const sign = card.getByTestId("sign-off-toggle");
-    await expect(sign).toHaveCount(1);
-    await expect(sign).toHaveText(t("signOff.action"));
-    await pointAndClick(window, sign);
-    await expect(sign).toHaveAttribute("aria-pressed", "true");
+    // One "Checked by me", a row of the ⋯ that ticks (#3715): it signs every Citation of the
+    // sentence and opens the folded part in the same press; a second press takes it back.
+    const signRow = async (ticked: boolean) => {
+      const row = (await openCardMenu(window, card)).getByTestId("sign-off-toggle");
+      await expect(row).toHaveText(t("signOff.action"));
+      await expect(row).toHaveAttribute("aria-checked", String(ticked));
+      return row;
+    };
+    await pointAndClick(window, await signRow(false));
+    await expect(card.getByTestId("claim-signed")).toBeVisible();
     await expect(rows).toHaveCount(2);
     await expect(window.getByTestId("undo-line")).toContainText(
       t("signOff.addedCount", { count: 3 }),
     );
     await expect(card.getByTestId("sign-off-line")).toHaveCount(0);
     await screenshot(window, `simpler-signed-${language}-${width}`);
-    await pointAndClick(window, sign);
-    await expect(sign).toHaveAttribute("aria-pressed", "false");
+    await pointAndClick(window, await signRow(true));
+    await expect(card.getByTestId("claim-signed")).toHaveCount(0);
     // A quote's own menu still signs it alone, and that quote says so.
     await pointAndClick(window, receipts.first(), { button: "right" });
     await pointAndClick(
@@ -390,7 +398,7 @@ for (const [language, width] of [
       "data-state",
       "checked",
     );
-    await expect(sign).toHaveAttribute("aria-pressed", "false");
+    await expect(card.getByTestId("claim-signed")).toHaveCount(0);
 
     // About this check, under ⋯: where it looked, the model and the time; the arrow keys reach it.
     const menu = await openCardMenu(window, card);
@@ -509,8 +517,8 @@ for (const [language, width] of [
     await markShownFor(window, window.getByTestId("claim-mark"));
     await pointAndClick(window, window.getByTestId("claim-mark"));
     await expect(card.getByTestId("claim-badge")).toHaveText(t("claim.state.supported"));
-    await expect(card.getByTestId("claim-sentence")).toHaveText(`“${text}”`);
-    await expect(card.getByTestId("claim-sentence-mark")).toHaveCount(0);
+    // The sentence isn't repeated: the Note outlines it while its card is open (#3715).
+    await expect(card.getByTestId("claim-sentence")).toHaveCount(0);
     const receipts = card.getByTestId("claim-part-receipt");
     await expect(receipts).toHaveCount(1);
     await expect(receipts.first().getByTestId("claim-part-already-chip")).toHaveText("1");
@@ -521,9 +529,15 @@ for (const [language, width] of [
     await expect(card.locator(".citation-card-actions")).toHaveCount(0);
     for (const line of ["claim-checked-in", "claim-checked-by", "claim-limit", "claim-reason"])
       await expect(card.getByTestId(line)).toHaveCount(0);
-    await expect(card.getByTestId("sign-off-toggle")).toHaveCount(1);
     await nothingClipped(window, card);
     await screenshot(window, `simpler-fine-${language}-${width}`);
+    // The one "Checked by me" is a row of the card's ⋯ that ticks (#3715), not ticked yet.
+    const sign = (await openCardMenu(window, card)).getByTestId("sign-off-toggle");
+    await expect(sign).toHaveCount(1);
+    await expect(sign).toHaveText(t("signOff.action"));
+    await expect(sign).toHaveAttribute("aria-checked", "false");
+    await window.keyboard.press("Escape");
+    await expect(sign).toBeHidden();
     // The count opens the other quote, and folds it again, keeping the focus.
     await more.focus();
     await window.keyboard.press("Enter");
@@ -589,7 +603,7 @@ for (const [language, width] of [
       }, words);
       await window.keyboard.press("ControlOrMeta+Shift+K");
       await expect(card).toBeVisible();
-      await expect(card.getByTestId("claim-sentence")).toContainText(words.slice(0, 12));
+      await expect.poll(() => card.getAttribute("aria-label")).toContain(words.slice(0, 12));
       await motionSettled(window);
     };
     const close = async () => {
@@ -660,25 +674,29 @@ for (const [language, width] of [
         return { shown: element.matches(":focus-visible"), room, nearest };
       });
 
-    // The reason of a part, of a refusal, of Not found, of a court decision, of a sentence not
-    // checked yet and of a stopped read: the card's own size, in its secondary ink.
+    // The reason of a part, of a court decision, of a stopped read and of what a Passage says
+    // otherwise: the card's own size, in its secondary ink. What is wrong with a whole sentence is
+    // the line under its verdict, larger and in ink, and where no passage was found is a quiet
+    // line of its own (#3715).
     await open(words.fact);
     const reason = await style(card.getByTestId("claim-part-reason"));
     const quoted = await ringRoom(card.getByTestId("claim-part-citation"));
     expect(quoted?.shown).toBe(true);
     expect(quoted?.room, `a part's quote, nearest "${quoted?.nearest}"`).toBeGreaterThan(0);
     await close();
-    const lines: [keyof typeof others, string, string | null][] = [
-      ["refused", "claim-reason", null],
-      ["nothing", "claim-nothing", null],
-      ["court", "claim-court-decision", null],
-      ["tooMany", "claim-reason", "claim-check-now"],
-      ["budget", "claim-read-stopped", null],
-      ["differs", "claim-differs", "claim-open-quote"],
+    const problem = { fontSize: "14px", color: await tokenColor(window, "--color-ink") };
+    const quiet = { fontSize: "12px", color: await tokenColor(window, "--color-ink-meta") };
+    const lines: [keyof typeof others, string, string | null, typeof reason][] = [
+      ["refused", "claim-reason", null, problem],
+      ["nothing", "claim-nothing", null, quiet],
+      ["court", "claim-court-decision", null, reason],
+      ["tooMany", "claim-reason", "claim-check-now", problem],
+      ["budget", "claim-read-stopped", null, reason],
+      ["differs", "claim-differs", "claim-open-quote", reason],
     ];
-    for (const [id, line, control] of lines) {
+    for (const [id, line, control, expected] of lines) {
       await open(others[id].attrs.text);
-      expect(await style(card.getByTestId(line)), `${id}'s reason`).toEqual(reason);
+      expect(await style(card.getByTestId(line)), `${id}'s reason`).toEqual(expected);
       if (control) {
         const room = await ringRoom(card.getByTestId(control));
         expect(room?.shown).toBe(true);

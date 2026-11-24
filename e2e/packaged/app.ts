@@ -25,7 +25,14 @@ export async function launchPackaged(
     speech,
     testHooks,
     documents,
-  }: { speech?: string; testHooks?: boolean; documents?: boolean } = {},
+    env = {},
+  }: {
+    speech?: string;
+    testHooks?: boolean;
+    documents?: boolean;
+    /** More of the app's environment: a PATH with a stand-in command on it, say. */
+    env?: Record<string, string>;
+  } = {},
 ): Promise<ElectronApplication> {
   const temp = join(home, "Temp");
   await mkdir(temp, { recursive: true });
@@ -51,6 +58,7 @@ export async function launchPackaged(
       TEMP: temp,
       INCARNAMIND_DATA_DIR: data,
       INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
+      ...env,
     }),
   });
   // A release build opens a fresh profile on the first run's setup: these specs start past it.

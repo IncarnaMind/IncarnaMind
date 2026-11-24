@@ -53,8 +53,8 @@ const LANGUAGES = {
     heading: "Needs a look · Not found",
     mark: "Sentence check: Needs a look · Not found",
     needLook: "2 need a look",
-    cut: "Cut it",
-    keep: "Keep as my view",
+    cut: "Cut the sentence",
+    keep: "Keep as written",
     searchAll: "Search all Documents",
     chooseCitation: "Choose the Citation…",
     findSources: "Find sources…",
@@ -63,14 +63,14 @@ const LANGUAGES = {
     searchWeb: "Search the web",
     remove: "Remove the mark",
     cutDone: "Cut the sentence",
-    kept: "Kept as your view",
+    kept: "Kept as written",
   },
   "zh-CN": {
     heading: "需要留意：未找到",
     mark: "句子核对：需要留意：未找到",
     needLook: "2 句需要留意",
     cut: "删除这句",
-    keep: "保留为我的观点",
+    keep: "保留原句",
     searchAll: "搜索全部文档",
     chooseCitation: "选择引用…",
     findSources: "查找资料…",
@@ -79,7 +79,7 @@ const LANGUAGES = {
     searchWeb: "联网搜索",
     remove: "移除标记",
     cutDone: "已删除这句",
-    kept: "已保留为你的观点",
+    kept: "已保留原句",
   },
 } as const;
 
@@ -254,11 +254,12 @@ for (const language of ["en", "zh-CN"] as const) {
       // Where the row has no room, it wraps to a second row: no label breaks inside its button.
       for (const id of BUTTONS)
         expect(await labelLines(card.getByTestId(id)), `${id} at ${width} px`).toBe(1);
-      // It cites nothing, so there is no Citation to sign and no "Checked by me".
-      await expect(card.getByTestId("sign-off-toggle")).toHaveCount(0);
       // The rest under the one ⋯, in their order, Find sources among them: the Mind cites no paper or book.
       await expect(card.getByTestId(IDS.findSources)).toHaveCount(0);
       const menu = await openCardMenu(window, card);
+      // It cites nothing, so there is no Citation to sign and no "Checked by me" row (#3715).
+      await expect(menu.getByRole("menuitem").first()).toBeVisible();
+      await expect(menu.getByTestId("sign-off-toggle")).toHaveCount(0);
       const listed = await menu
         .locator('[role="menuitem"]:not([data-testid="claim-about-lines"])')
         .evaluateAll((all) => all.map((each) => each.getAttribute("data-testid")));
@@ -451,7 +452,7 @@ test("Cut it and Keep as my view are reached and run with the keyboard alone: �
   await clickEndOf(window, lines.nth(0));
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Cut it");
+  await window.keyboard.type("Cut the sentence");
   const cut = palette.locator('[data-key="command:check.cutSentence"]');
   await expect(cut).toHaveAttribute("aria-selected", "true");
   await window.keyboard.press("Enter");
@@ -465,7 +466,7 @@ test("Cut it and Keep as my view are reached and run with the keyboard alone: �
 
   await window.keyboard.press("ControlOrMeta+k");
   await expect(window.getByTestId("palette-search")).toBeFocused();
-  await window.keyboard.type("Keep as my view");
+  await window.keyboard.type("Keep as written");
   await expect(palette.locator('[data-key="command:check.keepAsView"]')).toHaveAttribute(
     "aria-selected",
     "true",
@@ -520,7 +521,7 @@ test("Cut it in a paragraph with footnotes takes out exactly the sentence, its o
 
   // The sentence between the footnotes goes with its own footnote and nothing else.
   await cursorIn(editor, NOTHING);
-  await runCommand(window, "check.cutSentence", "Cut it");
+  await runCommand(window, "check.cutSentence", "Cut the sentence");
   await expect.poll(() => paragraphOf(editor)).toBe(`${ELSEWHERE}[${FIRST}] ${ALONE}`);
   await expect(marks).toHaveCount(2);
   await focusSettled(window, editor);

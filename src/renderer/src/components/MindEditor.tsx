@@ -1160,8 +1160,12 @@ function MindEditorView({
     const typed = takeNewMindKeys();
     if (typed === null) return;
     tookTypedKeys.current = true;
-    editor.commands.focus("end");
-    if (typed) editor.view.dispatch(editor.state.tr.insertText(typed));
+    // Tiptap's focus command would focus again next frame, even after the User moved to the composer.
+    const tr = editor.state.tr;
+    const end = Selection.atEnd(tr.doc);
+    if (!tr.selection.eq(end)) tr.setSelection(end);
+    if (typed) tr.insertText(typed);
+    editor.view.dispatch(tr.scrollIntoView());
     focusNow(editor);
     useAppStore.getState().bodyFocused();
   }, [bodyHere, editor]);

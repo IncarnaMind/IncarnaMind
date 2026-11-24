@@ -21,6 +21,7 @@ export function SettingsSection({
   titleId,
   titleAs: Title = "h4",
   tip,
+  action,
   help,
   helpId,
   testId,
@@ -34,22 +35,32 @@ export function SettingsSection({
   titleAs?: "h4" | "h5";
   /** A tooltip beside the title, for what a row's own lines don't say. */
   tip?: string;
+  /** A button for the whole section, at the title line's end. */
+  action?: ReactNode;
   help?: ReactNode;
   helpId?: string;
   testId?: string;
   ref?: Ref<HTMLElement>;
   children: ReactNode;
 }) {
+  const heading = title !== undefined && (
+    <Title
+      id={titleId}
+      className={`flex items-center px-4 text-[13px] leading-5 font-semibold text-ink-secondary ${present(action) ? "" : "mb-2"}`}
+    >
+      {title}
+      {tip !== undefined && <InfoTip text={tip} />}
+    </Title>
+  );
   return (
     <section ref={ref} data-testid={testId}>
-      {title !== undefined && (
-        <Title
-          id={titleId}
-          className="mb-2 flex items-center px-4 text-[13px] leading-5 font-semibold text-ink-secondary"
-        >
-          {title}
-          {tip !== undefined && <InfoTip text={tip} />}
-        </Title>
+      {heading && present(action) ? (
+        <div className="mb-2 flex items-center justify-between gap-3 pe-4">
+          {heading}
+          {action}
+        </div>
+      ) : (
+        heading
       )}
       {children}
       {present(help) && <SettingsHelp id={helpId}>{help}</SettingsHelp>}

@@ -55,6 +55,8 @@ export function AgentPairingRow({
   awaitingInstall,
   shimOutOfDate = false,
   isBundleClient = false,
+  broken,
+  onRepaired,
   folders,
   justSetUp,
   onUndone,
@@ -72,6 +74,10 @@ export function AgentPairingRow({
   shimOutOfDate?: boolean;
   /** Whether this pairing's agent installs a bundle file that can be reopened to upgrade. */
   isBundleClient?: boolean;
+  /** The program its entry starts has gone since it was connected, so it needs a Repair (#3644). */
+  broken: boolean;
+  /** Its Repair wrote the entry again. */
+  onRepaired(): void;
   folders: readonly LibraryGroup[];
   justSetUp: JustSetUp | null;
   onUndone(): void;
@@ -107,22 +113,6 @@ export function AgentPairingRow({
     event.stopPropagation();
     setReplacing(false);
   };
-
-  // Read as the row opens and as the agents change: a connection whose program has gone (#3644).
-  const [broken, setBroken] = useState(false);
-  useEffect(() => {
-    let current = true;
-    const read = () =>
-      core.agentNeedsRepair(pairing.id).then((needs) => {
-        if (current) setBroken(needs);
-      }, reportError);
-    read();
-    const stop = core.on("agents.changed", read);
-    return () => {
-      current = false;
-      stop();
-    };
-  }, [pairing.id, reportError]);
 
   // The activity list follows each call while it is open.
   useEffect(() => {
@@ -281,12 +271,7 @@ export function AgentPairingRow({
               <button
                 type="button"
                 data-testid="agent-pairing-repair-button"
-                onClick={() =>
-                  core
-                    .repairAgent(pairing.id)
-                    .then(() => core.agentNeedsRepair(pairing.id))
-                    .then(setBroken, reportError)
-                }
+                onClick={() => core.repairAgent(pairing.id).then(onRepaired, reportError)}
                 className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
               >
                 {t("agents.pairing.repair")}

@@ -62,6 +62,35 @@ function commentedFile(): Buffer {
   return wordFile(input);
 }
 
+/** Two comments whose words cross, one on red text, then three on the same words (#2585). */
+function overlappingFile(): Buffer {
+  const reference = (id: number) =>
+    `<w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="${id}"/></w:r>`;
+  const red = (text: string) =>
+    `<w:r><w:rPr><w:color w:val="C00000"/></w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
+  const crossing =
+    `<w:commentRangeStart w:id="0"/>${run("Revenue grew ")}` +
+    `<w:commentRangeStart w:id="1"/>${red("12% in May")}` +
+    `<w:commentRangeEnd w:id="0"/>${reference(0)}` +
+    `${run(" and June.")}<w:commentRangeEnd w:id="1"/>${reference(1)}${run(" The rest.")}`;
+  const stacked =
+    '<w:commentRangeStart w:id="2"/><w:commentRangeStart w:id="3"/><w:commentRangeStart w:id="4"/>' +
+    run("Costs fell 3%.") +
+    [2, 3, 4].map((id) => `<w:commentRangeEnd w:id="${id}"/>${reference(id)}`).join("");
+  const comment = (id: number, author: string, text: string) =>
+    `<w:comment w:id="${id}" w:author="${author}" w:date="2026-10-02T0${id}:00:00Z"><w:p><w:r><w:annotationRef/></w:r>${run(text)}</w:p></w:comment>`;
+  return wordFile({
+    body: `${paragraph(crossing)}${paragraph(stacked)}`,
+    comments: [
+      comment(0, "Dana Kim", "Which year?"),
+      comment(1, "Luis Ortega", "Say June's figure."),
+      comment(2, "Dana Kim", "Check this number."),
+      comment(3, "Luis Ortega", "Agreed."),
+      comment(4, "Priya Raman", "Source?"),
+    ].join(""),
+  });
+}
+
 async function importFile(core: Core, bytes: Buffer) {
   const folder = await createTempDataFolder();
   const path = join(folder, "Comments.docx");
@@ -133,6 +162,54 @@ describe("comments in Word, in and out (#328)", () => {
     // A reply's range names the thread, not a second mark on the same words.
     expect(wordsOf(client, comments[0]?.replies[0]?.id as string)).toBe("");
     expect(comments[0]?.replies).toHaveLength(1);
+    core.close();
+  });
+
+  test("comments whose words overlap each keep their own words: in the editor, after an edit, and back in Word (#2585)", async () => {
+    const core = startCore(await createTempDataFolder());
+    const { mindId, client } = await importFile(core, overlappingFile());
+    const threads = (each: MindClient) =>
+      mindCommentsOf(each.doc).map((comment) => [comment.author, comment.text, comment.replies]);
+    const expected = [
+      ["Dana Kim", "Which year?", []],
+      ["Luis Ortega", "Say June's figure.", []],
+      ["Dana Kim", "Check this number.", []],
+      ["Luis Ortega", "Agreed.", []],
+      ["Priya Raman", "Source?", []],
+    ];
+    // `readMind` reads the Note as the editor does, and checks it as the editor's schema does.
+    const words = (each: MindClient) =>
+      mindCommentsOf(each.doc).map((comment) => wordsOf(each, comment.id));
+    const everyComment = [
+      "Revenue grew 12% in May",
+      "12% in May and June.",
+      "Costs fell 3%.",
+      "Costs fell 3%.",
+      "Costs fell 3%.",
+    ];
+    expect(threads(client)).toEqual(expected);
+    expect(words(client)).toEqual(everyComment);
+
+    // An edit writes the paragraph back from the editor, as typing does.
+    writeMind(
+      client,
+      ((readMind(client).toJSON().content ?? []) as JSONContent[]).map((block, at) =>
+        at === 0
+          ? { ...block, content: [...(block.content ?? []), { type: "text", text: " Later." }] }
+          : block,
+      ),
+    );
+    await client.settled();
+    expect(words(client)).toEqual(everyComment);
+
+    const result = await core.exportMind(mindId, { format: "docx" });
+    expect(result.word?.notKept).toEqual([]);
+    const files = unzip(result.data);
+    checkWellFormed(files.get("word/document.xml")?.toString("utf8") ?? "");
+    checkWellFormed(files.get("word/comments.xml")?.toString("utf8") ?? "");
+    const again = await importFile(core, Buffer.from(result.data));
+    expect(threads(again.client)).toEqual(expected);
+    expect(words(again.client)).toEqual(everyComment);
     core.close();
   });
 

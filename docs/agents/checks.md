@@ -160,6 +160,8 @@ Settings → AI sets IncarnaMind up in the agents in wide use (`src/core/agents/
 
 Try "Other agent" with any one agent that takes pasted settings. The agents' own configuration formats change under us: when one stops working, or its documentation changes, fix it there, or move it to "Other agent".
 
+**A check on Codex in the background** (ADR-0035) was measured on Codex 0.170.0, and any later Codex runs it once its preflight lists the check's Tools alone. Codex can keep accepting a setting it no longer honours, which nothing at run time catches, so before each release take the measurement again on the current Codex, with a test sign-in in a profile of its own and a temporary HOME and data folder: list the profile (names, sizes and times, never contents), then press Check on a Note in the background, once to the end, once stopped from the Note and once failing (a sign-out, or a 400 on a local test endpoint), listing the profile after each. Anything that differs beyond Codex's launcher folder (`tmp/arg0-…`) stops the release until the run holds it off, or ADR-0035 and the privacy page say what is kept.
+
 ### The ChatGPT test profile
 
 The owner signs in with ChatGPT once, in a test profile. Agents then use that sign-in for checks by hand on the owner's ChatGPT plan, without signing in themselves and without ever seeing a token.

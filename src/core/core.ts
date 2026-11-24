@@ -7052,7 +7052,10 @@ export function createCore(adapters: CoreAdapters): Core {
   liveSummaries.changed(meetings.list());
   /** Whether the User's consent lets IncarnaMind start this agent to send `sends`, asking once if not. */
   const hostedConsent = async (pairing: AgentPairing, sends: readonly DataKind[]) => {
-    const service = serviceOf(pairing);
+    const service = {
+      ...serviceOf(pairing),
+      ...(pairing.client && { agentClient: pairing.client }),
+    };
     // Taken back in Settings › Privacy: the job goes by the link until the User allows it again.
     if (consent.takenBack("hosted-agents", service)) return false;
     try {
