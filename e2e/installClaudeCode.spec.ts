@@ -242,7 +242,7 @@ test("First Run offers one-press Claude Code install in EN and ZH-CN when no com
 
   // When Claude Code is already installed on the machine, the Install offer stays hidden
   // and Claude Code shows its normal Connect button untouched.
-  await writeFile(join(home, ".claude.json"), "{}\n");
+  standIn.behavior.binary = "/tmp/fake-claude";
   const installedData = await createDataFolder();
   try {
     const second = await launchApp(installedData, {

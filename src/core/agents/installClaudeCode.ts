@@ -21,7 +21,7 @@ export interface ClaudeCodeInstallControllerOptions {
   installer: ClaudeCodeInstaller | undefined;
   consent: Consent;
   localOnly(): boolean;
-  clients(): AgentClient[];
+  clients(): Promise<AgentClient[]> | AgentClient[];
   onChanged(state: ClaudeCodeInstallState): void;
   onClientsChanged(): void;
   lifetime: AbortSignal;
@@ -135,18 +135,19 @@ export function createClaudeCodeInstallController(options: ClaudeCodeInstallCont
 
   return {
     async availability(): Promise<ClaudeCodeInstallAvailability> {
+      const clients = await options.clients();
       if (!installer) {
         return {
           supported: false,
           installed: false,
-          cliAgentPresent: options.clients().some((c) => CLI_CLIENT_IDS.has(c.id) && c.installed),
+          cliAgentPresent: clients.some((c) => CLI_CLIENT_IDS.has(c.id) && c.installed),
           directory: "~/.local/bin",
         };
       }
       const binary = await installer.findBinary();
       const installed = binary !== null;
       const cliAgentPresent =
-        installed || options.clients().some((c) => CLI_CLIENT_IDS.has(c.id) && c.installed);
+        installed || clients.some((c) => CLI_CLIENT_IDS.has(c.id) && c.installed);
       return {
         supported: true,
         installed,

@@ -9678,7 +9678,7 @@ export function createCore(adapters: CoreAdapters): Core {
     agentNeedsRepair: (pairingId) => agentSetup.needsRepair(pairingId),
     repairAgent: (pairingId) => agentSetup.repair(pairingId),
     listAgentClients: async () => {
-      const listed = agentSetup.clients();
+      const listed = await agentSetup.clients();
       const hasBinary =
         adapters.claudeCodeInstaller !== undefined &&
         (await adapters.claudeCodeInstaller.findBinary()) !== null;

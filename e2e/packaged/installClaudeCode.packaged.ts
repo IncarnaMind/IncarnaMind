@@ -18,17 +18,25 @@ function pathKey(): string {
 }
 
 /**
- * Strips any directory on PATH that already contains a `claude` executable so the packaged test
- * always starts from a clean machine with no command-line AI installed, even on a developer
- * workstation that has Claude Code installed globally.
+ * Strips any directory on PATH that already contains a command-line AI executable (`claude` or
+ * `opencode`) so the packaged test always starts from a clean machine with no command-line AI
+ * installed, even on a developer workstation that has one installed via Homebrew or npm.
  */
-function pathWithoutClaude(): Record<string, string> {
+function pathWithoutCliAgents(): Record<string, string> {
   const key = pathKey();
   const raw = process.env[key] ?? "";
   const candidates =
     process.platform === "win32"
-      ? ["claude.exe", "claude.cmd", "claude.bat", "claude.com"]
-      : ["claude"];
+      ? [
+          "claude.exe",
+          "claude.cmd",
+          "claude.bat",
+          "claude.com",
+          "opencode.exe",
+          "opencode.cmd",
+          "opencode.bat",
+        ]
+      : ["claude", "opencode"];
   const filtered = raw
     .split(delimiter)
     .filter((dir) => dir && !candidates.some((name) => existsSync(join(dir, name))));
@@ -69,7 +77,7 @@ async function isolatedHomeEnv(
   home: string,
 ): Promise<{ env: Record<string, string>; browserOpenedFile: string | null }> {
   const env: Record<string, string> = {
-    ...pathWithoutClaude(),
+    ...pathWithoutCliAgents(),
     DISABLE_AUTOUPDATER: "1",
   };
   if (process.platform === "win32") {
