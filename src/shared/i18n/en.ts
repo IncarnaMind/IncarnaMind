@@ -8910,9 +8910,8 @@ export const en = {
   "agents.mind.waiting": "(changes waiting)",
   // A paragraph this run changed or added from the box at the Note's foot, which the window that
   // asked puts in once the request ends (ADR-0034).
-  "agents.mind.yours": "(your change from this request, in the note once the request ends)",
-  "agents.mind.yoursRemoved":
-    "(taken out by your change from this request, gone from the note once the request ends)",
+  "agents.mind.yours": "(your change, made)",
+  "agents.mind.yoursRemoved": "(taken out by your change)",
   "agents.mind.busy": "(being written)",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",

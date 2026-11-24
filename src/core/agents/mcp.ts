@@ -435,7 +435,7 @@ export function createAgentServer(
     {
       title: "Read a Note",
       description:
-        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. A picture comes without its data: the User sees it. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. Long Notes come in parts: pass `nextOffset` back as `offset`.",
+        "Read a Note as Markdown; each Citation's footnote starts with a ready [cite:…]. A picture comes without its data: the User sees it. With `named`, each paragraph comes after its name (¶0 a title, ¶1, ¶2…), its Citations as [cite:…] or [kept:n] and the User's footnotes as [note:n] (keep these where they are to keep them), and a `version` for propose_changes. A (…) right after a name is that paragraph's status, not its text. Long Notes come in parts: pass `nextOffset` back as `offset`.",
       inputSchema: z.object({
         mindId: z.string(),
         offset: z.number().int().min(0).optional(),
