@@ -31,7 +31,7 @@ Documents stay where the User keeps them: IncarnaMind indexes each file at its o
 
 This replaced "never writes, renames or deletes anything in a Linked folder".
 
-- **Originals stay as they are.** IncarnaMind never changes, renames, moves or deletes a file that is already there, in a Linked folder or anywhere else.
+- **Originals stay as they are.** IncarnaMind never changes, renames, moves or deletes a file that is already there, in a Linked folder or anywhere else; a deck the User edits by hand is the one exception (below, 2026-11-24).
 - **The Output location,** kept per device (ADR-0003), takes the files IncarnaMind creates (exports, transcripts, saved pages, what Tasks make). The first save goes to Documents › IncarnaMind until the User picks another, and says where; it asks only when that can't be made or written to (#2004; CONTEXT.md). Settings › General changes it. IncarnaMind writes nowhere else without asking.
 - **Inside a Linked folder only with its permission** (next to the original a file was made from, or because the Output location is inside one). The first save there asks, once per Linked folder; the yes or no is remembered (migration 35, `linked_folder_writes`), changed in Settings › General, and forgotten on unlinking. A "no" refuses later saves without asking.
 - **Nothing is replaced:** a new file takes the next free name ("Tides 2.docx"), created exclusively, so nothing under that name is overwritten or followed.
@@ -48,6 +48,20 @@ A check result's evidence, a saved page, an unfinished Task and a Checkpoint rec
 - When a Citation is made, its Location as it looked in the version it quotes becomes a picture in the data folder's "Cited pages", with the text drawn on it and each run's box (migration 73), so the quote can be found and highlighted. One picture per Location and version, drawn in the background queue, never while an Answer is written.
 - It stays while a Citation or a Checkpoint points at it, retaining its version, and goes at the first start after. The pictures are never searched, and belong to this computer.
 - **A failed drawing waits** (#2161, migration 113): it is tried again at the next start, when its Location is cited again, or when the page is asked for; after three failures only a new Citation tries again. A file that lacks the version waits without counting a failure. The failure is logged, not shown: a missing file's Document already says so, and the source pack shows the quotes of a page not saved.
+
+### A deck edited by hand is written itself (2026-11-24, #149)
+
+This changes "Originals stay as they are" for one case, decided by the User on 2026-11-24: a `.pptx` the User edits by hand on its slides in IncarnaMind. Everything else in that section stands.
+
+- **What changes.** Each gesture (a drag, a resize, a text box from open to close, a run of arrow-key moves) is written at once; there is no Save button. A deck of the User's own, added on its own or in a Linked folder, an agent's hand-over found in a Linked folder included, is written itself, as PowerPoint saves it. A deck IncarnaMind keeps in its data folder (one an agent handed over from elsewhere) takes one new version per sitting instead. Exports, Word round trips, Tasks, checks, agents' hand-overs and any change an AI proposes still never change an original.
+- **What keeps it safe.**
+  - Only the User's own hand: the write is reached from the deck's viewer alone, through the bridge (`editDeck`, `undoDeckEdit`, `redoDeckEdit`, `saveDeckCopy`, `restoreKeptDeck`); no agent Tool and no assistant command reaches it.
+  - Only over bytes the viewer showed: a sitting's first write checks that the file still holds the version the viewer showed, and every write that it still holds what the sitting last wrote, again just before the rename. Otherwise nothing is written and the deck is read again: another program, a sync client or an agent saved it meanwhile.
+  - Never half written: the bytes go to a temporary file in the same folder, with the original's permissions, which is renamed over it (`replaceFile`, `src/core/fileNames.ts`). A crash leaves the original whole.
+  - Kept first: before a sitting's first write, the file as it stood is kept whole in the data folder (`Kept decks/`, migration 163), the last 10 for each deck. The receipt of the change that lets the oldest go says so, ⋯ › Put back as it was writes one back as a step Undo takes back, and they go with the Document when it is deleted for good.
+  - Only what the gesture touched: the patch layer (`src/core/exports/pptxPatch`) splices the edited shape's runs or transform and copies every other part's stored bytes.
+  - A file that can't be written (read-only, locked by another app, gone, a full disk, a folder with no write access) says so where it happened and keeps the change waiting, to be saved as a copy beside it: in its folder, else in the Output location. A copy into a Linked folder still takes that folder's permission.
+- "Overwrite the original, with a backup", below, stays rejected for every other save. It is taken here for this one: the backup is kept in the data folder, and a sync client's change is met by the check before each write.
 
 ## Considered options
 
