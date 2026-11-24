@@ -43,32 +43,31 @@ function pathWithoutCliAgents(): Record<string, string> {
   return { [key]: filtered.join(delimiter) };
 }
 
-function readWindowsUserPath(): string | null {
+function readWindowsUserPath(): { type: string; value: string } | null {
   if (process.platform !== "win32") return null;
-  const out = spawnSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "[Environment]::GetEnvironmentVariable('Path', 'User')",
-    ],
-    { encoding: "utf8", windowsHide: true },
-  );
-  return out.status === 0 ? out.stdout.trim() : null;
+  const out = spawnSync("reg.exe", ["query", "HKCU\\Environment", "/v", "Path"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (out.status !== 0) return null;
+  const match = out.stdout.match(/^\s*Path\s+(REG_\w+)\s+(.*)$/m);
+  if (!match) return null;
+  return { type: match[1] ?? "REG_EXPAND_SZ", value: (match[2] ?? "").trim() };
 }
 
-function restoreWindowsUserPath(value: string): void {
+function restoreWindowsUserPath(saved: { type: string; value: string }): void {
   if (process.platform !== "win32") return;
   spawnSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "[Environment]::SetEnvironmentVariable('Path', $env:IM_RESTORE_PATH, 'User')",
-    ],
-    { env: { ...process.env, IM_RESTORE_PATH: value }, encoding: "utf8", windowsHide: true },
+    "reg.exe",
+    ["add", "HKCU\\Environment", "/v", "Path", "/t", saved.type, "/d", saved.value, "/f"],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10_000,
+      windowsHide: true,
+    },
   );
 }
 
@@ -178,8 +177,12 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
     // Audit what Anthropic's Windows installer changes in HKCU User PATH outside the temp home.
     if (process.platform === "win32") {
       const userPathAfter = readWindowsUserPath();
+      const beforeParts = new Set((userPathBefore?.value ?? "").split(";").filter(Boolean));
+      const added = (userPathAfter?.value ?? "")
+        .split(";")
+        .filter((part) => part && !beforeParts.has(part));
       console.info(
-        `[windows-user-path-audit] changed=${userPathAfter !== userPathBefore} beforeLen=${userPathBefore?.length ?? 0} afterLen=${userPathAfter?.length ?? 0}`,
+        `[windows-user-path-audit] changed=${userPathAfter?.value !== userPathBefore?.value} added=${JSON.stringify(added)}`,
       );
     }
 
@@ -211,7 +214,7 @@ test("packaged app installs real Claude Code into a temporary home and reaches t
     await app.close();
     if (userPathBefore !== null) {
       const userPathAfter = readWindowsUserPath();
-      if (userPathAfter !== userPathBefore) restoreWindowsUserPath(userPathBefore);
+      if (userPathAfter?.value !== userPathBefore.value) restoreWindowsUserPath(userPathBefore);
     }
   }
 });

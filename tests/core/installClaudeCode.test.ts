@@ -223,12 +223,21 @@ describe("Claude Code one-press installation through CoreApi (#3638)", () => {
   it("offers install when only Claude Desktop is present", async () => {
     const data = await createTempDataFolder();
     const home = await createTempDataFolder();
-    await mkdir(join(home, "Library", "Application Support", "Claude"), { recursive: true });
+    const apps = await createTempDataFolder();
+    if (process.platform === "darwin") {
+      await mkdir(join(apps, "Claude.app"), { recursive: true });
+    } else if (process.platform === "win32") {
+      await mkdir(join(apps, "AnthropicClaude"), { recursive: true });
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(join(apps, "AnthropicClaude", "claude.exe"), "");
+    } else {
+      await mkdir(join(apps, "com.anthropic.Claude.desktop"), { recursive: true });
+    }
     const standIn = createStandIn();
     const core = await startCore(data, {
       claudeCodeInstaller: standIn.installer,
       paths: { home },
-      agents: { applications: [] },
+      agents: { applications: [apps] },
     });
     try {
       const clients = await core.listAgentClients();
@@ -240,6 +249,7 @@ describe("Claude Code one-press installation through CoreApi (#3638)", () => {
       await core.close();
       await rm(data, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
+      await rm(apps, { recursive: true, force: true });
     }
   });
 
