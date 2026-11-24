@@ -346,7 +346,7 @@ describe("A copied Document in Recently deleted (#1432)", { timeout: 30_000 }, (
       deletedEarlier(OLD_DOCUMENT, HASH, "2026-09-01T09:00:00.000Z"),
     );
 
-    const core = startCore(dataDir);
+    const core = startCore(dataDir, { now: manualClock("2026-10-15T09:00:00.000Z").now });
 
     expect(
       queryDatabase(

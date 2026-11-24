@@ -10,7 +10,7 @@ import {
   type WindowLayout,
 } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 
 /*
@@ -900,7 +900,8 @@ describe("Tabs and groups", () => {
     );
     db.close();
 
-    const restarted = startCore(dataDir);
+    const clock = manualClock("2026-11-20T09:00:00.000Z");
+    const restarted = startCore(dataDir, { now: clock.now });
     const item = { kind: "canvas", canvasId } as const;
     await restarted.changeLayout(WINDOW, { type: "open", item, where: { in: "group" } });
     // Opened again where it is, it is the same tab.
@@ -912,14 +913,14 @@ describe("Tabs and groups", () => {
     expect(describeLayout(layout, names)).toEqual(["Alpha *Tide report"]);
     restarted.close();
 
-    const again = startCore(dataDir);
+    const again = startCore(dataDir, { now: clock.now });
     expect(describeLayout(await again.getLayout(WINDOW), names)).toEqual(["Alpha *Tide report"]);
     again.close();
     const deleting = openDatabase(join(dataDir, DATABASE_FILE));
     deleting.run("UPDATE canvases SET deleted_at = ? WHERE id = ?", [at, canvasId]);
     deleting.close();
 
-    const last = startCore(dataDir);
+    const last = startCore(dataDir, { now: clock.now });
     expect(describeLayout(await last.getLayout(WINDOW), names)).toEqual(["*Alpha"]);
     last.close();
   });
