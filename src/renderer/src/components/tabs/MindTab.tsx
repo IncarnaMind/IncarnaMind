@@ -67,12 +67,12 @@ export function MindTab({ mindId }: { mindId: string }) {
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
-  // The page fades out above the floating Ask pill, and above the way to ask at its own foot for
-  // a User with only their own AI, whose assistant is quiet too.
-  const pill = useQuietAssistant();
+  const quiet = useQuietAssistant();
   const ownAiOnly = useOwnAiOnly();
   const hiddenForOwnAi = useHiddenForOwnAi();
-  const floatingPill = pill && !hiddenForOwnAi;
+  // The page fades out above the Ask pill a quiet assistant floats over it. Above the way to ask at
+  // the Note's own foot, the foot fades it, and only while something stands there (styles.css).
+  const floatingPill = quiet && !hiddenForOwnAi;
   // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
@@ -150,7 +150,7 @@ export function MindTab({ mindId }: { mindId: string }) {
               <div
                 aria-hidden="true"
                 data-testid="ask-pill-fade"
-                data-pill={pill || undefined}
+                data-pill={floatingPill || undefined}
                 className="ask-pill-fade"
               />
             </div>

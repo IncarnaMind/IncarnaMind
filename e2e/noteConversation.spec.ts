@@ -211,24 +211,11 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     expect((await panel.boundingBox())?.height ?? 999).toBeLessThanOrEqual(900 * 0.4 + 1);
     const aside = panel.getByTestId("conversation-move-left");
     await expect(aside).toHaveAttribute("aria-label", "Move to the left");
-    const fold = panel.getByTestId("note-ask-fold");
-    await expect(fold).toHaveAttribute("aria-label", "Hide conversation");
-    const [bubble, asideBox, foldBox, panelBox, turn, row] = [
-      await boxOf(panel.locator(".note-column-bubble").first()),
-      await boxOf(aside),
-      await boxOf(fold),
-      await boxOf(panel),
-      await boxOf(panel.getByTestId("note-column-turn").last()),
-      await boxOf(box.getByTestId("note-ask-row")),
-    ];
-    for (const control of [asideBox, foldBox]) {
-      const middle = control.y + control.height / 2;
-      expect(Math.abs(middle - (bubble.y + bubble.height / 2))).toBeLessThanOrEqual(1);
-      expect(control.x).toBeGreaterThanOrEqual(bubble.x + bubble.width);
-    }
-    expect(Math.abs(foldBox.x + foldBox.width - (row.x + row.width - 10))).toBeLessThanOrEqual(1);
-    expect(panelBox.y + panelBox.height - (turn.y + turn.height)).toBeLessThanOrEqual(16);
-    expect(Math.abs(row.y - (panelBox.y + panelBox.height))).toBeLessThanOrEqual(1);
+    await expect(panel.getByTestId("note-ask-fold")).toHaveAttribute(
+      "aria-label",
+      "Hide conversation",
+    );
+    await expectPanelEdges(group);
     await shot(window, "conversation-upward-en");
 
     // Moved to the left with words half-typed and the focus in the input: the window's column, the
@@ -293,6 +280,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     await expect(panel).toBeVisible();
     await expect(window.getByTestId("note-column")).toHaveCount(0);
     await expect(group.getByTestId("conversation-move-left")).toHaveCount(0);
+    await expectPanelEdges(group);
     await shot(window, "conversation-narrow-zh-CN");
     await setWindowSize(app, window, 1440, 900);
     await pointAndClick(window, column.getByTestId("conversation-move-down"));
@@ -300,6 +288,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       "aria-label",
       "移到左侧",
     );
+    await expectPanelEdges(group);
     await expect(badge).toHaveAccessibleName("核对结果：3 句未核对");
     await shot(window, "conversation-upward-zh-CN");
 
@@ -698,14 +687,76 @@ async function expectUpward(window: Page, index: number, asked: string) {
   await expect(window.getByTestId("note-column")).toHaveCount(0);
   await expect(group.getByTestId("conversation-move-left")).toHaveCount(0);
   await expect(panel.getByTestId("note-column-turn").first()).toContainText(asked);
-  const [box, text] = [
-    await boxOf(group.getByTestId("note-ask-box")),
-    await boxOf(group.locator('[data-testid="mind-pane"] .mind-measure')),
-  ];
-  expect(Math.abs(box.x - text.x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(box.x + box.width - (text.x + text.width))).toBeLessThanOrEqual(1);
+  // The groups take their new widths as the column leaves: the box and the text settle together.
+  await motionSettled(window);
+  await expect
+    .poll(async () => {
+      const [box, text] = [
+        await boxOf(group.getByTestId("note-ask-box")),
+        await boxOf(group.locator('[data-testid="mind-pane"] .mind-measure')),
+      ];
+      return Math.max(
+        Math.abs(box.x - text.x),
+        Math.abs(box.x + box.width - (text.x + text.width)),
+      );
+    })
+    .toBeLessThanOrEqual(1);
   const height = await window.evaluate(() => globalThis.innerHeight);
   expect((await boxOf(panel)).height).toBeLessThanOrEqual(height * 0.4 + 1);
+}
+
+/**
+ * The conversation open upward in `group`'s box keeps 12px above its first request and under its
+ * last reply; its controls stand level with the first request at the box's right end, and they
+ * and the request stay inside the box's rounded corner.
+ */
+async function expectPanelEdges(group: Locator) {
+  const edges = await group.evaluate((element) => {
+    const panel = element.querySelector('[data-testid="note-ask-panel"]');
+    const body = panel?.querySelector<HTMLElement>('[data-testid="note-conversation-body"]');
+    const box = element.querySelector('[data-testid="note-ask-box"]');
+    const row = element.querySelector('[data-testid="note-ask-row"]');
+    if (!panel || !body || !box || !row) return null;
+    body.scrollTop = 0;
+    const bubble = panel.querySelector(".note-column-bubble")?.getBoundingClientRect();
+    const tools = Array.from(panel.querySelectorAll(".note-ask-panel-tools > button")).map(
+      (button) => button.getBoundingClientRect(),
+    );
+    const above = bubble ? bubble.top - body.getBoundingClientRect().top : null;
+    body.scrollTop = body.scrollHeight;
+    // What the last reply shows last: its copy-and-model line, or its one action.
+    const turn = Array.from(body.querySelectorAll('[data-testid="note-column-turn"]')).at(-1);
+    const last = Array.from(turn?.children ?? [])
+      .map((child) => child.getBoundingClientRect())
+      .filter((rect) => rect.height > 0)
+      .at(-1);
+    const frame = box.getBoundingClientRect();
+    const radius = Number.parseFloat(getComputedStyle(box).borderTopRightRadius);
+    const inside = (rect: DOMRect) => {
+      const [dx, dy] = [frame.right - rect.right, rect.top - frame.top];
+      return dx >= radius || dy >= radius || Math.hypot(radius - dx, radius - dy) <= radius - 1;
+    };
+    if (!bubble || !last || above === null) return null;
+    return {
+      above,
+      under: body.getBoundingClientRect().bottom - last.bottom,
+      level: Math.max(
+        ...tools.map((rect) =>
+          Math.abs(rect.top + rect.height / 2 - (bubble.top + bubble.height / 2)),
+        ),
+      ),
+      beside: tools.every((rect) => rect.left >= bubble.right),
+      end: Math.abs(row.getBoundingClientRect().right - 10 - (tools.at(-1)?.right ?? 0)),
+      inside: [bubble, ...tools].every(inside),
+    };
+  });
+  expect(edges).not.toBeNull();
+  expect(Math.abs((edges?.above ?? 0) - 12)).toBeLessThanOrEqual(1);
+  expect(Math.abs((edges?.under ?? 0) - 12)).toBeLessThanOrEqual(1);
+  expect(edges?.level).toBeLessThanOrEqual(1);
+  expect(edges?.beside).toBe(true);
+  expect(edges?.end).toBeLessThanOrEqual(1);
+  expect(edges?.inside).toBe(true);
 }
 
 /** The Document in group `index` shows its whole toolbar, with nothing scrolled out of sight. */
@@ -964,6 +1015,20 @@ test("the input at a Note's foot stands on the text's edges, wide, narrow and be
     await expect(window.locator("[data-comment-card]")).toHaveCount(1);
     await motionSettled(window);
     await onTheText("beside a comment");
+
+    // With the conversation in the window's column, the Note's own foot holds nothing: the Note
+    // runs to the page's bottom edge, and nothing fades.
+    await showConversation(window, 0, true);
+    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await expect(window.getByTestId("note-column")).toBeVisible();
+    await expect(fade).toBeHidden();
+    const [scrolled, tabPage] = [
+      await boxOf(scroller),
+      await boxOf(group.locator(".mind-tab-page")),
+    ];
+    expect(
+      Math.abs(scrolled.y + scrolled.height - (tabPage.y + tabPage.height)),
+    ).toBeLessThanOrEqual(1);
   } finally {
     await app.close();
   }

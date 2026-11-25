@@ -1253,7 +1253,9 @@
     display: none;
     pointer-events: none;
   }
-  .ask-pill-fade[data-pill] {
+  /* The same over the pill or the line at the Note's own foot, where its input can't show (#3764). */
+  .ask-pill-fade[data-pill],
+  .mind-tab-page:has(> .note-ask-foot .note-foot-ask) .ask-pill-fade {
     display: block;
     height: 116px;
     margin-top: -116px;
@@ -1262,6 +1264,7 @@
   /*
    * The input at the Note's foot stands below the page, not over it: only the page's last pixels
    * fade into it, so no line is cut off at the edge and none hides behind a blank band (#3759).
+   * With the input in the window's column, the foot holds nothing and nothing fades.
    */
   .mind-tab-page:has(> .note-ask-foot .note-ask) .ask-pill-fade {
     display: block;
@@ -3200,7 +3203,7 @@
      */
     box-shadow:
       var(--shadow-popover),
-      0 -10px 14px 12px var(--color-sheet);
+      0 -8px 16px 24px var(--color-sheet);
   }
   .note-ask-panel {
     --note-ask-tools: 32px;
@@ -3222,7 +3225,17 @@
     gap: 16px;
     min-height: 0;
     overflow: auto;
-    padding: 4px var(--note-ask-end) 12px var(--note-ask-start);
+    /*
+     * 12px above the first request and under the last reply's copy-and-model line, which keeps its
+     * 16px while Copy's 28px pressable square reaches past it.
+     */
+    padding: 12px var(--note-ask-end) 12px var(--note-ask-start);
+    .note-column-reply-foot {
+      min-height: 16px;
+    }
+    .note-column-reply-foot .note-column-icon {
+      margin-block: -6px;
+    }
     /* The first request stops short of the controls beside it. */
     > .note-column-notice:first-child,
     > .note-column-turn:first-child > :first-child {
@@ -3230,10 +3243,10 @@
       margin-right: var(--note-ask-tools);
     }
   }
-  /* Level with the first request's one line: its 4px from the top and its 36px height. */
+  /* Level with the first request's one line: its 12px from the top and its 36px height. */
   .note-ask-panel-tools {
     position: absolute;
-    top: 8px;
+    top: 16px;
     right: var(--note-ask-end);
     display: flex;
     gap: 2px;
@@ -3331,6 +3344,10 @@
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
+    /* A reply with nothing to accept or undo keeps no gap under it. */
+    &:empty {
+      display: none;
+    }
   }
   .note-column-foot {
     display: flex;
