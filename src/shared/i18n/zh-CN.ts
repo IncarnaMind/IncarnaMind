@@ -6287,6 +6287,8 @@ export const zhCN = {
   "error.meetingOffer.gone": "这条会议提醒已失效。",
   "error.meetingOffer.link": "已开始录音，但会议链接未能打开：请从日历打开。",
   "error.openAtLogin.unsupported": "这个版本的 IncarnaMind 无法在登录时打开。",
+  "error.openAtLogin.notWritten":
+    "无法修改 {path}，登录时由它打开 IncarnaMind。请检查它的权限，或移除它。",
   "error.meeting.helpButton": "这场会议没有这项帮助。",
   "error.meeting.memoHelp": "语音备忘没有通话助手。",
   "error.meeting.microphone": "麦克风只能暂停或恢复。",

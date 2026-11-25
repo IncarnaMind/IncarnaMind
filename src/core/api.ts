@@ -3852,16 +3852,17 @@ export interface DeviceSettings {
   meetingHelpKeys: HelpKeys;
   /**
    * Settings › General › "Keep running in the menu bar" (in the tray on Windows and Linux, #189):
-   * its icon stays, and closing the window leaves IncarnaMind running. Turned on when the User sets
-   * up Meetings.
+   * its icon stays, and closing the window leaves IncarnaMind running. On from a new data folder's
+   * first start (#3758); in one an earlier version started, turned on when the User sets up Meetings.
    */
   keepRunning: boolean;
   /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
   calendarOffers: boolean;
   /**
    * Settings › General › Notifications: the offer to take notes when a call app takes the
-   * microphone (#208). Off until the User sets up Meetings, whose sheet says it turns on; someone
-   * who set them up before this was built is asked once, on Home.
+   * microphone (#208). On from a new data folder's first start where calls can be noticed (#3758).
+   * In one an earlier version started, the sheet that sets up Meetings turns it on, and someone who
+   * set them up before this was built is asked once, on Home.
    */
   callOffers: boolean;
   /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
@@ -3909,7 +3910,10 @@ export interface CallEnding {
 export interface MeetingOffers {
   offer: MeetingOffer | null;
   ending: CallEnding | null;
-  /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
+  /**
+   * Why calls can't be noticed here; null while they can. While offers for calls are off, only
+   * what this copy knows before watching (no watcher in the build, no `pactl`), else null.
+   */
   problem: CallWatchProblem | null;
 }
 
@@ -16294,7 +16298,8 @@ export interface CoreApi {
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
    * Take notes opens the event’s Note (a new Note for an ad-hoc call) and starts recording.
-   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers.
+   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers, and
+   * one taken before the recording notice was read, which keeps the offer.
    */
   takeMeetingOffer(offerId: string): Promise<Meeting>;
   /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
@@ -16775,6 +16780,11 @@ export interface CoreEvents {
    */
   "meetings.offerShown": null;
   "meetings.offerLinkFailed": null;
+  /**
+   * Sent by the host: Take notes was pressed in an offer's notification or the tray's menu before
+   * Meetings were set up (#3758). The window shows the recording notice, whose Start takes it.
+   */
+  "meetings.offerNoticeShown": { offerId: string };
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.

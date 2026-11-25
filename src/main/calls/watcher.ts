@@ -4,6 +4,8 @@
  * own watcher. Linux runs PulseAudio's `pactl`. IncarnaMind's own processes never count.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { CallWatcher, Logger } from "../../core";
 import type { CallWatchProblem } from "../../core/api";
@@ -208,13 +210,31 @@ export interface CallWatcherOptions {
   own: OwnProcesses;
   /** The packaged or development watcher program, if it is available on this platform. */
   helper: string | null;
+  /** Whether a command is on the PATH the watcher starts it from (`pactl` on Linux). */
+  onPath?: (command: string) => boolean;
+}
+
+const onThisPath = (command: string) =>
+  (process.env.PATH ?? "")
+    .split(delimiter)
+    .some((folder) => folder !== "" && existsSync(join(folder, command)));
+
+/** What `watch` would say at once: a build without its watcher, a Linux without `pactl`. */
+function knownProblem(options: CallWatcherOptions): CallWatchProblem | undefined {
+  const { platform, helper } = options;
+  if (platform === "linux") return (options.onPath ?? onThisPath)("pactl") ? undefined : "no-pactl";
+  if (platform === "win32") return helper ? undefined : "not-on-windows";
+  if (platform === "darwin") return helper ? undefined : "unavailable";
+  return "unavailable";
 }
 
 export function createCallWatcher(options: CallWatcherOptions): CallWatcher {
   const { log, platform, own } = options;
+  const problem = knownProblem(options);
   return {
     // A muted browser can release the microphone while its call continues.
     endRecordingOnRelease: platform !== "win32",
+    ...(problem && { problem }),
     watch(listener) {
       let last = "";
       let apps: string[] = [];

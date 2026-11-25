@@ -93,7 +93,7 @@ export function MeetingOfferSettings() {
           </>
         }
       >
-        {device.callOffers && problem && (
+        {problem && (
           <ProblemLine role="status" testId="call-offers-problem">
             {t(PROBLEM_LINES[problem])}
           </ProblemLine>
