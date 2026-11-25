@@ -308,8 +308,8 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
 
     async takeOffer(offerId) {
       try {
-        // A window made for the offer has no settings until its first load ends: the notice
-        // waits for that load to show.
+        // A window made for the offer has no settings in the store until its first load ends, so
+        // they are read from the core.
         const settings = useAppStore.getState().settings ?? (await core.getSettings());
         if (!settings.device.meetingNoticeAccepted) {
           set({ noticeFor: { offerId, systemAudio: settings.device.meetingSystemAudio } });

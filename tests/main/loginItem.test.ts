@@ -12,12 +12,20 @@ import {
 } from "../../src/main/loginItem";
 import { createTempDataFolder } from "../helpers/core";
 
-/** Electron's login items, as a fake that keeps what it was told. */
+/**
+ * Electron's login items on macOS, as a fake that keeps what it was told. Electron sends
+ * `executableWillLaunchAtLogin` there too, always false.
+ */
 function fakeApp(status = "enabled") {
   const calls: { openAtLogin: boolean; args?: string[] }[] = [];
   let on = false;
   const app: LoginItemApp = {
-    getLoginItemSettings: () => ({ openAtLogin: on, wasOpenedAtLogin: false, status }),
+    getLoginItemSettings: () => ({
+      openAtLogin: on,
+      wasOpenedAtLogin: false,
+      status,
+      executableWillLaunchAtLogin: false,
+    }),
     setLoginItemSettings: (settings) => {
       calls.push(settings);
       on = settings.openAtLogin;

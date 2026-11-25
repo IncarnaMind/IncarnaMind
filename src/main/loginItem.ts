@@ -21,7 +21,10 @@ export interface LoginItemApp {
     openAtLogin: boolean;
     wasOpenedAtLogin?: boolean;
     status?: string;
-    /** Windows: false once the User disabled the app in Task Manager's startup list. */
+    /**
+     * Windows: false once the User disabled the app in Task Manager's startup list. Always false
+     * on other systems.
+     */
     executableWillLaunchAtLogin?: boolean;
   };
   setLoginItemSettings(settings: { openAtLogin: boolean; args?: string[] }): void;
@@ -99,9 +102,11 @@ export function createSystemLoginItem(options: SystemLoginItemOptions): LoginIte
       return { supported: true, on, needsApproval: false };
     }
     const settings = app.getLoginItemSettings(args ? { args } : undefined);
+    // Electron sends executableWillLaunchAtLogin on every system, always false outside Windows.
+    const enabled = platform !== "win32" || settings.executableWillLaunchAtLogin !== false;
     return {
       supported: true,
-      on: settings.openAtLogin && settings.executableWillLaunchAtLogin !== false,
+      on: settings.openAtLogin && enabled,
       needsApproval: platform === "darwin" && settings.status === "requires-approval",
     };
   };
