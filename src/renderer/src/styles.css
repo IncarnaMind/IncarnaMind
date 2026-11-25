@@ -2700,6 +2700,11 @@
   .meeting-foot-main[data-live] {
     width: 152px;
   }
+  /* After Stop: Transcript and Resume, 240px in both languages. */
+  .meeting-foot-main:not([data-live]) {
+    justify-content: center;
+    width: 122px;
+  }
   .meeting-foot-time {
     width: 56px;
     font-variant-numeric: tabular-nums;

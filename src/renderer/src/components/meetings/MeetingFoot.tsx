@@ -228,7 +228,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             aria-label={t("meetings.foot.resumeTip")}
             title={t("meetings.foot.resumeTip")}
             onClick={() => void resume(meeting.id)}
-            className="meeting-foot-button"
+            className="meeting-foot-button meeting-foot-resume"
           >
             <ResumeLineIcon className="size-4" />
             <span className="meeting-foot-word">{t("meetings.foot.resume")}</span>

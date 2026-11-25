@@ -556,7 +556,8 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
 
 // The control's states that change its words or width: the time past an hour, paused, and a
 // microphone the app may not use. The clock is the page's own, fixed; the core records on.
-test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
+for (const microphone of ["allowed", "denied"] as const)
+test(`meeting control states, microphone ${microphone}, ${VARIANT}, ${LANG}`, async () => {
   test.skip(!proposed, "the control is the proposal's");
   test.setTimeout(10 * 60_000);
   await mkdir(OUT, { recursive: true });
@@ -575,6 +576,7 @@ test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
     ownAi: join(bin, "claude"),
     extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
     transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
+    microphone,
   });
   const still = async (name: string, widths: readonly number[]) => {
     for (const width of widths) {
@@ -600,18 +602,20 @@ test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
     await acceptPlainTextKeys(window);
     await dismissChatSetup(window);
     await setLanguage(window, LANG);
-    await window.evaluate(async () => {
+    const folderId = await window.evaluate(async () => {
       const core = (globalThis as unknown as Core).incarnamind;
       await core.updateSettings({
         device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
       });
+      const folder = await core.createLibraryGroup({ name: "Kestrel Bay", description: "" });
       await core.setAgentsEnabled(true);
       await core.connectAgent({
         name: "Claude Code",
         client: "claude-code",
-        folderIds: ["not-in-a-folder"],
+        folderIds: [folder.id, "not-in-a-folder"],
         propose: true,
       });
+      return folder.id;
     });
     await setWindowSize(app, window, 1440, HEIGHT);
     await window.getByTestId("plus-menu").click();
@@ -621,6 +625,11 @@ test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
         timeout: 30_000,
       })
       .toBe(true);
+    await window.evaluate(async (folderId) => {
+      const core = (globalThis as unknown as Core).incarnamind;
+      const [recording] = (await core.listMeetings()).filter((each) => each.status === "recording");
+      if (recording) await core.moveToFolder({ mindIds: [recording.mindId], folderId });
+    }, folderId);
     await window
       .getByTestId("meeting-foot-tip-close")
       .click({ timeout: 5000 })
@@ -629,6 +638,9 @@ test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
     await editor.locator("p").first().click();
     await window.keyboard.type(WORDS.typed[0] ?? "");
     await editor.evaluate((el) => (el as HTMLElement).blur());
+    await expect(window.getByTestId("note-ask-input"))
+      .toBeVisible({ timeout: 15_000 })
+      .catch(() => log.push("no input at the Note's foot"));
     const meeting = async () => {
       const found = (await meetings(window)).find((each) => each.status !== "stopped");
       if (!found) throw new Error("No meeting.");
@@ -636,20 +648,13 @@ test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
     };
 
     // The microphone the app may not use: its line above the control, the mark in the bars' place.
-    await app.evaluate(() =>
-      (
-        globalThis as { incarnamindFakeAudio?: { report(source: string, state: string): void } }
-      ).incarnamindFakeAudio?.report("microphone", "denied"),
-    );
-    await expect(window.getByTestId("meeting-foot-problem"))
-      .toBeVisible({ timeout: 15_000 })
-      .catch(() => log.push("no microphone line"));
-    await still("g3-mic-denied", [1440, 900]);
-    await app.evaluate(() =>
-      (
-        globalThis as { incarnamindFakeAudio?: { report(source: string, state: string): void } }
-      ).incarnamindFakeAudio?.report("microphone", "recording"),
-    );
+    if (microphone === "denied") {
+      await expect(window.getByTestId("meeting-foot-problem"))
+        .toBeVisible({ timeout: 15_000 })
+        .catch(() => log.push("no microphone line"));
+      await still("g3-mic-denied", [1440, 900]);
+      return;
+    }
 
     // Paused: the ring, the time held, no bars, Resume beside Stop.
     const { id } = await meeting();
@@ -684,7 +689,7 @@ test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
     });
     await still("g2-time-10000", [1440]);
   } finally {
-    await writeFile(join(OUT, `log-states-${tag}.txt`), log.join("\n"));
+    await writeFile(join(OUT, `log-states-${microphone}-${tag}.txt`), log.join("\n"));
     await app.close().catch(() => undefined);
     await removeDataFolder(dataDir);
     await removeDataFolder(home);
