@@ -44,7 +44,7 @@ import {
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { clientTitle } from "../../shared/agentNames";
-import { AGENT_TOKEN_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
+import { AGENT_SOCKET_ENV, AGENT_TOKEN_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
 import { pathFromHome } from "../../shared/homePath";
 import { translate } from "../../shared/i18n";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
@@ -649,7 +649,8 @@ export function createAgentSetup(options: AgentSetupOptions) {
 
   /**
    * IncarnaMind's entry out of a settings file, for a pairing whose key can't be read, so the entry
-   * is known by the program it starts alone: taken out where that is IncarnaMind's and no other
+   * is known only by what it starts: taken out where it starts IncarnaMind's program on this data
+   * folder's socket (another profile on this computer has a socket of its own) and no other
    * connection of the agent is left to own it. Whether the file holds no such entry now.
    */
   const takeOutUnread = async (file: SettingsFile, pairing: AgentPairing, madeForIt: boolean) => {
@@ -664,7 +665,13 @@ export function createAgentSetup(options: AgentSetupOptions) {
       const key = await keyOf(other.id);
       if (key && text.includes(key)) return true;
     }
-    if (others.length > 0 || command !== options.agents.launchFor("").command) return false;
+    const launch = options.agents.launchFor("");
+    const socket = launch.env[AGENT_SOCKET_ENV] ?? "";
+    const ours =
+      command === launch.command &&
+      socket !== "" &&
+      (text.includes(socket) || text.includes(JSON.stringify(socket).slice(1, -1)));
+    if (others.length > 0 || !ours) return false;
     const original = file.backup ? await readText(backupPathOf(path)) : null;
     const after = changed(file, text, null, original !== null && !holdsMcpServers(original));
     if (madeForIt && isEmptySettings(file.format, after)) await unlink(path);
@@ -720,21 +727,25 @@ export function createAgentSetup(options: AgentSetupOptions) {
   /**
    * Undo of a second press: the connection was there before it and stays, reading and writing what
    * it did. Its settings files go back to what they held, unless its key was renewed: the entry
-   * they held then has a key that works nowhere.
+   * they held then has a key that works nowhere. Its records go last, so an Undo that failed half
+   * way can be pressed again and finish, rather than find no second press and disconnect.
    */
   const undoAgain = async (pairingId: string, before: ConnectedBefore) => {
     const files = before.renewed ? [] : (written.get(pairingId) ?? []);
     for (const file of files) {
-      if (!file.file.backup && (await readText(file.path)) !== file.after) {
+      const now = await readText(file.path);
+      if (!file.file.backup && now !== file.after && now !== file.before) {
         throw new InvalidInputError({
           key: "error.agent.undoChanged",
           values: { path: file.path },
         });
       }
     }
+    options.agents.putBack(pairingId, before);
     for (const file of files) {
       await exclusive(file.path, async () => {
-        // Rewritten since by the agent that keeps its own state there: the entry in it works, and stays.
+        // Put back already, or rewritten since by the agent that keeps its own state there: the
+        // entry in it works, and stays.
         if ((await readText(file.path)) !== file.after) return;
         if (file.before === null) await unlink(file.path);
         else await replaceFile(file.path, file.before);
@@ -742,7 +753,6 @@ export function createAgentSetup(options: AgentSetupOptions) {
     }
     written.delete(pairingId);
     madeAgain.delete(pairingId);
-    options.agents.putBack(pairingId, before);
   };
 
   return {

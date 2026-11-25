@@ -572,6 +572,8 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     const keychain = createMemoryKeychain();
     const shimScript = await buildAgentShim();
     const opened: string[] = [];
+    /** While on, no app opens a file, as on a computer without Claude's app. */
+    const opening = { refused: false };
     const adapter = await agentsAdapter(dataDir);
     const start = () =>
       startCore(dataDir, {
@@ -580,6 +582,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
         agents: { ...adapter, shimScript, applications: [tempDir] },
         shell: {
           openPath: async (path) => {
+            if (opening.refused) throw new Error("No app opens it.");
             opened.push(path);
           },
           showItemInFolder: () => undefined,
@@ -589,7 +592,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     await core.setAgentsEnabled(true);
     const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
     const folderIds = [coast.id];
-    return { core, start, keychain, opened, folderIds, dataDir, home };
+    return { core, start, keychain, opened, opening, folderIds, dataDir, home };
   }
 
   const keyInBundle = async (path: string) =>
@@ -719,6 +722,46 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     const entry = JSON.parse(await readFile(claudeJson, "utf8")).mcpServers.incarnamind;
     const theirs = await restarted.getAgentLaunch(others?.id ?? "");
     expect(entry.env[AGENT_TOKEN_ENV] === theirs.env[AGENT_TOKEN_ENV]).toBe(true);
+  }, 60_000);
+
+  it("an entry that starts IncarnaMind for another profile on this computer stays when a connection whose key can't be read leaves, and is said", async () => {
+    const { restarted, pairing, claudeJson } = await keyUnreadable("claude-code");
+    // The same program, on another data folder's socket.
+    const settings = JSON.parse(await readFile(claudeJson, "utf8"));
+    settings.mcpServers.incarnamind.env[AGENT_SOCKET_ENV] = "/elsewhere/agents.sock";
+    await writeFile(claudeJson, `${JSON.stringify(settings, null, 2)}\n`);
+    const left = await restarted.disconnectAgent(pairing.id);
+    expect(left.settingsLeft?.map((each) => each.path)).toEqual([claudeJson]);
+    expect(await serversIn(claudeJson)).toEqual(["notes", "incarnamind"]);
+    expect((await restarted.getAgents()).pairings).toEqual([]);
+  }, 60_000);
+
+  it("a second press whose install can't open keeps Claude's out-of-date mark, so install again finishes it with a key that works", async () => {
+    const { core, opened, opening, folderIds } = await claudeComputer();
+    const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
+    const oldLaunch = await core.getAgentLaunch(pairing.id);
+    await callViaLegacyV1(
+      oldLaunch.env[AGENT_SOCKET_ENV] ?? "",
+      oldLaunch.env[AGENT_TOKEN_ENV] ?? "",
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    );
+    opening.refused = true;
+    await expect(core.setUpAgent({ client: "claude-desktop", folderIds })).rejects.toThrow(
+      /No app opens it/,
+    );
+    expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+
+    opening.refused = false;
+    await core.openAgentInstallAgain(pairing.id);
+    const now = await core.getAgentLaunch(pairing.id);
+    expect((await keyInBundle(opened.at(-1) ?? "")) === now.env[AGENT_TOKEN_ENV]).toBe(true);
+    const agent = await legacyAgentClient(now);
+    try {
+      await agent.listTools();
+    } finally {
+      await agent.close();
+    }
+    expect((await core.getAgents()).shimsOutOfDate).toEqual([]);
   }, 60_000);
 
   it("Undo after a second press that gave Claude Code a new key keeps the connection and the entry just written", async () => {

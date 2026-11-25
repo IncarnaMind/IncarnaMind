@@ -1525,7 +1525,7 @@ describe("one connection per app on this computer", () => {
     expect((await core.getAgents()).pairings).toHaveLength(1);
   });
 
-  it("a second press allows the check Claude Code runs again, and its Undo takes that back", async () => {
+  it("a second press allows the check Claude Code runs again, and its Undo leaves that as the press allowed it", async () => {
     const { core, coast } = await started();
     const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
     const consent = async (flow: "agents" | "hosted-agents") =>
@@ -1539,10 +1539,38 @@ describe("one connection per app on this computer", () => {
     const again = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
     expect(again.pairing.id).toBe(pairing.id);
     expect(await consent("hosted-agents")).toBe("accepted");
+    // The press on the connect sheet is the consent; Settings › Privacy is where it is taken back.
     await core.undoAgentSetup(pairing.id);
-    expect(await consent("hosted-agents")).not.toBe("accepted");
+    expect(await consent("hosted-agents")).toBe("accepted");
     expect(await consent("agents")).toBe("accepted");
   });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "an Undo of a second press that failed half way can be pressed again, and finishes with the connection kept",
+    async () => {
+      const { core, home, coast } = await started();
+      const folder = join(home, ".codex");
+      const path = join(folder, "config.toml");
+      await mkdir(folder);
+      await writeFile(path, 'model = "gpt-6-luna"\n');
+      const first = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+      await writeFile(path, 'model = "gpt-6-luna"\n');
+      const again = await core.setUpAgent({ client: "codex", folderIds: [ALL_SHARED_ID] });
+      // Its folder takes no new file, so the file can't be put back in its place.
+      await chmod(folder, 0o500);
+      try {
+        await expect(core.undoAgentSetup(again.pairing.id)).rejects.toThrow();
+      } finally {
+        await chmod(folder, 0o700);
+      }
+      await core.undoAgentSetup(again.pairing.id);
+      expect((await core.getAgents()).pairings).toMatchObject([
+        { id: first.pairing.id, folderIds: [coast.id] },
+      ]);
+      expect(await readFile(path, "utf8")).toBe('model = "gpt-6-luna"\n');
+      expect(await searchWorks(await core.getAgentLaunch(first.pairing.id))).toBe(true);
+    },
+  );
 
   it("Undo and a press of one app take turns: one connection is left, its key in the file and working", async () => {
     for (const undoneFirst of [true, false]) {
