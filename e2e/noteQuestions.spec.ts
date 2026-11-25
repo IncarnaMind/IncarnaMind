@@ -1,6 +1,6 @@
 import { chmod, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
@@ -398,22 +398,30 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
   }
 });
 
-test("each kind of question shows as a card in the conversation's column, its answers Claude Code's own and whole; a request that fails after a write says what it wrote; a lasting answer goes back as given; two at once; one it can't show; Chinese, at 900 px too", async () => {
+/**
+ * "Harbour notes" with a first request whose question was denied, its conversation opened in the
+ * column beside the Note, and each press noted.
+ */
+async function conversationInColumn(app: ElectronApplication, window: Page) {
+  await setWindowSize(app, window, 1440, 900);
+  await notePresses(window);
+  const { mindId } = await harbourNotes(window);
+  const before = (await outcomesOf(window, mindId)).length;
+  const card = await ask(window, "ask-command", "Check the late crossings and save a table");
+  await pointAndClick(window, card.getByTestId("own-ask-deny"));
+  await ended(window, mindId, before);
+  await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
+  await pointAndClick(window, group(window).getByTestId("conversation-move-right"));
+  return { mindId, column: window.getByTestId("note-column") };
+}
+
+test("each kind of question shows as a card in the conversation's column, what it will do whole and its answers Claude Code's own, whole too, and becomes a step", async () => {
   const { app, window } = await launched();
   try {
-    await setWindowSize(app, window, 1440, 900);
-    await notePresses(window);
-    const { mindId } = await harbourNotes(window);
-    // A conversation to open: a first request, its question denied.
-    let before = (await outcomesOf(window, mindId)).length;
-    let card = await ask(window, "ask-command", "Check the late crossings and save a table");
-    await pointAndClick(window, card.getByTestId("own-ask-deny"));
-    await ended(window, mindId, before);
-
+    const { mindId, column } = await conversationInColumn(app, window);
+    let before: number;
+    let card: Locator;
     // Each kind, in the column: what it will do, whole, and its answers.
-    await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
-    await pointAndClick(window, group(window).getByTestId("conversation-move-right"));
-    const column = window.getByTestId("note-column");
     // Each "don't ask again" whole in the narrow column too.
     const offering = (lasting: string) => ["Allow once", lasting, "Deny"];
     const edits = offering("Allow all edits for this request");
@@ -561,10 +569,19 @@ test("each kind of question shows as a card in the conversation's column, its an
         column.getByTestId("note-column-turn").last().getByTestId("own-step"),
       ).toContainText(answer === "once" ? "· allowed once" : "· denied");
     }
+  } finally {
+    await app.close();
+  }
+});
 
+test("in the conversation's column, a suggested answer reads in Chinese; a lasting answer goes back as given; two at once, one at a time; a request that fails after a write says what it wrote, its answers staying put as the turn above settles; one it can't show; Chinese at 900 px", async () => {
+  const { app, window } = await launched();
+  try {
+    const { mindId, column } = await conversationInColumn(app, window);
     // In Chinese: a suggested answer said in plain words.
     await setLanguage(window, "zh-CN");
-    before = (await outcomesOf(window, mindId)).length;
+    let before = (await outcomesOf(window, mindId)).length;
+    let card: Locator;
     card = await ask(window, "ask-tool", "查一下票务数据");
     expect(await answersOf(card)).toEqual([
       "允许一次",
@@ -628,6 +645,24 @@ test("each kind of question shows as a card in the conversation's column, its an
     // A request that fails after it wrote a file still says what it wrote, with why it failed.
     before = (await outcomesOf(window, mindId)).length;
     card = await ask(window, "ask-write-fails", "Write the table");
+    // Its answers stay where they are when the turn above grows or shrinks a moment after the card
+    // shows, as a turn that just ended settles: a press on its way lands on the answer it aims at.
+    const answerAt = async () => (await card.getByTestId("own-ask-once").boundingBox())?.y ?? -1;
+    const shown = await answerAt();
+    for (const settled of ["48px", "0px"]) {
+      await column
+        .getByTestId("note-column-turn")
+        .nth(-2)
+        .evaluate(
+          (turn, padding) =>
+            new Promise((done) => {
+              (turn as HTMLElement).style.paddingBottom = padding;
+              requestAnimationFrame(() => requestAnimationFrame(done));
+            }),
+          settled,
+        );
+      expect([settled, await answerAt()]).toEqual([settled, shown]);
+    }
     await pointAndClick(window, card.getByTestId("own-ask-once"));
     await ended(window, mindId, before);
     const failed = column.getByTestId("note-column-turn").last();

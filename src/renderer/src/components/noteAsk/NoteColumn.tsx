@@ -266,6 +266,35 @@ export function NoteConversationBody({
     else element.scrollTop = element.scrollHeight;
   }, [turns, trails, waiting, at, ask?.questions]);
 
+  // With the newest in view, it stays in view in the same frame as anything above it grows or
+  // shrinks (a turn above settling, say), not a moment later: a card's answers never move under a
+  // press on its way to them.
+  const atEnd = useRef(true);
+  const sizes = useRef<ResizeObserver | null>(null);
+  useEffect(() => {
+    const element = body.current;
+    if (!element) return;
+    const scrolled = () => {
+      atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
+    };
+    const observer = new ResizeObserver(() => {
+      if (atEnd.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    sizes.current = observer;
+    element.addEventListener("scroll", scrolled, { passive: true });
+    return () => {
+      observer.disconnect();
+      sizes.current = null;
+      element.removeEventListener("scroll", scrolled);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    for (const child of body.current?.children ?? []) {
+      sizes.current?.observe(child, { box: "border-box" });
+    }
+  });
+
   return (
     <div ref={body} data-testid="note-conversation-body" className={className}>
       {turns?.length === 0 && (
