@@ -191,7 +191,8 @@ export function ReadinessLine({
 /**
  * Shown in a Mind while Questions can't be asked, with a way to fix it.
  * Answers (#29) disable asking with the same explanation. With no model and the User's own AI
- * connected, the page stays bare: that AI is asked from a check's card, the chat box and ⌘K (#3373).
+ * connected, the page stays bare: that AI is asked from the Note's foot and a check's card (#3373,
+ * #3764).
  */
 export function ChatReadinessNotice({ mindId }: { mindId: string }) {
   const t = useT();
