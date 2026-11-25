@@ -2525,6 +2525,7 @@ export const en = {
   "viewer.deck.waiting.undo": "Not undone: the file can’t be written now.",
   "viewer.deck.tryAgain": "Try again",
   "viewer.deck.saveCopy": "Save a copy beside it",
+  "viewer.deck.chooseFolder": "Choose another folder…",
   "viewer.deck.overflow": "The text on slide\u00a0{slide} runs past its box",
   "viewer.deck.shrinkToFit": "Shrink text to fit",
   "viewer.deck.putBack": "Put back as it was",
@@ -6088,8 +6089,15 @@ export const en = {
     "Still locked. If no app has it open, delete “{lock}” beside it.",
   "error.deck.unwritable.folder":
     "The folder “{folder}” can’t be written, so the change isn’t saved yet.",
+  "error.deck.unwritable.cloud":
+    "“{name}” is in the cloud only. Download it first, then try again.",
+  "error.deck.unwritable.unreadable":
+    "IncarnaMind can’t read “{name}” right now, so the change isn’t saved yet.",
+  "error.deck.copyFailed.full": "Couldn’t save a copy: the disk is full.",
+  "error.deck.copyFailed.folder": "Neither “{folder}” nor the Output location can be written.",
+  "error.deck.copyFailed.other": "Couldn’t save a copy here; your change is still waiting.",
   "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
-  "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
+  "error.deck.unwritable.full": "The disk is full, so the change isn’t saved yet.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",
@@ -6188,6 +6196,8 @@ export const en = {
   "error.files.needsAnswer": "IncarnaMind needs to ask where it goes: keep it open to answer.",
   "quit.unsaved.deck.folder": "The folder “{folder}” can’t be written.",
   "quit.unsaved.deck.copyFailed": "The copy of “{name}” couldn’t be saved. {reason}",
+  "quit.unsaved.deck.cloud": "“{name}” is in the cloud only.",
+  "quit.unsaved.deck.unreadable": "IncarnaMind can’t read “{name}”.",
   "quit.copiedElsewhere": "The copy of “{name}” is in “{folder}”.",
   "quit.copiedElsewhere.ok": "Quit",
   "quit.unsaved.quit": "Quit anyway",
@@ -6509,6 +6519,7 @@ export const en = {
   "error.files.notSkipped.show": "Only a file the last add skipped can be shown.",
   "error.files.notSaved.show": "Only a file IncarnaMind saved can be shown.",
   "error.files.notSaved.open": "Only a file IncarnaMind saved can be opened.",
+  "error.files.savedGone": "the file is no longer there; it was moved or deleted",
   "error.provider.modelMissing": "Enter a model name.",
   "error.provider.unknown": "IncarnaMind doesn’t know the provider “{provider}”.",
   "error.provider.removed": "This provider was removed.",
@@ -9124,6 +9135,7 @@ export const en = {
   "agents.activity.update_canvas": "Changed the Canvas “{text}”",
   "agents.activity.read_request": "Read your request about “{text}”",
   "agents.activity.hand_over_file": "Handed over the file “{text}”",
+  "agents.activity.save_as_word": "Made the Word file “{text}”",
   "agents.handOver.kind":
     "IncarnaMind takes a deck (.pptx), a workbook (.xlsx), a Word file (.docx) or a PDF.",
   "agents.handOver.outsideConversation":
@@ -9145,6 +9157,17 @@ export const en = {
   "agents.handOver.inLibrary":
     "The User’s Library holds this file already, and IncarnaMind keeps one copy of a file: change it before you hand it over.",
   "agents.handOver.untitled": "Untitled file",
+  "agents.handOver.word.which": "Give exactly one: mindId for a note, or markdown for your text.",
+  "agents.handOver.word.unshared":
+    "This note cites a Document in a Folder that isn’t shared with you, so IncarnaMind won’t write it into a Word file for you. Ask the User to share that Folder with you, or to export the note to Word themselves.",
+  "agents.handOver.word.deleted":
+    "This note cites a Document that is no longer in the User’s Library, so IncarnaMind won’t write it into a Word file for you. Ask the User to take that Citation out of the note, or to export the note to Word themselves.",
+  "agents.handOver.word.libraryFacts":
+    "This note cites facts about the User’s Library, which you can’t read, so IncarnaMind won’t write it into a Word file for you. Ask the User to export the note to Word themselves.",
+  "agents.handOver.word.askLocation":
+    "IncarnaMind couldn’t save it where new files go without asking the User. Ask them to choose an Output location in IncarnaMind, in Settings › General, then save it again.",
+  "agents.handOver.word.askLinked":
+    "The Output location is in “{folder}”, a Linked folder the User hasn’t allowed new files in yet. Ask them to allow new files there in IncarnaMind, in Settings › General, then save it again.",
   "agents.handOver.unread.unreadable":
     "IncarnaMind kept the file but couldn’t read it: it may be damaged.",
   "agents.handOver.unread.password-protected":
@@ -9386,6 +9409,7 @@ export const en = {
   "noteAsk.doing.create_mind": "Writing “{summary}”",
   "noteAsk.doing.run_analysis": "Working out figures",
   "noteAsk.doing.publish_canvas": "Making a page",
+  "noteAsk.doing.save_as_word": "Making the Word file “{summary}”",
   "noteAsk.stopped": "Stopped.",
   "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
   "noteAsk.renewed": "Started a new conversation: this one can use {agent}’s own tools.",
@@ -9406,6 +9430,7 @@ export const en = {
   "noteAsk.doing.search.any": "Searching your Documents",
   "noteAsk.doing.propose_changes.any": "Writing the change",
   "noteAsk.doing.create_mind.any": "Writing a new note",
+  "noteAsk.doing.save_as_word.any": "Making a Word file",
   "noteAsk.doing.read_passages.counted": "Reading “{summary}” · {count} read",
   "noteAsk.done.held.one": "1 change waits for you in this note.",
   "noteAsk.done.held.other": "{count} changes wait for you in this note.",
@@ -9564,6 +9589,7 @@ export const en = {
   "noteAsk.did.create_mind": "Wrote “{summary}”",
   "noteAsk.did.run_analysis": "Worked out figures",
   "noteAsk.did.publish_canvas": "Made a page",
+  "noteAsk.did.save_as_word": "Made the Word file “{summary}”",
   "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
@@ -9772,6 +9798,23 @@ export const en = {
   "agents.ask.request.fixFile.where": "On {where}: ",
   "agents.ask.request.noteFile":
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
+  "agents.ask.request.fixWordNote":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
+  "agents.ask.request.fixWordNoteAll":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
+  "agents.ask.request.fixWordNoteWaits":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nPropose the fix in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your change waits for me to accept it, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted it.",
+  "agents.ask.request.fixWordNoteAllWaits":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nPropose a fix for each of them in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your changes wait for me to accept them, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted them.",
+  "agents.ask.request.wordFolder": ", with folderId {folderId}",
+  "agents.ask.request.wordNote":
+    "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",
+  "agents.ask.request.fixWordText":
+    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nIts text is in the note mindId {mindId} (read_mind). Fix it from my Documents, change nothing else, and save it again with save_as_word, the title {title}, folderId {folderId} and the corrected markdown.",
+  "agents.ask.request.fixWordTextAll":
+    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says these {count} need a look:\n\n{sentences}\n\nIts text is in the note mindId {mindId} (read_mind). Fix each of them from my Documents, change nothing else, and save it again with save_as_word, the title {title}, folderId {folderId} and the corrected markdown.",
+  "agents.ask.request.wordText":
+    "My message is about the Word file you saved to IncarnaMind from your own text, {title} (version {version}); its text is in the note mindId {mindId}.",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.request.document":

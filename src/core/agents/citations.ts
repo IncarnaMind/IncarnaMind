@@ -84,6 +84,18 @@ export function createAgentCitations(db: Database, now: () => string) {
     undefined;
 
   return {
+    /** The Documents the pairing was given a token of: a file it cited by its path among them. */
+    documentsOf(pairingId: string): Set<string> {
+      return new Set(
+        db
+          .all<{ document_id: string }>(
+            "SELECT DISTINCT document_id FROM agent_citations WHERE pairing_id = ? AND deleted_at IS NULL",
+            [pairingId],
+          )
+          .map((row) => row.document_id),
+      );
+    },
+
     /**
      * The Citation a token stands for, only for the pairing it was minted for (ADR-0026,
      * decision 3): another agent's token is no token here, so a token seen elsewhere can't be

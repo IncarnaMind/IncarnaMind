@@ -13,7 +13,7 @@ const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 const MAX_TRIES = 1000;
 
 /** The names a save of `name` tries, as `writeNewFile` and `freeFileName` pick them. */
-function* nameCandidates(name: string): Generator<string> {
+export function* nameCandidates(name: string): Generator<string> {
   const extension = extname(name);
   const stem = name.slice(0, name.length - extension.length);
   for (let n = 1; n <= MAX_TRIES; n++) yield n === 1 ? name : `${stem} ${n}${extension}`;
@@ -171,6 +171,25 @@ export async function freeFileName(
   throw new Error(`Every name like "${name}" is taken in that folder.`);
 }
 
+/** Which step of `replaceFile` failed: creating/writing the temporary file, or renaming it over the target. */
+export type ReplaceFileStage = "temp" | "rename";
+
+const replaceStages = new WeakMap<object, ReplaceFileStage>();
+
+/** Tags an error with the `replaceFile` step that threw it, for tests and adapters. */
+export function markReplaceStage<T>(error: T, stage: ReplaceFileStage): T {
+  if (error !== null && (typeof error === "object" || typeof error === "function")) {
+    replaceStages.set(error, stage);
+  }
+  return error;
+}
+
+/** Which step of `replaceFile` threw `error`, if known. */
+export const replaceStageOf = (error: unknown): ReplaceFileStage | undefined =>
+  error !== null && (typeof error === "object" || typeof error === "function")
+    ? replaceStages.get(error)
+    : undefined;
+
 /**
  * Replaces the file at `path` with `data`, written beside it first and then renamed over it, so a
  * reader sees the old file or the new one, never part of either. `stillSo` is asked right before
@@ -185,16 +204,24 @@ export async function replaceFile(
 ): Promise<boolean> {
   const temporary = join(dirname(path), `.${randomUUID()}.partial`);
   try {
-    const file = await open(temporary, "wx");
     try {
-      await file.writeFile(data);
-      if (mode !== undefined) await file.chmod(mode);
-      await file.sync();
-    } finally {
-      await file.close();
+      const file = await open(temporary, "wx");
+      try {
+        await file.writeFile(data);
+        if (mode !== undefined) await file.chmod(mode);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+    } catch (error) {
+      throw markReplaceStage(error, "temp");
     }
     if (!(await stillSo())) return false;
-    await rename(temporary, path);
+    try {
+      await rename(temporary, path);
+    } catch (error) {
+      throw markReplaceStage(error, "rename");
+    }
     return true;
   } finally {
     await rm(temporary, { force: true });

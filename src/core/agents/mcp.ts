@@ -52,10 +52,10 @@ export const SERVER_INSTRUCTIONS = [
   "For a handoff (“About my note … in IncarnaMind”, “Check my note …”, open Document, meeting, flagged sentence or search scope), `read_request` first. It holds the rest. Pass a named Note’s title.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
-  "To write, draft or summarize in IncarnaMind (report, meeting summary, draft), use `create_mind`, not chat only; answer questions in chat. Page: `publish_canvas`; file you made: `hand_over_file`, unasked.",
+  "To write or summarize in IncarnaMind (report, meeting summary, draft), use `create_mind`, not chat only; answer questions in chat. Page: `publish_canvas`; Note or text as Word: `save_as_word`; file on disk: `hand_over_file`, unasked.",
   "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
   "A figure no Passage states: `run_analysis` for rows or lists (report its id), else your own working.",
-  "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for IncarnaMind's own check, never for a check in general.",
+  "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for it, never for a check in general.",
 ].join("\n");
 
 const passageId = z.string().describe("A passageId from search or read_passages.");
@@ -800,51 +800,78 @@ export function createAgentServer(
     (input) => answer(() => access.updateCanvas(input)),
   );
 
+  const handedOut = z.object({
+    fileId: z.string(),
+    title: z.string(),
+    folder: z.string(),
+    version: z.number(),
+    mindId: z.string().nullable(),
+    status: z.enum(["checked", "running", "not-checked"]),
+    why: z.string().nullable(),
+    supported: z.number(),
+    needLook: z.number(),
+    claims: z.array(
+      z.object({
+        where: z.string().nullable(),
+        text: z.string(),
+        result: z.string(),
+        says: z.string().nullable(),
+      }),
+    ),
+    formulas: z
+      .object({
+        workedOut: z.number(),
+        notWorkedOut: z.number(),
+        differ: z.array(z.object({ cell: z.string(), saved: z.string(), worked: z.string() })),
+      })
+      .nullable(),
+  });
+  // A version only for other bytes, and a Word file IncarnaMind writes carries its item's date, so
+  // unchanged words keep their version; its contents go to the User's AI model.
+  const handsOver = {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  } as const;
+
   server.registerTool(
     tool("hand_over_file"),
     {
       title: "Hand over a file you made",
       description:
-        "Every .pptx, .xlsx, .docx or .pdf you make for the User from their Documents: hand it over by its path, unasked, so they see it in IncarnaMind, which keeps each version; its result says whether it was checked. Changed, hand it over again; while running, call again.",
+        "Every .pptx, .xlsx or .pdf you make for the User from their Documents, or a .docx already on disk: hand it over by its path, unasked, so they see it in IncarnaMind, which keeps each version; its result says whether it was checked. Changed, hand it over again; while running, call again.",
       inputSchema: z.object({
         path: z.string(),
         folderId: z.string().optional(),
       }),
-      outputSchema: z.object({
-        fileId: z.string(),
-        title: z.string(),
-        folder: z.string(),
-        version: z.number(),
-        mindId: z.string().nullable(),
-        status: z.enum(["checked", "running", "not-checked"]),
-        why: z.string().nullable(),
-        supported: z.number(),
-        needLook: z.number(),
-        claims: z.array(
-          z.object({
-            where: z.string().nullable(),
-            text: z.string(),
-            result: z.string(),
-            says: z.string().nullable(),
-          }),
-        ),
-        formulas: z
-          .object({
-            workedOut: z.number(),
-            notWorkedOut: z.number(),
-            differ: z.array(z.object({ cell: z.string(), saved: z.string(), worked: z.string() })),
-          })
-          .nullable(),
-      }),
-      // It keeps a version only when the file changed; its contents go to the User's AI model.
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
+      outputSchema: handedOut,
+      annotations: handsOver,
     },
     (input) => answer(() => access.handOverFile(input)),
+  );
+
+  server.registerTool(
+    tool("save_as_word"),
+    {
+      title: "Save as a Word file",
+      description:
+        "For a Word file (.docx) of a Note or of your text, never build one yourself: IncarnaMind writes it as its Export › Word does, Citations as footnotes, saves it in the User's folder for new files (saved: its path) and keeps it in their Library with its check, so don't hand it over. Give mindId, or markdown as in create_mind with a title. While running, call again.",
+      inputSchema: z.object({
+        mindId: z.string().optional(),
+        markdown: z.string().optional(),
+        title: z.string().optional().describe("The file's name; a Note's own by default."),
+        folderId: z.string().optional(),
+      }),
+      outputSchema: handedOut.extend({
+        citations: z.array(checkedCitationOut),
+        refused: leftOut,
+        saved: z.string().nullable(),
+        notSaved: z.string().nullable().describe("Why it isn't saved there: tell the User."),
+      }),
+      annotations: handsOver,
+    },
+    (input) => answer(() => access.saveAsWord(input)),
   );
 
   server.registerTool(
