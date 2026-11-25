@@ -36,6 +36,8 @@ export type {
   CpuFallbackReason,
   CrashReporter,
   CrossEncoder,
+  DeckFileStat,
+  DeckFiles,
   Embedder,
   EmbeddingModelFiles,
   EmbeddingModelSource,

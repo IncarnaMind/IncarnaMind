@@ -18,13 +18,16 @@ export const middleCut = (name: string): string =>
  */
 function unwritableActions(
   why: DeckUnwritable["why"],
-  actions: { saveCopy: ProblemAction; tryAgain: ProblemAction },
+  copyFailed: DeckUnwritable["copyFailed"],
+  actions: { saveCopy: ProblemAction; chooseFolder: ProblemAction; tryAgain: ProblemAction },
 ): { action: ProblemAction; also?: ProblemAction } {
+  const copyAction = copyFailed === "folder" ? actions.chooseFolder : actions.saveCopy;
   // Gone, or written by another program since: only a copy beside it keeps the change.
-  if (why === "gone" || why === "changed") return { action: actions.saveCopy };
-  return why === "locked"
-    ? { action: actions.tryAgain, also: actions.saveCopy }
-    : { action: actions.saveCopy, also: actions.tryAgain };
+  if (why === "gone" || why === "changed") return { action: copyAction };
+  if (copyFailed === "folder") return { action: actions.chooseFolder, also: actions.tryAgain };
+  return why === "locked" || why === "full" || why === "cloud"
+    ? { action: actions.tryAgain, also: copyAction }
+    : { action: copyAction, also: actions.tryAgain };
 }
 
 /**
@@ -54,11 +57,16 @@ export function DeckLines({
       {waiting && (
         <ProblemLine
           testId="viewer-deck-unwritable"
-          {...unwritableActions(why ?? waiting.why, {
+          {...unwritableActions(why ?? waiting.why, waiting.copyFailed, {
             saveCopy: {
               label: t("viewer.deck.saveCopy"),
               onClick: editing.saveCopy,
               testId: "viewer-deck-save-copy",
+            },
+            chooseFolder: {
+              label: t("viewer.deck.chooseFolder"),
+              onClick: editing.chooseFolder,
+              testId: "viewer-deck-choose-folder",
             },
             tryAgain: {
               label: t("viewer.deck.tryAgain"),
@@ -68,13 +76,16 @@ export function DeckLines({
           })}
         >
           <ProblemMark />
-          {/* The lock file is named only once Try again has failed on it: most often the app is open. */}
-          {waiting.lock && waiting.again && !fileGone
-            ? t("error.deck.unwritable.lockFile", { lock: middleCut(waiting.lock) })
-            : t(`error.deck.unwritable.${why ?? waiting.why}`, {
-                name: middleCut(waiting.name),
+          {waiting.copyFailed
+            ? t(`error.deck.copyFailed.${waiting.copyFailed}`, {
                 folder: middleCut(waiting.folder ?? ""),
-              })}
+              })
+            : waiting.lock && waiting.again && !fileGone
+              ? t("error.deck.unwritable.lockFile", { lock: middleCut(waiting.lock) })
+              : t(`error.deck.unwritable.${why ?? waiting.why}`, {
+                  name: middleCut(waiting.name),
+                  folder: middleCut(waiting.folder ?? ""),
+                })}
         </ProblemLine>
       )}
       {overflow && (
