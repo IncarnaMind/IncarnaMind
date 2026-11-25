@@ -10,7 +10,7 @@ import {
 } from "react";
 import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
-import { drawnNoteAskBox } from "../components/noteAsk/noteAskBox";
+import { drawnNoteAskBox, watchDrawnNoteAskBox } from "../components/noteAsk/noteAskBox";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { useNoteAskShown, useNoteAsks } from "../ownAiInNote";
@@ -523,7 +523,15 @@ function useBarPlace(
       });
       if (placed.kind === "dock" && change.focused) scrollAboveCard(editor, box, line, placed.y);
     };
-    return autoUpdate(editor.view.dom, element, place);
+    const page = editor.view.dom.closest(".mind-tab-page");
+    const stopFollowing = autoUpdate(editor.view.dom, element, place);
+    // The box at the Note's foot grows and shrinks by itself, as a question or a reply comes, with
+    // no scroll or resize of the page.
+    const stopWatching = page ? watchDrawnNoteAskBox(page, place) : undefined;
+    return () => {
+      stopFollowing();
+      stopWatching?.();
+    };
   }, [editor, bar, change]);
 }
 

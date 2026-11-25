@@ -1206,7 +1206,7 @@ test("scrolled to its end, a Note's last line stands above its conversation open
   }
 });
 
-test("at 900 px a waiting change's bar stands whole above the Note's input, with the conversation open upward over the Note's foot or folded, and its Accept takes the press", async () => {
+test("at 900 px a waiting change's bar stands whole above the Note's input, with the conversation open upward over the Note's foot or folded, docks again each time the box grows or shrinks under it, and its Accept takes the press", async () => {
   const { app, window } = await launched();
   try {
     await acceptPlainTextKeys(window);
@@ -1257,6 +1257,17 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
 
     const scroller = group.getByTestId("mind-scroller");
     const bar = window.getByTestId("change-bar");
+    const box = group.getByTestId("note-ask-box");
+    const stacked = async (element: Locator) =>
+      element.evaluate((node) => Number(getComputedStyle(node).zIndex) || 0);
+    // A press at its Accept lands on Accept, not on what stands over the Note's foot.
+    const pressable = () =>
+      bar.getByTestId("change-accept").evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+        );
+      });
     for (const upward of [true, false]) {
       await showConversation(window, 0, upward);
       await expect(group.getByTestId("note-ask-panel")).toHaveCount(upward ? 1 : 0);
@@ -1286,27 +1297,70 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
       await expect(bar).toHaveCSS("visibility", "visible");
       await motionSettled(window);
       await shot(window, `change-bar-${upward ? "upward" : "folded"}-900-en`);
-      const box = group.getByTestId("note-ask-box");
       const [placed, input, changed] = [await boxOf(bar), await boxOf(box), await boxOf(change)];
       const where = upward ? "open upward" : "folded";
       // Between its change and the box, clear of both, and drawn over the fade the box draws.
       expect(placed.y, where).toBeGreaterThanOrEqual(changed.y + changed.height - 1);
       expect(placed.y + placed.height, where).toBeLessThanOrEqual(input.y);
-      const stacked = async (element: Locator) =>
-        element.evaluate((node) => Number(getComputedStyle(node).zIndex) || 0);
       expect(await stacked(bar), where).toBeGreaterThan(await stacked(box));
-      // A press at its Accept lands on Accept, not on what stands over the Note's foot.
-      const pressed = await bar.getByTestId("change-accept").evaluate((button) => {
-        const box = button.getBoundingClientRect();
-        return button.contains(
-          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
-        );
-      });
-      expect(pressed, where).toBe(true);
+      expect(await pressable(), where).toBe(true);
     }
+
+    // With the cursor resting in the change, put there by the keyboard, and no pointer on it, the
+    // bar docks again above the box each time the box grows or shrinks, with no scroll between.
+    const dockedAbove = async (where: string) => {
+      await motionSettled(window);
+      await expect
+        .poll(
+          async () => {
+            const [placed, input] = [await boxOf(bar), await boxOf(box)];
+            return Math.round(input.y - (placed.y + placed.height));
+          },
+          { message: `${where}: the bar's room above the box` },
+        )
+        .toBe(16);
+      const [placed, changed] = [await boxOf(bar), await boxOf(change)];
+      expect(placed.y, where).toBeGreaterThanOrEqual(changed.y + changed.height - 1);
+      expect(await stacked(bar), where).toBeGreaterThan(await stacked(box));
+      expect(await pressable(), where).toBe(true);
+    };
+    const [text, view] = [
+      await boxOf(group.locator('[data-testid="mind-pane"] .mind-measure')),
+      await boxOf(scroller),
+    ];
+    await window.mouse.click(text.x + 40, view.y + view.height / 3);
+    await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+    await expect(bar).toBeVisible();
+    await dockedAbove("folded, the cursor in the change");
+    await showConversation(window, 0, true);
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(1);
+    await dockedAbove("opened upward under the bar");
+    await shot(window, "change-bar-cursor-upward-900-en");
+    await showConversation(window, 0, false);
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
+    await dockedAbove("folded under the bar");
+    // A question of the AI's grows the box over the Note's foot by itself.
+    await nextRun("ask-command");
+    const asked = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Check the late crossings and save a table");
+    await window.keyboard.press("Enter");
+    const card = group.getByTestId("own-ask-card");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await dockedAbove("a question asked under the bar");
+    await shot(window, "change-bar-question-900-en");
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, asked);
+    await expect(card).toHaveCount(0);
+    await dockedAbove("the question answered");
+    // Pressed with the conversation open under it, Accept takes the press, and the conversation
+    // stays open.
+    await showConversation(window, 0, true);
+    await dockedAbove("opened again under the bar");
     await pointAndClick(window, bar.getByTestId("change-accept"));
     await expect(editor.locator("ins.proposal-insert")).toHaveCount(0);
     await expect(editor).toContainText("A covered waiting room comes with it.");
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(1);
   } finally {
     await app.close();
   }
