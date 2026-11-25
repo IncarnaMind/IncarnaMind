@@ -14656,8 +14656,9 @@ body.assistant-dragging * {
 .comments-count {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   height: 28px;
-  padding: 0 8px;
+  padding: 0 6px;
   border-radius: 6px;
   color: var(--color-ink-meta);
   font-family: var(--font-sans);

@@ -74,8 +74,10 @@ export function useTabStripFit(
       const shown = tabs.findIndex((tab) => tab.dataset.tabId === shownId);
       const was = element.scrollLeft;
       // The strip's room, less what the ⌄ takes when a tab hides (its space shows only then, so
-      // the fit asks for it in advance and the button comes and goes in the same layout).
-      const roomNow = () => element.offsetWidth + spare.offsetWidth;
+      // the fit asks for it in advance and the button comes and goes in the same layout), and less
+      // what the Note's own controls reach past the strip's end once the spacer is gone (#3765).
+      const roomNow = () =>
+        element.offsetWidth + spare.offsetWidth - Math.max(0, band.scrollWidth - band.clientWidth);
       const fitFrom = (scrollLeft: number, bring: number, room = roomNow()) => {
         const box = element.getBoundingClientRect();
         const offset = element.scrollLeft - box.left;
@@ -210,6 +212,10 @@ export function useTabStripFit(
     // The list too: the "Show all tabs" button takes room from it as it comes and goes.
     resized.observe(element);
     resized.observe(band);
+    // The Note's controls grow as a check or a comment lands, the strip and spacer staying as
+    // they are once the spacer is gone.
+    const controls = band.querySelector('[data-testid="note-controls"]');
+    if (controls) resized.observe(controls);
     for (const tab of element.querySelectorAll(':scope > [role="tab"]')) resized.observe(tab);
     element.addEventListener("wheel", onWheel, { passive: true });
     element.addEventListener("scrollend", onScrollEnd);
