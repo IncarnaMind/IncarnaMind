@@ -174,6 +174,40 @@ async function answersOf(card: Locator): Promise<string[]> {
   return laid.map(({ text }) => text).reverse();
 }
 
+/** How much of an element shows inside every box around it that clips what it holds. */
+const shownOf = (element: Locator) =>
+  element.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    let top = 0;
+    let bottom = innerHeight;
+    for (let at = node.parentElement; at; at = at.parentElement) {
+      if (!/(auto|scroll|hidden|clip)/.test(getComputedStyle(at).overflowY)) continue;
+      const clip = at.getBoundingClientRect();
+      top = Math.max(top, clip.top);
+      bottom = Math.min(bottom, clip.bottom);
+    }
+    return {
+      any: box.bottom > top + 0.5 && box.top < bottom - 0.5,
+      whole: box.top >= top - 0.5 && box.bottom <= bottom + 0.5,
+    };
+  });
+
+/**
+ * Checks that the line of what a lasting answer grants shows whole whenever its button shows: with
+ * the box scrolled so the button is at its top edge, at its bottom edge, and as it opened.
+ */
+async function grantsInViewWithButton(card: Locator) {
+  const button = card.getByTestId("own-ask-suggested");
+  const grants = card.getByTestId("own-ask-grants");
+  expect((await shownOf(button)).any).toBe(true);
+  expect((await shownOf(grants)).whole).toBe(true);
+  for (const block of ["start", "end"] as const) {
+    await button.evaluate((node, at) => node.scrollIntoView({ block: at }), block);
+    expect((await shownOf(button)).any).toBe(true);
+    expect((await shownOf(grants)).whole).toBe(true);
+  }
+}
+
 /** The steps of the AI's own in the conversation, as they read, once at least one shows. */
 async function stepsIn(scope: Locator): Promise<string[]> {
   await expect(scope.getByTestId("own-step").first()).toBeVisible();
@@ -208,7 +242,8 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     // Where a command runs can't be told from it.
     await expect(card.getByTestId("own-ask-where")).toHaveCount(0);
     // Claude Code's own three choices; its "don't ask again" of three parts is a short button
-    // with every part, whole, in a line under it.
+    // with every part, whole, in a line by it: above the row, or under it once they stand one
+    // under another.
     expect(await answersOf(card)).toEqual([
       "Allow once",
       "Don’t ask again in this conversation",
@@ -223,6 +258,26 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await expect(input).toBeFocused();
     expect((await firstLine.boundingBox())?.y ?? 0).toBe(noteAt);
     await shot(window, "card-folded-command-en");
+    // The box scrolls: what the answer grants is in view whenever its button is, at both widths,
+    // and in a window low enough that the card is taller than the box.
+    await grantsInViewWithButton(card);
+    await setWindowSize(app, window, 900, 760);
+    await grantsInViewWithButton(card);
+    await setWindowSize(app, window, 900, 560);
+    expect(
+      await card.evaluate((node) => {
+        for (let at = node.parentElement; at; at = at.parentElement) {
+          if (
+            at.scrollHeight > at.clientHeight + 1 &&
+            /(auto|scroll)/.test(getComputedStyle(at).overflowY)
+          )
+            return true;
+        }
+        return false;
+      }),
+    ).toBe(true);
+    await grantsInViewWithButton(card);
+    await setWindowSize(app, window, 1440, 900);
 
     // Shift+Tab reaches the answers on Deny; the arrows move; Esc goes back to the input; Enter
     // answers.

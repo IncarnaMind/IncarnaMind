@@ -1076,20 +1076,16 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
             const id = hooks?.PreToolUse?.[0]?.hookCallbackIds?.[0] ?? "";
             calls.forEach((input, n) => say({ type: "control_request", request_id: "h" + n, request: { subtype: "hook_callback", callback_id: id, input: { hook_event_name: "PreToolUse", ...input } } }));
           } else if (v.type === "control_response") {
-            answers.push(v.response.response);
+            answers.push(v.response.response?.hookSpecificOutput?.permissionDecision ?? "goes on");
             if (answers.length === calls.length) say({ type: "result", subtype: "success", is_error: false, result: JSON.stringify({ hooks, answers }) });
           }
         });
       `,
     });
     const { end } = await converse(async () => "deny");
-    const { hooks, answers } = JSON.parse(end.kind === "finished" ? end.reply : "{}") as {
+    return JSON.parse(end.kind === "finished" ? end.reply : "{}") as {
       hooks: { PreToolUse: { matcher: string; onFailure: string }[] };
-      answers: { hookSpecificOutput?: { permissionDecision: string } }[];
-    };
-    return {
-      hooks,
-      answers: answers.map((each) => each.hookSpecificOutput?.permissionDecision ?? "goes on"),
+      answers: string[];
     };
   }
 
@@ -1135,8 +1131,8 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (ſ is s), as Windows opens it (dots or spaces at a part's end, a stream after a colon, an 8.3 short name), where a symbolic link by another name really leads, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
-  it("knows a steering file in any case, as Windows spells it, through a link, in a command spelt another way, and the User's own servers", async () => {
+  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (ſ is s) or a character an older Mac disk leaves out of names, as Windows opens it (dots or spaces at a part's end, a stream after a colon), where a symbolic link by another name really leads, a link to a folder not there yet too, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, CLAUDE<U+200B>.md, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
+  it("knows a steering file in any case, as a disk or Windows spells it, through a link, in a command spelt another way, and the User's own servers", async () => {
     const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
     await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
     await mkdir(join(work, ".claude"));
@@ -1144,24 +1140,34 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     await symlink(join(work, ".claude"), join(work, "docs"), "junction");
     await symlink("CLAUDE.local.md", join(work, "plan.md"), "file");
     await link(join(work, "CLAUDE.md"), join(work, "copy.md"));
-    // Windows gives the folder a short 8.3 name where the disk keeps them.
-    const short = process.platform === "win32" && existsSync(join(work, "CLAUDE~1"));
+    // A link to a .claude folder that isn't there yet.
+    await mkdir(join(work, "fresh"));
+    await symlink(join(work, "fresh", ".claude"), join(work, "fresh", "docs"), "junction");
     const cases: [string, Record<string, unknown>, string][] = [
-      ...(short
-        ? [
-            [
-              "CLAUDE~1/settings.local.json, .claude's short name",
-              {
-                tool_name: "Write",
-                tool_input: {
-                  file_path: join(work, "CLAUDE~1", "settings.local.json"),
-                  content: "{}",
-                },
-              },
-              "ask",
-            ] as [string, Record<string, unknown>, string],
-          ]
-        : []),
+      [
+        "fresh/docs/settings.local.json, docs a link to a .claude not there yet",
+        {
+          tool_name: "Write",
+          tool_input: {
+            file_path: join(work, "fresh", "docs", "settings.local.json"),
+            content: "{}",
+          },
+        },
+        "ask",
+      ],
+      [
+        "CLAUDE.md with a zero-width space inside",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "CLAUDE​.md"), content: "x" },
+        },
+        "ask",
+      ],
+      [
+        "a right-to-left mark inside .claude, in a command",
+        { tool_name: "Bash", tool_input: { command: "echo {} > .cla‮ude/settings.json" } },
+        "ask",
+      ],
       [
         "CLAUDE.md. with a dot at its end",
         { tool_name: "Write", tool_input: { file_path: join(work, "CLAUDE.md."), content: "x" } },
@@ -1305,6 +1311,23 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       cases.map(([name, , said]) => [name, said]),
     );
   });
+
+  // protects=on Windows a steering folder is known by its 8.3 short name too (CLAUDE~1 is .claude), which only the system's own resolver gives its long name; runs on the nightly's Windows job; fails_when=a write to CLAUDE~1\settings.local.json goes on unasked, or the disk keeps no short names and the case quietly isn't tried
+  it.runIf(process.platform === "win32")(
+    "knows a steering folder by its 8.3 short name on Windows",
+    async () => {
+      const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+      await mkdir(join(work, ".claude"));
+      expect(existsSync(join(work, "CLAUDE~1"))).toBe(true);
+      const { answers } = await useHookAnswers([
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "CLAUDE~1", "settings.local.json"), content: "{}" },
+        },
+      ]).finally(() => rm(work, { recursive: true, force: true }));
+      expect(answers).toEqual(["ask"]);
+    },
+  );
 
   // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
   it("allows a call of IncarnaMind's own without asking", async () => {

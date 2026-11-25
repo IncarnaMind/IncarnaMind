@@ -372,6 +372,8 @@ export function QuestionCard({
         )}
       </div>
       <div className="approval-actions own-ask-actions">
+        {/* Above the row, so it is in view whenever the button is: a box that scrolls can hide what is under the row. */}
+        {!stacked && lasting.grants && <Grants id={grantsId} grants={lasting.grants} />}
         <div
           ref={toolbar}
           role="toolbar"
@@ -416,7 +418,6 @@ export function QuestionCard({
             </Fragment>
           ))}
         </div>
-        {!stacked && lasting.grants && <Grants id={grantsId} grants={lasting.grants} />}
       </div>
     </fieldset>
   );

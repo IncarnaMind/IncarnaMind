@@ -6,7 +6,7 @@
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
 import { existsSync, readlinkSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
 
@@ -38,22 +38,31 @@ function realOf(path: string): string | null {
   }
 }
 
+const partsOf = (path: string) => path.split(/[\\/]/).filter((part) => part !== "");
+
 /**
- * Where `path` leads: links followed, the last one too when what it names isn't there yet, since a
- * write through it makes that file.
+ * Where `path` leads: each part of it in turn, a link replaced by where it leads, even a link to a
+ * folder or file that isn't there yet, since a write through it can make that.
  */
 function leadsTo(path: string): string | null {
-  let at = path;
-  for (let hops = 0; hops < 40; hops += 1) {
+  let at = parse(path).root;
+  const parts = partsOf(path.slice(at.length));
+  for (let hops = 0; parts.length > 0; ) {
+    const next = join(at, parts.shift() ?? "");
     let target: string;
     try {
-      target = readlinkSync(at);
+      target = readlinkSync(next);
     } catch {
-      return realOf(at);
+      at = next;
+      continue;
     }
-    at = resolve(dirname(at), target);
+    hops += 1;
+    if (hops > 40) return null;
+    const led = resolve(dirname(next), target);
+    at = parse(led).root;
+    parts.unshift(...partsOf(led.slice(at.length)));
   }
-  return null;
+  return realOf(at);
 }
 
 /** `path` from `folder`, when it is inside it; null when it isn't. */
@@ -230,13 +239,20 @@ const STEERING_FILES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Characters that draw nothing which an older Mac disk (HFS+) leaves out when it compares names, so
+ * that CLAUDE.md with one inside is CLAUDE.md there.
+ */
+const UNSEEN_IN_NAMES = /[​-‏‪-‮⁪-⁯﻿]/g;
+
+/**
  * A part of a path as the disk finds it: letters a disk takes as others folded (the long s, ſ, is
- * an s), and, as Windows opens a file, without the dots and spaces that end it or a stream named
- * after a colon (CLAUDE.md::$DATA is CLAUDE.md).
+ * an s) and characters it leaves out taken out, and, as Windows opens a file, without the dots and
+ * spaces that end it or a stream named after a colon (CLAUDE.md::$DATA is CLAUDE.md).
  */
 const asFound = (part: string) =>
   part
     .normalize("NFKC")
+    .replace(UNSEEN_IN_NAMES, "")
     .toLowerCase()
     .replace(/:.*$/, "")
     .replace(/[. ]+$/, "");
@@ -280,7 +296,7 @@ const STEERING_NAMES =
  * archive it unpacks, is not seen.
  */
 const namesSteering = (command: string) => {
-  const folded = command.normalize("NFKC");
+  const folded = command.normalize("NFKC").replace(UNSEEN_IN_NAMES, "");
   return STEERING_NAMES.test(folded) || STEERING_NAMES.test(folded.replace(/["'\\]/g, ""));
 };
 
