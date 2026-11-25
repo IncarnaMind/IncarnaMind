@@ -11,6 +11,8 @@ import {
 import { useT } from "../../i18n";
 import { assistantTabOf } from "../../layoutSlice";
 import { useWritingProperties } from "../../mindStyles";
+import { useAskedState } from "../../askedChanges";
+import { useNoteAsks } from "../../ownAiInNote";
 import { useHiddenForOwnAi, useOwnAiOnly } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
@@ -72,6 +74,10 @@ export function MindTab({ mindId }: { mindId: string }) {
   );
   const meetingFoot = useMeetingFootShown(mindId);
   const review = useReviewShown(mindId);
+  // The finished change is said once (#3762): where the Note's conversation shows its Undo, the
+  // page draws no line of its own.
+  const askTurn = useNoteAsks((state) => state.byMind[mindId]?.turnId ?? "");
+  const askUndo = useAskedState(askTurn, mindId) === "can-undo";
   const reviewShown = review.shown;
   if (!mind) return null;
 
@@ -84,7 +90,10 @@ export function MindTab({ mindId }: { mindId: string }) {
       >
         <div ref={setOutlineButton} className="note-outline-button-slot" />
         <div ref={setOutline} className="contents" />
-        <div className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col">
+        <div
+          data-ask-undo={askUndo || undefined}
+          className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col"
+        >
           {/* The page's own corners and foot stand above the input at its foot (#3627). */}
           <div className="relative flex min-h-0 flex-grow flex-col">
             {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}

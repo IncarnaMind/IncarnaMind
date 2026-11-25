@@ -2845,9 +2845,9 @@
     width: 16px !important;
     height: 16px !important;
   }
-  /* The finished change is said once, where the conversation shows it: line or column (#3762). */
-  .app-card:has([data-testid="note-ask-undo"]) [data-testid="applied-line"] {
-    display: none !important;
+  /* The finished change is said once, where the Note's conversation shows it: line or column (#3762). */
+  .mind-tab-page[data-ask-undo] .mind-editor [data-testid="applied-line"] {
+    display: none;
   }
   /*
    * What the meeting says over its control, each a card of its own: the microphone's problem, the
