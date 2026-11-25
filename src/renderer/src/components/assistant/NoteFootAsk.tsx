@@ -1,5 +1,5 @@
 import { useT } from "../../i18n";
-import { useNoAiForNote, useOwnAiPill } from "../../ownAiPanel";
+import { useNoAiForNote, useOwnAiPillAt } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 import { OwnAiPill } from "./OwnAiPill";
@@ -12,10 +12,10 @@ import { OwnAiPill } from "./OwnAiPill";
  */
 export function NoteFootAsk({ mindId }: { mindId: string }) {
   const t = useT();
-  const pill = useOwnAiPill();
+  const pill = useOwnAiPillAt(mindId);
   const noAi = useNoAiForNote(mindId);
   const openSettings = useAppStore((state) => state.openSettings);
-  if (pill?.mindId === mindId) {
+  if (pill) {
     return (
       <div data-testid="note-foot-ask" data-mind-id={mindId} className="mind-measure note-foot-ask">
         <OwnAiPill {...pill} />

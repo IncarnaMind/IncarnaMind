@@ -234,7 +234,7 @@ export function SelectionMenu({
       if (!menu.current?.contains(window.document.activeElement)) {
         focusBeforeMenu.current = window.document.activeElement as HTMLElement | null;
       }
-      if (open) (settingUp && !pick ? firstAdd : firstItem).current?.focus();
+      if (open) ((settingUp || noAi) && !pick ? firstAdd : firstItem).current?.focus();
       else {
         setFocusWanted(true);
         setOpen(true);
@@ -242,7 +242,7 @@ export function SelectionMenu({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [held, open, settingUp, pick]);
+  }, [held, open, settingUp, noAi, pick]);
 
   // Asked about, the words stay drawn while their chip waits in the composer, and go with it.
   useEffect(() => {
@@ -402,7 +402,7 @@ export function SelectionMenu({
         role="menu"
         aria-label={t("viewer.selection.label")}
         data-testid="viewer-selection-menu"
-        {...(focusWanted && { initialFocus: settingUp && !pick ? firstAdd : firstItem })}
+        {...(focusWanted && { initialFocus: (settingUp || noAi) && !pick ? firstAdd : firstItem })}
         onDismiss={close}
         onKeyDown={menuKeys(menu)}
         className="viewer-selection-menu"

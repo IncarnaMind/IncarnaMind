@@ -34,12 +34,15 @@ const useAgentsOn = create<{ on: boolean | null }>(() => ({ on: null }));
 function useReadAgentsOn(): void {
   useEffect(() => {
     let current = true;
+    // A change heard before the first read answers is newer than that answer.
+    let heard = false;
     core.getAgents().then((settings) => {
-      if (current) useAgentsOn.setState({ on: settings.enabled });
+      if (current && !heard) useAgentsOn.setState({ on: settings.enabled });
     }, useAppStore.getState().reportError);
-    const stop = core.on("agents.changed", (settings) =>
-      useAgentsOn.setState({ on: settings.enabled }),
-    );
+    const stop = core.on("agents.changed", (settings) => {
+      heard = true;
+      useAgentsOn.setState({ on: settings.enabled });
+    });
     return () => {
       current = false;
       stop();
@@ -90,6 +93,7 @@ export function setUpModelInstead(): void {
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
   useReadAgentsOn();
+  useReadAskedOn();
   useClaudeCodeInstallAvailability();
   const only = useOwnAiOnly();
   const reading = useReading((state) => state.reading);
@@ -119,9 +123,9 @@ export interface OwnAiPill {
 }
 
 /**
- * What the pill asks about: the Note the assistant reads, else the Document in front. A Note no
+ * What ⌘J asks about: the Note the assistant reads, else the Document in front. A Note no
  * connected AI may read (an example's, which a new User has open) gives way to the Document opened
- * beside it, so the pill doesn't go when the User opens one there.
+ * beside it, so ⌘J still asks when the User opens one there.
  */
 interface AskedOn {
   mindId: string | null;
@@ -184,26 +188,32 @@ function useAskedOn(): AskedOn {
   return askedOn(mindId, documentId, mindId === null ? null : noteAgents);
 }
 
-/**
- * The pill stands at the foot of the Note it asks about, as the Note's own input does, never over
- * a Document (#3764): a Document is asked about from the Note beside it or from its own menu.
- */
-const atNote = (pill: OwnAiPill | null): OwnAiPill | null => (pill?.mindId ? pill : null);
-
-/** Whether a Note's Ask pill shows. */
-export function useOwnAiPillShown(): boolean {
-  return useOwnAiPill() !== null;
-}
-
-/** The pill's Note and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
-export function useOwnAiPill(): OwnAiPill | null {
-  const hidden = useHiddenForOwnAi();
+/** Reads the agents of what ⌘J asks about, which `ownAiPillNow` takes from what was read. */
+function useReadAskedOn(): void {
   const on = useAskedOn();
   useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
+}
+
+/** Whether ⌘J asks the User's own AI, as `ownAiPillNow` reads it, followed. */
+export function useKeyAsksOwnAi(): boolean {
+  const hidden = useHiddenForOwnAi();
+  const on = useAskedOn();
   const runsHere = useOwnAiRunsHere();
-  return atNote(
-    pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere),
+  return (
+    pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere) !== null
   );
+}
+
+/**
+ * The Ask pill at the foot of Note `mindId`, which asks their own AI about that Note, with the
+ * panel out of sight for a User with only their own AI; null otherwise. Each Note on screen has
+ * its own, as each has its own input, and none stands over a Document (#3764).
+ */
+export function useOwnAiPillAt(mindId: string): OwnAiPill | null {
+  const hidden = useHiddenForOwnAi();
+  useReadAgentsToAsk(mindId);
+  const runsHere = useOwnAiRunsHere();
+  return pillOf(hidden, { mindId, documentId: null }, useAgentsToAsk(mindId), runsHere);
 }
 
 /**

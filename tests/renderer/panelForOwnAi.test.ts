@@ -29,6 +29,10 @@ Object.defineProperty(page, "implementation", { value: { createHTMLDocument: () 
 const view = page.defaultView;
 
 const MIND = "mind-ferries";
+/** A second Note of the same Folder, opened beside the first. */
+const OTHER = "mind-harbour";
+/** A Note no connected AI may read, as the example a new User has open. */
+const EXAMPLE = "mind-example";
 const DOC = "doc-tariffs";
 const pairing = (name: string): AgentPairing => ({
   id: `pairing-${name}`,
@@ -144,7 +148,7 @@ const {
   useHiddenForOwnAi,
   useNoAiConnected,
   useNoAiForNote,
-  useOwnAiPill,
+  useOwnAiPillAt,
 } = await import("../../src/renderer/src/ownAiPanel");
 const { useQuietAssistant } = await import("../../src/renderer/src/quietAssistant");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
@@ -190,6 +194,7 @@ function user(
   bridge.readers = new Map([
     ["null/", readers],
     [`${MIND}/`, readers],
+    [`${OTHER}/`, readers],
     [`null/${DOC}`, readers],
   ]);
   bridge.layout = {
@@ -219,7 +224,10 @@ let unmount: (() => Promise<void>) | null = null;
 const state = {
   hidden: false,
   quiet: false,
-  pill: null as ReturnType<typeof useOwnAiPill>,
+  /** The pill at the foot of the Note `MIND`, of `OTHER`, and of `EXAMPLE`. */
+  pill: null as ReturnType<typeof useOwnAiPillAt>,
+  otherPill: null as ReturnType<typeof useOwnAiPillAt>,
+  examplePill: null as ReturnType<typeof useOwnAiPillAt>,
   /** The Note's foot says asking needs their AI, with Connect your AI. */
   noAi: false,
   /** Nothing offers to ask: the viewer's Ask about this goes. */
@@ -233,7 +241,9 @@ async function shown() {
   const root = createRoot(container);
   const Probe = () => {
     useFoldForOwnAi();
-    state.pill = useOwnAiPill();
+    state.pill = useOwnAiPillAt(MIND);
+    state.otherPill = useOwnAiPillAt(OTHER);
+    state.examplePill = useOwnAiPillAt(EXAMPLE);
     state.hidden = useHiddenForOwnAi();
     state.quiet = useQuietAssistant();
     state.noAi = useNoAiForNote(MIND);
@@ -443,7 +453,6 @@ describe("⌘J", () => {
 
   // protects=a Note no connected AI may read (the example a new User has open) gives way to the Document opened beside it: ⌘J asks about that Document, and no pill floats over it (#3764); fails_when=⌘J asks nothing, as on the first run's example Note with a file opened beside it, or a pill stands over the Document
   test("a Note no AI may read beside a Document: asks about the Document", async () => {
-    const EXAMPLE = "mind-example";
     user("own AI");
     bridge.readers.set(`${EXAMPLE}/`, []);
     const tab = (id: string, item: TabItem) => ({
@@ -461,7 +470,7 @@ describe("⌘J", () => {
       focusedGroupId: "group-file",
     } as WindowLayout;
     useAppStore.setState({ layout: bridge.layout });
-    expect((await shown()).pill).toBeNull();
+    expect((await shown()).examplePill).toBeNull();
     await commands.run("composer.focus");
     expect(bridge.asked).toEqual([
       {
@@ -660,18 +669,42 @@ describe("Improve, Shorten, Translate, Edit with AI… and Explain", () => {
 });
 
 describe("a Note's Ask", () => {
-  // protects=row 7: the pill asks about a Note the own AI can read, at its foot, and shows nothing on a Document (#3764), the Library or Home; with a model none shows; fails_when=a Note gets no pill, or a Document or the Library gets one
-  test.each([
-    ["a Note", { kind: "mind", mindId: MIND }, { mindId: MIND, documentId: null }],
-    ["a Document", { kind: "document", documentId: DOC }, null],
-    ["the Library", { kind: "library" }, null],
-    ["Home", { kind: "home" }, null],
-  ] as const)("on %s", async (_tab, item, pill) => {
-    user("own AI", { item });
-    expect((await shown()).pill).toEqual(pill && { ...pill, agents: [CLAUDE] });
+  // protects=row 7: each Note an own AI can read has the pill at its own foot, asking about that Note, two Notes side by side each their own, whichever is in focus (#3764); a Note no AI reads has none; with a model none shows; fails_when=a Note on screen gets no pill, a pill asks about another Note, or one shows with a model
+  test("each Note on screen has its own pill", async () => {
+    const group = (id: string) => ({
+      id: `group-${id}`,
+      tabs: [
+        {
+          id,
+          item: { kind: "mind", mindId: id },
+          preview: false,
+          pinned: false,
+          place: null,
+          opened: 0,
+        },
+      ],
+      activeTabId: id,
+      width: 1,
+    });
+    const sideBySide = () => {
+      bridge.layout = {
+        ...(bridge.layout as WindowLayout),
+        groups: [group(MIND), group(OTHER)],
+        focusedGroupId: `group-${OTHER}`,
+      } as WindowLayout;
+      useAppStore.setState({ layout: bridge.layout });
+    };
+    user("own AI");
+    sideBySide();
+    expect(await shown()).toMatchObject({
+      pill: { mindId: MIND, documentId: null, agents: [CLAUDE] },
+      otherPill: { mindId: OTHER, documentId: null, agents: [CLAUDE] },
+      examplePill: null,
+    });
     await unmount?.();
-    user("model", { item });
-    expect((await shown()).pill).toBeNull();
+    user("model");
+    sideBySide();
+    expect(await shown()).toMatchObject({ pill: null, otherPill: null, examplePill: null });
   });
 
   // protects=row 8: "Use a model in IncarnaMind…" opens Settings › AI and never the panel; fails_when=the panel is unfolded on its setup card
