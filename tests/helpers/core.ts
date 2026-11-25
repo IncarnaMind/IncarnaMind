@@ -24,6 +24,7 @@ import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { scriptedLocalServers } from "../../src/core/providers/localServers";
 import { createFakeCrossEncoder } from "../../src/core/reranking/fake";
 import { migrate, migrations, openDatabase, type SqlValue } from "../../src/core/storage";
+import { ensureWorkspace } from "../../src/core/workspace";
 import { createAgentSkillFiles } from "../../src/main/agentSkillFiles";
 
 /** The citation-style engine, styles and locales the app ships (ADR-0016). */
@@ -81,6 +82,22 @@ function migratedDatabase(): string {
   }
   migrated = file;
   return file;
+}
+
+/**
+ * Makes `dataDir` a data folder an earlier version started: its database, with the workspace its
+ * first start made, so the next start isn't the first (#3758).
+ */
+export function startedBefore(dataDir: string): void {
+  mkdirSync(dataDir, { recursive: true });
+  const database = join(dataDir, DATABASE_FILE);
+  copyFileSync(migratedDatabase(), database);
+  const db = openDatabase(database);
+  try {
+    ensureWorkspace(db, () => new Date().toISOString());
+  } finally {
+    db.close();
+  }
 }
 
 /**

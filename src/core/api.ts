@@ -3852,16 +3852,17 @@ export interface DeviceSettings {
   meetingHelpKeys: HelpKeys;
   /**
    * Settings › General › "Keep running in the menu bar" (in the tray on Windows and Linux, #189):
-   * its icon stays, and closing the window leaves IncarnaMind running. Turned on when the User sets
-   * up Meetings.
+   * its icon stays, and closing the window leaves IncarnaMind running. On from a new data folder's
+   * first start (#3758); in one an earlier version started, turned on when the User sets up Meetings.
    */
   keepRunning: boolean;
   /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
   calendarOffers: boolean;
   /**
    * Settings › General › Notifications: the offer to take notes when a call app takes the
-   * microphone (#208). Off until the User sets up Meetings, whose sheet says it turns on; someone
-   * who set them up before this was built is asked once, on Home.
+   * microphone (#208). On from a new data folder's first start where calls can be noticed (#3758).
+   * In one an earlier version started, the sheet that sets up Meetings turns it on, and someone who
+   * set them up before this was built is asked once, on Home.
    */
   callOffers: boolean;
   /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
@@ -3909,7 +3910,10 @@ export interface CallEnding {
 export interface MeetingOffers {
   offer: MeetingOffer | null;
   ending: CallEnding | null;
-  /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
+  /**
+   * Why calls can't be noticed here; null while they can. While offers for calls are off, only
+   * what this copy knows before watching (no watcher in the build, no `pactl`), else null.
+   */
   problem: CallWatchProblem | null;
 }
 
@@ -4204,11 +4208,22 @@ export interface DeckUnwritable {
   sittingId: string;
   documentId: string;
   /**
-   * "unkept": IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't
-   * write it. "changed": another program wrote the file while the change waited, so only a copy
-   * beside it keeps the change.
+   * "cloud": not downloaded from a cloud folder (macOS dataless / iCloud stub, Windows Files
+   * On-Demand placeholder). "unreadable": permission denied reading the file on disk. "unkept":
+   * IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't write it.
+   * "changed": another program wrote the file while the change waited, so only a copy beside it
+   * keeps the change.
    */
-  why: "read-only" | "folder" | "locked" | "gone" | "full" | "unkept" | "changed";
+  why:
+    | "read-only"
+    | "folder"
+    | "locked"
+    | "cloud"
+    | "unreadable"
+    | "gone"
+    | "full"
+    | "unkept"
+    | "changed";
   /** The file's name. */
   name: string;
   /** "folder": the name of the folder that takes no writes. */
@@ -4217,6 +4232,8 @@ export interface DeckUnwritable {
   lock?: string;
   /** Try again was refused for the same reason: the line then says what else to do. */
   again?: boolean;
+  /** Saving a copy beside it (and in the Output location) failed too; the change still waits. */
+  copyFailed?: "full" | "folder" | "other";
   /** The deck with the change that waits: what the viewer draws, and a copy would hold. */
   bytes: Uint8Array;
   /** The SHA-256 of `bytes`. */
@@ -16287,7 +16304,8 @@ export interface CoreApi {
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
    * Take notes opens the event’s Note (a new Note for an ad-hoc call) and starts recording.
-   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers.
+   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers, and
+   * one taken before the recording notice was read, which keeps the offer.
    */
   takeMeetingOffer(offerId: string): Promise<Meeting>;
   /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
@@ -16454,6 +16472,11 @@ export interface CoreApi {
     shown: string;
     edits: ShapeEdit[];
     viewer?: string;
+    /**
+     * The bytes the viewer already showed, supplied only when a sitting's first edit finds the
+     * file gone, evicted to a cloud placeholder or locked for reading on disk; verified against `shown`.
+     */
+    shownBytes?: Uint8Array;
   }): Promise<DeckEdit>;
   /** Takes back a deck's newest step done by hand, writing the deck as it was before it (#149). */
   undoDeckEdit(sittingId: string, stepId: string): Promise<DeckEdit>;
@@ -16768,6 +16791,11 @@ export interface CoreEvents {
    */
   "meetings.offerShown": null;
   "meetings.offerLinkFailed": null;
+  /**
+   * Sent by the host: Take notes was pressed in an offer's notification or the tray's menu before
+   * Meetings were set up (#3758). The window shows the recording notice, whose Start takes it.
+   */
+  "meetings.offerNoticeShown": { offerId: string };
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.

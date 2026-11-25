@@ -311,3 +311,33 @@ describe("A watcher that stops by itself", () => {
     expect(problems).toEqual(["not-on-windows"]);
   });
 });
+
+describe("What the watcher says before it watches (#3758)", () => {
+  const known = (
+    platform: NodeJS.Platform,
+    helper: string | null,
+    onPath: (command: string) => boolean = () => true,
+  ) => createCallWatcher({ log: quiet, platform, own: ours, helper, onPath }).problem;
+
+  test("a build without its watcher program, and a Linux without pactl, can't notice calls", () => {
+    expect(known("win32", null)).toBe("not-on-windows");
+    expect(known("darwin", null)).toBe("unavailable");
+    expect(known("linux", null, () => false)).toBe("no-pactl");
+    expect(known("freebsd", null)).toBe("unavailable");
+  });
+
+  test("one with its program, and a Linux with pactl on its PATH, says nothing", () => {
+    const looked: string[] = [];
+    expect(known("win32", "C:\\IncarnaMind\\resources\\call-watcher.exe")).toBeUndefined();
+    expect(known("darwin", "/Applications/IncarnaMind.app/Contents/Resources/call-watcher")).toBe(
+      undefined,
+    );
+    expect(
+      known("linux", null, (command) => {
+        looked.push(command);
+        return true;
+      }),
+    ).toBeUndefined();
+    expect(looked).toEqual(["pactl"]);
+  });
+});

@@ -21,6 +21,7 @@ import { core } from "../../core";
 import { describeError } from "../../errors";
 import { languageNow, useLanguage } from "../../i18n";
 import type { Words, WordsInLine } from "../../lineNames";
+import { chooseOutputLocation } from "../../outputFiles";
 import { useAppStore } from "../../store";
 import { makeInTurn, sayWhileSlow, UndoRefused, undoSettled, useUndo } from "../../undo";
 import {
@@ -130,9 +131,12 @@ export interface DeckEditing {
   steady: string;
   /** The content hash of the file as the viewer read it, when it draws that: set by the viewer. */
   read: { current: string | null };
+  /** The bytes the viewer read, used only when a sitting's first edit finds the file unreadable. */
+  loadedBytes: { current: Uint8Array | null };
   /** The file that couldn't take the last edit, while it waits to be saved as a copy. */
   waiting: DeckUnwritable | null;
   saveCopy(): void;
+  chooseFolder(): void;
   /** Writes the change that waits again, as the file may take it now. */
   tryAgain(): void;
   /** A text box that runs past its shape after typing, while the line about it shows. */
@@ -216,6 +220,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
   const latest = useRef(document.contentHash);
   latest.current = document.contentHash;
   const read = useRef<string | null>(null);
+  const loadedBytes = useRef<Uint8Array | null>(null);
   const steady = useSteadyVersion(document.id, document.contentHash);
   const stored = useHere((state) => state.byDocument[document.id]);
   const here = stored?.key === steady ? stored : undefined;
@@ -418,19 +423,36 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
       const make = async () => {
         const going = useHere.getState().byDocument[document.id];
         const on = going?.key === keyOf(latest.current) ? going : undefined;
-        try {
-          const result = took(
-            await writing(() =>
-              core.editDeck({
-                documentId: document.id,
-                sittingId: on?.sittingId ?? null,
-                // What is drawn: a new sitting begins only on the file as the viewer read it.
-                shown: drawn ?? latest.current,
-                edits,
-                viewer: VIEWER,
-              }),
-            ),
+        const shown = drawn ?? latest.current;
+        const send = (shownBytes?: Uint8Array) =>
+          writing(() =>
+            core.editDeck({
+              documentId: document.id,
+              sittingId: on?.sittingId ?? null,
+              // What is drawn: a new sitting begins only on the file as the viewer read it.
+              shown,
+              edits,
+              viewer: VIEWER,
+              ...(shownBytes && { shownBytes }),
+            }),
           );
+        try {
+          let edited: DeckEdit;
+          try {
+            edited = await send();
+          } catch (firstError) {
+            const key = describeError(firstError).wording?.key;
+            const retryWithShown =
+              !on &&
+              loadedBytes.current !== null &&
+              (key === "error.deck.unwritable.cloud" ||
+                key === "error.document.fileMissing" ||
+                key === "error.document.fileUnavailable" ||
+                describeError(firstError).reason !== null);
+            if (!retryWithShown || !loadedBytes.current) throw firstError;
+            edited = await send(loadedBytes.current);
+          }
+          const result = took(edited);
           if (result) step(result, doneWords(what, slide));
           return true;
         } catch (error) {
@@ -457,7 +479,10 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
           if (result) step(result, said);
         } catch (error) {
           refused(error);
-          useAppStore.getState().reportError(error);
+          // Cancelling the Output location picker leaves the change waiting without an error toast.
+          if (describeError(error).wording?.key !== "error.files.notChosen") {
+            useAppStore.getState().reportError(error);
+          }
         }
       });
     },
@@ -471,6 +496,11 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
       ),
     [settle],
   );
+  const chooseFolder = useCallback(() => {
+    void chooseOutputLocation().then((picked) => {
+      if (picked) saveCopy();
+    }, useAppStore.getState().reportError);
+  }, [saveCopy]);
   const tryAgain = useCallback(
     () =>
       settle(
@@ -506,8 +536,10 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
     written: here?.bytes ?? null,
     steady,
     read,
+    loadedBytes,
     waiting,
     saveCopy,
+    chooseFolder,
     tryAgain,
     overflow,
     setOverflow,

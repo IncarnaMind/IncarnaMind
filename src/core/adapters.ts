@@ -32,6 +32,7 @@ import type {
   OpenAtLogin,
   SandboxLevel,
   SandboxProblem,
+  SavedFile,
   SecretProtection,
   ShareableWindow,
   TranscriptionEngine,
@@ -297,6 +298,54 @@ export interface LinkedFolderOptions {
    * Node's `stat`; tests may pass one that puts files on other disks.
    */
   stat?: StatIdentity;
+}
+
+/** Minimal file metadata needed when writing a deck of the User's own (#149). */
+export interface DeckFileStat {
+  mode: number;
+  size: number;
+  blocks: number;
+}
+
+/**
+ * File-system operations for writing a deck of the User's own (#149). Implementations must
+ * never hydrate a cloud placeholder in `isCloudPlaceholder`, and `replaceFile` must preserve
+ * atomic temp-then-rename semantics with `stillSo` checked right before the rename.
+ */
+export interface DeckFiles {
+  stat(path: string): Promise<DeckFileStat>;
+  access(path: string, mode: "exists" | "write"): Promise<void>;
+  /**
+   * Whether `path` is a cloud placeholder not downloaded to this computer (macOS
+   * dataless file or `.Name.icloud` stub; Windows Files On-Demand placeholder).
+   * Must never read the file's bytes.
+   */
+  isCloudPlaceholder(path: string, info?: DeckFileStat | null): Promise<boolean>;
+  /** SHA-256 hex digest of the file's bytes on disk. */
+  hashFile(path: string): Promise<string>;
+  readFile(path: string): Promise<Uint8Array>;
+  realpath(path: string): Promise<string>;
+  removeStalePartials(folder: string): Promise<void>;
+  writeWholeFile(
+    path: string,
+    bytes: Uint8Array,
+    at?: string,
+    options?: { durable?: boolean },
+  ): Promise<unknown>;
+  replaceFile(
+    path: string,
+    data: Uint8Array,
+    stillSo: () => Promise<boolean>,
+    mode?: number,
+  ): Promise<boolean>;
+  /**
+   * Wraps saving a copy beside a deck or in the Output location (`save`). Absent:
+   * calls `save(file)` directly.
+   */
+  saveCopy?(
+    file: { name: string; data: Uint8Array; folder?: string; unasked?: boolean },
+    save: () => Promise<SavedFile>,
+  ): Promise<SavedFile>;
 }
 
 export interface SpawnOptions {
@@ -781,6 +830,11 @@ export interface CallWatcher {
   /** Whether a known microphone release can start the countdown to stop recording. */
   endRecordingOnRelease?: boolean;
   /**
+   * Why calls can't be noticed with this copy, when the host knows before watching (this build has
+   * no watcher program, the computer has no `pactl`). `watch` says it too.
+   */
+  problem?: CallWatchProblem;
+  /**
    * Starts watching: `apps` gets the ids of the call apps using the microphone now
    * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
    * can't tell. A watcher that stopped says nothing until it runs again: no apps is never what it
@@ -1243,6 +1297,8 @@ export interface CoreAdapters {
   pictures?: Pictures;
   /** How Linked folders are watched (see `LinkedFolderOptions`). */
   linkedFolders?: LinkedFolderOptions;
+  /** File-system operations for editing a deck by hand (#149). Defaults to Node's fs. */
+  deckFiles?: Partial<DeckFiles>;
   /**
    * How web pages are fetched (#261): through the public-internet fetcher by
    * default, within 20 seconds and 10 MB. `fetch` stands another in for a

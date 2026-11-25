@@ -9,6 +9,8 @@ import {
   type Verification,
   verificationOf,
 } from "../../../shared/verification";
+import { useAskedAgent } from "../askedAgent";
+import { askToCheck, useAgentsToAskRead, useNoModel, useReadAgentsToAsk } from "../askYourAi";
 import { EstimateMeta } from "../components/EstimateSource";
 import { MetaLine } from "../components/MetaLine";
 import { ProblemLine } from "../components/ProblemLine";
@@ -37,6 +39,7 @@ import {
   useVerify,
 } from "../verify";
 import { AnswerError } from "./AnswerView";
+import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
 import {
   coverageOf,
   foundElsewhere,
@@ -191,11 +194,10 @@ export function useVerifyState(
 export type VerifyState = ReturnType<typeof useVerifyState>;
 
 /** Whether a verify's claims have their checks, so its card says what they found. */
-export const verifyDone = ({ running, outcome, claims, marks }: VerifyState) =>
+export const verifyDone = ({ running, outcome, marks }: VerifyState) =>
   running === null &&
   outcome?.kind !== "no-documents" &&
   outcome?.kind !== "nothing" &&
-  claims !== null &&
   marks.marked > 0;
 
 const VERIFY_MARKS: Record<Exclude<VerifyRow, "notYetCited">, ClaimMarkState> = {
@@ -267,6 +269,7 @@ export function VerifyCard({
   mindId,
   verification,
   state,
+  toCheck,
   onNotNow,
 }: {
   editor: Editor;
@@ -274,11 +277,19 @@ export function VerifyCard({
   mindId: string;
   verification: Verification;
   state: VerifyState;
+  /** The sentences not checked yet, as Home counts them. */
+  toCheck: number;
   onNotNow(): void;
 }) {
   const t = useT();
   const language = useLanguage();
   const openSettings = useAppStore((app) => app.openSettings);
+  const readiness = useAppStore((app) => app.chatReadiness);
+  const noModel = useNoModel();
+  const asked = useAskedAgent({ kind: "check", mindId });
+  const backgroundRun = asked?.asked.background === true && asked.asked.state === "working";
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAskRead(mindId);
   const runModel = useRunModel(doc);
   const inFolder = useAppStore(
     (app) => (app.minds.find((each) => each.id === mindId)?.folderId ?? null) !== null,
@@ -386,23 +397,49 @@ export function VerifyCard({
         </div>
       </div>
     );
-  } else if (claims === null) {
+  } else if (claims === null && marks.marked === 0) {
+    // With no model set up claims are never found, though the User's own AI can check them (#3536).
+    const countLine =
+      toCheck > 0
+        ? t(toCheck === 1 ? "health.toCheck.one" : "health.toCheck", { count: format(toCheck) })
+        : t("verify.notFound");
     body = (
       <div className="check-card-ask">
-        <p>{t("verify.notFound")}</p>
-        <div className="check-card-ask-actions">
-          <button
-            type="button"
-            data-testid="verify-find"
-            className={buttonStyle("secondary", "sm")}
-            onClick={() => void findClaims(mindId, doc)}
-          >
-            {t("verify.find")}
-          </button>
-        </div>
+        <p data-testid="verify-to-check">{countLine}</p>
+        {noModel ? (
+          asked || agents === null ? null : agents.length > 0 ? (
+            <div className="check-card-ask-actions">
+              <button
+                type="button"
+                data-testid="verify-check-own-ai"
+                className={buttonStyle("primary", "sm")}
+                onClick={() => void askToCheck(mindId)}
+              >
+                {t("mindCheck.command")}
+              </button>
+            </div>
+          ) : (
+            readiness && !readiness.ready && <CheckNotReady mindId={mindId} readiness={readiness} />
+          )
+        ) : (
+          <div className="check-card-ask-actions">
+            <button
+              type="button"
+              data-testid="verify-find"
+              className={buttonStyle("secondary", "sm")}
+              onClick={() => void findClaims(mindId, doc)}
+            >
+              {t("verify.find")}
+            </button>
+          </div>
+        )}
       </div>
     );
-  } else if ((total === 0 || outcome?.kind === "nothing") && opinions.length === 0) {
+  } else if (
+    (total === 0 || outcome?.kind === "nothing") &&
+    opinions.length === 0 &&
+    marks.marked === 0
+  ) {
     body = <p data-testid="verify-empty">{t("verify.none")}</p>;
   } else if (marks.marked === 0 && (opinions.length === 0 || total > 0)) {
     // Under a brief the question sits in the card's fixed foot, where the press is never scrolled away.
@@ -417,8 +454,9 @@ export function VerifyCard({
       (verification.workbook?.differs.length ?? 0);
     const notChecked = marks.rows.notChecked.length;
     const stopped = outcome?.kind === "checked" ? outcome.stop : null;
+    // Sentences the User's own AI checked, with no model to find claims (#3536), count by their marks.
     const summary =
-      total === 0
+      marks.marked === 0
         ? [t("verify.none")]
         : [
             notChecked > 0
@@ -534,7 +572,7 @@ export function VerifyCard({
         mindId={mindId}
         doc={doc}
         kept={verification.kept ?? 0}
-        running={running !== null}
+        running={running !== null || backgroundRun}
       />
       {brief && (
         <VerifyBrief
@@ -550,12 +588,15 @@ export function VerifyCard({
         <VerifyFormulas editor={editor} workbook={verification.workbook} goTo={goTo} />
       )}
       {body}
+      {running === null && <AskedCheckLine mindId={mindId} />}
       <UnreadFilesLine files={unread} testId="verify-unread" className="mind-unread" />
       {running === null && marks.marked > 0 && marks.coverage.mostlyUncovered && (
         <UncoveredLine
           className="mind-verify-problem"
           onCheckAll={
-            marks.coverage.canWiden ? () => void checkClaims(mindId, doc, true) : undefined
+            marks.coverage.canWiden && !noModel
+              ? () => void checkClaims(mindId, doc, true)
+              : undefined
           }
         />
       )}

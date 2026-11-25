@@ -2525,6 +2525,7 @@ export const en = {
   "viewer.deck.waiting.undo": "Not undone: the file can’t be written now.",
   "viewer.deck.tryAgain": "Try again",
   "viewer.deck.saveCopy": "Save a copy beside it",
+  "viewer.deck.chooseFolder": "Choose another folder…",
   "viewer.deck.overflow": "The text on slide\u00a0{slide} runs past its box",
   "viewer.deck.shrinkToFit": "Shrink text to fit",
   "viewer.deck.putBack": "Put back as it was",
@@ -6088,8 +6089,15 @@ export const en = {
     "Still locked. If no app has it open, delete “{lock}” beside it.",
   "error.deck.unwritable.folder":
     "The folder “{folder}” can’t be written, so the change isn’t saved yet.",
+  "error.deck.unwritable.cloud":
+    "“{name}” is in the cloud only. Download it first, then try again.",
+  "error.deck.unwritable.unreadable":
+    "IncarnaMind can’t read “{name}” right now, so the change isn’t saved yet.",
+  "error.deck.copyFailed.full": "Couldn’t save a copy: the disk is full.",
+  "error.deck.copyFailed.folder": "Neither “{folder}” nor the Output location can be written.",
+  "error.deck.copyFailed.other": "Couldn’t save a copy here; your change is still waiting.",
   "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
-  "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
+  "error.deck.unwritable.full": "The disk is full, so the change isn’t saved yet.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",
@@ -6188,6 +6196,8 @@ export const en = {
   "error.files.needsAnswer": "IncarnaMind needs to ask where it goes: keep it open to answer.",
   "quit.unsaved.deck.folder": "The folder “{folder}” can’t be written.",
   "quit.unsaved.deck.copyFailed": "The copy of “{name}” couldn’t be saved. {reason}",
+  "quit.unsaved.deck.cloud": "“{name}” is in the cloud only.",
+  "quit.unsaved.deck.unreadable": "IncarnaMind can’t read “{name}”.",
   "quit.copiedElsewhere": "The copy of “{name}” is in “{folder}”.",
   "quit.copiedElsewhere.ok": "Quit",
   "quit.unsaved.quit": "Quit anyway",
@@ -6674,6 +6684,8 @@ export const en = {
   "error.meetingOffer.link":
     "Recording, but the meeting link didn’t open: open it from your calendar.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
+  "error.openAtLogin.notWritten":
+    "Couldn’t change {path}, which opens IncarnaMind at login. Check its permissions or remove it.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
   "error.meeting.microphone": "The microphone can only be paused or resumed.",
@@ -9534,6 +9546,8 @@ export const en = {
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Ask, or describe a change to this note…",
   "noteAsk.noAi": "Asking needs your AI",
+  "noteAsk.cantRead.one": "{agent} can’t read this note",
+  "noteAsk.cantRead": "Your AI can’t read this note",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",
   "noteAsk.action.translate": "Translate it into {language}",
