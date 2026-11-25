@@ -1,5 +1,5 @@
 import { isMacOS } from "@tiptap/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import type { Meeting } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
@@ -19,6 +19,7 @@ import {
   BookmarkLineIcon,
   ChevronDownLineIcon,
   CloseLineIcon,
+  DocumentLineIcon,
   MicLineIcon,
   MicOffLineIcon,
   MoreLineIcon,
@@ -31,9 +32,11 @@ import {
 import { CallHelpToggle, MeetingLines } from "../MeetingBar";
 import { MeetingAudioLine } from "../MeetingInMind";
 import { ProblemLine } from "../ProblemLine";
+import { TipPopover } from "../TipPopover";
 import { useTabPlace } from "../tabs/tabItems";
 import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
+import { useTip } from "../useTip";
 import { LevelBars } from "./LevelBars";
 import {
   applyMeetingWriteupTemplate,
@@ -97,7 +100,6 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   const t = useT();
   const open = useSheetOpen(mindId);
   const tipSeen = useSheets((state) => state.tipSeen);
-  const time = clockTime(useMeetingTime(meeting));
   const [asked, setAsked] = useState(false);
   const live = isLive(meeting);
   const paused = meeting.status === "paused";
@@ -170,79 +172,95 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
         aria-label={t("meetings.bar.label")}
         className="meeting-foot"
       >
-        <button
-          type="button"
-          data-testid="meeting-foot-transcript"
-          aria-expanded={open}
-          aria-label={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
-          title={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
-          onClick={() => setSheet(mindId, !open)}
-          data-live={live || undefined}
-          className="meeting-foot-button meeting-foot-main"
-        >
-          {live ? (
-            <>
-              <span aria-hidden="true" data-status={meeting.status} className="recording-dot" />
-              <span role="timer" className="meeting-foot-time">
-                {time}
-              </span>
-              <span className="meeting-foot-level">
-                {paused ? (
-                  <span data-testid="meeting-foot-paused" className="meeting-foot-paused">
-                    {t("meetings.bar.paused")}
-                  </span>
-                ) : (
-                  <LevelBars meeting={meeting} />
-                )}
-              </span>
-            </>
-          ) : (
-            <span>{t("meetings.views.transcript")}</span>
-          )}
-          <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
-        </button>
-        {paused && (
-          <button
-            type="button"
-            data-testid="meeting-foot-resume-recording"
-            aria-label={t("meetings.bar.resume", {
-              shortcut: shortcutLabel("meeting.pauseResume"),
-            })}
-            title={t("meetings.bar.resume", { shortcut: shortcutLabel("meeting.pauseResume") })}
-            onClick={() => void resume(meeting.id)}
-            className="meeting-foot-button meeting-foot-resume"
-          >
-            <ResumeLineIcon className="size-4" />
-            <span className="meeting-foot-word">{t("meetings.foot.resume")}</span>
-          </button>
-        )}
         {live ? (
-          <button
-            type="button"
-            data-testid="meeting-foot-stop"
-            aria-label={t("meetings.bar.stopLabel")}
-            title={t("meetings.bar.stopLabel")}
-            onClick={() => void stop(meeting.id)}
-            className="meeting-foot-button meeting-foot-stop"
-          >
-            <StopLineIcon className="size-4" />
-            <span className="meeting-foot-word">{t("meetings.bar.stop")}</span>
-          </button>
+          <>
+            {paused ? (
+              <SlotButton
+                testId="meeting-foot-resume-recording"
+                tip={t("meetings.bar.resume", { shortcut: shortcutLabel("meeting.pauseResume") })}
+                onClick={() => void resume(meeting.id)}
+              >
+                <ResumeLineIcon className="size-4" />
+              </SlotButton>
+            ) : (
+              <span data-testid="meeting-foot-level" className="meeting-foot-slot">
+                <LevelBars meeting={meeting} />
+              </span>
+            )}
+            <SlotButton
+              testId="meeting-foot-transcript"
+              expanded={open}
+              tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
+              onClick={() => setSheet(mindId, !open)}
+            >
+              <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
+            </SlotButton>
+            <SlotButton
+              testId="meeting-foot-stop"
+              tip={t("meetings.bar.stopLabel")}
+              onClick={() => void stop(meeting.id)}
+            >
+              <StopLineIcon className="size-4" />
+            </SlotButton>
+          </>
         ) : (
-          <button
-            type="button"
-            data-testid="meeting-foot-resume"
-            aria-label={t("meetings.foot.resumeTip")}
-            title={t("meetings.foot.resumeTip")}
-            onClick={() => void resume(meeting.id)}
-            className="meeting-foot-button meeting-foot-resume"
+          <SlotButton
+            testId="meeting-foot-transcript"
+            wide
+            expanded={open}
+            tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
+            onClick={() => setSheet(mindId, !open)}
           >
-            <ResumeLineIcon className="size-4" />
-            <span className="meeting-foot-word">{t("meetings.foot.resume")}</span>
-          </button>
+            <DocumentLineIcon kind="transcript" className="size-4" />
+            <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
+          </SlotButton>
         )}
       </div>
     </div>
+  );
+}
+
+/** One of the control's icon slots: its name is its tooltip and its accessible name. */
+function SlotButton({
+  testId,
+  tip,
+  expanded,
+  wide = false,
+  onClick,
+  children,
+}: {
+  testId: string;
+  tip: string;
+  expanded?: boolean;
+  wide?: boolean;
+  onClick(): void;
+  children: ReactNode;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const opened = useTip(trigger);
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        data-testid={testId}
+        aria-label={tip}
+        aria-expanded={expanded}
+        onClick={onClick}
+        onFocus={opened.show}
+        onBlur={opened.blur}
+        onPointerMove={opened.point}
+        onPointerLeave={opened.leave}
+        className={`meeting-foot-slot ${wide ? "meeting-foot-slot--wide" : ""}`}
+      >
+        {children}
+      </button>
+      {opened.shown && trigger.current && (
+        <TipPopover anchor={trigger.current} tip={opened}>
+          {tip}
+        </TipPopover>
+      )}
+    </>
   );
 }
 
@@ -304,6 +322,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     >
       <header className="meeting-sheet-head">
         <h2 className="meeting-sheet-title">{t("meetings.views.transcript")}</h2>
+        {live && <SheetTime meeting={meeting} />}
         <div className="ml-auto flex items-center gap-1">
           <CaptureDetailsToggle meeting={meeting} />
           <button
@@ -365,6 +384,17 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
         <footer data-testid="meeting-sheet-foot" className="meeting-sheet-foot">
           <button
             type="button"
+            data-testid="meeting-sheet-resume-meeting"
+            aria-label={t("meetings.foot.resumeTip")}
+            title={t("meetings.foot.resumeTip")}
+            onClick={() => void useMeetings.getState().resume(meeting.id)}
+            className="meeting-button meeting-button--words"
+          >
+            <ResumeLineIcon className="size-3.5" />
+            <span>{t("meetings.foot.resume")}</span>
+          </button>
+          <button
+            type="button"
             data-testid="meeting-sheet-review-speakers"
             // The review itself still opens where the Transcript view has it, at the top of the lines.
             onClick={() =>
@@ -379,6 +409,17 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
         </footer>
       )}
     </section>
+  );
+}
+
+/** The time recorded, in the sheet's head while it records: the control holds no time (#3762). */
+function SheetTime({ meeting }: { meeting: Meeting }) {
+  const time = clockTime(useMeetingTime(meeting));
+  return (
+    <span data-testid="meeting-sheet-time" className="meeting-sheet-meta">
+      <span aria-hidden="true" data-status={meeting.status} className="recording-dot" />
+      <span role="timer">{time}</span>
+    </span>
   );
 }
 

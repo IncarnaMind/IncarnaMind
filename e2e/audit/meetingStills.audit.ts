@@ -773,24 +773,20 @@ for (const microphone of ["allowed", "denied"] as const)
       );
       await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
 
-      // 59:59, then 1:00:00: the input's left edge holds.
-      const at = async (ms: number) => {
-        const now = await meeting();
-        if (!now.recordingSince) throw new Error("Not recording.");
-        await window.clock.setFixedTime(
-          new Date(Date.parse(now.recordingSince) + ms - now.recordedMs),
-        );
-      };
-      await at(59 * 60_000 + 59_000);
-      await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("59:59", {
-        timeout: 5000,
-      });
-      await still("g1-time-5959", [1440]);
-      await at(60 * 60_000);
-      await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("1:00:00", {
-        timeout: 5000,
-      });
-      await still("g2-time-10000", [1440]);
+      // The stop square's name, in the shared tip, once the pointer rests on it.
+      const stop = window.getByTestId("meeting-foot-stop");
+      await stop.hover();
+      await expect(window.getByRole("tooltip"))
+        .toBeVisible({ timeout: 5000 })
+        .catch(() => log.push("no tip on the stop square"));
+      await motionSettled(window);
+      await window.waitForTimeout(400);
+      await window.screenshot({ path: join(OUT, `b3-stop-tip-${tag}-1440.png`) });
+      await writeFile(
+        join(OUT, `b3-stop-tip-${tag}-1440.json`),
+        JSON.stringify(await measure(window, REGIONS), null, 2),
+      );
+      log.push(`ok b3-stop-tip-${tag}-1440`);
     } finally {
       await writeFile(join(OUT, `log-states-${microphone}-${tag}.txt`), log.join("\n"));
       await app.close().catch(() => undefined);
