@@ -24,12 +24,13 @@
 // "ask-two" asks two questions at once; "ask-child" starts a process that leads its own group, writes its own id and that
 // process's to the mode file's ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
 // with no input; "ask-other" asks for a tool the host can't show; "ask-write-fails" asks to write
-// a file, writes it if let, then fails; "auto" runs a command unasked,
+// a file, writes it if let, then fails; "ask-unsure" asks to write a file through a loop of links
+// it makes first; "auto" runs a command unasked,
 // its own mode named in the mode file's ".permission" ("auto" when it names none), and ends once
 // the mode file's ".hold" file is gone. Each answer is
 // appended to the mode file's ".answers".
 import { spawn } from "node:child_process";
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -150,7 +151,13 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
           ? {
               subtype: "success",
               request_id: message.request_id,
-              response: { models: MODELS, current_permission_mode: permission },
+              // As Claude Code 2.1.331 says the hooks it was given are registered.
+              response: {
+                models: MODELS,
+                current_permission_mode: permission,
+                hooks_applied: true,
+                hook_on_failure_supported: true,
+              },
             }
           : { subtype: "error", request_id: message.request_id, error: "not a run's flags" },
       });
@@ -458,6 +465,12 @@ const QUESTIONS = {
     },
     permission_suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
   },
+  // A file through a loop of links, which "ask-unsure" makes first: where it leads can't be told.
+  unsure: {
+    tool_name: "Write",
+    input: { file_path: `${process.cwd()}/late.md`, content: "07:40\n" },
+    permission_suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+  },
   change: {
     tool_name: "Edit",
     input: {
@@ -639,6 +652,11 @@ async function askingModes() {
     await ownCall(QUESTIONS.command);
     end("Ran it.");
     return;
+  }
+  if (mode === "ask-unsure") {
+    for (const name of ["late.md", "loop.md"]) rmSync(`${process.cwd()}/${name}`, { force: true });
+    symlinkSync("late.md", `${process.cwd()}/loop.md`);
+    symlinkSync("loop.md", `${process.cwd()}/late.md`);
   }
   if (mode === "ask-write-fails") {
     await ownCall(QUESTIONS.write);

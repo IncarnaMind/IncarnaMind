@@ -477,6 +477,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await ended()).toMatchObject({ state: "failed", problem: "compaction" });
   });
 
+  // protects=a Claude Code that didn't take the hook a Note's conversation needs ends the request with the line that says to update it (#3653); fails_when=the User is told only to try again, which fails the same way for ever
+  it("says to update Claude Code when it didn't take the hook", async () => {
+    const run = runner(async () => ({ kind: "failed", reason: "update" }));
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "anything new?" });
+    expect(await ended()).toMatchObject({ state: "failed", problem: "update" });
+  });
+
   // protects=while a call of the run runs in IncarnaMind, however long, the line doesn't say the AI is quiet: it waits on IncarnaMind; fails_when=the User reads that their AI is silent while IncarnaMind is the one at work
   it("doesn't say the AI is quiet while a call of it runs here", async () => {
     const held = gate();

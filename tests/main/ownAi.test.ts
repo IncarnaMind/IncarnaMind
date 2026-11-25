@@ -116,6 +116,11 @@ function useClaude({
  * A stand-in for the stream-json session: settings first, then `after` once the prompt comes, and
  * `then`'s code. `plugin`: a managed plugin is on, as an organization's settings can turn one on.
  */
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** What Claude Code 2.1.331 says in its initialize answer once it has registered the hooks given. */
+const HOOKS_TAKEN = JSON.stringify({ hooks_applied: true, hook_on_failure_supported: true });
+
 const session = (after: unknown[], plugin = false, then = "") => `
   const lines = require("node:readline").createInterface({ input: process.stdin });
   lines.on("line", (line) => {
@@ -123,7 +128,8 @@ const session = (after: unknown[], plugin = false, then = "") => `
     if (v.type === "control_request") {
       console.log(JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: v.request_id,
         response: { effective: { disableAllHooks: true }, sources: [{ source: "flagSettings", settings: {} },
-          { source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }] } } }));
+          { source: "policySettings", settings: ${plugin ? "{ enabledPlugins: { audit: true } }" : "{}"} }],
+          ...${HOOKS_TAKEN} } } }));
     } else if (v.type === "user") {
       for (const each of ${JSON.stringify(after)}) console.log(JSON.stringify(each));
       ${then}
@@ -575,9 +581,14 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
   /**
    * Claude Code answering the settings request (with a managed plugin when `plugin`), then
    * `initialize`: with OFFERED after the settings ("after"), before them ("first"), with an error
-   * ("error"), or never ("never"); then the prompt.
+   * ("error"), never ("never"), or with OFFERED but not saying it took the hooks, as one too old to
+   * know them would ("ignored"); then the prompt, noted in the file `heard` when one is named.
    */
-  const listing = (plugin: boolean, models: "after" | "first" | "error" | "never" = "after") => `
+  const listing = (
+    plugin: boolean,
+    models: "after" | "first" | "error" | "never" | "ignored" = "after",
+    heard = "",
+  ) => `
     const lines = require("node:readline").createInterface({ input: process.stdin });
     const say = (value) => console.log(JSON.stringify(value));
     const settings = (id) => say({ type: "control_response", response: { subtype: "success",
@@ -592,23 +603,25 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
         say(how === "error"
           ? { type: "control_response", response: { subtype: "error", request_id: v.request_id, error: "no" } }
           : { type: "control_response", response: { subtype: "success",
-              request_id: v.request_id, response: { models: ${JSON.stringify(OFFERED)} } } });
+              request_id: v.request_id, response: { models: ${JSON.stringify(OFFERED)},
+                ...(how === "ignored" ? {} : ${HOOKS_TAKEN}) } } });
         if (held) settings(held);
       } else if (v.type === "control_request") {
         if (${JSON.stringify(models)} === "first") held = v.request_id;
         else settings(v.request_id);
       } else if (v.type === "user") {
+        if (${JSON.stringify(heard)} !== "") require("node:fs").appendFileSync(${JSON.stringify(heard)}, "prompt\\n");
         say(${JSON.stringify(init(["mcp__incarnamind__read_mind"]))});
         say(${JSON.stringify(done)});
       }
     });
   `;
   /** A request asking for the models, on Haiku: how it ended, and the models it heard. */
-  const listen = async ({ stallMs }: { stallMs?: number } = {}) => {
+  const listen = async (limits: { stallMs?: number; initializeMs?: number } = {}) => {
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
     const steps: unknown[] = [];
     try {
-      const end = await createOwnAi({ conversations, ...(stallMs && { stallMs }) }).run({
+      const end = await createOwnAi({ conversations, ...limits }).run({
         client: "claude-code",
         server: SERVER,
         tools: "all",
@@ -647,26 +660,31 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     expect(managed.models).toHaveLength(1);
   });
 
-  // protects=the prompt goes only once Claude Code has taken the initialize that registers IncarnaMind's hook (#3653): answered with an error, nothing is sent and the request fails; fails_when=a request runs without the hook that makes a write to CLAUDE.md ask
-  it("sends nothing when Claude Code refuses its initialize", async () => {
-    useClaude({ run: listing(false, "error") });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    try {
+  // protects=the prompt goes only once Claude Code says it registered the hook that makes a write to CLAUDE.md ask, and that a failed answer to it blocks (#3653): answered with an error, or by one too old to say so, nothing is sent and the request fails with the line that says to update it; fails_when=a request runs without the hook, or the User is told only to try again
+  it.each(["error", "ignored"] as const)(
+    "sends nothing when Claude Code doesn't take its hook (%s)",
+    async (how) => {
+      const heard = join(await mkdtemp(join(tmpdir(), "own-ai-heard-")), "prompts.txt");
+      useClaude({ run: listing(false, how, heard) });
       const refused = await listen();
-      expect(refused.end).toEqual({ kind: "failed", reason: "other" });
+      expect(refused.end).toEqual({ kind: "failed", reason: "update" });
       expect(refused.models).toEqual([]);
-      expect(warn).toHaveBeenCalledWith(expect.any(String), expect.stringContaining("hook"));
-    } finally {
-      warn.mockRestore();
-    }
-  });
+      await pause(300);
+      expect(existsSync(heard)).toBe(false);
+      await rm(dirname(heard), { recursive: true, force: true });
+    },
+  );
 
-  // protects=an initialize Claude Code never answers sends nothing, and the request ends as stalled rather than waiting for ever; fails_when=the request runs without IncarnaMind's hook, or waits on the answer past the stall limit
+  // protects=an initialize Claude Code never answers sends nothing, and the request ends after its own short wait, well before the stall limit, with the line that says to update it; fails_when=the request runs without IncarnaMind's hook, or the User waits six minutes under "working" with nothing sent
   it("sends nothing when Claude Code never answers its initialize", async () => {
-    useClaude({ run: listing(false, "never") });
-    const silent = await listen({ stallMs: 500 });
-    expect(silent.end).toEqual({ kind: "failed", reason: "stalled" });
+    const heard = join(await mkdtemp(join(tmpdir(), "own-ai-heard-")), "prompts.txt");
+    useClaude({ run: listing(false, "never", heard) });
+    const silent = await listen({ stallMs: 60_000, initializeMs: 500 });
+    expect(silent.end).toEqual({ kind: "failed", reason: "update" });
     expect(silent.models).toEqual([]);
+    await pause(300);
+    expect(existsSync(heard)).toBe(false);
+    await rm(dirname(heard), { recursive: true, force: true });
   });
 
   // protects=deleting a Note's conversation asks Claude Code to purge the Note's folder and removes the folder; one with nothing to purge counts as done, and a purge that failed says so; fails_when=a failed purge reads as done and the transcript stays without a word
@@ -716,7 +734,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       const v = JSON.parse(line);
       if (v.type === "control_request") {
         say({ type: "control_response", response: { subtype: "success", request_id: v.request_id,
-          response: { models: [], current_permission_mode: ${JSON.stringify(mode)} } } });
+          response: { models: [], current_permission_mode: ${JSON.stringify(mode)}, ...${HOOKS_TAKEN} } } });
       } else if (v.type === "user") {
         say({ type: "system", subtype: "init", session_id: "s1", permissionMode: ${JSON.stringify(mode)},
           tools: ["Bash", "Write", "mcp__incarnamind__read_mind"], mcp_servers: [{ name: "incarnamind", status: "connected" }, { name: "ferry-data", status: "connected" }] });
@@ -1118,6 +1136,67 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     }
   });
 
+  // protects=a file's card says it changes how Claude Code behaves where that is known, a hard link to CLAUDE.md among them, found by its disk and number; and says IncarnaMind can't tell where a file leads where the hook asks for that reason (a hard link to another file, a loop of links, a path from ~); a plain file says neither; fails_when=a card that asks because it can't tell says nothing of why, or a hard link to CLAUDE.md reads as any other file
+  it("marks a hard link to CLAUDE.md as steering, and a file it can't place as unsure", async () => {
+    const files = ["copy.md", "twin.md", "loopA", "~/notes.md", "plain.md"];
+    useClaude({
+      run: asking(
+        files.map((file_path) => ({ tool_name: "Write", input: { file_path, content: "x" } })),
+        {
+          meanwhile: `const fs = require("node:fs");
+            fs.writeFileSync("CLAUDE.md", "x"); fs.linkSync("CLAUDE.md", "copy.md");
+            fs.writeFileSync("other.md", "x"); fs.linkSync("other.md", "twin.md");
+            fs.symlinkSync("loopB", "loopA"); fs.symlinkSync("loopA", "loopB");`,
+        },
+      ),
+    });
+    const asked: OwnAiAsk[] = [];
+    await converse(async (question) => {
+      asked.push(question);
+      return "deny";
+    });
+    expect(
+      asked.map(({ action }, index) => [
+        files[index],
+        action.steers ?? false,
+        action.unsure ?? false,
+      ]),
+    ).toEqual([
+      ["copy.md", true, false],
+      ["twin.md", false, true],
+      ["loopA", false, true],
+      ["~/notes.md", false, true],
+      ["plain.md", false, false],
+    ]);
+  });
+
+  // protects=a walk whose links each add hundreds of parts gives up, and asks, once the place it reached or the parts left are longer than a path can be, at once rather than after a long walk in the main process; fails_when=the hook can be made to walk for seconds, or let such a write go on
+  it("gives up a steering walk that grows past a path's length, at once", async () => {
+    const work = await mkdtemp(join(tmpdir(), "im-steer-"));
+    await mkdir(join(work, "grow"));
+    // Each link leads to the next and parts that aren't there: well under the link limit, past a
+    // path's length. A link's target is at most 1,023 characters on macOS; Windows's paths are
+    // longer.
+    const added = process.platform === "win32" ? 1000 : 200;
+    for (let n = 0; n < 30; n += 1) {
+      await symlink(
+        [`g${n + 1}`, ...Array(added).fill("xxxx")].join(sep),
+        join(work, "grow", `g${n}`),
+        "file",
+      );
+    }
+    const started = performance.now();
+    const { answers } = await useHookAnswers([
+      {
+        tool_name: "Write",
+        tool_input: { file_path: join(work, "grow", "g0"), content: "x" },
+        cwd: work,
+      },
+    ]).finally(() => rm(work, { recursive: true, force: true }));
+    expect(answers).toEqual(["ask"]);
+    expect(performance.now() - started).toBeLessThan(10_000);
+  });
+
   /** The hooks a run registers, and its answer to each PreToolUse call, as a fake Claude Code sends them. */
   async function useHookAnswers(calls: readonly Record<string, unknown>[]) {
     useClaude({
@@ -1131,7 +1210,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           const v = JSON.parse(line);
           if (v.type === "control_request") {
             hooks = v.request.hooks ?? null;
-            say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [] } } });
+            say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [], ...${HOOKS_TAKEN} } } });
           } else if (v.type === "user") {
             say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "acceptEdits", tools: ["Bash", "Write"], mcp_servers: [] });
             const id = hooks?.PreToolUse?.[0]?.hookCallbackIds?.[0] ?? "";
@@ -1337,6 +1416,15 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "a file on a drive with nothing on it",
         { tool_name: "Write", tool_input: { file_path: "B:\\late.md", content: "x" }, cwd: work },
         "goes on",
+      ],
+      [
+        "a short 8.3 name on a drive whose root resolves nowhere, on Windows",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: "B:\\proj\\CLAUDE~1\\settings.json", content: "{}" },
+          cwd: work,
+        },
+        process.platform === "win32" ? "ask" : "goes on",
       ],
       [
         "a file on another computer, on Windows",

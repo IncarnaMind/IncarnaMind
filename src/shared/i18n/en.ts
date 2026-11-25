@@ -9421,6 +9421,7 @@ export const en = {
   "ownAsk.runs.background": "in the background",
   "ownAsk.runs.unsandboxed": "outside {agent}’s own sandbox",
   "ownAsk.steers": "This file changes how {agent} behaves from now on.",
+  "ownAsk.unsure": "IncarnaMind can’t tell where this file leads.",
   "ownAsk.moreLines.one": "1 more line · Show all",
   "ownAsk.moreLines.other": "{count} more lines · Show all",
   "ownAsk.here": "This conversation’s folder",
@@ -9534,6 +9535,8 @@ export const en = {
     "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
   "noteAsk.problem.too-old":
     "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then send it again.",
+  "noteAsk.problem.update":
+    "This version of {agent} can’t work in a note. Update it, then send it again.",
   "noteAsk.problem.no-answer":
     "{agent} didn’t answer on this computer, so nothing was sent. Try again.",
   "noteAsk.problem.plan-limit":

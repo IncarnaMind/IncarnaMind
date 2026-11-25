@@ -358,6 +358,8 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
       ["change", "change", "Change a file", edits, "once", "Changed"],
       // Asked because IncarnaMind's hook asks, with no lasting answer, as in the real runs.
       ["steers", "write", "Write a file", ["Allow once", "Deny"], "once", "Wrote"],
+      // Through a loop of links: where it leads can't be told, and the card says so.
+      ["unsure", "write", "Write a file", edits, "deny", "Didn’t write"],
       [
         "read",
         "read",
@@ -461,7 +463,14 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
           "in the background · outside Claude Code’s own sandbox",
         );
       }
-      if (kind !== "steers") await expect(card.locator(".approval-explanation")).toHaveCount(0);
+      if (kind === "unsure") {
+        await expect(card.getByTestId("own-ask-unsure")).toHaveText(
+          "IncarnaMind can’t tell where this file leads.",
+        );
+        await expect(card.getByTestId("own-ask-steers")).toHaveCount(0);
+      } else if (kind !== "steers") {
+        await expect(card.locator(".approval-explanation")).toHaveCount(0);
+      }
       if (kind === "change") {
         await expect(card.getByTestId("own-ask-value")).toHaveText(
           join("~", "Documents", "Kestrel Bay", "board", "ferry-review.md"),

@@ -42,6 +42,9 @@ function realOf(path: string): string | null {
 // Paths compared as the disk compares them: macOS's and Windows's in any case.
 const asCompared = (path: string) => (process.platform === "linux" ? path : path.toLowerCase());
 
+// The longest path the system takes: past it the hook can't walk one, and it asks.
+const LONGEST_PATH = process.platform === "win32" ? 32_767 : 4096;
+
 // A path's parts as the system splits it: on macOS and Linux a backslash is a letter of a name.
 const SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
 const partsOf = (path: string) => path.split(SEPARATORS).filter((part) => part !== "");
@@ -71,13 +74,15 @@ export const elsewhereOnWindows = (path: string) =>
  * parts of its target and ".." the folder above the one reached, so it goes where a link took it,
  * even to a folder or file that isn't there yet, since a write through it can make that. With
  * `asText`, a link's target is read as text from the link's own folder instead, as Windows may read
- * it. Null when the walk gives up: more links than a system follows, a loop, a step into /proc or
- * /dev/fd, or a link to another computer.
+ * it. Null when the walk gives up: more links than a system follows, a loop, a place or a rest of
+ * parts longer than a path can be, a step into /proc or /dev/fd, or a link to another computer.
  */
 function leadsTo(path: string, asText = false): string | null {
   let at = parse(path).root;
   const parts = partsOf(path.slice(at.length));
   for (let hops = 0; parts.length > 0; ) {
+    // Links whose targets add parts can make the walk run long in the main process.
+    if (at.length > LONGEST_PATH || parts.length > LONGEST_PATH) return null;
     if (inProcessView(at)) return null;
     const part = parts.shift() ?? "";
     if (part === ".") continue;
@@ -104,9 +109,13 @@ function leadsTo(path: string, asText = false): string | null {
     at = parse(led).root;
     parts.unshift(...partsOf(led.slice(at.length)));
   }
-  if (inProcessView(at)) return null;
-  // A drive with nothing on it resolves nowhere: the place reached is where it leads.
-  return realOf(at) ?? at;
+  if (inProcessView(at) || at.length > LONGEST_PATH) return null;
+  const real = realOf(at);
+  if (real !== null) return real;
+  // A drive with nothing on it resolves nowhere: the place reached is where it leads. But on such a
+  // drive (a RAM disk, say) Windows can't give a short 8.3 name (CLAUDE~1) its long one.
+  if (process.platform === "win32" && partsOf(at).some((part) => /~\d/.test(part))) return null;
+  return at;
 }
 
 /** `path` from `folder`, when it is inside it; null when it isn't. */
@@ -185,7 +194,7 @@ export function actionOf(
     if (path === "") return null;
     const whole = resolve(places.folders[0] ?? "", path);
     const content = text(input.content);
-    const marked = steers(path, places.folders[0] ?? "") ? { steers: true as const } : {};
+    const marked = steeringMark(path, places.folders[0] ?? "");
     // Whether a file on another computer, or one a link takes there, is there can't be asked
     // without reaching it.
     const real = elsewhereOnWindows(whole) ? null : leadsTo(whole);
@@ -213,7 +222,7 @@ export function actionOf(
     return {
       kind: "change",
       ...placeOf(path, places),
-      ...(steers(path, places.folders[0] ?? "") && { steers: true }),
+      ...steeringMark(path, places.folders[0] ?? ""),
       size: everywhere
         ? { kind: "everywhere", count: 0 }
         : {
@@ -231,7 +240,7 @@ export function actionOf(
     return {
       kind: "change",
       ...placeOf(path, places),
-      ...(steers(path, places.folders[0] ?? "") && { steers: true }),
+      ...steeringMark(path, places.folders[0] ?? ""),
       ...(mode === "delete"
         ? { size: { kind: "cellGone", count: 0 } }
         : {
@@ -333,13 +342,26 @@ const steersAsNamed = (path: string) => {
   return STEERING_FILES.has(parts.at(-1) ?? "") || parts.includes(".claude");
 };
 
-/** Whether `path` is a file with other names: a hard link to it can be one Claude Code reads. */
-function linkedHard(path: string): boolean {
+/**
+ * The file at `path` by its disk and number, when it has other names (a hard link), as its device
+ * and inode; null for one with no other name, a folder, or nothing there.
+ */
+function linkedHard(path: string): string | null {
   try {
-    const stat = statSync(path);
-    return stat.isFile() && stat.nlink > 1;
+    const stat = statSync(path, { bigint: true });
+    return stat.isFile() && stat.nlink > 1n ? `${stat.dev}:${stat.ino}` : null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/** The file at `path` by its device and inode; null for nothing there or not a file. */
+function fileId(path: string): string | null {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return stat.isFile() ? `${stat.dev}:${stat.ino}` : null;
+  } catch {
+    return null;
   }
 }
 
@@ -378,11 +400,8 @@ function steeringPlaces(cwd: string): string[] {
   return named
     .filter(there)
     .flatMap(readingsOf)
-    .flatMap((real) => (real === null ? [] : [asCompared(real)]));
+    .flatMap((real) => (real === null ? [] : [real]));
 }
-
-// A path the hook can't walk at once: the walk runs in the main process, a step at a time.
-const LONGEST_PATH = 4096;
 
 // Claude Code's own home, which may not be the one IncarnaMind's process has.
 const FROM_HOME = /^~/;
@@ -392,11 +411,13 @@ const FROM_HOME = /^~/;
  * skills and its memory (under a .claude folder), and servers (.mcp.json, .claude.json). Written in
  * the conversation's folder, or in its memory, it steers every later request there. Checked as
  * named, where it really is from `cwd` (a symbolic link by another name can lead to one), against
- * where the steering files for `cwd` really are, and, for a file with other names (a hard link), as
- * one, since which of them it is can't be told cheaply. The path is walked as given, its own ".."
+ * where the steering files for `cwd` really are, and, for a file with other names (a hard link),
+ * as one of them when its disk and number are one's, and as one that may be when they aren't, since
+ * a file under a .claude folder can't be found cheaply. The path is walked as given, its own ".."
  * taken by the walk, and folded as text, since Claude Code may hand it on either way. "known" when
- * a reading reaches one; "unknown" where that can't be told: a walk gave up, a hard link, a path
- * from Claude Code's own home, one too long to walk, or one on another computer.
+ * a reading reaches one; "unknown" where that can't be told: a walk gave up, a hard link to no
+ * steering file, a path from Claude Code's own home, one too long to walk, or one on another
+ * computer.
  */
 function steering(path: string, cwd: string): "known" | "unknown" | null {
   if (steersAsNamed(path)) return "known";
@@ -407,17 +428,30 @@ function steering(path: string, cwd: string): "known" | "unknown" | null {
   const readings = [...new Set([given, folded])].flatMap(readingsOf);
   if (readings.some((real) => real === null)) return "unknown";
   const places = steeringPlaces(cwd);
+  const compared = places.map(asCompared);
   const reached = readings.some((real) => {
     if (real === null || steersAsNamed(real)) return true;
     const found = asCompared(real);
-    return places.some((place) => found === place || found.startsWith(`${place}${sep}`));
+    return compared.some((place) => found === place || found.startsWith(`${place}${sep}`));
   });
   if (reached) return "known";
-  return readings.some((real) => real !== null && linkedHard(real)) ? "unknown" : null;
+  const linked = readings.flatMap((real) => {
+    const id = real === null ? null : linkedHard(real);
+    return id === null ? [] : [id];
+  });
+  if (linked.length === 0) return null;
+  const ids = new Set(places.map(fileId));
+  return linked.some((id) => ids.has(id)) ? "known" : "unknown";
 }
 
-// A card says a file steers only where that is known; the hook asks where it can't be told too.
-const steers = (path: string, cwd: string) => steering(path, cwd) === "known";
+/**
+ * What a file's card says of it: that it steers Claude Code, where that is known, or that
+ * IncarnaMind can't tell where it leads, where the hook asks for that.
+ */
+function steeringMark(path: string, cwd: string): Pick<NoteAction, "steers" | "unsure"> {
+  const found = steering(path, cwd);
+  return found === "known" ? { steers: true } : found === "unknown" ? { unsure: true } : {};
+}
 
 // .claude may follow a short option's letter with nothing between, as in -C.claude.
 const STEERING_NAMES = /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])/i;

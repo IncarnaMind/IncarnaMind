@@ -51,6 +51,8 @@ export interface ClaudeCodeTurn {
     withdrawn(id: string): void;
     /** Where what the turn starts is noted while it runs, for the next start to end after a crash. */
     processes?: string;
+    /** How long Claude Code may take to answer `initialize`, before which nothing is sent. */
+    initializeMs: number;
   };
   /** A model alias or name Claude Code offers; absent: its own default. */
   model?: string;
@@ -237,7 +239,7 @@ const write = (stdin: Writable, message: Record<string, unknown>) => {
 };
 
 /** Claude Code didn't take the `initialize` that registers IncarnaMind's hook: nothing was sent. */
-class ClaudeCodeHookError extends Error {
+export class ClaudeCodeHookError extends Error {
   constructor() {
     super("Claude Code didn't take IncarnaMind's hook, so the request wasn't sent.");
     this.name = "ClaudeCodeHookError";
@@ -259,9 +261,12 @@ function readOwnTurn(
   const closed = new Promise((resolve) => child.once("close", resolve));
   const tree = wholeTree(child, closed, own.processes);
   let prompted = false;
+  // Nothing goes before Claude Code takes the hook, so a wait on it ends well before the stall.
+  const unanswered = new AbortController();
+  const waiting = setTimeout(() => unanswered.abort(), own.initializeMs);
   return readJsonLines(child, {
     agent: "Claude Code",
-    signal: turn.signal,
+    signal: AbortSignal.any([turn.signal, unanswered.signal]),
     end: tree.end,
     maxBytes: turn.maxResponseBytes,
     rawMaxBytes: turn.partial ? turn.maxResponseBytes * RAW_TIMES : turn.maxResponseBytes,
@@ -279,9 +284,18 @@ function readOwnTurn(
       if (msg.type === "control_response") {
         const control = object(msg.response);
         if (control.request_id === "models" && !prompted) {
-          // Without its hook a steering file would be written unasked: the prompt never goes.
-          if (control.subtype !== "success") throw new ClaudeCodeHookError();
-          turn.onModels?.(object(control.response));
+          const answer = object(control.response);
+          // Without its hook a steering file would be written unasked: the prompt never goes. Claude
+          // Code says it registered the hook, and that a failed answer blocks; one too old to know
+          // either answers without saying so, as its own SDK reads it.
+          if (
+            control.subtype !== "success" ||
+            answer.hooks_applied !== true ||
+            answer.hook_on_failure_supported !== true
+          )
+            throw new ClaudeCodeHookError();
+          clearTimeout(waiting);
+          turn.onModels?.(answer);
           turn.signal.throwIfAborted();
           prompted = true;
           write(stdin, {
@@ -332,7 +346,12 @@ function readOwnTurn(
       turn.onMessage?.(msg);
       return undefined;
     },
-  });
+  })
+    .catch((error: unknown) => {
+      if (unanswered.signal.aborted && !turn.signal.aborted) throw new ClaudeCodeHookError();
+      throw error;
+    })
+    .finally(() => clearTimeout(waiting));
 }
 
 /** Claude Code's effective settings hold a hook or an enabled plugin, which nothing here can turn off. */

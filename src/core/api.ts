@@ -13486,7 +13486,11 @@ export interface NoteRequestInput {
  * Why a request at a Note's foot didn't go or didn't finish: the check's reasons, and "read-only",
  * the connection may only read and the request would change something.
  */
-export type NoteTurnProblem = OwnAiCheckProblem | "read-only";
+export type NoteTurnProblem =
+  | OwnAiCheckProblem
+  | "read-only"
+  /** The User's own AI must be updated before a Note's conversation can run on it (#3653). */
+  | "update";
 
 /**
  * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",
@@ -13575,6 +13579,8 @@ export interface NoteAction {
   content?: string;
   /** For a file, or a command that names one: one the AI reads as its own (CLAUDE.md, .claude/, .mcp.json). */
   steers?: true;
+  /** For a file: where it really leads can't be told (a loop of links, say), so it is asked about. */
+  unsure?: true;
   /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
   background?: true;
   unsandboxed?: true;

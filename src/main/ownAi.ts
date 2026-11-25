@@ -13,7 +13,7 @@ import { basename, join } from "node:path";
 import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { endLeftRuns, object, older, processes, StalledError, short } from "./agentCommand";
 import { resolveCommandOnPath } from "./claudeBinary";
-import { ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
+import { ClaudeCodeHookError, ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
 import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 import { modelsIn } from "./ownAiModels";
@@ -39,6 +39,12 @@ const STALL_MS = 6 * 60_000;
  * 1,360 in 11 s (#3677). A longer summary takes longer, more than a larger input does.
  */
 const COMPACT_MS = 10 * 60_000;
+
+/**
+ * How long Claude Code may take to answer the `initialize` of a Note's conversation, before which
+ * nothing is sent: it answered in 0.2 s, new and resumed (Claude Code 2.1.331, #3653).
+ */
+const INITIALIZE_MS = 60_000;
 
 /** How often the core hears that the run is alive, whatever it sent. */
 const HEARD_EVERY_MS = 1_000;
@@ -93,6 +99,7 @@ export function createOwnAi({
   runMs = RUN_MS,
   stallMs = STALL_MS,
   compactMs = COMPACT_MS,
+  initializeMs = INITIALIZE_MS,
 }: {
   command?: string | null;
   codexCommand?: string | null;
@@ -103,6 +110,8 @@ export function createOwnAi({
   stallMs?: number;
   /** How long a compaction may last before the run is stopped. */
   compactMs?: number;
+  /** How long a Note's conversation waits for Claude Code to take its hook before it stops. */
+  initializeMs?: number;
 } = {}): OwnAiRunner {
   const folderOf = (key: string) => {
     if (!conversations || !/^[A-Za-z0-9-]{1,64}$/.test(key)) {
@@ -369,6 +378,7 @@ export function createOwnAi({
                 asking.get(id)?.abort();
                 asking.delete(id);
               },
+              initializeMs,
               ...(noted && { processes: noted }),
             },
           }),
@@ -516,6 +526,7 @@ export function createOwnAi({
         if (request.signal.aborted) throw error;
         if (error instanceof ClaudeCodeIsolationError)
           return { kind: "failed", reason: "isolation" };
+        if (error instanceof ClaudeCodeHookError) return { kind: "failed", reason: "update" };
         if (error instanceof StalledError) return { kind: "failed", reason: "stalled" };
         if (compactionStuck) return { kind: "failed", reason: failure ?? "compaction" };
         if (signal.aborted) return { kind: "failed", reason: "timeout" };

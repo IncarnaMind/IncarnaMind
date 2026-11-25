@@ -1711,6 +1711,12 @@ export type OwnAiFailure =
   | "unreadable"
   /** The agent's service ended the request with an error it gave no category for. */
   | "service"
+  /**
+   * Before anything was sent, the agent didn't take what a Note's conversation needs of it (#3653):
+   * Claude Code didn't register the hook that makes a write to its own instructions ask. An update
+   * brings it.
+   */
+  | "update"
   | "other";
 
 /**

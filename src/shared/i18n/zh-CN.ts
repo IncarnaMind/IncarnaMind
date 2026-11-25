@@ -8796,6 +8796,7 @@ export const zhCN = {
   "ownAsk.runs.background": "在后台",
   "ownAsk.runs.unsandboxed": "在 {agent} 自己的沙盒之外",
   "ownAsk.steers": "这个文件会改变 {agent} 以后的行为。",
+  "ownAsk.unsure": "IncarnaMind 无法确定这个文件实际指向哪里。",
   "ownAsk.moreLines.one": "还有 1 行 · 显示全部",
   "ownAsk.moreLines.other": "还有 {count} 行 · 显示全部",
   "ownAsk.here": "这个对话的文件夹",
@@ -8905,6 +8906,7 @@ export const zhCN = {
   "noteAsk.problem.signed-out": "{agent} 尚未在这台电脑上登录。在终端中登录后，再发送一次。",
   "noteAsk.problem.too-old":
     "{agent} {found} 版本过旧，需要 {lowest} 或更高版本。更新后再发送一次。",
+  "noteAsk.problem.update": "这个版本的 {agent} 无法在笔记中使用。更新后再发送一次。",
   "noteAsk.problem.no-answer": "{agent} 在这台电脑上没有响应，没有发送任何内容。再试一次。",
   "noteAsk.problem.plan-limit":
     "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",

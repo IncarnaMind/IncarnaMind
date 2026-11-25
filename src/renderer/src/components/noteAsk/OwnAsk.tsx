@@ -287,7 +287,7 @@ export function QuestionCard({
   return (
     <fieldset
       aria-labelledby={titleId}
-      aria-describedby={action.steers ? steersId : undefined}
+      aria-describedby={action.steers || action.unsure ? steersId : undefined}
       data-testid="own-ask-card"
       data-mind-id={mindId}
       data-kind={action.kind}
@@ -303,6 +303,11 @@ export function QuestionCard({
         {action.steers && (
           <p id={steersId} data-testid="own-ask-steers" className="approval-explanation">
             {t("ownAsk.steers", { agent })}
+          </p>
+        )}
+        {action.unsure && (
+          <p id={steersId} data-testid="own-ask-unsure" className="approval-explanation">
+            {t("ownAsk.unsure")}
           </p>
         )}
       </div>

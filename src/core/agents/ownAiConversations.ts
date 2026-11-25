@@ -93,6 +93,7 @@ const PROBLEM_OF: Record<Exclude<OwnAiFailure, "lost-conversation">, NoteTurnPro
   outside: "outside",
   unreadable: "unreadable",
   service: "service",
+  update: "update",
   other: "failed",
 };
 
