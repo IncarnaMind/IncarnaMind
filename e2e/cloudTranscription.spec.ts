@@ -221,14 +221,14 @@ test("with the Qwen key from Models and nothing chosen, the sheet picks Qwen and
   const bar = window.getByTestId("meeting-bar");
   const refused = bar.getByTestId("meeting-line-cloud");
   await expect(refused).toContainText(
-    "Qwen refused the key (wrong, expired or for another region). Check the key and its region in Settings › AI. Transcribing on this computer.",
+    "Qwen refused the key (wrong, expired or another region). Transcribing on this computer.",
     { timeout: 20_000 },
   );
   await expect(bar).toHaveAttribute("data-status", "recording");
   await shot(window, "meeting-bar-qwen-refused-en");
   await setLanguage(window, "zh-CN");
   await expect(refused).toContainText(
-    "通义千问拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › AI”中检查密钥和区域。正在这台电脑上转写。",
+    "通义千问拒绝了这个密钥（有误、已过期或属于其他区域）。正在这台电脑上转写。",
   );
   await shot(window, "meeting-bar-qwen-refused-zh");
   await bar.getByTestId("meeting-line-change-key").click();

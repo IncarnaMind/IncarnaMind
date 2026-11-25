@@ -266,8 +266,8 @@ async function expectRepair(
   const problem = recorded.filter((entry) => entry.kind === "startup-problem");
   const detail =
     language === "en"
-      ? `${targetVersion ? `The update to ${targetVersion}` : "The update"} may not have finished. This copy is ${apps.oldVersion}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.`
-      : `${targetVersion ? `更新到 ${targetVersion} ` : "更新"}可能没有完成。当前版本是 ${apps.oldVersion}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。`;
+      ? `${targetVersion ? `The update to ${targetVersion}` : "The update"} may not have finished, so this copy (${apps.oldVersion}) won’t open your data.`
+      : `${targetVersion ? `更新到 ${targetVersion} ` : "更新"}可能没有完成，当前版本（${apps.oldVersion}）不会打开你的数据。`;
   expect(problem).toEqual([
     expect.objectContaining({
       dataHeld: false,

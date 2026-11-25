@@ -467,11 +467,11 @@ describe("A deleted Meeting's files that can't be removed", { timeout: 60_000 },
         core.deletePermanently([{ kind: "mind", id: meeting.mindId }]),
       ).rejects.toMatchObject({
         message:
-          "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
+          "Deleted, but a meeting’s recording is still on this computer. IncarnaMind tries again next start.",
         wording: { key: "error.meeting.purgeFailed" },
       });
       expect(translate("zh-CN", "error.meeting.purgeFailed")).toBe(
-        "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
+        "已彻底删除，但会议录音暂时还在这台电脑上，IncarnaMind 会在下次启动时重试。",
       );
       expect(await core.listDeleted()).toEqual([]);
       expect(partsOf(dataDir, meeting.id)).toEqual(parts);

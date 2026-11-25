@@ -69,7 +69,7 @@ test("a reply that says the calculation Tool confirmed a figure keeps a line, an
     "The calculation tool confirmed 3.26x.",
   );
   const line = answer.getByTestId("answer-unrun-calculate");
-  await expect(line).toContainText("No calculation ran: IncarnaMind didn’t calculate");
+  await expect(line).toContainText("No calculation ran, so the figures this reply works out");
   await expect(line.getByTestId("answer-unrun-retry")).toBeVisible();
   if (SCREENSHOTS) await answer.screenshot({ path: join(SCREENSHOTS, "unrun-tool-line-en.png") });
   await pointAndClick(window, answer.getByTestId("answer-steps"));
@@ -99,7 +99,7 @@ test("in Chinese, the line and the ask say so in Chinese", async () => {
     "计算工具已确认：杠杆率为 3.26 倍。",
   );
   const line = answer.getByTestId("answer-unrun-calculate");
-  await expect(line).toContainText("未运行计算：这条回答中算出的数字不是 IncarnaMind 计算得出的");
+  await expect(line).toContainText("未运行计算，这条回答中算出的数字尚未核对");
   if (SCREENSHOTS) await answer.screenshot({ path: join(SCREENSHOTS, "unrun-tool-line-zh.png") });
   await pointAndClick(window, answer.getByTestId("answer-steps"));
   await expect(answer.getByTestId("answer-asked-again")).toContainText(

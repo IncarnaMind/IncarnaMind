@@ -49,7 +49,6 @@ export function CheckNotReady({
         label={(agent) => t("agents.ask.action", { agent })}
         onAsk={(agent) => void ask(agent)}
         onContinue={(agent) => void ask(agent, true)}
-        setUp={{ ...setUp, label: t("agents.ask.setUpModel"), testId: "checks-ask-agent-set-up" }}
         testId="checks-ask-agent"
         className="mind-health-line"
       />
@@ -120,11 +119,10 @@ export function CheckNotReady({
 /**
  * The Note's card while the User's own AI is asked to check it (#3587): what became of the request,
  * in the words the badge says, then Ask again, Continue in the open chat and the other AIs behind
- * its ⌄, and Set up a model.
+ * its ⌄. The User's own AI is the way the card checks, so it offers no model to set up (#3756).
  */
 export function AskedCheckLine({ mindId }: { mindId: string }) {
   const t = useT();
-  const openSettings = useAppStore((state) => state.openSettings);
   const readiness = useAppStore((state) => state.chatReadiness);
   const asked = useAskedAgent({ kind: "check", mindId });
   useReadAgentsToAsk(mindId);
@@ -132,7 +130,6 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
   if (!asked || !noModelSetUp(readiness)) return null;
   const { agent, background, state } = asked.asked;
   const others = (agents ?? []).filter((each) => each.id !== agent.id);
-  const setUp = readinessAction(readiness, t, openSettings, t("agents.ask.setUpModel"));
   // While it runs in the background, the one thing to do is stop it (#3606): the badge above says
   // it is checking, and Stop takes Check's place in the card's foot, so the words here are only for
   // a screen reader (#3756).
@@ -167,7 +164,6 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
         onContinue={(each) =>
           void askAgent(each, mindId, { kind: "check" }, undefined, { openChat: true })
         }
-        setUp={{ ...setUp, testId: "checks-asked-set-up" }}
         testId="checks-asked-line"
       />
     </div>

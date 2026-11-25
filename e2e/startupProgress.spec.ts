@@ -404,8 +404,8 @@ for (const language of ["en", "zh-CN"]) {
     });
     const prefix =
       language === "en"
-        ? "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n"
-        : "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\n";
+        ? "Your data folder couldn’t be opened. Open IncarnaMind again.\n\n"
+        : "无法打开你的数据文件夹。请重新打开 IncarnaMind。\n\n";
     if (typeof problem?.content !== "string")
       throw new Error("The startup problem has no native error detail.");
     expect(problem.content.startsWith(prefix)).toBe(true);

@@ -739,7 +739,9 @@ test("help during the call with the live text behind and no line yet: the panel 
   const english = await pressHelp(panel, "Answer their question");
   const line = english.getByTestId("help-option");
   await expect(line).toHaveCount(1);
-  await expect(line).toContainText("The live text is behind, so none of the call is written yet");
+  await expect(line).toContainText(
+    "The live text is behind; the call is written out after the meeting stops.",
+  );
   await expect(english.getByTestId("help-option-effect")).toHaveCount(0);
   await shot(panel, "help-panel-behind-en");
 
@@ -747,7 +749,7 @@ test("help during the call with the live text behind and no line yet: the panel 
   const chinese = await pressHelp(panel, "回答对方的问题");
   await expect(chinese.getByTestId("help-option")).toHaveCount(1);
   await expect(chinese.getByTestId("help-option")).toContainText(
-    "实时转写跟不上，通话内容还没有转写出来",
+    "实时转写跟不上，会议结束后才会转写出来。",
   );
   await shot(panel, "help-panel-behind-zh");
   await app.close();
@@ -841,10 +843,8 @@ test("help during the call on Windows and Linux: no shortcut is held until the U
   const problem = settings.getByTestId("help-keys-problem");
   const hint = settings
     .getByTestId("help-settings")
-    .getByText(
-      "No keys are set to start with. A key you set works over the meeting app, only while recording.",
-    );
-  const hintZh = settings.getByText("默认没有快捷键。设置后，可在会议应用中使用，仅在录制时有效。");
+    .getByText("Keys you set work over the meeting app, only while recording.");
+  const hintZh = settings.getByText("设置的快捷键可在会议应用中使用，仅在录制时有效。");
   await expect(hint).toBeVisible();
   for (const row of await rows.all()) {
     await expect(row.getByTestId("help-keys")).toHaveText("No key set");

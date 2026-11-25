@@ -142,7 +142,7 @@ for (const language of ["en", "zh-CN"] as const) {
           asked: "Fix the 2 things IncarnaMind flagged in the file “Harbour review”.",
           ask: "Ask Claude Code to fix it",
           handedHint:
-            "Claude Code made this file for you to check: it’s never read or cited as a source until you cite it.",
+            "Claude Code made this for you to check; it isn’t a source until you cite it.",
           cite: "Cite this Document",
           differs: "Total · 2027: saved 17,300, worked out 16,300",
           needLook: "2 need a look",
@@ -152,8 +152,7 @@ for (const language of ["en", "zh-CN"] as const) {
           askAll: "交给 Claude Code 修改这 2 句",
           asked: "把 IncarnaMind 在文件“Harbour review”里标出来的 2 处改好。",
           ask: "交给 Claude Code 修改",
-          handedHint:
-            "Claude Code 制作的文件，供你核对：在你将它作为引用来源之前，不会被读取或引用。",
+          handedHint: "Claude Code 制作的文件，供你核对；你引用它之前，它不作为来源。",
           cite: "作为引用来源",
           differs: "Total · 2027：保存的是 17,300，重新计算为 16,300",
           needLook: "2 条需要留意",

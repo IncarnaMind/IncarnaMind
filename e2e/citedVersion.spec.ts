@@ -561,9 +561,7 @@ test("a Citation opens the version it was made from, for every kind of Location,
     await screenshot(window, "cited-web-en");
     await web.getByTestId("viewer-open-current").click();
     await expect(web.getByTestId("viewer-as-cited")).toHaveCount(0);
-    await expect(web.getByTestId("viewer-citation-changed")).toContainText(
-      "This page was fetched again on",
-    );
+    await expect(web.getByTestId("viewer-citation-changed")).toContainText("Fetched again on");
     await expect(web.getByTestId("viewer-web-article")).toContainText(CHANGED.web);
     await closeCitedTab(window, "web");
 

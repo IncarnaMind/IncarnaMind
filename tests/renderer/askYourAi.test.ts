@@ -518,12 +518,12 @@ describe("a Check that no model can run, for each kind of User (#3533)", () => {
   const claude = pairing("Claude Code", "claude-code");
   const problemKind = () => useChecks.getState().problems[MIND]?.kind;
 
-  // protects=with no model and an agent that can read the Note, the Check's line offers to ask that agent, as "Ask {agent}" is worded elsewhere, with the others behind the arrow, and pressing it asks for a check and clears the line; fails_when=the line is about asking, offers no agent, or the press asks another kind of thing
+  // protects=with no model and an agent that can read the Note, the Check's line offers to ask that agent, as "Ask {agent}" is worded elsewhere, with the others behind the arrow and no model to set up, since that agent is the way the card checks (#3756), and pressing it asks for a check and clears the line; fails_when=the line is about asking, offers no agent, offers a model, or the press asks another kind of thing
   test("with no model and an agent: Ask {agent} asks it to check the Note", async () => {
     user(NO_MODEL, [claude, pairing("VS Code", "vscode")]);
     const line = await checkLine(NO_MODEL as never);
     expect(line.textContent).toContain("Ask Claude Code");
-    expect(line.textContent).toContain("Set up a model");
+    expect(line.textContent).not.toContain("Set up a model");
     expect(line.textContent).not.toContain("Asking needs your AI");
     expect(line.querySelector('[data-testid="checks-ask-agent-others"]')).not.toBeNull();
     const ask = line.querySelector('[data-testid="checks-ask-agent-ask"]') as HTMLElement;
@@ -678,7 +678,6 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
         "Checking this note in Codex.",
         "Ask again",
         "More ways to ask",
-        "Set up a model",
       ],
     ],
     [
@@ -688,11 +687,10 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
         "Codex 正在核对这篇笔记。",
         "再问一次",
         "更多提问方式",
-        "设置 AI 模型",
       ],
     ],
   ] as const)("asked, checking, then its result (%s)", async (language, words) => {
-    const [asked, checking, again, more, setUp] = words;
+    const [asked, checking, again, more] = words;
     user(NO_MODEL, [claude, codex], language);
     bridge.opens = true;
     expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
@@ -700,7 +698,8 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     expect(part("checks-asked")?.textContent).toBe(asked);
     expect(part("checks-asked")?.dataset.state).toBe("asked");
     expect(part("checks-asked-line-ask")?.textContent).toBe(again);
-    expect(part("checks-asked-set-up")?.textContent).toBe(setUp);
+    // The User's own AI is the way this card checks: it offers no model to set up (#3756).
+    expect(part("checks-asked-set-up")).toBeNull();
     expect(part("checks-asked-line-others")?.getAttribute("aria-label")).toBe(more);
 
     await called(claude, "check_mind_yourself", { mindId: MIND });
@@ -850,13 +849,13 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
   test.each([
     [
       "en",
-      "Claude Code isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
+      "Claude Code isn’t signed in: sign in to it in a terminal, then Check again.",
       "Claude Code stopped: your Claude plan or API key has reached its limit. Try again later.",
       "Check again",
     ],
     [
       "zh-CN",
-      "Claude Code 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
+      "Claude Code 尚未登录：在终端中登录后，再点“核对”。",
       "Claude Code 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
       "再次核对",
     ],

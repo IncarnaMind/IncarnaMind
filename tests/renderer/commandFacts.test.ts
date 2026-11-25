@@ -42,10 +42,10 @@ describe("What the assistant's Organize asks, and what its Allow sends (#2252)",
   test("what goes, then the this-time-only line, in English and Chinese", () => {
     const ask = { service: "OpenAI", declined: true };
     expect(organizeAskWhy(en, enGap, ask)).toBe(
-      "Organize reads what each Document says and suggests the Folder that fits. Nothing moves until you confirm them. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to OpenAI, each time you organize. You said no to this before. Allow sends them this time only.",
+      "Suggests a Folder for each Document; nothing moves until you confirm. Allowing it sends each Document’s name, kind and page count, the start of its text and its slide titles or sheet names, with your Folders’ names and descriptions, any matching Tags’ names and descriptions and your interface language, to OpenAI, each time you organize. You said no to this before. Allow sends them this time only.",
     );
     expect(organizeAskWhy(zh, zhGap, ask)).toBe(
-      "整理会读取每个文档的内容，建议合适的文件夹。你确认前不会移动任何文档。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
+      "为每个文档建议合适的文件夹；你确认前不会移动。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。你之前选择了不发送。点“允许”只在这一次发送。",
     );
     expect(organizeAskWhy(en, enGap, ask)).toContain(
       translate("en", "library.organize.consent.sends", { service: "OpenAI" }),

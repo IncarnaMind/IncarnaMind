@@ -914,7 +914,7 @@ describe("changes the User can take back", () => {
     method("restore").mockResolvedValue(expired(true, true));
     await restoreItems([item]);
     expect(said(top())).toBe(
-      "Restored “Plan” with its transcript. Its audio was deleted 24 hours after it was recorded.",
+      "Restored “Plan” with its transcript; its audio was deleted 24 hours after recording.",
     );
     expect(undoLines(zh).said(top())).toBe("已恢复“Plan”及其转写稿。音频已在录制 24 小时后删除。");
     method("restore").mockResolvedValue(expired(true, false));

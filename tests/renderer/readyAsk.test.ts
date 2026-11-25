@@ -186,7 +186,7 @@ describe("the example's ready Question while its Documents are read (#2218)", ()
   test("a Document that can't be read says why in the card's row", async () => {
     exampleAsk = async () => {
       throw new Error(
-        "The example’s Document “Northwind Retail · Q3 2026 results” couldn’t be read. Add a file of your own, or remove the examples.",
+        "Couldn’t read the example’s “Northwind Retail · Q3 2026 results”. Add a file of your own, or remove the examples.",
       );
     };
     useAnswers.setState({ blocked: {} });
@@ -195,7 +195,7 @@ describe("the example's ready Question while its Documents are read (#2218)", ()
     expect(useAnswers.getState().blocked["composer:assistant"]).toMatchObject({
       kind: "error",
       message:
-        "The example’s Document “Northwind Retail · Q3 2026 results” couldn’t be read. Add a file of your own, or remove the examples.",
+        "Couldn’t read the example’s “Northwind Retail · Q3 2026 results”. Add a file of your own, or remove the examples.",
     });
   });
 
