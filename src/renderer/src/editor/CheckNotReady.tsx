@@ -1,11 +1,10 @@
 import type { AgentPairing, ChatReadiness } from "../../../core/api";
-import { checkInBackground, stopBackgroundCheck, useAskedAgent } from "../askedAgent";
+import { checkInBackground, useAskedAgent } from "../askedAgent";
 import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { dismissCheckProblem } from "../checks";
 import { installClaudeCodeFromEntry, useClaudeCodeInstallAvailability } from "../claudeCodeInstall";
 import { AskAgentLine } from "../components/AskAgentLine";
-import { MetaLine } from "../components/MetaLine";
-import { LineAction, ProblemLine } from "../components/ProblemLine";
+import { ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
   readinessAction,
@@ -81,9 +80,6 @@ export function CheckNotReady({
         className="mind-health-line flex flex-col gap-2"
       >
         <p className="font-semibold text-ink">{t("checks.problem.no-provider")}</p>
-        <p className="text-[12.5px] leading-[18px] text-ink-secondary">
-          {t("agents.install.checks.detail")}
-        </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -137,27 +133,14 @@ export function AskedCheckLine({ mindId }: { mindId: string }) {
   const { agent, background, state } = asked.asked;
   const others = (agents ?? []).filter((each) => each.id !== agent.id);
   const setUp = readinessAction(readiness, t, openSettings, t("agents.ask.setUpModel"));
-  // While it runs in the background, the one thing to do is stop it (#3606).
+  // While it runs in the background, the one thing to do is stop it (#3606): the badge above says
+  // it is checking, and Stop takes Check's place in the card's foot, so the words here are only for
+  // a screen reader (#3756).
   if (background && state === "working") {
     return (
-      <div className="mind-health-line">
-        <MetaLine
-          as="div"
-          parts={[
-            <span key="words" role="status" data-testid="checks-asked" data-state={state}>
-              {asked.words}
-            </span>,
-            <LineAction
-              key="stop"
-              action={{
-                label: t("agents.asked.stop"),
-                testId: "checks-asked-stop",
-                onClick: () => void stopBackgroundCheck(mindId),
-              }}
-            />,
-          ]}
-        />
-      </div>
+      <span role="status" data-testid="checks-asked" data-state={state} className="sr-only">
+        {asked.words}
+      </span>
     );
   }
   // A run stopped for what it showed opens the check in the agent's app, as its line says (#3639).

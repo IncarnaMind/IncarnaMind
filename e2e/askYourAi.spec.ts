@@ -524,13 +524,13 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     const asked = window.getByTestId("checks-asked");
     const badge = window.getByTestId("badge-asked");
     await expect(asked).toHaveText(ASKED);
-    await expect(badge).toHaveText("Asked your AI");
+    await expect(badge).toHaveText("Asked Claude Code");
     await expect(badge).toHaveAttribute("title", ASKED);
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
     await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
     await expect(window.getByTestId("checks-asked-set-up")).toHaveText("Set up a model");
-    await expect(window.getByTestId("badge-check-mind")).toBeDisabled();
+    await expect(window.getByTestId("badge-check-mind")).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Asking needs your AI");
     await shot(window, "check-no-model-asked-en");
     await setLanguage(window, "zh-CN");
@@ -546,11 +546,11 @@ test("with no model, one press of Check asks the User's own AI and the Note says
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
       ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
       await expect(asked).toHaveText("Checking this note in Claude Code.");
-      await expect(badge).toHaveText("Your AI is checking");
+      await expect(badge).toHaveText("Claude Code is checking");
       await shot(window, "check-no-model-checking-en");
       await setLanguage(window, "zh-CN");
       await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
-      await expect(badge).toHaveText("你的 AI 正在核对");
+      await expect(badge).toHaveText("Claude Code 正在核对");
       await shot(window, "check-no-model-checking-zh-CN");
       await setLanguage(window, "en");
 

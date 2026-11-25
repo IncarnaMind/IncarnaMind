@@ -315,5 +315,5 @@ export function useAskedAgent(
         : now.state === "working"
           ? t(WORKING[now.for.kind], { agent })
           : t("agents.asked.quiet", { agent });
-  return { asked: now, words, short: t(`agents.asked.short.${now.state}`) };
+  return { asked: now, words, short: t(`agents.asked.short.${now.state}`, { agent }) };
 }

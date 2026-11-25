@@ -144,7 +144,9 @@ const { setCheckProblem, useChecks } = await import("../../src/renderer/src/chec
 const { AskedCheckLine }: { AskedCheckLine: ComponentType<{ mindId: string }> } = await import(
   checkNotReadyPath
 );
-const { QUIET_AFTER_MS, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
+const { QUIET_AFTER_MS, stopBackgroundCheck, useAgentAsked } = await import(
+  "../../src/renderer/src/askedAgent"
+);
 
 const MIND = "mind-ferries";
 const pairing = (name: string, client: string | null): AgentPairing => ({
@@ -808,13 +810,13 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     );
   });
 
-  // protects=with Claude Code able to run it, one press checks in the background: no link opens and nothing is copied, the line says it is checking with Stop beside it, Stop stops it, and the line goes when the core says the marks landed (#3606); fails_when=the press opens Claude Code, the line waits for a request the User needn't send, or stays after the run ended
+  // protects=with Claude Code able to run it, one press checks in the background: no link opens and nothing is copied, the line says it is checking to a screen reader with no Stop of its own (Stop takes Check's place in the card's foot, #3756), stopping it stops it, and the line goes when the core says the marks landed (#3606); fails_when=the press opens Claude Code, the line waits for a request the User needn't send, says Stop a second time, or stays after the run ended
   test.each([
-    ["en", "Checking this note in Claude Code.", "Stop"],
-    ["zh-CN", "Claude Code 正在核对这篇笔记。", "停止"],
+    ["en", "Checking this note in Claude Code."],
+    ["zh-CN", "Claude Code 正在核对这篇笔记。"],
   ] as const)(
     "a check run in the background says so, can be stopped, and goes when it lands (%s)",
-    async (language, checking, stop) => {
+    async (language, checking) => {
       user(NO_MODEL, [claude, codex], language);
       bridge.background = { kind: "started", pairing: claude };
       expect(await askToCheck(MIND)).toBe(true);
@@ -824,13 +826,14 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
       const { container, part } = await askedLine();
       expect(part("checks-asked")?.textContent).toBe(checking);
       expect(part("checks-asked")?.dataset.state).toBe("working");
-      expect(part("checks-asked-stop")?.textContent).toBe(stop);
+      expect(part("checks-asked")?.classList.contains("sr-only")).toBe(true);
+      expect(part("checks-asked-stop")).toBeNull();
       expect(part("checks-asked-line-ask")).toBeNull();
       // A call it makes on the way changes nothing: the run says itself when it ends.
       await called(claude, "report_check", { mindId: MIND });
       expect(part("checks-asked")?.textContent).toBe(checking);
 
-      await act(async () => part("checks-asked-stop")?.click());
+      await act(async () => stopBackgroundCheck(MIND));
       expect(bridge.stopped).toEqual([MIND]);
       await act(async () => {
         for (const listener of bridge.ends)

@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
 import { ANALYSIS_TABLE_ATTRIBUTE, type CitationAttributes } from "../../../core/api";
 import { liveVersions, tableShownIn } from "../../../shared/analysisTables";
@@ -24,7 +24,7 @@ import { errorMessage } from "../errors";
 import { openFigureSchedule } from "../figures";
 import { useLanguage, useT } from "../i18n";
 import { startMindCheck, useMindCheck, useMindCheckRun } from "../mindCheck";
-import { allCheckedHead, type NoteState, unreadForCard } from "../noteState";
+import { cardHead, checkedCaveat, type NoteState, unreadForCard } from "../noteState";
 import { useEmptyScopeLine } from "../scopeDocuments";
 import { useAppStore } from "../store";
 import { useKeptInsideOf } from "../turnWall";
@@ -44,7 +44,7 @@ import {
   noteHealth,
 } from "./healthCounts";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
-import { CheckedWhen } from "./MindCheckLine";
+import { CheckedMore, CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { NotYetCitedRow } from "./NotYetCitedRow";
 import { OpinionsLine } from "./OpinionsLine";
@@ -300,18 +300,40 @@ export function HealthCard({
   // The card keeps the height it opened with while a check runs (#2313): what the check's end
   // brings can land below it, and is scrolled into view where it lands (#3019).
   const notYetCitedRow = useRef<HTMLDivElement>(null);
-  const allCheckedLine = useRef<HTMLParagraphElement>(null);
   // Only a sentence Supported, not yet cited keeps the Note from Checked: a ✓ that cites nothing yet
   // waits in the row without taking the body's scroll from the rows above it (#3358).
   const waitingShown = running === undefined && health.notYetCited.length > 0;
   const allCheckedShown = running === undefined && summary?.kind === "all";
-  const allCheckedWords = allCheckedHead(state, t, language);
+  // What a checked Note leaves that no row counts, said once on the card's first line (#3756).
+  const caveat = allCheckedShown && state ? checkedCaveat(state, t, format) : null;
+  // "All supported" only where it is true: nothing left, kept as written or unread.
+  const allSupported =
+    allCheckedShown &&
+    caveat === null &&
+    (state?.unread ?? 0) === 0 &&
+    health.kept.length === 0 &&
+    health.keptCharts.length === 0;
+  // What the note line says: when the Note was last checked. While a run is on it says nothing:
+  // the rows show each sentence move as its check ends, and a line of what landed would count
+  // them twice (#2831). With nothing to say it takes no line, so no empty line is reserved.
+  // The health is counted a moment after the record lands: until no claim says it is being
+  // checked, the line would name a check a row still says is running (#2313).
+  const landed = running === undefined && health.checking.length === 0 ? checkedAll : null;
   useEffect(() => {
     if (waitingShown) notYetCitedRow.current?.scrollIntoView({ block: "nearest" });
   }, [waitingShown]);
-  useEffect(() => {
-    if (allCheckedShown) allCheckedLine.current?.scrollIntoView({ block: "nearest" });
-  }, [allCheckedShown]);
+  const ranWhole = landed != null;
+  // A ref callback, not an effect: the run's own line can land after the summary and take its
+  // place. That line is the body's first, so the body goes back to its top: brought in "nearest",
+  // a body held to one row would keep it above the fade with its top cut (#3019).
+  const allCheckedLine = useCallback(
+    (line: HTMLDivElement | null) => {
+      if (!allCheckedShown || !line) return;
+      if (ranWhole) line.closest(".check-card-body")?.scrollTo({ top: 0 });
+      else line.scrollIntoView({ block: "nearest" });
+    },
+    [allCheckedShown, ranWhole],
+  );
 
   /**
    * Puts the cursor at the next such sentence after it, round to the first. It is centred by its
@@ -405,27 +427,35 @@ export function HealthCard({
     );
   };
 
-  // What the note line says: when the Note was last checked. While a run is on it says nothing:
-  // the rows show each sentence move as its check ends, and a line of what landed would count
-  // them twice (#2831). With nothing to say it takes no line, so no empty line is reserved.
-  const note =
-    running === undefined && checkedAll != null && health.checking.length === 0 ? (
-      // The health is counted a moment after the record lands: until no claim says it is being
-      // checked, the line would name a check a row still says is running (#2313).
-      <CheckedWhen
-        run={checkedAll}
-        editor={editor}
-        doc={doc}
-        mindId={mindId}
-        unexamined={health.unexamined.length}
-      />
-    ) : null;
+  // Once a whole check has run, the card says its result first, in the title's place (#3756):
+  // with nothing left, the line of the check heads it; otherwise its rows do, and that line
+  // follows them.
+  const headed = landed != null && allCheckedShown;
   return (
     <>
-      {summary?.kind === "all" && (
-        <p ref={allCheckedLine} data-testid="health-all-checked" className="mind-health-summary">
-          {allCheckedWords}
-        </p>
+      {headed ? (
+        <div ref={allCheckedLine} data-testid="health-all-checked" className="check-card-head">
+          <CheckedWhen run={landed} supported={allSupported} caveat={caveat} />
+        </div>
+      ) : (
+        landed == null && (
+          <>
+            <p className="check-card-title">{t("health.label")}</p>
+            {allCheckedShown && (
+              <div
+                ref={allCheckedLine}
+                data-testid="health-all-checked"
+                className="mind-health-summary"
+              >
+                {allSupported ? (
+                  <span className="check-card-checked">{t("health.allSupported")}</span>
+                ) : (
+                  cardHead(state, t, language)
+                )}
+              </div>
+            )}
+          </>
+        )
       )}
       <AddedDocumentsLine doc={doc} mindId={mindId} />
       <div ref={rowsRef} className="check-rows" data-testid="mind-health">
@@ -456,7 +486,20 @@ export function HealthCard({
             t("signOff.count.changed", { count: format(signedOff.changed) })}
         </p>
       )}
-      {note && <div className="check-card-note">{note}</div>}
+      {landed && !headed && (
+        <div className="check-card-note">
+          <CheckedWhen run={landed} />
+        </div>
+      )}
+      {landed && (
+        <CheckedMore
+          run={landed}
+          editor={editor}
+          doc={doc}
+          mindId={mindId}
+          unexamined={health.unexamined.length}
+        />
+      )}
       {((smallModel && rows.length > 0) ||
         (contradictions?.kind !== "asking" && contradictions?.run.smallModel)) && (
         <p data-testid="checks-small-model" className="mind-health-line mind-health-note">
