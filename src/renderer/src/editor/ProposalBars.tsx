@@ -10,6 +10,7 @@ import {
 } from "react";
 import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
 import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
+import { drawnNoteAskBox } from "../components/noteAsk/noteAskBox";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";
 import { useNoteAskShown, useNoteAsks } from "../ownAiInNote";
@@ -479,8 +480,8 @@ function useBarPlace(
         ?.querySelector("[data-ask-pill]")
         ?.getBoundingClientRect();
       const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
-      // The Note's own input at its foot, with its line (#3627).
-      const input = pageOf?.querySelector(".note-ask")?.getBoundingClientRect();
+      // The Note's own input at its foot, with its line (#3627), or what it opened over the Note.
+      const input = pageOf ? drawnNoteAskBox(pageOf)?.getBoundingClientRect() : undefined;
       // Its width at the widest it is drawn, before this placement's own cap.
       element.style.maxWidth = "";
       const size = { width: element.offsetWidth, height: element.offsetHeight };

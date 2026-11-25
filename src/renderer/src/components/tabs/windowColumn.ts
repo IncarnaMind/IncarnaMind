@@ -46,9 +46,12 @@ export const columnFits = (card: number | null, groups: number, scrollbar = 0): 
     NOTE_PANE + scrollbar + Math.max(0, groups - 1) * OTHER_PANE;
 
 /**
- * The groups' shares of `room` px with the column beside them: the group at `at`, the Note's,
- * keeps `NOTE_PANE` and its scrollbar's room at least, taken from the others as far as they are
- * wider than `OTHER_PANE`, the widest giving most. Shares as the layout keeps them, which sum to 1.
+ * The groups' shares of `room` px as they are drawn with the column beside them: the group at
+ * `at`, the Note's, keeps `NOTE_PANE` and its scrollbar's room at least, and every other group
+ * `OTHER_PANE`, what they lack taken from the groups wider than they need, the widest giving most.
+ * The shares the layout keeps, which come back as the column leaves, are not changed; the shares
+ * given back sum to 1. Where `room` can't hold every group's least, which `columnFits` never lets
+ * happen, they are given back as kept.
  */
 export function sharesBeside(
   shares: readonly number[],
@@ -57,17 +60,21 @@ export function sharesBeside(
   scrollbar = 0,
 ): number[] {
   const total = shares.reduce((sum, share) => sum + share, 0);
-  if (at < 0 || room <= 0 || total <= 0) return [...shares];
+  const least = shares.map((_, index) => (index === at ? NOTE_PANE + scrollbar : OTHER_PANE));
+  if (at < 0 || total <= 0 || least.reduce((sum, each) => sum + each, 0) > room) {
+    return [...shares];
+  }
   const widths = shares.map((share) => (share / total) * room);
-  const short = Math.min(room, NOTE_PANE + scrollbar) - (widths[at] ?? 0);
+  const short = widths.reduce(
+    (sum, width, index) => sum + Math.max(0, (least[index] ?? 0) - width),
+    0,
+  );
   if (short <= 0) return [...shares];
-  const spare = widths.map((width, index) => (index === at ? 0 : Math.max(0, width - OTHER_PANE)));
+  const spare = widths.map((width, index) => Math.max(0, width - (least[index] ?? 0)));
   const all = spare.reduce((sum, each) => sum + each, 0);
-  const given = Math.min(short, all);
-  return widths.map((width, index) =>
-    index === at
-      ? (width + given) / room
-      : (width - (all > 0 ? (given * (spare[index] ?? 0)) / all : 0)) / room,
+  return widths.map(
+    (width, index) =>
+      (Math.max(width, least[index] ?? 0) - (short * (spare[index] ?? 0)) / all) / room,
   );
 }
 

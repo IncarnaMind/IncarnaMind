@@ -42,6 +42,7 @@ import { WindowColumnContext } from "../tabs/windowColumn";
 import { type InputCarry, NoteAskInput } from "./NoteAskInput";
 import { NoteAskPill } from "./NoteAskPill";
 import { NoteColumn, NoteConversationBody } from "./NoteColumn";
+import { drawnNoteAskBox } from "./noteAskBox";
 import { ASKS_NOTHING, QuestionCard } from "./OwnAsk";
 
 /**
@@ -177,11 +178,11 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   // Grown over the Note's foot, it gives the Note's end as much more room, so the Note's last line
   // still scrolls up above it.
   useLayoutEffect(() => {
-    const box = foot.current?.firstElementChild;
+    const box = foot.current ? drawnNoteAskBox(foot.current) : null;
     const scroller = foot.current
       ?.closest(".mind-tab-page")
       ?.querySelector<HTMLElement>(".mind-scroller");
-    if (!floating || !(box instanceof HTMLElement) || !scroller) return;
+    if (!floating || !box || !scroller) return;
     const measure = () => {
       const over = scroller.getBoundingClientRect().bottom - box.getBoundingClientRect().top;
       scroller.style.setProperty("--note-ask-over", `${Math.max(0, Math.round(over))}px`);

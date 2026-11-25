@@ -1,5 +1,7 @@
 import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, TabItem } from "../src/core/api";
 import {
@@ -1004,6 +1006,38 @@ test("the conversation is one column left of every group, and follows the Note i
     await expectReadable(window, 0);
     await expectWholeToolbar(window, 1);
 
+    // Dragged narrow, the Document still keeps 400px beside the column. The widths the layout keeps
+    // don't change for it, and the groups take them again as the column leaves.
+    const kept = () =>
+      window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await bridge.getLayout("main")).groups.map((group) => group.width);
+      });
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.changeLayout("main", { type: "resize", widths: [0.8, 0.2] });
+    });
+    await expect.poll(async () => (await kept())[1] ?? 1).toBeLessThan(0.3);
+    const stored = await kept();
+    const drawnOf = async () => {
+      const [note, doc] = [
+        await boxOf(window.getByTestId("tab-group").nth(0)),
+        await boxOf(window.getByTestId("tab-group").nth(1)),
+      ];
+      return { doc: doc.width, share: note.width / (note.width + doc.width) };
+    };
+    await expect.poll(async () => (await drawnOf()).doc).toBeGreaterThanOrEqual(399);
+    await expectReadable(window, 0);
+    await expectWholeToolbar(window, 1);
+    expect(await kept()).toEqual(stored);
+    await pointAndClick(window, window.getByTestId("note-column-close"));
+    await expect(window.getByTestId("note-column")).toHaveCount(0);
+    expect(await kept()).toEqual(stored);
+    const share = (stored[0] ?? 0) / ((stored[0] ?? 0) + (stored[1] ?? 0));
+    await expect.poll(async () => Math.abs((await drawnOf()).share - share)).toBeLessThan(0.01);
+    await showConversation(window, 0, true);
+    await expectColumnBeside(window, HARBOUR_ASKED);
+
     // The reverse: the Document at the left, the Note at the right.
     await arrange(window, [document, note(harbour)]);
     await pressIn(window, 1);
@@ -1167,6 +1201,112 @@ test("scrolled to its end, a Note's last line stands above its conversation open
       await expect(note.getByTestId("note-ask-panel")).toHaveCount(0);
       await expectLastLineClear(note);
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test("at 900 px a waiting change's bar stands whole above the Note's input, with the conversation open upward over the Note's foot or folded, and its Accept takes the press", async () => {
+  const { app, window } = await launched();
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 900, 760);
+    const folderId = await connected(window);
+    const lines = Array.from({ length: 30 }, (_, n) => ({ text: [P1, P2, P3][n % 3] ?? P1 }));
+    const mindId = await writeNote(window, "Harbour notes", lines, { folderId });
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await nextRun("plan");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type(HARBOUR_ASKED);
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+
+    // An outside agent's change to the Note's last line waits there.
+    const launch = await window.evaluate(async (folder) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const made = await bridge.connectAgent({
+        name: "Research assistant",
+        folderIds: [folder],
+        propose: true,
+      });
+      return made.launch;
+    }, folderId);
+    const agent = new Client({ name: "test-agent", version: "1.0.0" });
+    await agent.connect(new StdioClientTransport({ ...launch, stderr: "pipe" }));
+    try {
+      const read = await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } });
+      const { version } = read.structuredContent as { version: string };
+      const proposed = await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version,
+          changes: [{ paragraph: "¶30", text: `${P3} A covered waiting room comes with it.` }],
+        },
+      });
+      expect(proposed.isError ?? false).toBe(false);
+    } finally {
+      await agent.close();
+    }
+    const editor = group.getByTestId("mind-editor");
+    const change = editor.locator("ins.proposal-insert").last();
+    await expect(change).toContainText("A covered waiting room comes with it.");
+
+    const scroller = group.getByTestId("mind-scroller");
+    const bar = window.getByTestId("change-bar");
+    for (const upward of [true, false]) {
+      await showConversation(window, 0, upward);
+      await expect(group.getByTestId("note-ask-panel")).toHaveCount(upward ? 1 : 0);
+      // Scrolled to its end, once the conversation has its height: the Note's end keeps its 160px
+      // above the box.
+      await expect
+        .poll(async () => {
+          await scroller.evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+          });
+          const [input, changed] = [
+            await boxOf(group.getByTestId("note-ask-box")),
+            await boxOf(change),
+          ];
+          return Math.round(input.y - (changed.y + changed.height));
+        })
+        .toBeGreaterThanOrEqual(150);
+      await motionSettled(window);
+      // Pointed at, the change shows its bar, with no press that would fold the conversation.
+      const at = await change.evaluate((element) => {
+        const first = element.getClientRects()[0];
+        return first ? { x: first.left + first.width / 2, y: first.top + first.height / 2 } : null;
+      });
+      if (!at) throw new Error("The change isn't on screen.");
+      await window.mouse.move(at.x, at.y);
+      await expect(bar).toBeVisible();
+      await expect(bar).toHaveCSS("visibility", "visible");
+      await motionSettled(window);
+      await shot(window, `change-bar-${upward ? "upward" : "folded"}-900-en`);
+      const box = group.getByTestId("note-ask-box");
+      const [placed, input, changed] = [await boxOf(bar), await boxOf(box), await boxOf(change)];
+      const where = upward ? "open upward" : "folded";
+      // Between its change and the box, clear of both, and drawn over the fade the box draws.
+      expect(placed.y, where).toBeGreaterThanOrEqual(changed.y + changed.height - 1);
+      expect(placed.y + placed.height, where).toBeLessThanOrEqual(input.y);
+      const stacked = async (element: Locator) =>
+        element.evaluate((node) => Number(getComputedStyle(node).zIndex) || 0);
+      expect(await stacked(bar), where).toBeGreaterThan(await stacked(box));
+      // A press at its Accept lands on Accept, not on what stands over the Note's foot.
+      const pressed = await bar.getByTestId("change-accept").evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+        );
+      });
+      expect(pressed, where).toBe(true);
+    }
+    await pointAndClick(window, bar.getByTestId("change-accept"));
+    await expect(editor.locator("ins.proposal-insert")).toHaveCount(0);
+    await expect(editor).toContainText("A covered waiting room comes with it.");
   } finally {
     await app.close();
   }
