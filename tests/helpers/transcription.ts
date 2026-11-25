@@ -16,6 +16,7 @@ import type {
 import { hashBytes } from "../../src/core/documents/files";
 import { readVtt } from "../../src/core/documents/formats/vtt";
 import type { Language } from "../../src/core/language";
+import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
 import {
   type CloudServing,
@@ -311,6 +312,22 @@ export async function transcribingCore(
   };
   return { core, capture, clock, record, engineHost };
 }
+
+export async function meetingNow(core: Core, meetingId: string): Promise<Meeting> {
+  const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);
+  if (!meeting) throw new Error(`No Meeting ${meetingId}.`);
+  return meeting;
+}
+
+/** A Meeting's audio parts on disk, as "source@offset+duration" in seconds. */
+export const audioPartsOf = (dataDir: string, meetingId: string) =>
+  listParts(meetingFolder(dataDir, meetingId)).map(
+    (part) => `${part.source}@${part.offsetMs / 1000}+${part.durationMs / 1000}`,
+  );
+
+/** The lines in a Meeting's Transcript file now, while it records too. */
+export const transcriptFileLines = (dataDir: string, meetingId: string) =>
+  readVtt(readFileSync(join(dataDir, "Transcripts", `${meetingId}.vtt`), "utf8")).cues;
 
 export async function transcriptOf(core: Core, meetingId: string): Promise<MeetingTranscript> {
   const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);

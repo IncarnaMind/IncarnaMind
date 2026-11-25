@@ -3,7 +3,7 @@ import { act, type ComponentType, createElement, useContext, useEffect } from "r
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import type { Document, Meeting, Mind, WindowLayout } from "../../src/core/api";
+import type { Document, Meeting, Mind, NoteTurn, WindowLayout } from "../../src/core/api";
 import type { AppState } from "../../src/renderer/src/store";
 import { translate } from "../../src/shared/i18n";
 
@@ -16,7 +16,10 @@ const actions = vi.hoisted(() => ({
   unmounts: vi.fn(),
   focus: vi.fn(),
   retryDocument: vi.fn(),
+  reportError: vi.fn(),
   language: "en" as "en" | "zh-CN",
+  /** The core's answers a test sets, by method; any other method answers an empty list. */
+  core: {} as Record<string, (...args: unknown[]) => unknown>,
 }));
 
 vi.mock("../../src/renderer/src/store", async () => {
@@ -33,6 +36,7 @@ vi.mock("../../src/renderer/src/store", async () => {
           settings: null,
           changeLayout: actions.changeLayout,
           retryDocument: actions.retryDocument,
+          reportError: actions.reportError,
         }) as unknown as AppState,
     ),
   };
@@ -46,7 +50,7 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     problems: Record<string, string>;
     gapsSeen: Record<string, number>;
     screenExplained: Record<string, boolean>;
-    showDetails: (meetingId: string) => void;
+    showDetails: (meetingId: string, shown?: boolean) => void;
   }>()((set) => ({
     meetings: [],
     detailsShown: {},
@@ -54,9 +58,12 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     problems: {},
     gapsSeen: {},
     screenExplained: {},
-    showDetails: (meetingId) =>
+    showDetails: (meetingId, shown) =>
       set((state) => ({
-        detailsShown: { ...state.detailsShown, [meetingId]: !state.detailsShown[meetingId] },
+        detailsShown: {
+          ...state.detailsShown,
+          [meetingId]: shown ?? !state.detailsShown[meetingId],
+        },
       })),
   }));
   return {
@@ -66,13 +73,17 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     useMeetingTime: (meeting: Meeting) => meeting.recordedMs,
     canRecordMeetings: () => false,
     isLive: (meeting?: Meeting) => meeting?.status === "recording" || meeting?.status === "paused",
-    isWaitingForPermission: () => false,
+    isWaitingForPermission: (meeting?: Meeting) =>
+      meeting?.status === "recording" && meeting.sources.microphone === "waiting",
   };
 });
 vi.mock("../../src/renderer/src/core", () => ({
   core: new Proxy(
     {},
-    { get: (_target, name) => (name === "on" ? () => () => undefined : async () => []) },
+    {
+      get: (_target, name) =>
+        name === "on" ? () => () => undefined : (actions.core[String(name)] ?? (async () => [])),
+    },
   ),
   files: new Proxy({}, { get: () => () => () => undefined }),
 }));
@@ -104,9 +115,10 @@ vi.mock("../../src/renderer/src/components/ExportResultLine", () => ({
 vi.mock("../../src/renderer/src/components/FirstOpenSteps", () => ({ ExampleIntro: () => null }));
 vi.mock("../../src/renderer/src/components/GettingStarted", () => ({ useIsExample: () => false }));
 vi.mock("../../src/renderer/src/components/MakeSkillCard", () => ({ MakeSkillCard: () => null }));
-vi.mock("../../src/renderer/src/components/MeetingInMind", () => ({
+// The page above the notes is drawn by its own tests; the sheet's audio line is drawn here.
+vi.mock("../../src/renderer/src/components/MeetingInMind", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   MeetingInMind: () => null,
-  MeetingAudioLine: () => null,
 }));
 vi.mock("../../src/renderer/src/components/providers/ChatReadinessNotice", () => ({
   ChatReadinessNotice: () => null,
@@ -163,9 +175,14 @@ vi.mock("../../src/renderer/src/editor/meetingNotes", () => ({
 vi.mock("../../src/renderer/src/requests", async () => {
   const { create } = await import("zustand");
   return {
-    useRequests: create<{ deleteAudio: null; clear: () => void }>()(() => ({
+    useRequests: create<{
+      deleteAudio: { meetingId: string } | null;
+      ask(request: { deleteAudio: { meetingId: string } }): void;
+      clear(key: "deleteAudio"): void;
+    }>()((set) => ({
       deleteAudio: null,
-      clear: () => undefined,
+      ask: (request) => set(request),
+      clear: (key) => set({ [key]: null }),
     })),
   };
 });
@@ -774,4 +791,366 @@ describe("the Meeting's Transcript sheet over its Note", () => {
       expect(beside.title).toBe(translate(language, "meetings.bar.transcriptSoon"));
     },
   );
+});
+
+/** Esc pressed where `target` has the focus, reaching the window as a key the page didn't stop does. */
+function pressEscape(target: EventTarget): Event {
+  const event = new window.Event("keydown", { bubbles: true, cancelable: true });
+  Object.assign(event, { key: "Escape", isComposing: false });
+  target.dispatchEvent(event);
+  if (target !== window) window.dispatchEvent(event);
+  return event;
+}
+
+const STOPPED_AT = "2026-11-25T10:00:00.000Z";
+
+const turnOf = (request: string, at: string, outcome: NoteTurn["outcome"] = "landed"): NoteTurn =>
+  ({
+    id: `turn-${at}`,
+    request,
+    quote: "",
+    reply: "",
+    outcome,
+    problem: null,
+    at,
+    citations: [],
+    questions: [],
+    closed: [],
+    mode: null,
+  }) as NoteTurn;
+
+/** A stopped call whose notes the User's own AI writes, as Stop leaves it. */
+const ownAiCall = (overrides: Partial<Meeting> = {}) =>
+  meetingOf({
+    stoppedAt: STOPPED_AT,
+    fill: { state: "own-ai", agentId: "pairing", mode: null, local: false, problem: null },
+    ...overrides,
+  } as Partial<Meeting>);
+
+/** Shows the Note again, as closing and reopening its tab does. */
+async function reopen() {
+  await act(async () => root?.unmount());
+  root = createRoot(container);
+  await show();
+}
+
+describe("the meeting's control and sheet after #3762's review", () => {
+  beforeEach(async () => {
+    actions.core = {};
+    const { useRequests } = await import("../../src/renderer/src/requests");
+    useRequests.setState({ deleteAudio: null });
+    useMeetings.setState({ detailsShown: {} });
+  });
+
+  test.each(["en", "zh-CN"] as const)(
+    "Write notes shows while the notes can be written, and once asked stays gone across a reopen (%s)",
+    async (language) => {
+      actions.language = language;
+      const asked = translate(language, "meetings.foot.writeNotesRequest");
+      let turns: NoteTurn[] = [];
+      actions.core.noteConversation = async () => turns;
+      useMeetings.setState({ meetings: [ownAiCall()] });
+      await show();
+      const write = find("meeting-write-notes");
+      expect(write.textContent).toBe(translate(language, "meetings.foot.writeNotes"));
+      // The design system's primary button, at its own height and padding.
+      expect(write.className).toContain("bg-ink");
+      expect(write.className).toContain("h-8");
+
+      // Asked before Stop, or asked and failed, it is still to do.
+      turns = [
+        turnOf(asked, "2026-11-25T09:59:00.000Z"),
+        turnOf(asked, "2026-11-25T10:01:00.000Z", "failed"),
+      ];
+      await reopen();
+      expect(container.querySelector('[data-testid="meeting-write-notes"]')).not.toBeNull();
+
+      // Asked since Stop, in either language, it stays gone when the Note opens again.
+      turns = [turnOf(translate("en", "meetings.foot.writeNotesRequest"), "2026-11-25T10:02:00Z")];
+      await reopen();
+      expect(container.querySelector('[data-testid="meeting-write-notes"]')).toBeNull();
+      turns = [
+        turnOf(translate("zh-CN", "meetings.foot.writeNotesRequest"), "2026-11-25T10:02:00Z"),
+      ];
+      await reopen();
+      expect(container.querySelector('[data-testid="meeting-write-notes"]')).toBeNull();
+
+      // Not while it records, nor when the notes are another model's to write.
+      turns = [];
+      useMeetings.setState({ meetings: [ownAiCall({ status: "paused" })] });
+      await reopen();
+      expect(container.querySelector('[data-testid="meeting-write-notes"]')).toBeNull();
+      useMeetings.setState({ meetings: [ownAiCall({ fill: null })] });
+      await reopen();
+      expect(container.querySelector('[data-testid="meeting-write-notes"]')).toBeNull();
+    },
+  );
+
+  test("Write notes goes at once when pressed and stays gone across a reopen while its request runs", async () => {
+    const stoppedAt = "2026-11-25T11:00:00.000Z";
+    actions.core.askInNote = async () => ({
+      kind: "started",
+      turnId: "write-turn",
+      pairing: { id: "pairing", name: "Claude Code" },
+    });
+    useMeetings.setState({ meetings: [ownAiCall({ stoppedAt })] });
+    await show();
+    await click("meeting-write-notes");
+    expect(container.querySelector('[data-testid="meeting-write-notes"]')).toBeNull();
+    await reopen();
+    expect(container.querySelector('[data-testid="meeting-write-notes"]')).toBeNull();
+    expect(actions.reportError).not.toHaveBeenCalled();
+  });
+
+  test.each(["en", "zh-CN"] as const)(
+    "while the system's permission prompt is open, the control and the sheet say so, with no level or timer (%s)",
+    async (language) => {
+      actions.language = language;
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            id: "waiting-call",
+            status: "recording",
+            sources: { microphone: "waiting", system: "recording" },
+          } as Partial<Meeting>),
+        ],
+      });
+      await show();
+      const level = find("meeting-foot-level");
+      const waiting = translate(language, "meetings.bar.waiting");
+      expect(level.getAttribute("title")).toBe(waiting);
+      expect(level.querySelector('[role="img"]')?.getAttribute("aria-label")).toBe(waiting);
+      expect(level.querySelector('[data-testid="level-bars"]')).toBeNull();
+      await click("meeting-foot-transcript");
+      const sheet = find("meeting-sheet");
+      expect(find("meeting-sheet-waiting", sheet).textContent).toBe(waiting);
+      expect(sheet.querySelector('[role="timer"]')).toBeNull();
+      // Answered, the level and the time come back.
+      await act(async () =>
+        useMeetings.setState({
+          meetings: [
+            meetingOf({
+              id: "waiting-call",
+              status: "recording",
+              sources: { microphone: "recording", system: "recording" },
+            } as Partial<Meeting>),
+          ],
+        }),
+      );
+      expect(find("meeting-foot-level").getAttribute("title")).toBe(
+        translate(language, "meetings.level.label"),
+      );
+      expect(sheet.querySelector('[role="timer"]')?.textContent).toBe("1:00");
+    },
+  );
+
+  test.each(["en", "zh-CN"] as const)(
+    "audio that couldn't be saved while it records shows over the control, or in the sheet while it is up, never both (%s)",
+    async (language) => {
+      actions.language = language;
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            status: "recording",
+            health: {
+              realTimeFactor: null,
+              measuredMs: 0,
+              keepsUp: null,
+              events: [{ kind: "audioLost", cause: "full", atMs: 0, durationMs: 5000 }],
+            },
+          } as unknown as Partial<Meeting>),
+        ],
+      });
+      await show();
+      const unsaved = () => [
+        ...container.querySelectorAll<HTMLElement>('[data-testid="meeting-line-unsaved"]'),
+      ];
+      expect(unsaved()).toHaveLength(1);
+      expect(unsaved()[0]?.closest(".meeting-foot-over")).not.toBeNull();
+      const { durationLabel } = await import("../../src/renderer/src/meetingTime");
+      expect(unsaved()[0]?.textContent).toContain(
+        translate(language, "meetings.health.unsaved", {
+          duration: durationLabel(5000, (key, params) => translate(language, key, params)),
+        }),
+      );
+      await click("meeting-foot-transcript");
+      expect(unsaved()).toHaveLength(1);
+      expect(unsaved()[0]?.closest('[data-testid="meeting-sheet"]')).not.toBeNull();
+      // Its Details opens the sheet's recording details, in place.
+      await click("meeting-line-details", find("meeting-sheet"));
+      expect(find("meeting-sheet-details")).toBeDefined();
+    },
+  );
+
+  test("after Stop the sheet's foot holds the template and Fill in again behind ⋯ once the notes can be filled in again", async () => {
+    useMeetings.setState({
+      meetings: [
+        meetingOf({
+          fill: { state: "filling", mode: "notes", local: false, problem: null },
+        } as Partial<Meeting>),
+      ],
+    });
+    await show();
+    await click("meeting-foot-transcript");
+    const foot = () => find("meeting-sheet-foot");
+    expect(foot().querySelector('[data-testid="meeting-sheet-more"]')).toBeNull();
+    await act(async () =>
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            fill: { state: "filled", mode: "notes", local: false, problem: null },
+          } as Partial<Meeting>),
+        ],
+      }),
+    );
+    const more = find("meeting-sheet-more", foot());
+    expect(more.getAttribute("aria-label")).toBe(translate("en", "meetings.bar.more"));
+    expect(find("meeting-sheet-resume-meeting", foot())).toBeDefined();
+    expect(find("meeting-sheet-review-speakers", foot())).toBeDefined();
+  });
+
+  test("Esc inside the audio's question keeps the audio and leaves the sheet up; the next Esc folds it", async () => {
+    await show();
+    await act(async () => useMeetings.getState().showDetails("meeting", true));
+    await click("meeting-foot-transcript");
+    await click("meeting-audio-delete", find("meeting-sheet"));
+    const question = find("meeting-audio-confirm");
+    const keep = find("meeting-audio-delete-confirm", question);
+    let event: Event | null = null;
+    await act(async () => {
+      event = pressEscape(keep);
+    });
+    expect(event).not.toBeNull();
+    expect(container.querySelector('[data-testid="meeting-audio-confirm"]')).toBeNull();
+    expect(find("meeting-audio")).toBeDefined();
+    expect(sheetIn()).not.toBeNull();
+    // The test's document knows no :modal; no dialog is open.
+    const query = document.querySelector.bind(document);
+    vi.spyOn(document, "querySelector").mockImplementation((selector: string) =>
+      selector === "dialog:modal" ? null : query(selector),
+    );
+    await act(async () => {
+      pressEscape(window);
+    });
+    expect(sheetIn()).toBeNull();
+  });
+
+  test("Esc inside the speaker review closes the review, and only the review", async () => {
+    await show();
+    await click("meeting-foot-transcript");
+    // The sheet opens the review from its foot: the Transcript's own opener stays out.
+    const body = find("meeting-sheet").querySelector<HTMLElement>(".meeting-sheet-body");
+    if (!body) throw new Error("Missing the sheet's body");
+    expect(body.textContent).not.toContain(translate("en", "meetings.review.open"));
+    await click("meeting-sheet-review-speakers");
+    const panel = () =>
+      find("meeting-sheet").querySelector<HTMLElement>(
+        `section[aria-label="${translate("en", "meetings.review.title")}"]`,
+      );
+    const open = panel();
+    if (!open) throw new Error("The review didn't open");
+    await act(async () => {
+      pressEscape(open);
+    });
+    expect(panel()).toBeNull();
+    expect(sheetIn()).not.toBeNull();
+  });
+
+  test("⌘K's Delete audio on a stopped call with the sheet down raises it at the audio's question, and folding it keeps the audio", async () => {
+    await show();
+    expect(sheetIn()).toBeNull();
+    await act(async () => command("meeting.deleteAudio").run(PALETTE));
+    const sheet = find("meeting-sheet");
+    expect(find("meeting-sheet-details", sheet)).toBeDefined();
+    const question = find("meeting-audio-confirm", sheet);
+    expect(question.textContent).toContain(translate("en", "meetings.audio.confirm"));
+    await click("meeting-sheet-hide");
+    expect(sheetIn()).toBeNull();
+    const { useRequests } = await import("../../src/renderer/src/requests");
+    expect(useRequests.getState().deleteAudio).toBeNull();
+  });
+
+  test("the unsaved audio's Details on a stopped call's page raises the sheet with its details open", async () => {
+    const path = "../../src/renderer/src/components/MeetingInMind.tsx";
+    const { raiseMeetingDetails } = (await import(path)) as {
+      raiseMeetingDetails(tabId: string, meeting: { id: string; mindId: string }): void;
+    };
+    await show();
+    await act(async () => raiseMeetingDetails("tab", { id: "meeting", mindId: "note" }));
+    expect(find("meeting-sheet-details", find("meeting-sheet"))).toBeDefined();
+  });
+
+  test.each([
+    ["en", "soniox", "Transcribing with Soniox. The Transcript opens here."],
+    ["zh-CN", "soniox", "正在用 Soniox 转写。转写稿在这里打开。"],
+    ["zh-CN", "qwen", "正在用通义千问转写。转写稿在这里打开。"],
+    ["en", null, "Transcribing on this computer. The Transcript opens here."],
+  ] as const)(
+    "the first tip names the way it transcribes (%s, %s)",
+    async (language, cloud, said) => {
+      actions.language = language;
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            id: `tip-${language}-${cloud}`,
+            status: "recording",
+            transcript: { documentId: "transcript", lines: 1, state: "live", partials: [], cloud },
+          } as unknown as Partial<Meeting>),
+        ],
+      });
+      await show();
+      expect(find("meeting-foot-tip").textContent).toBe(said);
+      await click("meeting-foot-tip-close");
+    },
+  );
+
+  test.each(["en", "zh-CN"] as const)(
+    "after its audio was deleted and the call resumed, only the lines said since play (%s)",
+    async (language) => {
+      actions.language = language;
+      served =
+        "WEBVTT\n\n00:00:00.500 --> 00:00:02.000\n<v Me>Before the deletion.\n\n" +
+        "00:00:03.000 --> 00:00:05.000\n<v Them>After the resume.\n";
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            audio: {
+              kept: true,
+              expiresAt: "2026-11-08T12:54:00.000Z",
+              deletedAt: null,
+              keptUntilDeleted: false,
+              keptFromMs: 2500,
+            },
+          } as Partial<Meeting>),
+        ],
+      });
+      await show();
+      await click("meeting-foot-transcript");
+      const [before, after] = [
+        ...find("meeting-sheet").querySelectorAll<HTMLElement>('[data-testid="transcript-line"]'),
+      ];
+      if (!before || !after) throw new Error("Missing the Transcript's two lines");
+      expect(before.querySelector("[data-word]")?.hasAttribute("data-playable")).toBe(false);
+      expect(after.querySelector("[data-word]")?.getAttribute("data-playable")).toBe("true");
+      const play = command("meeting.playFromHere");
+      await act(async () => before.dispatchEvent(new window.Event("focusin", { bubbles: true })));
+      expect(play.enabled?.(PALETTE)).toEqual({ reason: "meetings.command.lineAudioDeleted" });
+      expect(translate(language, "meetings.command.lineAudioDeleted")).not.toBe("");
+      await act(async () => after.dispatchEvent(new window.Event("focusin", { bubbles: true })));
+      expect(play.enabled?.(PALETTE)).toBe(true);
+    },
+  );
+
+  test("the sheet's Transcript leaves out its own header, head line and Review speakers… opener", async () => {
+    await show();
+    await click("meeting-foot-transcript");
+    const sheet = find("meeting-sheet");
+    expect(sheet.querySelector('[data-testid="viewer-embedded-header"]')).toBeNull();
+    expect(sheet.querySelector('[data-testid="transcript-count"]')).toBeNull();
+    // The one line under the sheet's head is the sheet's own.
+    const heads = [...sheet.querySelectorAll('[data-testid="transcript-head"]')];
+    expect(heads).toHaveLength(1);
+    expect(heads[0]?.closest(".meeting-sheet-consent")).not.toBeNull();
+    expect(sheet.querySelector(".transcript-review-row")).toBeNull();
+  });
 });

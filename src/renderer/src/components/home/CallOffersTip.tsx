@@ -20,7 +20,9 @@ export function CallOffersTip() {
       state.settings !== null &&
       state.settings.meetingAudio !== "none" &&
       state.settings.device.meetingNoticeAccepted &&
-      !state.settings.device.callOffers,
+      // Its line turns both on: it never offers what is already on.
+      !state.settings.device.callOffers &&
+      !state.settings.device.keepRunning,
   );
   const shown = useFeatureTip("call-offers", "home", wanted);
   if (!shown) return null;

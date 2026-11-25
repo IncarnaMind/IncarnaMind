@@ -12829,6 +12829,12 @@ export interface MeetingAudio {
    * on when the Meeting started recording. It then has no `expiresAt`.
    */
   keptUntilDeleted: boolean;
+  /**
+   * Where the audio recorded since it was deleted starts, in ms of the Meeting's time, as after a
+   * Resume (#3762): a line that ends by then has no audio and doesn't play. Absent while no audio
+   * was deleted, and while none was recorded since.
+   */
+  keptFromMs?: number;
 }
 
 /**

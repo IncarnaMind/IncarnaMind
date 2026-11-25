@@ -6,12 +6,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import type { Core, Meeting } from "../../src/core";
-import { readVtt } from "../../src/core/documents/formats/vtt";
-import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
+import type { Meeting } from "../../src/core";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
 import {
+  transcriptFileLines as fileLines,
+  meetingNow as meetingOf,
+  audioPartsOf as partsOf,
   savedCues,
   stoppedMeeting,
   transcribingCore,
@@ -22,24 +23,8 @@ import {
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 
-const meetingOf = async (core: Core, meetingId: string): Promise<Meeting> => {
-  const meeting = (await core.listMeetings()).find((each) => each.id === meetingId);
-  if (!meeting) throw new Error(`No Meeting ${meetingId}.`);
-  return meeting;
-};
-
-/** The parts on disk, as "source@offset+duration" in seconds. */
-const partsOf = (dataDir: string, meetingId: string) =>
-  listParts(meetingFolder(dataDir, meetingId)).map(
-    (part) => `${part.source}@${part.offsetMs / SECOND}+${part.durationMs / SECOND}`,
-  );
-
 const transcriptFile = (dataDir: string, meetingId: string) =>
   join(dataDir, "Transcripts", `${meetingId}.vtt`);
-
-/** The lines in the Transcript's file now. */
-const fileLines = (dataDir: string, meetingId: string) =>
-  readVtt(readFileSync(transcriptFile(dataDir, meetingId), "utf8")).cues;
 
 /** A call of 9 seconds from both sides, stopped, its Transcript saved and read: what Resume starts from. */
 async function stoppedCall(dataDir: string) {
@@ -123,54 +108,57 @@ describe("Resume after Stop (#3762)", { timeout: 60_000 }, () => {
     core.close();
   });
 
-  // protects=a quit between Stop and Resume leaves the Meeting as Stop left it (its time, audio, notes and saved Transcript, its file and Document's version), and Resume after the restart records on into the same Transcript; fails_when=the restart reopens, re-reads or rewrites the Transcript, changes the Meeting, or Resume after it starts another file; no_claim=a quit during Stop's own finishing, which tests/core/transcripts.test.ts covers.
-  test("a quit between Stop and Resume leaves the Meeting as Stop left it, and Resume after the restart records on", async () => {
-    const dataDir = await createTempDataFolder();
-    const first = await stoppedCall(dataDir);
-    const { meeting, document, lines } = first;
-    const asStopped = ({ transcript, ...each }: Meeting) => ({
-      status: each.status,
-      pausedBy: each.pausedBy,
-      recordedMs: each.recordedMs,
-      stoppedAt: each.stoppedAt,
-      gaps: each.gaps,
-      audio: each.audio,
-      fill: each.fill,
-      transcript: transcript && {
-        documentId: transcript.documentId,
-        state: transcript.state,
-        lines: transcript.lines,
-        savedPath: transcript.savedPath,
-        separating: transcript.separating,
-      },
-    });
-    const before = asStopped(await meetingOf(first.core, meeting.id));
-    const file = readFileSync(transcriptFile(dataDir, meeting.id), "utf8");
-    const parts = partsOf(dataDir, meeting.id);
-    first.core.close();
+  // protects=a quit or a kill between Stop and Resume leaves the Meeting as Stop left it (its time, audio, notes and saved Transcript, its file and Document's version), and Resume after the restart records on into the same Transcript; fails_when=the restart reopens, re-reads or rewrites the Transcript, changes the Meeting, or Resume after it starts another file; no_claim=a quit during Stop's own finishing, which tests/core/transcripts.test.ts covers.
+  test.each(["quit", "kill"] as const)(
+    "a %s between Stop and Resume leaves the Meeting as Stop left it, and Resume after the restart records on",
+    async (end) => {
+      const dataDir = await createTempDataFolder();
+      const first = await stoppedCall(dataDir);
+      const { meeting, document, lines } = first;
+      const asStopped = ({ transcript, ...each }: Meeting) => ({
+        status: each.status,
+        pausedBy: each.pausedBy,
+        recordedMs: each.recordedMs,
+        stoppedAt: each.stoppedAt,
+        gaps: each.gaps,
+        audio: each.audio,
+        fill: each.fill,
+        transcript: transcript && {
+          documentId: transcript.documentId,
+          state: transcript.state,
+          lines: transcript.lines,
+          savedPath: transcript.savedPath,
+          separating: transcript.separating,
+        },
+      });
+      const before = asStopped(await meetingOf(first.core, meeting.id));
+      const file = readFileSync(transcriptFile(dataDir, meeting.id), "utf8");
+      const parts = partsOf(dataDir, meeting.id);
+      if (end === "quit") first.core.close();
 
-    const second = await transcribingCore(dataDir);
-    expect(asStopped(await meetingOf(second.core, meeting.id))).toEqual(before);
-    expect(readFileSync(transcriptFile(dataDir, meeting.id), "utf8")).toBe(file);
-    expect(partsOf(dataDir, meeting.id)).toEqual(parts);
-    expect(
-      (await second.core.listDocuments()).find((each) => each.id === document.id)?.contentHash,
-    ).toBe(document.contentHash);
+      const second = await transcribingCore(dataDir);
+      expect(asStopped(await meetingOf(second.core, meeting.id))).toEqual(before);
+      expect(readFileSync(transcriptFile(dataDir, meeting.id), "utf8")).toBe(file);
+      expect(partsOf(dataDir, meeting.id)).toEqual(parts);
+      expect(
+        (await second.core.listDocuments()).find((each) => each.id === document.id)?.contentHash,
+      ).toBe(document.contentHash);
 
-    second.clock.advance(10 * MINUTE);
-    await second.core.resumeMeeting(meeting.id);
-    second.record(6 * SECOND);
-    await until(second.core, meeting.id, (transcript) => transcript.lines >= lines.length + 2);
-    await second.core.stopMeeting(meeting.id);
-    const all = await savedCues(second.core, meeting.id);
-    expect(all.slice(0, lines.length)).toEqual(lines);
-    expect(all.length).toBeGreaterThanOrEqual(lines.length + 2);
-    expect(await meetingOf(second.core, meeting.id)).toMatchObject({
-      recordedMs: 15 * SECOND,
-      transcript: { documentId: document.id },
-    });
-    second.core.close();
-  });
+      second.clock.advance(10 * MINUTE);
+      await second.core.resumeMeeting(meeting.id);
+      second.record(6 * SECOND);
+      await until(second.core, meeting.id, (transcript) => transcript.lines >= lines.length + 2);
+      await second.core.stopMeeting(meeting.id);
+      const all = await savedCues(second.core, meeting.id);
+      expect(all.slice(0, lines.length)).toEqual(lines);
+      expect(all.length).toBeGreaterThanOrEqual(lines.length + 2);
+      expect(await meetingOf(second.core, meeting.id)).toMatchObject({
+        recordedMs: 15 * SECOND,
+        transcript: { documentId: document.id },
+      });
+      second.core.close();
+    },
+  );
 
   // protects=a quit while a resumed call records is recovered as any recording is: paused, interrupted, its time and both stretches' audio and lines kept, and Stop then saves the whole Transcript, the rest read from the recording; fails_when=the restart finds the Transcript closed to new lines, loses the second stretch's lines or audio, or Stop saves it without them; no_claim=a hard crash right after Resume, which the next test covers.
   test("quitting while a resumed call records keeps both stretches: it waits, paused, and Stop saves them all", async () => {
@@ -237,13 +225,15 @@ describe("Resume after Stop (#3762)", { timeout: 60_000 }, () => {
     second.core.close();
   });
 
-  // protects=Resume after the User deleted a stopped call's audio records on: the earlier lines stay as they were, the new ones follow with their own audio, kept for a day and playable as any recording's, and the earlier stretch's stays gone; fails_when=Resume is refused, an earlier line goes, the earlier audio comes back, or the new audio can't be played; no_claim=audio past its day, which tests/core/meetings.test.ts covers.
+  // protects=Resume after the User deleted a stopped call's audio records on: the earlier lines stay as they were, the new ones follow with their own audio, kept for a day and playable as any recording's, and the earlier stretch's stays gone; the Meeting says where the audio kept starts, and an earlier line's audio is refused in plain words in English and Chinese rather than played as silence, while a stretch reaching into the new audio plays; fails_when=Resume is refused, an earlier line goes, the earlier audio comes back, an earlier line plays as silence, or the new audio can't be played; no_claim=audio past its day, which tests/core/meetings.test.ts covers, and the Transcript view's play affordance, which the window covers.
   test("with its audio deleted, a stopped call records on: its lines stay, and only the new audio is there", async () => {
     const dataDir = await createTempDataFolder();
     const { core, record, meeting, lines } = await stoppedCall(dataDir);
-    expect((await core.deleteMeetingAudio(meeting.id)).audio).toMatchObject({
+    expect((await core.deleteMeetingAudio(meeting.id)).audio).toEqual({
       kept: false,
+      expiresAt: null,
       deletedAt: "2026-10-06T09:00:09.000Z",
+      keptUntilDeleted: false,
     });
 
     await core.resumeMeeting(meeting.id);
@@ -259,11 +249,61 @@ describe("Resume after Stop (#3762)", { timeout: 60_000 }, () => {
       expiresAt: "2026-10-07T09:00:15.000Z",
       deletedAt: "2026-10-06T09:00:09.000Z",
       keptUntilDeleted: false,
+      keptFromMs: 9 * SECOND,
     });
     const played = await core.readMeetingAudio({
       meetingId: meeting.id,
       fromMs: 10 * SECOND,
       toMs: 11 * SECOND,
+    });
+    expect(played.samples.some((sample) => sample !== 0)).toBe(true);
+
+    // The lines before the Resume had their audio deleted: none plays as silence.
+    const [first] = lines;
+    if (!first) throw new Error("No line was saved.");
+    expect(first.endMs).toBeLessThanOrEqual(9 * SECOND);
+    for (const source of [undefined, "system", "microphone"] as const) {
+      await expect(
+        core.readMeetingAudio({
+          meetingId: meeting.id,
+          fromMs: first.startMs,
+          toMs: first.endMs,
+          ...(source && { source }),
+        }),
+      ).rejects.toMatchObject({ wording: { key: "error.meeting.audioGoneBefore" } });
+    }
+    expect(translate("en", "error.meeting.audioGoneBefore")).toBe(
+      "This part of the Meeting’s audio was deleted.",
+    );
+    expect(translate("zh-CN", "error.meeting.audioGoneBefore")).toBe("会议这一段的音频已删除。");
+    // Played from just before the Resume, it reaches the new audio.
+    const across = await core.readMeetingAudio({
+      meetingId: meeting.id,
+      fromMs: 8 * SECOND,
+      toMs: 10 * SECOND,
+    });
+    expect(across.samples.slice(0, 16_000).every((sample) => sample === 0)).toBe(true);
+    expect(across.samples.slice(16_000).some((sample) => sample !== 0)).toBe(true);
+
+    // Deleted again, nothing is kept, and nothing says where it starts.
+    expect((await core.deleteMeetingAudio(meeting.id)).audio).not.toHaveProperty("keptFromMs");
+    core.close();
+  });
+
+  // protects=a call whose audio was never deleted plays from its first line and says nothing of where its audio starts, after Resume too (#3762); fails_when=a Meeting with all its audio marks its first lines as having none
+  test("a call whose audio was never deleted has all of it, from its first line", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record, meeting, lines } = await stoppedCall(dataDir);
+    expect(meeting.audio).not.toHaveProperty("keptFromMs");
+    await core.resumeMeeting(meeting.id);
+    record(4 * SECOND);
+    await core.stopMeeting(meeting.id);
+    expect((await meetingOf(core, meeting.id)).audio).not.toHaveProperty("keptFromMs");
+    const [first] = lines;
+    const played = await core.readMeetingAudio({
+      meetingId: meeting.id,
+      fromMs: first?.startMs ?? 0,
+      toMs: first?.endMs ?? SECOND,
     });
     expect(played.samples.some((sample) => sample !== 0)).toBe(true);
     core.close();

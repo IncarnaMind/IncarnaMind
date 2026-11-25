@@ -372,8 +372,8 @@ export function createMeetings(options: MeetingsOptions) {
   const clock = () => Date.parse(now());
   const folderOf = (meetingId: string) => meetingFolder(options.dataDir, meetingId);
   let live: Live | null = null;
-  /** Whether each Meeting has audio on disk, looked up once. */
-  const kept = new Map<string, boolean>();
+  /** Where each Meeting's audio on disk starts in its time, looked up once; null with none. */
+  const kept = new Map<string, number | null>();
   /** Save recording… writing a Meeting's audio now (#687): set when its audio goes, so it stops. */
   const writing = new Map<string, { stop: boolean }>();
   /** The call's help, oldest first, kept in memory: it matters only while the Meeting is live. */
@@ -420,14 +420,23 @@ export function createMeetings(options: MeetingsOptions) {
 
   const isLiveRow = (row: MeetingRow) => row.status === "recording" || row.status === "paused";
 
-  const hasAudio = (meetingId: string): boolean => {
+  const keptFrom = (meetingId: string): number | null => {
     let value = kept.get(meetingId);
     if (value === undefined) {
-      value = listParts(folderOf(meetingId)).length > 0;
+      value = listParts(folderOf(meetingId))[0]?.offsetMs ?? null;
       kept.set(meetingId, value);
     }
     return value;
   };
+
+  const hasAudio = (meetingId: string): boolean => keptFrom(meetingId) !== null;
+
+  /**
+   * Where the audio recorded since the Meeting's audio was deleted starts, in its time: the lines
+   * before it have none (#3762). Null when none was deleted, or nothing was recorded since.
+   */
+  const keptSinceDeleted = (row: Pick<MeetingRow, "id" | "audio_deleted_at">): number | null =>
+    row.audio_deleted_at === null ? null : keptFrom(row.id);
 
   /** Where the stretch ends in wall-clock time, in ms. */
   const endOf = (period: Period) => Date.parse(period.start) + (period.durationMs ?? 0);
@@ -494,6 +503,7 @@ export function createMeetings(options: MeetingsOptions) {
         : row.status !== "stopped" && writeupTemplateId
           ? (options.helpForWriteupTemplate?.(writeupTemplateId) ?? null)
           : null;
+    const keptFromMs = keptSinceDeleted(row);
     return {
       id: row.id,
       mindId: row.mind_id,
@@ -512,6 +522,7 @@ export function createMeetings(options: MeetingsOptions) {
         expiresAt: row.audio_expires_at,
         deletedAt: row.audio_deleted_at,
         keptUntilDeleted: row.audio_kept_at !== null,
+        ...(keptFromMs !== null && { keptFromMs }),
       },
       saveError: current?.saveError ?? null,
       transcript:
@@ -605,7 +616,7 @@ export function createMeetings(options: MeetingsOptions) {
       }
       return;
     }
-    kept.set(current.meetingId, true);
+    kept.set(current.meetingId, Math.min(keptFrom(current.meetingId) ?? offsetMs, offsetMs));
     if (first || current.saveError !== null) {
       current.saveError = null;
       changed();
@@ -944,7 +955,7 @@ export function createMeetings(options: MeetingsOptions) {
     const write = writing.get(meetingId);
     if (write) write.stop = true;
     removeAudio(folderOf(meetingId));
-    kept.set(meetingId, false);
+    kept.set(meetingId, null);
     log.info("meeting.audioDeleted", { meetingId, reason });
   }
 
@@ -1042,11 +1053,14 @@ export function createMeetings(options: MeetingsOptions) {
       const periods = periodsOf(row);
       const last = periods.at(-1);
       if (last && last.durationMs === null) {
-        const audioEnd = Math.max(
+        // The part still filling is lost, but the lines heard live from it stay in the Transcript:
+        // the stretch ends after them, so what is recorded next never lands on their times.
+        const end = Math.max(
           last.offsetMs,
           ...parts.map((part) => part.offsetMs + part.durationMs),
+          transcripts?.linesEndAt(row.id) ?? 0,
         );
-        last.durationMs = audioEnd - last.offsetMs;
+        last.durationMs = end - last.offsetMs;
       }
       // Asleep when IncarnaMind closed, or cut off: either way it didn't record until now.
       if (last) {
@@ -1631,7 +1645,8 @@ export function createMeetings(options: MeetingsOptions) {
 
     /**
      * A stretch of a stopped Meeting's audio for playing it from a word (#138): see
-     * `readStretch`. NotFoundError once its audio is deleted or its files are gone.
+     * `readStretch`. NotFoundError once its audio is deleted or its files are gone, and for a
+     * stretch that ends before the audio recorded since a deletion (`MeetingAudio.keptFromMs`).
      */
     readAudio(input: unknown): MeetingAudioStretch {
       const { meetingId, fromMs, toMs, source } = isRecord(input) ? input : {};
@@ -1648,6 +1663,12 @@ export function createMeetings(options: MeetingsOptions) {
       const row = rowOf(meetingId);
       const from = Math.max(0, fromMs);
       const to = Math.min(toMs, from + MAX_STRETCH_MS);
+      // A stretch no part covers reads as silence: before what was recorded since a deletion, that
+      // would play the deleted lines as silence.
+      const since = keptSinceDeleted(row);
+      if (row.status === "stopped" && since !== null && to <= since) {
+        throw new NotFoundError({ key: "error.meeting.audioGoneBefore" });
+      }
       // Audio recorded after a deletion plays: the parts on disk say what is left, not the date.
       const samples =
         row.status === "stopped"

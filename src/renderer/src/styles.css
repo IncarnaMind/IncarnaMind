@@ -2686,31 +2686,13 @@
    */
   .note-ask-foot--meeting {
     padding-block: 4px 16px;
-    /*
-     * With the input in the window's column, the control is alone at the Note's foot: centred on
-     * the text, on the column input's line.
-     */
+    /* With the input in the window's column, the control stands on the column input's line. */
     &:not(:has(.note-ask)) {
       padding-bottom: 12px;
     }
-    &:has(.meeting-foot-ask:empty) {
-      .meeting-foot-row {
-        justify-content: center;
-      }
-      .meeting-foot-ask {
-        display: none;
-      }
-      .meeting-foot-stack {
-        align-items: center;
-      }
-      .meeting-foot-over {
-        left: 50%;
-        translate: -50% 0;
-        align-items: center;
-      }
-    }
   }
   .meeting-foot-row {
+    position: relative;
     display: flex;
     align-items: flex-end;
     gap: 8px;
@@ -2728,18 +2710,30 @@
     flex-direction: column;
     justify-content: flex-end;
     pointer-events: none;
+    /*
+     * 72px of the Note above it stay in view; in a short window it covers more of the Note, 280px
+     * or all of it, so its lines keep room to be read.
+     */
     > .mind-measure {
-      height: min(560px, calc(100% - 72px));
+      container: meeting-sheet / size;
+      height: max(min(560px, 100% - 72px), min(100%, 280px));
       pointer-events: auto;
     }
   }
+  /* Shorter still, the line to tell everyone gives its room to the words said. */
+  @container meeting-sheet (height < 240px) {
+    .meeting-sheet-consent {
+      display: none;
+    }
+  }
+  /* Write notes stands a clear step over the control: a button of its own, not a tip on it. */
   .meeting-foot-stack {
     position: relative;
     display: flex;
     flex: none;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: 16px;
   }
   /*
    * Three icon slots of one size in every state, so the control is 112px wide whatever it shows
@@ -2772,15 +2766,13 @@
     border-radius: 16px;
     color: var(--color-ink-secondary);
   }
-  button.meeting-foot-slot {
-    &:hover {
-      background: var(--color-hover);
-      color: var(--color-ink);
-    }
-    &[aria-expanded="true"] {
-      background: var(--color-chip);
-      color: var(--color-ink);
-    }
+  button.meeting-foot-slot:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+  button.meeting-foot-slot[aria-expanded="true"] {
+    background: var(--color-chip);
+    color: var(--color-ink);
   }
   /*
    * After Stop, one button: "Transcript" and its chevron. 112px in Chinese; English's word needs
@@ -2809,23 +2801,22 @@
   .meeting-foot-problem {
     max-width: 480px;
   }
-  /*
-   * One line under the sheet's head: the consent while it records, the misheard line after Stop,
-   * drawn there in place of the view's own; Review speakers… goes to the foot.
-   */
-  .meeting-sheet-body [data-testid="transcript-head"],
-  .meeting-sheet-body .transcript-review-row:not(:has(section)) {
-    display: none !important;
-  }
+  /* One line under the sheet's head: the consent while it records, the misheard line after Stop. */
   .meeting-sheet-consent .transcript-head {
     margin: 0;
     padding: 0;
   }
-  .meeting-sheet-details {
-    flex: none;
+  /* In a short sheet the details and the lines scroll in their place before the words said shrink. */
+  .meeting-sheet-details,
+  .meeting-sheet-lines {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
     padding: 0 16px 8px;
     font-size: 13px;
     line-height: 20px;
+  }
+  .meeting-sheet-details {
     color: var(--color-ink-meta);
   }
   .meeting-sheet-meta {
@@ -2834,11 +2825,6 @@
     line-height: 20px;
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
-  }
-  /* One size for every icon in the sheet's head and foot. */
-  .meeting-sheet-head .meeting-button {
-    width: 28px;
-    height: 28px;
   }
   /* The finished change is said once, where the Note's conversation shows it: line or column (#3762). */
   .mind-tab-page[data-ask-undo] .mind-editor [data-testid="applied-line"] {
@@ -2858,18 +2844,6 @@
     gap: 8px;
     width: max-content;
     max-width: min(480px, 100vw - 32px);
-    .meeting-screen-line {
-      padding: 8px 12px;
-      border-radius: 10px;
-      background: var(--color-sheet);
-      box-shadow: var(--shadow-popover);
-      font-size: 13px;
-      line-height: 20px;
-    }
-    .meeting-screen-icon {
-      width: 16px;
-      height: 16px;
-    }
     .meeting-foot-card {
       padding: 6px 8px;
       border-radius: 10px;
@@ -2878,6 +2852,40 @@
       &:empty {
         display: none;
       }
+    }
+  }
+  /*
+   * With the input in the window's column, the control is alone at the Note's foot: centred on the
+   * text, with Write notes and what it says over it centred on it.
+   */
+  .note-ask-foot--meeting:has(.meeting-foot-ask:empty) {
+    .meeting-foot-row {
+      justify-content: center;
+    }
+    .meeting-foot-ask {
+      display: none;
+    }
+    .meeting-foot-stack {
+      align-items: center;
+    }
+    .meeting-foot-over {
+      left: 50%;
+      translate: -50% 0;
+      align-items: center;
+    }
+  }
+  /*
+   * The conversation opened upward from the input beside the control grows over the Note: what the
+   * meeting says over its control stands above the conversation's top (`--meeting-ask`), clear of
+   * it and of the fade round it.
+   */
+  .meeting-foot-row:has(.note-ask[data-upward-open]) {
+    .meeting-foot-stack {
+      position: static;
+    }
+    .meeting-foot-over {
+      bottom: calc(anchor(--meeting-ask top, 100%) + 8px);
+      z-index: 31;
     }
   }
   .meeting-foot-tip {
@@ -2902,9 +2910,9 @@
     height: 20px;
     border-radius: 4px;
     color: var(--color-ink-meta);
-    &:hover {
-      background: var(--color-hover);
-    }
+  }
+  .meeting-foot-tip-close:hover {
+    background: var(--color-hover);
   }
   /* The Transcript, risen over the Note from the meeting's control: the input stays below it. */
   .meeting-sheet {
@@ -2939,10 +2947,10 @@
     height: 28px;
     border-radius: 6px;
     color: var(--color-ink-secondary);
-    &:hover {
-      background: var(--color-hover);
-      color: var(--color-ink);
-    }
+  }
+  .meeting-sheet-icon:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
   }
   .meeting-sheet-consent {
     flex: none;
@@ -2951,19 +2959,16 @@
     line-height: 20px;
     color: var(--color-ink-meta);
   }
+  /* Three lines of the words said at the least, however short the window. */
   .meeting-sheet-body {
     display: flex;
     flex: 1 1 auto;
-    min-height: 0;
+    min-height: 80px;
     flex-direction: column;
     overflow: hidden;
     border-top: 1px solid var(--color-rule);
     [data-cited="true"] {
       background: var(--color-success-wash);
-    }
-    /* The sheet names it and says the one line: the view's own head and its line stay out. */
-    [data-testid="viewer-embedded-header"] {
-      display: none !important;
     }
     .viewer-backdrop {
       padding: 0;
@@ -2978,6 +2983,7 @@
     }
   }
   .meeting-sheet-foot {
+    container: sheet-foot / inline-size;
     display: flex;
     flex: none;
     align-items: center;
@@ -2986,6 +2992,32 @@
     border-top: 1px solid var(--color-rule);
     font-size: 13px;
     line-height: 20px;
+  }
+  /*
+   * As the foot narrows, its buttons give up their words and keep their icons (their names and
+   * keys are in their tooltips), by the foot's own width, so nothing is measured and nothing moves
+   * while the window is dragged. Each query is a width at which the row still holds its words in
+   * either language, with room to spare: recording, then after Stop.
+   */
+  @container sheet-foot (width < 552px) {
+    .meeting-sheet-foot[data-live] .meeting-button--words {
+      justify-content: center;
+      width: 24px;
+      padding: 0;
+    }
+    .meeting-sheet-foot[data-live] .meeting-button-word {
+      display: none;
+    }
+  }
+  @container sheet-foot (width < 264px) {
+    .meeting-sheet-foot .meeting-button--words {
+      justify-content: center;
+      width: 24px;
+      padding: 0;
+    }
+    .meeting-sheet-foot .meeting-button-word {
+      display: none;
+    }
   }
   .note-ask {
     position: relative;
@@ -3513,6 +3545,16 @@
       var(--shadow-popover),
       0 -8px 16px 24px var(--color-sheet);
   }
+  /*
+   * Beside a meeting's control, 8px to its left, the fade keeps to above the box, off the control;
+   * what the meeting says over its control stands above the box (`.meeting-foot-row`).
+   */
+  .meeting-foot-ask .note-ask[data-upward-open] > .note-ask-box {
+    anchor-name: --meeting-ask;
+    box-shadow:
+      var(--shadow-popover),
+      0 -32px 16px var(--color-sheet);
+  }
   .note-ask-panel {
     --note-ask-tools: 32px;
     position: relative;
@@ -3795,10 +3837,6 @@
   .own-closed .note-ask-pill-action {
     flex: none;
     margin-left: 4px;
-  }
-  .note-ask-pill-own {
-    min-width: 0;
-    flex: 1;
   }
   /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
   .own-ask-card :is(code, pre, .own-ask-value, .own-ask-input, .own-ask-args dt) {
@@ -4252,6 +4290,22 @@
     margin-top: 2px;
     color: var(--color-ink-meta);
   }
+  /* Over a call's control the shared screen's line is a card, as the others there are (#3762). */
+  .meeting-foot-over .meeting-screen-line {
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .meeting-foot-over .meeting-screen-icon {
+    width: 16px;
+    height: 16px;
+  }
+  .meeting-sheet-lines .meeting-line {
+    padding: 0;
+  }
   .meeting-screen-text {
     min-width: 0;
     overflow-wrap: anywhere;
@@ -4262,9 +4316,9 @@
     font-weight: 600;
     color: var(--color-ink);
     text-underline-offset: 2px;
-    &:hover {
-      text-decoration: underline;
-    }
+  }
+  .meeting-screen-action:hover {
+    text-decoration: underline;
   }
   .meeting-screen-action--primary {
     color: var(--color-accent);
@@ -4287,9 +4341,6 @@
     border: 1px solid var(--color-rule);
     border-radius: 8px;
     cursor: default;
-    &:hover {
-      background: var(--color-frame);
-    }
     &[data-chosen] {
       border-color: var(--color-accent);
       box-shadow: inset 0 0 0 1px var(--color-accent);
@@ -4298,6 +4349,9 @@
       outline: 2px solid var(--color-accent);
       outline-offset: 2px;
     }
+  }
+  .screen-picker-window:hover {
+    background: var(--color-frame);
   }
   .screen-picker-thumbnail {
     display: flex;
@@ -4355,10 +4409,9 @@
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink-meta);
-
-    &:hover {
-      color: var(--color-ink);
-    }
+  }
+  .capture-details-line:hover {
+    color: var(--color-ink);
   }
   /* Never a second row: the container queries below take words, then buttons, out of it. */
   .meeting-controls {
@@ -4396,11 +4449,10 @@
     transition:
       background-color 80ms ease-out,
       color 80ms ease-out;
-
-    &:hover {
-      background: var(--color-hover);
-      color: var(--color-ink);
-    }
+  }
+  .meeting-button:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
   }
   .meeting-button[aria-pressed="true"] {
     background: var(--color-chip);
@@ -4414,6 +4466,11 @@
     justify-content: center;
     width: 24px;
     padding: 0;
+  }
+  /* One size for every icon in the Transcript sheet's head. */
+  .meeting-sheet-head .meeting-button {
+    width: 28px;
+    height: 28px;
   }
   /* Notes | Transcript, at the bar's far end; the Transcript carries the level bars (#138). */
   .meeting-views {

@@ -33,6 +33,11 @@ import { useAppStore } from "../store";
 import { SpeakerReviewStart } from "./SpeakerReviewStart";
 import { reviewSpeakersMatch, suggestionLine, suggestionLines } from "./speakerSuggestion";
 
+/**
+ * Review speakers… over a saved call's Transcript: its opener, and its panel once opened. Without
+ * `opener` the panel opens from elsewhere (the sheet's foot, ⌘K), and closing it gives the focus
+ * back to whatever opened it.
+ */
 export function TranscriptSpeakerReview({
   meetingId,
   owner,
@@ -41,6 +46,7 @@ export function TranscriptSpeakerReview({
   lines,
   playClip,
   trigger,
+  opener = true,
 }: {
   meetingId: string;
   owner: string;
@@ -49,12 +55,14 @@ export function TranscriptSpeakerReview({
   lines: readonly TranscriptLine[];
   playClip: ((startMs: number, endMs: number, source: AudioSource) => void) | null;
   trigger: RefObject<HTMLButtonElement | null>;
+  opener?: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
   const review = useMeetingSpeakerReview((state) => state[meetingId]);
   const panelId = useId();
   const panel = useRef<HTMLElement>(null);
+  const openedFrom = useRef<HTMLElement | null>(null);
   const expanded = review?.owner === owner;
   const phase = expanded ? review.phase : null;
   const reviewedSpeakers = phase?.kind === "result" ? phase.result.reviewedSpeakers : undefined;
@@ -69,11 +77,14 @@ export function TranscriptSpeakerReview({
   );
   const close = () => {
     hideSpeakerReview(meetingId, owner);
-    trigger.current?.focus();
+    (trigger.current ?? openedFrom.current)?.focus();
   };
   useDismissOnEscape(expanded, close);
   useLayoutEffect(() => {
-    if (expanded) panel.current?.focus();
+    if (!expanded) return;
+    const active = globalThis.document.activeElement;
+    openedFrom.current = active instanceof HTMLElement ? active : null;
+    panel.current?.focus();
   }, [expanded]);
 
   const retry = {
@@ -137,24 +148,34 @@ export function TranscriptSpeakerReview({
       ? estimateText({ amount: quote.estimatedUsd, currency: "USD" }, null, t, language)
       : null;
   const running = review?.phase.kind === "running" || review?.phase.kind === "cancelling";
+  if (!opener && !phase) return null;
   return (
     <div className="transcript-review-row max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
-      <button
-        ref={trigger}
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={expanded ? panelId : undefined}
-        className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
-        onClick={() => (expanded ? close() : openSpeakerReview(meetingId, document.id, owner))}
-      >
-        {t(running && !expanded ? "meetings.review.running" : "meetings.review.open")}
-      </button>
+      {opener && (
+        <button
+          ref={trigger}
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={expanded ? panelId : undefined}
+          className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          onClick={() => (expanded ? close() : openSpeakerReview(meetingId, document.id, owner))}
+        >
+          {t(running && !expanded ? "meetings.review.running" : "meetings.review.open")}
+        </button>
+      )}
       {phase && (
         <section
           ref={panel}
           id={panelId}
           tabIndex={-1}
           aria-label={t("meetings.review.title")}
+          // Esc in the panel closes it before anything it is in (a sheet) folds.
+          onKeyDown={(event) => {
+            if (event.key !== "Escape" || event.nativeEvent.isComposing || event.defaultPrevented)
+              return;
+            event.preventDefault();
+            close();
+          }}
           className="relative mx-auto my-2 max-w-3xl rounded-md border border-rule bg-sheet px-3 py-2"
         >
           <div className="flex items-center justify-between gap-2">

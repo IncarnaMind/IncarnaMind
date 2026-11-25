@@ -200,6 +200,33 @@ describe("An offer when a call app takes the microphone", () => {
 });
 
 describe("Take notes", () => {
+  // protects=with no recording notice to read, an offer taken from the notification, the tray or Home's line (each takes it through the core as here) records at once once a first recording was made, refusing nothing and turning nothing else on: no setting changes and the login item stays as it was (#3762); fails_when=taking the offer is refused for a notice, or turns on keeping running, calls, calendar reminders or opening at login
+  test("after a first recording, an offer taken records at once and turns nothing else on", async () => {
+    const dataDir = await createTempDataFolder();
+    const calls = createFakeCallWatcher();
+    const core = startCore(dataDir, {
+      audioCapture: createFakeCapture(),
+      callWatcher: calls,
+      loginItem: createFileLoginItem(dataDir),
+    });
+    const byHand = await core.createMeeting();
+    await core.startMeeting({ meetingId: byHand.id });
+    await core.stopMeeting(byHand.id);
+    await core.updateSettings({ device: { callOffers: true } });
+    const before = await core.getSettings();
+    expect(before.device).toMatchObject({ meetingNoticeAccepted: true, callOffers: true });
+    const loginBefore = await core.getOpenAtLogin();
+    expect(loginBefore.supported).toBe(true);
+
+    calls.use(["zoom"]);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (!offer) throw new Error("No offer.");
+    const meeting = await core.takeMeetingOffer(offer.id);
+    expect(meeting).toMatchObject({ status: "recording", kind: "meeting" });
+    expect(await core.getSettings()).toEqual(before);
+    expect(await core.getOpenAtLogin()).toEqual(loginBefore);
+  });
+
   test("records the call in a new Note opened in the main window, and nothing is offered while it records", async () => {
     const { core, calls } = await offersCore();
     calls.use(["zoom"]);

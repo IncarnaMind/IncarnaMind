@@ -1831,6 +1831,11 @@ export function createTranscripts(options: TranscriptsOptions) {
       return load(meetingId).cues;
     },
 
+    /** Where the Transcript's last line ends, in ms of the Meeting's time; 0 with none. */
+    linesEndAt(meetingId: string): number {
+      return Math.max(0, ...load(meetingId).cues.map((cue) => cue.endMs));
+    },
+
     /**
      * Indexes a recording Meeting's Transcript again now, for a Question asked during the call
      * (#144): what was said up to now can be found and cited. Resolves once its file is checked

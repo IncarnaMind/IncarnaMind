@@ -1,6 +1,7 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { AgentToolName, NoteCitation } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
@@ -11,6 +12,7 @@ import { undoAsked, useAskedState } from "../../askedChanges";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
+import { showMeetingNoteView, useMeetingNoteView } from "../../meetingViews";
 import { showWaitingChanges } from "../../mindChanges";
 import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
@@ -18,7 +20,9 @@ import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
 import { showCitedInTranscript } from "../meetings/MeetingFoot";
 import { ProblemLine } from "../ProblemLine";
-import { OwnStepText, useAnnounce, WaitingLine } from "./OwnAsk";
+import { useTabPlace } from "../tabs/tabItems";
+import { useAnnounce, WaitingLine } from "./OwnAsk";
+import { ownDoingWords } from "./ownAskWords";
 
 /** What the pill says of each Tool while it runs, with what the call names as `{summary}`. */
 const DOING: Partial<Record<AgentToolName, MessageKey>> = {
@@ -135,13 +139,14 @@ function Facts({ ask, mindId }: { ask: NoteAsk; mindId: string }) {
   );
 }
 
-/** What a running request is doing, in the AI's own words where it wrote some. */
+/**
+ * What a running request is doing, in the AI's own words where it wrote some; else in plain words,
+ * never the name of a tool or a server, a path or a command.
+ */
 function doingOf(ask: NoteAsk, t: Translate): ReactNode {
   const { doing } = ask;
   if (ask.quiet) return t("noteAsk.pill.quiet", { agent: ask.agent });
-  if (doing?.kind === "own") {
-    return <OwnStepText action={doing.action} going className="note-ask-pill-own" />;
-  }
+  if (doing?.kind === "own") return ownDoingWords(t, doing.action);
   if (doing === null) return t("noteAsk.pill.working");
   if (doing.kind === "thinking") return t("noteAsk.pill.thinking");
   if (doing.kind === "compacting") return t("noteAsk.pill.compacting");
@@ -300,9 +305,19 @@ export function NoteAskPill({
 }
 
 /**
+ * Notes in place of My notes, at what the AI changed, as Review shows it. My notes goes first: with
+ * it, the review's cursor would land in lines it hides.
+ */
+function showInNotes(editor: Editor, tabId: string, mindId: string): void {
+  flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
+  if (canReviewApplied(editor)) reviewApplied(editor, { focus: true });
+}
+
+/**
  * The one thing to do next, at the line's end: Accept all while its changes wait in the Note; else
  * open the Note it wrote, or left changes waiting in, unless the line names it already; else Undo,
- * while what it changed here can still be undone.
+ * while what it changed here can still be undone. In a meeting's My notes, which hides the AI's
+ * lines, the change is in Notes, and the one thing is to show it there (#3762).
  */
 export function EndAction({
   ask,
@@ -318,6 +333,8 @@ export function EndAction({
   const t = useT();
   const waiting = useWaitingInNote(editor);
   const undoable = useAskedState(ask.turnId ?? "", mindId) === "can-undo";
+  const tabId = useTabPlace()?.tabId;
+  const inMyNotes = useMeetingNoteView(tabId, mindId) === "mine";
   if (waiting > 0) {
     return (
       <button
@@ -352,6 +369,18 @@ export function EndAction({
   }
   if (!undoable || ask.turnId === null) return null;
   const { turnId } = ask;
+  if (inMyNotes && tabId) {
+    return (
+      <button
+        type="button"
+        data-testid="note-ask-show-in-notes"
+        onClick={() => showInNotes(editor, tabId, mindId)}
+        className="note-ask-pill-action"
+      >
+        {t("noteAsk.showInNotes")}
+      </button>
+    );
+  }
   // The finished change is said once, here: the page draws no line of its own (#3762).
   return (
     <>

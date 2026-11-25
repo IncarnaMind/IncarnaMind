@@ -5,6 +5,7 @@
 import {
   badgeMessage,
   type CitationState,
+  changedSinceCited,
   citationState,
   citedLocation,
   citedName,
@@ -13,7 +14,14 @@ import {
   shownDocumentName,
 } from "../../shared/citations";
 import { clockTime } from "../../shared/clock";
-import { anchorsCovered, joinUnits, quoteInUnits, type Translate } from "../../shared/locations";
+import {
+  anchorsCovered,
+  citationLocation,
+  isTranscriptLocation,
+  joinUnits,
+  quoteInUnits,
+  type Translate,
+} from "../../shared/locations";
 import type { TextRange } from "../../shared/quoteMatch";
 import type { SourceDocument } from "../../shared/sources";
 import { shownSpeaker } from "../../shared/speakers";
@@ -28,6 +36,7 @@ import type {
   CitationAttributes,
   CitationCheck,
   KeptCitationText,
+  RecheckResult,
   TranscriptSpeakers,
 } from "../api";
 import { looksLikeHeader } from "../documents/formats/grid";
@@ -72,6 +81,7 @@ export interface CitationCard {
   spoken: string;
   /** The quote the Mind holds, whether or not it was found. */
   quote: string;
+  /** Its Document changed after it was cited, as its card in the Note says (`changedSinceCited`). */
   changedAfterCited: boolean;
   content: CardContent;
 }
@@ -83,6 +93,11 @@ export interface CardSources {
   kept: readonly KeptCitationText[];
   /** The stored text of the Units a Citation cites, of the version it quotes; empty once it is gone. */
   units(attributes: Partial<CitationAttributes>): UnitText[];
+  /**
+   * The Citation checked again against the current version of `documentId`, its live Document,
+   * as the Note checks it; "failed" when it couldn't be.
+   */
+  recheck(attributes: Partial<CitationAttributes>, documentId: string): RecheckResult | "failed";
   t: Translate;
 }
 
@@ -95,9 +110,17 @@ const MAX_LINES = 6;
 
 export function citationCard(
   attributes: Partial<CitationAttributes>,
-  { language, documents, kept, units, t }: CardSources,
+  { language, documents, kept, units, recheck, t }: CardSources,
 ): CitationCard {
   const state = knownCheck(citationState(attributes, documents, kept));
+  // A Transcript's version changes with every line a meeting records: only its current version,
+  // read again, says whether the cited lines changed (#3762).
+  const read =
+    state.changedAfterCited &&
+    state.documentId !== null &&
+    isTranscriptLocation(citationLocation(attributes))
+      ? recheck(attributes, state.documentId)
+      : null;
   const quote = attributes.quote?.trim() ?? "";
   const name = citedName(
     {
@@ -122,7 +145,7 @@ export function citationCard(
       ? t("export.citation.location", { document: name, location: spokenLocation })
       : name,
     quote,
-    changedAfterCited: state.changedAfterCited,
+    changedAfterCited: changedSinceCited(state.changedAfterCited, attributes, read),
     content: contentOf(
       quote,
       // A Document deleted and added again is the same content under a new id.

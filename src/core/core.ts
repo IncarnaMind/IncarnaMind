@@ -3631,6 +3631,18 @@ export function createCore(adapters: CoreAdapters): Core {
       const to = from === null ? null : Math.max(from, typeof pageTo === "number" ? pageTo : from);
       return documents.pageTexts(documentId, contentHash, from, to);
     },
+    recheckCitation: (citation, mindId) => {
+      try {
+        return recheckIn({ ...citation, mindId });
+      } catch (error) {
+        // Its card then says the Document changed, as the Note's does when its check can't run.
+        (adapters.log ?? silentLogger).warn("export.recheckFailed", {
+          documentId: citation.documentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return "failed";
+      }
+    },
     sharePageTextOnly: (mindId) => content.readSettings(mindId, textOnlyDocuments),
     printer: adapters.printer ?? null,
     paper: systemPaper,
@@ -5919,6 +5931,7 @@ export function createCore(adapters: CoreAdapters): Core {
       documentId ? (transcripts?.confirmedCues(meeting.id) ?? []) : [],
       text,
       kind ?? "question",
+      meeting.transcript?.partials ?? [],
     );
     return {
       pairingId,

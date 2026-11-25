@@ -6,7 +6,7 @@ import { useGap, useLanguage, useT } from "../i18n";
 import { canKeepAudio, useAudioSaid } from "../meetingAudioWords";
 import { isLive, useMeetingOf, useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
-import { showMeetingDetails, useMeetingNoteView } from "../meetingViews";
+import { showMeetingNoteView, useMeetingNoteView } from "../meetingViews";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
@@ -67,7 +67,10 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
       <div className="empty:hidden mb-4">
         {view === "notes" && <MeetingSummary meeting={meeting} />}
         <TranscriptLines meeting={meeting} className="" problemsOnly />
-        <CaptureProblem meeting={meeting} onDetails={() => showMeetingDetails(meeting.mindId)} />
+        <CaptureProblem
+          meeting={meeting}
+          onDetails={tabId ? () => raiseMeetingDetails(tabId, meeting) : undefined}
+        />
       </div>
     );
   }
@@ -81,6 +84,12 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
       <CaptureDetails meeting={meeting} />
     </div>
   );
+}
+
+/** A call's recording details, where they are: open in its Transcript sheet, raised in this tab. */
+export function raiseMeetingDetails(tabId: string, meeting: Pick<Meeting, "id" | "mindId">): void {
+  useMeetings.getState().showDetails(meeting.id, true);
+  showMeetingNoteView(tabId, meeting.mindId, "transcript");
 }
 
 export function LiveMeetingBar({ meeting, ref }: { meeting: Meeting; ref?: Ref<HTMLElement> }) {
@@ -229,13 +238,17 @@ function keepAudio(meetingId: string): void {
  * How long was recorded, how long the audio stays on this computer, and
  * "Delete audio now", which is the "meeting.deleteAudio" command, as ⌘K's
  * "Delete audio" is: it asks first, on the same line, because it can't be undone.
+ * `raisedToAsk`: shown where ⌘K's question is raised (the call's sheet), which keeps a question
+ * asked just before it showed.
  */
 export function MeetingAudioLine({
   meeting,
   className = "",
+  raisedToAsk = false,
 }: {
   meeting: Meeting;
   className?: string;
+  raisedToAsk?: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -249,13 +262,20 @@ export function MeetingAudioLine({
   useDismissOnEscape(asking, () => keepAudio(meeting.id));
   // Asked about while this line wasn't on screen, it is a question nobody saw.
   useEffect(() => {
-    keepAudio(meeting.id);
-  }, [meeting.id]);
+    if (!raisedToAsk) keepAudio(meeting.id);
+  }, [meeting.id, raisedToAsk]);
   if (asking) {
     return (
       <p
         role="alert"
         data-testid="meeting-audio-confirm"
+        // Esc inside the question keeps the audio before anything around it folds.
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.nativeEvent.isComposing || event.defaultPrevented)
+            return;
+          event.preventDefault();
+          keepAudio(meeting.id);
+        }}
         className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
       >
         {t("meetings.audio.confirm")}

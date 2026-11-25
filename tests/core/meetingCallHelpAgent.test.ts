@@ -154,9 +154,83 @@ test("a press excludes older transcript matches and unrelated speech outside the
     cues.map(([startMs, text]) => ({ startMs, endMs: startMs + 1000, text, speaker: null })),
     "launch",
     "question",
+    [],
   );
   expect(JSON.parse(request.prompt).speech.map((row: { text: string }) => row.text)).toEqual([
     "We need a new launch date.",
     "Friday works.",
   ]);
+  expect(request.notFinal).toBe(false);
+});
+
+// protects=call help through the User's own AI gets the words on screen not yet final, after the confirmed speech, each with no source number, and a line can only cite confirmed speech; the newest of them come first into the room left, never more than half of it (#3762); fails_when=the AI sees only confirmed lines, a word not yet final gets a source number, or they crowd out the speech lines cite
+test("the words not yet final go with the speech, unnumbered, in at most half the room", () => {
+  const cues = [{ startMs: 0, endMs: 2000, text: monday, speaker: "Them" }];
+  const request = prepareCallHelp(cues, "What did they just say?", "question", [
+    { startMs: 2000, text: "  ", speaker: "Me" },
+    { startMs: 2100, text: "We changed it ", speaker: "Them" },
+  ]);
+  expect(JSON.parse(request.prompt)).toEqual({
+    question: "What did they just say?",
+    speech: [{ source: 1, speaker: "Them", text: monday }],
+    notFinal: [{ speaker: "Them", text: "We changed it" }],
+  });
+  expect(request.sources).toEqual(cues);
+  expect(request.notFinal).toBe(true);
+
+  const long = { startMs: 2000, text: "word ".repeat(400), speaker: "Them" };
+  const crowded = prepareCallHelp(cues, "What now?", "question", [
+    long,
+    { startMs: 9000, text: "Friday then.", speaker: "Me" },
+  ]);
+  expect(JSON.parse(crowded.prompt)).toMatchObject({
+    speech: [{ source: 1, text: monday }],
+    notFinal: [{ speaker: "Me", text: "Friday then." }],
+  });
+  expect(new TextEncoder().encode(crowded.prompt).length).toBeLessThanOrEqual(3960);
+});
+
+// protects=a press during a call sends the User's own AI the words on screen not yet final and tells it never to give one as a line's source; a line that names a number past the confirmed speech is dropped, so nothing not final is cited (#3762); fails_when=the AI isn't given what is being said, isn't told the words can't be cited, or a line resting on them reaches the answer
+test("a press sends the words not yet final, and a line can't rest on them", async () => {
+  const friday = "We changed it to Friday after the review.";
+  const run = vi.fn<Run>(async () => JSON.stringify({ lines: [{ text: "Friday.", source: 2 }] }));
+  const { core, pairing, meeting, push } = await startLiveAgentMeeting(run, false, [
+    monday,
+    friday,
+  ]);
+  try {
+    await core.updateSettings({ device: { meetingCallHelpAgentId: pairing.id } });
+    push(3200);
+    const live = await until(
+      core,
+      meeting.id,
+      (state) => state.lines >= 1 && state.partials.some((each) => each.text.trim() !== ""),
+    );
+    const press = await core.askMeetingQuestion({
+      meetingId: meeting.id,
+      text: "What did they just say?",
+    });
+    if (!press.asked) throw Error("missing answer");
+    const request = run.mock.calls[0]?.[0];
+    const sent = JSON.parse(request?.prompt ?? "{}");
+    expect(sent).toEqual({
+      question: "What did they just say?",
+      speech: [{ source: 1, speaker: expect.any(String), text: monday }],
+      notFinal: live.partials
+        .filter((each) => each.text.trim() !== "")
+        .map((each) => ({ speaker: each.speaker, text: each.text.trim() })),
+    });
+    expect(friday.startsWith(sent.notFinal.at(-1)?.text)).toBe(true);
+    expect(request?.instructions).toContain(
+      "not final and with no source number: read them for what is being said now, never give one as a line's source",
+    );
+    const { messages } = await core.getConversation(press.conversation.id);
+    expect(messages.find((each) => each.id === press.answerId)).toMatchObject({
+      status: "done",
+      text: expect.stringContaining("not contain enough information"),
+      citations: [],
+    });
+  } finally {
+    core.close();
+  }
 });

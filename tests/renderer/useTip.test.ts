@@ -191,6 +191,48 @@ describe("When a tip opens", () => {
     expect(heard).toEqual(["1:open", "1:closed", "2:open"]);
   });
 
+  test("a press that does something puts the tip away: the focus it brings and the resting pointer open nothing, a pointer that comes back does", () => {
+    const control = tip(1);
+    control.point();
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    hovered.add(1);
+    control.quiet();
+    control.show();
+    control.point();
+    vi.advanceTimersByTime(TIP_DELAY_MS * 2);
+    expect(heard).toEqual(["1:open", "1:closed"]);
+
+    hovered.delete(1);
+    control.leave();
+    control.point();
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(heard).toEqual(["1:open", "1:closed", "1:open"]);
+  });
+
+  test("pressed from the keyboard, or with its focus put back, the tip stays away until the focus leaves and comes back", () => {
+    const control = tip(1);
+    control.show();
+    control.quiet();
+    control.show();
+    expect(heard).toEqual(["1:open", "1:closed"]);
+
+    control.blur();
+    control.show();
+    expect(heard).toEqual(["1:open", "1:closed", "1:open"]);
+  });
+
+  test("a press that puts its tip away lets the next trigger wait again", () => {
+    const control = tip(1);
+    const next = tip(2);
+    control.show();
+    control.quiet();
+    next.point();
+    vi.advanceTimersByTime(TIP_DELAY_MS - 1);
+    expect(heard).toEqual(["1:open", "1:closed"]);
+    vi.advanceTimersByTime(1);
+    expect(heard).toEqual(["1:open", "1:closed", "2:open"]);
+  });
+
   test("after Esc a resting pointer doesn't open it again, a pointer that comes back does", () => {
     const info = tip(1);
     info.point();

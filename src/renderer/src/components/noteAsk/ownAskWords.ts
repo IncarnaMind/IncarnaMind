@@ -1,9 +1,32 @@
-/** The words of the answers a question of the User's own AI offers on its card (#3653). */
-import type { NoteKept, NoteRule, NoteSuggested } from "../../../../core/api";
+/**
+ * The words of the answers a question of the User's own AI offers on its card (#3653), and of what
+ * the line above the input says it does with a tool of its own (#3762).
+ */
+import type { NoteAction, NoteKept, NoteRule, NoteSuggested } from "../../../../core/api";
+import type { MessageKey } from "../../../../shared/i18n";
 import type { useT } from "../../i18n";
 import { visible } from "../../visibleText";
 
 type Translate = ReturnType<typeof useT>;
+
+const DOING: Record<NoteAction["kind"], MessageKey> = {
+  command: "noteAsk.doing.own.command",
+  write: "noteAsk.doing.own.write",
+  change: "noteAsk.doing.own.change",
+  read: "noteAsk.doing.own.read",
+  web: "noteAsk.doing.own.web",
+  search: "noteAsk.doing.own.search",
+  tool: "noteAsk.doing.own.tool",
+  skill: "noteAsk.doing.own.skill",
+  other: "noteAsk.doing.own.tool",
+};
+
+/**
+ * What the line above a Note's input says while the User's AI does something with a tool of its
+ * own: the kind of thing, in plain words. The command, path, address, server or tool it names is
+ * the conversation's and its question card's to show, whole (#3762).
+ */
+export const ownDoingWords = (t: Translate, action: NoteAction): string => t(DOING[action.kind]);
 
 /** What a rule covers, as Claude Code's own prompt names it after "don't ask again for". */
 function ruleWords(t: Translate, rule: NoteRule): string {

@@ -32,10 +32,16 @@ export interface TipHost {
  * enter: a tip that opens for the keyboard under a resting pointer hears it enter, and would stay
  * once the focus moves on (#1519). An open tip stays while the pointer is over it, and closes
  * `TIP_LEAVE_MS` after the pointer leaves, unless the focus, or `held`, keeps it.
+ *
+ * A trigger whose press does something calls `quiet` on its press, as macOS and Windows put a
+ * tooltip away on a click: a tip left open by the focus the press brings would lie over the
+ * controls around it, take their presses, and take the Esc meant for what the press opened (#3762).
  */
 export function createTip(host: TipHost, onChange: (shown: boolean) => void) {
   let shown = false;
   let pointing = false;
+  /** The trigger was used, or its focus put back: the focus opens nothing until it leaves. */
+  let quieted = false;
   let waiting: Timer | null = null;
   let closing: Timer | null = null;
 
@@ -55,6 +61,7 @@ export function createTip(host: TipHost, onChange: (shown: boolean) => void) {
   };
 
   const show = () => {
+    if (quieted) return;
     stopWaiting();
     stopClosing();
     set(true);
@@ -64,6 +71,16 @@ export function createTip(host: TipHost, onChange: (shown: boolean) => void) {
     stopClosing();
     pointing = host.hovered();
     set(false);
+  };
+  /**
+   * The trigger did what it does, by the pointer or the keyboard, or the app put the focus back
+   * on it: the tip closes, and neither the pointer resting there nor the focus staying opens it
+   * again. The pointer opens it once it leaves and comes back, the focus once it leaves and comes
+   * back.
+   */
+  const quiet = () => {
+    quieted = true;
+    close();
   };
   const point = () => {
     if (pointing) return;
@@ -90,6 +107,7 @@ export function createTip(host: TipHost, onChange: (shown: boolean) => void) {
     }, TIP_LEAVE_MS);
   };
   const blur = () => {
+    quieted = false;
     if (!pointing) close();
   };
   /** The trigger goes: no timer fires after it, and its open tip no longer counts. */
@@ -101,7 +119,7 @@ export function createTip(host: TipHost, onChange: (shown: boolean) => void) {
       open -= 1;
     }
   };
-  return { show, close, point, leave, blur, dispose };
+  return { show, close, quiet, point, leave, blur, dispose };
 }
 
 /** `createTip` for a component: `shown` says whether to draw the tip, and the rest go to the trigger's and the tip's events. */
@@ -118,7 +136,7 @@ export function useTip(trigger: RefObject<HTMLElement | null>, held: () => boole
     },
     setShown,
   );
-  const { show, close, point, leave, blur, dispose } = tip.current;
+  const { show, close, quiet, point, leave, blur, dispose } = tip.current;
   useEffect(() => dispose, [dispose]);
-  return { shown, show, close, point, leave, blur };
+  return { shown, show, close, quiet, point, leave, blur };
 }

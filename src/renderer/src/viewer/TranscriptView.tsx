@@ -144,18 +144,22 @@ export function TranscriptView({ document, target }: { document: Document; targe
 /**
  * A Meeting's Transcript in its Note's page (#138): its words from the first one said, before
  * the Transcript's Document is made with its first finished line, then its lines as they come.
- * `aside`: the page's own control at the header's end ("Open beside").
+ * `aside`: the page's own control at the header's end ("Open beside"). `bare`: drawn inside
+ * something that names it, says its line and opens Review speakers… itself (the call's sheet,
+ * #3762): no header, no head line, no opener of its own.
  */
 export function MeetingTranscriptView({
   meeting,
   document,
   target,
   aside,
+  bare = false,
 }: {
   meeting: Meeting;
   document: Document | undefined;
   target: ViewerTarget;
   aside?: ReactNode;
+  bare?: boolean;
 }) {
   const t = useT();
   const documentId = meeting.transcript?.documentId ?? null;
@@ -170,13 +174,14 @@ export function MeetingTranscriptView({
       target={target}
       meetingId={meeting.id}
       aside={aside}
+      bare={bare}
     />
   );
   // While the call records, the words being said stay in view as its first line is filed.
   if (!document && documentId && !isLive(meeting)) {
     return (
       <>
-        <ViewerHeader />
+        {!bare && <ViewerHeader />}
         <ViewerMessage>{t("viewer.loading")}</ViewerMessage>
       </>
     );
@@ -258,12 +263,14 @@ function TranscriptContent({
   target,
   meetingId,
   aside,
+  bare = false,
 }: {
   document: Document | null;
   transcript: Transcript;
   target: ViewerTarget;
   meetingId: string | null;
   aside?: ReactNode;
+  bare?: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -388,6 +395,12 @@ function TranscriptContent({
   // A saved Transcript plays while its audio is kept; never while it records (#138).
   const playable =
     meeting?.status === "stopped" && state === "saved" && meeting.audio.kept && document !== null;
+  // Deleted, then recorded on after Resume: only what was said since has audio.
+  const keptFromMs = meeting?.audio.keptFromMs;
+  const heard = useCallback(
+    (row: PartRow) => keptFromMs === undefined || row.part.endMs > keptFromMs,
+    [keptFromMs],
+  );
   // With no lines the view's own sentence says so: a count and a head line would say it twice (#1031).
   const hasLines = transcript.cues.length > 0;
   // What puts a problem and Try again in the recording bar: until then no line comes as people
@@ -481,9 +494,11 @@ function TranscriptContent({
   const playFrom = useCallback(
     (ms: number) => {
       if (!playable || !meetingId) return;
-      void useTranscriptPlayer.getState().play(meetingId, ms, durationMs, owner);
+      void useTranscriptPlayer
+        .getState()
+        .play(meetingId, Math.max(ms, keptFromMs ?? 0), durationMs, owner);
     },
-    [playable, meetingId, durationMs, owner],
+    [playable, meetingId, durationMs, owner, keptFromMs],
   );
   const focusLine = useCallback((id: string) => {
     list.current?.querySelector<HTMLElement>(`[data-line="${CSS.escape(id)}"]`)?.focus();
@@ -540,15 +555,17 @@ function TranscriptContent({
           list.current?.querySelector(`[data-line="${CSS.escape(row.id)}"]`),
         )?.click();
       },
-      canPlay: (): true | MessageKey =>
-        playable
-          ? true
-          : meeting?.status === "stopped" && !meeting.audio.kept
+      canPlay: (): true | MessageKey => {
+        if (!playable)
+          return meeting?.status === "stopped" && !meeting.audio.kept
             ? "meetings.command.noAudio"
-            : "meetings.command.playAfterStop",
+            : "meetings.command.playAfterStop";
+        const row = activeRow();
+        return row && !heard(row) ? "meetings.command.lineAudioDeleted" : true;
+      },
       play: () => {
         const row = activeRow();
-        if (!row) return;
+        if (!row || !heard(row)) return;
         const at = caretRef.current?.line === row.id ? caretRef.current.at : null;
         playFrom(at === null ? row.part.startMs : timeAt(row.cue, at));
       },
@@ -578,6 +595,7 @@ function TranscriptContent({
     [
       activeRow,
       addLine,
+      heard,
       meeting,
       meetingId,
       nameable,
@@ -629,7 +647,7 @@ function TranscriptContent({
 
   const onWord = (row: PartRow, at: number) => {
     if (nameable) setCaret({ line: row.id, at });
-    if (!playable) return;
+    if (!playable || !heard(row)) return;
     playFrom(timeAt(row.cue, at));
   };
 
@@ -810,33 +828,35 @@ function TranscriptContent({
           </button>
         </Popover>
       )}
-      <ViewerHeader placeGone={!live && citedPlaceGone(target, units.length)}>
-        {live && state === "live" && (
-          <span data-testid="transcript-live" className="transcript-live">
-            <span aria-hidden="true" className="recording-dot" />
-            {t("transcript.live")}
-          </span>
-        )}
-        {live && state === "behind" && (
-          <span data-testid="transcript-behind" className="transcript-live">
-            {t("transcript.recording")}
-          </span>
-        )}
-        {added && (
-          <span role="status" data-testid="transcript-added" className="viewer-meta">
-            {t(added)}
-          </span>
-        )}
-        {hasLines && (
-          <span data-testid="transcript-count" className="viewer-meta">
-            {t(transcript.cues.length === 1 ? "transcript.lines.one" : "transcript.lines.other", {
-              count: transcript.cues.length,
-            })}
-          </span>
-        )}
-        {aside}
-      </ViewerHeader>
-      {meeting && hasLines && <TranscriptHeadLine playable={playable} />}
+      {!bare && (
+        <ViewerHeader placeGone={!live && citedPlaceGone(target, units.length)}>
+          {live && state === "live" && (
+            <span data-testid="transcript-live" className="transcript-live">
+              <span aria-hidden="true" className="recording-dot" />
+              {t("transcript.live")}
+            </span>
+          )}
+          {live && state === "behind" && (
+            <span data-testid="transcript-behind" className="transcript-live">
+              {t("transcript.recording")}
+            </span>
+          )}
+          {added && (
+            <span role="status" data-testid="transcript-added" className="viewer-meta">
+              {t(added)}
+            </span>
+          )}
+          {hasLines && (
+            <span data-testid="transcript-count" className="viewer-meta">
+              {t(transcript.cues.length === 1 ? "transcript.lines.one" : "transcript.lines.other", {
+                count: transcript.cues.length,
+              })}
+            </span>
+          )}
+          {aside}
+        </ViewerHeader>
+      )}
+      {!bare && meeting && hasLines && <TranscriptHeadLine playable={playable} />}
       <QuoteStepsLine stepper={stepper} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         {reviewable && nameable && meetingId && (
@@ -859,6 +879,7 @@ function TranscriptContent({
                 : null
             }
             trigger={reviewTrigger}
+            opener={!bare}
           />
         )}
         <div
@@ -907,7 +928,9 @@ function TranscriptContent({
                       nameable={nameable}
                       lines={lines}
                       speakers={speakers}
-                      playable={playable}
+                      playable={
+                        playable && row.turn.paragraphs.some((paragraph) => paragraph.some(heard))
+                      }
                       caret={caret}
                       rest={rest?.line === row.turn.id ? rest : null}
                       saying={row.turn === lastTurn && goesOn ? goesOn : null}

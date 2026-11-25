@@ -1,5 +1,6 @@
 import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { isWordFile, isWordType } from "../../../../shared/wordFileTypes";
+import { useAskedState } from "../../askedChanges";
 import { files } from "../../core";
 import { useDropTarget } from "../../dragDrop";
 import {
@@ -11,7 +12,6 @@ import {
 import { useT } from "../../i18n";
 import { assistantTabOf } from "../../layoutSlice";
 import { useWritingProperties } from "../../mindStyles";
-import { useAskedState } from "../../askedChanges";
 import { useNoteAsks } from "../../ownAiInNote";
 import { useHiddenForOwnAi, useOwnAiOnly } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";

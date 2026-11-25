@@ -168,7 +168,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
   // The tabs close, and with them the copies and histories they kept.
   showTabs([]);
-  useMeetingNoteViews.setState({ views: {}, focus: null, details: null });
+  useMeetingNoteViews.setState({ views: {}, focus: null });
   bridge.listeners.clear();
   vi.unstubAllGlobals();
 });

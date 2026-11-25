@@ -245,10 +245,6 @@
   [data-quote-tone="contradicted"] {
     --quote-wash: transparent;
     --quote-edge: var(--color-danger);
-    .quote-highlight,
-    .highlight {
-      box-shadow: 0 0 0 1.5px var(--color-danger);
-    }
     td.viewer-cell--quote {
       outline: 1.5px solid var(--color-danger);
       outline-offset: -1.5px;
@@ -356,8 +352,13 @@
   .transcript-turn {
     @apply relative -mx-2 grid-cols-[var(--transcript-time)_minmax(0,1fr)_auto] rounded-sm px-2;
   }
+  /*
+   * The action stands level with the line the pointer rests on, moved down to it by its top
+   * margin, and takes no height of its own (its 28px back as a bottom margin): beside a turn's
+   * last line it would make the turn taller, and every line under it would move under the pointer.
+   */
   .transcript-add {
-    @apply inline-flex h-7 items-center gap-1.5 self-start rounded-md border border-rule bg-sheet px-2 font-sans text-[12px] leading-5 font-semibold whitespace-nowrap text-ink-secondary opacity-0 shadow-sm hover:bg-hover hover:text-ink focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100;
+    @apply -mb-7 inline-flex h-7 items-center gap-1.5 self-start rounded-md border border-rule bg-sheet px-2 font-sans text-[12px] leading-5 font-semibold whitespace-nowrap text-ink-secondary opacity-0 shadow-sm hover:bg-hover hover:text-ink focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100;
   }
   .transcript-line-actions {
     @apply w-7 justify-center px-0;
@@ -628,6 +629,10 @@
     margin-inline-end: 0;
     border-start-end-radius: 0;
     border-end-end-radius: 0;
+  }
+  /* Contradicted is never green: no fill, the words outlined in red. */
+  [data-quote-tone="contradicted"] :is(.quote-highlight, .highlight) {
+    box-shadow: 0 0 0 1.5px var(--color-danger);
   }
   /*
    * The same wash over a cited page's picture, which is behind it rather than

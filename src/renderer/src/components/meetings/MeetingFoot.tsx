@@ -1,5 +1,5 @@
 import { isMacOS } from "@tiptap/core";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
 import type { Meeting } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
@@ -7,7 +7,13 @@ import { shortcutLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
 import { useT } from "../../i18n";
 import { currentTabOf } from "../../layoutSlice";
-import { isLive, useMeetingOf, useMeetings, useMeetingTime } from "../../meetings";
+import {
+  isLive,
+  isWaitingForPermission,
+  useMeetingOf,
+  useMeetings,
+  useMeetingTime,
+} from "../../meetings";
 import { clockTime } from "../../meetingTime";
 import {
   focusTaken,
@@ -16,15 +22,17 @@ import {
   useMeetingViewFocus,
 } from "../../meetingViews";
 import { setColumnOpen } from "../../ownAiInNote";
+import { useRequests } from "../../requests";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { closeTip, useFeatureTip } from "../../tips";
+import { ROUTE_LABELS } from "../../transcriptionServices";
 import { openTranscriptBeside } from "../../transcripts";
 import { TranscriptHeadLine } from "../../viewer/TranscriptHeadLine";
 import { MeetingTranscriptView } from "../../viewer/TranscriptView";
 import { type ViewerFrame, ViewerFrameContext } from "../../viewer/ViewerHeader";
-import { writeMeetingNotes } from "../../writeMeetingNotes";
+import { useNotesAsked, writeMeetingNotes } from "../../writeMeetingNotes";
 import { CallEndingLine } from "../CallEndingLine";
-import { CaptureDetails, CaptureDetailsToggle } from "../CaptureDetails";
+import { CaptureDetails, CaptureDetailsToggle, CaptureProblem } from "../CaptureDetails";
 import {
   BookmarkLineIcon,
   ChevronDownLineIcon,
@@ -39,15 +47,21 @@ import {
   StopLineIcon,
 } from "../lineIcons";
 import { CallHelpToggle, MeetingLines } from "../MeetingBar";
-import { MeetingAudioLine } from "../MeetingInMind";
+import { MeetingAudioLine, raiseMeetingDetails } from "../MeetingInMind";
 import { ProblemLine } from "../ProblemLine";
 import { SharedScreenLine } from "../SharedScreenLine";
+import { TipPopover } from "../TipPopover";
 import { TranscriptLines } from "../TranscriptLines";
 import { useTabPlace } from "../tabs/tabItems";
 import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
+import { useTip } from "../useTip";
 import { LevelBars, levelName } from "./LevelBars";
-import { applyMeetingWriteupTemplate, MeetingTemplateRows } from "./MeetingTemplatePicker";
+import {
+  applyMeetingWriteupTemplate,
+  canChooseMeetingTemplate,
+  MeetingTemplateRows,
+} from "./MeetingTemplatePicker";
 
 /**
  * The sheet's own state beside the tab's view (the Transcript is the view the sheet shows): the
@@ -87,7 +101,7 @@ export function showCitedInTranscript(cited: ViewerTarget): boolean {
   const meeting = useMeetings
     .getState()
     .meetings.find((each) => each.transcript?.documentId === cited.documentId);
-  if (!meeting || meeting.kind !== "meeting") return false;
+  if (meeting?.kind !== "meeting") return false;
   const { layout } = useAppStore.getState();
   const current = currentTabOf(layout);
   const tab =
@@ -130,38 +144,74 @@ export function MeetingFoot({ mindId }: { mindId: string }) {
   return meeting ? <Foot mindId={mindId} meeting={meeting} /> : null;
 }
 
+/** The service transcribing the call now, named, or null on this computer. */
+function useTranscribingService(meeting: Meeting): string | null {
+  const t = useT();
+  const chosen = useAppStore((state) => state.settings?.device.transcriptionRoute ?? null);
+  // Before its Transcript starts the call goes the chosen way; after, the way it really goes.
+  const route = meeting.transcript ? meeting.transcript.cloud : chosen;
+  return route && route !== "local" ? t(ROUTE_LABELS[route]) : null;
+}
+
+/**
+ * ⌘K's Delete audio asks where the audio's line is: the sheet rises in the tab in front with its
+ * recording details open at the question. Folded with the question still open, the audio is kept,
+ * as Keep it does.
+ */
+function useAudioQuestionInSheet(meeting: Meeting, tabId: string, open: boolean): void {
+  const asked = useRequests((state) => state.deleteAudio?.meetingId === meeting.id);
+  const inFront = useAppStore((state) => currentTabOf(state.layout)?.id === tabId);
+  const recording = meeting.status === "recording";
+  const raised = useRef(false);
+  const { id, mindId } = meeting;
+  useEffect(() => {
+    if (!asked || !inFront || recording) return;
+    raised.current = true;
+    raiseMeetingDetails(tabId, { id, mindId });
+  }, [asked, inFront, recording, tabId, id, mindId]);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    const folded = wasOpen.current && !open;
+    wasOpen.current = open;
+    if (!folded || !raised.current) return;
+    raised.current = false;
+    const requests = useRequests.getState();
+    if (requests.deleteAudio?.meetingId === id) requests.clear("deleteAudio");
+  }, [open, id]);
+}
+
 function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   const t = useT();
   const tabId = useTabPlace()?.tabId ?? "";
   const open = useSheetOpen(tabId, mindId);
   const refocus = useSheet((state) => state.refocus[tabId] ?? 0);
-  const [asked, setAsked] = useState(false);
   const live = isLive(meeting);
   const paused = meeting.status === "paused";
+  const waiting = isWaitingForPermission(meeting);
   const { stop, resume, openSettings } = useMeetings.getState();
   const keys = shortcutLabel("meeting.nextView");
   const micProblem = live ? MICROPHONE_PROBLEMS[meeting.sources.microphone] : undefined;
+  const service = useTranscribingService(meeting);
   // Interaction rule 14: one line where the feature is, gone with its ✕ or once the sheet is used.
   const tipShown = useFeatureTip("meeting-transcript", meeting.id, live && !micProblem && !open);
   useEffect(() => {
     if (open) closeTip("meeting-transcript");
   }, [open]);
-  const writeNotes = async () => {
-    setAsked(true);
+  useAudioQuestionInSheet(meeting, tabId, open);
+  const writable = !live && meeting.fill?.state === "own-ai";
+  const notesAsked = useNotesAsked(meeting, writable);
+  const writeNotes = () => {
     setSheet(tabId, mindId, false);
-    try {
-      // The button comes back where the request didn't go: its line says why.
-      if (!(await writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest"))))
-        setAsked(false);
-    } catch (error) {
-      setAsked(false);
-      useAppStore.getState().reportError(error);
-    }
+    // Where the request didn't go, the button comes back, and the line above the input says why.
+    writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest")).catch(
+      useAppStore.getState().reportError,
+    );
   };
   return (
     <div className="meeting-foot-stack">
       <div className="meeting-foot-over">
-        {micProblem && (
+        {/* With the sheet up, its own line says it. */}
+        {micProblem && !open && (
           <div data-testid="meeting-foot-problem" className="meeting-foot-tip meeting-foot-problem">
             <ProblemLine
               role="alert"
@@ -180,7 +230,11 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
         )}
         {tipShown && (
           <div role="status" data-testid="meeting-foot-tip" className="meeting-foot-tip">
-            <span>{t("meetings.foot.tip")}</span>
+            <span>
+              {service
+                ? t("meetings.foot.tipCloud", { provider: service })
+                : t("meetings.foot.tip")}
+            </span>
             <button
               type="button"
               data-testid="meeting-foot-tip-close"
@@ -199,21 +253,30 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             <div className="meeting-foot-card">
               <CallEndingLine meeting={meeting} />
             </div>
-            {/* After Stop the page says a Transcript's problem itself (MeetingInMind). */}
+            {/* After Stop the page says these itself (MeetingInMind); with the sheet up, the sheet. */}
             {live && (
-              <div className="meeting-foot-card">
-                <TranscriptLines meeting={meeting} over />
-              </div>
+              <>
+                <div className="meeting-foot-card">
+                  <TranscriptLines meeting={meeting} over />
+                </div>
+                <div className="meeting-foot-card">
+                  <CaptureProblem
+                    meeting={meeting}
+                    className="meeting-line"
+                    onDetails={() => raiseMeetingDetails(tabId, meeting)}
+                  />
+                </div>
+              </>
             )}
           </>
         )}
       </div>
-      {!live && !asked && meeting.fill?.state === "own-ai" && (
+      {writable && notesAsked === false && (
         <button
           type="button"
           data-testid="meeting-write-notes"
-          onClick={() => void writeNotes()}
-          className={`${buttonStyle("primary")} meeting-write-notes`}
+          onClick={writeNotes}
+          className={buttonStyle("primary")}
         >
           {t("meetings.foot.writeNotes")}
         </button>
@@ -234,6 +297,16 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               >
                 <ResumeLineIcon className="size-4" />
               </SlotButton>
+            ) : waiting ? (
+              // The system's prompt is open: nothing is heard yet, so no bars move.
+              <SlotLevel tip={t("meetings.bar.waiting")}>
+                <span
+                  role="img"
+                  aria-label={t("meetings.bar.waiting")}
+                  data-status="waiting"
+                  className="recording-dot"
+                />
+              </SlotLevel>
             ) : (
               <SlotLevel tip={t(levelName(meeting))}>
                 <LevelBars meeting={meeting} />
@@ -287,9 +360,8 @@ function SlotLevel({ tip, children }: { tip: string; children: ReactNode }) {
 }
 
 /**
- * One of the control's icon slots: its name is its title and its accessible name. A title, as the
- * sheet's own buttons have: a tip that stayed open after the press covered the buttons over the
- * control and took the Esc that folds the sheet.
+ * One of the control's icon slots: its name is its tip, the app's shared one, and its accessible
+ * name. Its press does what it does and puts the tip away, and so does the focus put back on it.
  */
 function SlotButton({
   testId,
@@ -310,25 +382,42 @@ function SlotButton({
   children: ReactNode;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
+  const named = useTip(trigger);
+  const { quiet } = named;
   const seen = useRef(focusOn);
   useEffect(() => {
     if (focusOn <= seen.current) return;
     seen.current = focusOn;
+    quiet();
     trigger.current?.focus();
-  }, [focusOn]);
+  }, [focusOn, quiet]);
   return (
-    <button
-      ref={trigger}
-      type="button"
-      data-testid={testId}
-      aria-label={tip}
-      aria-expanded={expanded}
-      title={tip}
-      onClick={onClick}
-      className={`meeting-foot-slot ${wide ? "meeting-foot-slot--wide" : ""}`}
-    >
-      {children}
-    </button>
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        data-testid={testId}
+        aria-label={tip}
+        aria-expanded={expanded}
+        onPointerDown={quiet}
+        onClick={() => {
+          quiet();
+          onClick();
+        }}
+        onFocus={named.show}
+        onBlur={named.blur}
+        onPointerMove={named.point}
+        onPointerLeave={named.leave}
+        className={`meeting-foot-slot ${wide ? "meeting-foot-slot--wide" : ""}`}
+      >
+        {children}
+      </button>
+      {named.shown && trigger.current && (
+        <TipPopover anchor={trigger.current} tip={named}>
+          {tip}
+        </TipPopover>
+      )}
+    </>
   );
 }
 
@@ -413,7 +502,9 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 data-testid="meeting-sheet-beside"
                 disabled={!documentId}
                 aria-label={t("meetings.views.besideCommand")}
-                title={t("meetings.views.besideCommand")}
+                title={t(
+                  documentId ? "meetings.views.besideCommand" : "meetings.bar.transcriptSoon",
+                )}
                 onClick={() => openTranscriptBeside({ meeting, tabId, groupId: place?.groupId })}
                 className="meeting-sheet-icon"
               >
@@ -433,7 +524,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           </header>
           {detailsShown && (
             <div data-testid="meeting-sheet-details" className="meeting-sheet-details">
-              {meeting.status !== "recording" && <MeetingAudioLine meeting={meeting} />}
+              {meeting.status !== "recording" && <MeetingAudioLine meeting={meeting} raisedToAsk />}
               <CaptureDetails meeting={meeting} />
             </div>
           )}
@@ -446,7 +537,14 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
               />
             </div>
           )}
-          {live && <MeetingLines meeting={meeting} />}
+          {/* What the control says over itself while the sheet is down, the sheet says while up. */}
+          {live && (
+            <div data-testid="meeting-sheet-lines" className="meeting-sheet-lines empty:hidden">
+              <MeetingLines meeting={meeting} />
+              <TranscriptLines meeting={meeting} />
+              <CaptureProblem meeting={meeting} className="meeting-line" />
+            </div>
+          )}
           <div className="meeting-sheet-body">
             <ViewerFrameContext.Provider value={frame}>
               <MeetingTranscriptView
@@ -454,7 +552,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 meeting={meeting}
                 document={file}
                 target={target}
-                aside={null}
+                bare
               />
             </ViewerFrameContext.Provider>
           </div>
@@ -471,17 +569,26 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 className="meeting-button meeting-button--words"
               >
                 <ResumeLineIcon className="size-4" />
-                <span>{t("meetings.foot.resume")}</span>
+                <span className="meeting-button-word">{t("meetings.foot.resume")}</span>
               </button>
               <button
                 type="button"
                 data-testid="meeting-sheet-review-speakers"
                 // The review opens where the Transcript has it, at the top of its lines.
                 onClick={() => void commands.run("meeting.reviewSpeakers")}
-                className="meeting-button meeting-button--words"
+                className="meeting-button"
               >
                 <span>{t("meetings.review.open")}</span>
               </button>
+              {canChooseMeetingTemplate(meeting) && (
+                <>
+                  <span className="ml-auto" />
+                  <SheetMore
+                    meeting={meeting}
+                    onRefill={() => showMeetingNoteView(tabId, mindId, "notes", { focus: true })}
+                  />
+                </>
+              )}
             </footer>
           )}
         </section>
@@ -490,13 +597,26 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   );
 }
 
-/** The time recorded, in the sheet's head while it records: the control holds no time (#3762). */
+/**
+ * The time recorded, in the sheet's head while it records: the control holds no time (#3762).
+ * While the system's prompt is open nothing is recorded yet, and it says so instead.
+ */
 function SheetTime({ meeting }: { meeting: Meeting }) {
+  const t = useT();
   const time = clockTime(useMeetingTime(meeting));
+  const waiting = isWaitingForPermission(meeting);
   return (
     <span data-testid="meeting-sheet-time" className="meeting-sheet-meta">
-      <span aria-hidden="true" data-status={meeting.status} className="recording-dot" />
-      <span role="timer">{time}</span>
+      <span
+        aria-hidden="true"
+        data-status={waiting ? "waiting" : meeting.status}
+        className="recording-dot"
+      />
+      {waiting ? (
+        <span data-testid="meeting-sheet-waiting">{t("meetings.bar.waiting")}</span>
+      ) : (
+        <span role="timer">{time}</span>
+      )}
     </span>
   );
 }
@@ -509,7 +629,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
   const shortcut = shortcutLabel("meeting.pauseResume");
   const markShortcut = shortcutLabel("meeting.mark");
   return (
-    <footer data-testid="meeting-sheet-foot" className="meeting-sheet-foot">
+    <footer data-testid="meeting-sheet-foot" data-live="" className="meeting-sheet-foot">
       <button
         type="button"
         data-testid="meeting-sheet-mic"
@@ -520,7 +640,9 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         className="meeting-button meeting-button--words"
       >
         {micPaused ? <MicOffLineIcon className="size-4" /> : <MicLineIcon className="size-4" />}
-        <span>{t(micPaused ? "meetings.mic.resume" : "meetings.mic.pause")}</span>
+        <span className="meeting-button-word">
+          {t(micPaused ? "meetings.mic.resume" : "meetings.mic.pause")}
+        </span>
       </button>
       <button
         type="button"
@@ -530,12 +652,10 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void (recording ? pause(meeting.id) : resume(meeting.id))}
         className="meeting-button meeting-button--words"
       >
-        {recording ? (
-          <PauseLineIcon className="size-4" />
-        ) : (
-          <ResumeLineIcon className="size-4" />
-        )}
-        <span>{t(recording ? "meetings.foot.pause" : "meetings.foot.resume")}</span>
+        {recording ? <PauseLineIcon className="size-4" /> : <ResumeLineIcon className="size-4" />}
+        <span className="meeting-button-word">
+          {t(recording ? "meetings.foot.pause" : "meetings.foot.resume")}
+        </span>
       </button>
       <button
         type="button"
@@ -547,7 +667,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         className="meeting-button meeting-button--words"
       >
         <BookmarkLineIcon className="size-4" />
-        <span>{t("meetings.mark")}</span>
+        <span className="meeting-button-word">{t("meetings.mark")}</span>
       </button>
       <button
         type="button"
@@ -559,7 +679,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         className="meeting-button meeting-button--words"
       >
         <ScreenLineIcon className="size-4" />
-        <span>{t("meetings.foot.screen")}</span>
+        <span className="meeting-button-word">{t("meetings.foot.screen")}</span>
       </button>
       <CallHelpToggle />
       <span className="ml-auto" />
@@ -568,10 +688,15 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
   );
 }
 
-/** Template and Language behind one ⋯ at the foot's end: the sheet is never wider than the text. */
-function SheetMore({ meeting }: { meeting: Meeting }) {
+/**
+ * The template and, while it records, Language behind one ⋯ at the foot's end: the sheet is never
+ * wider than the text. After Stop the template is the one the notes were filled in with, with Fill
+ * in again; `onRefill` shows the notes it fills in anew.
+ */
+function SheetMore({ meeting, onRefill }: { meeting: Meeting; onRefill?: () => void }) {
   const t = useT();
   const menu = usePopoverMenu({ align: "end", focus: "first" });
+  const live = isLive(meeting);
   return (
     <>
       <button
@@ -597,21 +722,27 @@ function SheetMore({ meeting }: { meeting: Meeting }) {
               meeting={meeting}
               onChoose={(id) => {
                 menu.close();
-                void applyMeetingWriteupTemplate(meeting.id, id);
+                void applyMeetingWriteupTemplate(meeting.id, id).then((applied) => {
+                  if (applied && !live) onRefill?.();
+                });
               }}
             />
-            <hr className={menuRuleClass} />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                menu.close();
-                useAppStore.getState().openSettings("meetings");
-              }}
-              className={menuItemClass}
-            >
-              {t("meetings.foot.languageTip")}…
-            </button>
+            {live && (
+              <>
+                <hr className={menuRuleClass} />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    menu.close();
+                    useAppStore.getState().openSettings("meetings");
+                  }}
+                  className={menuItemClass}
+                >
+                  {t("meetings.foot.languageTip")}…
+                </button>
+              </>
+            )}
           </>
         )}
       </div>

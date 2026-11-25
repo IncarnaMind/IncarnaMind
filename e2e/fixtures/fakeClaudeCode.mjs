@@ -220,7 +220,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   const prompt = String(message.message.content);
   const mindId = prompt.match(/mindId: ([^)]+)\)/)?.[1];
   // As the instructions ask, it answers in the language the User wrote in.
-  const chinese = /[㐀-鿿]/.test(prompt.match(/the User asks: (.*)/)?.[1] ?? "");
+  chinese = /[㐀-鿿]/.test(prompt.match(/the User asks: (.*)/)?.[1] ?? "");
   const use = async (name, input) => {
     say({
       type: "assistant",

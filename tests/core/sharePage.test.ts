@@ -573,6 +573,11 @@ describe("a web page to share (#72)", { timeout: 60_000 }, () => {
   });
 });
 
+/** A card of a Citation of no Transcript reads no Document again: its version says if it changed. */
+const notReadAgain = (): never => {
+  throw new Error("Only a Transcript's card reads its Document again.");
+};
+
 const card = (check: CitationCheck, more: Partial<CitationCard> = {}): CitationCard => ({
   check,
   heading: "Quote found on p. 2",
@@ -708,6 +713,7 @@ describe("what a web page to share says of its checks", () => {
         units: () => [
           { page: 1, kind: "section", text: `Before it. ${hostile} After it.`, label: null },
         ],
+        recheck: notReadAgain,
         t: (key, params) => translate("en", key, params),
       },
     );
@@ -754,6 +760,7 @@ describe("what a web page to share says of its checks", () => {
       documents: [],
       kept: [{ documentId: "tides", contentHash: "first", units: [1] }],
       units: () => [],
+      recheck: notReadAgain,
       t,
     });
     const changed = citationCard(attributes, {
@@ -761,6 +768,7 @@ describe("what a web page to share says of its checks", () => {
       documents: [{ id: "tides", contentHash: "second", name: "Tides" }],
       kept: [],
       units: () => [],
+      recheck: notReadAgain,
       t,
     });
 
@@ -797,6 +805,7 @@ describe("what a web page to share says of its checks", () => {
         documents: [{ id: "note", contentHash: "n1", name: "Field visit" }],
         kept: [],
         units: () => [{ page: 1, kind: "section", text: quote, label: { path: ["Field visit"] } }],
+        recheck: notReadAgain,
         t,
       },
     );

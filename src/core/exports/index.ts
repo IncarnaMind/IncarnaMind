@@ -52,6 +52,7 @@ import {
   type CitationAttributes,
   type CitationFormatRequest,
   type CitationPlace,
+  type CitationToRecheck,
   COMPARISON_TABLE_NODE,
   type CommentMessage,
   type Document,
@@ -66,6 +67,7 @@ import {
   type MindComment,
   type MindExport,
   type MindExportPreview,
+  type RecheckResult,
   type SharedDocument,
   type SharePagePreview,
   WORD_CHANGE_ID,
@@ -154,6 +156,11 @@ export interface ExportsDependencies {
    * ../documents): what a web page to share's card shows a part of. Empty once it is gone.
    */
   citedUnits(citation: Partial<CitationAttributes>): UnitText[];
+  /**
+   * A Citation of the Note `mindId` checked again against its Document's current version, as the
+   * Note's card is (`CoreApi.recheckCitation`); "failed" when it couldn't be.
+   */
+  recheckCitation(citation: CitationToRecheck, mindId: string): RecheckResult | "failed";
   sharePageTextOnly(mindId: string): string[];
   /** Prints a PDF; null where this copy can't. */
   printer: Printer | null;
@@ -496,9 +503,21 @@ export function createExports(deps: ExportsDependencies) {
     });
 
   const shareCards = async (prepared: Prepared, blocks: readonly Block[]) => {
-    const { language, documents } = prepared;
+    const { language, documents, mindId } = prepared;
     const t: Translate = (key, params) => translate(language, key, params);
     const kept = deps.keptCitationTexts();
+    const recheck = (attributes: Partial<CitationAttributes>, documentId: string) =>
+      deps.recheckCitation(
+        {
+          documentId,
+          quote: attributes.quote ?? "",
+          pageFrom: attributes.pageFrom ?? null,
+          pageTo: attributes.pageTo ?? attributes.pageFrom ?? null,
+          contentHash: attributes.contentHash ?? null,
+          location: attributes.location ?? null,
+        },
+        mindId,
+      );
     const pages = new Map<string, DrawnPage | null>();
     const cards: {
       footnote: Footnote;
@@ -513,6 +532,7 @@ export function createExports(deps: ExportsDependencies) {
         documents,
         kept,
         units: deps.citedUnits,
+        recheck,
         t,
       });
       // A picture Document's page is the picture itself, not a page to draw.
