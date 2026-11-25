@@ -93,9 +93,11 @@ test("with a Soniox key and nothing chosen, the first recording starts at once o
   });
   await recordMeeting(window);
   const tip = window.getByTestId("meeting-foot-tip");
-  await expect(tip).toHaveText("Transcribing on this computer. The Transcript opens here.");
+  await expect(tip).toHaveText(
+    "Transcribing on this computer. The Transcript opens here. Tell everyone you’re recording.",
+  );
   await setLanguage(window, "zh-CN");
-  await expect(tip).toHaveText("正在这台电脑上转写。转写稿在这里打开。");
+  await expect(tip).toHaveText("正在这台电脑上转写。转写稿在这里打开。告诉所有人你正在录音。");
   await setLanguage(window, "en");
   await firstTranscriptLine(window);
   const first = await core(window);

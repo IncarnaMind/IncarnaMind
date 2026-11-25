@@ -5737,8 +5737,9 @@ export function createCore(adapters: CoreAdapters): Core {
       return helpTemplateForWriteup(template?.builtIn ? template.name : null);
     },
     recorded: () => {
-      if (!settings.get().device.meetingNoticeAccepted)
-        settings.update({ device: { meetingNoticeAccepted: true } });
+      if (settings.get().device.meetingNoticeAccepted) return;
+      // Home's line offering to take notes in calls waits for this, in the window too.
+      events.emit("settings.changed", settings.update({ device: { meetingNoticeAccepted: true } }));
     },
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,

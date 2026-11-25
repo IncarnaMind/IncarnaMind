@@ -1300,8 +1300,14 @@ export function createMeetings(options: MeetingsOptions) {
         throw new InvalidInputError({ key: "error.meeting.resumeMemo" });
       }
       assertCanStart(row.id);
-      if (stopped && transcripts && !transcripts.canReopen(row.id)) {
-        throw new InvalidInputError({ key: "error.meeting.resumeTranscriptUnreadable" });
+      const refused = stopped ? (transcripts?.reopenRefused(row.id) ?? null) : null;
+      if (refused) {
+        throw new InvalidInputError({
+          key:
+            refused === "elsewhere"
+              ? "error.meeting.resumeTranscriptElsewhere"
+              : "error.meeting.resumeTranscriptUnreadable",
+        });
       }
       // A deletion already due goes first, so what is recorded next never falls under its date
       // (#687); one that still fails keeps the Meeting as it is, and says why.

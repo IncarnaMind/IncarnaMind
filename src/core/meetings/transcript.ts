@@ -2111,11 +2111,13 @@ export function createTranscripts(options: TranscriptsOptions) {
     },
 
     /**
-     * Whether a stopped Meeting's Transcript can take more lines (#3762): not one whose files
-     * couldn't be read, nor one an earlier version saved outside the data folder.
+     * Why a stopped Meeting's Transcript can't take more lines (#3762): its files couldn't be
+     * read, or an earlier version saved it outside the data folder. Null when it can.
      */
-    canReopen(meetingId: string): boolean {
-      return canReopen(load(meetingId));
+    reopenRefused(meetingId: string): "unreadable" | "elsewhere" | null {
+      const state = load(meetingId);
+      if (canReopen(state)) return null;
+      return state.unreadable ? "unreadable" : "elsewhere";
     },
 
     retry(meetingId: string): void {

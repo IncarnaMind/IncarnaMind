@@ -3842,7 +3842,7 @@ export const en = {
   "consent.data.worked-figures":
     "For a figure an Answer worked out, in a sentence you check: its label, formula, inputs and result, each input with its quote, Document name and location (for a workbook’s figure, the cells and formulas it was worked out through), or, for an Analysis’s figure, its label and unit, the heading above it, the columns and rows it was worked out from and up to 3,000 characters of its code",
   "consent.data.live-transcript":
-    "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
+    "A Meeting’s Transcript: the live lines while it records, with the words still being transcribed, and all of it to fill in the note after Stop",
   "consent.data.passages":
     "passages from your Documents that match the Question, with their Documents’ names and pages",
   "consent.data.tool-results": "Results of Connectors and Skill scripts an Answer uses",
@@ -3908,7 +3908,7 @@ export const en = {
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
-    "What you type in the box at the bottom of a note, each time you send it. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
+    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
   "consent.data.own-ai-context":
     "In a note’s conversation, what Claude Code adds by its own settings: your CLAUDE.md files, its memory, your skills, and what your own servers, connectors, commands, files and web pages give it, as its settings allow",
   "consent.data.source-quotes":
@@ -6732,6 +6732,8 @@ export const en = {
     "A voice memo can’t record more once it has stopped. Record a new one.",
   "error.meeting.resumeTranscriptUnreadable":
     "Recording can’t resume: it would lose lines already in this meeting’s Transcript.",
+  "error.meeting.resumeTranscriptElsewhere":
+    "Recording can’t resume: this meeting’s Transcript is saved outside IncarnaMind’s data folder, so new lines can’t be added to it. Record a new meeting.",
   "error.meeting.saveWhileRecording": "Stop the recording to save it.",
   "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
@@ -7455,8 +7457,10 @@ export const en = {
   "meetings.bar.more": "More for the recording",
   "meetings.foot.writeNotes": "Write notes",
   "meetings.foot.writeNotesRequest": "Write the notes from the call",
-  "meetings.foot.tip": "Transcribing on this computer. The Transcript opens here.",
-  "meetings.foot.tipCloud": "Transcribing with {provider}. The Transcript opens here.",
+  "meetings.foot.tip":
+    "Transcribing on this computer. The Transcript opens here. Tell everyone you’re recording.",
+  "meetings.foot.tipCloud":
+    "Transcribing with {provider}. The Transcript opens here. Tell everyone you’re recording.",
   "meetings.foot.tipClose": "Close",
   "meetings.foot.show": "Show the Transcript ({keys})",
   "meetings.foot.hide": "Hide the Transcript ({keys})",
@@ -8729,7 +8733,7 @@ export const en = {
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.flow.hosted-agents": "Your AI, run in the background",
   "consent.flow.hosted-agents.purpose":
-    "start your own AI on this computer when you press Check or ask at the bottom of a note",
+    "start your own AI on this computer when you press Check, ask at the bottom of a note, or ask call help during a call",
   "consent.flow.agent-install": "Install Claude Code",
   "consent.flow.agent-install.purpose":
     "download and install Claude Code from Anthropic into your user folder",
@@ -9682,7 +9686,7 @@ export const en = {
   "meetings.help.agent.used": "{agent} · Recent meeting transcript",
   "meetings.help.agent.setting": "AI for Call Help",
   "meetings.help.agent.disclosure":
-    "Choosing Claude Code or Codex lets it receive your question and relevant confirmed speech from the last ten minutes of this transcript when you ask. Share the meeting folder with it first.",
+    "Choosing Claude Code or Codex lets it receive your question, relevant confirmed speech from the last ten minutes of this transcript and the words still being transcribed when you ask. Share the meeting folder with it first.",
   "meetings.help.agent.builtin": "Use the app’s answer model",
   "meetings.help.agent.missing": "Selected AI unavailable",
   "error.meeting.callHelpAgentDenied":

@@ -3632,7 +3632,8 @@ export const zhCN = {
   "consent.data.watched-sentences": "文档有新版本后，所在文件夹中笔记里带引用的句子，用于查找矛盾",
   "consent.data.worked-figures":
     "你核对的句子中由回答算出的数字：标签、公式、输入和结果，每个输入连同引文、文档名称和位置（工作簿中的数字为其经过的单元格和公式）；数据分析算出的数字为标签和单位、上方的标题、所用的列和行，以及最多 3,000 个字符的代码",
-  "consent.data.live-transcript": "会议转写稿：录制时的实时部分，停止录制后整份用于填写笔记",
+  "consent.data.live-transcript":
+    "会议转写稿：录制时的实时部分（连同仍在转写、尚未定稿的话），停止录制后整份用于填写笔记",
   "consent.data.passages": "文档中与问题相关的段落，连同所属文档的名称和页码",
   "consent.data.tool-results": "回答所用连接器和技能脚本返回的结果",
   "consent.data.skill-files": "已开启技能的名称和描述，以及回答加载的技能的说明和文件",
@@ -3693,7 +3694,7 @@ export const zhCN = {
   "consent.flow.edits.purpose": "按你的要求修改选中的文字",
   "consent.data.selection": "你选中的文字及其所在段落，每次提出要求时发送",
   "consent.data.note-requests":
-    "你每次在笔记底部输入框里发送的内容。Claude Code 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回；闲置 30 天的对话它也会删除",
+    "你每次在笔记底部输入框里发送的内容，笔记的通话正在录制时还有转写稿的名称和仍在转写、尚未定稿的话；以及你向通话助手提的问题。Claude Code 会把每篇笔记的对话保存在这台电脑上，直到你永久删除这篇笔记、断开它或在这里撤回；闲置 30 天的对话它也会删除",
   "consent.data.own-ai-context":
     "在笔记的对话里，Claude Code 按它自己的设置加入的内容：你的 CLAUDE.md 文件、它的记忆、你的技能，以及你自己的服务器、连接器、命令、文件和网页给它的内容，以它的设置允许的为限",
   "consent.data.source-quotes":
@@ -6334,6 +6335,8 @@ export const zhCN = {
   "error.meeting.resumeMemo": "语音备忘停止后无法继续录制。请再录一段语音备忘。",
   "error.meeting.resumeTranscriptUnreadable":
     "无法继续录制：继续录制会丢失这场会议转写稿中已有的内容。",
+  "error.meeting.resumeTranscriptElsewhere":
+    "无法继续录制：这场会议的转写稿保存在 IncarnaMind 的数据文件夹之外，无法再往里添加内容。请录制一场新会议。",
   "error.meeting.saveWhileRecording": "停止录制后才能另存录音。",
   "error.meeting.savingRecording": "这段录音正在另存。",
   "error.meeting.joinMoved": "这场会议之后已移动，无法撤销。",
@@ -6996,8 +6999,8 @@ export const zhCN = {
   "meetings.bar.more": "录制的更多操作",
   "meetings.foot.writeNotes": "整理笔记",
   "meetings.foot.writeNotesRequest": "根据通话整理笔记",
-  "meetings.foot.tip": "正在这台电脑上转写。转写稿在这里打开。",
-  "meetings.foot.tipCloud": "正在用{provider}转写。转写稿在这里打开。",
+  "meetings.foot.tip": "正在这台电脑上转写。转写稿在这里打开。告诉所有人你正在录音。",
+  "meetings.foot.tipCloud": "正在用{provider}转写。转写稿在这里打开。告诉所有人你正在录音。",
   "meetings.foot.tipClose": "关闭",
   "meetings.foot.show": "显示转写稿（{keys}）",
   "meetings.foot.hide": "隐藏转写稿（{keys}）",
@@ -8183,7 +8186,7 @@ export const zhCN = {
   "consent.flow.agents.purpose": "让你的 AI 智能体读取并引用你的文档",
   "consent.flow.hosted-agents": "在后台运行你的 AI",
   "consent.flow.hosted-agents.purpose":
-    "在你点“核对”或在笔记底部提问时，在这台电脑上启动你自己的 AI",
+    "在你点“核对”、在笔记底部提问或在通话中使用通话助手时，在这台电脑上启动你自己的 AI",
   "consent.flow.agent-install": "安装 Claude Code",
   "consent.flow.agent-install.purpose": "从 Anthropic 下载并安装 Claude Code 到你的用户文件夹",
   "consent.data.installer-request":
@@ -9034,7 +9037,7 @@ export const zhCN = {
   "meetings.help.agent.used": "{agent} · 本场会议近期转写",
   "meetings.help.agent.setting": "通话助手使用的 AI",
   "meetings.help.agent.disclosure":
-    "选择 Claude Code 或 Codex 后，提问时会把问题和本场转写最近十分钟内的相关原话发给它。请先向它共享会议所在的文件夹。",
+    "选择 Claude Code 或 Codex 后，提问时会把问题、本场转写最近十分钟内的相关原话，以及仍在转写、尚未定稿的话发给它。请先向它共享会议所在的文件夹。",
   "meetings.help.agent.builtin": "使用应用的回答模型",
   "meetings.help.agent.missing": "所选 AI 暂不可用",
   "error.meeting.callHelpAgentDenied":

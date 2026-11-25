@@ -261,11 +261,11 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await press(window);
 
     await expect(dialog).toContainText(
-      "To start your own AI on this computer when you press Check or ask at the bottom of a note",
+      "To start your own AI on this computer when you press Check, ask at the bottom of a note, or ask call help during a call",
     );
     await both(app, window, "background-consent", async () => {
       await expect(dialog).toContainText(
-        "在你点“核对”或在笔记底部提问时，在这台电脑上启动你自己的 AI",
+        "在你点“核对”、在笔记底部提问或在通话中使用通话助手时，在这台电脑上启动你自己的 AI",
       );
     });
     await pointAndClick(window, dialog.getByTestId("consent-decline"));

@@ -3,7 +3,7 @@
  * the same Meeting records on, in the same Note and Transcript, every line and part of audio
  * already saved kept as it was, through a quit or a crash on either side of the Resume.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { Meeting } from "../../src/core";
@@ -335,5 +335,86 @@ describe("Resume after Stop (#3762)", { timeout: 60_000 }, () => {
     expect(second.capture.running).toBe(false);
     expect(readFileSync(transcriptFile(dataDir, meeting.id), "utf8")).toBe(file);
     second.core.close();
+  });
+
+  // protects=a stopped call whose Transcript an earlier version saved outside the data folder (#763) refuses Resume in words that say where it is, in English and Chinese, not that lines would be lost, and stays as it was, its file untouched: lines written to the data folder's file would never reach its Document; fails_when=Resume goes ahead, or its refusal says the Transcript would lose lines; no_claim=a Transcript that can't be read, which the test before covers.
+  test("a Transcript saved outside the data folder refuses Resume, saying so", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = await stoppedCall(dataDir);
+    const { meeting } = first;
+    first.core.close();
+    const inside = transcriptFile(dataDir, meeting.id);
+    const outside = join(await createTempDataFolder(), "Harbour call.vtt");
+    copyFileSync(inside, outside);
+    const record = join(dataDir, "Transcripts", `${meeting.id}.json`);
+    writeFileSync(
+      record,
+      readFileSync(record, "utf8").replace(JSON.stringify(inside), JSON.stringify(outside)),
+    );
+    const file = readFileSync(outside, "utf8");
+
+    const second = await transcribingCore(dataDir);
+    expect((await meetingOf(second.core, meeting.id)).transcript?.savedPath).toBe(outside);
+    await expect(second.core.resumeMeeting(meeting.id)).rejects.toMatchObject({
+      wording: { key: "error.meeting.resumeTranscriptElsewhere" },
+    });
+    expect(translate("en", "error.meeting.resumeTranscriptElsewhere")).toBe(
+      "Recording can’t resume: this meeting’s Transcript is saved outside IncarnaMind’s data folder, so new lines can’t be added to it. Record a new meeting.",
+    );
+    expect(translate("zh-CN", "error.meeting.resumeTranscriptElsewhere")).toBe(
+      "无法继续录制：这场会议的转写稿保存在 IncarnaMind 的数据文件夹之外，无法再往里添加内容。请录制一场新会议。",
+    );
+    expect(await meetingOf(second.core, meeting.id)).toMatchObject({
+      status: "stopped",
+      recordedMs: 9 * SECOND,
+    });
+    expect(second.capture.running).toBe(false);
+    expect(readFileSync(outside, "utf8")).toBe(file);
+    second.core.close();
+  });
+
+  // protects=Resume while Stop's catch-up is still transcribing what live text fell behind on keeps the Transcript in time order: the lines it is reading from the first stretch go in before the new stretch's, in the file as in the Meeting, none twice, and the next Stop saves them all in order; fails_when=a caught-up line lands after a later live one, a line is kept twice, or a first-stretch stretch is lost; no_claim=the window's sheet, which reads the same file.
+  test("Resume while Stop's catch-up still transcribes keeps every line in time order", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir, { engine: { decodeMs: 30 } });
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    await until(core, meeting.id, (transcript) => transcript.state === "live");
+    // Forty seconds arrive at once: far more than the engine has decoded live.
+    record(40 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.state === "behind");
+    const before = (await meetingOf(core, meeting.id)).transcript?.lines ?? 0;
+
+    await core.stopMeeting(meeting.id);
+    // Stop's catch-up is under way, its first lines in, more still to come.
+    await until(
+      core,
+      meeting.id,
+      (transcript) => transcript.state === "finishing" && transcript.lines > before,
+    );
+    await core.resumeMeeting(meeting.id);
+    record(6 * SECOND);
+    await until(
+      core,
+      meeting.id,
+      (transcript) =>
+        fileLines(dataDir, meeting.id).some((cue) => cue.startMs >= 40 * SECOND) &&
+        transcript.lines > before,
+    );
+    const inOrder = (cues: readonly { startMs: number }[]) =>
+      cues.every((cue, at) => at === 0 || (cues[at - 1]?.startMs ?? 0) <= cue.startMs);
+    expect(inOrder(fileLines(dataDir, meeting.id))).toBe(true);
+
+    await core.stopMeeting(meeting.id);
+    await until(core, meeting.id, (transcript) => transcript.state === "saved");
+    const all = await savedCues(core, meeting.id);
+    expect(inOrder(all)).toBe(true);
+    const said = all.map((cue) => `${cue.speaker}@${cue.startMs}:${cue.text}`);
+    expect(new Set(said).size).toBe(said.length);
+    expect(all.at(-1)?.endMs).toBeGreaterThanOrEqual(44 * SECOND);
+    expect(all.filter((cue) => cue.startMs < 40 * SECOND).at(-1)?.endMs).toBeGreaterThanOrEqual(
+      38 * SECOND,
+    );
+    core.close();
   });
 });

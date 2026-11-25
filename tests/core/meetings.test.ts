@@ -2,7 +2,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Core, Embedder, Meeting } from "../../src/core";
-import { MEETING_AUDIO_KEPT_MS } from "../../src/core/api";
+import { MEETING_AUDIO_KEPT_MS, type Settings } from "../../src/core/api";
 import { createFakeEmbedder } from "../../src/core/embedding/fake";
 import { listParts, meetingFolder } from "../../src/core/meetings/audioFiles";
 import { createFakeCapture, type FakeCaptureOptions } from "../../src/core/meetings/fakeCapture";
@@ -1104,15 +1104,23 @@ describe("What a Meeting needs", () => {
     const { id } = await core.createMeeting();
     const before = await core.getSettings();
     expect(before.device.meetingNoticeAccepted).toBe(false);
+    const told: Settings[] = [];
+    core.on("settings.changed", (settings) => told.push(settings));
     expect((await core.startMeeting({ meetingId: id })).status).toBe("recording");
     expect(capture.started).toBe(1);
 
-    // Only the record that Meetings are in use changes, which the offers to take notes wait for.
+    // Only the record that Meetings are in use changes, which the offers to take notes wait for;
+    // the window is told at once, so Home's line offering them needn't wait for a restart.
     const after = await core.getSettings();
     expect(after).toEqual({
       ...before,
       device: { ...before.device, meetingNoticeAccepted: true },
     });
+    expect(told).toEqual([after]);
+    await core.stopMeeting(id);
+    const next = await core.createMeeting();
+    await core.startMeeting({ meetingId: next.id });
+    expect(told).toHaveLength(1);
   });
 
   test("one Meeting records at a time", async () => {

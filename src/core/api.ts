@@ -16160,8 +16160,9 @@ export interface CoreApi {
    * (#3762): the same Note and Transcript, its time going on from where it stopped, and Stop ends
    * it again. A call's notes written at Stop stay until the next Stop writes them anew, which
    * Undo takes back. InvalidInputError for a voice memo after Stop (`error.meeting.resumeMemo`),
-   * and when recording on would lose lines its Transcript holds
-   * (`error.meeting.resumeTranscriptUnreadable`).
+   * when recording on would lose lines its Transcript holds
+   * (`error.meeting.resumeTranscriptUnreadable`), and when its Transcript is saved outside the
+   * data folder, where new lines can't reach it (`error.meeting.resumeTranscriptElsewhere`).
    */
   resumeMeeting(meetingId: string): Promise<Meeting>;
   /** Ends the recording. Its audio is kept for at most a day. */
