@@ -297,12 +297,22 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     for (const line of root.querySelectorAll("[data-cited]")) line.removeAttribute("data-cited");
     if (!quote) return;
     const start = quote.slice(0, 24);
-    const line = [...root.querySelectorAll<HTMLElement>('[data-testid="transcript-line"]')].find(
-      (each) => (each.textContent ?? "").includes(start),
-    );
-    if (!line) return;
-    line.setAttribute("data-cited", "true");
-    line.scrollIntoView({ block: "center" });
+    const wash = () => {
+      const line = [...root.querySelectorAll<HTMLElement>('[data-testid="transcript-line"]')].find(
+        (each) => (each.textContent ?? "").includes(start),
+      );
+      if (!line) return false;
+      line.setAttribute("data-cited", "true");
+      line.scrollIntoView({ block: "center" });
+      return true;
+    };
+    if (wash()) return;
+    // The lines arrive after the sheet opens: wash the cited one as it is drawn.
+    const watch = new MutationObserver(() => {
+      if (wash()) watch.disconnect();
+    });
+    watch.observe(root, { childList: true, subtree: true });
+    return () => watch.disconnect();
   });
   useEffect(() => {
     if (!open) return;

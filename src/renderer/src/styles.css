@@ -2697,6 +2697,10 @@
     .note-ask {
       width: 100%;
     }
+    /* With the input in the window's column, the control stands on the column input's line. */
+    &:not(:has(.note-ask)) {
+      padding-bottom: 12px;
+    }
   }
   .meeting-foot-stack {
     position: relative;
