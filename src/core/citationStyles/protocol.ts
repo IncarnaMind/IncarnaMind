@@ -8,11 +8,13 @@ export interface EngineStyle {
   locale?: string;
 }
 
-export interface WorkerRequest {
-  id: number;
-  style: EngineStyle;
-  job: FormatJob;
-}
+export type WorkerRequest =
+  | {
+      id: number;
+      style: EngineStyle;
+      job: FormatJob;
+    }
+  | { close: true };
 
 export type WorkerResponse =
   | { id: number; ok: true; description: StyleDescription; output: EngineOutput }
