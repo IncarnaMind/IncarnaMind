@@ -1183,9 +1183,16 @@
   .tab-strip[data-tight] :is(.tab-export, .note-conversation-button) {
     display: none;
   }
+  /* Short of the shown tab's icon and ✕, the Note's controls give up their room from the left,
+     the check's last: its room overflows at its start, so its Stop stays in view (#3765). */
   .tab-strip[data-tight] .tab-strip-note {
+    justify-content: flex-end;
     max-width: var(--note-controls-room, none);
     overflow: hidden;
+    > :not(.note-head-badge) {
+      min-width: 0;
+      overflow: hidden;
+    }
   }
   /* A narrow group keeps Split in its ⋯ menu. */
   @container group (width < 420px) {
@@ -3694,28 +3701,49 @@
    */
   .note-head-badge {
     display: flex;
+    flex: none;
     align-items: center;
     margin-right: 4px;
+    /* The control fills its room in every state, so its edges never move as its words change. */
+    .check-badge-place {
+      display: flex;
+      flex: 1 1 auto;
+    }
     .check-badge {
+      flex: 1 1 auto;
+      gap: 2px;
       height: 28px;
       padding: 0;
       background: none;
       box-shadow: none;
     }
-    /* Marks and counts only, in the tab strip (#3765): the floating badge's steady width, kept so
-       its words changing move nothing, would push the Note's tab and ⋯ out of a narrow group. */
-    .check-badge[data-stable] {
-      min-width: 0;
+    .check-badge-open {
+      flex: 1 1 auto;
+      justify-content: flex-end;
     }
-    .check-badge[data-stable] .check-badge-open {
-      flex: none;
+    /* Running: the dot, the part checked and Stop, as a square; the dot stays where it starts. */
+    .check-badge-open:has(.check-badge-running) {
+      justify-content: flex-start;
+    }
+    .check-badge-share {
+      font-variant-numeric: tabular-nums;
+    }
+    .check-badge-stop {
+      justify-content: center;
+      width: 22px;
+      padding: 0;
+      color: var(--color-ink-secondary);
+      &:hover {
+        color: var(--color-ink);
+      }
     }
   }
-  /* Room for a check's marks as they change, so a check ending moves nothing in a full strip;
-     the marks keep to its right edge, by the Note's other controls (#3765). */
+  /* One room for the check in every state, sized for its widest marks and for its run at "100%"
+     with Stop in any system's figures, so a check starting or ending never fits the strip again;
+     the marks keep to its right edge, by the Note's other controls (#2519). */
   .note-head-badge:has(.check-badge) {
     justify-content: flex-end;
-    min-width: 72px;
+    min-width: 88px;
   }
   .check-badge-quiet {
     display: none;

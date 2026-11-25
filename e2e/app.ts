@@ -3091,6 +3091,70 @@ export async function checkCard(
   return card;
 }
 
+/** What moved in a layout shift no recent input caused: its owner's test id, and its box before and after. */
+export interface ShiftedPart {
+  testId: string;
+  /** Inside the check card, the card's own box aside. */
+  inCard: boolean;
+  from: [number, number, number, number];
+  to: [number, number, number, number];
+}
+
+/**
+ * Starts collecting the layout shifts the browser draws that no recent input caused, as the feel
+ * check counts them; the function it gives back stops and says what moved.
+ */
+export async function watchShifts(window: Page): Promise<() => Promise<ShiftedPart[]>> {
+  await window.evaluate(() => {
+    type Entry = {
+      hadRecentInput: boolean;
+      sources: { node: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[];
+    };
+    const holder = globalThis as unknown as {
+      shifted: ShiftedPart[];
+      shifting?: PerformanceObserver;
+      keepShifts(entries: PerformanceEntryList): void;
+    };
+    const box = (rect: DOMRectReadOnly): [number, number, number, number] => [
+      Math.round(rect.x),
+      Math.round(rect.y),
+      Math.round(rect.width),
+      Math.round(rect.height),
+    ];
+    holder.shifted = [];
+    holder.shifting?.disconnect();
+    holder.keepShifts = (entries) => {
+      for (const entry of entries as unknown as Entry[]) {
+        if (entry.hadRecentInput) continue;
+        for (const source of entry.sources) {
+          const element =
+            source.node instanceof Element ? source.node : (source.node?.parentElement ?? null);
+          holder.shifted.push({
+            testId: element?.closest("[data-testid]")?.getAttribute("data-testid") ?? "",
+            inCard: element?.closest(".check-card") != null && !element.matches(".check-card"),
+            from: box(source.previousRect),
+            to: box(source.currentRect),
+          });
+        }
+      }
+    };
+    holder.shifting = new PerformanceObserver((list) => holder.keepShifts(list.getEntries()));
+    holder.shifting.observe({ type: "layout-shift" });
+  });
+  return () =>
+    window.evaluate(() => {
+      const holder = globalThis as unknown as {
+        shifted: ShiftedPart[];
+        shifting?: PerformanceObserver;
+        keepShifts(entries: PerformanceEntryList): void;
+      };
+      // What the browser drew but has not delivered yet.
+      if (holder.shifting) holder.keepShifts(holder.shifting.takeRecords());
+      holder.shifting?.disconnect();
+      return holder.shifted;
+    });
+}
+
 /**
  * Drags an element horizontally by `dx` CSS pixels, as a person grabs it: a
  * few pixels off its centre (a divider is a 1px rule with a wider strip to

@@ -1,4 +1,5 @@
 import { type RefObject, useLayoutEffect, useState } from "react";
+import { afterMotion } from "../../motion";
 import { fitStrip } from "../../tabStripFit";
 
 // The tab list's end padding in styles.css: room for the last tab's foot, and the gap before the "+".
@@ -19,6 +20,18 @@ export const SHOW_ALL_PX = 32;
 
 // The shown tab's least width, `.tab-list[data-squeezed]` in styles.css.
 const SHOWN_LEAST_PX = 132;
+
+// What the Note's controls keep however tight the strip: the check's Stop and the room's end
+// margin, `.note-head-badge` in styles.css.
+const CHECK_KEPT_PX = 24;
+
+/** The shown tab without its name: its icon, its ✕ and their padding. */
+function chromeOf(tab: HTMLElement): number {
+  const name = tab.querySelector<HTMLElement>(
+    '[data-testid="tab-title"], [data-testid="tab-rename"]',
+  );
+  return tab.offsetWidth - (name?.offsetWidth ?? 0);
+}
 
 /**
  * The box a tab's name's letters fill: the title's own text, cut to the part its span shows. A
@@ -52,9 +65,10 @@ function nameBoxOf(tab: HTMLElement): { left: number; right: number } | null {
  * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends and
  * the shown tab narrowed to its least width. Short even of that, the strip is tight
  * (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
- * Note's input holds, leave it, and the Note's other controls give up what the tab still needs.
- * The shown tab and the ⋯ never leave (#3765). Returns how many tabs it hides, so the strip can
- * offer them in a list (#2244).
+ * Note's input holds, leave it; the shown tab goes under its least width down to its icon and ✕;
+ * and only then the Note's other controls give up their room from the left, the check's last and
+ * its Stop never. The shown tab and the ⋯ never leave (#3765). Returns how many tabs it hides, so
+ * the strip can offer them in a list (#2244).
  */
 export function useTabStripFit(
   strip: RefObject<HTMLElement | null>,
@@ -73,6 +87,7 @@ export function useTabStripFit(
     let following = true;
     let wheelTimer: ReturnType<typeof setTimeout> | undefined;
     let frame: number | undefined;
+    let stopWaiting: (() => void) | null = null;
     /** Where the strip last came to rest. */
     let restedAt = 0;
 
@@ -130,15 +145,19 @@ export function useTabStripFit(
         const lead = shown === 0 ? START_GAP : 0;
         const least = SHOWN_LEAST_PX + END_GAP + lead;
         // Short of the shown tab's least width, the strip is tight: Export and the conversation's
-        // button leave it, and the Note's other controls give up the rest (styles.css).
+        // button leave it (styles.css).
         if (shown >= 0 && roomNow() - taken < least) band.dataset.tight = "";
         const free = roomNow() - taken;
-        // What the Note's controls hold, all of which they give up before the shown tab goes under
-        // its least width; with nothing to give, the tab narrows as before.
-        const held = band.dataset.tight !== undefined && controls ? controls.scrollWidth : 0;
-        const room = Math.min(free + held, Math.max(free, least));
+        // The shown tab then gives up its name down to its icon and ✕, and only short of those do
+        // the Note's controls give up their room, all but the check's Stop.
+        const shownTab = tabs[shown];
+        const floor = shownTab ? chromeOf(shownTab) + END_GAP + lead : 0;
+        const whole = band.dataset.tight !== undefined && controls ? controls.scrollWidth : 0;
+        const kept = controls?.querySelector(".check-badge") ? CHECK_KEPT_PX : 0;
+        const held = Math.max(0, whole - kept);
+        const room = free >= floor ? free : Math.min(free + held, floor);
         if (controls && room > free) {
-          controls.style.setProperty("--note-controls-room", `${held - (room - free)}px`);
+          controls.style.setProperty("--note-controls-room", `${whole - (room - free)}px`);
         }
         // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
         // scroll or on who asked, so every place agrees and the strip comes to rest.
@@ -178,6 +197,13 @@ export function useTabStripFit(
       if (reveal) following = true;
       else if (afterScroll)
         following = shown < 0 || (shown >= result.first && shown <= result.last);
+      // A group resizing on a spring scales the strip's rects until it rests, and its end lays
+      // nothing out again for the observer to see: the strip is fitted again then, unless the
+      // User's wheel is still moving it, which fits it as it stops.
+      stopWaiting?.();
+      stopWaiting = afterMotion(() => {
+        if (wheelTimer === undefined) placeLater();
+      });
     };
 
     const placeLater = () => {
@@ -244,6 +270,7 @@ export function useTabStripFit(
     element.addEventListener("keydown", onKeyboard);
     return () => {
       if (frame !== undefined) cancelAnimationFrame(frame);
+      stopWaiting?.();
       clearTimeout(wheelTimer);
       resized.disconnect();
       element.removeEventListener("wheel", onWheel);

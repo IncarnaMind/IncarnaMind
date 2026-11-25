@@ -430,6 +430,9 @@ for (const language of LANGUAGES) {
     await addMind(window, groupAt(window, 0), nameOf(language, 1));
     await openDocumentAt(window, { documentId: report, ...OPENS_PDF });
     await expect(window.getByTestId("tab-group")).toHaveCount(2);
+    // The assistant folded at the foot, so the card holds three groups at their least width when
+    // the shown tab is split below.
+    await placeAssistant(window, { dock: "bottom", folded: true });
 
     // The divider's keys make the Note's group as wide and as narrow as it goes, in 10px steps,
     // the room the tabs have changing with it.
@@ -551,7 +554,8 @@ for (const language of LANGUAGES) {
         .first()
         .evaluate((group) => group.getBoundingClientRect().width);
     await divider.focus();
-    while ((await widthOf()) > 235) {
+    const least = Number(await divider.getAttribute("aria-valuemin"));
+    while ((await widthOf()) > least + 5) {
       const before = await widthOf();
       await window.keyboard.press("ArrowLeft");
       await expect.poll(widthOf).not.toBe(before);
@@ -687,7 +691,8 @@ for (const language of LANGUAGES) {
         .first()
         .evaluate((group) => group.getBoundingClientRect().width);
     await divider.focus();
-    while ((await widthOf()) > 235) {
+    const least = Number(await divider.getAttribute("aria-valuemin"));
+    while ((await widthOf()) > least + 5) {
       const before = await widthOf();
       await window.keyboard.press("ArrowLeft");
       await expect.poll(widthOf).not.toBe(before);

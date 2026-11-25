@@ -55,7 +55,11 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-const checkedAt = new Date(Date.now() + 60_000).toISOString();
+/**
+ * When the marks say they were checked: after the test's Document was added, however long the
+ * file has run, or the card would say a Document was added since the check.
+ */
+let checkedAt = "";
 const mark = (id: string, state: string, text: string, extra: Record<string, unknown> = {}) => ({
   type: "claimCheck",
   attrs: {
@@ -173,6 +177,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await setLanguage(window, language);
         await setWindowSize(app, window, width, 900);
         await addDocuments(window, [join(sources, "Tides.pdf")]);
+        checkedAt = new Date(Date.now() + 60_000).toISOString();
         await newMind(window);
         // A badge at a page's foot, as a Note without its controls at the top has it: the card is
         // placed above it.
