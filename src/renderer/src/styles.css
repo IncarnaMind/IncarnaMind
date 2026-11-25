@@ -2981,13 +2981,14 @@
     }
   }
   .note-column-body {
+    --scroll-foot: 16px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 20px;
     min-height: 0;
     overflow: auto;
-    padding: 8px 16px 16px;
+    padding: 8px 16px var(--scroll-foot);
   }
   .note-column-turn {
     display: flex;
@@ -3180,13 +3181,14 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .note-ask-panel-body {
+    --scroll-foot: 12px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 16px;
     min-height: 0;
     overflow: auto;
-    padding: 4px var(--note-ask-end) 12px var(--note-ask-start);
+    padding: 4px var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
   }
   .own-ask-panel .note-ask-panel-body {
     padding-top: 10px;
@@ -3323,6 +3325,12 @@
     gap: 8px;
     min-width: 0;
     padding: 10px 12px 12px 32px;
+    /* A card taller than the box it scrolls in keeps its answers at the box's foot: flush with it,
+       since a box's padding would otherwise show what scrolls under them. */
+    position: sticky;
+    bottom: calc(-1 * var(--scroll-foot, 0px));
+    border-radius: 0 0 7px 7px;
+    background: var(--color-sheet);
   }
   .own-ask-answers {
     display: flex;

@@ -261,9 +261,13 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     // The box scrolls: what the answer grants is in view whenever its button is, at both widths,
     // and in a window low enough that the card is taller than the box.
     await grantsInViewWithButton(card);
+    // Each check waits for the window's new height: the size helper waits for its width alone.
+    const innerHeightOf = () => window.evaluate(() => innerHeight);
     await setWindowSize(app, window, 900, 760);
+    await expect.poll(innerHeightOf).toBe(760);
     await grantsInViewWithButton(card);
     await setWindowSize(app, window, 900, 560);
+    await expect.poll(innerHeightOf).toBe(560);
     expect(
       await card.evaluate((node) => {
         for (let at = node.parentElement; at; at = at.parentElement) {
@@ -302,6 +306,45 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await pointAndClick(window, panel.getByTestId("note-column-steps-toggle").last());
     expect(await stepsIn(panel)).toEqual([`Didn’t run ${COMMAND} · denied`]);
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+
+    // A card far taller than the box, in a low window: its answers are in view as it opens, and
+    // stay in view as the command scrolls under them.
+    await setWindowSize(app, window, 900, 560);
+    await expect.poll(innerHeightOf).toBe(560);
+    before = (await outcomesOf(window, mindId)).length;
+    card = await ask(window, "ask-long", "Read the harbour notice");
+    await expect(box.getByTestId("own-ask-card")).toBeVisible();
+    const scroller = box.locator(".note-ask-panel-body");
+    expect(
+      await scroller.evaluate((element) => element.scrollHeight > element.clientHeight * 2),
+    ).toBe(true);
+    for (const where of ["as opened", "start", "end"] as const) {
+      if (where !== "as opened") {
+        await card
+          .getByTestId("own-ask-value")
+          .evaluate((node, at) => node.scrollIntoView({ block: at }), where);
+      }
+      for (const answer of ["own-ask-once", "own-ask-deny"]) {
+        expect([where, answer, (await shownOf(card.getByTestId(answer))).whole]).toEqual([
+          where,
+          answer,
+          true,
+        ]);
+      }
+      // Flush with the box's foot: nothing of the command shows under the answers.
+      const under = await card
+        .locator(".own-ask-actions")
+        .evaluate(
+          (node) =>
+            (node.closest(".note-ask-panel-body")?.getBoundingClientRect().bottom ?? 0) -
+            node.getBoundingClientRect().bottom,
+        );
+      expect([where, Math.abs(under) <= 1]).toEqual([where, true]);
+    }
+    await shot(window, "card-folded-long-en");
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, before);
+    await setWindowSize(app, window, 1440, 900);
 
     // Each kind, in the column: what it will do, whole, and its answers.
     await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
