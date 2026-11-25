@@ -8525,6 +8525,7 @@ export const zhCN = {
   "agents.activity.update_canvas": "修改了页面“{text}”",
   "agents.activity.read_request": "读取了你关于“{text}”的请求",
   "agents.activity.hand_over_file": "提交了文件“{text}”",
+  "agents.activity.save_as_word": "生成了 Word 文件“{text}”",
   "agents.handOver.kind":
     "IncarnaMind 接收演示文稿（.pptx）、工作簿（.xlsx）、Word 文件（.docx）或 PDF。",
   "agents.handOver.outsideConversation":
@@ -8544,6 +8545,7 @@ export const zhCN = {
   "agents.handOver.inLibrary":
     "用户的资料库里已经有这个文件，而 IncarnaMind 每个文件只保留一份：修改后再提交。",
   "agents.handOver.untitled": "未命名文件",
+  "agents.handOver.word.which": "给出笔记的 mindId 或你的文字 markdown，只给其中一个。",
   "agents.handOver.unread.unreadable": "IncarnaMind 已保留文件，但无法读取：文件可能已损坏。",
   "agents.handOver.unread.password-protected": "IncarnaMind 已保留文件，但无法读取：文件需要密码。",
   "agents.handOver.unread.no-text": "IncarnaMind 已保留文件，但其中没有可核对的内容。",
@@ -8725,6 +8727,7 @@ export const zhCN = {
   "noteAsk.doing.create_mind": "正在写“{summary}”",
   "noteAsk.doing.run_analysis": "正在计算数字",
   "noteAsk.doing.publish_canvas": "正在制作页面",
+  "noteAsk.doing.save_as_word": "正在生成 Word 文件“{summary}”",
   "noteAsk.stopped": "已停止。",
   "noteAsk.fresh": "已开始新的对话：之前的对话已清除。",
   "noteAsk.renewed": "已开始新的对话：这次可以使用 {agent} 自己的工具。",
@@ -8745,6 +8748,7 @@ export const zhCN = {
   "noteAsk.doing.search.any": "正在搜索你的文档",
   "noteAsk.doing.propose_changes.any": "正在写修改",
   "noteAsk.doing.create_mind.any": "正在写新笔记",
+  "noteAsk.doing.save_as_word.any": "正在生成 Word 文件",
   "noteAsk.doing.read_passages.counted": "正在读“{summary}” · 已读 {count} 个文档",
   "noteAsk.done.held.one": "这篇笔记中有 1 处修改等你确认。",
   "noteAsk.done.held.other": "这篇笔记中有 {count} 处修改等你确认。",
@@ -8894,6 +8898,7 @@ export const zhCN = {
   "noteAsk.did.create_mind": "写了“{summary}”",
   "noteAsk.did.run_analysis": "计算了数字",
   "noteAsk.did.publish_canvas": "制作了页面",
+  "noteAsk.did.save_as_word": "生成了 Word 文件“{summary}”",
   "noteAsk.did.other": "调用了 IncarnaMind",
   "noteAsk.wholeNote": "改为针对整篇笔记",
   "noteAsk.command": "描述对这篇笔记的修改…",

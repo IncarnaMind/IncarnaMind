@@ -49,11 +49,12 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "9a9c9df72e13d0ee9dbe66959fa814800e5d738aeac7087cb1a19a3cf65c811e",
   "77c8932aa3045458d597e3707ad42524ada9cb0e01b1b971d30d6bf692d6ecc1",
   "065e724e5a37797c03c33440b84d19d7e530171e7bb020a250bfcf0f05d9683c",
+  "901b31e1d664b1cba93259502122da96bd97d7a0dd9d3f7bb72ea028af5aa285",
 ];
 
 export const SKILL_MARKDOWN = `---
 name: ${SKILL_NAME}
-description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". For a message sent from a Note, file, meeting or search scope in IncarnaMind, read the pending request before replying, even when the opening line has no question.
+description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". For a message sent from a Note, file, meeting or search scope in IncarnaMind, read the pending request before replying, even when the opening line has no question. Also use it to make a Word file of their Note or of what you write from their Documents (“存成 Word 文件”).
 ---
 
 # IncarnaMind
@@ -105,6 +106,10 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 - Limits: the page up to 2 MB without its inline pictures, a file up to 10 MB, 50 files, 25 MB in all. What can't be read, or would load from the network, comes back in \`refused\`: fix the page and update it.
 - To change it, \`read_canvas\`, then \`update_canvas\` with the \`version\` you read and what changes. Its files stay: name a file again, by its full path, only to replace it. Built on an older version, it is refused with the newest.
 - Writing the User will edit, check sentence by sentence or export to Word is better as a Note, with \`create_mind\`.
+
+## When the User asks for a Word file
+
+For a Word file (.docx) of a Note or of what you write from their Documents, call \`save_as_word\` with the Note's \`mindId\`, or with your Markdown, its \`[cite:…]\` tokens written as for \`create_mind\`, and a \`title\`. IncarnaMind writes the file as its own Export › Word does, each Citation a footnote, and keeps it in their Library as a file you hand over is kept, with its check. Never build a .docx yourself, with a library, a converter or a script.
 
 ## When you made a file for the User: hand it over
 

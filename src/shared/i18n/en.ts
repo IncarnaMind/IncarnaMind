@@ -9122,6 +9122,7 @@ export const en = {
   "agents.activity.update_canvas": "Changed the Canvas “{text}”",
   "agents.activity.read_request": "Read your request about “{text}”",
   "agents.activity.hand_over_file": "Handed over the file “{text}”",
+  "agents.activity.save_as_word": "Made the Word file “{text}”",
   "agents.handOver.kind":
     "IncarnaMind takes a deck (.pptx), a workbook (.xlsx), a Word file (.docx) or a PDF.",
   "agents.handOver.outsideConversation":
@@ -9143,6 +9144,7 @@ export const en = {
   "agents.handOver.inLibrary":
     "The User’s Library holds this file already, and IncarnaMind keeps one copy of a file: change it before you hand it over.",
   "agents.handOver.untitled": "Untitled file",
+  "agents.handOver.word.which": "Give mindId for a note or markdown for your text, not both.",
   "agents.handOver.unread.unreadable":
     "IncarnaMind kept the file but couldn’t read it: it may be damaged.",
   "agents.handOver.unread.password-protected":
@@ -9348,6 +9350,7 @@ export const en = {
   "noteAsk.doing.create_mind": "Writing “{summary}”",
   "noteAsk.doing.run_analysis": "Working out figures",
   "noteAsk.doing.publish_canvas": "Making a page",
+  "noteAsk.doing.save_as_word": "Making the Word file “{summary}”",
   "noteAsk.stopped": "Stopped.",
   "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
   "noteAsk.renewed": "Started a new conversation: this one can use {agent}’s own tools.",
@@ -9368,6 +9371,7 @@ export const en = {
   "noteAsk.doing.search.any": "Searching your Documents",
   "noteAsk.doing.propose_changes.any": "Writing the change",
   "noteAsk.doing.create_mind.any": "Writing a new note",
+  "noteAsk.doing.save_as_word.any": "Making a Word file",
   "noteAsk.doing.read_passages.counted": "Reading “{summary}” · {count} read",
   "noteAsk.done.held.one": "1 change waits for you in this note.",
   "noteAsk.done.held.other": "{count} changes wait for you in this note.",
@@ -9522,6 +9526,7 @@ export const en = {
   "noteAsk.did.create_mind": "Wrote “{summary}”",
   "noteAsk.did.run_analysis": "Worked out figures",
   "noteAsk.did.publish_canvas": "Made a page",
+  "noteAsk.did.save_as_word": "Made the Word file “{summary}”",
   "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",

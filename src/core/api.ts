@@ -13161,6 +13161,7 @@ export const AGENT_TOOLS = [
   "update_canvas",
   "read_request",
   "hand_over_file",
+  "save_as_word",
 ] as const;
 
 /**

@@ -32,6 +32,7 @@
  */
 
 import * as Y from "yjs";
+import type { NodeJSON } from "../../shared/blockJson";
 import {
   citedLocation,
   type LiveDocument,
@@ -144,6 +145,13 @@ import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal, SortingTaken } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
+import {
+  type AgentWordFile,
+  createWordFileTool,
+  type SaveAsWordInput,
+  type WordMade,
+  type WordSource,
+} from "./wordFiles";
 import {
   type AgentAnalysed,
   type AgentReach,
@@ -630,6 +638,11 @@ export interface AgentAccess {
    * against the User's Documents (#3412).
    */
   handOverFile(input: { path?: unknown; folderId?: unknown }): Promise<AgentHandedFile>;
+  /**
+   * Writes a Word file of a Note or of the agent's Markdown with IncarnaMind's Word export, and
+   * keeps it as a file the agent handed over (#3751).
+   */
+  saveAsWord(input: SaveAsWordInput): Promise<AgentWordFile>;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -897,6 +910,8 @@ export interface AgentAccessDeps {
   handedNote(fileId: string): string | null;
   handOver: HandedFileToolDeps["handOver"];
   handedCheck: HandedFileToolDeps["handedCheck"];
+  /** A Word file as Export › Word writes one, with the User's choices for it (#3751). */
+  wordFile(source: WordSource): Promise<WordMade>;
 }
 
 /**
@@ -1068,6 +1083,43 @@ function proseOf(text: string): string {
     else kept.push(line);
   }
   return kept.join("\n");
+}
+
+/**
+ * A new Note's Blocks under its title, as a Note written in the window is named by its title
+ * heading, so the name follows the heading whoever changes it (#3378). A text that begins with a
+ * heading 1, or with a heading in the words of `title`, keeps it as its title; any other gets
+ * `title` as its heading above it, as the page shows no title of its own (#3466). A text in tabs
+ * begins inside its first, and so does a title heading written above it (#3414). `named`: the
+ * Note takes `title` as its own name, its heading being in other words.
+ */
+function underItsTitle(
+  title: string,
+  made: readonly NodeJSON[],
+): { nodes: NodeJSON[]; named: boolean } {
+  const [above, start] = made;
+  const nodes =
+    above?.type === "heading" && above.attrs?.level === 1 && start?.type === NOTE_TAB_NODE
+      ? [start, above, ...made.slice(2)]
+      : [...made];
+  const opens = nodes[0]?.type === NOTE_TAB_NODE ? 1 : 0;
+  const first = nodes[opens];
+  const ownHeading = first?.type === "heading";
+  const titleHeading = ownHeading && first.attrs?.level === 1 && (first.content?.length ?? 0) > 0;
+  const titled =
+    titleHeading ||
+    (ownHeading &&
+      comparableName((first.content ?? []).map((each) => each.text ?? "").join("")) ===
+        comparableName(title));
+  const heading: NodeJSON = {
+    type: "heading",
+    attrs: { level: 1 },
+    content: [{ type: "text", text: title }],
+  };
+  return {
+    nodes: titled ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
+    named: titled && !titleHeading,
+  };
 }
 
 // Scanned by hand, never by a pattern that backtracks: a draft runs to `MAX_DRAFT_CHARS`, and a
@@ -1955,6 +2007,56 @@ export function createAgentAccess(
     };
   };
 
+  /** Each token in `texts`, once, as `checkToken` checks it for the pairing now. */
+  const tokensIn = (
+    pairing: AdmittedPairing,
+    inScope: ReadonlySet<string>,
+    texts: readonly string[],
+  ) => {
+    const live = deps.liveDocuments();
+    const tokens = new Map<string, { cited: CitedToken | null; report: AgentCheckedCitation }>();
+    for (const each of texts) {
+      for (const match of each.matchAll(CITATION_TOKEN)) {
+        const token = match[1] ?? "";
+        if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
+      }
+    }
+    return tokens;
+  };
+
+  /** A new Note's name as `create_mind` takes it: text, short enough, none of the call's markup. */
+  const draftTitle = (value: unknown): string => {
+    const title = text(value, "title", MAX_TITLE_CHARS);
+    refuseCallMarkup(title, "title", t);
+    return title;
+  };
+
+  /** A draft as `create_mind` takes it: text, short enough, none of the call's markup. */
+  const draftText = (value: unknown): string => {
+    const draft = typeof value === "string" ? value : "";
+    const written = text(value, "markdown", MAX_DRAFT_CHARS + inlinePictureChars(draft));
+    refuseCallMarkup(written, "markdown", t);
+    return written;
+  };
+
+  /** A draft's new Blocks: each token as `tokens` checked it, pictures and charts from `visuals`. */
+  const draftBlocks = (
+    written: string,
+    tokens: ReturnType<typeof tokensIn>,
+    visuals: NoteVisuals,
+  ): ReturnType<typeof newBlocks> => {
+    try {
+      return newBlocks(written, t("agents.create.text"), {
+        cited: (token) => tokens.get(token)?.cited ?? null,
+        notFound: t("agents.answer.notFound"),
+        visuals,
+      });
+    } catch (error) {
+      if (!(error instanceof ChangeRefused)) throw error;
+      throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
+    }
+  };
+
   const wrote = (pairing: AdmittedPairing, mindId: string) => pairingWrote(deps, pairing, mindId);
   const reaches = (pairing: AdmittedPairing, mind: Mind, reached?: ReadonlySet<string>) =>
     pairingReaches(deps, pairing, mind, reached);
@@ -2261,6 +2363,33 @@ export function createAgentAccess(
     placeToWriteIn,
     waitMs: deps.checkWaitMs ?? CHECK_WAIT_MS,
     within: grant?.kind === "conversation" ? (grant.front.folder ?? "") : null,
+  });
+
+  const wordFileTool = createWordFileTool({
+    t,
+    handOver: handedFileTool.handOver,
+    noteName: (mindId) => {
+      const known = deps.minds().find((mind) => mind.id === mindId);
+      return known ? mindName(known) : "";
+    },
+    noteInScope: mindInScope,
+    draftTitle,
+    draftText,
+    draftBlocks: async (title, written) => {
+      const visuals = await visualsFor([written]);
+      // What the User grants may have changed while the pictures were read.
+      const pairing = deps.admit(pairingId);
+      const tokens = tokensIn(pairing, new Set(scopeOf(pairing, undefined)), [written]);
+      const made = draftBlocks(written, tokens, visuals);
+      const cited = [...tokens.values()];
+      return {
+        nodes: underItsTitle(title, made.nodes).nodes,
+        citations: cited.map((each) => each.report),
+        refused: leftOut(made.refused),
+        documentIds: cited.flatMap((each) => (each.cited ? [each.cited.minted.documentId] : [])),
+      };
+    },
+    wordFile: (source) => deps.wordFile(source),
   });
 
   const canvasTools = createCanvasTools({
@@ -3180,18 +3309,11 @@ export function createAgentAccess(
         }
         mindInScope(pairing, mind.id);
         const inScope = new Set(scopeOf(pairing, undefined));
-        const live = deps.liveDocuments();
-        const tokens = new Map<
-          string,
-          { cited: CitedToken | null; report: AgentCheckedCitation }
-        >();
-        const texts = asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text]));
-        for (const each of texts) {
-          for (const match of each.matchAll(CITATION_TOKEN)) {
-            const token = match[1] ?? "";
-            if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
-          }
-        }
+        const tokens = tokensIn(
+          pairing,
+          inScope,
+          asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
+        );
         // A copy of a Note the agent wrote is the User's: its changes wait there (#3371).
         const own = wrote(pairing, mind.id);
         // The Note the User asked from at its foot takes the change at once, as an edit asked of
@@ -3322,15 +3444,8 @@ export function createAgentAccess(
         if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
-        const title = text(input?.title, "title", MAX_TITLE_CHARS);
-        const draft = typeof input?.markdown === "string" ? input.markdown : "";
-        const written = text(
-          input?.markdown,
-          "markdown",
-          MAX_DRAFT_CHARS + inlinePictureChars(draft),
-        );
-        refuseCallMarkup(title, "title", t);
-        refuseCallMarkup(written, "markdown", t);
+        const title = draftTitle(input?.title);
+        const written = draftText(input?.markdown);
         placeToWriteIn(admitted, input?.folderId);
         const visuals = await visualsFor([written]);
         // What the User grants may have changed while the pictures were read.
@@ -3348,57 +3463,12 @@ export function createAgentAccess(
           );
         }
         const inScope = new Set(scopeOf(pairing, undefined));
-        const live = deps.liveDocuments();
-        const tokens = new Map<
-          string,
-          { cited: CitedToken | null; report: AgentCheckedCitation }
-        >();
-        for (const match of written.matchAll(CITATION_TOKEN)) {
-          const token = match[1] ?? "";
-          if (!tokens.has(token)) tokens.set(token, checkToken(pairing, inScope, live, token));
-        }
-        let made: ReturnType<typeof newBlocks>;
-        try {
-          made = newBlocks(written, t("agents.create.text"), {
-            cited: (token) => tokens.get(token)?.cited ?? null,
-            notFound: t("agents.answer.notFound"),
-            visuals,
-          });
-        } catch (error) {
-          if (!(error instanceof ChangeRefused)) throw error;
-          throw new AgentRefusedError("invalid", t(error.key, { name: error.paragraph }));
-        }
-        // Named by its title heading, as a Note written in the window is, so the name follows the
-        // heading whoever changes it (#3378). A text that begins with a heading 1, or with a
-        // heading in the words of `title`, keeps it as its title; any other gets `title` as its
-        // heading above it, as the page shows no title of its own (#3466). A text in tabs begins
-        // inside its first, and so does a title heading written above it (#3414).
-        const [above, start] = made.nodes;
-        const nodes =
-          above?.type === "heading" && above.attrs?.level === 1 && start?.type === NOTE_TAB_NODE
-            ? [start, above, ...made.nodes.slice(2)]
-            : made.nodes;
-        const opens = nodes[0]?.type === NOTE_TAB_NODE ? 1 : 0;
-        const first = nodes[opens];
-        const ownHeading = first?.type === "heading";
-        const titleHeading =
-          ownHeading && first.attrs?.level === 1 && (first.content?.length ?? 0) > 0;
-        const titled =
-          titleHeading ||
-          (ownHeading &&
-            comparableName((first.content ?? []).map((each) => each.text ?? "").join("")) ===
-              comparableName(title));
-        const mind = deps.createMind(titled && !titleHeading ? title : "", folder.id);
-        const heading = {
-          type: "heading",
-          attrs: { level: 1 },
-          content: [{ type: "text", text: title }],
-        };
+        const tokens = tokensIn(pairing, inScope, [written]);
+        const made = draftBlocks(written, tokens, visuals);
+        const placed = underItsTitle(title, made.nodes);
+        const mind = deps.createMind(placed.named ? title : "", folder.id);
         deps.editMind(mind.id, (blocks) => {
-          insertBlocks(
-            blocks,
-            titled ? nodes : [...nodes.slice(0, opens), heading, ...nodes.slice(opens)],
-          );
+          insertBlocks(blocks, placed.nodes);
           if (!blocks.doc) return;
           const ids = blocks.toArray().flatMap((each) => {
             const id = each instanceof Y.XmlElement ? each.getAttribute(BLOCK_ID_ATTRIBUTE) : null;
@@ -3669,6 +3739,11 @@ export function createAgentAccess(
       const handed = await handedFileTool.handOverFile(input);
       if (handed.mindId !== null) opened({ kind: "mind", mindId: handed.mindId });
       return handed;
+    },
+    async saveAsWord(input) {
+      const saved = await wordFileTool.saveAsWord(input);
+      if (saved.mindId !== null) opened({ kind: "mind", mindId: saved.mindId });
+      return saved;
     },
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";

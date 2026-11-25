@@ -36,6 +36,7 @@ const DOING: Partial<Record<string, MessageKey>> = {
   calculate: "noteAsk.doing.run_analysis",
   publish_canvas: "noteAsk.doing.publish_canvas",
   update_canvas: "noteAsk.doing.publish_canvas",
+  save_as_word: "noteAsk.doing.save_as_word",
 };
 const DID: Partial<Record<string, MessageKey>> = {
   read_mind: "noteAsk.did.read_mind",
@@ -50,6 +51,7 @@ const DID: Partial<Record<string, MessageKey>> = {
   calculate: "noteAsk.did.run_analysis",
   publish_canvas: "noteAsk.did.publish_canvas",
   update_canvas: "noteAsk.did.publish_canvas",
+  save_as_word: "noteAsk.did.save_as_word",
 };
 
 /** The Tools whose steps make or change a Note the User may open. */

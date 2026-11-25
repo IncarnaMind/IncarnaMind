@@ -94,6 +94,7 @@ import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import { createAgentSorting } from "./agents/sorting";
 import { withTabFences } from "./agents/tabs";
+import type { WordMade, WordSource } from "./agents/wordFiles";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -858,6 +859,16 @@ const STILL_PROCESSING: ReadonlySet<DocumentStatus> = new Set([
   "waiting-for-model",
   "embedding",
 ]);
+
+/**
+ * A Note as an export and its citation style read it: one stored, or the Blocks of an agent's
+ * text as a new Note of them would hold them, which nothing stores or lists (#3751).
+ */
+interface NoteReader {
+  mind(mindId: unknown): Mind;
+  read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
+  readSettings<T>(mindId: string, look: (settings: Y.Map<unknown>) => T): T;
+}
 
 export function createCore(adapters: CoreAdapters): Core {
   const { dataDir } = adapters.paths;
@@ -2933,9 +2944,14 @@ export function createCore(adapters: CoreAdapters): Core {
     folder: adapters.paths.citationStyles,
     document: liveDocument,
   });
-  const mindStyleAndText = (mindId: string) => {
-    const { folderId } = minds.get(mindId);
-    const { chineseText, cited } = content.read(mindId, (blocks) => {
+  const storedNotes: NoteReader = {
+    mind: (mindId) => minds.get(mindId),
+    read: (mindId, look) => content.read(mindId, look),
+    readSettings: (mindId, look) => content.readSettings(mindId, look),
+  };
+  const mindStyleAndText = (mindId: string, notes: NoteReader = storedNotes) => {
+    const { folderId } = notes.mind(mindId);
+    const { chineseText, cited } = notes.read(mindId, (blocks) => {
       const versions: CitedVersions = new Map();
       try {
         addCitedVersions(blocks, versions);
@@ -2950,7 +2966,7 @@ export function createCore(adapters: CoreAdapters): Core {
     });
     const citesWorks = cited.some((id) => isPaperOrBook(liveDocument(id)?.reference ?? null));
     const context = { language: settings.get().language, chineseText, citesWorks };
-    const style: MindCitationStyle = content.readSettings(mindId, (mindSettings) => ({
+    const style: MindCitationStyle = notes.readSettings(mindId, (mindSettings) => ({
       style: citationStyleIn(mindSettings, context),
       chosen: chosenCitationStyle(mindSettings) !== null,
       folderDefault: folderId === null ? null : library.citationStyle(folderId),
@@ -3102,9 +3118,14 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   // Check against Documents (#96): check Runs that can only search and cite.
-  const startInWritingStyle = (mindId: string) => {
+  /** The style the User chose for new Notes; null for the default, which a Note doesn't write. */
+  const newNoteStyle = () => {
     const style = settings.get().user.newMindStyle;
-    if (sameStyle(style, DEFAULT_MIND_STYLE)) return;
+    return sameStyle(style, DEFAULT_MIND_STYLE) ? null : style;
+  };
+  const startInWritingStyle = (mindId: string) => {
+    const style = newNoteStyle();
+    if (style === null) return;
     content.editSettings(mindId, (mindSettings) => writeMindStyle(mindSettings, style));
   };
   /** A new Mind, in the citation style last chosen for a Mind in its Folder, as its own choice (#289). */
@@ -3602,26 +3623,26 @@ export function createCore(adapters: CoreAdapters): Core {
       : null;
     return fromDocument ?? readableQuoteText(quote);
   };
-  const exportDependencies: ExportsDependencies = {
-    mind: (mindId) => minds.get(mindId),
-    read: (mindId, look) => content.read(mindId, look),
+  const exportDependenciesOf = (notes: NoteReader): ExportsDependencies => ({
+    mind: (mindId) => notes.mind(mindId),
+    read: (mindId, look) => notes.read(mindId, look),
     liveDocuments: () => documents.list(),
     keptCitationTexts: () => documents.keptCitationTexts(),
     readableQuote: quoteAsRead,
     language: () => settings.get().language,
     scopeItemName,
     citationStyle: (mindId) => {
-      const { style, textLanguage } = mindStyleAndText(mindId);
+      const { style, textLanguage } = mindStyleAndText(mindId, notes);
       return { style: citationStyles.resolve(style.style, textLanguage), textLanguage };
     },
-    font: (mindId) => exportedFamily(content.readSettings(mindId, mindStyleOf).font),
+    font: (mindId) => exportedFamily(notes.readSettings(mindId, mindStyleOf).font),
     lineSpacing: (mindId) => {
-      const lineSpacing = lineSpacingOf(content.readSettings(mindId, mindStyleOf));
+      const lineSpacing = lineSpacingOf(notes.readSettings(mindId, mindStyleOf));
       return lineSpacing === "default" ? null : lineSpacing;
     },
-    bibliography: (mindId) => content.readSettings(mindId, bibliographyShown),
+    bibliography: (mindId) => notes.readSettings(mindId, bibliographyShown),
     exportMarks: (mindId, format) =>
-      content.readSettings(mindId, (settings) => exportMarksOf(settings, format)),
+      notes.readSettings(mindId, (settings) => exportMarksOf(settings, format)),
     formatCitations: (request) => citationStyles.format(request),
     citedPage: (citation) => citedPages.image(citation),
     citedUnits: ({ documentId, contentHash, pageFrom, pageTo }) => {
@@ -3630,7 +3651,7 @@ export function createCore(adapters: CoreAdapters): Core {
       const to = from === null ? null : Math.max(from, typeof pageTo === "number" ? pageTo : from);
       return documents.pageTexts(documentId, contentHash, from, to);
     },
-    sharePageTextOnly: (mindId) => content.readSettings(mindId, textOnlyDocuments),
+    sharePageTextOnly: (mindId) => notes.readSettings(mindId, textOnlyDocuments),
     printer: adapters.printer ?? null,
     paper: systemPaper,
     ...(adapters.pictures && { pictures: adapters.pictures }),
@@ -3638,8 +3659,52 @@ export function createCore(adapters: CoreAdapters): Core {
     author: () => settings.get().author,
     log: adapters.log ?? silentLogger,
     now,
-  };
+  });
+  const exportDependencies = exportDependenciesOf(storedNotes);
   const mindExports = createExports(exportDependencies);
+  /**
+   * A Word file as Export › Word writes one with the User's choices for it (#3751): of a Note, or
+   * of an agent's Blocks as a new Note of them in that Folder would be, in its Folder's citation
+   * style and the User's style for new Notes, a copy that nothing stores or lists.
+   */
+  const agentWordFile = async (source: WordSource): Promise<WordMade> => {
+    const options = optionsFor("docx", settings.get().user.exportOptions);
+    if (source.kind === "note") {
+      const exported = await mindExports.export(source.mindId, options);
+      return { data: exported.data, lost: exported.word?.notKept.length ?? 0 };
+    }
+    const doc = new Y.Doc();
+    try {
+      const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
+      const mindSettings = doc.getMap<unknown>(MIND_SETTINGS_FIELD);
+      doc.transact(() => {
+        insertBlocks(blocks, source.nodes);
+        const style = source.folderId === null ? null : library.citationStyle(source.folderId);
+        if (style !== null) setCitationStyle(mindSettings, style);
+        const writing = newNoteStyle();
+        if (writing !== null) writeMindStyle(mindSettings, writing);
+      });
+      const at = now();
+      const mind: Mind = {
+        id: crypto.randomUUID(),
+        title: source.title,
+        autoTitle: "",
+        kind: DEFAULT_MIND_KIND,
+        createdAt: at,
+        updatedAt: at,
+        folderId: source.folderId,
+      };
+      const copy: NoteReader = {
+        mind: () => mind,
+        read: (_, look) => look(blocks),
+        readSettings: (_, look) => look(mindSettings),
+      };
+      const exported = await createExports(exportDependenciesOf(copy)).export(mind.id, options);
+      return { data: exported.data, lost: 0 };
+    } finally {
+      doc.destroy();
+    }
+  };
   const comparisonExport = createComparisonExport(exportDependencies);
   const checkRecord = createCheckRecord({
     mind: (mindId) => minds.get(mindId),
@@ -6835,6 +6900,7 @@ export function createCore(adapters: CoreAdapters): Core {
       handedNote: newestHandedNote,
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
+      wordFile: agentWordFile,
       checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
