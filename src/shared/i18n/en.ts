@@ -3906,6 +3906,8 @@ export const en = {
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
     "What you type in the box at the bottom of a note, each time you send it. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
+  "consent.data.own-ai-context":
+    "In a note’s conversation, what Claude Code adds by its own settings: your CLAUDE.md files, its memory, your skills, and what your own servers, connectors, commands, files and web pages give it, as its settings allow",
   "consent.data.source-quotes":
     "The quotes from your Documents that the selected text’s Citations name, when a change rewrites or removes cited text",
 
@@ -8822,7 +8824,7 @@ export const en = {
   "agents.problem.checkRunPath":
     "This check cites only passages of the Folders shared with this agent, never a file by its path: give each quote the passageId that search or read_passages gave its passage.",
   "agents.problem.runNoPath":
-    "This run of the User’s AI has no files of its own, so IncarnaMind opens no file by its path here. Use the Documents and notes shared with this agent.",
+    "In this run IncarnaMind opens a file by its path only for hand_over_file. Use the Documents and notes shared with this agent.",
   "agents.problem.read-only":
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
@@ -8952,9 +8954,8 @@ export const en = {
   "agents.mind.waiting": "(changes waiting)",
   // A paragraph this run changed or added from the box at the Note's foot, which the window that
   // asked puts in once the request ends (ADR-0034).
-  "agents.mind.yours": "(your change from this request, in the note once the request ends)",
-  "agents.mind.yoursRemoved":
-    "(taken out by your change from this request, gone from the note once the request ends)",
+  "agents.mind.yours": "(your change, made)",
+  "agents.mind.yoursRemoved": "(taken out by your change)",
   "agents.mind.busy": "(being written)",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",
@@ -9123,6 +9124,8 @@ export const en = {
   "agents.activity.hand_over_file": "Handed over the file “{text}”",
   "agents.handOver.kind":
     "IncarnaMind takes a deck (.pptx), a workbook (.xlsx), a Word file (.docx) or a PDF.",
+  "agents.handOver.outsideConversation":
+    "From a note’s conversation, IncarnaMind takes a file only from the conversation’s own folder, your current folder: save or copy it there first, then hand it over from there.",
   "agents.handOver.unreadable":
     "IncarnaMind reads only the file at the path you named, and couldn’t read one there: give the full path of the file itself, not of a folder or a link.",
   "agents.handOver.tooLarge": "The file is larger than {max} MB, the most IncarnaMind takes.",
@@ -9223,7 +9226,7 @@ export const en = {
   "agents.connect.background.codex":
     "Checks run Codex in the background on your ChatGPT plan or API key.",
   "agents.connect.background.details":
-    "Only while no AI model is set up here: nothing opens, no chat is added, and it works only through IncarnaMind.",
+    "Only while no AI model is set up here: nothing opens and no chat is added. A check works only through IncarnaMind; in a note’s conversation it also uses its own tools, as its own settings allow.",
   "agents.connect.background.codex.details":
     "Only while no AI model is set up here: nothing opens, no chat is added, and it may use only IncarnaMind, which stops it at anything else.",
   "agents.connect.codexInstructions":
@@ -9347,6 +9350,7 @@ export const en = {
   "noteAsk.doing.publish_canvas": "Making a page",
   "noteAsk.stopped": "Stopped.",
   "noteAsk.fresh": "Started a new conversation: the earlier one was cleared.",
+  "noteAsk.renewed": "Started a new conversation: this one can use {agent}’s own tools.",
   "noteAsk.done.changed.one": "Changed 1 paragraph in this note.",
   "noteAsk.done.changed.other": "Changed {count} paragraphs in this note.",
   "noteAsk.done.waiting.one": "1 change waits for you in “{title}”.",
@@ -9393,11 +9397,122 @@ export const en = {
   "noteColumn.worked": "Worked for {seconds}s",
   "noteColumn.answered": "Answered by {model} in {seconds}s",
   "noteColumn.model": "Model for this note’s conversation",
+  // Before a request here has named its model: the box names none.
+  "noteAsk.modelNone": "Model",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
   "noteColumn.moveRight": "Move to the right",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
   "noteColumn.citation": "Citation {number}",
+  // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
+  // steps with them (#3653).
+  "ownAsk.title.command": "Run a command",
+  "ownAsk.title.write": "Write a file",
+  "ownAsk.title.change": "Change a file",
+  "ownAsk.title.read": "Read files",
+  "ownAsk.title.web": "Open a page on {host}",
+  "ownAsk.title.search": "Search the web",
+  "ownAsk.title.tool": "Use {tool} from {server}",
+  "ownAsk.title.skill": "Use the skill “{skill}”",
+  "ownAsk.key.in": "in",
+  "ownAsk.key.what": "what",
+  "ownAsk.key.server": "server",
+  "ownAsk.key.runs": "runs",
+  "ownAsk.runs.background": "in the background",
+  "ownAsk.runs.unsandboxed": "outside {agent}’s own sandbox",
+  "ownAsk.steers": "This file changes how {agent} behaves from now on.",
+  "ownAsk.unsure": "IncarnaMind can’t tell where this file leads.",
+  "ownAsk.moreLines.one": "1 more line · Show all",
+  "ownAsk.moreLines.other": "{count} more lines · Show all",
+  "ownAsk.here": "This conversation’s folder",
+  "ownAsk.newFile.one": "New file · {count} line",
+  "ownAsk.newFile.other": "New file · {count} lines",
+  "ownAsk.wholeFile.one": "Writes the whole file again · {count} line",
+  "ownAsk.wholeFile.other": "Writes the whole file again · {count} lines",
+  "ownAsk.changes.one": "Changes {count} line",
+  "ownAsk.changes.other": "Changes {count} lines",
+  "ownAsk.everywhere": "Changes it everywhere it appears",
+  "ownAsk.cellNew.one": "New cell · {count} line",
+  "ownAsk.cellNew.other": "New cell · {count} lines",
+  "ownAsk.cellWhole.one": "Writes a cell again · {count} line",
+  "ownAsk.cellWhole.other": "Writes a cell again · {count} lines",
+  "ownAsk.cellGone": "Deletes a cell",
+  "ownAsk.serverOf": "{server} · set up in {agent}",
+  "ownAsk.showAll": "Show all",
+  "ownAsk.showLess": "Show less",
+  "ownAsk.showChange": "Show the change",
+  "ownAsk.hideChange": "Hide the change",
+  "ownAsk.answer.once": "Allow once",
+  "ownAsk.answer.deny": "Deny",
+  "ownAsk.here.folder": "this conversation’s folder",
+  // Between the parts of one lasting answer, each after the first starting in lower case.
+  "ownAsk.lasting.then": "; ",
+  // A lasting answer of several parts, by the widest place it keeps them; the parts go under it.
+  "ownAsk.lasting.short.request": "Don’t ask again for this request",
+  "ownAsk.lasting.short.conversation": "Don’t ask again in this conversation",
+  "ownAsk.lasting.short.everywhere": "Don’t ask again anywhere",
+  "ownAsk.lasting.rules.request": "Don’t ask again for {what} for this request",
+  "ownAsk.lasting.rules.conversation": "Don’t ask again for {what} in this conversation",
+  "ownAsk.lasting.rules.everywhere": "Don’t ask again for {what} anywhere",
+  "ownAsk.lasting.edits.request": "Allow all edits for this request",
+  "ownAsk.lasting.edits.conversation": "Allow all edits in this conversation",
+  "ownAsk.lasting.edits.everywhere": "Allow all edits anywhere",
+  "ownAsk.lasting.mode.request": "Switch to {mode} for this request",
+  "ownAsk.lasting.mode.conversation": "Switch to {mode} in this conversation",
+  "ownAsk.lasting.mode.everywhere": "Switch to {mode} anywhere",
+  "ownAsk.lasting.folders.request": "Allow access to {what} for this request",
+  "ownAsk.lasting.folders.conversation": "Allow access to {what} in this conversation",
+  "ownAsk.lasting.folders.everywhere": "Allow access to {what} anywhere",
+  "ownAsk.lasting.other.request": "Allow, and {text}, for this request",
+  "ownAsk.lasting.other.conversation": "Allow, and {text}, in this conversation",
+  "ownAsk.lasting.other.everywhere": "Allow, and {text}, anywhere",
+  "ownAsk.what.commands": "{start} commands",
+  "ownAsk.what.command": "“{value}”",
+  "ownAsk.what.tool": "{server} {tool}",
+  "ownAsk.what.searches": "web searches",
+  "ownAsk.what.reads": "reading {folder}",
+  "ownAsk.what.changes": "edits in {folder}",
+  "ownAsk.answers": "Reply to {agent}",
+  "ownAsk.announce": "{agent} asks: {title}. {value}. Answers: {answers}. Shift+Tab to answer.",
+  "ownAsk.doing.command": "Running {value}",
+  "ownAsk.doing.write": "Writing {value}",
+  "ownAsk.doing.change": "Changing {value}",
+  "ownAsk.doing.read": "Reading {value}",
+  "ownAsk.doing.web": "Opening {value}",
+  "ownAsk.doing.search": "Searching the web for {value}",
+  "ownAsk.doing.tool": "Using {value} from {server}",
+  "ownAsk.doing.skill": "Using the skill {value}",
+  "ownAsk.doing.other": "Using {value}",
+  "ownAsk.did.command": "Ran {value}",
+  "ownAsk.did.write": "Wrote {value}",
+  "ownAsk.did.change": "Changed {value}",
+  "ownAsk.did.read": "Read {value}",
+  "ownAsk.did.web": "Opened {value}",
+  "ownAsk.did.search": "Searched the web for {value}",
+  "ownAsk.did.tool": "Used {value} from {server}",
+  "ownAsk.did.skill": "Used the skill {value}",
+  "ownAsk.did.other": "Used {value}",
+  "ownAsk.didnt.command": "Didn’t run {value}",
+  "ownAsk.didnt.write": "Didn’t write {value}",
+  "ownAsk.didnt.change": "Didn’t change {value}",
+  "ownAsk.didnt.read": "Didn’t read {value}",
+  "ownAsk.didnt.web": "Didn’t open {value}",
+  "ownAsk.didnt.search": "Didn’t search the web for {value}",
+  "ownAsk.didnt.tool": "Didn’t use {value} from {server}",
+  "ownAsk.didnt.skill": "Didn’t use the skill {value}",
+  "ownAsk.didnt.other": "Didn’t use {value}",
+  "ownAsk.by.once": "allowed once",
+  "ownAsk.by.suggested": "allowed, not asked again",
+  "ownAsk.by.deny": "denied",
+  "ownAsk.by.stopped": "stopped before you answered",
+  "ownAsk.by.closed": "IncarnaMind closed before you answered",
+  "ownAsk.by.refused": "IncarnaMind can’t show this question, so it said no",
+  "ownAsk.askAgain": "Ask again",
+  "ownAsk.first":
+    "{agent} also uses its own tools here, on its own settings. IncarnaMind can’t see or undo them.",
+  "ownAsk.mode.auto": "{agent} is set to decide for itself, so here it acts without asking you.",
+  "ownAsk.mode.bypassPermissions":
+    "{agent} is set to skip every question, so here it acts without asking you.",
   "noteAsk.did.read_mind": "Read “{summary}”",
   "noteAsk.did.list_minds": "Looked through your notes",
   "noteAsk.did.search": "Searched your Documents for “{summary}”",
@@ -9420,6 +9535,8 @@ export const en = {
     "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
   "noteAsk.problem.too-old":
     "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then send it again.",
+  "noteAsk.problem.update":
+    "This version of {agent} can’t work in a note. Update it, then send it again.",
   "noteAsk.problem.no-answer":
     "{agent} didn’t answer on this computer, so nothing was sent. Try again.",
   "noteAsk.problem.plan-limit":
@@ -9430,7 +9547,7 @@ export const en = {
   "noteAsk.problem.stalled":
     "{agent} stopped answering for six minutes, so it stopped. Send it again.",
   "noteAsk.problem.compaction":
-    "{agent} spent ten minutes condensing this note’s conversation without finishing, so it stopped. Send it again.",
+    "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped. Send it again.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",

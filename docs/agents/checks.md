@@ -23,7 +23,7 @@ The machinery behind [`testing.md`](testing.md). Read the section you need when 
 | Job | What it checks |
 |---|---|
 | Packaged app (macOS) | Ad-hoc signed: every engine module loads the way the app runs it (#1239), the real OCR reads upright and rotated scans (#1819), and the real speech engine and model transcribe a meeting |
-| Packaged app (Windows) | `npm run check:package`; the engines load; speech runs on the app's own ONNX Runtime library (#2152); an outside agent connects; secrets are kept |
+| Packaged app (Windows) | `npm run check:package`; the engines load; speech runs on the app's own ONNX Runtime library (#2152); an outside agent connects; secrets are kept; and, before packaging, the unit tests of how a write to Claude Code's own settings is known as Windows spells it (8.3 names, dots at a name's end, streams), which the Linux shards can't try (#3653) |
 | Packaged app (Linux) | The engines load and an outside agent connects |
 | Packaged startup, quit and updates (Windows) | One instance, startup, quitting and the update between two packaged versions (below) |
 | run_code with its real Python (Linux) | `run_code` on the Python built as the release builds it; the OS sandbox's tests, with the sandbox required to start (the unit shards' newer image can't start it, so they skip them); and the Python and pandas the app bundles |

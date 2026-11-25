@@ -2981,13 +2981,14 @@
     }
   }
   .note-column-body {
+    --scroll-foot: 16px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 20px;
     min-height: 0;
     overflow: auto;
-    padding: 8px 16px 16px;
+    padding: 8px 16px var(--scroll-foot);
   }
   .note-column-turn {
     display: flex;
@@ -3180,13 +3181,256 @@
     border-bottom: 1px solid var(--color-rule);
   }
   .note-ask-panel-body {
+    --scroll-foot: 12px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 16px;
     min-height: 0;
     overflow: auto;
-    padding: 4px var(--note-ask-end) 12px var(--note-ask-start);
+    padding: 4px var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
+  }
+  .own-ask-panel .note-ask-panel-body {
+    padding-top: 10px;
+  }
+  /* A question from the User's own command-line AI in a Note's conversation (#3653). */
+  .own-ask-card {
+    container: own-ask / inline-size;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  .own-ask-card .approval-title {
+    align-items: flex-start;
+  }
+  .own-ask-card .approval-dot {
+    margin-top: 7px;
+  }
+  .own-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .own-clamp--2 {
+    -webkit-line-clamp: 2;
+  }
+  .own-ask-card .own-ask-details {
+    gap: 8px;
+  }
+  .own-ask-details[data-all] .own-clamp {
+    display: block;
+    overflow: visible;
+  }
+  .own-ask-card .own-ask-details[data-all] .approval-args {
+    max-height: none;
+  }
+  .own-ask-value {
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  /* Twelve lines at most until Show all, which the card says how many lines more it shows. */
+  .own-ask-whole {
+    max-height: calc(12 * 18px + 12px);
+    overflow: hidden;
+    &[data-all] {
+      max-height: none;
+    }
+  }
+  .own-ask-content {
+    color: var(--color-ink-secondary);
+  }
+  /* The AI's own words for its command, the card's main line; the command under them, grey. */
+  .own-ask-description {
+    margin: 0;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  .own-ask-value.own-ask-value--under {
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
+  }
+  /* Everything a lasting answer of several parts grants, under its button. */
+  .own-ask-grants {
+    margin: 0;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    overflow-wrap: anywhere;
+  }
+  /* What runs is read in the order it is stored: nothing in it can turn its text around. */
+  .own-ask-text,
+  .own-ask-text * {
+    unicode-bidi: bidi-override;
+    direction: ltr;
+  }
+  .own-ask-value-tail {
+    display: block;
+  }
+  .own-ask-link {
+    align-self: flex-start;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 600;
+    color: var(--color-accent);
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+  }
+  .own-ask-card .own-ask-args {
+    gap: 2px 12px;
+    dd {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+  .own-ask-input {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .own-ask-change {
+    max-height: 160px;
+    margin: 0;
+    padding: 6px 8px;
+    overflow: auto;
+    border-radius: 4px;
+    background: var(--color-frame);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .own-ask-card .own-ask-actions {
+    flex-direction: column;
+    /* One line, so the answers are as wide as the card, not as their one row would be. */
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 12px 12px 32px;
+    /* A card taller than the box it scrolls in keeps its answers at the box's foot: flush with it,
+       since a box's padding would otherwise show what scrolls under them. */
+    position: sticky;
+    bottom: calc(-1 * var(--scroll-foot, 0px));
+    border-radius: 0 0 7px 7px;
+    background: var(--color-sheet);
+  }
+  .own-ask-answers {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 6px;
+    & .approval-button {
+      flex: none;
+      padding-inline: 10px;
+      white-space: nowrap;
+    }
+    & .approval-button--ghost {
+      margin-left: 0;
+      padding-inline: 8px;
+    }
+    & .approval-button--primary {
+      padding-inline: 12px;
+    }
+    /* Too wide for one row: one under another, full width, every word of each shown. */
+    &[data-stacked] {
+      flex-direction: column;
+      align-items: stretch;
+      & .approval-button {
+        height: auto;
+        min-height: 32px;
+        padding-block: 6px;
+        white-space: normal;
+        text-wrap: pretty;
+      }
+    }
+  }
+  .own-ask-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-inline: 4px;
+    border-radius: 9999px;
+    background: var(--color-attention);
+  }
+  .own-waiting,
+  .own-ask-pill {
+    color: var(--color-ink-secondary);
+  }
+  .own-step-parts {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .own-step-fixed {
+    flex: none;
+    white-space: pre;
+  }
+  .own-step-code {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-ligatures: none;
+  }
+  .own-step-by {
+    color: var(--color-ink-meta);
+  }
+  .own-first {
+    margin: 2px 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    white-space: normal;
+  }
+  .own-mode {
+    margin: 0;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
+  }
+  /* What didn't run, and Ask again at the end of the same line. */
+  .own-closed .note-column-step-item {
+    flex-direction: row;
+    align-items: baseline;
+  }
+  .own-closed .own-step-parts {
+    flex: 0 1 auto;
+  }
+  .own-closed .note-ask-pill-action {
+    flex: none;
+    margin-left: 4px;
+  }
+  .note-ask-pill-own {
+    min-width: 0;
+    flex: 1;
+  }
+  /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
+  .own-ask-card :is(code, pre, .own-ask-value, .own-ask-input, .own-ask-args dt) {
+    font-variant-ligatures: none;
   }
   /*
    * The check badge with the Note's own controls at its top right, left of the conversation button

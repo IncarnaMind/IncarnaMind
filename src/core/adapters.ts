@@ -26,6 +26,9 @@ import type {
   DecisionHost,
   EngineSwitchReason,
   ExternalService,
+  NoteAction,
+  NoteAnswer,
+  NoteSuggested,
   OpenAtLogin,
   SandboxLevel,
   SandboxProblem,
@@ -1708,6 +1711,12 @@ export type OwnAiFailure =
   | "unreadable"
   /** The agent's service ended the request with an error it gave no category for. */
   | "service"
+  /**
+   * Before anything was sent, the agent didn't take what a Note's conversation needs of it (#3653):
+   * Claude Code didn't register the hook that makes a write to its own instructions ask. An update
+   * brings it.
+   */
+  | "update"
   | "other";
 
 /**
@@ -1726,7 +1735,25 @@ export type OwnAiProgress =
   /** The model the run answers on, as its start names it. */
   | { kind: "model"; model: string }
   /** The models the agent offers, as it answered `listModels` before the prompt went. */
-  | { kind: "models"; models: OwnAiModel[] };
+  | { kind: "models"; models: OwnAiModel[] }
+  /**
+   * A step of a run with its own abilities (#3653), by the id its stream gives the call: begun,
+   * ended, ended with an error, or asked about in a way IncarnaMind can't show, and so denied.
+   */
+  | { kind: "own"; id: string; action: NoteAction; state: "going" | "done" | "failed" | "refused" }
+  /** The agent's own permission mode, as it names it at its start and as it changes. */
+  | { kind: "mode"; mode: string };
+
+/**
+ * What a run with its own abilities asks before it does something with a tool of its own (#3653):
+ * the action, the id of its step, and the answers its question suggests.
+ */
+export interface OwnAiAsk {
+  step: string | null;
+  action: NoteAction;
+  /** The answers its question suggests, in its order, as the card says them. */
+  suggested: NoteSuggested[];
+}
 
 /** A model the User's command-line AI offers, as it lists them itself. */
 export interface OwnAiModel {
@@ -1746,18 +1773,24 @@ export interface OwnAiRunner {
   status(client: OwnAiClient): Promise<OwnAiStatus>;
   /**
    * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a
-   * grant; `tools`: the only ones of it the agent may call, or all of them; `permissionMode`: how
-   * the agent answers its own permission prompts (none of its own tools is given, so nothing is
-   * asked); `instructions`: IncarnaMind's own, the same for every run of a conversation;
-   * `prompt`: what the run is asked; `conversation`: the conversation the agent keeps, by the key
-   * of its working folder and the agent's own id for it, started or continued. Aborting `signal`
-   * stops it, and every process it started. `reply`: the agent's last words.
+   * grant; `tools`: the only ones of it the agent may call, or all of them; `instructions`:
+   * IncarnaMind's own, the same for every run of a conversation; `prompt`: what the run is asked;
+   * `conversation`: the conversation the agent keeps, by the key of its working folder and the
+   * agent's own id for it, started or continued. Aborting `signal` stops it, and every process it
+   * started. `reply`: the agent's last words.
    */
   run(request: {
     client: OwnAiClient;
     server: AgentLaunch;
     tools: readonly string[] | "all";
-    permissionMode?: "dontAsk";
+    /**
+     * The agent works with its own tools too, on the User's own settings for it (#3653): beside
+     * IncarnaMind's server it keeps what it can do by itself, IncarnaMind's instructions are added
+     * to its own, and each question it asks goes to `ask`, answered as the User answers it.
+     * `signal` aborts when the agent withdraws the question or the run ends. Absent: none of its
+     * own tools, and nothing it may ask is allowed (ADR-0032).
+     */
+    own?: { ask(asked: OwnAiAsk, signal: AbortSignal): Promise<NoteAnswer> };
     instructions: string;
     prompt: string;
     conversation?: { key: string; sessionId: string; resume: boolean };
@@ -1782,6 +1815,11 @@ export interface OwnAiRunner {
    * the agent couldn't be asked, so its own sweep deletes the transcript later.
    */
   purge(key: string): Promise<boolean>;
+  /**
+   * The real path a kept conversation's working folder has, by its key; null, or absent, where
+   * the runner keeps none.
+   */
+  folder?(key: string): Promise<string | null>;
 }
 
 export type ClaudeCodeAdapterInstallResult =

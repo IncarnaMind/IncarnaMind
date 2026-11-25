@@ -16,6 +16,7 @@ import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
 import { ProblemLine } from "../ProblemLine";
+import { OwnStepText, useAnnounce, WaitingLine } from "./OwnAsk";
 
 /** What the pill says of each Tool while it runs, with what the call names as `{summary}`. */
 const DOING: Partial<Record<AgentToolName, MessageKey>> = {
@@ -133,9 +134,12 @@ function Facts({ ask, mindId }: { ask: NoteAsk; mindId: string }) {
 }
 
 /** What a running request is doing, in the AI's own words where it wrote some. */
-function doingOf(ask: NoteAsk, t: Translate): string {
+function doingOf(ask: NoteAsk, t: Translate): ReactNode {
   const { doing } = ask;
   if (ask.quiet) return t("noteAsk.pill.quiet", { agent: ask.agent });
+  if (doing?.kind === "own") {
+    return <OwnStepText action={doing.action} going className="note-ask-pill-own" />;
+  }
   if (doing === null) return t("noteAsk.pill.working");
   if (doing.kind === "thinking") return t("noteAsk.pill.thinking");
   if (doing.kind === "compacting") return t("noteAsk.pill.compacting");
@@ -200,6 +204,24 @@ export function NoteAskPill({
   const t = useT();
   const working = ask.state === "working";
   const seconds = useSeconds(ask.startedAt, working);
+  const [question] = ask.questions;
+  const announce = useAnnounce(question, ask.agent);
+  if (working && question) {
+    return (
+      <div
+        data-testid="note-ask-pill"
+        data-state="waiting"
+        role="status"
+        aria-live="polite"
+        className="note-ask-pill own-ask-pill"
+      >
+        <WaitingLine
+          seconds={seconds >= SECONDS_FROM ? t("noteAsk.seconds", { count: seconds }) : null}
+          announce={announce}
+        />
+      </div>
+    );
+  }
   if (working) {
     return (
       <div

@@ -17,6 +17,8 @@ import { shortModel } from "./NoteColumn";
 export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolean }) {
   const t = useT();
   const [models, setModels] = useState<readonly NoteModel[]>([]);
+  // The model this Note's conversation last ran on, as the core holds it for every window.
+  const [ran, setRan] = useState<string | null>(null);
   const chosen = useNoteColumns((state) => state.model[mindId]);
   const menu = usePopoverMenu({ align: "end", side: "above" });
   // A run hears the list before it names its model, so each run that names one, and each that
@@ -28,9 +30,10 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each run names its model and as it ends.
   useEffect(() => {
     let current = true;
-    core.noteModels(mindId).then((listed) => {
+    core.noteModels(mindId).then(({ models: listed, ran: last }) => {
       if (!current) return;
       setModels(listed);
+      setRan(last);
       // A model no longer offered isn't sent: the agent's own default answers instead.
       const { model } = useNoteColumns.getState();
       const kept = model[mindId];
@@ -44,10 +47,17 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
     };
   }, [mindId, runsNamed, ended]);
   if (models.length === 0) return null;
-  const current = models.find((each) => each.value === chosen) ?? models[0];
-  const label = current?.resolvedModel
-    ? shortModel(current.resolvedModel)
-    : (current?.displayName ?? "");
+  // With none chosen, the model that last ran here, and none until one has: the User's own setting
+  // may name another than the list's first, which is the agent's general default.
+  const picked = models.find((each) => each.value === chosen);
+  const current = picked ?? models.find((each) => ran !== null && each.resolvedModel === ran);
+  const label = picked
+    ? picked.resolvedModel
+      ? shortModel(picked.resolvedModel)
+      : picked.displayName
+    : ran
+      ? shortModel(ran)
+      : t("noteAsk.modelNone");
   const named = `${t("noteColumn.model")}: ${label}`;
   if (models.length === 1) {
     return (

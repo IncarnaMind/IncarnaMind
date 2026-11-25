@@ -37,6 +37,8 @@ const bridge = {
     return claude;
   },
   listAgentsToAsk: async () => [claude],
+  now: null as NoteTurnEvent | null,
+  noteTurnNow: async () => bridge.now,
 };
 const methods = new Proxy(bridge, {
   get: (each, name) =>
@@ -58,6 +60,7 @@ const {
   askFromSelection,
   askInNote,
   firstWordsOf,
+  seedRunning,
   selectedForRequest,
   useNoteAsks,
 } = await import("../../src/renderer/src/ownAiInNote");
@@ -77,10 +80,14 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   waiting: [],
   made: [],
   fresh: false,
+  renewed: false,
   quiet: false,
   model: null,
   steps: [],
   documentsFound: 0,
+  questions: [],
+  mode: null,
+  modeNew: false,
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {
@@ -257,5 +264,36 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(selectedForRequest(withCitation)?.selection).toEqual([
       { blockId: "c", before: "", after: ` rose.${NODE_CHARACTER}` },
     ]);
+  });
+});
+
+describe("what the User's own AI asks (#3653)", () => {
+  const question = {
+    id: "q1",
+    action: { kind: "command" as const, value: "python3 late.py" },
+    answers: ["deny" as const, "once" as const],
+    suggested: [],
+    read: null,
+  };
+
+  // protects=a window opened while a question waits (on macOS, the window closed and opened again while the run goes on) shows its card and the waiting dot, from the core; fails_when=the question shows only in the window that was open when it came
+  test("a window opened while a question waits reads it from the core", async () => {
+    useNoteAsks.setState({ byMind: {} });
+    bridge.now = event({ questions: [question] });
+    await seedRunning("m1");
+    expect(ask()).toMatchObject({ state: "working", turnId: "t1", questions: [question] });
+    // A window that already knows of the request keeps what it knows.
+    bridge.now = event({ questions: [] });
+    await seedRunning("m1");
+    expect(ask()?.questions).toEqual([question]);
+  });
+
+  // protects=a question no longer shows once the request ends, whatever the event before said; fails_when=a stopped or landed request keeps its card
+  test("leaves no question once the request ends", () => {
+    useNoteAsks.setState({ byMind: {} });
+    tell(event({ questions: [question] }));
+    expect(ask()?.questions).toEqual([question]);
+    tell(event({ state: "landed", questions: [question] }));
+    expect(ask()?.questions).toEqual([]);
   });
 });

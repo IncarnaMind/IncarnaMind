@@ -68,6 +68,15 @@ export const escapeNames = (text: string) => text.replace(/¶/g, "\\¶");
 export const unescapeNames = (text: string) => text.replace(/\\¶/g, "¶");
 
 /**
+ * A paragraph's text that begins as a status after its name does, "(…)", with one backslash more
+ * at its start, as Markdown escapes a mark: "(Draft) …" stays the User's words (#3653).
+ */
+export const escapeOpening = (text: string) => (/^[(（]/.test(text) ? `\\${text}` : text);
+
+/** `escapeOpening` undone, at the start of each paragraph. */
+export const unescapeOpening = (text: string) => text.replace(/(^|\n\n)\\([(（])/g, "$1$2");
+
+/**
  * What a reply's paragraph says it is by its name: the passage's paragraph it `replaces` (¶3), or a
  * new one that `follows` one of them (¶3+) or the reply's paragraph before it (¶+, null).
  */

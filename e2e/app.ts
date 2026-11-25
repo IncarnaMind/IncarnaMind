@@ -4657,3 +4657,34 @@ export async function film<T>(window: Page, run: () => Promise<T>): Promise<T> {
     await session.detach();
   }
 }
+
+/** A second window of the app on the same data, as comparisons.spec.ts opens one. */
+export async function secondWindow(app: ElectronApplication): Promise<Page> {
+  const info = await app.evaluate(({ app: electronApp, BrowserWindow }) => {
+    const [first] = BrowserWindow.getAllWindows();
+    if (!first) throw new Error("The app has no window.");
+    return {
+      url: first.webContents.getURL(),
+      preload: `${electronApp.getAppPath()}/out/preload/index.js`,
+    };
+  });
+  const spawned = app.waitForEvent("window");
+  await app.evaluate(({ BrowserWindow }, values) => {
+    const win = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      show: true,
+      webPreferences: {
+        preload: values.preload,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    void win.loadURL(values.url);
+  }, info);
+  const second = await spawned;
+  await second.waitForLoadState("domcontentloaded");
+  await second.getByTestId("plus-menu").waitFor();
+  return second;
+}

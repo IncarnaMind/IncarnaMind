@@ -38,6 +38,8 @@ const PROBLEM_OF: Record<OwnAiFailure, OwnAiCheckProblem> = {
   outside: "outside",
   unreadable: "unreadable",
   service: "service",
+  // A check's sealed run registers no hook.
+  update: "failed",
   other: "failed",
 };
 

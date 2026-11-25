@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { core } from "../../core";
 import { useT } from "../../i18n";
@@ -18,6 +19,7 @@ import {
   listen,
   moveConversation,
   openColumnAt,
+  seedRunning,
   selectedForRequest,
   setColumnOpen,
   stopInNote,
@@ -36,6 +38,7 @@ import {
 import { type InputCarry, NoteAskInput } from "./NoteAskInput";
 import { NoteAskPill } from "./NoteAskPill";
 import { NoteColumn, NoteConversationBody } from "./NoteColumn";
+import { ASKS_NOTHING, QuestionCard } from "./OwnAsk";
 
 /** Under this width the column can't stand beside the Note: it opens as a sheet over it. */
 const BESIDE_FROM = 1100;
@@ -85,6 +88,7 @@ function NoteAskBox({
   columnSlot: HTMLElement | null;
   overSlot: HTMLElement | null;
 }) {
+  const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const [words, setWords] = useState("");
   const carry = useRef<InputCarry | null>(null);
@@ -97,7 +101,20 @@ function NoteAskBox({
   // With no column to open in, it opens upward.
   const upward = place === "upward" || slot === null;
   useEffect(listen, []);
+  // A window opened while a request runs hears of it, and of what its AI asks, from the record.
+  useEffect(() => {
+    seedRunning(mindId).catch((error: unknown) =>
+      console.warn("The request running in this Note couldn't be read:", error),
+    );
+  }, [mindId]);
   const working = ask?.state === "working";
+  const [question] = ask?.state === "working" ? ask.questions : [];
+  // Folded, a question shows its card in the box, which grows over the Note as the conversation
+  // does upward, and goes back once it is answered (#3653).
+  const asking = question !== undefined && !open;
+  // An AI set to ask nothing says so once in the box too, where the User sees it (#3653).
+  const unasking = working && !open && ASKS_NOTHING.has(ask?.mode ?? "") ? ask?.mode : undefined;
+  const floating = (upward && open) || asking || unasking !== undefined;
   // With no conversation yet there is nothing to open: no handle, and the box is its input row.
   const kept = useKeptConversation(mindId, ask?.state ?? null);
 
@@ -132,6 +149,17 @@ function NoteAskBox({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // The card never takes the focus: Shift+Tab from the input reaches its answers, on Deny (#3653).
+    if (event.key === "Tab" && event.shiftKey && question) {
+      const deny = document.querySelector<HTMLButtonElement>(
+        `[data-testid="own-ask-card"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="own-ask-deny"]`,
+      );
+      if (deny) {
+        event.preventDefault();
+        deny.focus();
+        return;
+      }
+    }
     if (event.key === "Escape") {
       if (working) void stopInNote(mindId);
       else if (open) setColumnOpen(mindId, false);
@@ -150,7 +178,7 @@ function NoteAskBox({
   const foot = useRef<HTMLDivElement>(null);
   const folded = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (!open && foot.current) folded.current = foot.current.offsetHeight;
+    if (!open && !asking && foot.current) folded.current = foot.current.offsetHeight;
   });
   const toggle = () => setColumnOpen(mindId, !open);
   useEffect(() => {
@@ -202,7 +230,19 @@ function NoteAskBox({
         )
       }
       panel={
-        upward && open ? (
+        asking ? (
+          <div data-testid="note-ask-panel" className="note-ask-panel own-ask-panel">
+            <div className="note-ask-panel-body">
+              <QuestionCard question={question} agent={agent} mindId={mindId} />
+            </div>
+          </div>
+        ) : unasking ? (
+          <div data-testid="note-ask-panel" className="note-ask-panel own-ask-panel">
+            <p data-testid="note-ask-mode" className="note-ask-panel-body own-mode">
+              {t(`ownAsk.mode.${unasking}` as MessageKey, { agent })}
+            </p>
+          </div>
+        ) : upward && open ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">
             <NoteConversationBody
               mindId={mindId}
@@ -226,8 +266,8 @@ function NoteAskBox({
       ref={foot}
       data-testid="note-ask"
       data-mind-id={mindId}
-      data-upward-open={upward && open ? "" : undefined}
-      style={upward && open && folded.current !== null ? { height: folded.current } : undefined}
+      data-upward-open={floating ? "" : undefined}
+      style={floating && folded.current !== null ? { height: folded.current } : undefined}
       className="note-ask"
     >
       {input}

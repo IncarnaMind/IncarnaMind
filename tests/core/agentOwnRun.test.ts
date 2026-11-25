@@ -722,6 +722,9 @@ describe("a Check run on the User's own Codex in the background (#3639)", () => 
       ({ flow }) =>
         flow.id === "hosted-agents" && flow.service.id === `agent:${chatgpt?.pairing.id}`,
     );
-    expect(hosted).toMatchObject({ consent: "not-asked", added: ["note-requests", "selection"] });
+    expect(hosted).toMatchObject({
+      consent: "not-asked",
+      added: ["note-requests", "selection", "own-ai-context"],
+    });
   });
 });
