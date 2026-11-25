@@ -2938,8 +2938,16 @@ export async function fromConversationMenu(
   scope: Locator,
   item: string,
 ): Promise<void> {
-  await pointAndClick(window, scope.getByTestId("conversation-name").first());
-  await pointAndClick(window, scope.getByTestId("conversation-menu").getByTestId(item));
+  const menu = scope.getByTestId("conversation-menu");
+  // A press while the box still grows open can land beside the name: pressed again until it opens.
+  await expect(async () => {
+    if (!(await menu.isVisible())) {
+      await motionSettled(window);
+      await pointAndClick(window, scope.getByTestId("conversation-name").first());
+    }
+    await expect(menu.getByTestId(item)).toBeVisible({ timeout: 2000 });
+  }).toPass();
+  await pointAndClick(window, menu.getByTestId(item));
 }
 
 /**

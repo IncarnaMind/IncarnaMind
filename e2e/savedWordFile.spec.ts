@@ -7,6 +7,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
+  fromConversationMenu,
   frontMind,
   launchApp,
   pathsOpened,
@@ -159,7 +160,7 @@ for (const language of ["en", "zh-CN"] as const) {
         )
         .toBe("landed");
       await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
-      await pointAndClick(window, group.getByTestId("conversation-move-left"));
+      await fromConversationMenu(window, group, "conversation-move-left");
 
       // Its step names the file and its kind, with Export's own Open and Show in Finder.
       const card = window.getByTestId("note-column-saved");
@@ -188,7 +189,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const { app, window, words, group } = await noteInFront(language, "word-wait");
     try {
       await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
-      await pointAndClick(window, group.getByTestId("conversation-move-left"));
+      await fromConversationMenu(window, group, "conversation-move-left");
       const column = window.getByTestId("note-column");
       const card = column.getByTestId("note-column-saved");
       await expect(card).toContainText(`${words.title}.docx`, { timeout: 30_000 });
