@@ -9,7 +9,8 @@ import { Tip } from "../Tip";
 /**
  * Home's one line for someone who set up Meetings before the offers to take notes were built
  * (#189): they never read the sheet that turns them on, so nothing is turned on for them. Turn on
- * does what that sheet does; ✕ and Turn on each end the line for good.
+ * does what that sheet does; ✕ and Turn on each end the line for good. A data folder that keeps
+ * running in the menu bar has them from its first start (#3758), or its User chose.
  */
 export function CallOffersTip() {
   const t = useT();
@@ -20,7 +21,8 @@ export function CallOffersTip() {
       state.settings !== null &&
       state.settings.meetingAudio !== "none" &&
       state.settings.device.meetingNoticeAccepted &&
-      !state.settings.device.callOffers,
+      !state.settings.device.callOffers &&
+      !state.settings.device.keepRunning,
   );
   const shown = useFeatureTip("call-offers", "home", wanted);
   if (!shown) return null;

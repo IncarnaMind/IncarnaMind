@@ -20,7 +20,7 @@ import {
   type Settings,
   type TaskKind,
 } from "../core";
-import type { SandboxProblem } from "../core/api";
+import type { CallWatchProblem, SandboxProblem } from "../core/api";
 import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
@@ -57,7 +57,12 @@ import {
 } from "./instanceUpdate";
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
-import { createFileLoginItem, createSystemLoginItem, openedAtLogin } from "./loginItem";
+import {
+  createFileLoginItem,
+  createSystemLoginItem,
+  openedAtLogin,
+  usesSystemLoginItems,
+} from "./loginItem";
 import { isCaptureWindow } from "./meetings/captureWindow";
 import { isGuideWindow, servePermissionGuide } from "./meetings/guide";
 import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
@@ -102,9 +107,10 @@ const engineCheckReport = app.commandLine.getSwitchValue(CHECK_ENGINES_SWITCH);
 
 // Points the app at another data folder: the smoke test uses a temporary one, and the engine check
 // one of its own. Set before anything reads `userData`, so Chromium's own data moves there too.
+// An empty INCARNAMIND_DATA_DIR names no folder, so the app starts on its own.
 const dataDirOverride =
-  process.env.INCARNAMIND_DATA_DIR ?? (engineCheckReport ? engineCheckDataFolder() : undefined);
-if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
+  process.env.INCARNAMIND_DATA_DIR || (engineCheckReport ? engineCheckDataFolder() : undefined);
+if (dataDirOverride !== undefined) app.setPath("userData", resolve(dataDirOverride));
 
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
 const logger = startLogging(app.getPath("userData"));
@@ -115,9 +121,14 @@ let keepsRunning: () => boolean = (() => {
   const kept = keptRunning(app.getPath("userData"));
   return () => kept;
 })();
+const systemLoginItems = usesSystemLoginItems({
+  packaged: app.isPackaged,
+  testBuild: import.meta.env.MODE === "test",
+  otherDataFolder: dataDirOverride !== undefined,
+});
 // Opened at login while it keeps running in the background, it starts with only its tray icon.
 const startedWithoutWindow = startsWithoutWindow(
-  openedAtLogin(process.platform, process.argv, app.isPackaged ? app : null),
+  openedAtLogin(process.platform, process.argv, systemLoginItems ? app : null),
   keepsRunning(),
 );
 
@@ -285,14 +296,21 @@ async function testTaskKinds(): Promise<TaskKind[]> {
 /**
  * Which call apps use the microphone, for the offers to take notes (#208). A test build watches
  * nothing real: a smoke test that asks for it (INCARNAMIND_TEST_CALLS=1) drives a fake, as
- * `globalThis.incarnamindFakeCalls`.
+ * `globalThis.incarnamindFakeCalls`, which INCARNAMIND_TEST_CALLS_PROBLEM makes a watcher that
+ * can't notice calls here.
  */
 function callWatching(): { callWatcher?: CallWatcher } {
   if (import.meta.env.MODE === "test") {
     if (process.env.INCARNAMIND_TEST_CALLS !== "1") return {};
+    const given = process.env.INCARNAMIND_TEST_CALLS_PROBLEM;
+    const problem: CallWatchProblem | undefined =
+      given === "no-pactl" || given === "not-on-windows" || given === "unavailable"
+        ? given
+        : undefined;
     const fake = {
       ...createFakeCallWatcher(),
       endRecordingOnRelease: process.platform !== "win32",
+      ...(problem && { problem }),
     };
     (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
     return { callWatcher: fake };
@@ -652,13 +670,14 @@ app.whenReady().then(async () => {
       ...adapters,
       notifications: createSystemNotifications(appWindows),
       ...callWatching(),
-      loginItem: app.isPackaged
+      loginItem: systemLoginItems
         ? createSystemLoginItem({
             platform: process.platform,
             app,
             program: process.env.APPIMAGE ?? process.execPath,
             configHome: process.env.XDG_CONFIG_HOME || join(homeFolder(), ".config"),
             openUrl: (url) => systemBrowser.open(url),
+            log: logger,
           })
         : createFileLoginItem(app.getPath("userData")),
       ...(executor && { executor }),
@@ -723,6 +742,8 @@ app.whenReady().then(async () => {
     showSettings: () => showFrontAndSend(FILES_CHANNELS.menuCommand, "settings.open"),
     showOffer: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerShown", null),
     showOfferLinkFailure: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerLinkFailed", null),
+    showOfferNotice: (offerId) =>
+      showFrontAndSend(EVENT_CHANNEL, "meetings.offerNoticeShown", { offerId }),
     keepRunning: keepsRunning(),
     quit: () => appEnd.quit("tray"),
     testHooks,

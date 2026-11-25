@@ -256,11 +256,17 @@ test("a page that crashes a third time in a minute is left, and the log says so"
   expect(countOf(await logOf(), / INFO {2}window\.reopened reason=killed\n/)).toBe(2);
 });
 
-test("on Windows and Linux, closing the last window quits, and the log says so", async () => {
+test("on Windows and Linux, with Keep running in the tray off, closing the last window quits, and the log says so", async () => {
   test.skip(process.platform === "darwin", "On macOS the app stays open with no window.");
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await expect(window.getByTestId("plus-menu")).toBeVisible();
+  // On from a new data folder's first start (#3758): only with it off does the last window quit.
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      device: { keepRunning: false },
+    }),
+  );
   const closed = new Promise<void>((resolve) => app.once("close", () => resolve()));
   await app.evaluate(({ BrowserWindow }) => {
     const main = BrowserWindow.getAllWindows().find((each) =>

@@ -830,6 +830,11 @@ export interface CallWatcher {
   /** Whether a known microphone release can start the countdown to stop recording. */
   endRecordingOnRelease?: boolean;
   /**
+   * Why calls can't be noticed with this copy, when the host knows before watching (this build has
+   * no watcher program, the computer has no `pactl`). `watch` says it too.
+   */
+  problem?: CallWatchProblem;
+  /**
    * Starts watching: `apps` gets the ids of the call apps using the microphone now
    * (src/shared/meetingApps.ts), then again each time that changes; `problem` once this computer
    * can't tell. A watcher that stopped says nothing until it runs again: no apps is never what it

@@ -32,6 +32,8 @@ export interface BackgroundHostOptions {
   /** Shows the window on Home, which holds the offer. */
   showOffer(): void;
   showOfferLinkFailure(): void;
+  /** Shows the recording notice in the window, whose Start takes the offer. */
+  showOfferNotice(offerId: string): void;
   quit(): void;
   /** A test build: the tray's menu and the notifications are reached through `globalThis`. */
   testHooks: boolean;
@@ -73,8 +75,13 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
     takeOffer: (offerId) => {
       options.showWindow();
       void core.takeMeetingOffer(offerId).catch((error: unknown) => {
-        if (error instanceof TranslatableError && error.wording?.key === "error.meetingOffer.link")
-          options.showOfferLinkFailure();
+        const key = error instanceof TranslatableError ? error.wording?.key : undefined;
+        // An offer taken before Meetings are set up waits for the recording notice (#3758).
+        if (key === "error.meeting.noticeUnread") {
+          options.showOfferNotice(offerId);
+          return;
+        }
+        if (key === "error.meetingOffer.link") options.showOfferLinkFailure();
         failed("takeOffer")(error);
       });
     },
