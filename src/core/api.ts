@@ -13178,6 +13178,7 @@ export const AGENT_TOOLS = [
   "update_canvas",
   "read_request",
   "hand_over_file",
+  "save_as_word",
 ] as const;
 
 /**
@@ -13729,7 +13730,15 @@ export type NoteStep =
       waiting?: number;
       /** False when the call was refused or failed. */
       done?: boolean;
+      /** The file it saved in the Output location, which the User can open or show (#3751). */
+      file?: AgentSavedFile;
     };
+
+/** A file an agent's call saved in the Output location: where it is, and its name. */
+export interface AgentSavedFile {
+  path: string;
+  name: string;
+}
 
 /** A model the User's own AI offers, as it lists them itself (#3677). */
 export interface NoteModel {

@@ -100,8 +100,16 @@ const NOTHING_IN_SIGHT: Looking = { open: [], folders: [], documents: [] };
 export interface HandedFileAsked {
   title: string;
   version: number;
-  /** The path the agent handed it over from. */
-  path: string;
+  /**
+   * Where it came from: the path the agent handed it over from, or the Note or text IncarnaMind
+   * wrote it from with `save_as_word` (#3751), fixed there and saved again into the same item:
+   * `folderId` to save with, null where a save names none to reach it; `own`, the agent wrote the
+   * Note, so its fix lands at once rather than waiting for the User.
+   */
+  from:
+    | { kind: "path"; path: string }
+    | { kind: "note"; mindId: string; own: boolean; folderId: string | null }
+    | { kind: "text"; folderId: string };
   /** Where in the file the claim a check result is on stands ("slide 4"); null when unknown. */
   whereOf(checkId: string | null): string | null;
 }
@@ -137,7 +145,7 @@ export function agentRequest(
   const title = quotedName(note.title);
   const named = { title, mindId: note.mindId };
   if (file && (ask.kind === "fix" || ask.kind === "note" || ask.kind === "question")) {
-    return fileRequest(file, ask, say);
+    return fileRequest(file, note.mindId, ask, say);
   }
   switch (ask.kind) {
     case "meeting":
@@ -283,21 +291,64 @@ function questionRequest(
   };
 }
 
-/** A request about a file the agent handed over: fixed in the file, and handed over again (#3412). */
+/**
+ * The words of a request about a handed-over file, by where it came from: a file the agent fixes and
+ * hands over again (#3412), or a Note or text IncarnaMind wrote, fixed there and saved again (#3751).
+ */
+const FILE_REQUESTS = {
+  path: {
+    about: "agents.ask.request.noteFile",
+    fix: "agents.ask.request.fixFile",
+    fixAll: "agents.ask.request.fixFileAll",
+  },
+  ownNote: {
+    about: "agents.ask.request.wordNote",
+    fix: "agents.ask.request.fixWordNote",
+    fixAll: "agents.ask.request.fixWordNoteAll",
+  },
+  // The User's Note: the fix waits for their accept, and no waiting change goes into a file.
+  note: {
+    about: "agents.ask.request.wordNote",
+    fix: "agents.ask.request.fixWordNoteWaits",
+    fixAll: "agents.ask.request.fixWordNoteAllWaits",
+  },
+  text: {
+    about: "agents.ask.request.wordText",
+    fix: "agents.ask.request.fixWordText",
+    fixAll: "agents.ask.request.fixWordTextAll",
+  },
+} as const satisfies Record<string, Record<string, MessageKey>>;
+
+const wordsOf = (from: HandedFileAsked["from"]) =>
+  FILE_REQUESTS[from.kind === "note" && from.own ? "ownNote" : from.kind];
+
+/** A request about a file the agent handed over, or IncarnaMind wrote for it; `checkedIn`: its check's Note. */
 function fileRequest(
   file: HandedFileAsked,
+  checkedIn: string,
   ask: Extract<AgentAsk, { kind: "fix" | "note" | "question" }>,
   say: Say,
 ): AgentRequestText {
   const title = quotedName(file.title);
-  const named = { title, version: file.version, path: file.path };
+  const { from } = file;
+  const words = wordsOf(from);
+  const folderId = from.kind === "path" ? null : from.folderId;
+  const named = {
+    title,
+    version: file.version,
+    path: from.kind === "path" ? from.path : "",
+    // A Note's file is fixed in the Note; a text's, read from the Note its check is in.
+    mindId: from.kind === "note" ? from.mindId : checkedIn,
+    folderId: folderId ?? "",
+    folder: folderId === null ? "" : say("agents.ask.request.wordFolder", { folderId }),
+  };
   if (ask.kind !== "fix") {
     return {
       line:
         ask.kind === "question"
           ? say("agents.ask.line.question", { title, question: ask.text })
           : say("agents.ask.line.note", { title }),
-      request: say("agents.ask.request.noteFile", named),
+      request: say(words.about, named),
       sentences: [],
     };
   }
@@ -313,7 +364,7 @@ function fileRequest(
   if (only && ask.sentences.length === 1) {
     return {
       line: say("agents.ask.line.fixFile", { title }),
-      request: say("agents.ask.request.fixFile", {
+      request: say(words.fix, {
         ...named,
         where: whereOf(only),
         sentence: quotedName(only.sentence),
@@ -325,7 +376,7 @@ function fileRequest(
   }
   return {
     line: say("agents.ask.line.fixFileAll", { title, count: ask.sentences.length }),
-    request: say("agents.ask.request.fixFileAll", {
+    request: say(words.fixAll, {
       ...named,
       count: ask.sentences.length,
       sentences: ask.sentences

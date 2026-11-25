@@ -32,6 +32,7 @@ const DOING: Partial<Record<AgentToolName, MessageKey>> = {
   calculate: "noteAsk.doing.run_analysis",
   publish_canvas: "noteAsk.doing.publish_canvas",
   update_canvas: "noteAsk.doing.publish_canvas",
+  save_as_word: "noteAsk.doing.save_as_word",
 };
 
 /** What the pill says of a call as it starts, before it names what it reads or writes. */
@@ -41,6 +42,7 @@ const STARTED: Partial<Record<AgentToolName, MessageKey>> = {
   read_passages: "noteAsk.doing.read_passages.any",
   propose_changes: "noteAsk.doing.propose_changes.any",
   create_mind: "noteAsk.doing.create_mind.any",
+  save_as_word: "noteAsk.doing.save_as_word.any",
 };
 
 /** The seconds appear once a request has run this long, as the User's AI app shows them. */

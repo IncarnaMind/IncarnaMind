@@ -986,6 +986,7 @@ describe("outside agents", () => {
         "read_request",
         "report_check",
         "run_analysis",
+        "save_as_word",
         "search",
         "show_citation",
         "update_canvas",
@@ -1023,14 +1024,18 @@ describe("outside agents", () => {
     // every Document one list answer holds (#3626); 3,455 before show_citation showed a Note, file or
     // Canvas again by its id (#3534); 3,416 before search said its ready Citation is for its own
     // sentence only (found in #3667); 3,435 before search answered with no ready Citation at all;
-    // 3,479 before report_check took a change and the quotes that say otherwise (#3715).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_617);
+    // 3,479 before report_check took a change and the quotes that say otherwise (#3715); 3,617
+    // before save_as_word (#3751); 3,751 before it saved its file where Export › Word saves one,
+    // said where, and hand_over_file named a Word file already on disk as its own (#3751); 3,779
+    // before save_as_word said the file it keeps is not to be handed over too (#3751).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_787);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);
-      // Seven write: Proposals the User decides on, a new Note that changes none there is, the marks
+      // These write: Proposals the User decides on, a new Note that changes none there is, the marks
       // of a check on a Note the agent wrote, IncarnaMind's or the agent's own, a Canvas or a
-      // version of one (#3406), and a file the agent hands over, or a version of it (#3412).
+      // version of one (#3406), a file the agent hands over, or a version of it (#3412), and a Word
+      // file IncarnaMind writes for it, kept the same way (#3751).
       expect(tool.annotations?.readOnlyHint).toBe(
         ![
           "propose_changes",
@@ -1041,6 +1046,7 @@ describe("outside agents", () => {
           "publish_canvas",
           "update_canvas",
           "hand_over_file",
+          "save_as_word",
         ].includes(tool.name),
       );
       expect(tool.annotations?.destructiveHint).toBe(false);
