@@ -200,3 +200,16 @@ export async function started(
 
 export const handOver = (agent: Agent, args: Record<string, unknown>) =>
   agent.callTool({ name: "hand_over_file", arguments: args });
+
+/** A promise to hold a step at, and how to let it go. */
+export function gate() {
+  let open = () => {};
+  const shut = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  let reached = () => {};
+  const at = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  return { shut, open: () => open(), at, reached: () => reached() };
+}

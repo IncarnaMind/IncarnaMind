@@ -517,7 +517,10 @@ export function createHandOver(deps: HandOverDeps) {
     // A file IncarnaMind wrote for this agent, handed over again from where it saved it: that item.
     const written =
       known || input.written === true ? null : writtenWith(input.pairingId, contentHash);
-    if (written) return doneOf(written.file, written.newest);
+    if (written) {
+      requireReach(input, written.file);
+      return doneOf(written.file, written.newest);
+    }
     // Two Documents never hold the same file (ADR-0003); in a Linked folder its Document is this.
     if (
       deps.contentHashInUse(

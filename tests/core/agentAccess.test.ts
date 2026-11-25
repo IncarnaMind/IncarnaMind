@@ -116,6 +116,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       mint: () => {
         throw new Error("Not called.");
       },
+      documentsOf: () => new Set(),
     },
     requests: { ofPairing: () => [], markRead: () => null },
     askedChecks: { holds: () => false, end: () => undefined },
@@ -769,6 +770,7 @@ for (const language of ["en", "zh-CN"] as const) {
           mint: () => {
             throw new Error("Not called.");
           },
+          documentsOf: () => new Set(),
         },
         recheck: (input) => recheckCitation(documents, input),
         minds: () => [

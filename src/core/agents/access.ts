@@ -2388,8 +2388,13 @@ export function createAgentAccess(
     },
     noteInScope: mindInScope,
     placeToWriteIn,
+    // Not `checkReach`: a file another agent cited by its path is one read_mind hides from this one.
     reaches: (pairing) => {
-      const reach = checkReach(pairing);
+      const own = deps.citations.documentsOf(pairing.id);
+      const reach = new Set([
+        ...scopeOf(pairing, undefined),
+        ...deps.citedFiles().filter((documentId) => own.has(documentId)),
+      ]);
       return (documentId) => reach.has(documentId);
     },
     draftTitle,

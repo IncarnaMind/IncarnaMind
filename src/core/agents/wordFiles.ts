@@ -188,6 +188,9 @@ export function createWordFileTool(context: WordFileToolContext) {
                 return { file: { place: path, title, kind: "docx", bytes }, documentIds: [] };
               },
               kept,
+              stillReached: (now) => {
+                context.noteInScope(now, mind.id);
+              },
             };
           }
           const title = context.draftTitle(input.title);

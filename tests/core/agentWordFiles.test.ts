@@ -16,6 +16,7 @@ import type { Core } from "../../src/core";
 import type { Pictures } from "../../src/core/adapters";
 import { createFakeAnalysisRuntime, type FakeAnswer } from "../../src/core/analysis/fake";
 import { MIND_COMMENTS_FIELD, MIND_WORD_FIELD } from "../../src/core/api";
+import { createFakeTextRecognizer } from "../../src/core/documents/scan/fake";
 import { NotFoundError } from "../../src/core/errors";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noAnalysisOutput } from "../../src/shared/analysis";
@@ -33,11 +34,12 @@ import { askAssistant } from "../helpers/assistant";
 import { checkGenerate } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { sortReply } from "../helpers/claimSentences";
-import { tickingClock } from "../helpers/core";
+import { NO_MODEL_FILES, type TestAdapters, tickingClock } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, paragraphsOf, part, unzip } from "../helpers/docx";
 import {
   type Agent,
+  gate,
   type Handed,
   handOver,
   NORTH,
@@ -50,6 +52,7 @@ import {
 import { connectToMind } from "../helpers/mindClient";
 import { readMind, resolveChanges, writeMind } from "../helpers/minds";
 import { type GenerateCall, type ModelCall, scriptedModel } from "../helpers/models";
+import { buildPdf } from "../helpers/pdf";
 
 interface Saved extends Handed {
   citations: { cite: string; check: string; document: string | null }[];
@@ -1282,4 +1285,217 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     expect(refusal(await save(agent, { title: "Brief", markdown: "Hi." }))).toBe(words);
     expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toEqual([]);
   });
+
+  // protects=the Word file IncarnaMind saved, handed over again from where it was saved once the User took its item's Folder from the agent, is refused as any item out of the agent's reach is, though its check Note was moved where the agent still reaches it, and nothing new is kept (#3751); fails_when=the call answers with the item, its version or its check while its Folder is out of the agent's reach
+  it("refuses the saved Word file handed over again once its Folder is out of the agent's reach", async () => {
+    const { core, coast, writer, more } = await started([], {
+      asItLands: false,
+      folders: ["Moorings"],
+    });
+    const moorings = more[0]?.id ?? "";
+    await core.setOutputLocation(await createSourceFolder());
+    const agent = await connectLegacyAgent(writer.launch);
+    const saved = structured<Saved>(
+      await save(agent, { title: "Quay counts", markdown: OFFICE, folderId: coast.id }),
+    );
+    await core.moveToFolder({ mindIds: [saved.mindId ?? ""], folderId: moorings });
+    await core.updateAgent(writer.pairing.id, { folderIds: [moorings] });
+    const documents = await core.listDocuments();
+    const minds = await core.listMinds();
+
+    const handed = await handOver(agent, { path: saved.saved ?? "", folderId: moorings });
+    expect(refusal(handed)).toBe(translate("en", "agents.handOver.notFound"));
+    expect(await core.listDocuments()).toHaveLength(documents.length);
+    expect(await core.listMinds()).toHaveLength(minds.length);
+    expect((await core.handedFileOf(saved.mindId ?? ""))?.file.version).toBe(1);
+  });
+
+  // protects=a Note's Word file is kept only while the agent still reaches the Note: one the User moved out of its reach while the file was written is refused as at the call's start, with no Document, no check Note and no file in the Output location (#3751); fails_when=the Word file of a Note the agent no longer reaches is kept in the Library, gets a check Note, or is saved for the User
+  it("refuses a Note moved out of the agent's reach while its Word file is written, and keeps nothing", async () => {
+    const saving = await chartedNoteSaving();
+    const asked = saving.save();
+    await saving.drawn;
+    await saving.moveOutOfReach();
+    saving.draw();
+    expect(refusal(await asked)).toBe(await saving.refusedNow());
+    await saving.keptNothing();
+  });
+
+  // protects=a Note's Word file waiting its turn behind another hand-over is kept only if the agent still reaches the Note when its turn comes: one the User moved meanwhile is refused, with no Document, no check Note and no file in the Output location (#3751); fails_when=the queued call keeps the Word file of a Note the agent reached only when the call began
+  it("refuses a Note moved out of the agent's reach while its Word file waits its turn, and keeps nothing", async () => {
+    const scan = gate();
+    const recognizer = createFakeTextRecognizer({
+      script: { pages: { 1: { lines: ["The lease of the boathouse ends in 2029."] } } },
+    });
+    const saving = await chartedNoteSaving({
+      textRecognizer: {
+        load: (files) => recognizer.load(files),
+        async read(page, number) {
+          scan.reached();
+          await scan.shut;
+          return recognizer.read(page, number);
+        },
+        readFile: (file, number) => recognizer.readFile(file, number),
+        close: () => recognizer.close(),
+      },
+      textRecognitionModelSource: NO_MODEL_FILES,
+    });
+    // A scanned PDF handed over first holds the hand-overs' turn while its page is read.
+    const lease = join(saving.files, "Boathouse lease.pdf");
+    await writeFile(lease, buildPdf([{ scan: SCANNED_PAGE }]));
+    const first = handOver(saving.agent, { path: lease, folderId: saving.coast });
+    await scan.at;
+    let answered = false;
+    const asked = saving.save().finally(() => {
+      answered = true;
+    });
+    await saving.drawn;
+    saving.draw();
+    // The rest of the file is written in moments, and the call then waits its turn.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await saving.moveOutOfReach();
+    expect(answered).toBe(false);
+    scan.open();
+    structured(await first);
+    expect(refusal(await asked)).toBe(await saving.refusedNow());
+    await saving.keptNothing();
+  });
+
+  // protects=a Note left where the agent reaches it while its Word file is written is saved as before: in the Library with its check Note, and in the Output location (#3751); fails_when=reading the Note's reach again refuses or loses a file the agent may have
+  it("saves a Note's Word file as before when the Note stays in the agent's reach as it is written", async () => {
+    const saving = await chartedNoteSaving();
+    const asked = saving.save();
+    await saving.drawn;
+    saving.draw();
+    const saved = structured<Saved>(await asked);
+    expect(saved).toMatchObject({ version: 1, saved: join(saving.output, "Harbour chart.docx") });
+    expect(saved.mindId).not.toBeNull();
+    expect((await saving.core.listDocuments()).filter((each) => each.kind === "docx")).toHaveLength(
+      1,
+    );
+    expect(readdirSync(saving.output)).toEqual(["Harbour chart.docx"]);
+  });
+
+  // protects=an agent's Word file names only sources its own read of the Note shows it: a file another agent cited by its path, which read_mind shows it as a Document not shared with it, keeps the Note from being written for it, in the words for any Document out of its reach, while the agent that cited the file gets the Word file (#3751); fails_when=the Word file's footnote names a file the agent's own read of the Note hides
+  it("writes no Word file naming another agent's file cited by its path, which read_mind hides", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    const citer = await connectLegacyAgent(writer.launch);
+    const notes = join(await createSourceFolder(), "Quay notes.md");
+    await writeFile(notes, "# Quay notes\n\nThe east quay holds 31 boats.\n");
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await citer.callTool({
+        name: "cite",
+        arguments: { citations: [{ path: notes, quote: "The east quay holds 31 boats" }] },
+      }),
+    );
+    const { mindId } = structured<{ mindId: string }>(
+      await citer.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Quays",
+          markdown: `The east quay holds 31 boats ${citations[0]?.cite}.`,
+          folderId: coast.id,
+        },
+      }),
+    );
+    const sharing = await core.connectAgent({
+      name: "Gemini CLI",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const other = await connectLegacyAgent(sharing.launch);
+
+    // The other agent reads the sentence, and its source only as one not shared with it.
+    const read = structured<{ markdown: string }>(
+      await other.callTool({ name: "read_mind", arguments: { mindId } }),
+    );
+    expect(read.markdown).toBe(
+      `# Quays\n\nThe east quay holds 31 boats[^1].\n\n[^1]: ${translate("en", "agents.mind.outsideCitation")}\n`,
+    );
+    const named = structured<{ markdown: string }>(
+      await other.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+    );
+    expect(named.markdown).toBe("¶0 # Quays\n\n¶1 The east quay holds 31 boats [kept:1].");
+
+    expect(refusal(await save(other, { mindId }))).toBe(UNSHARED.en);
+    expect(readdirSync(output)).toEqual([]);
+    expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toEqual([]);
+
+    // The agent that gave the file's path gets the Word file, its footnote naming the file.
+    const saved = structured<Saved>(await save(citer, { mindId }));
+    expect(partsOf(savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
+  });
 });
+
+const CHARTED = [
+  "Boats moor at dawn.",
+  "",
+  "| Quay | Boats |",
+  "|---|---|",
+  "| North | 42 |",
+  "| South | 19 |",
+  "",
+  "```chart",
+  '{"kind": "bar", "title": "Boats by quay"}',
+  "```",
+].join("\n");
+
+const SCANNED_PAGE = readFileSync(join(process.cwd(), "tests/fixtures/scans/en-clean.jpg"));
+
+/**
+ * The agent's `save_as_word` of a Note with a chart in Coast, held as its chart is drawn into the
+ * file (`drawn`) until `draw`; `moveOutOfReach` files the Note in a Folder the agent doesn't reach.
+ */
+async function chartedNoteSaving(adapters: TestAdapters = {}) {
+  const drawing = gate();
+  let holding = false;
+  const pictures: Pictures = {
+    png: async () => {
+      if (holding) {
+        holding = false;
+        drawing.reached();
+        await drawing.shut;
+      }
+      return PNG;
+    },
+  };
+  const { core, coast, writer, files } = await started([], {
+    asItLands: false,
+    adapters: { pictures, ...adapters },
+  });
+  const unshared = await core.createLibraryGroup({ name: "Board only", description: "" });
+  const output = await createSourceFolder();
+  await core.setOutputLocation(output);
+  const agent = await connectLegacyAgent(writer.launch);
+  const { mindId } = structured<{ mindId: string }>(
+    await agent.callTool({
+      name: "create_mind",
+      arguments: { title: "Harbour chart", markdown: CHARTED, folderId: coast.id },
+    }),
+  );
+  return {
+    core,
+    coast: coast.id,
+    files,
+    output,
+    agent,
+    save: () => {
+      holding = true;
+      return save(agent, { mindId });
+    },
+    drawn: drawing.at,
+    draw: drawing.open,
+    moveOutOfReach: () => core.moveToFolder({ mindIds: [mindId], folderId: unshared.id }),
+    /** The words a call made now is refused in, the Note out of the agent's reach. */
+    refusedNow: async () => refusal(await save(agent, { mindId })),
+    /** No Word file in the Library, no check Note of one, and none in the Output location. */
+    keptNothing: async () => {
+      expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toEqual([]);
+      const checkNote = translate("en", "verify.mindTitle", { name: "Harbour chart" });
+      expect((await core.listMinds()).map((each) => each.title)).not.toContain(checkNote);
+      expect(readdirSync(output)).toEqual([]);
+    },
+  };
+}

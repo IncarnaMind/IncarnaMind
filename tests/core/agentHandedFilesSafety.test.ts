@@ -19,6 +19,7 @@ import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/do
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import {
   DECK,
+  gate,
   type Handed,
   handOver,
   NEVER_CLOSES,
@@ -41,19 +42,6 @@ const en = translate.bind(null, "en") as (
   key: Parameters<typeof translate>[1],
   params?: Parameters<typeof translate>[2],
 ) => string;
-
-/** A promise to hold a step at, and how to let it go. */
-function gate() {
-  let open = () => {};
-  const shut = new Promise<void>((resolve) => {
-    open = resolve;
-  });
-  let reached = () => {};
-  const at = new Promise<void>((resolve) => {
-    reached = resolve;
-  });
-  return { shut, open: () => open(), at, reached: () => reached() };
-}
 
 /** The sentences the check of a version sent its model after `before` of `calls`. */
 const sentAfter = (calls: readonly ModelCall[], before: number) =>
