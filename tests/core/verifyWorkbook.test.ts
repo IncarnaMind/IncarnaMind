@@ -520,10 +520,10 @@ describe("Verify a workbook", () => {
     ]);
   });
 
-  // protects=a workbook's check hands the whole sheet (section headings, units and notes) to both the sort and the row judge, and a row the sort labels "note" is skipped rather than checked as a claim (#3506); fails_when=the sheet is omitted from verification, sort or claim prompts, or a "note" row is still sent to check
-  test("whole-sheet context reaches both sort and claim checks, and rows sorted as 'note' are skipped (#3506)", async () => {
+  // protects=a workbook's check hands the whole sheet (section headings, units and notes) to both the sort and the row judge, and a file-check sort never silently drops a row labelled "note" (#3506); fails_when=the sheet is omitted from verification, sort or claim prompts, or a file row labelled "note" is skipped instead of checked
+  test("whole-sheet context reaches both sort and claim checks, and file-check rows sorted as 'note' are still checked (#3506)", async () => {
     const { core, path, sortPrompts, checkPrompts } = await setUp(
-      { [RENT]: { verdict: "supported" } },
+      { [RENT]: { verdict: "supported" }, [SALARIES]: { verdict: "supported" } },
       {
         sort: (prompt) => {
           const replies: Record<string, string> = {};
@@ -558,6 +558,6 @@ describe("Verify a workbook", () => {
     const joined = checkPrompts.join("\n");
     expect(joined).toContain("<sheet>");
     expect(joined).toContain(RENT);
-    expect(joined).not.toContain(`<sentence>\n${SALARIES}`);
+    expect(joined).toContain(`<sentence>\n${SALARIES}`);
   });
 });

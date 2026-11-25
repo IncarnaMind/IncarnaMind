@@ -93,7 +93,8 @@ export function sheetSaidOf(
   const row = tableClaim(sentence, workbookCellsOf(verification));
   if (row === "not-a-claim") return undefined;
   const said = row ?? checkText(sentence);
-  return { ...said, context: held, onSheet: sheet };
+  const context = said.context ? `${said.context}\n\n${held}` : held;
+  return { ...said, context, onSheet: sheet };
 }
 
 /** A line as a file's check reads it: a table row whole with its headings, else the sentence. */

@@ -76,7 +76,10 @@ export async function claimsAmong(
   const instructions =
     whose === "someone-else" ? FIND_CLAIMS_INSTRUCTIONS : FIND_OWN_CLAIMS_INSTRUCTIONS;
   const partsOf = (number: number, word: SortWord) =>
-    sortedWhole(texts[number - 1]?.text ?? "", word);
+    sortedWhole(
+      texts[number - 1]?.text ?? "",
+      whose === "someone-else" && word === "note" ? "claim" : word,
+    );
   const ask = async (batch: Batch, tries: number): Promise<Asked> => {
     const numbers = batch.map((each) => each.number);
     let why = "no reply";
