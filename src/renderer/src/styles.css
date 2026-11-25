@@ -1174,12 +1174,8 @@
   .tab-strip[data-tight] :is(.tab-export, .note-conversation-button) {
     display: none;
   }
-  .tab-strip[data-tight] .tab-list {
-    flex-shrink: 0;
-  }
   .tab-strip[data-tight] .tab-strip-note {
-    flex: 0 1 auto;
-    min-width: 0;
+    max-width: var(--note-controls-room, none);
     overflow: hidden;
   }
   /* A narrow group keeps Split in its ⋯ menu. */

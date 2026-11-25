@@ -119,6 +119,8 @@ export function useTabStripFit(
         // shown tab's feet reach past it, and always read as overflow), still doesn't fit.
         band.removeAttribute("data-fit");
         delete band.dataset.tight;
+        const controls = band.querySelector<HTMLElement>('[data-testid="note-controls"]');
+        controls?.style.removeProperty("--note-controls-room");
         // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
         const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
         if (!fits()) {
@@ -133,11 +135,11 @@ export function useTabStripFit(
         const free = roomNow() - taken;
         // What the Note's controls hold, all of which they give up before the shown tab goes under
         // its least width; with nothing to give, the tab narrows as before.
-        const give =
-          band.dataset.tight === undefined
-            ? 0
-            : (band.querySelector('[data-testid="note-controls"]')?.scrollWidth ?? 0);
-        const room = Math.min(free + give, Math.max(free, least));
+        const held = band.dataset.tight !== undefined && controls ? controls.scrollWidth : 0;
+        const room = Math.min(free + held, Math.max(free, least));
+        if (controls && room > free) {
+          controls.style.setProperty("--note-controls-room", `${held - (room - free)}px`);
+        }
         // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
         // scroll or on who asked, so every place agrees and the strip comes to rest.
         if (shown >= 0) {
