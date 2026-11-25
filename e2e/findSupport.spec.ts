@@ -122,7 +122,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   const { editor, line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
   await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
-    "2 not checked",
+    "2 not checked yet",
   );
 
   await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
@@ -195,7 +195,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   // A Citation found is no verdict (#2831): the sentence, now cited, waits for a check of its own,
   // and no row counts its Citation.
   await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
-    "1 not checked",
+    "1 not checked yet",
   );
   await expect((await checkCard(window)).getByTestId("health-supported")).toHaveCount(0);
   await expect((await checkCard(window)).getByTestId("health-found")).toHaveCount(0);
@@ -206,7 +206,7 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await expect(marks(window)).toHaveAttribute("data-check", "needs-recheck");
   // Its Citation's check stands for the supported sentence, which has no mark now; the edited one is to check too.
   await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
-    "2 not checked",
+    "2 not checked yet",
   );
   await screenshot(window, "check-recheck-en");
   // The check card opens down from the badge at the Note's top right, over the Note's first lines (#3677): it closes first.

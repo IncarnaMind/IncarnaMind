@@ -1657,6 +1657,8 @@ export const zhCN = {
   "checks.row.checking": "{count} 句正在核对",
   "checks.row.notChecked.one": "1 句未核对",
   "checks.row.notChecked": "{count} 句未核对",
+  "checks.row.cantCheck.one": "1 句无法核对",
+  "checks.row.cantCheck": "{count} 句无法核对",
   "health.label": "核对结果",
   "health.notFound.one": "1 处引用未找到",
   "health.notFound": "{count} 处引用未找到",

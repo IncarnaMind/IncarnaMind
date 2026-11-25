@@ -56,7 +56,7 @@ const WORDS = {
     badgeName: "1 sentence not checked yet",
     afterBadgeWords: "1 needs a look",
     afterBadgeName: "1 needs a look",
-    toCheck: "1 not checked",
+    toCheck: "1 not checked yet",
     supported: "22 supported",
     supportedAfter: "22 supported",
     look: "1 needs a look",
