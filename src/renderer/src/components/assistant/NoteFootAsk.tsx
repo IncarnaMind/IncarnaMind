@@ -1,7 +1,9 @@
+import { useAgentsToAskRead, useReadAgentsToAsk } from "../../askYourAi";
 import { useT } from "../../i18n";
 import { useNoAiForNote, useOwnAiPillAt } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
+import { NoteCantReadLine } from "./NoteCantReadLine";
 import { OwnAiPill } from "./OwnAiPill";
 
 /**
@@ -14,6 +16,8 @@ export function NoteFootAsk({ mindId }: { mindId: string }) {
   const t = useT();
   const pill = useOwnAiPillAt(mindId);
   const noAi = useNoAiForNote(mindId);
+  useReadAgentsToAsk(null);
+  const connected = useAgentsToAskRead(null);
   const openSettings = useAppStore((state) => state.openSettings);
   if (pill) {
     return (
@@ -22,7 +26,14 @@ export function NoteFootAsk({ mindId }: { mindId: string }) {
       </div>
     );
   }
-  if (!noAi) return null;
+  if (!noAi || connected === null) return null;
+  if (connected.length > 0) {
+    return (
+      <div data-testid="note-foot-ask" data-mind-id={mindId} className="mind-measure note-foot-ask">
+        <NoteCantReadLine mindId={mindId} connected={connected} testId="note-ask-no-ai" />
+      </div>
+    );
+  }
   return (
     <div data-testid="note-foot-ask" data-mind-id={mindId} className="mind-measure note-foot-ask">
       <ProblemLine

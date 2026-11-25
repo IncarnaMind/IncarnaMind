@@ -8902,6 +8902,8 @@ export const zhCN = {
   "noteAsk.wholeNote": "改为针对整篇笔记",
   "noteAsk.command": "描述对这篇笔记的修改…",
   "noteAsk.noAi": "提问需要你的 AI",
+  "noteAsk.cantRead.one": "{agent} 无法读取这篇笔记",
+  "noteAsk.cantRead": "你的 AI 无法读取这篇笔记",
   "noteAsk.action.improve": "改进写法",
   "noteAsk.action.shorten": "缩短",
   "noteAsk.action.translate": "翻译成{language}",

@@ -45,6 +45,7 @@ export function MoveToPicker({
   current,
   forFolder,
   offeredFolderIds,
+  includeUnfiled = false,
   onChoose,
   onCreate,
   onClose,
@@ -58,6 +59,8 @@ export function MoveToPicker({
   /** Set while a Folder is moved: itself, so it and the Folders inside it can't be chosen. */
   forFolder?: LibraryGroup | undefined;
   offeredFolderIds?: readonly string[];
+  /** With `offeredFolderIds`, also offer "Not in a Folder" (e.g. an AI sharing all outside walls). */
+  includeUnfiled?: boolean;
   onChoose(folderId: string | null): void;
   /** Given, a name typed that no Folder has is offered as a new Folder to move into. */
   onCreate?(folderName: string): void;
@@ -71,8 +74,16 @@ export function MoveToPicker({
   const groups = forFolder
     ? candidates.filter((group) => !isInsideFolder(all, group.id, forFolder.id))
     : candidates;
+  const unfiledOption: PickerOption<Choice> = {
+    id: null,
+    label: t("library.unsorted"),
+    data: { "data-folder-id": "" },
+    icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta opacity-60" />,
+  };
   const topLevel: PickerOption<Choice>[] = offeredFolderIds
-    ? []
+    ? includeUnfiled && !forFolder
+      ? [unfiledOption]
+      : []
     : forFolder
       ? [
           {
@@ -82,14 +93,7 @@ export function MoveToPicker({
             icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />,
           },
         ]
-      : [
-          {
-            id: null,
-            label: t("library.unsorted"),
-            data: { "data-folder-id": "" },
-            icon: <FolderLineIcon className="size-4 shrink-0 text-ink-meta opacity-60" />,
-          },
-        ];
+      : [unfiledOption];
   const matching = (query: string): PickerSection<Choice>[] => {
     const words = queryWords(query);
     if (words.length === 0) return [{ options: [...topLevel, ...treeOptions(groups, "", t)] }];
