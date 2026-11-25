@@ -20,6 +20,11 @@ runs:
         key: incarnamind-packaged-models-${{ hashFiles('src/core/transcription/model.ts', 'src/core/transcription/speakerModel.ts', 'src/core/reranking/*.ts', 'src/core/documents/scan/model.ts') }}
     - name: Exercise the packaged app's real engines
       shell: bash
+      env:
+        # The nightly's and the release's hosted runners are thrown away after the job: the login
+        # item's check (#3758) may change their login items, and in the release it checks the
+        # signed app Users install.
+        INCARNAMIND_LOGIN_ITEMS_ON_THROWAWAY_RUNNER: "1"
       run: |
         export INCARNAMIND_MODEL_CACHE="$HOME/.cache/incarnamind-packaged-models"
         mkdir -p "$INCARNAMIND_MODEL_CACHE"

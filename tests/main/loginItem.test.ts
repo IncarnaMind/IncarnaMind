@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
@@ -95,6 +95,83 @@ describe("Opening at login", () => {
     expect(calls).toEqual([]);
   });
 
+  test("the entry names the program in TryExec, so a desktop skips it once the program is gone", () => {
+    expect(autostartEntry("/home/ana/Apps/IncarnaMind 1.0.AppImage").split("\n")).toEqual([
+      "[Desktop Entry]",
+      "Type=Application",
+      "Name=IncarnaMind",
+      "TryExec=/home/ana/Apps/IncarnaMind 1.0.AppImage",
+      'Exec="/home/ana/Apps/IncarnaMind 1.0.AppImage" --opened-at-login',
+      "X-GNOME-Autostart-enabled=true",
+      "",
+    ]);
+    expect(autostartEntry("/opt/a\\b/IncarnaMind")).toContain("TryExec=/opt/a\\\\b/IncarnaMind\n");
+  });
+
+  for (const off of ["X-GNOME-Autostart-enabled=false", "Hidden=true"]) {
+    test(`Linux reads an entry the desktop turned off (${off}) as off, keeps it off after an update moved the program, and turning it on enables it again`, async () => {
+      const configHome = await createTempDataFolder();
+      const entry = join(configHome, "autostart", AUTOSTART_FILE);
+      const start = (program: string) =>
+        createSystemLoginItem({
+          platform: "linux",
+          app: fakeApp().app,
+          program,
+          configHome,
+          openUrl,
+        });
+      start("/home/ana/Apps/IncarnaMind-1.0.0.AppImage").set(true);
+      // As GNOME's, Cinnamon's or XFCE's startup settings leave it.
+      const turnedOff = readFileSync(entry, "utf8").replace(
+        "X-GNOME-Autostart-enabled=true",
+        off === "Hidden=true" ? "X-GNOME-Autostart-enabled=true\nHidden=true" : off,
+      );
+      writeFileSync(entry, turnedOff);
+      expect(start("/home/ana/Apps/IncarnaMind-1.0.0.AppImage").get().on).toBe(false);
+
+      const updated = start("/home/ana/Apps/IncarnaMind-1.1.0.AppImage");
+      expect(updated.get().on).toBe(false);
+      const kept = readFileSync(entry, "utf8");
+      expect(kept).toContain(off);
+      expect(kept).toContain('Exec="/home/ana/Apps/IncarnaMind-1.1.0.AppImage" --opened-at-login');
+      expect(kept).toContain("TryExec=/home/ana/Apps/IncarnaMind-1.1.0.AppImage");
+      expect(kept).not.toContain("1.0.0");
+
+      expect(updated.set(true).on).toBe(true);
+      expect(readFileSync(entry, "utf8")).toBe(
+        autostartEntry("/home/ana/Apps/IncarnaMind-1.1.0.AppImage"),
+      );
+    });
+  }
+
+  test("an entry from before TryExec gains it when an update moves the program", async () => {
+    const configHome = await createTempDataFolder();
+    const entry = join(configHome, "autostart", AUTOSTART_FILE);
+    mkdirSync(join(configHome, "autostart"), { recursive: true });
+    writeFileSync(
+      entry,
+      [
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=IncarnaMind",
+        'Exec="/home/ana/Apps/IncarnaMind-1.0.0.AppImage" --opened-at-login',
+        "X-GNOME-Autostart-enabled=true",
+        "",
+      ].join("\n"),
+    );
+    const item = createSystemLoginItem({
+      platform: "linux",
+      app: fakeApp().app,
+      program: "/home/ana/Apps/IncarnaMind-1.1.0.AppImage",
+      configHome,
+      openUrl,
+    });
+    expect(item.get().on).toBe(true);
+    expect(readFileSync(entry, "utf8")).toBe(
+      autostartEntry("/home/ana/Apps/IncarnaMind-1.1.0.AppImage"),
+    );
+  });
+
   test("a path's quotes, dollars and percent signs are escaped in the entry's Exec line", () => {
     expect(autostartEntry('/opt/a "b" $c/100%/IncarnaMind')).toContain(
       'Exec="/opt/a \\"b\\" \\$c/100%%/IncarnaMind" --opened-at-login',
@@ -121,6 +198,33 @@ describe("Opening at login", () => {
     expect(readFileSync(join(configHome, "autostart", AUTOSTART_FILE), "utf8")).toContain(
       'Exec="/home/ana/Apps/IncarnaMind-1.1.0.AppImage" --opened-at-login',
     );
+  });
+
+  test("Windows reads off once the User disabled the app in Task Manager, and turning it on enables it again", async () => {
+    let on = false;
+    let approved = true;
+    const app: LoginItemApp = {
+      getLoginItemSettings: () => ({
+        openAtLogin: on,
+        executableWillLaunchAtLogin: on && approved,
+      }),
+      // Electron's default `enabled: true` takes the Task Manager entry's "disabled" away.
+      setLoginItemSettings: (settings) => {
+        on = settings.openAtLogin;
+        approved = true;
+      },
+    };
+    const item = createSystemLoginItem({
+      platform: "win32",
+      app,
+      program: "C:\\Program Files\\IncarnaMind\\IncarnaMind.exe",
+      configHome: await createTempDataFolder(),
+      openUrl,
+    });
+    expect(item.set(true).on).toBe(true);
+    approved = false;
+    expect(item.get().on).toBe(false);
+    expect(item.set(true).on).toBe(true);
   });
 
   test("macOS says itself that it opened the app at login", () => {

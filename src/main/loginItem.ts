@@ -21,6 +21,8 @@ export interface LoginItemApp {
     openAtLogin: boolean;
     wasOpenedAtLogin?: boolean;
     status?: string;
+    /** Windows: false once the User disabled the app in Task Manager's startup list. */
+    executableWillLaunchAtLogin?: boolean;
   };
   setLoginItemSettings(settings: { openAtLogin: boolean; args?: string[] }): void;
 }
@@ -47,34 +49,59 @@ export const AUTOSTART_FILE = "com.incarnamind.app.desktop";
 const execQuoted = (path: string) =>
   `"${path.replace(/(["`$\\])/g, "\\$1").replaceAll("%", "%%")}"`;
 
+const execLine = (program: string) => `Exec=${execQuoted(program)} ${OPENED_AT_LOGIN}`;
+/** A string value in a desktop entry: its backslashes doubled, as the specification says. */
+const tryExecLine = (program: string) => `TryExec=${program.replaceAll("\\", "\\\\")}`;
+
 export function autostartEntry(program: string): string {
   return [
     "[Desktop Entry]",
     "Type=Application",
     "Name=IncarnaMind",
-    `Exec=${execQuoted(program)} ${OPENED_AT_LOGIN}`,
+    // A desktop skips the entry once the program is gone, after an uninstall.
+    tryExecLine(program),
+    execLine(program),
     "X-GNOME-Autostart-enabled=true",
     "",
   ].join("\n");
+}
+
+/**
+ * Whether the desktop's own startup settings turned the entry off: GNOME's, Cinnamon's and
+ * XFCE's write one of these into it rather than remove it.
+ */
+const turnedOff = (entry: string) =>
+  /^X-GNOME-Autostart-enabled=false\s*$/m.test(entry) || /^Hidden=true\s*$/m.test(entry);
+
+/** The entry naming `program` to run, with every other line as it was, off included. */
+function pointedAt(entry: string, program: string): string {
+  if (!/^Exec=/m.test(entry)) return entry;
+  const exec = entry.replace(/^Exec=.*$/m, () => execLine(program));
+  return /^TryExec=/m.test(exec)
+    ? exec.replace(/^TryExec=.*$/m, () => tryExecLine(program))
+    : exec.replace(/^Exec=/m, () => `${tryExecLine(program)}\nExec=`);
 }
 
 export function createSystemLoginItem(options: SystemLoginItemOptions): LoginItem {
   const { platform, app } = options;
   const autostart = join(options.configHome, "autostart", AUTOSTART_FILE);
   const args = platform === "win32" ? [OPENED_AT_LOGIN] : undefined;
-  // An update can move the program (a new AppImage's name has its version): an entry that is on
-  // names the program running now.
+  // An update can move the program (a new AppImage's name has its version): the entry names the
+  // program running now, and stays off if the desktop turned it off.
   if (platform === "linux" && existsSync(autostart)) {
-    const entry = autostartEntry(options.program);
-    if (readFileSync(autostart, "utf8") !== entry) writeFileSync(autostart, entry);
+    const entry = readFileSync(autostart, "utf8");
+    const updated = pointedAt(entry, options.program);
+    if (updated !== entry) writeFileSync(autostart, updated);
   }
   const get = (): OpenAtLogin => {
-    if (platform === "linux")
-      return { supported: true, on: existsSync(autostart), needsApproval: false };
+    if (platform === "linux") {
+      const on = existsSync(autostart) && !turnedOff(readFileSync(autostart, "utf8"));
+      return { supported: true, on, needsApproval: false };
+    }
     const settings = app.getLoginItemSettings(args ? { args } : undefined);
     return {
       supported: true,
-      on: settings.openAtLogin,
+      on: settings.openAtLogin && settings.executableWillLaunchAtLogin !== false,
       needsApproval: platform === "darwin" && settings.status === "requires-approval",
     };
   };

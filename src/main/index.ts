@@ -20,7 +20,7 @@ import {
   type Settings,
   type TaskKind,
 } from "../core";
-import type { SandboxProblem } from "../core/api";
+import type { CallWatchProblem, SandboxProblem } from "../core/api";
 import { DataFromNewerVersionError } from "../core/errors";
 import type { Language } from "../core/language";
 import { defaultOllamaUrl } from "../core/providers/kinds";
@@ -107,9 +107,10 @@ const engineCheckReport = app.commandLine.getSwitchValue(CHECK_ENGINES_SWITCH);
 
 // Points the app at another data folder: the smoke test uses a temporary one, and the engine check
 // one of its own. Set before anything reads `userData`, so Chromium's own data moves there too.
+// An empty INCARNAMIND_DATA_DIR names no folder, so the app starts on its own.
 const dataDirOverride =
-  process.env.INCARNAMIND_DATA_DIR ?? (engineCheckReport ? engineCheckDataFolder() : undefined);
-if (dataDirOverride) app.setPath("userData", resolve(dataDirOverride));
+  process.env.INCARNAMIND_DATA_DIR || (engineCheckReport ? engineCheckDataFolder() : undefined);
+if (dataDirOverride !== undefined) app.setPath("userData", resolve(dataDirOverride));
 
 // The log in the data folder's `logs/`, from the start, so it has what goes wrong at startup too.
 const logger = startLogging(app.getPath("userData"));
@@ -295,14 +296,21 @@ async function testTaskKinds(): Promise<TaskKind[]> {
 /**
  * Which call apps use the microphone, for the offers to take notes (#208). A test build watches
  * nothing real: a smoke test that asks for it (INCARNAMIND_TEST_CALLS=1) drives a fake, as
- * `globalThis.incarnamindFakeCalls`.
+ * `globalThis.incarnamindFakeCalls`, which INCARNAMIND_TEST_CALLS_PROBLEM makes a watcher that
+ * can't notice calls here.
  */
 function callWatching(): { callWatcher?: CallWatcher } {
   if (import.meta.env.MODE === "test") {
     if (process.env.INCARNAMIND_TEST_CALLS !== "1") return {};
+    const given = process.env.INCARNAMIND_TEST_CALLS_PROBLEM;
+    const problem: CallWatchProblem | undefined =
+      given === "no-pactl" || given === "not-on-windows" || given === "unavailable"
+        ? given
+        : undefined;
     const fake = {
       ...createFakeCallWatcher(),
       endRecordingOnRelease: process.platform !== "win32",
+      ...(problem && { problem }),
     };
     (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls = fake;
     return { callWatcher: fake };

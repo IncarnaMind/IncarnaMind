@@ -68,7 +68,7 @@ describe("A new data folder's first start", () => {
     expect(existsSync(loginItemFile(dataDir))).toBe(false);
   });
 
-  test("each one turned off stays off at the next start", async () => {
+  test("each one turned off stays off at every start after", async () => {
     const dataDir = await createTempDataFolder();
     const { calls, start } = computer(dataDir);
     const first = start();
@@ -76,13 +76,15 @@ describe("A new data folder's first start", () => {
     await first.updateSettings({ device: { keepRunning: false, callOffers: false } });
     first.close();
 
-    const next = start();
-    expect(await backgroundOf(next)).toEqual({
-      openAtLogin: false,
-      keepRunning: false,
-      callOffers: false,
-    });
-    expect(calls.watching()).toBe(false);
+    for (const restart of [1, 2]) {
+      const next = start();
+      expect({
+        restart,
+        ...(await backgroundOf(next)),
+      }).toEqual({ restart, openAtLogin: false, keepRunning: false, callOffers: false });
+      expect(calls.watching()).toBe(false);
+      next.close();
+    }
   });
 
   test("one turned off alone stays off, and the others stay on", async () => {
@@ -113,8 +115,17 @@ describe("Where this copy can't do one of them, that one stays off", () => {
         callOffers: false,
       });
       expect(calls.watching()).toBe(false);
+      // The switch, off, says why: the offers' state carries the reason.
+      expect((await core.getMeetingOffers()).problem).toBe(problem);
       core.close();
     }
+  });
+
+  test("a copy that can notice calls says nothing while they are off", async () => {
+    const dataDir = await createTempDataFolder();
+    const core = computer(dataDir).start();
+    await core.updateSettings({ device: { callOffers: false } });
+    expect((await core.getMeetingOffers()).problem).toBeNull();
   });
 
   test("a copy that can't record, or has no call watcher", async () => {

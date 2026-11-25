@@ -3910,7 +3910,10 @@ export interface CallEnding {
 export interface MeetingOffers {
   offer: MeetingOffer | null;
   ending: CallEnding | null;
-  /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
+  /**
+   * Why calls can't be noticed here; null while they can. While offers for calls are off, only
+   * what this copy knows before watching (no watcher in the build, no `pactl`), else null.
+   */
   problem: CallWatchProblem | null;
 }
 

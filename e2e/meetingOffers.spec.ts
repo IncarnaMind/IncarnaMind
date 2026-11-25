@@ -554,6 +554,82 @@ test("an offer taken before the first recording shows the recording notice, whos
   await app.close();
 });
 
+for (const language of ["en", "zh-CN"] as const) {
+  test(`where calls can't be noticed, Calls not on your calendar stays off from the first start and says why (${language})`, async () => {
+    const shots = async (app: ElectronApplication, window: Page, name: string) => {
+      for (const [width, height] of [
+        [1440, 900],
+        [900, 640],
+      ] as const) {
+        await setWindowSize(app, window, width, height);
+        await window.getByTestId("call-offers").scrollIntoViewIfNeeded();
+        await window.mouse.move(0, 0);
+        await shot(window, `${name}-${language}-${width}`);
+      }
+    };
+    const why =
+      language === "en"
+        ? "Needs PulseAudio’s pactl, which isn’t on this computer."
+        : "需要 PulseAudio 的 pactl，这台电脑上没有。";
+
+    const cant = await launchApp(dataDir, {
+      extraEnv: { INCARNAMIND_TEST_CALLS: "1", INCARNAMIND_TEST_CALLS_PROBLEM: "no-pactl" },
+    });
+    await dismissChatSetup(cant.window);
+    await setWindowSize(cant.app, cant.window, 1440, 900);
+    await setLanguage(cant.window, language);
+    const settings = await openSettings(cant.window, "general");
+    await expect(settings.getByTestId("call-offers-switch")).not.toBeChecked();
+    await expect(settings.getByTestId("call-offers-problem")).toHaveText(why);
+    await shots(cant.app, cant.window, "settings-calls-off-cant");
+    await cant.app.close();
+
+    // The same row where calls can be noticed, turned off: no reason under it.
+    const other = await createDataFolder();
+    try {
+      const can = await launchApp(other, { extraEnv: { INCARNAMIND_TEST_CALLS: "1" } });
+      await dismissChatSetup(can.window);
+      await setWindowSize(can.app, can.window, 1440, 900);
+      await setLanguage(can.window, language);
+      const page = await openSettings(can.window, "general");
+      await page.getByTestId("call-offers-switch").click();
+      await expect(page.getByTestId("call-offers-switch")).not.toBeChecked();
+      await expect(page.getByTestId("call-offers-problem")).toHaveCount(0);
+      await shots(can.app, can.window, "settings-calls-off-can");
+      await can.app.close();
+    } finally {
+      await removeDataFolder(other);
+    }
+  });
+}
+
+for (const from of ["notification", "tray"] as const) {
+  test(`with the window closed, Take notes in the ${from} before the first recording opens a window on the recording notice, whose Start records the call`, async () => {
+    const { app, window } = await launch();
+    await dismissChatSetup(window);
+    await expect.poll(() => trayShown(app)).toBe(true);
+    const closed = window.waitForEvent("close");
+    await app.evaluate(({ BrowserWindow }) => {
+      for (const each of BrowserWindow.getAllWindows()) if (each.isVisible()) each.close();
+    });
+    await closed;
+
+    await callsUse(app, ["zoom"]);
+    await expect.poll(async () => (await notifications(app)).length).toBe(1);
+    const opened = app.waitForEvent("window");
+    if (from === "notification") await clickNotification(app, "offer", 0);
+    else await clickTray(app, "tray.takeNotes");
+    const next = await opened;
+    const notice = next.getByTestId("meeting-notice");
+    await expect(notice).toBeVisible();
+    expect(await meetingStatuses(next)).toEqual([]);
+    await transcribeHere(notice);
+    await notice.getByTestId("meeting-notice-start").click();
+    await expect(next.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+    await app.close();
+  });
+}
+
 test("Home's Take notes before the first recording shows the recording notice too, and Cancel records nothing", async () => {
   const { app, window } = await launch();
   await dismissChatSetup(window);

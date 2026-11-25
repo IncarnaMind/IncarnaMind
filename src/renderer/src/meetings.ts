@@ -307,13 +307,18 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     },
 
     async takeOffer(offerId) {
-      const { settings, reportError } = useAppStore.getState();
-      if (!settings) return;
-      if (!settings.device.meetingNoticeAccepted) {
-        set({ noticeFor: { offerId, systemAudio: settings.device.meetingSystemAudio } });
-        return;
+      try {
+        // A window made for the offer has no settings until its first load ends: the notice
+        // waits for that load to show.
+        const settings = useAppStore.getState().settings ?? (await core.getSettings());
+        if (!settings.device.meetingNoticeAccepted) {
+          set({ noticeFor: { offerId, systemAudio: settings.device.meetingSystemAudio } });
+          return;
+        }
+        await core.takeMeetingOffer(offerId);
+      } catch (error) {
+        useAppStore.getState().reportError(error);
       }
-      await core.takeMeetingOffer(offerId).then(() => undefined, reportError);
     },
 
     async acceptNotice() {
