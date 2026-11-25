@@ -67,8 +67,7 @@ test("a Check's question changes the assistant card line, EN and ZH", async () =
 
     // A click into the page closes the card and keeps the question. The badge reopens it, the same
     // question with its price.
-    // Below the text: the card, hung from the badge in the tab strip, lies over its first lines.
-    await pointAndClick(window, window.getByTestId("mind-scroller"));
+    await pointAndClick(window, window.getByTestId("mind-editor"));
     await expect(ask).toHaveCount(0);
     await expect(first).toContainText(WAITING_EN);
     await pointAndClick(window, window.getByTestId("check-badge-open"));

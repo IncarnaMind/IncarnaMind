@@ -136,7 +136,7 @@ function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
     () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
     [unexaminedKeys],
   );
-  return { checkedAll, health: useHealth(editor, skipped, unexamined, doc, running) };
+  return { checkedAll, ...useHealth(editor, skipped, unexamined, doc, running) };
 }
 
 function MindBadge({
@@ -154,7 +154,7 @@ function MindBadge({
   // The User's own AI asked to check the Note: the badge says how that goes until its marks land (#3587).
   const asked = useAskedAgent({ kind: "check", mindId });
   // Counted again as the AI's marks land, as at a run's end, so the badge says what it marked.
-  const { checkedAll, health } = useMindHealth(
+  const { checkedAll, health, counted } = useMindHealth(
     editor,
     doc,
     running !== undefined || asked !== null,
@@ -196,6 +196,7 @@ function MindBadge({
       mindId={mindId}
       badge={badgeOf(input)}
       state={input.running ? null : state}
+      counted={counted}
       ask={input.asking || problem}
       // A problem lands in a card that opened with less, as a Check pressed in it leaves one: the
       // card takes its height again then, so the line is not left below its fold (#3533).
@@ -448,7 +449,7 @@ function VerifyBadge({
   const noModel = useNoModel();
   const asked = useAskedAgent({ kind: "check", mindId });
   const backgroundRun = asked?.asked.background === true && asked.asked.state === "working";
-  const { health } = useMindHealth(editor, doc, state.running !== null || asked !== null);
+  const { health, counted } = useMindHealth(editor, doc, state.running !== null || asked !== null);
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAsk(mindId);
   const kept = useVerificationBrief(doc);
@@ -495,6 +496,7 @@ function VerifyBadge({
       mindId={mindId}
       badge={badgeOf(input)}
       state={null}
+      counted={counted}
       ask={input.asking || state.finding || input.problem}
       holdKey={holdKey}
       running={
@@ -608,6 +610,7 @@ function BadgeFrame({
   mindId,
   badge,
   state,
+  counted,
   ask,
   holdKey,
   running,
@@ -620,6 +623,8 @@ function BadgeFrame({
   badge: Badge | null;
   /** A Mind's resting state (D266); null for a Verify run, which shows its own marks. */
   state: NoteState | null;
+  /** Whether the Note's health the card counts is counted from the Note as it is now. */
+  counted(): boolean;
   ask: boolean;
   /** When it changes, the card takes the height of what is in it now, as at its first paint. */
   holdKey?: string;
@@ -648,8 +653,6 @@ function BadgeFrame({
   // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
-  /** Whether the card opened with nothing in it, so what lands in it sets its height. */
-  const openedEmpty = useRef(false);
   const heldFor = useRef(holdKey);
   useLayoutEffect(() => {
     if (heldFor.current === holdKey) return;
@@ -664,8 +667,7 @@ function BadgeFrame({
     if (heldHeight !== null) return;
     const element = body.current;
     if (!element) return;
-    openedEmpty.current = bodyIsEmpty(element);
-    if (!openedEmpty.current) {
+    if (!bodyIsEmpty(element)) {
       setHeldHeight(element.offsetHeight);
       return;
     }
@@ -679,14 +681,21 @@ function BadgeFrame({
     const card = element.closest(".check-card");
     let settle: number | undefined;
     let first: number | undefined;
-    const hold = () => {
+    const holdNow = () => {
       watching.disconnect();
       window.clearTimeout(settle);
       setHeldHeight(firstHeightOf(element, anchor, rest, fromTop));
     };
+    // What landed is known once the Note's health is counted from the change that brought it: a
+    // line worked out at once lands before the rows that count brings, a moment later (#3765).
+    const hold = () => {
+      const left = SETTLE_AT_MOST_MS - (performance.now() - (first ?? 0));
+      if (counted() || left <= 0) holdNow();
+      else settle = window.setTimeout(hold, Math.min(SETTLE_MS, left));
+    };
     // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
     const touched = () => {
-      if (!bodyIsEmpty(element)) hold();
+      if (!bodyIsEmpty(element)) holdNow();
     };
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
@@ -709,24 +718,7 @@ function BadgeFrame({
       card?.removeEventListener("pointerenter", touched);
       card?.removeEventListener("focusin", touched);
     };
-  }, [open, heldHeight, anchor, fromTop]);
-  // A card that opened empty, down from its badge, takes its height from what lands in it: a row
-  // landing after the wait for it ended, on a slower computer, moves nothing above it, so the
-  // foot goes down to show it, as far as the window lets it (#3765). One that opened with what it
-  // shows keeps the height it opened with.
-  useLayoutEffect(() => {
-    if (!open || heldHeight === null || !fromTop || !anchor || !openedEmpty.current) return;
-    const element = body.current;
-    const content = element?.firstElementChild;
-    if (!element || !content) return;
-    const watching = new ResizeObserver(() => {
-      if (element.scrollHeight <= element.clientHeight + 1) return;
-      const grown = firstHeightOf(element, anchor, heldHeight, true, element.scrollHeight);
-      if (grown > heldHeight + 0.5) setHeldHeight(grown);
-    });
-    watching.observe(content);
-    return () => watching.disconnect();
-  }, [open, heldHeight, anchor, fromTop]);
+  }, [open, heldHeight, anchor, fromTop, counted]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -749,12 +741,7 @@ function BadgeFrame({
     setCheckCardOpen(place, false);
   };
   // The card is placed from this box's right edge, which the badge growing left never moves, so
-  // the run's wider badge leaves the card where it was (#1312, #2313); in the tab strip, under the
-  // strip's end (`placingUnderStrip`).
-  const middleware = useMemo(
-    () => (anchor && fromTop ? placingUnderStrip(anchor) : placing),
-    [anchor, fromTop],
-  );
+  // the run's wider badge leaves the card where it was (#1312, #2313).
   return (
     <div ref={setAnchor} className="check-badge-place">
       {badge ? (
@@ -779,7 +766,7 @@ function BadgeFrame({
           anchor={anchor}
           placement={fromTop ? "bottom-end" : "top-end"}
           fromBottom={!fromTop}
-          middleware={middleware}
+          middleware={placing}
           aria-label={t("health.label")}
           data-testid="check-card"
           className="check-card"
@@ -827,20 +814,6 @@ function stepThroughCard(event: KeyboardEvent<HTMLDivElement>) {
   event.preventDefault();
   buttons[next]?.focus();
 }
-
-/**
- * Under the badge in the tab strip (#3765), its right edge at the strip's end rather than the
- * badge's: over the page's margin, as it hung from the page's top right before, not over the top
- * of the text and what stands there.
- */
-const placingUnderStrip = (badge: Element) => () => [
-  offset(() => {
-    const group = badge.closest('[data-testid="tab-group"]')?.getBoundingClientRect();
-    const reach = group ? group.right - CARD_MARGIN - badge.getBoundingClientRect().right : 0;
-    return { mainAxis: 8, crossAxis: Math.max(0, reach) };
-  }),
-  ...placing().slice(1),
-];
 
 // Above the badge, and never taller than the room above it: its rows scroll instead.
 const placing = () => [

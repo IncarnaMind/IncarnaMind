@@ -140,6 +140,13 @@ export function PartMark({ part }: { part: BadgeMark }) {
   }
 }
 
+/** The Mind's health as drawn, and whether it is counted from the Mind as it is now. */
+export interface CountedHealth {
+  health: Health;
+  /** False while a change waits for its count, so what the card shows of it is still to land. */
+  counted(): boolean;
+}
+
 /**
  * The Mind's health, worked out a moment after it last changed, as the word count is, and at once
  * when a check starts or ends (`running`): the badge says what the run ended with, not what it
@@ -151,21 +158,28 @@ export function useHealth(
   unexamined: ReadonlySet<string>,
   doc: Y.Doc,
   running: boolean,
-): Health {
+): CountedHealth {
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
   );
   const kept = useAppStore((state) => state.keptCitationTexts);
   const keptInside = useKeptInsideOf();
-  const [health, setHealth] = useState<Health>(NO_HEALTH);
+  const [drawn, setDrawn] = useState({ health: NO_HEALTH, through: 0 });
+  /** The changes seen, and the last of them whose count has been drawn. */
+  const seen = useRef(0);
+  const drawnThrough = useRef(0);
+  useLayoutEffect(() => {
+    drawnThrough.current = drawn.through;
+  }, [drawn]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `running` counts the health again before the paint when a check starts or ends, so the frame it ends in shows its end (#3487).
   useLayoutEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const count = () => {
       timer = undefined;
       if (editor.isDestroyed) return;
-      setHealth(
-        noteHealth(editor.state.doc, {
+      setDrawn({
+        through: seen.current,
+        health: noteHealth(editor.state.doc, {
           claims: shownClaims(editor.state),
           citationCheck: (attributes: CitationAttributes) =>
             citationState(attributes, documents, kept).check,
@@ -177,9 +191,10 @@ export function useHealth(
             tableShownIn(doc, table.toJSON(), "en", liveVersions(documents), keptInside),
           tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
         }),
-      );
+      });
     };
     const later = () => {
+      seen.current += 1;
       clearTimeout(timer);
       timer = setTimeout(count, COUNT_IDLE_MS);
     };
@@ -192,7 +207,8 @@ export function useHealth(
       doc.off("afterTransaction", later);
     };
   }, [editor, doc, documents, kept, skipped, unexamined, keptInside, running]);
-  return health;
+  const counted = useCallback(() => drawnThrough.current === seen.current, []);
+  return { health: drawn.health, counted };
 }
 
 const ROW_WORDS = {
