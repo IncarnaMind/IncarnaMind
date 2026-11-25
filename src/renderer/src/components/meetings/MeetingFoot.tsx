@@ -218,6 +218,17 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   return (
     <div data-beside-conversation="" className="meeting-foot-stack">
       <div className="meeting-foot-over">
+        {/*
+         * The cards stack up from the control, so a card that goes moves only the cards farther
+         * out: the Transcript's lines, which come and go with its engine, stand farthest, and the
+         * lines a person presses nearer. After Stop the page says the Transcript's and the
+         * recording's lines itself (MeetingInMind); with the sheet up, the sheet.
+         */}
+        {live && !open && (
+          <div className="meeting-foot-card">
+            <TranscriptLines meeting={meeting} over />
+          </div>
+        )}
         {/* With the sheet up, its own line says it. */}
         {micProblem && !open && (
           <div data-testid="meeting-foot-problem" className="meeting-foot-tip meeting-foot-problem">
@@ -266,20 +277,14 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             <div className="meeting-foot-card">
               <CallEndingLine meeting={meeting} />
             </div>
-            {/* After Stop the page says these itself (MeetingInMind); with the sheet up, the sheet. */}
             {live && (
-              <>
-                <div className="meeting-foot-card">
-                  <TranscriptLines meeting={meeting} over />
-                </div>
-                <div className="meeting-foot-card">
-                  <CaptureProblem
-                    meeting={meeting}
-                    className="meeting-line"
-                    onDetails={() => raiseMeetingDetails(tabId, meeting)}
-                  />
-                </div>
-              </>
+              <div className="meeting-foot-card">
+                <CaptureProblem
+                  meeting={meeting}
+                  className="meeting-line"
+                  onDetails={() => raiseMeetingDetails(tabId, meeting)}
+                />
+              </div>
             )}
           </>
         )}

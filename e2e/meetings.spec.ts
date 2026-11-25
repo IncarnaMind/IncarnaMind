@@ -12,6 +12,7 @@ import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
+  emit,
   enterContent,
   expectSheetFootOneRow,
   firstTranscriptLine,
@@ -1226,16 +1227,80 @@ const SLIDE_READ = {
 
 const screenOf = async (window: Page) => (await bridge(window))[0]?.screen ?? null;
 
+type ChooseSeen = { starting: boolean; left: number; top: number };
+
 /**
- * Until the Transcript has started, the line saying it is starting stands under the shared
- * screen's line over the control; when it goes, the screen's line drops into its place, and a
- * press aimed before then lands above it.
+ * The shared screen's Choose window… holds still over the control, frame by frame, from the line
+ * saying the Transcript starts shown over the control until the Transcript's first line has come
+ * and that line has gone: a press aimed at it while the Transcript starts lands on it.
  */
-async function transcriptStarted(window: Page): Promise<void> {
+async function screenLineHoldsAsTranscriptStarts(
+  app: ElectronApplication,
+  window: Page,
+): Promise<void> {
+  await window.evaluate(() => {
+    const seen: ChooseSeen[] = [];
+    const scope = globalThis as unknown as { chooseSeen?: ChooseSeen[] };
+    scope.chooseSeen = seen;
+    const tick = () => {
+      if (scope.chooseSeen !== seen) return;
+      const over = document.querySelector(".meeting-foot-over");
+      const choose = over?.querySelector('[data-testid="meeting-screen-choose"]');
+      if (choose) {
+        const box = choose.getBoundingClientRect();
+        seen.push({
+          starting: Boolean(over?.querySelector('[data-testid="meeting-transcript-line"]')),
+          left: Math.round(box.left),
+          top: Math.round(box.top),
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  const seen = () =>
+    window.evaluate(
+      () => (globalThis as unknown as { chooseSeen?: ChooseSeen[] }).chooseSeen ?? [],
+    );
+  // The engine may have loaded already: the line saying it starts is shown as the core shows it,
+  // until the core's next update says the Transcript is live.
+  const starting = (await bridge(window)).map((meeting) => ({
+    ...meeting,
+    transcript: {
+      documentId: null,
+      lines: 0,
+      partials: [],
+      model: null,
+      cloud: null,
+      fellBack: null,
+      savedPath: null,
+      ...meeting.transcript,
+      state: "preparing",
+      problem: null,
+    },
+  }));
+  await expect
+    .poll(async () => {
+      await emit(app, "meetings.changed", starting);
+      return (await seen()).some((each) => each.starting);
+    })
+    .toBe(true);
   await firstTranscriptLine(window);
   await expect(
     window.locator(".meeting-foot-over").getByTestId("meeting-transcript-line"),
   ).toHaveCount(0);
+  const frames = await window.evaluate(() => {
+    const scope = globalThis as unknown as { chooseSeen?: ChooseSeen[] };
+    const all = scope.chooseSeen ?? [];
+    scope.chooseSeen = undefined;
+    return all;
+  });
+  expect(frames.some((each) => !each.starting)).toBe(true);
+  const places = new Set(frames.map((each) => `${each.left},${each.top}`));
+  const seenAt = new Set(
+    frames.map((each) => `${each.starting ? "starting" : "started"} at ${each.left},${each.top}`),
+  );
+  expect(places.size, [...seenAt].join("; ")).toBe(1);
 }
 
 test("the shared screen: one line over the control asks at the start, one chosen window is read, an Answer cites it, and after Stop the Citation says it was deleted; Not this time reads nothing, and the sheet offers it later", async () => {
@@ -1262,8 +1327,10 @@ test("the shared screen: one line over the control asks at the start, one chosen
   await motionSettled(window);
   await shot(window, "screen-ask-en");
 
+  // The line saying the Transcript starts stands farther out: its going moves nothing pressed.
+  await screenLineHoldsAsTranscriptStarts(app, window);
+
   // Choose window…: IncarnaMind's picker lists the one window there is to read.
-  await transcriptStarted(window);
   await pointAndClick(window, line.getByTestId("meeting-screen-choose"));
   const picker = window.getByTestId("screen-picker");
   await expect(picker).toBeVisible();
@@ -1322,7 +1389,6 @@ test("the shared screen: one line over the control asks at the start, one chosen
   );
   await motionSettled(window);
   await shot(window, "screen-ask-zh");
-  await transcriptStarted(window);
   await pointAndClick(window, asked.getByTestId("meeting-screen-decline"));
   await expect(asked).toHaveCount(0);
   const later = (await openMeetingSheet(window)).getByTestId("meeting-sheet-screen");
