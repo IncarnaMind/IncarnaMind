@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test, vi } from "vitest";
 import type { CoreAdapters } from "../../src/core/adapters";
 import { prepareCallHelp } from "../../src/core/meetings/agentHelp";
@@ -161,6 +164,40 @@ test("a press excludes older transcript matches and unrelated speech outside the
     "Friday works.",
   ]);
   expect(request.notFinal).toBe(false);
+});
+
+// protects=the ten minutes of speech call help sends the User's own AI end with the latest confirmed line, so after a long silence the speech before it goes, and the privacy pages say so in both languages (#3762); fails_when=a page says the last ten minutes as if counted from the moment of asking, or the window moves without the pages
+test("the ten minutes sent end with the latest confirmed line, as the privacy pages say", () => {
+  const minute = 60_000;
+  const sent = (lines: readonly (readonly [number, string])[]) =>
+    JSON.parse(
+      prepareCallHelp(
+        lines.map(([startMs, text]) => ({ startMs, endMs: startMs + 1000, text, speaker: null })),
+        "What did we decide?",
+        "sum",
+        [],
+      ).prompt,
+    ).speech.map((row: { text: string }) => row.text);
+  const beforeSilence = [
+    [0, "We agreed the budget."],
+    [9 * minute, "Ship it on Friday."],
+  ] as const;
+  // Asked half an hour into a silence: the speech before it still goes.
+  expect(sent(beforeSilence)).toEqual(["We agreed the budget.", "Ship it on Friday."]);
+  expect(sent([...beforeSilence, [40 * minute, "Sorry, I was muted."]])).toEqual([
+    "Sorry, I was muted.",
+  ]);
+  const page = (path: string) =>
+    readFileSync(join(fileURLToPath(new URL("../../", import.meta.url)), path), "utf8");
+  expect(page("docs/privacy.md")).toContain(
+    "the ten minutes of the Transcript that end with its latest confirmed line, however long ago that was said",
+  );
+  expect(page("docs/where-your-data-goes.md")).toContain(
+    "the ten minutes that end with its latest confirmed line, however long ago that was said",
+  );
+  expect(page("docs/where-your-data-goes.zh-CN.md")).toContain(
+    "到最后一行已定稿的话为止十分钟内最多 60 行已定稿的话（不论最后一行是多久以前说的",
+  );
 });
 
 // protects=call help through the User's own AI gets the words on screen not yet final, after the confirmed speech, each with no source number, and a line can only cite confirmed speech; the newest of them come first into the room left, never more than half of it (#3762); fails_when=the AI sees only confirmed lines, a word not yet final gets a source number, or they crowd out the speech lines cite
