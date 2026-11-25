@@ -3841,9 +3841,9 @@ export interface DeviceSettings {
    */
   checkDecisionModel: CheckDecisionModel | "off" | null;
   /**
-   * A Meeting or voice memo has been recorded on this device: the offers to take notes wait for
-   * it. Its name is from when a notice had to be read first; the first recording now starts at
-   * once and the core sets it (#3762). Nothing else is turned on with it.
+   * A Meeting or voice memo has been recorded on this device: Home's line that turns on the offers
+   * to take notes waits for it. Its name is from when a notice had to be read first; the first
+   * recording now starts at once and the core sets it (#3762). Nothing else is turned on with it.
    */
   meetingNoticeAccepted: boolean;
   /**
@@ -3860,16 +3860,17 @@ export interface DeviceSettings {
   meetingHelpKeys: HelpKeys;
   /**
    * Settings › General › "Keep running in the menu bar" (in the tray on Windows and Linux, #189):
-   * its icon stays, and closing the window leaves IncarnaMind running. Turned on when the User sets
-   * up Meetings.
+   * its icon stays, and closing the window leaves IncarnaMind running. On from a new data folder's
+   * first start (#3758); in one an earlier version started, Home's line after the first recording
+   * turns it on with the offers for calls.
    */
   keepRunning: boolean;
   /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
   calendarOffers: boolean;
   /**
    * Settings › General › Notifications: the offer to take notes when a call app takes the
-   * microphone (#208). Off until the User sets up Meetings, whose sheet says it turns on; someone
-   * who set them up before this was built is asked once, on Home.
+   * microphone (#208). On from a new data folder's first start where calls can be noticed (#3758).
+   * In one an earlier version started, Home asks once, after the first recording, to turn it on.
    */
   callOffers: boolean;
   /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
@@ -3917,7 +3918,10 @@ export interface CallEnding {
 export interface MeetingOffers {
   offer: MeetingOffer | null;
   ending: CallEnding | null;
-  /** Why calls can't be noticed here; null while they can, or while offers for calls are off. */
+  /**
+   * Why calls can't be noticed here; null while they can. While offers for calls are off, only
+   * what this copy knows before watching (no watcher in the build, no `pactl`), else null.
+   */
   problem: CallWatchProblem | null;
 }
 
@@ -16119,8 +16123,7 @@ export interface CoreApi {
   discardMeeting(meetingId: string): Promise<void>;
   /**
    * Starts recording a ready Meeting: the microphone, and the computer's sound
-   * if asked. Needs the one-time recording notice accepted on this device, and
-   * no other Meeting recording.
+   * if asked. Needs no other Meeting recording.
    */
   startMeeting(input: StartMeetingInput): Promise<Meeting>;
   /**

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const PEEK = "citation-peek";
+const SHIFT_PRESS_TAKEN = "citation-shift-press-taken";
 
 export function useCitationPeek() {
   const [peeking, setPeeking] = useState(false);
@@ -66,6 +67,20 @@ export function onPeek(marker: EventTarget, listener: (peek: Peek) => void): () 
   };
   marker.addEventListener(PEEK, handle);
   return () => marker.removeEventListener(PEEK, handle);
+}
+
+/**
+ * Tells a Citation's marker that `ShiftClickSelection` took a Shift-press on it (#3697).
+ * Dispatched directly on the marker before `view.dispatch` can reparent the node view inside
+ * an inline decoration (which would stop `mousedown` from bubbling to React's `onMouseDown`).
+ */
+export const notifyShiftPressTaken = (marker: EventTarget) =>
+  marker.dispatchEvent(new CustomEvent(SHIFT_PRESS_TAKEN));
+
+/** Listens on a marker for a Shift-press taken by the editor to extend the selection. */
+export function onShiftPressTaken(marker: EventTarget, listener: () => void): () => void {
+  marker.addEventListener(SHIFT_PRESS_TAKEN, listener);
+  return () => marker.removeEventListener(SHIFT_PRESS_TAKEN, listener);
 }
 
 /**

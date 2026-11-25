@@ -150,7 +150,7 @@ function roomBottom(group: Locator): Promise<number> {
   return group.evaluate((element) => {
     const scroller = element.querySelector('[data-testid="mind-scroller"]');
     const bottoms = [scroller?.getBoundingClientRect().bottom ?? window.innerHeight];
-    // With the conversation open, the input is in it, beside the Note's text or over its right.
+    // With the conversation in the window's column, the input is there, left of the Note's text.
     const box = element
       .querySelector('[data-testid="note-ask-box"]:not([data-testid="note-column"] *)')
       ?.getBoundingClientRect();

@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { CITATION_NODE } from "../../../core/api";
+import { notifyShiftPressTaken } from "./peek";
 
 /**
  * Where the User's selection is: what the page shows, while it shows a
@@ -70,6 +71,81 @@ function markerEnd(view: EditorView, event: MouseEvent, start: number): number |
 }
 
 /**
+ * Views whose last pointer press on a Citation marker was taken to extend the selection.
+ * Extending a selection across a Citation can wrap it in an inline decoration (such as
+ * `HeldSelection`), which unmounts and remounts the marker's React node view mid-press;
+ * keeping this on the view survives the remount so the new marker ignores the browser's
+ * synthetic post-remount `pointerover` (even after Shift is released) and any click from
+ * that press until the pointer leaves or another press occurs (#3697).
+ */
+const takenMarkerPress = new WeakSet<EditorView>();
+
+/** Whether the last marker press on `view` was taken by Shift-selection and has not ended. */
+export const hasTakenMarkerPress = (view: EditorView): boolean => takenMarkerPress.has(view);
+
+/** Clears the taken-marker-press suppression for `view` once the pointer leaves or presses anew. */
+export const clearTakenMarkerPress = (view: EditorView): void => {
+  takenMarkerPress.delete(view);
+};
+
+/** Whether the editor has a non-empty selection that a Shift-press would extend. */
+export function hasSelectionToExtend(view: EditorView): boolean {
+  const chosen = view.dom.ownerDocument.getSelection();
+  const node = chosen?.anchorNode;
+  const focus = chosen?.focusNode;
+  if (chosen && node && focus && view.dom.contains(node) && view.dom.contains(focus)) {
+    return !chosen.isCollapsed;
+  }
+  return !view.state.selection.empty;
+}
+
+/**
+ * Copies a non-collapsed page selection into ProseMirror on pointer release.
+ * Chromium defers `selectionchange` to the next rendering update; if ProseMirror's
+ * focus handler's 20 ms timer fires first after a click into an unfocused editor, it
+ * restores the stale selection and wipes the new double-click or drag (#3697).
+ * A collapsed DOM selection is never copied here: during a drag, an inline decoration
+ * (such as `HeldSelection`) can wrap the selected text while ProseMirror's `LeftMouseDown`
+ * defers `selectionToDOM` (`delaySelUpdate`), temporarily collapsing `getSelection()` to
+ * `(paragraph, 0)` until `LeftMouseDown.done()` restores the dragged range after `mouseup`.
+ */
+export function syncSelectionFromDOM(view: EditorView): boolean {
+  if (view.isDestroyed || view.composing || !view.hasFocus()) return false;
+  if (!(view.state.selection instanceof TextSelection)) return false;
+  const chosen = view.dom.ownerDocument.getSelection();
+  const node = chosen?.anchorNode;
+  const focus = chosen?.focusNode;
+  if (
+    !chosen ||
+    chosen.isCollapsed ||
+    !node ||
+    !focus ||
+    !view.dom.contains(node) ||
+    !view.dom.contains(focus)
+  ) {
+    return false;
+  }
+  let anchor: number;
+  let head: number;
+  try {
+    anchor = view.posAtDOM(node, chosen.anchorOffset);
+    head = view.posAtDOM(focus, chosen.focusOffset);
+  } catch {
+    return false;
+  }
+  const { doc, selection } = view.state;
+  if (anchor < 0 || head < 0 || anchor > doc.content.size || head > doc.content.size) {
+    return false;
+  }
+  const next = TextSelection.between(doc.resolve(anchor), doc.resolve(head), 1);
+  if (next.empty || selection.eq(next)) return false;
+  view.dispatch(
+    view.state.tr.setSelection(next).setMeta("pointer", true).setMeta("addToHistory", false),
+  );
+  return true;
+}
+
+/**
  * Extends the selection to where a Shift-press landed, as Shift+arrows does
  * (#2279). Left to the browser, the extension carries the granularity of the
  * selection the User last made: after a double-click that is a word, so a click
@@ -96,11 +172,24 @@ export function extendSelectionTo(view: EditorView, event: MouseEvent): boolean 
   if (!view.hasFocus()) view.focus();
   const { doc } = view.state;
   const fixed = head < from ? to : head > to ? from : anchor;
+  const next = TextSelection.between(doc.resolve(fixed), doc.resolve(head), 1);
+  // ProseMirror skips `selectionToDOM` when `next` equals `view.state.selection`. If a quick
+  // double-click updated the DOM before `selectionchange` reached ProseMirror, the stale state
+  // can already equal `next` from an earlier selection, leaving the page unextended (#3697).
+  if (view.state.selection.eq(next)) {
+    const page = TextSelection.between(
+      doc.resolve(anchor),
+      doc.resolve(anchor === from ? to : from),
+      1,
+    );
+    if (!page.eq(next)) {
+      view.dispatch(
+        view.state.tr.setSelection(page).setMeta("pointer", true).setMeta("addToHistory", false),
+      );
+    }
+  }
   view.dispatch(
-    view.state.tr
-      .setSelection(TextSelection.between(doc.resolve(fixed), doc.resolve(head), 1))
-      .setMeta("pointer", true)
-      .setMeta("addToHistory", false),
+    view.state.tr.setSelection(next).setMeta("pointer", true).setMeta("addToHistory", false),
   );
   event.preventDefault();
   return true;
@@ -121,16 +210,33 @@ export const ShiftClickSelection = Extension.create({
           // A Citation's marker takes a press of its own inside its node view before ProseMirror
           // hears it, so a Shift-press on it is taken here, ahead of that.
           const onMarkerPress = (event: MouseEvent) => {
+            if (!(event.target instanceof Element)) return;
+            const citation = event.target.closest("[data-testid='citation']");
+            if (!citation) return;
+            const chip = citation.querySelector("[data-testid='citation-chip']");
+            if (extendSelectionTo(view, event)) {
+              takenMarkerPress.add(view);
+              if (chip) notifyShiftPressTaken(chip);
+            } else {
+              takenMarkerPress.delete(view);
+            }
+          };
+          const onRelease = (event: MouseEvent) => {
             if (
-              event.target instanceof Element &&
-              event.target.closest("[data-testid='citation']")
+              event.button === 0 &&
+              !event.defaultPrevented &&
+              (event.detail >= 2 || view.state.selection.empty)
             ) {
-              extendSelectionTo(view, event);
+              syncSelectionFromDOM(view);
             }
           };
           view.dom.addEventListener("mousedown", onMarkerPress, true);
+          view.dom.addEventListener("mouseup", onRelease);
           return {
-            destroy: () => view.dom.removeEventListener("mousedown", onMarkerPress, true),
+            destroy: () => {
+              view.dom.removeEventListener("mousedown", onMarkerPress, true);
+              view.dom.removeEventListener("mouseup", onRelease);
+            },
           };
         },
         props: {

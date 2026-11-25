@@ -243,6 +243,8 @@ test("a request at a Note's foot changes the selected words at once, says what i
     );
     await expect(conversation).toContainText("Put these in capitals");
     await expect(pill).toHaveCount(0);
+    // The keyboard is in the input, where the next request is typed.
+    await expect(input).toBeFocused();
     await expect(toggle).toHaveAttribute("aria-label", "Hide conversation");
     await both(app, window, "note-ask-conversation", async () => {
       await expect(toggle).toHaveAttribute("aria-label", "隐藏对话");

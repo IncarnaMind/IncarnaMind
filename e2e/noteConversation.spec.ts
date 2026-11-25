@@ -1,10 +1,13 @@
 import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, TabItem } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   createDataFolder,
+  cutIn,
   dismissChatSetup,
   expectReadyDocuments,
   frontMind,
@@ -13,6 +16,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  secondWindow,
   setLanguage,
   setSidebarShown,
   setWindowSize,
@@ -526,6 +530,108 @@ test("a run stopped after it read says what it read, and after a restart only th
   }
 });
 
+test("a request that can't start says why where the User typed, whole, with the conversation folded, open upward or in the column, at both widths and in English and Chinese; one that may only read is let to propose from the open conversation", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = window.getByTestId("note-ask-input");
+    const problem = window.getByTestId("note-ask-problem");
+    const column = window.getByTestId("note-column");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await send("What does the harbour plan add?");
+    await ended(window, mindId, before);
+
+    const tooOld =
+      "Claude Code 2.0.1 is older than IncarnaMind needs (2.1.248 or later). Update it, then send it again.";
+    /** The one line, in the input's box, every word of it shown. */
+    const shownWhole = async (text: string) => {
+      await expect(problem).toHaveCount(1);
+      await expect(problem).toHaveText(text);
+      await expect(
+        window.getByTestId("note-ask-box").getByTestId("note-ask-problem"),
+      ).toBeVisible();
+      expect(await cutIn(problem)).toEqual([]);
+    };
+    // Open upward, the request goes nowhere: the line says why, in the box's top row.
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await expect(group.getByTestId("note-ask-panel")).toBeVisible();
+    await nextRun("too-old");
+    await send("Make it shorter");
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-upward-en");
+    // In the window's column, at its foot; in the narrow window, where the column isn't drawn,
+    // above the input of the conversation open upward again, in Chinese.
+    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await expect(column).toBeVisible();
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-column-en");
+    await setLanguage(window, "zh-CN");
+    await setWindowSize(app, window, 900, 760);
+    await expect(group.getByTestId("note-ask-panel")).toBeVisible();
+    await expect(column).toHaveCount(0);
+    await shownWhole("Claude Code 2.0.1 版本过旧，需要 2.1.248 或更高版本。更新后再发送一次。");
+    await shot(window, "conversation-problem-upward-zh-CN");
+    // Folded, at both widths: it wraps, never cut.
+    await setLanguage(window, "en");
+    await pointAndClick(window, group.getByTestId("note-ask-fold"));
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-folded-en");
+    await setWindowSize(app, window, 1440, 900);
+    await shownWhole(tooOld);
+
+    // A connection that may only read, asked here while a second window has the conversation
+    // open: Allow is in that window's turn, and sends the request again as it was typed, though
+    // that window didn't send it.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [pairing] = (await bridge.getAgents()).pairings;
+      if (pairing) await bridge.updateAgent(pairing.id, { propose: false });
+    });
+    const second = await secondWindow(app);
+    await setWindowSize(app, second, 1440, 900);
+    await open(second, mindId);
+    await pointAndClick(
+      second,
+      second
+        .locator('[data-testid="tab-group"][data-focused]')
+        .getByTestId("note-ask-conversation-toggle"),
+    );
+    const secondColumn = second.getByTestId("note-column");
+    await expect(secondColumn).toBeVisible();
+    await nextRun("change");
+    before = (await outcomesOf(window, mindId)).length;
+    await send("Put it in capitals");
+    await ended(window, mindId, before);
+    const last = secondColumn.getByTestId("note-column-turn").last();
+    await expect(last.getByTestId("note-ask-problem")).toContainText(
+      "Claude Code may only read. Let it propose changes?",
+    );
+    await expect(last.getByTestId("note-ask-allow")).toHaveText("Allow");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(second, last.getByTestId("note-ask-allow"));
+    await ended(window, mindId, before);
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put it in capitals",
+    );
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put the selected words in capitals.",
+    );
+    await expect(frontMind(second)).toContainText(P2.toUpperCase());
+    await second.close();
+  } finally {
+    await app.close();
+  }
+});
+
 /** Where `part` stands in the conversation it is in: its top and height against the view's. */
 const placeIn = (part: Locator) =>
   part.evaluate(
@@ -563,13 +669,15 @@ test("pressed in the column's place, the line above the input opens the conversa
     await ended(window, mindId, before);
     // The conversation's place is the column; closed, the line stands above the input.
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
-    await pointAndClick(window, group.getByTestId("conversation-move-right"));
+    await pointAndClick(window, group.getByTestId("conversation-move-left"));
     const column = window.getByTestId("note-column");
     await pointAndClick(window, column.getByTestId("note-column-close"));
     await expect(column).toHaveCount(0);
     await pointAndClick(window, group.getByTestId("note-ask-pill-open"));
     const reply = column.getByTestId("note-column-turn").last().getByTestId("note-column-reply");
     await expect(reply).toContainText("The five interviews agree");
+    // The keyboard is in the input, where the next request is typed.
+    await expect(column.getByTestId("note-ask-input")).toBeFocused();
     const opened = await placeIn(reply);
     expect(opened.height).toBeGreaterThan(opened.view);
     expect({
@@ -870,7 +978,8 @@ test("the conversation is one column left of every group, and follows the Note i
   try {
     await acceptPlainTextKeys(window);
     await dismissChatSetup(window);
-    await setWindowSize(app, window, 1600, 900);
+    // Wide enough for a Note and a Document beside the column where a scrollbar takes room too.
+    await setWindowSize(app, window, 1680, 900);
     const { harbour, timetable, documentId } = await twoNotes(window);
     const note = (mindId: string): TabItem => ({ kind: "mind", mindId });
     const document: TabItem = { kind: "document", documentId };
@@ -896,6 +1005,38 @@ test("the conversation is one column left of every group, and follows the Note i
     expect(right.width).toBeGreaterThanOrEqual(399);
     await expectReadable(window, 0);
     await expectWholeToolbar(window, 1);
+
+    // Dragged narrow, the Document still keeps 400px beside the column. The widths the layout keeps
+    // don't change for it, and the groups take them again as the column leaves.
+    const kept = () =>
+      window.evaluate(async () => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        return (await bridge.getLayout("main")).groups.map((group) => group.width);
+      });
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      await bridge.changeLayout("main", { type: "resize", widths: [0.8, 0.2] });
+    });
+    await expect.poll(async () => (await kept())[1] ?? 1).toBeLessThan(0.3);
+    const stored = await kept();
+    const drawnOf = async () => {
+      const [note, doc] = [
+        await boxOf(window.getByTestId("tab-group").nth(0)),
+        await boxOf(window.getByTestId("tab-group").nth(1)),
+      ];
+      return { doc: doc.width, share: note.width / (note.width + doc.width) };
+    };
+    await expect.poll(async () => (await drawnOf()).doc).toBeGreaterThanOrEqual(399);
+    await expectReadable(window, 0);
+    await expectWholeToolbar(window, 1);
+    expect(await kept()).toEqual(stored);
+    await pointAndClick(window, window.getByTestId("note-column-close"));
+    await expect(window.getByTestId("note-column")).toHaveCount(0);
+    expect(await kept()).toEqual(stored);
+    const share = (stored[0] ?? 0) / ((stored[0] ?? 0) + (stored[1] ?? 0));
+    await expect.poll(async () => Math.abs((await drawnOf()).share - share)).toBeLessThan(0.01);
+    await showConversation(window, 0, true);
+    await expectColumnBeside(window, HARBOUR_ASKED);
 
     // The reverse: the Document at the left, the Note at the right.
     await arrange(window, [document, note(harbour)]);
@@ -1065,7 +1206,167 @@ test("scrolled to its end, a Note's last line stands above its conversation open
   }
 });
 
-test("the input at a Note's foot stands on the text's edges, wide, narrow and beside comments, and the page fades out only just above it", async () => {
+test("at 900 px a waiting change's bar stands whole above the Note's input, with the conversation open upward over the Note's foot or folded, docks again each time the box grows or shrinks under it, and its Accept takes the press", async () => {
+  const { app, window } = await launched();
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 900, 760);
+    const folderId = await connected(window);
+    const lines = Array.from({ length: 30 }, (_, n) => ({ text: [P1, P2, P3][n % 3] ?? P1 }));
+    const mindId = await writeNote(window, "Harbour notes", lines, { folderId });
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await nextRun("plan");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type(HARBOUR_ASKED);
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+
+    // An outside agent's change to the Note's last line waits there.
+    const launch = await window.evaluate(async (folder) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const made = await bridge.connectAgent({
+        name: "Research assistant",
+        folderIds: [folder],
+        propose: true,
+      });
+      return made.launch;
+    }, folderId);
+    const agent = new Client({ name: "test-agent", version: "1.0.0" });
+    await agent.connect(new StdioClientTransport({ ...launch, stderr: "pipe" }));
+    try {
+      const read = await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } });
+      const { version } = read.structuredContent as { version: string };
+      const proposed = await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version,
+          changes: [{ paragraph: "¶30", text: `${P3} A covered waiting room comes with it.` }],
+        },
+      });
+      expect(proposed.isError ?? false).toBe(false);
+    } finally {
+      await agent.close();
+    }
+    const editor = group.getByTestId("mind-editor");
+    const change = editor.locator("ins.proposal-insert").last();
+    await expect(change).toContainText("A covered waiting room comes with it.");
+
+    const scroller = group.getByTestId("mind-scroller");
+    const bar = window.getByTestId("change-bar");
+    const box = group.getByTestId("note-ask-box");
+    const stacked = async (element: Locator) =>
+      element.evaluate((node) => Number(getComputedStyle(node).zIndex) || 0);
+    // A press at its Accept lands on Accept, not on what stands over the Note's foot.
+    const pressable = () =>
+      bar.getByTestId("change-accept").evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+        );
+      });
+    for (const upward of [true, false]) {
+      await showConversation(window, 0, upward);
+      await expect(group.getByTestId("note-ask-panel")).toHaveCount(upward ? 1 : 0);
+      // Scrolled to its end, once the conversation has its height: the Note's end keeps its 160px
+      // above the box.
+      await expect
+        .poll(async () => {
+          await scroller.evaluate((element) => {
+            element.scrollTop = element.scrollHeight;
+          });
+          const [input, changed] = [
+            await boxOf(group.getByTestId("note-ask-box")),
+            await boxOf(change),
+          ];
+          return Math.round(input.y - (changed.y + changed.height));
+        })
+        .toBeGreaterThanOrEqual(150);
+      await motionSettled(window);
+      // Pointed at, the change shows its bar, with no press that would fold the conversation.
+      const at = await change.evaluate((element) => {
+        const first = element.getClientRects()[0];
+        return first ? { x: first.left + first.width / 2, y: first.top + first.height / 2 } : null;
+      });
+      if (!at) throw new Error("The change isn't on screen.");
+      await window.mouse.move(at.x, at.y);
+      await expect(bar).toBeVisible();
+      await expect(bar).toHaveCSS("visibility", "visible");
+      await motionSettled(window);
+      await shot(window, `change-bar-${upward ? "upward" : "folded"}-900-en`);
+      const [placed, input, changed] = [await boxOf(bar), await boxOf(box), await boxOf(change)];
+      const where = upward ? "open upward" : "folded";
+      // Between its change and the box, clear of both, and drawn over the fade the box draws.
+      expect(placed.y, where).toBeGreaterThanOrEqual(changed.y + changed.height - 1);
+      expect(placed.y + placed.height, where).toBeLessThanOrEqual(input.y);
+      expect(await stacked(bar), where).toBeGreaterThan(await stacked(box));
+      expect(await pressable(), where).toBe(true);
+    }
+
+    // With the cursor resting in the change, put there by the keyboard, and no pointer on it, the
+    // bar docks again above the box each time the box grows or shrinks, with no scroll between.
+    const dockedAbove = async (where: string) => {
+      await motionSettled(window);
+      await expect
+        .poll(
+          async () => {
+            const [placed, input] = [await boxOf(bar), await boxOf(box)];
+            return Math.round(input.y - (placed.y + placed.height));
+          },
+          { message: `${where}: the bar's room above the box` },
+        )
+        .toBe(16);
+      const [placed, changed] = [await boxOf(bar), await boxOf(change)];
+      expect(placed.y, where).toBeGreaterThanOrEqual(changed.y + changed.height - 1);
+      expect(await stacked(bar), where).toBeGreaterThan(await stacked(box));
+      expect(await pressable(), where).toBe(true);
+    };
+    const [text, view] = [
+      await boxOf(group.locator('[data-testid="mind-pane"] .mind-measure')),
+      await boxOf(scroller),
+    ];
+    await window.mouse.click(text.x + 40, view.y + view.height / 3);
+    await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+    await expect(bar).toBeVisible();
+    await dockedAbove("folded, the cursor in the change");
+    await showConversation(window, 0, true);
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(1);
+    await dockedAbove("opened upward under the bar");
+    await shot(window, "change-bar-cursor-upward-900-en");
+    await showConversation(window, 0, false);
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
+    await dockedAbove("folded under the bar");
+    // A question of the AI's grows the box over the Note's foot by itself.
+    await nextRun("ask-command");
+    const asked = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Check the late crossings and save a table");
+    await window.keyboard.press("Enter");
+    const card = group.getByTestId("own-ask-card");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await dockedAbove("a question asked under the bar");
+    await shot(window, "change-bar-question-900-en");
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, asked);
+    await expect(card).toHaveCount(0);
+    await dockedAbove("the question answered");
+    // Pressed with the conversation open under it, Accept takes the press, and the conversation
+    // stays open.
+    await showConversation(window, 0, true);
+    await dockedAbove("opened again under the bar");
+    await pointAndClick(window, bar.getByTestId("change-accept"));
+    await expect(editor.locator("ins.proposal-insert")).toHaveCount(0);
+    await expect(editor).toContainText("A covered waiting room comes with it.");
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("the input at a Note's foot stands on the text's edges, wide, narrow and beside comments, in English and Chinese, and the page fades out only just above it", async () => {
   const { app, window } = await launched();
   try {
     await acceptPlainTextKeys(window);
@@ -1089,15 +1390,19 @@ test("the input at a Note's foot stands on the text's edges, wide, narrow and be
         `${where}: right`,
       ).toBeLessThanOrEqual(1);
     };
-    for (const [width, height] of [
-      [1440, 900],
-      [1280, 800],
-      [900, 760],
-    ] as const) {
-      await setWindowSize(app, window, width, height);
-      await expect(box).toBeVisible();
-      await onTheText(`${width} px`);
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      for (const [width, height] of [
+        [1440, 900],
+        [1280, 800],
+        [900, 760],
+      ] as const) {
+        await setWindowSize(app, window, width, height);
+        await expect(box).toBeVisible();
+        await onTheText(`${language} ${width} px`);
+      }
     }
+    await setLanguage(window, "en");
 
     // Scrolled into the middle, the text runs to the input: only the last pixels above it fade.
     await setWindowSize(app, window, 1440, 900);

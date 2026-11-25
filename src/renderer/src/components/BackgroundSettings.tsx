@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import type { OpenAtLogin } from "../../../core/api";
 import { core } from "../core";
+import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { onMac } from "../platformOffers";
 import { useSettingsTarget } from "../settingsTarget";
 import { useAppStore } from "../store";
+import { closeTip } from "../tips";
 import { ProblemLine } from "./ProblemLine";
 import { SettingsGroup, SettingsSection, SettingsSwitchRow } from "./settings/SettingsGroup";
 
@@ -13,13 +15,16 @@ const TARGET = ["background"] as const;
 /**
  * Settings → General → Running in the background (#189): opening at login, through the system,
  * and keeping IncarnaMind in the menu bar (the tray on Windows and Linux) with its window closed.
- * Both are turned on when the User sets up Meetings, so the offers to take notes can come.
+ * Both are on from a new data folder's first start (#3758), so the offers to take notes can come;
+ * in one an earlier version started, setting up Meetings turns them on unless the User changed
+ * one here first.
  */
 export function BackgroundSettings() {
   const t = useT();
   const keepRunning = useAppStore((state) => state.settings?.device.keepRunning);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const [login, setLogin] = useState<OpenAtLogin | null>(null);
+  const [failed, setFailed] = useState<{ error: unknown } | null>(null);
   useEffect(() => {
     let live = true;
     core.getOpenAtLogin().then(
@@ -38,11 +43,13 @@ export function BackgroundSettings() {
 
   const setOpenAtLogin = (on: boolean) => {
     if (!login) return;
+    closeTip("call-offers");
     const before = login;
     setLogin({ ...login, on });
+    setFailed(null);
     core.setOpenAtLogin(on).then(setLogin, (error: unknown) => {
       setLogin(before);
-      useAppStore.getState().reportError(error);
+      setFailed({ error });
     });
   };
 
@@ -57,6 +64,11 @@ export function BackgroundSettings() {
             onChange={setOpenAtLogin}
             switchTestId="open-at-login-switch"
           >
+            {failed && (
+              <ProblemLine testId="open-at-login-problem">
+                {errorMessage(failed.error, t)}
+              </ProblemLine>
+            )}
             {login.on && login.needsApproval && (
               <ProblemLine
                 role="status"
@@ -76,7 +88,10 @@ export function BackgroundSettings() {
           label={t(mac ? "settings.keepRunning.mac" : "settings.keepRunning.other")}
           detail={t(mac ? "settings.keepRunning.detail.mac" : "settings.keepRunning.detail.other")}
           checked={keepRunning}
-          onChange={(on) => void updateSettings({ device: { keepRunning: on } })}
+          onChange={(on) => {
+            closeTip("call-offers");
+            void updateSettings({ device: { keepRunning: on } });
+          }}
           switchTestId="keep-running-switch"
         />
       </SettingsGroup>

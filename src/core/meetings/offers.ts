@@ -23,17 +23,13 @@ export const STOP_AFTER_CALL_MS = 30_000;
 
 /**
  * Whether an offer to take notes may show, by the User's switches in Settings › General (#189):
- * the calendar's before a calendar meeting (#207), a call's when `app` took the microphone.
- * Offers wait for Meetings to be in use: a first recording made on this device.
+ * the calendar's before a calendar meeting (#207), a call's when `app` took the microphone. Either
+ * may come before the first recording on this device (#3758): taking it records at once.
  */
 export function offerAllowed(
-  device: Pick<
-    DeviceSettings,
-    "meetingNoticeAccepted" | "calendarOffers" | "callOffers" | "callOffersOff"
-  >,
+  device: Pick<DeviceSettings, "calendarOffers" | "callOffers" | "callOffersOff">,
   offer: { kind: "calendar" } | { kind: "call"; app: string },
 ): boolean {
-  if (!device.meetingNoticeAccepted) return false;
   if (offer.kind === "calendar") return device.calendarOffers;
   return device.callOffers && !device.callOffersOff.includes(offer.app);
 }
@@ -199,9 +195,11 @@ export function createMeetingOffers(options: MeetingOffersOptions): MeetingOffer
     if (previousCalendar && !calendar.get()) revealCall();
     if (call && !previousCalendar && calendar.get()) call = { ...call, id: options.newId() };
     if (!wanted && stopWatching) stopWatchingCalls();
-    if (!wanted) problem = null;
+    // What this copy knows before watching shows with the switch off too, so an off switch says
+    // why calls can't be noticed here (#3758).
+    if (!wanted) problem = options.watcher?.problem ?? null;
     if (wanted && !stopWatching && options.watcher) {
-      problem = null;
+      problem = options.watcher.problem ?? null;
       stopWatching = options.watcher.watch({
         apps: heard,
         problem: (found) => {

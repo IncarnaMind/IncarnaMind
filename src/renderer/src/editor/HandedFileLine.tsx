@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { useNoModel } from "../askYourAi";
 import { MetaLine } from "../components/MetaLine";
 import { buttonStyle } from "../components/ui";
 import { showVersion, useHandedFile } from "../handedFiles";
@@ -24,6 +25,7 @@ export function HandedFileLine({
   const t = useT();
   const language = useLanguage();
   const handed = useHandedFile(mindId, doc);
+  const noModel = useNoModel();
 
   if (!handed) return null;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
@@ -40,6 +42,9 @@ export function HandedFileLine({
           from: format(from),
         })
       : null;
+  // Re-judging kept claims runs through IncarnaMind's own verify path (`checkClaims`); without a
+  // model set up, `askToCheck` only checks unmarked sentences so this button is not offered.
+  const canCheckAll = keptLine !== null && !noModel;
   return (
     <div data-testid="verify-handed" className="check-rows">
       <MetaLine
@@ -59,9 +64,9 @@ export function HandedFileLine({
           parts={[keptLine]}
         />
       )}
-      {(others.length > 0 || keptLine !== null) && (
+      {(others.length > 0 || canCheckAll) && (
         <div className="flex flex-wrap gap-1.5 px-2 pb-1.5">
-          {keptLine !== null && (
+          {canCheckAll && (
             <button
               type="button"
               data-testid="verify-handed-check-all"

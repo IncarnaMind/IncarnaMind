@@ -6673,6 +6673,8 @@ export const en = {
   "error.meetingOffer.link":
     "Recording, but the meeting link didn’t open: open it from your calendar.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
+  "error.openAtLogin.notWritten":
+    "Couldn’t change {path}, which opens IncarnaMind at login. Check its permissions or remove it.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
   "error.meeting.microphone": "The microphone can only be paused or resumed.",
@@ -9457,6 +9459,10 @@ export const en = {
   "ownAsk.unsure": "IncarnaMind can’t tell where this file leads.",
   "ownAsk.moreLines.one": "1 more line · Show all",
   "ownAsk.moreLines.other": "{count} more lines · Show all",
+  "ownAsk.more.below.one": "1 more line below · Show",
+  "ownAsk.more.below.other": "{count} more lines below · Show",
+  "ownAsk.more.above.one": "1 more line above · Show",
+  "ownAsk.more.above.other": "{count} more lines above · Show",
   "ownAsk.here": "This conversation’s folder",
   "ownAsk.newFile.one": "New file · {count} line",
   "ownAsk.newFile.other": "New file · {count} lines",
@@ -9559,6 +9565,8 @@ export const en = {
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
   "noteAsk.noAi": "Asking needs your AI",
+  "noteAsk.cantRead.one": "{agent} can’t read this note",
+  "noteAsk.cantRead": "Your AI can’t read this note",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",
   "noteAsk.action.translate": "Translate it into {language}",

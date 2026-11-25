@@ -7,9 +7,10 @@ import { LineAction } from "../ProblemLine";
 import { Tip } from "../Tip";
 
 /**
- * Home's one line for someone who set up Meetings before the offers to take notes were built
- * (#189): they never read the sheet that turns them on, so nothing is turned on for them. Turn on
- * does what that sheet does; ✕ and Turn on each end the line for good.
+ * Home's one line, once a Meeting was recorded, where the offers to take notes are off (#189): a
+ * data folder an earlier version started, which no first start turned them on in (#3758). Turn on
+ * turns them on with what they need; ✕ and Turn on each end the line for good. A data folder that
+ * keeps running in the menu bar has them from its first start, or its User chose.
  */
 export function CallOffersTip() {
   const t = useT();

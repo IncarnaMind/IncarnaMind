@@ -21,10 +21,11 @@ import {
 } from "./app";
 
 /*
- * Every way an offer to take notes starts a recording (#3762): taking it records at once, with no
- * dialog first, and turns no setting on. An offer shows only on a device that has recorded before,
- * so each case marks that and turns its offers on as Settings › General does, on a fresh data
- * folder with no Meeting yet. The call watcher and the calendar are fakes the test drives.
+ * Every way an offer to take notes starts a recording (#3762): taking it records at once into the
+ * Meeting's Note, with no dialog first, and turns no setting on. An offer shows from a new install's
+ * first start, before anything was recorded (#3758), and on a device that has recorded before,
+ * whose offers are turned on as Settings › General does; each way is taken on both, on a fresh
+ * data folder with no Meeting yet. The call watcher and the calendar are fakes the test drives.
  */
 
 let dataDir: string;
@@ -69,14 +70,19 @@ const windowsBesidePanel = ({ app }: RunningApp) =>
     .map((page) => page.url())
     .filter((url) => !url.includes("meetingPanel.html"));
 
-/** Zoom takes the microphone, on a device whose call offers are on: its offer is shown. */
-async function callOffered(): Promise<RunningApp> {
+/**
+ * Zoom takes the microphone, on a new install, whose call offers are on from its first start, or on
+ * a device that has recorded before with them turned on: its offer is shown.
+ */
+async function callOffered(recordedBefore: boolean): Promise<RunningApp> {
   const running = await launchApp(dataDir, { extraEnv: { INCARNAMIND_TEST_CALLS: "1" } });
-  await updateDevice(running.window, {
-    meetingNoticeAccepted: true,
-    keepRunning: true,
-    callOffers: true,
-  });
+  if (recordedBefore) {
+    await updateDevice(running.window, {
+      meetingNoticeAccepted: true,
+      keepRunning: true,
+      callOffers: true,
+    });
+  }
   await callsUseMicrophone(running.app, ["zoom"]);
   await expect
     .poll(async () => (await offerNotifications(running.app)).map((each) => each.body))
@@ -120,11 +126,16 @@ const rehearsal = (start: number): SystemCalendarEvent => ({
   notes: null,
 });
 
-/** A meeting on the Mac's calendar starts in a minute, with its offers on: its reminder is shown. */
-async function reminderShown(): Promise<RunningApp> {
+/**
+ * A meeting on the Mac's calendar starts in a minute, on a new install, whose calendar offers are
+ * on as it comes, or on a device that has recorded before: its reminder is shown.
+ */
+async function reminderShown(recordedBefore: boolean): Promise<RunningApp> {
   const running = await launchApp(dataDir, { systemCalendar: CALENDAR });
   await (await coreOf(running.window)).evaluate((core) => core.connectCalendar("mac"));
-  await updateDevice(running.window, { meetingNoticeAccepted: true, calendarOffers: true });
+  if (recordedBefore) {
+    await updateDevice(running.window, { meetingNoticeAccepted: true, calendarOffers: true });
+  }
   await syncCalendarEvents(running.app, running.window, [rehearsal(Date.now() + 55_000)]);
   await expect
     .poll(async () => (await offerNotifications(running.app)).map((each) => each.title), {
@@ -144,7 +155,7 @@ async function takeOnHome(window: Page, line: string, take: string): Promise<voi
 
 const WAYS: {
   name: string;
-  offered(): Promise<RunningApp>;
+  offered(recordedBefore: boolean): Promise<RunningApp>;
   take(running: RunningApp): Promise<void>;
 }[] = [
   {
@@ -177,32 +188,48 @@ const WAYS: {
   },
 ];
 
-for (const way of WAYS) {
-  test(`Take notes from ${way.name} records at once, with no dialog first, and turns no setting on`, async () => {
-    const running = await way.offered();
-    const { window } = running;
-    expect(await meetingStatuses(window)).toEqual([]);
-    const before = await settingsNow(window);
-    const loginBefore = loginItem();
-    const windows = windowsBesidePanel(running);
+for (const recordedBefore of [false, true]) {
+  const when = recordedBefore
+    ? "after a first recording"
+    : "on a new install, before any recording,";
+  for (const way of WAYS) {
+    test(`Take notes from ${way.name} ${when} records at once into the Meeting's Note, with no dialog first, and turns no setting on`, async () => {
+      const running = await way.offered(recordedBefore);
+      const { window } = running;
+      expect(await meetingStatuses(window)).toEqual([]);
+      const before = await settingsNow(window);
+      expect(before.device.meetingNoticeAccepted).toBe(recordedBefore);
+      const loginBefore = loginItem();
+      const windows = windowsBesidePanel(running);
 
-    await way.take(running);
-    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
-    expect(await meetingStatuses(window)).toEqual(["recording"]);
-    await expect(window.getByTestId("meeting-notice")).toHaveCount(0);
-    await expect(window.getByTestId("meeting-start")).toHaveCount(0);
-    await expect(
-      window.locator('dialog[open], [role="dialog"]:visible, [role="alertdialog"]:visible'),
-    ).toHaveCount(0);
-    expect(windowsBesidePanel(running)).toEqual(windows);
+      await way.take(running);
+      const control = window.getByTestId("meeting-foot");
+      await expect(control).toHaveAttribute("data-status", "recording");
+      const [meeting, ...others] = await (await coreOf(window)).evaluate((core) =>
+        core.listMeetings(),
+      );
+      if (!meeting) throw new Error("Nothing was recorded.");
+      expect(others).toEqual([]);
+      expect(meeting).toMatchObject({ status: "recording", kind: "meeting" });
+      // The Meeting's Note in front, with the meeting's one control at its foot.
+      await expect(
+        window.locator('[data-testid="mind-tab"][aria-selected="true"]'),
+      ).toHaveAttribute("data-mind-id", meeting.mindId);
+      await expect(control).toHaveCount(1);
+      await expect(window.getByTestId("meeting-start")).toHaveCount(0);
+      await expect(
+        window.locator('dialog[open], [role="dialog"]:visible, [role="alertdialog"]:visible'),
+      ).toHaveCount(0);
+      expect(windowsBesidePanel(running)).toEqual(windows);
 
-    // The sheet says the one thing to do.
-    const sheet = await openMeetingSheet(window);
-    const said = sheet.locator(".meeting-sheet-consent");
-    await expect(said).toHaveCount(1);
-    await expect(said).toHaveText("Tell everyone you’re recording.");
+      // The sheet says the one thing to do.
+      const sheet = await openMeetingSheet(window);
+      const said = sheet.locator(".meeting-sheet-consent");
+      await expect(said).toHaveCount(1);
+      await expect(said).toHaveText("Tell everyone you’re recording.");
 
-    expect(asideFromRecording(await settingsNow(window))).toEqual(asideFromRecording(before));
-    expect(loginItem()).toEqual(loginBefore);
-  });
+      expect(asideFromRecording(await settingsNow(window))).toEqual(asideFromRecording(before));
+      expect(loginItem()).toEqual(loginBefore);
+    });
+  }
 }

@@ -1502,7 +1502,7 @@ export function createAnswers(options: AnswersOptions) {
         );
       }
     } catch (error) {
-      options.reportError(error);
+      if (!controller.signal.aborted) options.reportError(error);
     } finally {
       if (limitShown) options.waiting?.(answer.id, null);
       if (citations.some((citation) => citation.check === "checking")) judged(null, null);

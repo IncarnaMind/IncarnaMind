@@ -46,8 +46,8 @@ jobs:
       - uses: ./.github/actions/packaged-transcription
 
   # The engines load (#1239), the speech engine runs on the app's own ONNX Runtime library, which
-  # keeps its usage events out of Windows' diagnostic data (#2152), and an outside agent connects
-  # and secrets are kept in the packaged app.
+  # keeps its usage events out of Windows' diagnostic data (#2152), an outside agent connects,
+  # secrets are kept in the packaged app, and its first start adds it to the login items (#3758).
   packaged-windows:
     name: Packaged app (Windows)
     runs-on: windows-latest
@@ -68,7 +68,11 @@ jobs:
       - uses: ./.github/actions/packaged-engines
       - uses: ./.github/actions/packaged-speech-windows
       - if: ${{ !cancelled() }}
-        run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts installClaudeCode.packaged.ts
+        run: npm run test:packaged -- agentConnection.packaged.ts secrets.packaged.ts installClaudeCode.packaged.ts openAtLogin.packaged.ts
+        env:
+          # This runner is thrown away after the job: the login item's check may change its login
+          # items (e2e/packaged/openAtLogin.packaged.ts).
+          INCARNAMIND_LOGIN_ITEMS_ON_THROWAWAY_RUNNER: "1"
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -92,7 +96,11 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: ./.github/actions/packaged-engines
       - if: ${{ !cancelled() }}
-        run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts installClaudeCode.packaged.ts
+        run: xvfb-run -a npm run test:packaged -- agentConnection.packaged.ts installClaudeCode.packaged.ts openAtLogin.packaged.ts
+        env:
+          # This runner is thrown away after the job: the login item's check may change its login
+          # items (e2e/packaged/openAtLogin.packaged.ts).
+          INCARNAMIND_LOGIN_ITEMS_ON_THROWAWAY_RUNNER: "1"
       - if: failure()
         uses: actions/upload-artifact@v7
         with:

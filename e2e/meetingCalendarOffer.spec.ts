@@ -137,14 +137,9 @@ async function openCalendar(window: Page, language: keyof typeof labels) {
   await window.getByTestId("sidebar-home").click();
 }
 
-async function allowMeetingOffers(window: Page) {
-  await (await coreOf(window)).evaluate((core) =>
-    core.updateSettings({ device: { meetingNoticeAccepted: true, calendarOffers: true } }),
-  );
-}
-
 for (const language of ["en", "zh-CN"] as const) {
-  test(`calendar reminder waits for consent and opens and records only the chosen event (${language})`, async () => {
+  // A reminder needs no first recording: one taken records at once (#3758, #3762).
+  test(`calendar reminder before the first recording opens and records only the chosen event at once (${language})`, async () => {
     const dataDir = await createDataFolder();
     const words = labels[language];
     try {
@@ -162,15 +157,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const target = event("target", words.target, now + 55_000, "two");
       await syncCalendarEvents(app, window, [solo, target]);
       await expect(window.getByTestId("home-coming-up")).toContainText(target.title);
-      expect(await reminders(app)).toEqual([]);
-      expect(await meetings(window)).toEqual([]);
       const card = window.getByTestId("calendar-offer-line");
-      await expect(card).toHaveCount(0);
-      await motionSettled(window);
-      await window.screenshot({
-        path: test.info().outputPath(`calendar-before-reminder-${language}.png`),
-      });
-      await allowMeetingOffers(window);
 
       const index = await shownNotification(app, words.reminder(target.title));
       expect(await reminders(app)).toHaveLength(1);
@@ -226,7 +213,6 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       await setLanguage(window, language);
       await openCalendar(window, language);
-      await allowMeetingOffers(window);
       const dismissed = event("dismissed", words.dismiss, Date.now() + 55_000, "dsm");
       await syncCalendarEvents(app, window, [dismissed]);
       const index = await shownNotification(app, words.reminder(dismissed.title));
@@ -278,7 +264,6 @@ test("Take notes from a calendar notification keeps recording if the browser can
     await dismissChatSetup(window);
     await setLanguage(window, "en");
     await openCalendar(window, "en");
-    await allowMeetingOffers(window);
     const target = event("target", "Release rehearsal", Date.now() + 55_000, "two");
     await syncCalendarEvents(app, window, [target]);
     await takeNotesFromNotification(

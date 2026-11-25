@@ -26,8 +26,9 @@ import {
   type SaveChatProviderInput,
 } from "../src/core/api";
 import type { FakeSystemCalendar, SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
-import { openDatabase } from "../src/core/storage";
+import { migrate, openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
+import { ensureWorkspace } from "../src/core/workspace";
 import type { BackgroundTestHooks } from "../src/main/backgroundHost";
 import type { FakeCalls } from "../src/main/calls/fakeWatcher";
 import { LOG_FILE } from "../src/main/log";
@@ -2850,6 +2851,28 @@ export async function changeOnScreen(
   }, id);
 }
 
+/**
+ * What of `scope`, itself included, is cut by a box that hides what overflows it, sideways or
+ * below, with the words cut: empty when every word in it shows whole.
+ */
+export const cutIn = (scope: Locator): Promise<string[]> =>
+  scope.evaluate((root) =>
+    [root, ...root.querySelectorAll("*")].flatMap((element) => {
+      const style = getComputedStyle(element);
+      if (style.display === "none" || element.closest(".sr-only")) return [];
+      const words = (element.textContent ?? "").slice(0, 60);
+      const hides = (overflow: string) => /hidden|clip/.test(overflow);
+      return [
+        ...(hides(style.overflowX) && element.scrollWidth > element.clientWidth + 1
+          ? [`sideways: ${words}`]
+          : []),
+        ...(hides(style.overflowY) && element.scrollHeight > element.clientHeight + 1
+          ? [`below: ${words}`]
+          : []),
+      ];
+    }),
+  );
+
 /** The rendered width of an element, in CSS pixels. */
 export async function widthOf(locator: Locator): Promise<number> {
   const box = await locator.boundingBox();
@@ -4139,6 +4162,20 @@ export async function stubClipboard(window: Page) {
 
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
+
+/**
+ * Makes `dataDir` a data folder an earlier version started: its database, with the workspace its
+ * first start made, so the next launch isn't the first (#3758).
+ */
+export function startedBefore(dataDir: string): void {
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    migrate(db);
+    ensureWorkspace(db, () => new Date().toISOString());
+  } finally {
+    db.close();
+  }
+}
 
 const traced = new WeakSet<BrowserContext>();
 

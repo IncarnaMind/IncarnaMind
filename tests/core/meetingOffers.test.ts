@@ -4,7 +4,13 @@ import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { offerAllowed } from "../../src/core/meetings/offers";
 import { createFakeCallWatcher } from "../../src/main/calls/fakeWatcher";
 import { createFileLoginItem } from "../../src/main/loginItem";
-import { createTempDataFolder, manualClock, nextTurn, startCore } from "../helpers/core";
+import {
+  createTempDataFolder,
+  manualClock,
+  nextTurn,
+  startCore,
+  startedBefore,
+} from "../helpers/core";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 
@@ -14,8 +20,9 @@ import { readMind } from "../helpers/minds";
  * go of it.
  */
 
-async function offersCore({ setUp = true, endRecordingOnRelease = true } = {}) {
+async function offersCore({ setUp = true, endRecordingOnRelease = true, before = false } = {}) {
   const dataDir = await createTempDataFolder();
+  if (before) startedBefore(dataDir);
   const clock = manualClock();
   const calls = createFakeCallWatcher();
   const capture = createFakeCapture({ now: () => clock.now().getTime() });
@@ -24,7 +31,7 @@ async function offersCore({ setUp = true, endRecordingOnRelease = true } = {}) {
     now: clock.now,
     callWatcher: { ...calls, endRecordingOnRelease },
   });
-  // As the first-recording sheet leaves them: Meetings set up, and the offers turned on with them.
+  // A first recording made on this device, and the offers for calls on.
   if (setUp)
     await core.updateSettings({ device: { meetingNoticeAccepted: true, callOffers: true } });
   return { core, calls, clock, dataDir };
@@ -41,20 +48,20 @@ describe("The switches for offers", () => {
   test("are kept, and the offers read them back: calendar meetings, calls, and one app at a time", async () => {
     const { core } = await offersCore();
     expect((await core.getSettings()).device).toMatchObject({
-      keepRunning: false,
+      keepRunning: true,
       calendarOffers: true,
       callOffers: true,
       callOffersOff: [],
     });
 
     await core.updateSettings({
-      device: { calendarOffers: false, callOffersOff: ["zoom"], keepRunning: true },
+      device: { calendarOffers: false, callOffersOff: ["zoom"], keepRunning: false },
     });
     const { device } = await core.getSettings();
     expect(device).toMatchObject({
       calendarOffers: false,
       callOffersOff: ["zoom"],
-      keepRunning: true,
+      keepRunning: false,
     });
     expect(offerAllowed(device, { kind: "calendar" })).toBe(false);
     expect(offerAllowed(device, { kind: "call", app: "zoom" })).toBe(false);
@@ -69,18 +76,24 @@ describe("The switches for offers", () => {
     ).rejects.toThrow();
   });
 
-  test("offer nothing before Meetings are set up", async () => {
+  test("offer before the first recording in a new data folder, and one taken records at once", async () => {
     const { core, calls } = await offersCore({ setUp: false });
-    expect(calls.watching()).toBe(false);
-    expect(offerAllowed((await core.getSettings()).device, { kind: "call", app: "zoom" })).toBe(
-      false,
-    );
-    await core.updateSettings({ device: { meetingNoticeAccepted: true, callOffers: true } });
     expect(calls.watching()).toBe(true);
+    calls.use(["zoom"]);
+    const { offer } = await core.getMeetingOffers();
+    expect(offer).toMatchObject({ kind: "call", app: "zoom" });
+    if (!offer) throw new Error("No offer.");
+
+    expect(await core.takeMeetingOffer(offer.id)).toMatchObject({
+      status: "recording",
+      kind: "meeting",
+    });
+    expect((await core.getMeetingOffers()).offer).toBeNull();
+    expect((await core.getSettings()).device.meetingNoticeAccepted).toBe(true);
   });
 
   test("stay off for someone who set up Meetings before they were built, until they turn them on", async () => {
-    const { core, calls } = await offersCore({ setUp: false });
+    const { core, calls } = await offersCore({ setUp: false, before: true });
     // Set up before: the notice read, and no word yet about offers.
     await core.updateSettings({ device: { meetingNoticeAccepted: true } });
     expect((await core.getSettings()).device).toMatchObject({
@@ -387,13 +400,15 @@ describe("Opening at login", () => {
   test("registers and unregisters through the host's login item", async () => {
     const dataDir = await createTempDataFolder();
     const core = startCore(dataDir, { loginItem: createFileLoginItem(dataDir) });
+    // Registered at the data folder's first start (#3758).
     expect(await core.getOpenAtLogin()).toEqual({
       supported: true,
-      on: false,
+      on: true,
       needsApproval: false,
     });
+    expect(await core.setOpenAtLogin(false)).toMatchObject({ on: false });
+    expect(await core.getOpenAtLogin()).toMatchObject({ on: false });
     expect(await core.setOpenAtLogin(true)).toMatchObject({ on: true });
-    expect(await core.getOpenAtLogin()).toMatchObject({ on: true });
     expect(await core.setOpenAtLogin(false)).toMatchObject({ on: false });
   });
 

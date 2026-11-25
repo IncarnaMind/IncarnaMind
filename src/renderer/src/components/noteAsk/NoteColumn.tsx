@@ -2,11 +2,11 @@ import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
-import { core } from "../../core";
 import { useT } from "../../i18n";
 import {
   askInNote,
   firstWordsOf,
+  type NoteAsk,
   type NoteTrail,
   setColumnOpen,
   useNoteAsks,
@@ -18,7 +18,7 @@ import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { SidebarToggle } from "../SidebarToggle";
 import { MoveConversation } from "./NoteAsk";
-import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
+import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 
 type Translate = ReturnType<typeof useT>;
@@ -83,17 +83,24 @@ export const shortModel = (id: string): string => {
   return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
 };
 
-const secondsOf = (trail: NoteTrail) =>
+/** Seconds since the request, less `waitedMs`. */
+const secondsOf = (trail: NoteTrail, waitedMs = 0) =>
   Math.max(
     1,
     Math.floor(
-      (Date.parse(trail.endedAt ?? new Date().toISOString()) - Date.parse(trail.startedAt)) / 1000,
+      (Date.parse(trail.endedAt ?? new Date().toISOString()) -
+        Date.parse(trail.startedAt) -
+        waitedMs) /
+        1000,
     ),
   );
 
+/** How long it worked, the time its questions waited on the User left out. */
+const workedOf = (trail: NoteTrail) => secondsOf(trail, trail.waitedMs);
+
 /** The steps folded to one line: how many Documents it read of those it found, and how long it took. */
 function foldedOf(trail: NoteTrail, t: Translate): string {
-  const seconds = secondsOf(trail);
+  const seconds = workedOf(trail);
   const { count, part } = readsOf(trail.steps);
   if (count === 0) return t("noteColumn.worked", { seconds });
   const total = Math.max(trail.documentsFound, count);
@@ -124,6 +131,12 @@ export const unasked = (step: NoteStep) => step.kind === "own" && step.by === un
 
 /** What a stopped run had done: what it read, as one line. */
 function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
+  const what = readOf(steps, t);
+  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+}
+
+/** What a run read, in words: the Note and the Documents; null when it read none. */
+function readOf(steps: readonly NoteStep[], t: Translate): string | null {
   const mind = steps.find((step) => step.kind === "call" && step.tool === "read_mind");
   const documents = [
     ...new Set(
@@ -132,19 +145,17 @@ function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
   ];
   const [only] = documents;
   const named = mind?.kind === "call" ? mind.summary : null;
-  const what =
-    named && documents.length > 1
-      ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
-      : named && only
-        ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
-        : named
-          ? t("noteColumn.what.mind", { mind: named })
-          : documents.length > 1
-            ? t("noteColumn.what.docs", { count: documents.length })
-            : only
-              ? t("noteColumn.what.doc", { document: only })
-              : null;
-  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+  return named && documents.length > 1
+    ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
+    : named && only
+      ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
+      : named
+        ? t("noteColumn.what.mind", { mind: named })
+        : documents.length > 1
+          ? t("noteColumn.what.docs", { count: documents.length })
+          : only
+            ? t("noteColumn.what.doc", { document: only })
+            : null;
 }
 
 /**
@@ -156,11 +167,13 @@ export function NoteColumn({
   mindId,
   editor,
   agent,
+  turns,
   input,
 }: {
   mindId: string;
   editor: Editor;
   agent: string;
+  turns: readonly NoteTurn[] | null;
   input: ReactNode;
 }) {
   const t = useT();
@@ -197,6 +210,7 @@ export function NoteColumn({
         mindId={mindId}
         editor={editor}
         agent={agent}
+        turns={turns}
         className="note-column-body"
       />
       <div className="note-column-foot">{input}</div>
@@ -205,18 +219,21 @@ export function NoteColumn({
 }
 
 /**
- * The conversation's turns, newest in view, scrolling in their own place: the column's body, or
- * the panel that opens upward inside the input's box.
+ * The conversation's turns, `turns` as read while it is open (null until then), newest in view,
+ * scrolling in their own place: the column's body, or the panel that opens upward inside the
+ * input's box.
  */
 export function NoteConversationBody({
   mindId,
   editor,
   agent,
+  turns,
   className,
 }: {
   mindId: string;
   editor: Editor;
   agent: string;
+  turns: readonly NoteTurn[] | null;
   className: string;
 }) {
   const t = useT();
@@ -226,8 +243,6 @@ export function NoteConversationBody({
   const trails = useNoteTrails((state) => state.byTurn);
   const at = useNoteColumns((state) => state.at[mindId] ?? null);
   const body = useRef<HTMLDivElement>(null);
-  const [turns, setTurns] = useState<readonly NoteTurn[] | null>(null);
-  const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
   // Once in the conversation, above the first step the AI took with a tool of its own, a line says
   // it does so (#3653), unless that step asked, whose card said it already; and once, at the first
   // request its own mode asks nothing in.
@@ -241,20 +256,6 @@ export function NoteConversationBody({
   const firstOwn = firstStep && unasked(firstStep.step) ? firstStep.turn : null;
   const modeTurn =
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
-  useEffect(() => {
-    let current = true;
-    core
-      .noteConversation(mindId)
-      .then((read) => {
-        if (current) setTurns(read);
-      })
-      .catch(useAppStore.getState().reportError);
-    return () => {
-      current = false;
-    };
-  }, [mindId, changed]);
 
   const atEnd = useRef(true);
   // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
@@ -329,6 +330,11 @@ export function NoteConversationBody({
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
             ) : null
           }
+          failed={
+            index === turns.length - 1 && ask?.state === "failed" && ask.turnId === turn.id
+              ? ask
+              : null
+          }
         />
       ))}
     </div>
@@ -344,6 +350,7 @@ function Turn({
   first,
   modeLine,
   accept,
+  failed,
 }: {
   mindId: string;
   turn: NoteTurn;
@@ -353,6 +360,8 @@ function Turn({
   first: boolean;
   modeLine: boolean;
   accept: ReactNode;
+  /** The request, while this turn is its newest and failed: its line has the one thing to do. */
+  failed: NoteAsk | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -362,6 +371,10 @@ function Turn({
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
+  // A step that didn't run for the stop already says it stopped: the line goes, unless it says
+  // what the run had read.
+  const stopSaid =
+    steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
   return (
     <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
@@ -407,6 +420,7 @@ function Turn({
           </ol>
         )}
       {state === "stopped" &&
+        !stopSaid &&
         (turn.closed.length > 0 && !trail ? (
           <ol data-testid="note-column-interrupted" className="note-column-list own-closed">
             {turn.closed.map((action, index) => (
@@ -440,11 +454,20 @@ function Turn({
             {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
           </p>
         ))}
-      {state === "failed" && turn.problem && (
-        <p className="note-column-interrupted">
-          {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
-        </p>
-      )}
+      {state === "failed" &&
+        turn.problem &&
+        (failed ? (
+          <FailureLine
+            ask={failed}
+            mindId={mindId}
+            className="note-column-interrupted"
+            turn={{ request: turn.request, quote: turn.quote }}
+          />
+        ) : (
+          <p className="note-column-interrupted">
+            {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
+          </p>
+        ))}
       {state === "landed" && trail && (
         <div className="note-column-steps">
           <button
@@ -474,7 +497,7 @@ function Turn({
                 <li className="note-column-step">
                   {t("noteColumn.answered", {
                     model: shortModel(trail.model),
-                    seconds: secondsOf(trail),
+                    seconds: workedOf(trail),
                   })}
                 </li>
               )}

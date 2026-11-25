@@ -142,7 +142,7 @@ test("Make this a Skill from ⌘K; an empty Mind says there is nothing to learn 
   await newMind(window);
   await makeSkillFromPalette(window);
   const empty = window.getByTestId("make-skill-empty");
-  await expect(empty).toContainText("nothing in this note to make a Skill from");
+  await expect(empty).toContainText("Nothing in this note to make a Skill from");
   await empty.getByRole("button", { name: "Close" }).click();
   await expect(window.getByTestId("make-skill")).toHaveCount(0);
 

@@ -22,9 +22,9 @@ The machinery behind [`testing.md`](testing.md). Read the section you need when 
 
 | Job | What it checks |
 |---|---|
-| Packaged app (macOS) | Ad-hoc signed: every engine module loads the way the app runs it (#1239), the real OCR reads upright and rotated scans (#1819), and the real speech engine and model transcribe a meeting |
-| Packaged app (Windows) | `npm run check:package`; the engines load; speech runs on the app's own ONNX Runtime library (#2152); an outside agent connects; secrets are kept; and, before packaging, the unit tests of how a write to Claude Code's own settings is known as Windows spells it (8.3 names, dots at a name's end, streams), which the Linux shards can't try (#3653) |
-| Packaged app (Linux) | The engines load and an outside agent connects |
+| Packaged app (macOS) | Ad-hoc signed: every engine module loads the way the app runs it (#1239), the real OCR reads upright and rotated scans (#1819), the real speech engine and model transcribe a meeting, and every other packaged spec below runs |
+| Packaged app (Windows) | `npm run check:package`; the engines load; speech runs on the app's own ONNX Runtime library (#2152); an outside agent connects; secrets are kept; the first start adds the app to the login items (#3758); and, before packaging, the unit tests of how a write to Claude Code's own settings is known as Windows spells it (8.3 names, dots at a name's end, streams), which the Linux shards can't try (#3653) |
+| Packaged app (Linux) | The engines load, an outside agent connects, and the first start adds the app to the login items (#3758) |
 | Packaged startup, quit and updates (Windows) | One instance, startup, quitting and the update between two packaged versions (below) |
 | run_code with its real Python (Linux) | `run_code` on the Python built as the release builds it; the OS sandbox's tests, with the sandbox required to start (the unit shards' newer image can't start it, so they skip them); and the Python and pandas the app bundles |
 | The sweep and the OS sandbox (macOS) | The tests of the sweep and the Seatbelt profile, which run only on macOS. `INCARNAMIND_TEST_ATTACH_VOLUME=1` lets the sandbox test attach a disk image; it is off by default, so a local run never mounts anything |
@@ -87,6 +87,7 @@ A trace keeps the environment the app was launched with and the arguments of eve
 
 - **To run it:** `npm run dist:dir`, then `npm run test:packaged -- engines.packaged.ts`. It finds the app `dist:dir` made on this computer; `INCARNAMIND_PACKAGED_APP` names another executable. On Linux it needs a display (`xvfb-run -a`) and Chromium's sandbox helper owned by root and setuid, without which Analyses don't run: `sudo chown root:root dist/linux-unpacked/chrome-sandbox && sudo chmod 4755 dist/linux-unpacked/chrome-sandbox`.
 - **The other packaged checks** read upright and rotated scans with the real OCR (#1819), and transcribe a meeting with the real speech engine and model through Chromium's fake microphone (#1239). The release runs them on macOS before it uploads, and the nightly run every night. To run them: `npm run dist:dir`, then `npm run test:packaged`. Set `INCARNAMIND_MODEL_CACHE` to a folder to keep the models between runs.
+- **The login item's check** (`openAtLogin.packaged.ts`, #3758) starts the app on its own data folder, the one the system opens at login: on macOS that is in the real Library, and it adds the app to the computer's login items (the Run value in the registry on Windows). So it runs only where `INCARNAMIND_LOGIN_ITEMS_ON_THROWAWAY_RUNNER=1` says the runner is thrown away after the job: the nightly's Windows and Linux packaged jobs set it, and so does `.github/actions/packaged-transcription`, which the nightly's macOS job and the release's macOS build use, so the release checks the signed app Users install. Never set it on your own computer. Even there it refuses to start where the app's data folder or login item is there already, and takes away only what it made. Every other launch is on a data folder of its own and leaves the login items alone.
 
 ## One real engine in a test build
 
