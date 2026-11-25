@@ -717,9 +717,17 @@ for (const microphone of ["allowed", "denied"] as const)
         await window.keyboard.press("ControlOrMeta+t");
         const plain = window.getByTestId("mind-editor");
         await expect(plain).toBeVisible();
-        await plain.locator("p").first().click();
+        // A new Note opens with the cursor in its title.
+        await window.waitForTimeout(1500);
+        await window.keyboard.type(WORDS.folder);
+        await window.keyboard.press("Enter");
         await window.keyboard.type(WORDS.typed[0] ?? "");
         await plain.evaluate((el) => (el as HTMLElement).blur());
+        await window.evaluate(async (folderId) => {
+          const core = (globalThis as unknown as Core).incarnamind;
+          const mindIds = (await core.listMinds()).map((each) => each.id);
+          await core.moveToFolder({ mindIds, folderId });
+        }, folderId);
         await expect(window.getByTestId("note-ask-input"))
           .toBeVisible({ timeout: 15_000 })
           .catch(() => log.push("no input on the plain Note"));

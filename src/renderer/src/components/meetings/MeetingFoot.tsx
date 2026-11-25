@@ -177,7 +177,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             {paused ? (
               <SlotButton
                 testId="meeting-foot-resume-recording"
-                tip={t("meetings.bar.resume", { shortcut: shortcutLabel("meeting.pauseResume") })}
+                tip={t("meetings.command.resume")}
                 onClick={() => void resume(meeting.id)}
               >
                 <ResumeLineIcon className="size-4" />
@@ -246,8 +246,14 @@ function SlotButton({
         data-testid={testId}
         aria-label={tip}
         aria-expanded={expanded}
-        onClick={onClick}
-        onFocus={opened.show}
+        onClick={() => {
+          // As a native tooltip does: the click hides the name, which would cover the sheet it opens.
+          opened.close();
+          onClick();
+        }}
+        onFocus={(event) => {
+          if (event.currentTarget.matches(":focus-visible")) opened.show();
+        }}
         onBlur={opened.blur}
         onPointerMove={opened.point}
         onPointerLeave={opened.leave}
