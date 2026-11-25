@@ -2605,6 +2605,19 @@
     width: min(100%, 560px);
     margin-inline: auto;
   }
+  /* Where the input can't show, the pill or the line that stands in its place, centred. */
+  .note-foot-ask {
+    display: flex;
+    justify-content: center;
+    padding-block: 4px 16px;
+    /* A line as wide as its words clips the focus ring of the action at its end. */
+    > [role="status"] {
+      flex: 1 1 auto;
+    }
+    .meta-line {
+      justify-content: center;
+    }
+  }
   .note-ask-box {
     --note-ask-start: 18px;
     --note-ask-end: 10px;

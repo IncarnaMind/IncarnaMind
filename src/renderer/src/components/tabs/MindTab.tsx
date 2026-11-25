@@ -13,13 +13,14 @@ import { assistantTabOf } from "../../layoutSlice";
 import { useMeetingOf } from "../../meetings";
 import { hasMeetingViews, useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
-import { useOwnAiPillShown } from "../../ownAiPanel";
+import { useHiddenForOwnAi, useOwnAiOnly } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
 import { undoBandFor, useUndoPillBands } from "../../undoPill";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { useWordImport } from "../../wordImport";
+import { NoteFootAsk } from "../assistant/NoteFootAsk";
 import { ExportResultLine } from "../ExportResultLine";
 import { ExampleIntro } from "../FirstOpenSteps";
 import { useIsExample } from "../GettingStarted";
@@ -68,13 +69,15 @@ export function MindTab({ mindId }: { mindId: string }) {
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
-  const quietPill = useQuietAssistant();
-  const ownAiPill = useOwnAiPillShown();
-  const pill = ownAiPill || quietPill;
-  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527); the
-  // longer pill of the User's own AI reaches the check's badge in one narrow group too (#3373).
+  // The page fades out above the floating Ask pill, and above the way to ask at its own foot for
+  // a User with only their own AI, whose assistant is quiet too.
+  const pill = useQuietAssistant();
+  const ownAiOnly = useOwnAiOnly();
+  const hiddenForOwnAi = useHiddenForOwnAi();
+  const floatingPill = pill && !hiddenForOwnAi;
+  // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
-    (state) => pill && (merged ? ownAiPill : (state.layout?.groups.length ?? 0) > 1),
+    (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
   );
   const review = useReviewShown(mindId);
   const reviewShown = transcriptShown ? "closed" : review.shown;
@@ -121,7 +124,8 @@ export function MindTab({ mindId }: { mindId: string }) {
                   <EventBar mindId={mind.id} />
                   <MeetingInMind mindId={mind.id} />
                   {/* The example works without a chat model: it says so in its Answer instead. */}
-                  {!isExample && <ChatReadinessNotice mindId={mind.id} />}
+                  {/* With only their own AI, the Note's foot says what asking needs (#3764). */}
+                  {!isExample && ownAiOnly === false && <ChatReadinessNotice mindId={mind.id} />}
                   <ComposerDockContext.Provider value={read ? assistantSlot : null}>
                     <PageSlotsContext.Provider
                       value={{
@@ -170,6 +174,7 @@ export function MindTab({ mindId }: { mindId: string }) {
           {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
           <div className="note-ask-foot" style={transcriptShown ? { display: "none" } : undefined}>
             <div ref={setAsk} className="mind-measure" />
+            {!isExample && <NoteFootAsk mindId={mind.id} />}
           </div>
         </div>
         <div ref={review.setSlot} data-shown={reviewShown} className="review-slot" />

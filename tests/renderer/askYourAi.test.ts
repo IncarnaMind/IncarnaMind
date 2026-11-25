@@ -59,6 +59,8 @@ const bridge = {
   runsHere: false,
   ownAiRunsHere: async () => bridge.runsHere,
   listAgentsToAsk: async () => bridge.agents,
+  // Connecting an agent turns connecting on.
+  getAgents: async () => ({ enabled: bridge.agents.length > 0, pairings: bridge.agents }),
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);

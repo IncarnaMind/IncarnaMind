@@ -288,7 +288,8 @@ for (const language of ["en", "zh-CN"] as const) {
       .toBeGreaterThan(files.length - 6);
     await expect(step("agentAsk")).toHaveAttribute("data-state", "open");
 
-    // 3. The User opens one file from ⌘K and asks their AI about it from its foot.
+    // 3. The User opens one file from ⌘K and asks their AI about it with ⌘J, as its viewer's Ask
+    // names: no pill floats over the file (#3764).
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type(walk.find);
     await pointAndClick(
@@ -298,9 +299,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const viewer = window.getByTestId("viewer");
     await expect(viewer).toContainText(walk.shows);
     await expect(assistant).toBeHidden();
-    const pill = window.getByTestId("own-ai-pill-ask");
-    await expect(pill).toContainText(t("agents.ask.pill", { agent: "Claude Code" }));
-    await pointAndClick(window, pill);
+    await expect(window.locator("[data-ask-pill]")).toHaveCount(0);
+    await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(typedInClaudeCode).toHaveLength(1);
     const [asked = ""] = await typedInClaudeCode();
     expect(asked).toContain(walk.find);

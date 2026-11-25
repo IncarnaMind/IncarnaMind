@@ -198,6 +198,7 @@ export function SortingSelect({
   groups,
   current,
   setUp = null,
+  none,
   onChange,
 }: {
   id: string;
@@ -210,10 +211,12 @@ export function SortingSelect({
   groups?: readonly { label: string; options: readonly SortingOption[] }[];
   current: SortingOption | null;
   setUp?: SetUpRows | null;
+  /** What it shows with nothing chosen; "No model yet" by default. */
+  none?: string;
   onChange(option: SortingOption): void;
 }) {
   const t = useT();
-  const noPlaceholder = t("setup.sorting.noChoice");
+  const noPlaceholder = none ?? t("setup.sorting.noChoice");
   const Field = popUp ? PopUpSelect : "select";
   const optionOf = (option: SortingOption) => (
     <option key={sortingKey(option.classifier)} value={sortingKey(option.classifier)}>

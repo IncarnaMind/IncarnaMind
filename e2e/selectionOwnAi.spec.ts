@@ -28,11 +28,11 @@ test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION
 
 /*
  * With only their own AI connected and no model set up (#3612): the assistant panel never shows,
- * not even from ⌘K, and the selection menu's Explain, Improve writing, Shorten, Translate and Edit
- * with AI hand the selected words to that AI in one press. The line where the change will land
- * says what became of the request and offers Continue in the open chat; the AI's change comes back
- * waiting for the User. A model set up brings the panel back. The app opens nothing here: each
- * link it would open is recorded.
+ * not even from ⌘K. The bar over a selection only formats and comments, as the User's AI app's own
+ * page does (#3764), and ⌘J hands the selected words to that AI, for the User to say there what to
+ * change. The line where the change will land says what became of the request and offers Continue
+ * in the open chat; the AI's change comes back waiting for the User. A model set up brings the
+ * panel back. The app opens nothing here: each link it would open is recorded.
  */
 
 let dataDir: string;
@@ -132,7 +132,7 @@ async function selectParagraph(window: Page, text: string): Promise<Locator> {
   return menu;
 }
 
-test("with only their own AI, the panel never shows and the selection menu's AI actions hand the words to it; its change waits for the User; a model brings the panel back", async () => {
+test("with only their own AI, the panel never shows, the bar over a selection only formats and comments, and ⌘J hands the words to it; its change waits for the User; a model brings the panel back", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await setWindowSize(app, window, 1280, 820);
   await acceptPlainTextKeys(window);
@@ -143,28 +143,34 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
     const mindId = await openNote(window, folderId);
     const note = `“${TITLE}”`;
 
-    // The panel is out of sight, with no rail, and nothing in ⌘K offers it; the pill asks.
+    // The panel is out of sight, with no rail, and nothing in ⌘K offers it or asks (#3764); the
+    // pill asks.
     const assistant = window.getByTestId("assistant");
     await expect(assistant).toBeHidden();
     await expect(window.getByTestId("assistant-rail")).toBeHidden();
     await expect(window.getByTestId("own-ai-pill-ask")).toHaveText(/Ask Claude Code/);
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type("Assistant:");
+    await expect(window.getByTestId("palette-search")).toHaveValue("Assistant:");
     const items = window.getByTestId("palette-item");
-    await expect(items.filter({ hasText: "Ask “Assistant:”" })).toHaveCount(1);
+    await expect(items.filter({ hasText: "Ask “Assistant:”" })).toHaveCount(0);
     await expect(items.filter({ hasText: /^Assistant:/ })).toHaveCount(0);
     await expect(items.filter({ hasText: "Assistant: Show" })).toHaveCount(0);
     await window.keyboard.press("Escape");
 
-    // Improve writing: one press opens Claude Code with the line typed, and the line where the
-    // change will land says so, with Continue in the open chat.
+    // The bar over the words formats and comments, with no AI group and no field (#3764). ⌘J
+    // opens Claude Code with the words typed, for the User to say what to change, and the line
+    // where the change will land says so, with Continue in the open chat.
     let menu = await selectParagraph(window, SECOND);
-    await expect(menu.getByTestId("selection-action-improve")).toBeVisible();
+    await expect(menu.getByTestId("format-bold")).toBeVisible();
+    await expect(menu.getByTestId("selection-comment")).toBeVisible();
+    await expect(menu.locator('[data-testid^="selection-action-"]')).toHaveCount(0);
+    await expect(menu.getByTestId("selection-edit-field")).toHaveCount(0);
     await shot(window, "selection-menu-en");
-    await pointAndClick(window, menu.getByTestId("selection-action-improve"));
+    await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(
-      `About my note ${note} in IncarnaMind: improve the writing of “The return fare rose from 14 pounds to 16 pound…”, as a change in the note for me to review.`,
+      `About my note ${note} in IncarnaMind, the words “The return fare rose from 14 pounds to 16 pound…”:`,
     );
     const asked = frontMind(window).getByTestId("edit-asked");
     await expect(asked).toContainText("Asked Claude Code: send the request there.");
@@ -220,50 +226,29 @@ test("with only their own AI, the panel never shows and the selection menu's AI 
     await expect(paragraph(window, FIRST)).toHaveText(FIRST);
     await shot(window, "selection-change-waiting-en");
 
-    // Explain asks for a reply in Claude Code and changes nothing; Translate names its language;
-    // Edit with AI… sends what the User typed.
+    // Words asked about again: the line says it was asked; ✕ takes the line away, and the words
+    // stay where they were. No field of the bar's asks for what to change.
     menu = await selectParagraph(window, THIRD);
-    await pointAndClick(window, menu.getByTestId("selection-action-explain"));
+    await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(2);
     expect(typedIn((await urlsOpened(app))[1])).toBe(
-      `About my note ${note} in IncarnaMind: explain “The board will review the winter timetable in M…”.`,
+      `About my note ${note} in IncarnaMind, the words “The board will review the winter timetable in M…”:`,
     );
     await expect(assistant).toBeHidden();
-    // Its line says it was asked; ✕ takes the line away, and the words stay where they were.
+    await expect(window.getByTestId("edit-handoff")).toHaveCount(0);
     await expect(asked).toContainText("Asked Claude Code: send the request there.");
     await pointAndClick(window, asked.getByTestId("menu-edit-close"));
     await expect(asked).toHaveCount(0);
-
-    menu = await selectParagraph(window, THIRD);
-    await pointAndClick(window, menu.getByTestId("selection-action-translate"));
-    await pointAndClick(
-      window,
-      window.getByTestId("selection-choices-translate").getByRole("menuitem", { name: "Français" }),
-    );
-    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
-    expect(typedIn((await urlsOpened(app))[2])).toContain(
-      "into French (Français), as a change in the note for me to review.",
-    );
-    await expect(asked).toContainText("Asked Claude Code: send the request there.");
-
-    menu = await selectParagraph(window, FIRST);
-    await pointAndClick(window, menu.getByTestId("selection-edit-field"));
-    await window.keyboard.type("Round it to the nearest thousand");
-    await window.keyboard.press("Enter");
-    await expect.poll(() => urlsOpened(app)).toHaveLength(4);
-    expect(typedIn((await urlsOpened(app))[3])).toBe(
-      `About my note ${note} in IncarnaMind, the words “Harbourline Ferries carried 412,000 passengers …”:\n\nRound it to the nearest thousand`,
-    );
-    await expect(window.getByTestId("edit-handoff")).toHaveCount(0);
-    await expect(asked).toContainText("Asked Claude Code: send the request there.");
+    await expect(paragraph(window, THIRD)).toHaveText(THIRD);
 
     // In Chinese, the same in Chinese words.
     await setLanguage(window, "zh-CN");
-    menu = await selectParagraph(window, THIRD);
-    await pointAndClick(window, menu.getByTestId("selection-action-shorten"));
-    await expect.poll(() => urlsOpened(app)).toHaveLength(5);
-    expect(typedIn((await urlsOpened(app))[4])).toBe(
-      `关于我在 IncarnaMind 中的笔记“${TITLE}”：精简“The board will review the winter timetable in M…”，作为修改写进笔记，由我确认。`,
+    menu = await selectParagraph(window, FIRST);
+    await expect(menu.locator('[data-testid^="selection-action-"]')).toHaveCount(0);
+    await window.keyboard.press("ControlOrMeta+j");
+    await expect.poll(() => urlsOpened(app)).toHaveLength(3);
+    expect(typedIn((await urlsOpened(app))[2])).toBe(
+      `关于我在 IncarnaMind 中的笔记“${TITLE}”里的“Harbourline Ferries carried 412,000 passengers …”：`,
     );
     await expect(frontMind(window).getByTestId("edit-asked")).toContainText(
       "已交给 Claude Code：在那里发送请求即可。",

@@ -10,7 +10,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { MessageKey } from "../../../shared/i18n";
-import { useAgentsToAsk } from "../askYourAi";
 import { assistantHandle } from "../commands/handles";
 import { keysHere, pressesShortcut } from "../commands/keymap";
 import { commands, labelOf } from "../commands/registry";
@@ -151,10 +150,8 @@ function Palette() {
   const openConversation = useConversations((state) =>
     state.openId ? conversationById(state.openId) : undefined,
   );
-  // With only their own AI, the typed words go to it (#3612).
-  const hiddenForOwnAi = useHiddenForOwnAi();
-  const [ownAi] = useAgentsToAsk(null);
-  const askedAi = hiddenForOwnAi ? ownAi : undefined;
+  // Followed, so the Ask row comes and goes as the panel does (`askGroup`).
+  useHiddenForOwnAi();
   const version = useSyncExternalStore(findable.subscribe, findable.version);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` is when the objects changed.
   const found = useMemo(() => findings(t), [version, t]);
@@ -221,7 +218,7 @@ function Palette() {
     [notes, passages, annotations, said].some((each) => each === null || each.query !== text);
   const asking =
     text !== "" && !actionsOnly && assistantHandle.current !== null
-      ? askGroup(text, conversationLabel(openConversation), t, askedAi?.name)
+      ? askGroup(text, conversationLabel(openConversation), t)
       : [];
   const failed = searching
     ? (notes?.failed ?? passages?.failed ?? annotations?.failed ?? said?.failed)

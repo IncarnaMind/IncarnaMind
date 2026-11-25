@@ -1,7 +1,8 @@
 /**
- * The assistant for a User whose own AI is connected and who set up no model (#3373, #3612): its
- * panel is never shown, whatever it was before, and the pill at the foot of a Note or a Document
- * asks their own AI about it, as ⌘J does. The one exception is a Conversation they already have,
+ * The assistant for a User whose own AI is the way to ask and who set up no model (#3373, #3612):
+ * its panel is never shown, whatever it was before, and a Note asks their own AI from its foot.
+ * Their AI is the way once they connected one, and stays it after they disconnect it, so the
+ * panel never comes back for that (#3764). The one exception is a Conversation they already have,
  * opened to be read: the panel shows it until they fold it. Folded for their AI, it opens as it
  * was once a model is set up.
  */
@@ -19,20 +20,48 @@ import {
   useReadAgentsToAsk,
 } from "./askYourAi";
 import { useClaudeCodeInstallAvailability } from "./claudeCodeInstall";
+import { core } from "./core";
 import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { useGroupsMerged } from "./useWindowWidth";
 
-/** Only their own AI asks for the User: connected, and no model in IncarnaMind; null until both are known. */
+/**
+ * Connecting the User's own AI is on: connecting one turns it on, and disconnecting it leaves it
+ * on; null until read.
+ */
+const useAgentsOn = create<{ on: boolean | null }>(() => ({ on: null }));
+
+function useReadAgentsOn(): void {
+  useEffect(() => {
+    let current = true;
+    core.getAgents().then((settings) => {
+      if (current) useAgentsOn.setState({ on: settings.enabled });
+    }, useAppStore.getState().reportError);
+    const stop = core.on("agents.changed", (settings) =>
+      useAgentsOn.setState({ on: settings.enabled }),
+    );
+    return () => {
+      current = false;
+      stop();
+    };
+  }, []);
+}
+
+/**
+ * Only their own AI asks for the User: no model in IncarnaMind, and an AI of theirs connected
+ * now or before; null until all three are known.
+ */
 export function useOwnAiOnly(): boolean | null {
   const known = useAppStore((state) => state.chatReadiness !== null);
   const without = useNoModel();
   const agents = useAgentsToAskRead(null);
-  if (!known || agents === null) return null;
-  return without && agents.length > 0;
+  const on = useAgentsOn((state) => state.on);
+  if (!known || agents === null || on === null) return null;
+  return without && (agents.length > 0 || on);
 }
 
-export const ownAiOnlyNow = (): boolean => noModel() && agentsToAsk(null).length > 0;
+export const ownAiOnlyNow = (): boolean =>
+  noModel() && (agentsToAsk(null).length > 0 || useAgentsOn.getState().on === true);
 
 /** A Conversation the User opened to read, which the panel shows until they fold it. */
 const useReading = create<{ reading: boolean }>(() => ({ reading: false }));
@@ -60,6 +89,7 @@ export function setUpModelInstead(): void {
  */
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
+  useReadAgentsOn();
   useClaudeCodeInstallAvailability();
   const only = useOwnAiOnly();
   const reading = useReading((state) => state.reading);
@@ -154,26 +184,32 @@ function useAskedOn(): AskedOn {
   return askedOn(mindId, documentId, mindId === null ? null : noteAgents);
 }
 
-/** Whether the pill shows, as the Workbench reads its agents: for a page that makes room for it. */
+/**
+ * The pill stands at the foot of the Note it asks about, as the Note's own input does, never over
+ * a Document (#3764): a Document is asked about from the Note beside it or from its own menu.
+ */
+const atNote = (pill: OwnAiPill | null): OwnAiPill | null => (pill?.mindId ? pill : null);
+
+/** Whether a Note's Ask pill shows. */
 export function useOwnAiPillShown(): boolean {
-  const hidden = useHiddenForOwnAi();
-  const on = useAskedOn();
-  const runsHere = useOwnAiRunsHere();
-  return (
-    pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere) !== null
-  );
+  return useOwnAiPill() !== null;
 }
 
-/** The pill's Note or Document and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
+/** The pill's Note and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
 export function useOwnAiPill(): OwnAiPill | null {
   const hidden = useHiddenForOwnAi();
   const on = useAskedOn();
   useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
   const runsHere = useOwnAiRunsHere();
-  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere);
+  return atNote(
+    pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere),
+  );
 }
 
-/** The same, read once: what ⌘J asks while the pill shows. */
+/**
+ * What ⌘J hands their own AI, read once: the Note the pill asks about, or the Document in front
+ * with no Note to ask from, as the viewer's Ask about this names ⌘J.
+ */
 export function ownAiPillNow(): OwnAiPill | null {
   const on = askedOnOf(groupsMerged());
   return pillOf(
@@ -184,5 +220,20 @@ export function ownAiPillNow(): OwnAiPill | null {
   );
 }
 
-/** The Note a question typed elsewhere (⌘K, the Library) is about: the one the assistant reads. */
-export const ownAiNoteNow = (): string | null => askedOnOf(groupsMerged()).mindId;
+/**
+ * With only their own AI as the way to ask, none of theirs reads this Note, disconnected or never
+ * given its Folder: its foot says so, with the one way to fix it (#3764).
+ */
+export function useNoAiForNote(mindId: string): boolean {
+  const only = useOwnAiOnly();
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAskRead(mindId);
+  return only === true && agents !== null && agents.length === 0;
+}
+
+/** With only their own AI as the way to ask, none of theirs is connected: nothing offers to ask. */
+export function useNoAiConnected(): boolean {
+  const only = useOwnAiOnly();
+  const agents = useAgentsToAskRead(null);
+  return only === true && agents !== null && agents.length === 0;
+}
