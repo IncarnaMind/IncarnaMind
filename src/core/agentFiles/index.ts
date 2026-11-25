@@ -182,9 +182,11 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       folderId: string | null;
       pairingId: string;
       agent: string;
+      /** When it was made, if not now: a file IncarnaMind wrote carries this date (#3751). */
+      createdAt?: string;
     }): StoredHandedFile {
       const id = newId();
-      const at = now();
+      const at = input.createdAt ?? now();
       db.run(
         `INSERT INTO agent_files (id, title, kind, path, folder_id, pairing_id, agent, created_at,
            updated_at)

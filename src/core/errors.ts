@@ -129,10 +129,17 @@ export class FileWriteCancelledError extends TranslatableError {
   }
 }
 
-/** Thrown by a save that may not ask the User anything (the quit, with no window), where it would ask. */
+/**
+ * Thrown by a save that may not ask the User anything (the quit, with no window; an outside agent's
+ * call, #3751), where it would ask: where new files go, or whether a Linked folder takes them.
+ */
 export class FileWriteUnansweredError extends TranslatableError {
   override name = "FileWriteUnansweredError";
-  constructor() {
+  constructor(
+    readonly question: { kind: "output-location" } | { kind: "linked-folder"; path: string } = {
+      kind: "output-location",
+    },
+  ) {
     super({ key: "error.files.needsAnswer" });
   }
 }

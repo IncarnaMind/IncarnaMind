@@ -1,8 +1,11 @@
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
+import type { AgentSavedFile, NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
+import { files } from "../../core";
+import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
 import { useT } from "../../i18n";
+import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
 import {
   askInNote,
   firstWordsOf,
@@ -16,6 +19,7 @@ import {
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
+import { ProblemLine } from "../ProblemLine";
 import { SidebarToggle } from "../SidebarToggle";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
@@ -37,6 +41,7 @@ const DOING: Partial<Record<string, MessageKey>> = {
   calculate: "noteAsk.doing.run_analysis",
   publish_canvas: "noteAsk.doing.publish_canvas",
   update_canvas: "noteAsk.doing.publish_canvas",
+  save_as_word: "noteAsk.doing.save_as_word",
 };
 const DID: Partial<Record<string, MessageKey>> = {
   read_mind: "noteAsk.did.read_mind",
@@ -51,10 +56,11 @@ const DID: Partial<Record<string, MessageKey>> = {
   calculate: "noteAsk.did.run_analysis",
   publish_canvas: "noteAsk.did.publish_canvas",
   update_canvas: "noteAsk.did.publish_canvas",
+  save_as_word: "noteAsk.did.save_as_word",
 };
 
 /** The Tools whose steps make or change a Note the User may open. */
-const MAKES = new Set(["create_mind", "propose_changes"]);
+const MAKES = new Set(["create_mind", "propose_changes", "save_as_word"]);
 
 /** The Documents a run read, each once: how many, and how many only in part. */
 function readsOf(steps: readonly NoteStep[]) {
@@ -404,7 +410,8 @@ function Turn({
       {state === "working" && questions[0] && (
         <QuestionCard question={questions[0]} agent={agent} mindId={mindId} />
       )}
-      {/* What it did with its own tools before it stopped or failed, a file it wrote among them. */}
+      {/* What it did with its own tools before it stopped or failed, a file it wrote among them,
+          then what it made through IncarnaMind, which stands though the run didn't end. */}
       {(state === "stopped" || state === "failed") &&
         trail &&
         steps.some((step) => step.kind === "own") && (
@@ -419,6 +426,14 @@ function Turn({
               ))}
           </ol>
         )}
+      {(state === "stopped" || state === "failed") && made.length > 0 && (
+        <div className="note-column-made">
+          {made.map((step, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+            <MadeCard key={index} step={step} />
+          ))}
+        </div>
+      )}
       {state === "stopped" &&
         !stopSaid &&
         (turn.closed.length > 0 && !trail ? (
@@ -543,12 +558,63 @@ function Turn({
   );
 }
 
-const madeKind = (step: NoteStep): "note" | "changed" | null => {
+const madeKind = (step: NoteStep): "note" | "changed" | "file" | null => {
   if (step.kind !== "call" || !MAKES.has(step.tool) || step.done === false) return null;
   if (step.tool === "create_mind") return "note";
   if (step.tool === "propose_changes" && step.mindId && step.waiting) return "changed";
+  if (step.tool === "save_as_word" && step.file) return "file";
   return null;
 };
+
+/** A file the AI saved for the User (#3751): opened or shown, as a file Export saved is. */
+function SavedFileCard({ file }: { file: AgentSavedFile }) {
+  const t = useT();
+  const [problem, setProblem] = useState<string | null>(null);
+  const run = (
+    act: (path: string) => Promise<void>,
+    failed: "export.failed.open" | "export.failed.show",
+  ) => {
+    setProblem(null);
+    act(file.path).catch((failure: unknown) => setProblem(savedFileFailure(failure, failed, t)));
+  };
+  return (
+    <div data-testid="note-column-saved" className="note-column-made-card note-column-saved">
+      <div className="note-column-saved-row">
+        <span className="note-column-saved-what">
+          <span className="note-column-made-title" title={file.name}>
+            {file.name}
+          </span>
+          <span data-testid="note-column-saved-kind" className="note-column-made-kind">
+            {t(KIND_LABELS.docx)}
+          </span>
+        </span>
+        <span className="note-column-saved-actions">
+          <button
+            type="button"
+            data-testid="note-column-saved-open"
+            onClick={() => run(files.openSavedFile, "export.failed.open")}
+            className={SAVED_OPEN_BUTTON}
+          >
+            {t("export.open")}
+          </button>
+          <button
+            type="button"
+            data-testid="note-column-saved-show"
+            onClick={() => run(files.showSavedFile, "export.failed.show")}
+            className={SAVED_SHOW_BUTTON}
+          >
+            {t(showFileLabelKey(navigator.platform))}
+          </button>
+        </span>
+      </div>
+      {problem && (
+        <ProblemLine testId="note-column-saved-problem" className="w-full">
+          {problem}
+        </ProblemLine>
+      )}
+    </div>
+  );
+}
 
 /** What the AI made or changed, other than the Note in front: a press opens it. */
 function MadeCard({ step }: { step: NoteStep }) {
@@ -556,6 +622,7 @@ function MadeCard({ step }: { step: NoteStep }) {
   const kind = madeKind(step);
   const minds = useAppStore((state) => state.minds);
   if (step.kind !== "call" || !kind) return null;
+  if (kind === "file") return step.file ? <SavedFileCard file={step.file} /> : null;
   const mindId =
     step.mindId ?? minds.find((each) => kind === "note" && each.title === step.summary)?.id;
   const what =
