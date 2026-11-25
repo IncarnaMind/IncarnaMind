@@ -99,10 +99,10 @@ describe("The line after saving, for what a file says of its checked sentences",
     const copy = "Harbour report 2.docx";
     const changed = "Harbour report.docx";
     expect(rewrittenLine(t("en"), true, 2, copy, changed)).toBe(
-      "Added 2 check comments to a copy, “Harbour report 2.docx”, because “Harbour report.docx” changed after it was saved",
+      "Added 2 check comments to a copy, “Harbour report 2.docx”: “Harbour report.docx” changed after saving",
     );
     expect(rewrittenLine(t("en"), true, 1, copy, changed)).toBe(
-      "Added 1 check comment to a copy, “Harbour report 2.docx”, because “Harbour report.docx” changed after it was saved",
+      "Added 1 check comment to a copy, “Harbour report 2.docx”: “Harbour report.docx” changed after saving",
     );
     expect(rewrittenLine(t("zh-CN"), true, 2, copy, changed)).toBe(
       "已在副本“Harbour report 2.docx”中添加 2 条核对批注，因为“Harbour report.docx”保存后有改动",

@@ -34,11 +34,11 @@ test("Windows ending the session before its changes were stored says how many, a
     { mindId: "mind-2", count: 1 },
   ];
   expect(said({ lost: 2, ended: { kind: "session", unsaved: 2, minds } })).toEqual({
-    en: "When Windows shut down or signed out, 2 changes hadn’t been saved yet. Everything else was kept.",
+    en: "Windows ended the session before 2 changes were saved. Everything else was kept.",
     zh: "Windows 关机或注销时，有 2 处改动尚未保存，其余内容都已保留。",
   });
   expect(said({ lost: null, ended: { kind: "session", unsaved: 1, minds: [] } })).toEqual({
-    en: "When Windows shut down or signed out, 1 change hadn’t been saved yet. Everything else was kept.",
+    en: "Windows ended the session before 1 change was saved. Everything else was kept.",
     zh: "Windows 关机或注销时，有 1 处改动尚未保存，其余内容都已保留。",
   });
   const note = { mindId: "mind-1", name: "Lease review" };
@@ -49,7 +49,7 @@ test("Windows ending the session before its changes were stored says how many, a
       note,
     }),
   ).toEqual({
-    en: "When Windows shut down or signed out, 2 changes to “Lease review” hadn’t been saved yet. Everything else was kept.",
+    en: "Windows ended the session before 2 changes to “Lease review” were saved. The rest was kept.",
     zh: "Windows 关机或注销时，“Lease review”有 2 处改动尚未保存，其余内容都已保留。",
     open: "mind-1",
   });
@@ -60,7 +60,7 @@ test("Windows ending the session before its changes were stored says how many, a
       note,
     }),
   ).toEqual({
-    en: "When Windows shut down or signed out, 1 change to “Lease review” hadn’t been saved yet. Everything else was kept.",
+    en: "Windows ended the session before 1 change to “Lease review” was saved. The rest was kept.",
     zh: "Windows 关机或注销时，“Lease review”有 1 处改动尚未保存，其余内容都已保留。",
     open: "mind-1",
   });

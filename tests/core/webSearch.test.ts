@@ -825,7 +825,7 @@ describe("Web search in an Answer", { timeout: 30_000 }, () => {
   test("a Note's Folder that gains a wall mid-fetch leaves the page in no Folder, and the Answer says so", async () => {
     expect(await noteFolderWalledWhileFetching("mid")).toEqual({ filed: "no Folder", said: true });
     expect(translate("zh-CN", "folder.wall.pageNotFiled")).toBe(
-      "此回答读过的一个网页没有归入文件夹：在生成回答期间，“只在本文件夹内工作”发生了变化。",
+      "此回答读过的一个网页没有归入文件夹：期间“只在本文件夹内工作”有变化。",
     );
   });
 

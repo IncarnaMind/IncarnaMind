@@ -117,7 +117,7 @@ describe("Undo of Change in someone else's Word file", () => {
       }
       const problem = useUndo.getState().line?.problem;
       expect(problem?.reason(t)).toBe(
-        "“Harbour report.docx” can’t be changed: it may be read-only or open in another app. Close it there, or export the note again.",
+        "Can’t change “Harbour report.docx”: it may be read-only or open elsewhere. Close it, or export again.",
       );
       expect(problem?.fix?.label(t)).toBe("Try again");
       expect(useUndo.getState().done).toHaveLength(2);

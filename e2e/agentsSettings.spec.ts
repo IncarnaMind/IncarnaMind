@@ -141,7 +141,7 @@ test("off by default with no switch to find; Connect asks once, turns connecting
       .getByTestId("agent-pairing")
       .filter({ hasText: "ChatGPT app and Codex" });
     await expect(connected.getByTestId("agent-setup-done")).toContainText(
-      "“Allow for this session” lets it hand over more files in the same chat.",
+      "when it asks to hand over a file, choose “Allow for this session”.",
     );
     await expect(connected.getByTestId("agent-pairing-reads")).toHaveText("Reads Coast");
     await expect(connected.getByTestId("agent-pairing-skill")).toContainText("Skill installed");
@@ -316,7 +316,7 @@ test("an Other agent's Details show the command, arguments and environment, each
     await dialog.getByTestId("connect-agent-allow").click();
 
     const row = page.getByTestId("agent-pairing").filter({ hasText: "Other agent" });
-    await expect(row.getByTestId("agent-setup-done")).toContainText("Details shows each part");
+    await expect(row.getByTestId("agent-setup-done")).toContainText("Each part is under Details");
     const all = JSON.parse(await copied(window)) as {
       mcpServers: { incarnamind: { command: string; args: string[]; env: Record<string, string> } };
     };
@@ -419,7 +419,7 @@ test("in Chinese the Codex agent is named in Chinese in the list, the dialog and
     await expect(connected.getByTestId("agent-setup-done")).toBeInViewport({ ratio: 1 });
     await shot(window, "agents-codex-name-zh-connected-900");
     await expect(connected.getByTestId("agent-setup-done")).toContainText(
-      "选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
+      "它询问是否交付文件时，选“Allow for this session”。",
     );
     await setWindowSize(app, window, 1440, 900);
     await shot(window, "agents-codex-name-zh-connected-wide");

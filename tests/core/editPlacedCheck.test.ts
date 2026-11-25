@@ -437,16 +437,16 @@ describe("Edit with AI's last check on what it writes (#2424)", () => {
 
   test("says why in the User's language, in the composer and on the change card", () => {
     expect(translate("en", "edit.problem.not-placed")).toBe(
-      "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
+      "Nothing changed: the rewrite would have changed a Citation, footnote or figure. Try again.",
     );
     expect(translate("zh-CN", "edit.problem.not-placed")).toBe(
-      "AI 的改写会加入或修改引用、脚注或计算结果，没有改动。请重试。",
+      "没有改动：改写会改动引用、脚注或计算结果。请重试。",
     );
     expect(translate("en", "mindCall.failed.notPlaced", { mind: "Tides" })).toBe(
-      "The rewrite would have added or edited a Citation, footnote or figure in “Tides”, so nothing changed",
+      "Nothing changed: the rewrite would have changed a Citation, footnote or figure in “Tides”",
     );
     expect(translate("zh-CN", "mindCall.failed.notPlaced", { mind: "潮汐" })).toBe(
-      "改写会在“潮汐”里加入或修改引用、脚注或计算结果，因此没有改动",
+      "没有改动：改写会改动“潮汐”里的引用、脚注或计算结果",
     );
   });
 

@@ -227,10 +227,10 @@ describe("A meeting in a Search scope", () => {
 describe("The lines about meetings an earlier version filed apart", () => {
   test("say it in these words, one meeting and several, in English and Chinese", () => {
     expect(translate("en", "meetings.leftApart.one")).toBe(
-      "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+      "1 meeting apart from its Transcript: each Folder keeps its work inside it",
     );
     expect(translate("en", "meetings.leftApart.other", { count: 3 })).toBe(
-      "3 meetings left apart from their Transcripts, since each Folder keeps its work inside it",
+      "3 meetings apart from their Transcripts: each Folder keeps its work inside it",
     );
     expect(translate("en", "meetings.leftApart.show")).toBe("Show");
     expect(translate("zh-CN", "meetings.leftApart.one")).toBe(

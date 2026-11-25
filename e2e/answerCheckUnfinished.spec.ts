@@ -45,17 +45,16 @@ const WORDS = {
   en: {
     question: "What do tides do? Four citations, thought over.",
     line: "0 of 4 sentences checked · This Answer’s $0.25 checking limit reached",
-    card: "Not checked: this Answer’s $0.25 checking limit was reached before Claude Fable 5 finished checking this sentence.",
+    card: "Not checked: this Answer hit its $0.25 checking limit before Claude Fable 5 finished.",
     capLine: "0 of 4 sentences checked · Your monthly limit reached",
-    capCard:
-      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
+    capCard: "Not checked: your monthly limit was reached before Claude Fable 5 finished.",
   },
   "zh-CN": {
     question: "潮水怎么涨落？四条引用，细想。",
     line: "已核对 4 句中的 0 句 · 已达本回答 $0.25 的核对上限",
-    card: "未核对：Claude Fable 5 还没核对完这句，就已达本回答 $0.25 的核对上限。",
+    card: "未核对：Claude Fable 5 核对完之前，本回答已达 $0.25 的核对上限。",
     capLine: "已核对 4 句中的 0 句 · 已达每月上限",
-    capCard: "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
+    capCard: "未核对：Claude Fable 5 核对完之前，已达每月上限。",
   },
 } as const;
 

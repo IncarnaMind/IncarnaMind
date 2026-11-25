@@ -186,13 +186,13 @@ describe("Settings › Meetings › Calendars", () => {
     expect(said("not-allowed").fix).toBe("allow");
     expect(said("denied", { service: "mac", name: null })).toEqual({
       words:
-        "IncarnaMind can’t read your calendars. Allow it in System Settings › Privacy & Security › Calendars.",
+        "IncarnaMind can’t read your calendars: allow it under Privacy & Security › Calendars.",
       fix: "system-settings",
     });
     expect(said("failed")).toEqual({ words: "Couldn’t read Google Calendar", fix: "sync" });
     expect(
       problemOf(account({ problem: "denied", service: "mac" }), "denied", "zh-CN", zh, H24).words,
-    ).toBe("IncarnaMind 没有读取日历的权限。可在“系统设置 › 隐私与安全性 › 日历”中允许。");
+    ).toBe("IncarnaMind 没有读取日历的权限：请在“隐私与安全性 › 日历”中允许。");
   });
 });
 

@@ -220,8 +220,8 @@ for (const language of ["en", "zh-CN"] as const) {
     const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
     const press = translate(language, helpLabel("say"));
     const OTHER_CALL = {
-      en: "The quote is from another call. A call help reply is checked against its own call and your Documents.",
-      "zh-CN": "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
+      en: "The quote is from another call, not this one.",
+      "zh-CN": "引文出自另一场会议，不是这一场。",
     }[language];
 
     // protects=#3005: a press's reply's Citation of another call says it was left out on purpose, and offers no Check again, which can never check it; fails_when=its card gives the general "couldn't be checked" line, or offers Check again; no_claim=the panel's chip.

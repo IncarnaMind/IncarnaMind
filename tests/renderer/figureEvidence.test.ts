@@ -543,14 +543,8 @@ function htmlHolder(markup: string): HTMLElement {
 }
 
 test.each([
-  [
-    "en",
-    "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
-  ],
-  [
-    "zh-CN",
-    "已按纯文本复制：这个数字保存的输入不完整，核对结果没有一起复制。请重新核对这个数字后再复制。",
-  ],
+  ["en", "Copied as plain text, without its check: check the figure again, then copy it."],
+  ["zh-CN", "已按纯文本复制，未带核对结果：请重新核对这个数字后再复制。"],
 ] as const)(
   "%s: copying a figure whose record is gone copies its value as plain text and says so",
   (language, wording) => {

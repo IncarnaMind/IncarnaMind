@@ -392,7 +392,7 @@ for (const { language, width, items: words } of SETTINGS) {
     await expect(menu).toBeHidden();
     await expect(window.getByTestId("error-notice-message")).toContainText(
       language === "en"
-        ? "couldn’t put the selection on the clipboard"
+        ? "Couldn’t copy the selection to the clipboard"
         : "未能把所选内容放到剪贴板",
     );
     await app.close();

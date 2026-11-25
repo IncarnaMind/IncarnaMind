@@ -512,11 +512,9 @@ describe("Help during the call", { timeout: 60_000 }, () => {
 
     expect(calls).toEqual([]);
     expect(english.answer.text).toBe(
-      "The live text is behind, so none of the call is written yet. It is transcribed after the meeting stops.",
+      "The live text is behind; the call is written out after the meeting stops.",
     );
-    expect(chinese.answer.text).toBe(
-      "实时转写跟不上，通话内容还没有转写出来，会议结束后才会转写。",
-    );
+    expect(chinese.answer.text).toBe("实时转写跟不上，会议结束后才会转写出来。");
     expect(english.answer.steps?.textBehind).toBe(true);
     expect(english.answer.citations).toEqual([]);
   });
