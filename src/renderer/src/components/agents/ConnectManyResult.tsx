@@ -4,13 +4,12 @@ import { clientInSentence } from "../../../../shared/agentNames";
 import type { AgentConnectOutcome } from "../../agentConnection";
 import { core } from "../../core";
 import { ClaimMarkIcon } from "../../editor/icons";
-import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { WorksRow } from "../firstRun/SetupPanel";
 import { ProblemMark } from "../ProblemLine";
 import { buttonStyle } from "../ui";
-import { clientName, doneWords, helpUrl, takesParts } from "./agentWords";
+import { clientName, doneWords, helpUrl, setupProblem, takesParts } from "./agentWords";
 import { LaunchDetails } from "./LaunchDetails";
 
 const linkClass =
@@ -70,7 +69,7 @@ export function ConnectManyResult({
         const agent = clientInSentence(outcome.client, t);
 
         if (outcome.kind === "failed") {
-          const reason = errorMessage(outcome.error, t);
+          const reason = setupProblem(outcome.error, t);
           return (
             <div
               key={outcome.client.id}
