@@ -266,7 +266,7 @@ test("A1 first run: the example Mind and its Citation card", async () => {
       await window.keyboard.press("Escape");
       await answerOpenDialog((app as Launched).app, fixtures.formats);
       await click(window, window.getByTestId("example-add-own"));
-      await click(window, window.getByTestId("example-add-link-folder"));
+      await click(window, window.getByRole("menuitem", { name: "Link a folder…" }));
       const dialog = window.getByTestId("link-folder-dialog");
       await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 20_000 });
       await click(window, dialog.getByTestId("link-folder-confirm"));
