@@ -109,7 +109,7 @@ function savedPlace(): "upward" | "column" {
 /**
  * Each Note's conversation: whether it is open, the model it asks on, whether it was just started
  * anew, and the reply it opens at. It opens in one place for every Note, the User's to move: upward
- * from the input's box at the Note's foot, or in the column at the Note's right (#3677).
+ * from the input's box at the Note's foot, or in the window's column (#3677, #3759).
  */
 export const useNoteColumns = create<{
   open: Readonly<Record<string, boolean>>;

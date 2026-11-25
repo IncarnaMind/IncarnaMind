@@ -1,8 +1,14 @@
-import { Fragment, useEffect, useLayoutEffect, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
-import { activeTabOf, focusedGroupOf, GROUP_MIN_WIDTH } from "../../layoutSlice";
+import {
+  activeTabOf,
+  currentTabOf,
+  focusedGroupOf,
+  GROUP_MIN_WIDTH,
+  useCardWidth,
+} from "../../layoutSlice";
 import { useShareDialog } from "../../shareDialog";
 import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
@@ -15,17 +21,19 @@ import { LibraryPane } from "../LibraryPane";
 import { ResizeRod } from "../ResizeRod";
 import { ShareDialog } from "../ShareDialog";
 import { DocumentTab } from "./DocumentTab";
-import { GroupColumnContext } from "./groupColumn";
 import { MindTab, NoTabOpen } from "./MindTab";
 import { TabStrip } from "./TabStrip";
 import { TabPlaceContext } from "./tabItems";
 import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
+import { columnFits, scrollbarRoom, sharesBeside, WindowColumnContext } from "./windowColumn";
 
 /**
  * The card's content: up to three groups side by side, each with its tab
  * strip and its shown tab, split by one full-height divider that resizes them
  * (a double-click makes them equal). Below 1,000px they merge into one strip
- * holding every tab, and come back when the window is wider.
+ * holding every tab, and come back when the window is wider. Left of them, the
+ * tab area's full height, the column a Note's conversation opens in, as the
+ * page views of the User's AI apps have it (#3759).
  */
 export function TabGroups() {
   const layout = useAppStore((state) => state.layout);
@@ -47,6 +55,8 @@ export function TabGroups() {
   /** The Mind whose Share sheet is open (Export › More formats, ⌘K). */
   const sharing = useShareDialog((state) => state.mindId);
   const shareMind = useAppStore((state) => state.minds.find((mind) => mind.id === sharing));
+  const [scrollbar] = useState(scrollbarRoom);
+  const column = useWindowColumn(merged, scrollbar);
 
   // A double-click on a divider makes the groups equal, as in VS Code.
   useEffect(() => {
@@ -62,12 +72,22 @@ export function TabGroups() {
 
   if (!layout) return null;
   const groups = merged ? [focusedGroupOf(layout)] : layout.groups;
-  const shares = dragging ?? asked.at(-1) ?? groups.map((group) => group.width);
+  const kept = dragging ?? asked.at(-1) ?? groups.map((group) => group.width);
   /** What the groups share: the card, less the 1px dividers. */
   const room = Math.max(0, width - (groups.length - 1));
+  // Beside the column, its Note keeps a readable width, which the other groups give up first.
+  const shares = column.value.drawn
+    ? sharesBeside(
+        kept,
+        groups.findIndex((group) => group.activeTabId === column.value.tabId),
+        room,
+        scrollbar,
+      )
+    : kept;
 
   return (
     <>
+      {column.place}
       <div
         ref={setContainer}
         data-testid="tab-groups"
@@ -76,40 +96,83 @@ export function TabGroups() {
         className="tab-groups"
         {...drag.dropProps}
       >
-        {groups.map((group, index) => (
-          <Fragment key={group.id}>
-            {index > 0 && (
-              <GroupDivider
-                index={index}
-                shares={shares}
-                room={room}
-                onPreview={setDragging}
-                onRelease={() => setDragging(null)}
-                onCommit={(next) => {
-                  setDragging(null);
-                  setAsked((all) => [...all, next]);
-                  void useAppStore
-                    .getState()
-                    .changeLayout({ type: "resize", widths: next })
-                    .finally(() => setAsked((all) => all.filter((each) => each !== next)));
-                }}
+        <WindowColumnContext.Provider value={column.value}>
+          {groups.map((group, index) => (
+            <Fragment key={group.id}>
+              {index > 0 && (
+                <GroupDivider
+                  index={index}
+                  shares={shares}
+                  room={room}
+                  onPreview={setDragging}
+                  onRelease={() => setDragging(null)}
+                  onCommit={(next) => {
+                    setDragging(null);
+                    setAsked((all) => [...all, next]);
+                    void useAppStore
+                      .getState()
+                      .changeLayout({ type: "resize", widths: next })
+                      .finally(() => setAsked((all) => all.filter((each) => each !== next)));
+                  }}
+                />
+              )}
+              <TabGroup
+                group={group}
+                index={merged ? 0 : index}
+                share={merged ? 1 : (shares[index] ?? 1)}
+                merged={merged}
+                drag={drag}
               />
-            )}
-            <TabGroup
-              group={group}
-              index={merged ? 0 : index}
-              share={merged ? 1 : (shares[index] ?? 1)}
-              merged={merged}
-              drag={drag}
-            />
-          </Fragment>
-        ))}
+            </Fragment>
+          ))}
+        </WindowColumnContext.Provider>
       </div>
       <DragFeedback dragged={drag.draggedTabId !== null} target={drag.target} />
       <ExportDialog mind={exportMind ?? null} onClose={() => useExportDialog.getState().close()} />
       <ShareDialog mind={shareMind ?? null} onClose={() => useShareDialog.getState().close()} />
     </>
   );
+}
+
+/**
+ * The window's one column for a Note's conversation: the element it is drawn in, given to the Notes
+ * while it fits beside the groups, measured on the card rather than on one group, and the Note tab
+ * it follows. It follows the Note in focus; a press in a Document, the Library or Home leaves it on
+ * the Note it showed.
+ */
+function useWindowColumn(merged: boolean, scrollbar: number) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const groups = useAppStore((state) => (merged ? 1 : (state.layout?.groups.length ?? 1)));
+  const fits = useCardWidth((state) => columnFits(state.width, groups, scrollbar));
+  const focused = useAppStore((state) => {
+    const tab = currentTabOf(state.layout);
+    return tab?.item.kind === "mind" ? tab.id : null;
+  });
+  const [tabId, setTabId] = useState(focused);
+  if (focused !== null && focused !== tabId) setTabId(focused);
+  const drawn = useFilled(slot) && fits;
+  const value = useMemo(
+    () => ({ slot: fits ? slot : null, tabId, drawn }),
+    [fits, slot, tabId, drawn],
+  );
+  return {
+    value,
+    place: <div ref={setSlot} data-testid="note-column-place" className="note-column-place" />,
+  };
+}
+
+/** Whether an element holds anything, followed as it changes. */
+function useFilled(element: HTMLElement | null): boolean {
+  const [filled, setFilled] = useState(false);
+  useLayoutEffect(() => {
+    if (!element) return;
+    const follow = () => setFilled(element.childElementCount > 0);
+    follow();
+    const observer = new MutationObserver(follow);
+    observer.observe(element, { childList: true });
+    return () => observer.disconnect();
+  }, [element]);
+  return filled;
 }
 
 /** The width of an element, followed as it changes. */
@@ -186,7 +249,6 @@ function TabGroup({
   const t = useT();
   const focused = useAppStore((state) => merged || state.layout?.focusedGroupId === group.id);
   const tab = activeTabOf(group);
-  const [columnSlot, setColumnSlot] = useState<HTMLElement | null>(null);
   useEffect(() => {
     resumeTabCloseFocus();
     return () => forgetTabCloseFocus(group.id, group.activeTabId);
@@ -221,27 +283,24 @@ function TabGroup({
         {!tab ? (
           <NoTabOpen />
         ) : (
-          <GroupColumnContext.Provider value={columnSlot}>
-            <TabPlaceContext.Provider value={{ tabId: tab.id, groupId: group.id }}>
-              {tab.item.kind === "mind" ? (
-                // Keyed, so another Mind starts a fresh title field and editor.
-                <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
-              ) : tab.item.kind === "figures" ? (
-                <FigureScheduleTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
-              ) : tab.item.kind === "library" ? (
-                <LibraryPane />
-              ) : tab.item.kind === "home" ? (
-                <HomePane />
-              ) : tab.item.kind === "canvas" ? (
-                <CanvasTab key={`${tab.id}:${tab.item.canvasId}`} canvasId={tab.item.canvasId} />
-              ) : (
-                <DocumentTab key={tab.id} tab={tab} />
-              )}
-            </TabPlaceContext.Provider>
-          </GroupColumnContext.Provider>
+          <TabPlaceContext.Provider value={{ tabId: tab.id, groupId: group.id }}>
+            {tab.item.kind === "mind" ? (
+              // Keyed, so another Mind starts a fresh title field and editor.
+              <MindTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
+            ) : tab.item.kind === "figures" ? (
+              <FigureScheduleTab key={`${tab.id}:${tab.item.mindId}`} mindId={tab.item.mindId} />
+            ) : tab.item.kind === "library" ? (
+              <LibraryPane />
+            ) : tab.item.kind === "home" ? (
+              <HomePane />
+            ) : tab.item.kind === "canvas" ? (
+              <CanvasTab key={`${tab.id}:${tab.item.canvasId}`} canvasId={tab.item.canvasId} />
+            ) : (
+              <DocumentTab key={tab.id} tab={tab} />
+            )}
+          </TabPlaceContext.Provider>
         )}
       </div>
-      <div ref={setColumnSlot} data-testid="tab-group-column" className="tab-group-column" />
     </section>
   );
 }

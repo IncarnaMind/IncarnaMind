@@ -2,6 +2,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type RefObject,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -27,6 +28,7 @@ import { splitToTheRight } from "./tabActions";
 import { MeetingTabTime, TabIcon, useTabTitle } from "./tabItems";
 import { type TabDrag, useTabSource } from "./useTabDrag";
 import { useTabStripFit } from "./useTabStripFit";
+import { WindowColumnContext } from "./windowColumn";
 
 /*
  * A group's tab strip (DESIGN.md, Components: Mind tabs, which now hold
@@ -51,6 +53,7 @@ export function TabStrip({
   const t = useT();
   const layout = useAppStore((state) => state.layout);
   const createMind = useAppStore((state) => state.createMind);
+  const column = useContext(WindowColumnContext);
   const strip = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const tabs = merged && layout ? layout.groups.flatMap((each) => each.tabs) : group.tabs;
@@ -91,7 +94,8 @@ export function TabStrip({
       data-first-group={index === 0 || undefined}
       className="tab-strip title-bar"
     >
-      {index === 0 && <SidebarToggle place="band" />}
+      {/* With the Note's conversation at the window's left, its top row has the button. */}
+      {index === 0 && !column.drawn && <SidebarToggle place="band" />}
       <div
         ref={list}
         role="tablist"
