@@ -26,8 +26,9 @@ import {
   type SaveChatProviderInput,
 } from "../src/core/api";
 import type { SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
-import { openDatabase } from "../src/core/storage";
+import { migrate, openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
+import { ensureWorkspace } from "../src/core/workspace";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
@@ -4077,6 +4078,20 @@ export async function stubClipboard(window: Page) {
 
 /** A fresh, empty data folder. Remove it with `removeDataFolder`. */
 export const createDataFolder = () => mkdtemp(join(tmpdir(), "incarnamind-smoke-"));
+
+/**
+ * Makes `dataDir` a data folder an earlier version started: its database, with the workspace its
+ * first start made, so the next launch isn't the first (#3758).
+ */
+export function startedBefore(dataDir: string): void {
+  const db = openDatabase(join(dataDir, "incarnamind.db"));
+  try {
+    migrate(db);
+    ensureWorkspace(db, () => new Date().toISOString());
+  } finally {
+    db.close();
+  }
+}
 
 const traced = new WeakSet<BrowserContext>();
 

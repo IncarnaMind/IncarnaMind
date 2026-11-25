@@ -4,9 +4,11 @@ import { describe, expect, test } from "vitest";
 import {
   AUTOSTART_FILE,
   autostartEntry,
+  createFileLoginItem,
   createSystemLoginItem,
   type LoginItemApp,
   openedAtLogin,
+  usesSystemLoginItems,
 } from "../../src/main/loginItem";
 import { createTempDataFolder } from "../helpers/core";
 
@@ -128,5 +130,34 @@ describe("Opening at login", () => {
     };
     expect(openedAtLogin("darwin", ["IncarnaMind"], app)).toBe(true);
     expect(openedAtLogin("darwin", ["IncarnaMind"], null)).toBe(false);
+  });
+});
+
+describe("Which copies use the computer's login items (#3758)", () => {
+  test("only the app as released, on its own data folder", () => {
+    expect(usesSystemLoginItems({ packaged: true, testBuild: false, otherDataFolder: false })).toBe(
+      true,
+    );
+  });
+
+  test("never a development build, a test build packaged or not, or a start on another data folder", () => {
+    for (const copy of [
+      { packaged: false, testBuild: false, otherDataFolder: false },
+      { packaged: false, testBuild: true, otherDataFolder: true },
+      { packaged: true, testBuild: true, otherDataFolder: false },
+      { packaged: true, testBuild: false, otherDataFolder: true },
+    ]) {
+      expect(usesSystemLoginItems(copy)).toBe(false);
+    }
+  });
+
+  test("the others keep the choice in a file in their data folder", async () => {
+    const dataDir = await createTempDataFolder();
+    const item = createFileLoginItem(dataDir);
+    expect(item.get()).toEqual({ supported: true, on: false, needsApproval: false });
+    expect(item.set(true).on).toBe(true);
+    expect(JSON.parse(readFileSync(join(dataDir, "login-item.json"), "utf8"))).toEqual({
+      on: true,
+    });
   });
 });

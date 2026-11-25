@@ -10,7 +10,7 @@ import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
-import { offersCanTurnOn } from "./platformOffers";
+import { setUpTurnsOnOffers } from "./platformOffers";
 import { useAppStore } from "./store";
 import { closeTip } from "./tips";
 import { useUndo } from "./undo";
@@ -21,8 +21,12 @@ interface MeetingsState {
   problems: Readonly<Record<string, string>>;
   /** What went wrong deleting or keeping a Meeting's audio, said on its audio line (#687). */
   audioProblems: Readonly<Record<string, string>>;
-  /** The Meeting whose Start, or the voice memo, waits for the one-time recording notice. */
-  noticeFor: { meetingId: string; systemAudio: boolean } | { memo: true } | null;
+  /** The Meeting whose Start, the voice memo or the offer taken, waits for the one-time recording notice. */
+  noticeFor:
+    | { meetingId: string; systemAudio: boolean }
+    | { offerId: string; systemAudio: boolean }
+    | { memo: true }
+    | null;
   starting: Readonly<Record<string, true>>;
   /** The Meeting whose start block Record just made: its Start recording takes the focus once it shows. */
   startToFocus: string | null;
@@ -65,6 +69,8 @@ interface MeetingsState {
   clearCantRecord(): void;
   /** Start recording, after the one-time notice if this device hasn't shown it. */
   start(meetingId: string, systemAudio: boolean): Promise<void>;
+  /** Take notes in an offer: it records, after the one-time notice if this device hasn't shown it (#3758). */
+  takeOffer(offerId: string): Promise<void>;
   /** The notice was read: recording starts, and the notice isn't shown again. */
   acceptNotice(): Promise<void>;
   cancelNotice(): void;
@@ -300,6 +306,16 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       await attempt(meetingId, () => core.startMeeting({ meetingId, systemAudio }));
     },
 
+    async takeOffer(offerId) {
+      const { settings, reportError } = useAppStore.getState();
+      if (!settings) return;
+      if (!settings.device.meetingNoticeAccepted) {
+        set({ noticeFor: { offerId, systemAudio: settings.device.meetingSystemAudio } });
+        return;
+      }
+      await core.takeMeetingOffer(offerId).then(() => undefined, reportError);
+    },
+
     async acceptNotice() {
       const waiting = get().noticeFor;
       set({ noticeFor: null });
@@ -314,10 +330,12 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         await memoNow();
         return;
       }
-      await attempt(waiting.meetingId, async () => {
+      const setUp = async () => {
         // Setting up Meetings turns on the offers to take notes and what they need (#189), as the
-        // sheet says: Home's line for those set up before has nothing left to ask.
-        const offers = offersCanTurnOn();
+        // sheet says, where they aren't on from the data folder's first start (#3758): Home's line
+        // for those set up before has nothing left to ask.
+        const settings = useAppStore.getState().settings;
+        const offers = settings !== null && setUpTurnsOnOffers(settings.device);
         await core.updateSettings({
           device: {
             meetingNoticeAccepted: true,
@@ -326,6 +344,18 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         });
         closeTip("call-offers");
         if (offers) core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
+      };
+      if ("offerId" in waiting) {
+        try {
+          await setUp();
+          await core.takeMeetingOffer(waiting.offerId);
+        } catch (error) {
+          useAppStore.getState().reportError(error);
+        }
+        return;
+      }
+      await attempt(waiting.meetingId, async () => {
+        await setUp();
         await core.startMeeting(waiting);
       });
     },
@@ -494,6 +524,10 @@ function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]):
 }
 
 core.on("meetings.notesShown", ({ mindId }) => useAppStore.getState().openMind(mindId));
+core.on(
+  "meetings.offerNoticeShown",
+  ({ offerId }) => void useMeetings.getState().takeOffer(offerId),
+);
 
 core.on("meetings.changed", (meetings) => {
   offerUndoOfFill(useMeetings.getState().meetings, meetings);

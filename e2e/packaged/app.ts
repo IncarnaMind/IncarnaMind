@@ -18,9 +18,10 @@ function builtExecutable(): string {
 export const packagedExecutable = process.env.INCARNAMIND_PACKAGED_APP || builtExecutable();
 const modelCache = process.env.INCARNAMIND_MODEL_CACHE;
 
+/** `data` null: the app's own data folder, the one the system opens it on at login. */
 export async function launchPackaged(
   home: string,
-  data: string,
+  data: string | null,
   {
     speech,
     testHooks,
@@ -61,7 +62,7 @@ export async function launchPackaged(
       TMPDIR: temp,
       TMP: temp,
       TEMP: temp,
-      INCARNAMIND_DATA_DIR: data,
+      INCARNAMIND_DATA_DIR: data ?? undefined,
       INCARNAMIND_TEST_HOOKS: testHooks ? "1" : undefined,
       ...env,
       ...extraEnv,

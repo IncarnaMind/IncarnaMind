@@ -57,7 +57,12 @@ import {
 } from "./instanceUpdate";
 import { handle } from "./ipc";
 import { startLogging } from "./logging";
-import { createFileLoginItem, createSystemLoginItem, openedAtLogin } from "./loginItem";
+import {
+  createFileLoginItem,
+  createSystemLoginItem,
+  openedAtLogin,
+  usesSystemLoginItems,
+} from "./loginItem";
 import { isCaptureWindow } from "./meetings/captureWindow";
 import { isGuideWindow, servePermissionGuide } from "./meetings/guide";
 import { isPanelWindow, serveMeetingPanel } from "./meetings/panel";
@@ -115,9 +120,14 @@ let keepsRunning: () => boolean = (() => {
   const kept = keptRunning(app.getPath("userData"));
   return () => kept;
 })();
+const systemLoginItems = usesSystemLoginItems({
+  packaged: app.isPackaged,
+  testBuild: import.meta.env.MODE === "test",
+  otherDataFolder: dataDirOverride !== undefined,
+});
 // Opened at login while it keeps running in the background, it starts with only its tray icon.
 const startedWithoutWindow = startsWithoutWindow(
-  openedAtLogin(process.platform, process.argv, app.isPackaged ? app : null),
+  openedAtLogin(process.platform, process.argv, systemLoginItems ? app : null),
   keepsRunning(),
 );
 
@@ -652,7 +662,7 @@ app.whenReady().then(async () => {
       ...adapters,
       notifications: createSystemNotifications(appWindows),
       ...callWatching(),
-      loginItem: app.isPackaged
+      loginItem: systemLoginItems
         ? createSystemLoginItem({
             platform: process.platform,
             app,
@@ -723,6 +733,8 @@ app.whenReady().then(async () => {
     showSettings: () => showFrontAndSend(FILES_CHANNELS.menuCommand, "settings.open"),
     showOffer: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerShown", null),
     showOfferLinkFailure: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerLinkFailed", null),
+    showOfferNotice: (offerId) =>
+      showFrontAndSend(EVENT_CHANNEL, "meetings.offerNoticeShown", { offerId }),
     keepRunning: keepsRunning(),
     quit: () => appEnd.quit("tray"),
     testHooks,

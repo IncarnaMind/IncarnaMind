@@ -122,7 +122,8 @@ describe("Settings", () => {
         meetingPanel: true,
         meetingPanelHidden: true,
         meetingHelpKeys: {},
-        keepRunning: false,
+        // On from the first start (#3758); a copy with no call watcher leaves the calls off.
+        keepRunning: true,
         calendarOffers: true,
         callOffers: false,
         callOffersOff: [],
@@ -266,7 +267,7 @@ describe("Settings", () => {
       meetingPanel: true,
       meetingPanelHidden: true,
       meetingHelpKeys: {},
-      keepRunning: false,
+      keepRunning: true,
       calendarOffers: true,
       callOffers: false,
       callOffersOff: [],
@@ -575,7 +576,8 @@ describe("Settings", () => {
       meetingPanel: false,
       meetingPanelHidden: false,
       meetingHelpKeys: { say: "Ctrl+Alt+Q" },
-      keepRunning: true,
+      // Off: a new data folder starts with it on (#3758), so only a change shows it is kept.
+      keepRunning: false,
       calendarOffers: false,
       callOffers: false,
       callOffersOff: ["zoom"],

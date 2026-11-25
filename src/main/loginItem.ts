@@ -5,7 +5,8 @@
  * so itself), so it can start without its window.
  *
  * A development or test build never touches the computer's login items: it keeps the choice in
- * a file in its data folder (`createFileLoginItem`), which the smoke tests read.
+ * a file in its data folder (`createFileLoginItem`), which the smoke tests read. So does the app
+ * started on another data folder, since the system opens it at login on its own.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -97,6 +98,16 @@ export function createSystemLoginItem(options: SystemLoginItemOptions): LoginIte
     },
   };
 }
+
+/**
+ * Whether this copy uses the system's login items: only the app as released, on the data folder
+ * the system opens it on (#3758); a new data folder's first start registers it.
+ */
+export const usesSystemLoginItems = (copy: {
+  packaged: boolean;
+  testBuild: boolean;
+  otherDataFolder: boolean;
+}): boolean => copy.packaged && !copy.testBuild && !copy.otherDataFolder;
 
 /** A development or test build's login item: a file in the data folder, never the system's. */
 export function createFileLoginItem(dataDir: string): LoginItem {

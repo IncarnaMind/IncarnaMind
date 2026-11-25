@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { core } from "../core";
 import { useGap, useT } from "../i18n";
 import { useMeetings } from "../meetings";
-import { offersCanTurnOn, onMac } from "../platformOffers";
+import { onMac, setUpTurnsOnOffers } from "../platformOffers";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
 import {
@@ -124,6 +124,9 @@ function NoticeSheet({
   const microphoneOnly = memo || !waiting.systemAudio;
   const recording = t(microphoneOnly ? "meetings.notice.microphone" : "meetings.notice.both");
   const kept = t(useAudioKeptKey(picked));
+  const turnsOnOffers = useAppStore(
+    (state) => state.settings !== null && setUpTurnsOnOffers(state.settings.device),
+  );
   /** Whether the speech model is already here; null until its state has been read. */
   const [modelHere, setModelHere] = useState<boolean | null>(null);
   useEffect(() => {
@@ -156,7 +159,7 @@ function NoticeSheet({
           {kept}
         </p>
         {!memo && <p className={dialogTextClass}>{t("meetings.notice.tell")}</p>}
-        {!memo && offersCanTurnOn() && (
+        {!memo && turnsOnOffers && (
           <p data-testid="meeting-notice-background" className={dialogTextClass}>
             {t(onMac() ? "meetings.notice.background.mac" : "meetings.notice.background.other")}
           </p>
