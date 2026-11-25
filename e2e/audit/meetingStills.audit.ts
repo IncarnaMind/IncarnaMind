@@ -7,9 +7,9 @@
  *   STILLS_OUT=<folder> STILLS_LANG=en npx playwright test \
  *     -c e2e/audit/playwright.audit.config.ts meetingStills
  */
-import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../../src/core/api";
 import {
   acceptPlainTextKeys,
@@ -610,6 +610,91 @@ test(`meeting stills, ${LANG}`, async () => {
   }
 });
 
+/** A still of the window at each width, with what it measures, then back to 1440 wide. */
+function stillsOf(app: ElectronApplication, window: Page, log: string[], tag: string) {
+  return async (name: string, widths: readonly number[]) => {
+    for (const width of widths) {
+      try {
+        await setWindowSize(app, window, width, HEIGHT);
+        await rest(window);
+        await motionSettled(window);
+        await window.waitForTimeout(1500);
+        const file = `${name}-${tag}-${width}`;
+        await window.screenshot({ path: join(OUT, `${file}.png`) });
+        await writeFile(
+          join(OUT, `${file}.json`),
+          JSON.stringify(await measure(window, REGIONS), null, 2),
+        );
+        log.push(`ok ${file}`);
+      } catch (error) {
+        log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
+      }
+    }
+    await setWindowSize(app, window, 1440, HEIGHT);
+  };
+}
+
+// With the sheet folded, the cards over the control for what can't wait for it (#3762): the
+// computer's sound not recorded, then audio that can't be saved, a file standing where the
+// meeting's folder was.
+test(`meeting control's cards, the computer's sound and saving, ${LANG}`, async () => {
+  test.setTimeout(10 * 60_000);
+  await mkdir(OUT, { recursive: true });
+  const dataDir = await createDataFolder();
+  const log: string[] = [];
+  const tag = LANG === "en" ? "en" : "zh";
+  const { app, window } = await launchApp(dataDir, {
+    transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
+    computerSound: "denied",
+  });
+  const still = stillsOf(app, window, log, tag);
+  try {
+    await dismissChatSetup(window);
+    await setLanguage(window, LANG);
+    await window.evaluate(() =>
+      (globalThis as unknown as Core).incarnamind.updateSettings({
+        device: { transcriptionRoute: "local", meetingPanel: false },
+      }),
+    );
+    await setWindowSize(app, window, 1440, HEIGHT);
+    await window.getByTestId("plus-menu").click();
+    await window.getByTestId("plus-record-meeting").click();
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+    await window
+      .getByTestId("meeting-foot-tip-close")
+      .click({ timeout: 5000 })
+      .catch(() => undefined);
+    const editor = window.getByTestId("mind-editor");
+    await editor.locator("p").first().click();
+    await window.keyboard.type(WORDS.typed[0] ?? "");
+    await editor.evaluate((el) => (el as HTMLElement).blur());
+    await expect(window.getByTestId("meeting-line-system")).toBeVisible({ timeout: 15_000 });
+    await still("k1-system-folded", [1440, 900]);
+
+    const [recording] = await meetings(window);
+    const folder = join(dataDir, "meetings", recording?.id ?? "");
+    await expect
+      .poll(
+        async () => (await readdir(folder)).some((name) => /^microphone-\d{10}\.wav$/.test(name)),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    await rename(folder, `${folder}-aside`);
+    await writeFile(folder, "");
+    try {
+      await expect(window.getByTestId("meeting-line-save")).toBeVisible({ timeout: 30_000 });
+      await still("k2-save-folded", [1440, 900]);
+    } finally {
+      await rm(folder);
+      await rename(`${folder}-aside`, folder);
+    }
+  } finally {
+    await writeFile(join(OUT, `log-cards-${tag}.txt`), log.join("\n"));
+    await app.close().catch(() => undefined);
+    await removeDataFolder(dataDir);
+  }
+});
+
 // The control's states that change its words or width: the time past an hour, paused, and a
 // microphone the app may not use. The clock is the page's own, fixed; the core records on.
 for (const microphone of ["allowed", "denied"] as const)
@@ -633,26 +718,7 @@ for (const microphone of ["allowed", "denied"] as const)
       transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
       microphone,
     });
-    const still = async (name: string, widths: readonly number[]) => {
-      for (const width of widths) {
-        try {
-          await setWindowSize(app, window, width, HEIGHT);
-          await rest(window);
-          await motionSettled(window);
-          await window.waitForTimeout(1500);
-          const file = `${name}-${tag}-${width}`;
-          await window.screenshot({ path: join(OUT, `${file}.png`) });
-          await writeFile(
-            join(OUT, `${file}.json`),
-            JSON.stringify(await measure(window, REGIONS), null, 2),
-          );
-          log.push(`ok ${file}`);
-        } catch (error) {
-          log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
-        }
-      }
-      await setWindowSize(app, window, 1440, HEIGHT);
-    };
+    const still = stillsOf(app, window, log, tag);
     try {
       await acceptPlainTextKeys(window);
       await dismissChatSetup(window);
