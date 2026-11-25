@@ -5,12 +5,14 @@ import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   createDataFolder,
+  cutIn,
   dismissChatSetup,
   expectReadyDocuments,
   frontMind,
   launchApp,
   pointAndClick,
   removeDataFolder,
+  secondWindow,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -509,6 +511,105 @@ test("a run stopped after it read says what it read, and after a restart only th
   }
 });
 
+test("a request that can't start says why where the User typed, whole, with the conversation folded, open upward or in the column, at both widths and in English and Chinese; one that may only read is let to propose from the open conversation", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = window.getByTestId("note-ask-input");
+    const problem = window.getByTestId("note-ask-problem");
+    const column = window.getByTestId("note-column");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await send("What does the harbour plan add?");
+    await ended(window, mindId, before);
+
+    const tooOld =
+      "Claude Code 2.0.1 is older than IncarnaMind needs (2.1.248 or later). Update it, then send it again.";
+    /** The one line, in the input's box, every word of it shown. */
+    const shownWhole = async (text: string) => {
+      await expect(problem).toHaveCount(1);
+      await expect(problem).toHaveText(text);
+      await expect(
+        window.getByTestId("note-ask-box").getByTestId("note-ask-problem"),
+      ).toBeVisible();
+      expect(await cutIn(problem)).toEqual([]);
+    };
+    // Open upward, the request goes nowhere: the line says why, in the box's top row.
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await expect(group.getByTestId("note-ask-panel")).toBeVisible();
+    await nextRun("too-old");
+    await send("Make it shorter");
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-upward-en");
+    // In the column, at its foot, and in the narrow window's sheet, in Chinese.
+    await pointAndClick(window, group.getByTestId("conversation-move-right"));
+    await expect(column).toBeVisible();
+    await shownWhole(tooOld);
+    await setLanguage(window, "zh-CN");
+    await setWindowSize(app, window, 900, 760);
+    await expect(group.locator(".note-column-over-slot").getByTestId("note-column")).toBeVisible();
+    await shownWhole("Claude Code 2.0.1 版本过旧，需要 2.1.248 或更高版本。更新后再发送一次。");
+    await shot(window, "conversation-problem-column-zh-CN");
+    // Folded, at both widths: it wraps, never cut.
+    await setLanguage(window, "en");
+    await pointAndClick(window, column.getByTestId("note-column-close"));
+    await expect(column).toHaveCount(0);
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-folded-en");
+    await setWindowSize(app, window, 1440, 900);
+    await shownWhole(tooOld);
+
+    // A connection that may only read, asked here while a second window has the conversation
+    // open: Allow is in that window's turn, and sends the request again as it was typed, though
+    // that window didn't send it.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [pairing] = (await bridge.getAgents()).pairings;
+      if (pairing) await bridge.updateAgent(pairing.id, { propose: false });
+    });
+    const second = await secondWindow(app);
+    await setWindowSize(app, second, 1440, 900);
+    await open(second, mindId);
+    await pointAndClick(
+      second,
+      second
+        .locator('[data-testid="tab-group"][data-focused]')
+        .getByTestId("note-ask-conversation-toggle"),
+    );
+    const secondColumn = second.getByTestId("note-column");
+    await expect(secondColumn).toBeVisible();
+    await nextRun("change");
+    before = (await outcomesOf(window, mindId)).length;
+    await send("Put it in capitals");
+    await ended(window, mindId, before);
+    const last = secondColumn.getByTestId("note-column-turn").last();
+    await expect(last.getByTestId("note-ask-problem")).toContainText(
+      "Claude Code may only read. Let it propose changes?",
+    );
+    await expect(last.getByTestId("note-ask-allow")).toHaveText("Allow");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(second, last.getByTestId("note-ask-allow"));
+    await ended(window, mindId, before);
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put it in capitals",
+    );
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put the selected words in capitals.",
+    );
+    await expect(frontMind(second)).toContainText(P2.toUpperCase());
+    await second.close();
+  } finally {
+    await app.close();
+  }
+});
+
 /** Where `part` stands in the conversation it is in: its top and height against the view's. */
 const placeIn = (part: Locator) =>
   part.evaluate(
@@ -553,6 +654,8 @@ test("pressed in the column's place, the line above the input opens the conversa
     await pointAndClick(window, group.getByTestId("note-ask-pill-open"));
     const reply = column.getByTestId("note-column-turn").last().getByTestId("note-column-reply");
     await expect(reply).toContainText("The five interviews agree");
+    // The keyboard is in the input, where the next request is typed.
+    await expect(column.getByTestId("note-ask-input")).toBeFocused();
     const opened = await placeIn(reply);
     expect(opened.height).toBeGreaterThan(opened.view);
     expect({

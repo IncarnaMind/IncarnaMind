@@ -457,6 +457,7 @@ export interface ReadingChannel {
 export type WorkerRequest =
   | { id: number; job: WorkerJob; password?: string }
   | { id: number; stop: true }
+  | { close: true }
   | {
       id: number;
       request: number;

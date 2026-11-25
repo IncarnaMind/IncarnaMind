@@ -31,7 +31,7 @@ function styleOf(style: EngineStyle) {
   return parsed;
 }
 
-function answer(request: WorkerRequest): WorkerResponse {
+function answer(request: Exclude<WorkerRequest, { close: true }>): WorkerResponse {
   try {
     const { handle, description } = styleOf(request.style);
     const live = engine as CslEngine;
@@ -53,5 +53,9 @@ function answer(request: WorkerRequest): WorkerResponse {
 }
 
 parentPort?.on("message", (request: WorkerRequest) => {
+  if ("close" in request) {
+    parentPort?.close();
+    return;
+  }
   parentPort?.postMessage(answer(request));
 });
