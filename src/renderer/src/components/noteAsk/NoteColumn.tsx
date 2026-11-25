@@ -410,7 +410,8 @@ function Turn({
       {state === "working" && questions[0] && (
         <QuestionCard question={questions[0]} agent={agent} mindId={mindId} />
       )}
-      {/* What it did with its own tools before it stopped or failed, a file it wrote among them. */}
+      {/* What it did with its own tools before it stopped or failed, a file it wrote among them,
+          then what it made through IncarnaMind, which stands though the run didn't end. */}
       {(state === "stopped" || state === "failed") &&
         trail &&
         steps.some((step) => step.kind === "own") && (
@@ -425,6 +426,14 @@ function Turn({
               ))}
           </ol>
         )}
+      {(state === "stopped" || state === "failed") && made.length > 0 && (
+        <div className="note-column-made">
+          {made.map((step, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+            <MadeCard key={index} step={step} />
+          ))}
+        </div>
+      )}
       {state === "stopped" &&
         !stopSaid &&
         (turn.closed.length > 0 && !trail ? (

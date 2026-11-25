@@ -339,6 +339,13 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
   if (prompt.startsWith("In their note")) {
+    if (mode === "word-wait") {
+      // Saves the Word file, then works on until it is stopped.
+      sayText("Saving your note as a Word file.");
+      await use("save_as_word", { mindId });
+      sayText("Looking at what else to change.");
+      return;
+    }
     if (mode === "word") {
       sayText("Saving your note as a Word file.");
       const saved = await use("save_as_word", { mindId });
