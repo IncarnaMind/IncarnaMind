@@ -1,6 +1,6 @@
 import { chmod, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
@@ -504,6 +504,104 @@ test("a run stopped after it read says what it read, and after a restart only th
     await expect(stopped).toHaveText("Stopped.");
     await setLanguage(window, "zh-CN");
     await expect(stopped).toHaveText("已停止。");
+  } finally {
+    await app.close();
+  }
+});
+
+/** Where `part` stands in the conversation it is in: its top and height against the view's. */
+const placeIn = (part: Locator) =>
+  part.evaluate(
+    (element) =>
+      new Promise<{ top: number; height: number; view: number; fromEnd: number }>((done) =>
+        // Two frames: what keeps the conversation at its end acts after the layout a change brings.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const body = element.closest('[data-testid="note-conversation-body"]');
+            const box = body?.getBoundingClientRect();
+            const at = element.getBoundingClientRect();
+            done({
+              top: at.top - (box?.top ?? 0),
+              height: at.height,
+              view: body?.clientHeight ?? 0,
+              fromEnd: body ? body.scrollHeight - body.scrollTop - body.clientHeight : 0,
+            });
+          }),
+        ),
+      ),
+  );
+
+test("pressed in the column's place, the line above the input opens the conversation at its reply's start, a reply taller than the column too, and keeps it there as it grows; a later request's card keeps its answers put as the turn above settles, and the column follows its end again", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 560);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await stepTo(99);
+    await nextRun("long");
+    let before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    // The conversation's place is the column; closed, the line stands above the input.
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, group.getByTestId("conversation-move-right"));
+    const column = window.getByTestId("note-column");
+    await pointAndClick(window, column.getByTestId("note-column-close"));
+    await expect(column).toHaveCount(0);
+    await pointAndClick(window, group.getByTestId("note-ask-pill-open"));
+    const reply = column.getByTestId("note-column-turn").last().getByTestId("note-column-reply");
+    await expect(reply).toContainText("The five interviews agree");
+    const opened = await placeIn(reply);
+    expect(opened.height).toBeGreaterThan(opened.view);
+    expect({
+      ...opened,
+      startInView: opened.top >= 0 && opened.top < opened.view,
+      atEnd: opened.fromEnd <= 2,
+    }).toMatchObject({ startInView: true, atEnd: false });
+    // As the reply still grows at its foot, its start stays where it is.
+    for (const grown of ["48px", "0px"]) {
+      await column
+        .getByTestId("note-column-turn")
+        .last()
+        .evaluate((turn, padding) => {
+          (turn as HTMLElement).style.paddingBottom = padding;
+        }, grown);
+      expect([grown, (await placeIn(reply)).top]).toEqual([grown, opened.top]);
+    }
+
+    // A later request's card: its answers stay put as the turn above grows and shrinks a moment
+    // after it shows.
+    await nextRun("ask-command");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, column.getByTestId("note-ask-input"));
+    await window.keyboard.type("Count the late crossings");
+    await window.keyboard.press("Enter");
+    const card = column.getByTestId("own-ask-card");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const answer = card.getByTestId("own-ask-deny");
+    const shown = await placeIn(answer);
+    expect(shown.top + shown.height).toBeLessThanOrEqual(shown.view);
+    for (const settled of ["48px", "0px"]) {
+      await column
+        .getByTestId("note-column-turn")
+        .nth(-2)
+        .evaluate((turn, padding) => {
+          (turn as HTMLElement).style.paddingBottom = padding;
+        }, settled);
+      expect([settled, (await placeIn(answer)).top]).toEqual([settled, shown.top]);
+    }
+    // And the column follows its end again: the newest turn grows at its foot, the end in view.
+    await column
+      .getByTestId("note-column-turn")
+      .last()
+      .evaluate((turn) => {
+        (turn as HTMLElement).style.paddingBottom = "48px";
+      });
+    expect((await placeIn(answer)).fromEnd).toBeLessThanOrEqual(2);
+    await pointAndClick(window, answer);
+    await ended(window, mindId, before);
   } finally {
     await app.close();
   }

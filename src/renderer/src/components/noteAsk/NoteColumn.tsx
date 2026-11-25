@@ -254,6 +254,7 @@ export function NoteConversationBody({
     };
   }, [mindId, changed]);
 
+  const atEnd = useRef(true);
   // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
   // biome-ignore lint/correctness/useExhaustiveDependencies: follows what it shows.
   useLayoutEffect(() => {
@@ -262,6 +263,7 @@ export function NoteConversationBody({
     const turn = at
       ? element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(at)}"]`)
       : null;
+    atEnd.current = !turn;
     if (turn) element.scrollTop = turn.offsetTop - 8;
     else element.scrollTop = element.scrollHeight;
   }, [turns, trails, waiting, at, ask?.questions]);
@@ -269,7 +271,6 @@ export function NoteConversationBody({
   // With the newest in view, it stays in view in the same frame as anything above it grows or
   // shrinks (a turn above settling, say), not a moment later: a card's answers never move under a
   // press on its way to them.
-  const atEnd = useRef(true);
   const sizes = useRef<ResizeObserver | null>(null);
   useEffect(() => {
     const element = body.current;
