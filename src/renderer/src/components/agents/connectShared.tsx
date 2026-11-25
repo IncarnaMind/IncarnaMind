@@ -5,6 +5,7 @@ import {
   NOT_IN_A_FOLDER_ID,
   type SecretStorageStatus,
 } from "../../../../core/api";
+import { createAgentConnectors } from "../../agentConnection";
 import { leftOutOfAll, onlyNotInAFolder } from "../../agentFolders";
 import { core } from "../../core";
 import { useT } from "../../i18n";
@@ -14,6 +15,15 @@ import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass } from "../ui";
 import { useAgentFolderRows } from "./AgentFolderList";
+
+/** Shared one-app and many-app connectors so their in-flight enable/rollback counter is one (#3644). */
+export const { connectOne: connectAgent, connectMany: connectManyAgents } = createAgentConnectors(
+  core,
+  (error) => {
+    console.error("Couldn't turn connecting agents off again after a failed setup", error);
+    useAppStore.getState().reportError(error);
+  },
+);
 
 const ALL_UNFILED: ReadonlySet<string> = new Set([NOT_IN_A_FOLDER_ID]);
 const NOTHING: ReadonlySet<string> = new Set();
