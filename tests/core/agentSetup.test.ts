@@ -21,10 +21,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentLaunch, Core } from "../../src/core";
 import { SERVER_INSTRUCTIONS } from "../../src/core/agents/mcp";
 import { SKILL_MARKDOWN } from "../../src/core/agents/skill";
-import { AGENT_CLIENT_IDS } from "../../src/core/api";
+import { AGENT_CLIENT_IDS, ALL_SHARED_ID } from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { installAgent, installSigns } from "../helpers/agentInstalls";
-import { agentsAdapter, buildAgentShim, connectLegacyAgent } from "../helpers/agents";
+import {
+  agentsAdapter,
+  buildAgentShim,
+  connectedTwice,
+  connectLegacyAgent,
+} from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 
@@ -109,11 +114,11 @@ describe("setting an agent up", () => {
     const english = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
     expect(english.pairing.name).toBe("ChatGPT app and Codex");
     await core.updateSettings({ user: { language: "zh-CN" } });
+    const again = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    expect(again.pairing).toMatchObject({ id: english.pairing.id, name: "ChatGPT app and Codex" });
+    await core.disconnectAgent(english.pairing.id);
     const chinese = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
     expect(chinese.pairing.name).toBe("ChatGPT 应用和 Codex");
-    expect((await core.getAgents()).pairings.map((each) => each.name)).toContain(
-      "ChatGPT app and Codex",
-    );
   });
 
   it("writes Codex's settings as shown, works from them, and takes them back with Undo", async () => {
@@ -515,17 +520,24 @@ describe("setting an agent up", () => {
     });
 
     it("keeps its copy on Undo until the last Claude Code pairing goes, as Disconnect does", async () => {
-      for (const first of ["second", "first"] as const) {
+      for (const undone of ["before", "after"] as const) {
         const { core, home, coast } = await started();
         const path = join(home, ...FILE);
         await writeFile(path, text);
         const one = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
-        const two = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
-        const [early, late] = first === "second" ? [two, one] : [one, two];
-        await core.undoAgentSetup(early.pairing.id);
-        expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
-        if (first === "second") await core.undoAgentSetup(late.pairing.id);
-        else await core.disconnectAgent(late.pairing.id);
+        const two = await connectedTwice(core, "claude-code", "Claude Code 2", [coast.id]);
+        const again = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+        expect(again.pairing.id).toBe(one.pairing.id);
+        if (undone === "before") {
+          await core.undoAgentSetup(one.pairing.id);
+          expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+          await core.disconnectAgent(two.id);
+        } else {
+          await core.disconnectAgent(two.id);
+          expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+          await core.undoAgentSetup(one.pairing.id);
+        }
+        expect((await core.getAgents()).pairings).toEqual([]);
         expect(JSON.parse(await readFile(path, "utf8"))).toEqual(theirs);
         await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
       }
@@ -536,13 +548,13 @@ describe("setting an agent up", () => {
       const path = join(home, ...FILE);
       await writeFile(path, text);
       const first = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
-      const second = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+      const second = await connectedTwice(core, "claude-code", "Claude Code 2", [coast.id]);
       // The second one's entry took the place of the first's: leaving the first changes nothing.
       const both = await readFile(path, "utf8");
       await core.disconnectAgent(first.pairing.id);
-      expect(await readFile(path, "utf8")).toBe(both);
+      expect((await readFile(path, "utf8")) === both).toBe(true);
       expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
-      await core.disconnectAgent(second.pairing.id);
+      await core.disconnectAgent(second.id);
       expect(JSON.parse(await readFile(path, "utf8"))).toEqual(theirs);
       await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
     });
@@ -655,7 +667,7 @@ describe("setting an agent up", () => {
     ] as const;
 
     it.each(FILES)(
-      "$client: each ends with the User's own entries and exactly one of its own, none lost to another's write",
+      "$client: two set-ups of the app and its Disconnect at once leave the User's own entries, one connection at most, and only its key",
       async ({ client, path: parts, text, entries, mine }) => {
         const { core, home, coast } = await started();
         const path = join(home, ...parts);
@@ -664,39 +676,42 @@ describe("setting an agent up", () => {
         const userEntries = entries(text);
         const set = () => core.setUpAgent({ client, folderIds: [coast.id] });
 
-        let leaving = await set();
-        for (let round = 0; round < 5; round++) {
-          const settled = await Promise.all([
-            set(),
-            set(),
-            core.disconnectAgent(leaving.pairing.id),
-          ]);
-          const [one, two] = settled;
-          if (!one || !two) throw new Error("A set-up gave nothing.");
+        for (let round = 0; round < 6; round++) {
+          const leaving = (await set()).pairing.id;
+          // Pressed before the Disconnect, both find the one connection; after it, both find the new one.
+          const pressed = async () => {
+            if (round % 2 === 0) {
+              const [a, b] = await Promise.all([set(), set(), core.disconnectAgent(leaving)]);
+              return [a, b] as const;
+            }
+            const [, a, b] = await Promise.all([core.disconnectAgent(leaving), set(), set()]);
+            return [a, b] as const;
+          };
+          const [one, two] = await pressed();
           expect(one.result).toMatchObject({ kind: "wrote" });
           expect(two.result).toMatchObject({ kind: "wrote" });
+          expect(two.pairing.id).toBe(one.pairing.id);
+          const live = (await core.getAgents()).pairings.filter((each) => each.client === client);
           const now = await readFile(path, "utf8");
-          // The User's entries are all there, and one of IncarnaMind's, whose key is a pairing still connected.
-          expect(entries(now)).toEqual([...userEntries, "incarnamind"]);
-          expect(mine(now)).toBe(1);
-          const keys = await Promise.all(
-            [one, two].map(
-              async (each) => (await core.getAgentLaunch(each.pairing.id)).env[TOKEN_ENV] ?? "",
-            ),
-          );
-          expect(keys.some((key) => key !== "" && now.includes(key))).toBe(true);
+          if (round % 2 === 0) {
+            expect(live).toEqual([]);
+            expect(now).toBe(text);
+            await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+          } else {
+            expect(live.map((each) => each.id)).toEqual([one.pairing.id]);
+            expect(entries(now)).toEqual([...userEntries, "incarnamind"]);
+            expect(mine(now)).toBe(1);
+            const key = (await core.getAgentLaunch(one.pairing.id)).env[TOKEN_ENV] ?? "";
+            expect(key !== "" && now.includes(key)).toBe(true);
+            if (client === "claude-code") {
+              expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
+            }
+            await core.disconnectAgent(one.pairing.id);
+          }
           expect((await readdir(join(path, ".."))).filter((name) => name.includes("-new"))).toEqual(
             [],
           );
-          if (client === "claude-code") {
-            expect(await readFile(`${path}.incarnamind-backup`, "utf8")).toBe(text);
-          }
-          // The one whose key is in the file leaves in the next round; the other, whose entry is gone, now.
-          const inFile = keys[0] !== "" && now.includes(keys[0] ?? "") ? one : two;
-          await core.disconnectAgent((inFile === one ? two : one).pairing.id);
-          leaving = inFile;
         }
-        await core.disconnectAgent(leaving.pairing.id);
         expect(await readFile(path, "utf8")).toBe(text);
         await expect(stat(`${path}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
       },
@@ -1084,10 +1099,10 @@ describe("the Skill that installs with an agent's connection", () => {
     const { core, home, coast } = await started();
     const file = join(home, ".claude", "skills", "incarnamind", "SKILL.md");
     const first = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
-    const second = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    const second = await connectedTwice(core, "claude-code", "Claude Code 2", [coast.id]);
     await core.disconnectAgent(first.pairing.id);
     expect(await readFile(file, "utf8")).toBe(SKILL_MARKDOWN);
-    await core.disconnectAgent(second.pairing.id);
+    await core.disconnectAgent(second.id);
     await expect(readFile(file, "utf8")).rejects.toThrow(/ENOENT/);
   });
 
@@ -1291,5 +1306,157 @@ describe("the Skill that installs with an agent's connection", () => {
     expect(codex.result.kind).toBe("wrote");
     expect(claude.result).toMatchObject({ kind: "copy", how: "command", path: claudeFile });
     expect(await readFile(claudeFile, "utf8")).toBe(unreadable);
+  });
+});
+
+describe("one connection per app on this computer", () => {
+  beforeAll(async () => {
+    await buildAgentShim();
+  }, 60_000);
+
+  /** Whether an agent started on `launch` is let in and its search answers. */
+  async function searchWorks(launch: AgentLaunch): Promise<boolean> {
+    const agent = await connectLegacyAgent(launch);
+    const found = await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
+    return found.isError !== true;
+  }
+
+  const keyOf = async (core: Core, pairingId: string) =>
+    (await core.getAgentLaunch(pairingId)).env[TOKEN_ENV] ?? "";
+
+  it("an app set up again keeps its one connection and name, has its entry written again, and the key it was given still works", async () => {
+    const { core, home, coast } = await started();
+    const path = join(home, ".claude.json");
+    const theirs = `${JSON.stringify({ userID: "b0ed6c26" }, null, 2)}\n`;
+    await writeFile(path, theirs);
+    const first = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    const given = await core.getAgentLaunch(first.pairing.id);
+    // The User took it out of Claude Code's file by hand: pressed again, it is put back.
+    await writeFile(path, theirs);
+
+    const again = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
+    expect(again.result).toEqual({ kind: "wrote", path });
+    expect(again.pairing).toMatchObject({ id: first.pairing.id, name: "Claude Code" });
+    expect((await core.getAgents()).pairings.map((each) => each.name)).toEqual(["Claude Code"]);
+    const now = await readFile(path, "utf8");
+    expect(now.match(/"INCARNAMIND_AGENT_TOKEN"/g)).toHaveLength(1);
+    const key = given.env[TOKEN_ENV] ?? "";
+    expect(key !== "" && now.includes(key)).toBe(true);
+    expect(await searchWorks(given)).toBe(true);
+
+    // Another app still gets a connection of its own, with its own key.
+    const codex = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    expect(codex.pairing.id).not.toBe(first.pairing.id);
+    expect((await core.getAgents()).pairings).toHaveLength(2);
+    expect((await keyOf(core, codex.pairing.id)) === key).toBe(false);
+  });
+
+  it("an app opened but never installed is finished by the second press, on the same connection and key", async () => {
+    const { core, opened, links, coast } = await started();
+    const claude = await core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] });
+    expect((await core.getAgents()).awaitingInstall).toEqual([claude.pairing.id]);
+    const again = await core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] });
+    expect(again).toMatchObject({
+      pairing: { id: claude.pairing.id, name: claude.pairing.name },
+      result: { kind: "opened", how: "bundle" },
+    });
+    expect(opened).toHaveLength(2);
+    const manifest = JSON.parse(
+      new TextDecoder().decode(
+        await openPackage(await readFile(opened[1] ?? "")).read("manifest.json"),
+      ),
+    );
+    const key = await keyOf(core, claude.pairing.id);
+    expect(manifest.server.mcp_config.env[TOKEN_ENV] === key).toBe(true);
+    // Installed from the second file, as Claude does on Install, it is connected and waits no more.
+    expect(await searchWorks(await core.getAgentLaunch(claude.pairing.id))).toBe(true);
+    await vi.waitFor(async () => expect((await core.getAgents()).awaitingInstall).toEqual([]));
+
+    // An app installed from a link opens on it again, with the same key.
+    const cursor = await core.setUpAgent({ client: "cursor", folderIds: [coast.id] });
+    const cursorAgain = await core.setUpAgent({ client: "cursor", folderIds: [coast.id] });
+    expect(cursorAgain.pairing.id).toBe(cursor.pairing.id);
+    expect(links).toHaveLength(2);
+    expect(links[1] === links[0]).toBe(true);
+    expect((await core.getAgents()).pairings).toHaveLength(2);
+  });
+
+  it("Other agent, which the User names, connects as another each time, with a key of its own", async () => {
+    const { core, coast } = await started();
+    const one = await core.setUpAgent({ client: "other", folderIds: [coast.id], name: "Lab bot" });
+    const two = await core.setUpAgent({ client: "other", folderIds: [coast.id], name: "Desk bot" });
+    expect(two.pairing.id).not.toBe(one.pairing.id);
+    expect((await core.getAgents()).pairings.map((each) => each.name)).toEqual([
+      "Lab bot",
+      "Desk bot",
+    ]);
+    expect((await keyOf(core, one.pairing.id)) === (await keyOf(core, two.pairing.id))).toBe(false);
+    expect(await searchWorks(await core.getAgentLaunch(one.pairing.id))).toBe(true);
+    expect(await searchWorks(await core.getAgentLaunch(two.pairing.id))).toBe(true);
+  });
+
+  it("two presses at once make one connection, and two apps at once make two", async () => {
+    const { core, coast } = await started();
+    const set = (client: "codex" | "cursor") => core.setUpAgent({ client, folderIds: [coast.id] });
+    const [one, two] = await Promise.all([set("codex"), set("codex")]);
+    expect(two.pairing.id).toBe(one.pairing.id);
+    expect((await core.getAgents()).pairings).toHaveLength(1);
+    const [codex, cursor] = await Promise.all([set("codex"), set("cursor")]);
+    expect(codex.pairing.id).toBe(one.pairing.id);
+    expect(cursor.pairing.id).not.toBe(one.pairing.id);
+    expect((await core.getAgents()).pairings).toHaveLength(2);
+  });
+
+  it("reads and writes what the User chose at the press, which allows it again", async () => {
+    const { core, coast } = await started();
+    const first = await core.setUpAgent({ client: "codex", folderIds: [coast.id], propose: false });
+    expect(first.pairing).toMatchObject({ folderIds: [coast.id], propose: false });
+    // The User then took back what it may send in Settings › Privacy: its calls are refused.
+    await core.revokeConsent("agents", `agent:${first.pairing.id}`);
+    const given = await core.getAgentLaunch(first.pairing.id);
+    expect(await searchWorks(given)).toBe(false);
+
+    const again = await core.setUpAgent({
+      client: "codex",
+      folderIds: [ALL_SHARED_ID],
+      propose: true,
+    });
+    expect(again.pairing).toMatchObject({
+      id: first.pairing.id,
+      folderIds: [ALL_SHARED_ID],
+      propose: true,
+    });
+    expect(await searchWorks(given)).toBe(true);
+  });
+
+  it("Undo after a second press takes the connection away and leaves the file as the User had it", async () => {
+    const { core, home, coast } = await started();
+    const path = join(home, ".codex", "config.toml");
+    await mkdir(join(home, ".codex"));
+    const theirs = 'model = "gpt-6-luna"\n\n[mcp_servers.github]\ncommand = "gh-mcp"\n';
+    await writeFile(path, theirs);
+    const first = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    const again = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    expect(again.result).toEqual({ kind: "wrote", path });
+    const given = await core.getAgentLaunch(first.pairing.id);
+
+    await core.undoAgentSetup(again.pairing.id);
+    expect(await readFile(path, "utf8")).toBe(theirs);
+    expect((await core.getAgents()).pairings).toEqual([]);
+    await expect(connectLegacyAgent(given)).rejects.toThrow(/no longer connected/);
+  });
+
+  it("a profile with two connections of one app from before keeps both, and a press sets up the first", async () => {
+    const { core, coast } = await started();
+    const first = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    const second = await connectedTwice(core, "codex", "ChatGPT app and Codex 2", [coast.id]);
+    const again = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    expect(again.pairing.id).toBe(first.pairing.id);
+    expect((await core.getAgents()).pairings.map((each) => each.id)).toEqual([
+      first.pairing.id,
+      second.id,
+    ]);
+    expect(await searchWorks(await core.getAgentLaunch(first.pairing.id))).toBe(true);
+    expect(await searchWorks(await core.getAgentLaunch(second.id))).toBe(true);
   });
 });

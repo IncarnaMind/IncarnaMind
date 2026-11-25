@@ -6,6 +6,10 @@
  * installs, in its settings file, or in what the User pastes, where what is
  * shown hides it.
  *
+ * Each app has one connection on this computer: setting up an app that is connected already
+ * repeats its step in the app (its settings entry written again, its install opened again) on that
+ * pairing, under its name. Only Other agent, which the User names, connects again as another.
+ *
  * Writing an agent's settings file keeps everything else in it, and is shown
  * before it is done (`preview`) and can be taken back right after (`undo`,
  * while the file is as IncarnaMind left it). The file is replaced whole, never
@@ -89,6 +93,10 @@ export interface AgentSetupOptions {
   agents: {
     settings(): { pairings: AgentPairing[]; awaitingInstall: string[]; shimsOutOfDate: string[] };
     connect(input: unknown): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
+    connectAgain(
+      pairingId: unknown,
+      input: unknown,
+    ): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
     disconnect(pairingId: unknown): Promise<void>;
     launch(pairingId: unknown): Promise<AgentLaunch>;
     /** Issues a new key and revokes the previous one when reinstalling an out-of-date shim (ADR-0036). */
@@ -190,26 +198,30 @@ async function settingsTarget(path: string): Promise<string> {
   return path;
 }
 
+/** Runs `run` once what waits under `key` before it has settled, whether it succeeded or not. */
+function inTurn<T>(turns: Map<string, Promise<void>>, key: string, run: () => Promise<T>) {
+  const turn = (turns.get(key) ?? Promise.resolve()).then(run);
+  const tail = turn.then(
+    () => undefined,
+    () => undefined,
+  );
+  turns.set(key, tail);
+  void tail.then(() => {
+    if (turns.get(key) === tail) turns.delete(key);
+  });
+  return turn;
+}
+
 /** The updates of each settings file waiting their turn, by where the file really is. */
 const settingsTurns = new Map<string, Promise<void>>();
 
 /**
  * One update of a settings file at a time (a set-up, an Undo, a Disconnect): the others on it wait
- * for their turn, whether the one before them succeeded or not, so none reads a file another is
- * half way through changing, or writes over what it changed.
+ * for their turn, so none reads a file another is half way through changing, or writes over what
+ * it changed.
  */
 async function exclusive<T>(path: string, update: () => Promise<T>): Promise<T> {
-  const key = await settingsTarget(path).catch(() => path);
-  const turn = (settingsTurns.get(key) ?? Promise.resolve()).then(update);
-  const tail = turn.then(
-    () => undefined,
-    () => undefined,
-  );
-  settingsTurns.set(key, tail);
-  void tail.then(() => {
-    if (settingsTurns.get(key) === tail) settingsTurns.delete(key);
-  });
-  return turn;
+  return inTurn(settingsTurns, await settingsTarget(path).catch(() => path), update);
 }
 
 let replacements = 0;
@@ -270,6 +282,15 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const t = options.say;
   /** Settings files written, by pairing, while their Undo stands. */
   const written = new Map<string, Written[]>();
+  /**
+   * One set-up, Undo or Disconnect of an agent at a time, by its client, so two presses at once
+   * find the one connection, and none writes the entry of a pairing another is taking away.
+   */
+  const clientTurns = new Map<string, Promise<void>>();
+  const clientOf = (pairingId: unknown) =>
+    options.agents.settings().pairings.find((each) => each.id === pairingId)?.client ?? "";
+  /** The pairings whose last set-up was made again on them: their settings files held their entry before it. */
+  const madeAgain = new Set<string>();
   const bundleFolder = (pairingId: string) =>
     join(options.tempDir, `${BUNDLE_FOLDER_PREFIX}${pairingId}`);
   const removeBundle = (pairingId: string) =>
@@ -605,6 +626,40 @@ export function createAgentSetup(options: AgentSetupOptions) {
     }
   };
 
+  const removeFromSettings = async (pairingId: unknown): Promise<AgentDisconnected> => {
+    const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
+    if (!pairing) return { skillsLeft: [] };
+    const left = await removeSkill(pairing.client, pairing.id).catch((error: unknown) => {
+      options.reportError(error);
+      return [];
+    });
+    const skillsLeft = left.map((path) => ({ path, shown: pathFromHome(path, options.home) }));
+    written.delete(pairing.id);
+    madeAgain.delete(pairing.id);
+    const files = settingsFilesFor(pairing.client);
+    const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
+    const created = options.agents.created(pairing.id);
+    for (const file of files) {
+      await exclusive(pathOf(file), async () => {
+        try {
+          await takeOut(file, token, created.includes(pathOf(file)));
+        } catch (error) {
+          // The User's file is theirs to tidy: the key in it no longer works anyway.
+          options.reportError(error);
+        }
+        await dropCopy(file, pairing.id, pairing.client);
+      });
+    }
+    await removeCreatedFolders(created).catch(options.reportError);
+    return { skillsLeft };
+  };
+
+  const disconnectNow = async (pairingId: unknown): Promise<AgentDisconnected> => {
+    const left = await removeFromSettings(pairingId);
+    await options.agents.disconnect(pairingId);
+    return left;
+  };
+
   return {
     /** Every agent, those on this computer first, in the catalog's order otherwise. */
     async clients(): Promise<AgentClient[]> {
@@ -649,68 +704,88 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (!Array.isArray(input.folderIds) || input.folderIds.length === 0) {
         throw new InvalidInputError({ key: "error.agent.noFolders" });
       }
-      await options.agents.ensureReachable?.();
-      // Before pairing, so the settings the pairing announces already show it.
-      // The agent still works without it, from the server's instructions.
-      await refreshSkills(skillPathsFor(options.home, client.id));
-      const skillFolders: string[] = [];
-      const addedSkill = await addSkill(client, skillFolders).catch((error: unknown) => {
-        options.reportError(error);
-        return false;
-      });
-      const { pairing, launch } = await options.agents
-        .connect({
-          name: nameFor(client, input.name),
-          folderIds: input.folderIds,
-          client: client.id,
-          ...(input.propose !== undefined && { propose: input.propose }),
-        })
-        .catch(async (error: unknown) => {
-          if (addedSkill) await removeSkill(client.id, "").catch(options.reportError);
-          throw error;
+      const chosen = {
+        folderIds: input.folderIds,
+        ...(input.propose !== undefined && { propose: input.propose }),
+      };
+      return inTurn(clientTurns, client.id, async () => {
+        await options.agents.ensureReachable?.();
+        // Before pairing, so the settings the pairing announces already show it.
+        // The agent still works without it, from the server's instructions.
+        await refreshSkills(skillPathsFor(options.home, client.id));
+        const skillFolders: string[] = [];
+        const addedSkill = await addSkill(client, skillFolders).catch((error: unknown) => {
+          options.reportError(error);
+          return false;
         });
-      if (addedSkill) options.agents.recordCreated(pairing.id, skillFolders);
-      try {
-        return { pairing, result: await install(client, pairing.id, launch) };
-      } catch (error) {
-        // Nothing half made: the pairing goes with the setup that failed.
-        if (addedSkill) await removeSkill(client.id, pairing.id).catch(options.reportError);
-        await options.agents.disconnect(pairing.id).catch(options.reportError);
-        throw error;
-      }
+        const connected =
+          client.id === "other"
+            ? undefined
+            : options.agents.settings().pairings.find((each) => each.client === client.id);
+        if (connected) {
+          // The connection was there before this press and stays if what follows fails; the Skill added now is its own.
+          if (addedSkill) options.agents.recordCreated(connected.id, skillFolders);
+          const { pairing, launch } = await options.agents.connectAgain(connected.id, chosen);
+          const result = await install(client, pairing.id, launch);
+          madeAgain.add(pairing.id);
+          return { pairing, result };
+        }
+        const { pairing, launch } = await options.agents
+          .connect({ name: nameFor(client, input.name), client: client.id, ...chosen })
+          .catch(async (error: unknown) => {
+            if (addedSkill) await removeSkill(client.id, "").catch(options.reportError);
+            throw error;
+          });
+        if (addedSkill) options.agents.recordCreated(pairing.id, skillFolders);
+        try {
+          return { pairing, result: await install(client, pairing.id, launch) };
+        } catch (error) {
+          // Nothing half made: the pairing goes with the setup that failed.
+          if (addedSkill) await removeSkill(client.id, pairing.id).catch(options.reportError);
+          await options.agents.disconnect(pairing.id).catch(options.reportError);
+          throw error;
+        }
+      });
     },
 
     async undo(pairingId: unknown): Promise<void> {
       if (typeof pairingId !== "string") throw new InvalidInputError("A pairing id must be text.");
-      const files = written.get(pairingId) ?? [];
-      // A file the agent keeps its own state in is rewritten by it at once: only IncarnaMind's entry goes.
-      for (const file of files) {
-        if (!file.file.backup && (await readText(file.path)) !== file.after) {
-          throw new InvalidInputError({
-            key: "error.agent.undoChanged",
-            values: { path: file.path },
+      return inTurn(clientTurns, clientOf(pairingId), async () => {
+        // Its files held its entry before a second press, so putting them back would leave it there.
+        if (madeAgain.has(pairingId)) {
+          await disconnectNow(pairingId);
+          return;
+        }
+        const files = written.get(pairingId) ?? [];
+        // A file the agent keeps its own state in is rewritten by it at once: only IncarnaMind's entry goes.
+        for (const file of files) {
+          if (!file.file.backup && (await readText(file.path)) !== file.after) {
+            throw new InvalidInputError({
+              key: "error.agent.undoChanged",
+              values: { path: file.path },
+            });
+          }
+        }
+        const token =
+          (await options.agents.launch(pairingId).catch(() => null))?.env[AGENT_TOKEN_ENV] ?? "";
+        const made = options.agents.created(pairingId);
+        const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
+        for (const file of files) {
+          await exclusive(file.path, async () => {
+            if ((await readText(file.path)) === file.after) {
+              if (file.before === null) await unlink(file.path);
+              else await replaceFile(file.path, file.before);
+            } else {
+              await takeOut(file.file, token, made.includes(file.path));
+            }
+            await dropCopy(file.file, pairingId, pairing?.client);
           });
         }
-      }
-      const token =
-        (await options.agents.launch(pairingId).catch(() => null))?.env[AGENT_TOKEN_ENV] ?? "";
-      const made = options.agents.created(pairingId);
-      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
-      for (const file of files) {
-        await exclusive(file.path, async () => {
-          if ((await readText(file.path)) === file.after) {
-            if (file.before === null) await unlink(file.path);
-            else await replaceFile(file.path, file.before);
-          } else {
-            await takeOut(file.file, token, made.includes(file.path));
-          }
-          await dropCopy(file.file, pairingId, pairing?.client);
-        });
-      }
-      written.delete(pairingId);
-      await removeSkill(pairing?.client ?? null, pairingId).catch(options.reportError);
-      await removeCreatedFolders(options.agents.created(pairingId));
-      await options.agents.disconnect(pairingId);
+        written.delete(pairingId);
+        await removeSkill(pairing?.client ?? null, pairingId).catch(options.reportError);
+        await removeCreatedFolders(options.agents.created(pairingId));
+        await options.agents.disconnect(pairingId);
+      });
     },
 
     /** Makes the bundle of a pairing waiting for its agent or running a legacy shim anew and opens it, or reopens an install link. */
@@ -742,37 +817,12 @@ export function createAgentSetup(options: AgentSetupOptions) {
     },
 
     /**
-     * Before a pairing is disconnected: takes IncarnaMind out of the settings
-     * files it was written to, if the entry there is still its own, and its
-     * Skill, if the User hasn't changed it. Also for an agent no longer
-     * listed, whose pairing IncarnaMind wrote a file for.
+     * Disconnects a pairing: first takes IncarnaMind out of the settings files it was written to,
+     * if the entry there is still its own, and its Skill, if the User hasn't changed it. Also for
+     * an agent no longer listed, whose pairing IncarnaMind wrote a file for.
      */
-    async removeFromSettings(pairingId: unknown): Promise<AgentDisconnected> {
-      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
-      if (!pairing) return { skillsLeft: [] };
-      const left = await removeSkill(pairing.client, pairing.id).catch((error: unknown) => {
-        options.reportError(error);
-        return [];
-      });
-      const skillsLeft = left.map((path) => ({ path, shown: pathFromHome(path, options.home) }));
-      written.delete(pairing.id);
-      const files = settingsFilesFor(pairing.client);
-      const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
-      const created = options.agents.created(pairing.id);
-      for (const file of files) {
-        await exclusive(pathOf(file), async () => {
-          try {
-            await takeOut(file, token, created.includes(pathOf(file)));
-          } catch (error) {
-            // The User's file is theirs to tidy: the key in it no longer works anyway.
-            options.reportError(error);
-          }
-          await dropCopy(file, pairing.id, pairing.client);
-        });
-      }
-      await removeCreatedFolders(created).catch(options.reportError);
-      return { skillsLeft };
-    },
+    disconnect: (pairingId: unknown): Promise<AgentDisconnected> =>
+      inTurn(clientTurns, clientOf(pairingId), () => disconnectNow(pairingId)),
 
     /**
      * Whether a pairing's entry in its agent's settings starts a program that is no longer there:

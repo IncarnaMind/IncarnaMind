@@ -553,6 +553,98 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     await expect(legacyAgentClient(newLaunch)).rejects.toThrow(/no longer connected/);
   }, 60_000);
 
+  /** A core on folders of its own, with Claude's install files caught and a keychain the test holds. */
+  async function claudeComputer() {
+    const dataDir = await createTempDataFolder();
+    const home = await createTempDataFolder();
+    const tempDir = await createTempDataFolder();
+    const keychain = createMemoryKeychain();
+    const shimScript = await buildAgentShim();
+    const opened: string[] = [];
+    const adapter = await agentsAdapter(dataDir);
+    const start = () =>
+      startCore(dataDir, {
+        keychain,
+        paths: { dataDir, home, documents: join(dataDir, "Documents"), tempDir },
+        agents: { ...adapter, shimScript, applications: [tempDir] },
+        shell: {
+          openPath: async (path) => {
+            opened.push(path);
+          },
+          showItemInFolder: () => undefined,
+        },
+      });
+    const core = start();
+    await core.setAgentsEnabled(true);
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
+    const folderIds = [coast.id];
+    return { core, start, keychain, opened, folderIds, dataDir };
+  }
+
+  const keyInBundle = async (path: string) =>
+    (
+      JSON.parse(
+        new TextDecoder().decode(await openPackage(await readFile(path)).read("manifest.json")),
+      ) as { server: { mcp_config: { env: Record<string, string> } } }
+    ).server.mcp_config.env[AGENT_TOKEN_ENV] ?? "";
+
+  it("set up again after its agent used an out-of-date shim, Claude's one connection gets a new key: the new one works, the old is refused", async () => {
+    const { core, opened, folderIds } = await claudeComputer();
+    const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
+    const oldLaunch = await core.getAgentLaunch(pairing.id);
+    const oldToken = oldLaunch.env[AGENT_TOKEN_ENV] ?? "";
+    const socketPath = oldLaunch.env[AGENT_SOCKET_ENV] ?? "";
+    await callViaLegacyV1(socketPath, oldToken, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
+    expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+
+    const again = await core.setUpAgent({ client: "claude-desktop", folderIds });
+    expect(again.pairing.id).toBe(pairing.id);
+    expect((await core.getAgents()).pairings).toHaveLength(1);
+    const newLaunch = await core.getAgentLaunch(pairing.id);
+    const newToken = newLaunch.env[AGENT_TOKEN_ENV] ?? "";
+    expect(newToken !== "" && newToken !== oldToken).toBe(true);
+    expect((await keyInBundle(opened[1] ?? "")) === newToken).toBe(true);
+    await expect(legacyAgentClient(oldLaunch)).rejects.toThrow(/no longer connected/);
+    const v2 = await legacyAgentClient(newLaunch);
+    try {
+      await v2.listTools();
+    } finally {
+      await v2.close();
+    }
+    expect((await core.getAgents()).shimsOutOfDate).toEqual([]);
+  }, 60_000);
+
+  it("set up again where its key can't be read, an app's one connection gets a new key: the new one works, the old is refused", async () => {
+    const { core, start, keychain, folderIds, dataDir } = await claudeComputer();
+    const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
+    const oldLaunch = await core.getAgentLaunch(pairing.id);
+    core.close();
+    const socketPath = oldLaunch.env[AGENT_SOCKET_ENV] ?? agentSocketPath(dataDir);
+    await expect.poll(() => agentSocketAnswers(socketPath)).toBe(false);
+    await keychain.delete(`agent-pairing:${pairing.id}`);
+    const restarted = start();
+    await expect.poll(() => agentSocketAnswers(socketPath)).toBe(true);
+    await expect(restarted.getAgentLaunch(pairing.id)).rejects.toThrow(/can’t be read/);
+
+    const again = await restarted.setUpAgent({ client: "claude-desktop", folderIds });
+    expect(again.pairing.id).toBe(pairing.id);
+    expect((await restarted.getAgents()).pairings).toHaveLength(1);
+    const newLaunch = await restarted.getAgentLaunch(pairing.id);
+    expect(newLaunch.env[AGENT_TOKEN_ENV] === oldLaunch.env[AGENT_TOKEN_ENV]).toBe(false);
+    await expect(legacyAgentClient(oldLaunch)).rejects.toThrow(/no longer connected/);
+    const agent = await legacyAgentClient(newLaunch);
+    try {
+      await agent.listTools();
+    } finally {
+      await agent.close();
+    }
+  }, 60_000);
+
   it("signs only the matching keyId, and the app refuses forged, reflected, and replayed line 3 proofs", async () => {
     const { core } = await startAgentsCore(scriptedModel(() => ({ text: "ok" })));
     await core.setAgentsEnabled(true);

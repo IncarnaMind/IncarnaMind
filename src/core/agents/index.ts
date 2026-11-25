@@ -480,6 +480,26 @@ export function createAgents(options: AgentsOptions) {
     return stored;
   };
 
+  /** A new token for the pairing in place of its own, which stops working at once, its connections closed. */
+  const renewToken = async (pairingId: string): Promise<string> => {
+    const token = `im_${randomBytes(32).toString("base64url")}`;
+    await options.secrets.set(secretName(pairingId), token);
+    tokens.set(pairingId, token);
+    await closeConnections(pairingId);
+    return token;
+  };
+
+  /**
+   * The User confirmed what the agent may read and where that goes before this is called, and, for
+   * an agent IncarnaMind can start for a check, that it may (the connect sheet says so).
+   */
+  const chooseFlows = (pairing: { id: string; name: string }, client: string | null) =>
+    options.consent.choose(
+      HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
+      serviceOf(pairing),
+      HOSTED_UNNAMED[client ?? ""],
+    );
+
   /** The pairing a token belongs to, compared in constant time; null for none. */
   const pairingOfToken = async (token: string): Promise<string | null> => {
     const given = digest(token);
@@ -1015,15 +1035,34 @@ export function createAgents(options: AgentsOptions) {
         [id, name, JSON.stringify(folderIds), client, propose ? 1 : 0, at, at],
       );
       tokens.set(id, token);
-      // The User confirmed what it may read and where that goes before this was called, and, for
-      // an agent IncarnaMind can start for a check, that it may (the connect sheet says so).
-      options.consent.choose(
-        HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
-        serviceOf({ id, name }),
-        HOSTED_UNNAMED[client ?? ""],
-      );
+      chooseFlows({ id, name }, client);
       changed();
       return { pairing: requirePairing(id), launch: launchFor(token) } satisfies ConnectedAgent;
+    },
+
+    /**
+     * The User allowed an agent again that is connected already: the same pairing, under its name,
+     * reads and writes what they chose now, with their consent recorded as `connect` records it.
+     * Its token stays, unless its agent last connected with an out-of-date shim (ADR-0036) or the
+     * token can't be read here: then it gets a new one and the old one stops working.
+     */
+    async connectAgain(pairingIdInput: unknown, input: unknown): Promise<ConnectedAgent> {
+      const pairing = requirePairing(pairingIdInput);
+      if (!isRecord(input)) throw new InvalidInputError("connectAgain expects an object.");
+      const folderIds = parseFolders(input.folderIds);
+      const propose = parsePropose(input.propose, pairing.propose);
+      await ensureReachable();
+      const stored = legacyShims.has(pairing.id) ? null : await tokenOf(pairing.id);
+      const token = stored ?? (await renewToken(pairing.id));
+      db.run("UPDATE agent_pairings SET folder_ids = ?, propose = ?, updated_at = ? WHERE id = ?", [
+        JSON.stringify(folderIds),
+        propose ? 1 : 0,
+        options.now(),
+        pairing.id,
+      ]);
+      chooseFlows(pairing, pairing.client);
+      changed();
+      return { pairing: requirePairing(pairing.id), launch: launchFor(token) };
     },
 
     update(pairingIdInput: unknown, input: unknown): AgentPairing {
@@ -1120,11 +1159,7 @@ export function createAgents(options: AgentsOptions) {
      */
     async rotateKey(pairingIdInput: unknown): Promise<AgentLaunch> {
       const pairing = requirePairing(pairingIdInput);
-      const nextToken = `im_${randomBytes(32).toString("base64url")}`;
-      await options.secrets.set(secretName(pairing.id), nextToken);
-      tokens.set(pairing.id, nextToken);
-      await closeConnections(pairing.id);
-      return launchFor(nextToken);
+      return launchFor(await renewToken(pairing.id));
     },
 
     activity(pairingIdInput: unknown): AgentActivity[] {

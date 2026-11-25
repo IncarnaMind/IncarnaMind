@@ -16387,6 +16387,9 @@ export interface CoreApi {
    * Pairs an agent and sets IncarnaMind up in it, as `connectAgent` does,
    * once the User has confirmed: opens its app to finish, writes its settings
    * file, or gives what to paste. A setup that fails leaves no pairing.
+   * An app already connected is not paired again (Other agent aside): its
+   * pairing is set up once more, under its name, reading and writing what
+   * the User chose now; a failure then leaves it connected.
    */
   setUpAgent(input: SetUpAgentInput): Promise<SetUpAgent>;
   /** Takes a setup just made back: its settings file as it was, and the pairing gone. */
