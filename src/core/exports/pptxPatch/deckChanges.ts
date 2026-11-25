@@ -415,15 +415,18 @@ export async function applyDeckChanges(
       const existingCitations = parseShapeCitations(
         await readShapeTags(deck, slide.part, change.shape),
       );
-      const otherCells = existingCitations.filter(
-        (each) => each.row !== change.row || each.column !== change.column,
-      );
-      const stamped = (change.citations ?? []).map((each) => ({
-        ...each,
-        row: change.row,
-        column: change.column,
-      }));
-      const merged = [...otherCells, ...stamped].flatMap(toStoredShapeCitation);
+      const otherCells = existingCitations
+        .filter((each) => each.row !== change.row || each.column !== change.column)
+        .map((each) => (each.documentId ? toStoredShapeCitation(each)[0] : each))
+        .filter((each): each is StoredShapeCitation | DeckCitationRecord => each !== undefined);
+      const stamped = (change.citations ?? [])
+        .map((each) => ({
+          ...each,
+          row: change.row,
+          column: change.column,
+        }))
+        .flatMap(toStoredShapeCitation);
+      const merged = [...otherCells, ...stamped];
       if (merged.length > 0 || existingCitations.length > 0) {
         await setShapeTags(deck, slide.part, change.shape, {
           [CITATION_TAG_NAME]: JSON.stringify(merged),

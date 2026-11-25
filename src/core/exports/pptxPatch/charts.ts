@@ -308,6 +308,8 @@ export async function setChartSeriesValues(
       recordFormulaRefs(child(xOrCat, "c:numRef"));
       recordFormulaRefs(child(xOrCat, "c:strRef"));
     }
+    const bubbleSize = child(entry.series, "c:bubbleSize");
+    if (bubbleSize) recordFormulaRefs(child(bubbleSize, "c:numRef"));
   }
 
   const points = elements(cache).filter((each) => local(each.name) === "pt");

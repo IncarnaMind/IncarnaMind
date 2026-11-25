@@ -253,6 +253,7 @@ export function SlideEditor({
   onOpenPicture,
   onSelectShape,
   selectedElsewhere = false,
+  clearSelectionTick = 0,
   proposedShapeIds = null,
 }: {
   slide: SlideDrawing;
@@ -272,6 +273,8 @@ export function SlideEditor({
   onSelectShape?: (selection: SelectedDeckShape | null) => void;
   /** True when another slide currently holds the deck's selected shape (#149 part 2). */
   selectedElsewhere?: boolean;
+  /** Incremented when the User clears the target chip in the ask footer (#149 part 2). */
+  clearSelectionTick?: number;
   /** Shape ids touched by a waiting AI Proposal, outlined live on the slide (#149 part 2). */
   proposedShapeIds?: ReadonlySet<string> | null;
 }) {
@@ -280,6 +283,9 @@ export function SlideEditor({
   useEffect(() => {
     if (selectedElsewhere) setSelected(null);
   }, [selectedElsewhere]);
+  useEffect(() => {
+    if (clearSelectionTick > 0) setSelected(null);
+  }, [clearSelectionTick]);
   const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
   const [typed, setTyped] = useState<readonly TypedWords[]>([]);
   const [typing, setTyping] = useState<{

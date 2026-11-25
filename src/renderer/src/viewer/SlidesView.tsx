@@ -259,6 +259,7 @@ function Slides({
   const scroller = useRef<HTMLDivElement>(null);
   const settingUp = useSettingUp();
   const [selectedShape, setSelectedShape] = useState<SelectedDeckShape | null>(null);
+  const [clearSelectionTick, setClearSelectionTick] = useState(0);
   const [shortenTrigger, setShortenTrigger] = useState<DeckAskTrigger | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState<{
     proposalId: string;
@@ -749,6 +750,7 @@ function Slides({
                       selectedElsewhere={
                         selectedShape !== null && selectedShape.slide !== slide.number
                       }
+                      clearSelectionTick={clearSelectionTick}
                       onSelectShape={(sel) => {
                         if (sel) setSelectedShape(sel);
                         else
@@ -771,7 +773,10 @@ function Slides({
                   document={document}
                   slide={current ?? slides[0]?.number ?? 1}
                   selection={selectedShape}
-                  onClearSelection={() => setSelectedShape(null)}
+                  onClearSelection={() => {
+                    setSelectedShape(null);
+                    setClearSelectionTick((n) => n + 1);
+                  }}
                   proposalsState={proposalsState}
                   canAsk={!settingUp && refusal === null}
                   externalTrigger={shortenTrigger}
@@ -811,6 +816,7 @@ function SlideFrame({
   editing,
   proposedShapeIds,
   selectedElsewhere,
+  clearSelectionTick,
   onSelectShape,
 }: {
   outline: SlideOutline;
@@ -830,6 +836,7 @@ function SlideFrame({
   editing: DeckEditing | null;
   proposedShapeIds: ReadonlySet<string> | null;
   selectedElsewhere?: boolean;
+  clearSelectionTick?: number;
   onSelectShape?: (selection: SelectedDeckShape | null) => void;
 }) {
   const t = useT();
@@ -897,6 +904,7 @@ function SlideFrame({
               onOpenPicture={openDocumentPicture}
               onSelectShape={onSelectShape}
               selectedElsewhere={selectedElsewhere}
+              clearSelectionTick={clearSelectionTick}
               proposedShapeIds={proposedShapeIds}
             />
           ) : (

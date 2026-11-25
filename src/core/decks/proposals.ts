@@ -134,6 +134,7 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
         fontScale: shape.fontScale,
         lineReduction: shape.lineReduction,
         paragraphs,
+        citations: shape.citations ?? [],
       }),
     };
   }
@@ -158,6 +159,9 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
         row: change.row,
         column: change.column,
         value,
+        citations: (shape.citations ?? []).filter(
+          (each) => each.row === change.row && each.column === change.column,
+        ),
       }),
     };
   }
@@ -564,6 +568,9 @@ export function createDeckProposals(deps: DeckProposalDeps) {
         const record = undos.get(undoId);
         if (!record) {
           throw new NotFoundError({ key: "error.deck.proposalGone" });
+        }
+        if (deps.hasWaitingEdit?.(record.documentId)) {
+          throw new InvalidInputError({ key: "error.deck.waiting" });
         }
         // Verify the deck has not changed since Confirm (#149 S2).
         const nowBytes = await deps.read(record.documentId);

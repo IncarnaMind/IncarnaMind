@@ -3381,7 +3381,7 @@ export const en = {
   "outputLocation.pick.title": "Choose where new files go",
   "outputLocation.pick.button": "Choose",
   "outputLocation.linked.title": "New files in Linked folders",
-  "outputLocation.linked.body": "No new files go into a Linked folder unless you allow it.",
+  "outputLocation.linked.body": "New files go in a Linked folder only if allowed.",
   "outputLocation.linked.allow": "Allow new files in {name}",
   "fileWrite.location.title": "Where should new files go?",
   "fileWrite.location.missing":
@@ -9131,8 +9131,7 @@ export const en = {
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
   "agents.pairing.readsAll": "Reads all your Documents and notes, and what you add later",
-  "agents.pairing.proposes":
-    "Writes notes, Canvases and files there; proposes changes to your notes and decks",
+  "agents.pairing.proposes": "Writes notes, Canvases and files; proposes note and deck edits",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
