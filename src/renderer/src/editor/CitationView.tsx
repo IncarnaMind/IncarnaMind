@@ -122,12 +122,17 @@ import {
   useCitedOrigin,
 } from "./mindContext";
 import { Popover } from "./Popover";
-import { onPeek, pointedCard, useCitationPeek } from "./peek";
+import { onPeek, onShiftPressTaken, pointedCard, useCitationPeek } from "./peek";
 import { keyboardTakesOver, onKeyboardTakesOver, pointerMayAsk } from "./pointerRest";
 import { isQuietFocus } from "./quietFocus";
 import { ScreenCitationCard } from "./ScreenCitationCard";
 import { SignOffLine, SignOffToggle } from "./SignOff";
 import { StyledRuns, StyledRunView } from "./StyledRuns";
+import {
+  clearTakenMarkerPress,
+  hasSelectionToExtend,
+  hasTakenMarkerPress,
+} from "./shiftClickSelection";
 import {
   citationSignOff,
   currentSigner,
@@ -308,6 +313,8 @@ export function CitationView({
   const marker = useRef<HTMLButtonElement>(null);
   /** Whether the editor took the marker's last press to extend the selection. */
   const pressTaken = useRef(false);
+  /** Suppresses hover peek after a taken Shift-press until the pointer leaves the marker (#3697). */
+  const suppressPeekUntilLeave = useRef(false);
   // Its dot breathes only while a check the User started runs: an Answer is being written.
   const writing = useAnswers((store) => store.writing.size > 0);
   const answering = useAnswerBeingWritten() !== null;
@@ -340,15 +347,24 @@ export function CitationView({
   useEffect(() => {
     const element = marker.current;
     const stop = element && onPeek(element, ({ source, on }) => hold(source, on));
+    const stopTaken =
+      element &&
+      onShiftPressTaken(element, () => {
+        pressTaken.current = true;
+        suppressPeekUntilLeave.current = true;
+        pointer.pointAt(null);
+        clearPeek();
+      });
     const letGo = onKeyboardTakesOver((taker) => {
       pointer.keyboardTookOver(taker !== element);
       if (taker !== element) dropPointer();
     });
     return () => {
       stop?.();
+      stopTaken?.();
       letGo();
     };
-  }, [hold, dropPointer, pointer]);
+  }, [hold, dropPointer, pointer, clearPeek]);
 
   /**
    * Opens the cited place, or the Document; amber when opened anyway after "not found".
@@ -739,14 +755,45 @@ export function CitationView({
         // (ShiftClickSelection, #2279); a press it didn't take is kept here, as before.
         onMouseDown={(event) => {
           pressTaken.current = event.nativeEvent.defaultPrevented;
-          if (!pressTaken.current) event.preventDefault();
+          if (pressTaken.current) {
+            suppressPeekUntilLeave.current = true;
+            pointer.pointAt(null);
+            clearPeek();
+            return;
+          }
+          event.preventDefault();
         }}
         // In a cluster, the pointer shows the card of the Citation whose words it is over.
-        onPointerMove={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
+        // While Shift is held over a selection (or right after a taken Shift-press, including
+        // across a decoration-triggered node-view remount), the pointer is selecting text, not
+        // asking to peek at the card (#3697).
+        onPointerMove={(event) => {
+          if (
+            suppressPeekUntilLeave.current ||
+            hasTakenMarkerPress(editor.view) ||
+            (event.shiftKey && hasSelectionToExtend(editor.view))
+          ) {
+            return;
+          }
+          pointAt(markerOfWork(workAt(event.target, inCluster)));
+        }}
         // The pointer can come back without moving: the card first placed before its font
         // loaded grows and moves up off it, which a Citation that only heard moves took as a leave.
-        onPointerOver={(event) => pointAt(markerOfWork(workAt(event.target, inCluster)))}
-        onPointerLeave={() => pointAt(null)}
+        onPointerOver={(event) => {
+          if (
+            suppressPeekUntilLeave.current ||
+            hasTakenMarkerPress(editor.view) ||
+            (event.shiftKey && hasSelectionToExtend(editor.view))
+          ) {
+            return;
+          }
+          pointAt(markerOfWork(workAt(event.target, inCluster)));
+        }}
+        onPointerLeave={(event) => {
+          suppressPeekUntilLeave.current = false;
+          if (event.currentTarget.isConnected) clearTakenMarkerPress(editor.view);
+          pointAt(null);
+        }}
         // The keyboard's focus shows the card at once; going to another stop takes it away at once.
         onFocus={(event) => {
           enteredBySpace.current = false;
@@ -765,10 +812,11 @@ export function CitationView({
         }}
         onClick={(event) => {
           // A Shift-press the editor took extended the selection, so it is not an activation of
-          // the Citation; a key's click, or a press with nothing to extend, still is.
-          const taken = pressTaken.current;
+          // the Citation even if Shift was released before mouseup or the node view remounted
+          // (#3697); a key's click, or a press with nothing to extend, still is.
+          const taken = pressTaken.current || hasTakenMarkerPress(editor.view);
           pressTaken.current = false;
-          if (event.shiftKey && event.detail > 0 && taken) return;
+          if (event.detail > 0 && taken) return;
           const target = markerOfWork(workAt(event.target, inCluster));
           if (target && target !== marker.current) target.click();
           else onClick();
