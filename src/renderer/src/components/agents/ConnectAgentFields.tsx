@@ -1,9 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { AgentClient, AgentSetupPreview } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
-import { agentConnector } from "../../agentConnection";
 import { core } from "../../core";
-import { errorMessage } from "../../errors";
 import { useGap, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { InlinePath } from "../PathText";
@@ -12,8 +10,10 @@ import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass, errorTextClass, fieldLabelClass, hintClass, inputClass } from "../ui";
 import type { JustSetUp } from "./AgentPairingRow";
 import { AgentShareChoice } from "./AgentShareChoice";
+import { setupProblem } from "./agentWords";
 import {
   AgentSecretNotice,
+  connectAgent,
   FileChangePreview,
   useSecretStorage,
   useShareFolders,
@@ -32,11 +32,6 @@ export interface AgentChoice {
   name: string;
   propose: boolean;
 }
-
-const connectAgent = agentConnector(core, (error) => {
-  console.error("Couldn't turn connecting agents off again after a failed setup", error);
-  useAppStore.getState().reportError(error);
-});
 
 /** Connecting an agent (#351), in Settings › AI and the setup's Your AI step (#3362). */
 export function useAgentConnection() {
@@ -66,7 +61,7 @@ export function useAgentConnection() {
         await navigator.clipboard.writeText(result.text).catch(reportError);
       return { pairingId: pairing.id, result };
     } catch (error) {
-      setProblem(errorMessage(error, t));
+      setProblem(setupProblem(error, t));
       return null;
     } finally {
       setBusy(false);

@@ -256,9 +256,9 @@ describe("the setup's Your AI step", () => {
     await act(async () => undefined);
 
     expect(has(container, "setup-agent-allow-all")).toBe(true);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "Settings are read-only.",
-    );
+    const alertText = container.querySelector('[role="alert"]')?.textContent ?? "";
+    expect(alertText).toBe(translate("en", "agents.setup.failed"));
+    expect(alertText).not.toContain("Settings are read-only.");
   });
 
   test("ConnectManyDialog blocks Cancel, Esc and close while setup is running (#3644)", async () => {

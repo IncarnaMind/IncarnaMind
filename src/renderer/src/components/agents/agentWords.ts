@@ -16,6 +16,7 @@ import { clientInSentence, clientTitle } from "../../../../shared/agentNames";
 import { formatDateTime } from "../../../../shared/dates";
 import { type MessageKey, type MessageParams, translate } from "../../../../shared/i18n";
 import { unitsOf } from "../../../../shared/i18n/join";
+import { describeError } from "../../errors";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -56,23 +57,29 @@ export const readsLine = (names: readonly string[], t: Translate, language: Lang
     ? t("agents.pairing.reads", { folders: unitsOf(names, language) })
     : t("agents.pairing.readsNothing");
 
+interface PasteWordsEntry {
+  key: MessageKey;
+  /** False when the agent's own copy line already stands alone without a "Copied." prefix. */
+  copiedPrefix?: false;
+}
+
 /**
  * Where each agent that takes settings by hand has the User put them (#3374), in its own
  * screen's words, from its documentation (src/core/agents/clients.ts).
  */
-const PASTE_WORDS = {
-  devin: "agents.done.paste.devin",
-  zed: "agents.done.paste.zed",
-  trae: "agents.done.paste.trae",
-  qoder: "agents.done.paste.qoder",
-  codebuddy: "agents.done.paste.codebuddy",
-  "minimax-code": "agents.done.paste.minimax-code",
-  "kilo-code": "agents.done.paste.kilo-code",
-} as const satisfies Partial<Record<AgentClientId, MessageKey>>;
+const PASTE_WORDS: Partial<Record<AgentClientId, PasteWordsEntry>> = {
+  devin: { key: "agents.done.paste.devin" },
+  zed: { key: "agents.done.paste.zed" },
+  trae: { key: "agents.done.paste.trae" },
+  qoder: { key: "agents.done.paste.qoder" },
+  codebuddy: { key: "agents.done.paste.codebuddy" },
+  "minimax-code": { key: "agents.done.paste.minimax-code" },
+  "kilo-code": { key: "agents.done.paste.kilo-code", copiedPrefix: false },
+};
 
-const pasteWords = (client: string | null): MessageKey | null =>
+const pasteWords = (client: string | null): PasteWordsEntry | null =>
   client !== null && Object.hasOwn(PASTE_WORDS, client)
-    ? PASTE_WORDS[client as keyof typeof PASTE_WORDS]
+    ? (PASTE_WORDS[client as AgentClientId] ?? null)
     : null;
 
 /** Whether the agent's screen asks for the command, arguments and environment one by one. */
@@ -131,17 +138,31 @@ export function doneWords(
           path: result.path,
         });
       }
+      const entry = pasteWords(pairing.client);
       const instruction =
         result.how === "command"
           ? t("agents.done.command")
           : pairing.client === "other"
             ? t("agents.done.settings.other")
-            : t(pasteWords(pairing.client) ?? "agents.done.settings", { agent });
-      return copied && pairing.client !== "kilo-code"
+            : t(entry?.key ?? "agents.done.settings", { agent });
+      return copied && entry?.copiedPrefix !== false
         ? t("agents.done.copied", { instruction })
         : instruction;
     }
   }
+}
+
+/**
+ * Plain words in the interface language for a setup failure outside the paste fallback (#3644):
+ * uses the core's translated wording or known system failure sentence, never an untranslated raw
+ * system error line, and logs unexpected errors for debugging.
+ */
+export function setupProblem(error: unknown, t: Translate): string {
+  const { wording, reason, log } = describeError(error);
+  if (wording) return t(wording.key, wording.values);
+  if (reason) return t(reason);
+  console.error("Agent setup failed:", log);
+  return t("agents.setup.failed");
 }
 
 /** A call in the activity list: what it did, and how many results, or why it didn't. */
