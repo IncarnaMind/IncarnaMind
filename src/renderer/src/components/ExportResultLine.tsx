@@ -4,7 +4,6 @@ import { nameInLine } from "../../../shared/naming";
 import { saveFailureReason } from "../../../shared/systemReasons";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
-import { errorMessage } from "../errors";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { checkComments, myCommentsPart, trackedChanges, unmarkedChecks } from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
@@ -37,7 +36,14 @@ import {
   noteStateUnreadWords,
   nothingLeft,
 } from "../noteState";
-import { chooseOutputLocation, savedFolderLabel, showOutputLocationSetting } from "../outputFiles";
+import {
+  chooseOutputLocation,
+  SAVED_OPEN_BUTTON,
+  SAVED_SHOW_BUTTON,
+  savedFileFailure,
+  savedFolderLabel,
+  showOutputLocationSetting,
+} from "../outputFiles";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
 import { ExportChange } from "./ExportChange";
@@ -198,9 +204,7 @@ function ResultBody({
 
   const run = (act: () => Promise<void>, failed: "export.failed.open" | "export.failed.show") => {
     setError(null);
-    act().catch((failure: unknown) =>
-      setError(t(failed, { reason: reasonOf(errorMessage(failure, t), t) })),
-    );
+    act().catch((failure: unknown) => setError(savedFileFailure(failure, failed, t)));
   };
 
   return (
@@ -224,7 +228,7 @@ function ResultBody({
                   type="button"
                   data-testid="export-open"
                   onClick={() => run(() => files.openSavedFile(result.path), "export.failed.open")}
-                  className="h-7 rounded-md bg-sheet px-3 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover"
+                  className={SAVED_OPEN_BUTTON}
                 >
                   {t("export.open")}
                 </button>
@@ -232,7 +236,7 @@ function ResultBody({
                   type="button"
                   data-testid="export-show"
                   onClick={() => run(() => files.showSavedFile(result.path), "export.failed.show")}
-                  className="h-7 rounded-md px-2.5 text-[13px] leading-5 font-semibold text-ink-secondary hover:bg-hover hover:text-ink"
+                  className={SAVED_SHOW_BUTTON}
                 >
                   {t(showFileLabelKey(navigator.platform))}
                 </button>

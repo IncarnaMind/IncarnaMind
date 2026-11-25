@@ -1,6 +1,6 @@
 ---
 name: incarnamind
-description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". For a message sent from a Note, file, meeting or search scope in IncarnaMind, read the pending request before replying, even when the opening line has no question.
+description: Answer from the User's own IncarnaMind Library, their Documents, files, reports and Notes, with Citations IncarnaMind checks. Use for any question about the User's own documents, in English or Chinese, for example "using my IncarnaMind Library", "in my documents", "what do my notes say", "根据我的 IncarnaMind 文库回答", "我的文档/笔记里怎么说". For a message sent from a Note, file, meeting or search scope in IncarnaMind, read the pending request before replying, even when the opening line has no question. Also use it to make a Word file of their Note or of what you write from their Documents (“存成 Word 文件”).
 ---
 
 # IncarnaMind
@@ -53,9 +53,13 @@ For a page to look at, such as a report with pictures or a small dashboard, `pub
 - To change it, `read_canvas`, then `update_canvas` with the `version` you read and what changes. Its files stay: name a file again, by its full path, only to replace it. Built on an older version, it is refused with the newest.
 - Writing the User will edit, check sentence by sentence or export to Word is better as a Note, with `create_mind`.
 
+## When the User asks for a Word file
+
+For a Word file (.docx) of a Note or of what you write from their Documents, call `save_as_word` with the Note's `mindId`, or with your Markdown, its `[cite:…]` tokens written as for `create_mind`, and a `title`. IncarnaMind writes the file as its own Export › Word does, each Citation a footnote, saves it in the User's folder for new files (its result's `saved` is the path, to tell them), and keeps it in their Library with its check, so don't hand it over as well. Never build a .docx yourself, with a library, a converter or a script. A Word file already on disk goes to `hand_over_file`.
+
 ## When you made a file for the User: hand it over
 
-A deck, workbook, Word file or PDF you made from their Documents: `hand_over_file` with its full path, unasked. IncarnaMind reads that one file and keeps it with each version. Its check, against their Documents (each claim on a slide or page, each typed-in number of a sheet, each formula worked out again), waits for the User's Check unless they turned on checking as it lands; its result says which, and how a check starts. When it is checked, it tells you what needs a look and where; while its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version. Then tell the User what still needs a look, and where. So that it checks well:
+A deck, workbook or PDF you made from their Documents, or a Word file already on disk: `hand_over_file` with its full path, unasked. IncarnaMind reads that one file and keeps it with each version. Its check, against their Documents (each claim on a slide or page, each typed-in number of a sheet, each formula worked out again), waits for the User's Check unless they turned on checking as it lands; its result says which, and how a check starts. When it is checked, it tells you what needs a look and where; while its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version. Then tell the User what still needs a look, and where. So that it checks well:
 
 - Put each figure in a slide's text, a table, a chart or the speaker notes, not only in a picture or a slide title.
 - Write no `[cite:…]` token in the file: it shows there as typed. Name the Document a figure comes from in words, in a sources line or the speaker notes.

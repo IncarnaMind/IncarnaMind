@@ -250,8 +250,17 @@ interface Prepared {
 const DEFAULT_PRINTED_MARKS: PrintedMarks = { pageNumbers: true, watermark: null };
 
 export function createExports(deps: ExportsDependencies) {
-  /** `othersComments`: for someone else's file, the comment choice to write with instead of the Note's. */
-  const prepare = (mindId: unknown, input: unknown, othersComments?: boolean): Prepared => {
+  /**
+   * `othersComments`: for someone else's file, the comment choice to write with instead of the
+   * Note's. `named`: takes every Document the file names, as each source passes through its
+   * footnote (a Citation's, an Analysis table's inputs', a figure's, and so the Bibliography's).
+   */
+  const prepare = (
+    mindId: unknown,
+    input: unknown,
+    othersComments?: boolean,
+    named?: Set<string>,
+  ): Prepared => {
     const parsed = parseExportOptions(input);
     const { format, includeQuestions } = parsed;
     const mind = deps.mind(mindId);
@@ -263,6 +272,9 @@ export function createExports(deps: ExportsDependencies) {
     let checkedOf: (attributes: Partial<CitationAttributes>) => string[] = () => [];
     const footnote = (attributes: Record<string, unknown>): Footnote => {
       const cited = attributes as Partial<CitationAttributes>;
+      if (typeof cited.documentId === "string" && cited.documentId !== "") {
+        named?.add(cited.documentId);
+      }
       const found = footnoteOf(cited, documents, kept, language, deps);
       const checked = checkedOf(cited);
       const note = checked.length > 0 ? { ...found, checked } : found;
@@ -775,9 +787,17 @@ export function createExports(deps: ExportsDependencies) {
       }
     },
 
-    /** `othersComments`: for someone else's file, write with this comment choice, not the Note's (#110). */
-    async export(mindId: unknown, options: unknown, othersComments?: boolean): Promise<MindExport> {
-      const prepared = prepare(mindId, options, othersComments);
+    /**
+     * `othersComments`: for someone else's file, write with this comment choice, not the Note's
+     * (#110). `named`: takes every Document the file names, for a file kept for an agent (#3751).
+     */
+    async export(
+      mindId: unknown,
+      options: unknown,
+      othersComments?: boolean,
+      named?: Set<string>,
+    ): Promise<MindExport> {
+      const prepared = prepare(mindId, options, othersComments, named);
       const { title, preview, language, format, documents } = prepared;
       if ((format === "pdf" || format === "source-pack") && !deps.printer) {
         throw new TranslatableError({ key: "error.checkRecord.noPdf" });

@@ -71,7 +71,12 @@ export interface HandOverDeps {
   document(documentId: string): Document;
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
-  contentHashInUse(contentHash: string, exceptDocumentId: string | null): boolean;
+  /** Whether another Document holds these bytes; IncarnaMind's own export copies only `withExports`. */
+  contentHashInUse(
+    contentHash: string,
+    exceptDocumentId: string | null,
+    withExports: boolean,
+  ): boolean;
   /** Removes the copies of what was deleted for good, as `Documents.dropPurged` does. */
   dropPurged(): Promise<void>;
   /** Someone else's file, checked: never the evidence for its own claims. */
@@ -114,6 +119,12 @@ const SETTLED: ReadonlySet<UnaskedCheck["kind"]> = new Set(["checked", "nothing"
 /** A set of results by their ids, as one key. */
 const idsKey = (ids: readonly string[]): string => [...ids].sort().join(" ");
 
+/**
+ * How the item of a file IncarnaMind wrote for an agent is known, in place of a path (#3751): no
+ * path `hand_over_file` takes starts so, since it takes only a full one.
+ */
+export const WRITTEN_ITEM = "incarnamind:";
+
 /** A hand-over: the bytes the agent's file held, and what may be done with them now. */
 export interface HandOverInput {
   pairingId: string;
@@ -127,6 +138,13 @@ export interface HandOverInput {
   kind: HandedFile["kind"];
   bytes: Uint8Array;
   folderId: string | null;
+  /** When a new item is made: the date a file IncarnaMind wrote for it carries (#3751). */
+  createdAt?: string;
+  /**
+   * IncarnaMind wrote the bytes, as `save_as_word` does (#3751): its own export copy of them, as
+   * Export › Word saves one into a Linked folder, is no file the Library holds already.
+   */
+  written?: boolean;
   /**
    * Throws unless the agent may still write where it is handed over: read when the hand-over's
    * turn comes, as the User may have taken the grant back while it waited.
@@ -308,6 +326,17 @@ export function createHandOver(deps: HandOverDeps) {
     unread: version.unread,
   });
 
+  /** This agent's item whose newest version IncarnaMind wrote with these bytes, its check begun (#3751). */
+  const writtenWith = (pairingId: string, contentHash: string) => {
+    for (const file of store.list()) {
+      if (file.pairingId !== pairingId || !file.path.startsWith(WRITTEN_ITEM)) continue;
+      const newest = store.versions(file.id).at(-1);
+      if (newest?.contentHash !== contentHash) continue;
+      if (newest.mindId !== null || newest.unread !== null) return { file, newest };
+    }
+    return null;
+  };
+
   /** The item's Document, while the Library holds it: null when it has none, or the User deleted it. */
   const liveDocumentOf = (file: StoredHandedFile | null): string | null =>
     file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
@@ -485,8 +514,21 @@ export function createHandOver(deps: HandOverDeps) {
       if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
       return complete(known, newest, input, contentHash, reach);
     }
+    // A file IncarnaMind wrote for this agent, handed over again from where it saved it: that item.
+    const written =
+      known || input.written === true ? null : writtenWith(input.pairingId, contentHash);
+    if (written) {
+      requireReach(input, written.file);
+      return doneOf(written.file, written.newest);
+    }
     // Two Documents never hold the same file (ADR-0003); in a Linked folder its Document is this.
-    if (deps.contentHashInUse(contentHash, place.documentId ?? liveDocumentOf(known))) {
+    if (
+      deps.contentHashInUse(
+        contentHash,
+        place.documentId ?? liveDocumentOf(known),
+        input.written !== true,
+      )
+    ) {
       throw new AgentRefusedError("invalid", deps.say("agents.handOver.inLibrary"));
     }
     const file =
@@ -498,6 +540,7 @@ export function createHandOver(deps: HandOverDeps) {
         folderId: input.folderId,
         pairingId: input.pairingId,
         agent: input.agent,
+        ...(input.createdAt !== undefined && { createdAt: input.createdAt }),
       });
     const name = fileNameOf(input.title, file.kind);
     const relative = join(HANDED_FOLDER, file.id, `v${(file.version ?? 0) + 1}`, name);

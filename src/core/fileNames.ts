@@ -13,7 +13,7 @@ const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
 const MAX_TRIES = 1000;
 
 /** The names a save of `name` tries, as `writeNewFile` and `freeFileName` pick them. */
-function* nameCandidates(name: string): Generator<string> {
+export function* nameCandidates(name: string): Generator<string> {
   const extension = extname(name);
   const stem = name.slice(0, name.length - extension.length);
   for (let n = 1; n <= MAX_TRIES; n++) yield n === 1 ? name : `${stem} ${n}${extension}`;

@@ -3514,6 +3514,32 @@
     line-height: 16px;
     color: var(--color-ink-meta);
   }
+  /* A file the AI saved: Open and Show at its row's end, as the card itself presses nothing. */
+  .note-column-saved {
+    gap: 4px;
+    &:hover {
+      background: var(--color-sheet);
+    }
+  }
+  .note-column-saved-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    width: 100%;
+  }
+  /* Keeps this much of the name: where Open and Show leave less, they wrap under it. */
+  .note-column-saved-what {
+    display: flex;
+    flex: 1 1 96px;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .note-column-saved-actions {
+    display: flex;
+    flex: none;
+    gap: 4px;
+  }
   /* The end line: the reply's first words, and its one action at the line's right end. */
   .note-ask-end {
     justify-content: space-between;
