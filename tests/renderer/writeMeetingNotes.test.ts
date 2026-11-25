@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { askFirstAgent } from "../../src/renderer/src/askYourAi";
 import type { checkFromAssistant } from "../../src/renderer/src/mindCheck";
-import type { askInNote, NoteAsk } from "../../src/renderer/src/ownAiInNote";
+import type { askInNote, NoteAsk, turnApplied } from "../../src/renderer/src/ownAiInNote";
 
 /*
  * Write notes (#3762): the meeting's Note asks its own AI, as its input does, and checks what it
@@ -30,9 +30,14 @@ const asks = vi.hoisted(() => {
 const ask = vi.hoisted(() => vi.fn<typeof askInNote>());
 const link = vi.hoisted(() => vi.fn<typeof askFirstAgent>());
 const check = vi.hoisted(() => vi.fn<typeof checkFromAssistant>());
+const applied = vi.hoisted(() => vi.fn<typeof turnApplied>());
 const reportError = vi.hoisted(() => vi.fn());
 vi.mock("../../src/renderer/src/core", () => ({ core: {} }));
-vi.mock("../../src/renderer/src/ownAiInNote", () => ({ askInNote: ask, useNoteAsks: asks }));
+vi.mock("../../src/renderer/src/ownAiInNote", () => ({
+  askInNote: ask,
+  useNoteAsks: asks,
+  turnApplied: applied,
+}));
 vi.mock("../../src/renderer/src/askYourAi", () => ({ askFirstAgent: link }));
 vi.mock("../../src/renderer/src/mindCheck", () => ({ checkFromAssistant: check }));
 vi.mock("../../src/renderer/src/store", () => ({
@@ -64,6 +69,7 @@ beforeEach(() => {
   asks.setState({ byMind: {} });
   asks.listeners.clear();
   check.mockResolvedValue(undefined);
+  applied.mockResolvedValue(undefined);
   link.mockResolvedValue("asked");
 });
 
@@ -92,6 +98,24 @@ describe("Write notes", () => {
     told("turn", "landed", 2);
     expect(check).toHaveBeenCalledTimes(1);
     expect(link).not.toHaveBeenCalled();
+  });
+
+  // protects=the Check starts only once the notes the request wrote are applied in the Note in this window: until then the core holds them as waiting, and a Check planned then finds nothing to check (#3762); fails_when=the Check starts as the request ends, before its notes are in the Note
+  test("the Check waits for the notes written to be applied", async () => {
+    let apply = () => {};
+    applied.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          apply = resolve;
+        }),
+    );
+    const { press } = await pressed();
+    told("turn", "landed", 2);
+    await vi.waitFor(() => expect(applied).toHaveBeenCalledWith("turn"));
+    expect(check).not.toHaveBeenCalled();
+    apply();
+    expect(await press).toBe(true);
+    expect(check).toHaveBeenCalledTimes(1);
   });
 
   // protects=a request that lands with no change runs no Check: there is nothing new to check (#3762); fails_when=the Check runs over notes the AI didn't write

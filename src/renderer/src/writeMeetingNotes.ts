@@ -5,7 +5,7 @@ import { translate } from "../../shared/i18n";
 import { askFirstAgent } from "./askYourAi";
 import { core } from "./core";
 import { checkFromAssistant } from "./mindCheck";
-import { askInNote, type NoteAsk, useNoteAsks } from "./ownAiInNote";
+import { askInNote, type NoteAsk, turnApplied, useNoteAsks } from "./ownAiInNote";
 import { useAppStore } from "./store";
 
 /** The words Write notes asks with, in either language: the Note's conversation keeps them. */
@@ -70,6 +70,7 @@ export async function writeMeetingNotes(meeting: CallStop, words: string): Promi
     if (!turnId) return true;
     const ask = await landed(mindId, turnId);
     if (ask && ask.changed > 0) {
+      await turnApplied(turnId);
       await checkFromAssistant(mindId).catch(useAppStore.getState().reportError);
     }
     return true;

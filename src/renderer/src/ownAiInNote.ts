@@ -176,6 +176,16 @@ function keepTrail(event: NoteTurnEvent): void {
 /** The turns this window asked for, whose changes it applies. */
 const askedHere = new Set<string>();
 
+/** By turn: the changes of a turn asked here that ended, being applied in this window. */
+const applying = new Map<string, Promise<void>>();
+
+/**
+ * Once a turn asked here ended, its changes applied in this window: until then the core holds
+ * them as waiting, so what reads the Note after the turn, such as its Check, waits for this.
+ */
+export const turnApplied = (turnId: string): Promise<void> =>
+  applying.get(turnId) ?? Promise.resolve();
+
 /** Whether the Note shows its input: only the User's own AI asks, and one of its agents can run so. */
 export function useNoteAskShown(mindId: string): boolean {
   const hidden = useHiddenForOwnAi();
@@ -258,20 +268,23 @@ function heard(event: NoteTurnEvent): void {
   const askedFrom = currentTabOf(useAppStore.getState().layout)?.item ?? null;
   // Loaded when a turn ends: the selection menu's edits load this module, and the assistant's
   // applied edits load the menu's.
-  void import("./askedChanges")
-    .then(({ applyTurn }) =>
-      Promise.all(
-        [...byNote].map(([mindId, applied]) => {
-          const row = rowOf(mindId, applied);
-          return applyTurn(event.turnId, row, () => row, {
+  const { turnId } = event;
+  const applied = import("./askedChanges")
+    .then(async ({ applyTurn }) => {
+      await Promise.all(
+        [...byNote].map(([mindId, changes]) => {
+          const row = rowOf(mindId, changes);
+          return applyTurn(turnId, row, () => row, {
             made: false,
             created: false,
             askedFrom,
           });
         }),
-      ),
-    )
-    .catch(useAppStore.getState().reportError);
+      );
+    })
+    .catch(useAppStore.getState().reportError)
+    .finally(() => applying.delete(turnId));
+  applying.set(turnId, applied);
 }
 
 let listening = false;
