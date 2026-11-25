@@ -1,6 +1,7 @@
 import { type Editor, Extension } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { AllSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { CITATION_NODE } from "../../../core/api";
 
 const KEY = new PluginKey<boolean>("heldSelection");
 
@@ -44,11 +45,27 @@ export const HeldSelection = Extension.create({
             },
           },
           decorations(state) {
-            const { from, to, empty } = state.selection;
-            if (!KEY.getState(state) || empty) return DecorationSet.empty;
-            return DecorationSet.create(state.doc, [
-              Decoration.inline(from, to, { class: "held-selection" }),
-            ]);
+            const { selection } = state;
+            const { from, to, empty } = selection;
+            if (empty) return DecorationSet.empty;
+            const marks: Decoration[] = [];
+            if (KEY.getState(state)) {
+              marks.push(Decoration.inline(from, to, { class: "held-selection" }));
+            }
+            // The browser draws no selection over a Citation's marker, which can't be selected as
+            // text, so the stylesheet is told which ones this selection covers.
+            if (selection instanceof TextSelection || selection instanceof AllSelection) {
+              state.doc.nodesBetween(from, to, (node, pos) => {
+                if (node.type.name === CITATION_NODE && pos >= from && pos + node.nodeSize <= to) {
+                  marks.push(
+                    Decoration.node(pos, pos + node.nodeSize, { class: "citation-in-selection" }),
+                  );
+                }
+              });
+            }
+            return marks.length === 0
+              ? DecorationSet.empty
+              : DecorationSet.create(state.doc, marks);
           },
         },
       }),

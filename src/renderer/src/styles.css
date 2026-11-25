@@ -60,6 +60,15 @@
   --selection-overlay: color-mix(in srgb, AccentColor, transparent 88%);
   /* A selection in a field that has lost the focus, as macOS draws one in a window not in front. */
   --color-selection-inactive: light-dark(#dde1e7, #33373d);
+  /* The selection the browser draws behind text, drawn by hand where it can't reach (a Citation's marker): the system's accent over the sheet. */
+  --color-selection: light-dark(
+    color-mix(in srgb, AccentColor 29%, var(--color-sheet)),
+    color-mix(
+      in srgb,
+      AccentColor 25%,
+      color-mix(in srgb, var(--color-ink) 20%, var(--color-sheet))
+    )
+  );
   /* Citation checks, the same green on a found quote in the viewer, and a note's Checked state. */
   --color-success: light-dark(#166534, #5dc98b);
   --color-success-wash: light-dark(#dcf3e4, #163022);
@@ -7515,6 +7524,27 @@
     animation: margin-check-in 160ms ease-out backwards;
     animation-delay: var(--reveal-delay, 0ms);
   }
+  /* A mark whose whole sentence is selected is washed with it (see `.held-selection`). */
+  .mind-column:has(.held-selection) .margin-check[data-selected] {
+    background: var(--color-selection-inactive);
+  }
+  .mind-column:has(.ProseMirror:focus) .margin-check[data-selected] {
+    background: var(--color-selection);
+  }
+  /* In the text, after its sentence, its wash joins the line's: back over the gap and up to the line's height. */
+  .claim-mark--inline[data-selected] {
+    isolation: isolate;
+  }
+  .claim-mark--inline[data-selected]::before {
+    content: "";
+    position: absolute;
+    inset: -0.5px 0 -0.5px -4px;
+    z-index: -1;
+    background: inherit;
+  }
+  .mind-column:has(.ProseMirror:focus) .claim-mark--inline[data-selected]::before {
+    inset-block: -4px;
+  }
 
   /*
    * A Citation's card: the state line, the Document, the quote washed in the
@@ -9350,6 +9380,26 @@
   }
   .ProseMirror:focus .held-selection {
     background: transparent;
+  }
+  /*
+   * A Citation the selection covers is washed as the words around it are, its marker and the gaps
+   * beside it: the browser draws the selection behind text, and the marker is none. In focus the
+   * wash is as tall as the line, as the browser's is; out of focus `.held-selection` holds it.
+   */
+  .held-selection.citation-in-selection {
+    --citation-wash: var(--color-selection-inactive);
+  }
+  .ProseMirror:focus .citation-in-selection {
+    --citation-wash: var(--color-selection);
+  }
+  .ProseMirror:focus .node-citation.citation-in-selection {
+    background: var(--citation-wash);
+    padding-block: calc((1lh - 1.2em) / 2);
+  }
+  :is(.ProseMirror:focus .citation-in-selection, .held-selection.citation-in-selection)
+    .citation-marker {
+    background: var(--citation-wash);
+    color: var(--color-ink);
   }
   .find-match {
     border-radius: 2px;
