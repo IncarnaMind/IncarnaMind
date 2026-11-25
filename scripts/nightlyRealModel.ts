@@ -4,8 +4,10 @@
  *
  * - the live tests (tests/live) on Claude Haiku 5.5,
  * - the everyday requests (eval/everyday) on Claude Haiku 5.5,
- * - the live smoke test of Kimi International, and
+ * - the live smoke test of Kimi International,
  * - the everyday requests in Chinese on Kimi K2.6,
+ * - the live smoke test of DeepSeek, and
+ * - the everyday requests in Chinese on DeepSeek V4.1 Flash,
  *
  * and writes `summary.md` (a result for every case, and the spend) with each step's reports into
  * NIGHTLY_OUT (eval/results/nightly-real-model by default). It exits 1 when a step fails or could
@@ -14,10 +16,12 @@
  * credit leaves its steps not measured rather than failed.
  *
  * The keys come from the environment, never from the command line: NIGHTLY_ANTHROPIC_KEY_1 and _2
- * (the run moves to the second for good when the first is out of credit) and NIGHTLY_KIMI_KEY.
- * NIGHTLY_STEPS (live, everyday, kimi-live, kimi-everyday, separated by commas) runs only those.
- * Kimi's terms allow it to train on what it is sent, so it only ever sees the evaluation's own
- * public and made-up Documents.
+ * (the run moves to the second for good when the first is out of credit), NIGHTLY_KIMI_KEY, and
+ * optionally NIGHTLY_DEEPSEEK_KEY (when absent, the DeepSeek steps are skipped cleanly with a
+ * plain line). NIGHTLY_STEPS (live, everyday, kimi-live, kimi-everyday, deepseek-live,
+ * deepseek-everyday, claim-probes, separated by commas) runs only those. Kimi's and DeepSeek's
+ * terms allow training on what they are sent, so they only ever see the evaluation's own public
+ * and made-up Documents.
  */
 import { spawn } from "node:child_process";
 import {
@@ -36,7 +40,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { PROVIDER_ERROR_KINDS, type ProviderErrorKind } from "../src/core/api";
 import { costOf, inCurrency } from "../src/core/cost/price";
-import type { Price } from "../src/core/providers/catalog/types";
+import type { OffPeak, Price } from "../src/core/providers/catalog/types";
 import { OUT_OF_CREDIT as CORE_OUT_OF_CREDIT } from "../src/core/providers/creditWords";
 import type { Gap, Status } from "./nightlyIssue";
 import type { Usage } from "./usageTally";
@@ -46,10 +50,27 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const SECRETS = {
   anthropic: ["NIGHTLY_ANTHROPIC_KEY_1", "NIGHTLY_ANTHROPIC_KEY_2"],
   kimi: ["NIGHTLY_KIMI_KEY"],
+  deepseek: ["NIGHTLY_DEEPSEEK_KEY"],
 } as const;
 export type Provider = keyof typeof SECRETS;
 
-const PROVIDER_NAMES: Readonly<Record<Provider, string>> = { anthropic: "Anthropic", kimi: "Kimi" };
+/** Providers whose steps skip cleanly when their secret is absent, instead of failing startup. */
+const OPTIONAL_PROVIDERS: ReadonlySet<Provider> = new Set<Provider>(["deepseek"]);
+
+const PROVIDER_NAMES: Readonly<Record<Provider, string>> = {
+  anthropic: "Anthropic",
+  kimi: "Kimi",
+  deepseek: "DeepSeek",
+};
+
+const DEEPSEEK_PEAK: OffPeak = {
+  factor: 0.5,
+  utcOffset: 8,
+  peakHours: [
+    [9, 12],
+    [14, 18],
+  ],
+};
 
 /** Per million tokens, as the catalog has them (a test holds the two together). */
 export const RATES: Readonly<Record<string, Price>> = {
@@ -58,6 +79,14 @@ export const RATES: Readonly<Record<string, Price>> = {
   "claude-opus-5-5": { currency: "USD", input: 4, output: 20, cacheRead: 0.2 },
   "kimi-k2.6": { currency: "CNY", input: 6.5, output: 27, cacheRead: 1.1 },
   "kimi-k3": { currency: "CNY", input: 20, output: 100, cacheRead: 2 },
+  "deepseek-flash": { currency: "CNY", input: 2, output: 8, cacheRead: 0.04, offPeak: DEEPSEEK_PEAK },
+  "deepseek-v4-pro": {
+    currency: "CNY",
+    input: 9,
+    output: 27,
+    cacheRead: 0.3,
+    offPeak: DEEPSEEK_PEAK,
+  },
 };
 
 /**
@@ -87,6 +116,11 @@ const PROBES: Readonly<
     url: "https://api.moonshot.ai/v1/chat/completions",
     headers: (key) => ({ authorization: `Bearer ${key}` }),
     body: { model: "kimi-k2.6", max_tokens: 1, messages: SMALLEST_ASK },
+  },
+  deepseek: {
+    url: "https://api.deepseek.com/chat/completions",
+    headers: (key) => ({ authorization: `Bearer ${key}` }),
+    body: { model: "deepseek-flash", max_tokens: 1, messages: SMALLEST_ASK },
   },
 };
 
@@ -364,6 +398,32 @@ export const STEPS: readonly Step[] = [
     }),
   },
   {
+    id: "deepseek-live",
+    name: "DeepSeek answers",
+    provider: "deepseek",
+    minutes: 10,
+    results: "vitest",
+    command: (folder) => vitestRun("tests/live/providers.live.test.ts", folder),
+    env: (key) => ({ DEEPSEEK_API_KEY: key }),
+  },
+  {
+    id: "deepseek-everyday",
+    name: "Everyday requests in Chinese on DeepSeek V4.1 Flash",
+    provider: "deepseek",
+    minutes: 60,
+    results: "everyday",
+    command: () => ["npm", "run", "eval:everyday"],
+    env: (key) => ({
+      ...requests("chinese"),
+      INCARNAMIND_EVAL_CHAT_KIND: "deepseek",
+      INCARNAMIND_EVAL_CHAT_MODEL: "deepseek-flash",
+      INCARNAMIND_EVAL_CHAT_KEY: key,
+      INCARNAMIND_EVAL_JUDGE_KIND: "deepseek",
+      INCARNAMIND_EVAL_JUDGE_MODEL: "deepseek-v4-pro",
+      INCARNAMIND_EVAL_JUDGE_KEY: key,
+    }),
+  },
+  {
     id: "claim-probes",
     name: "Change-claim probes on Claude Haiku 5.5",
     provider: "anthropic",
@@ -379,13 +439,46 @@ export const STEPS: readonly Step[] = [
   },
 ];
 
-/** The secrets the steps need that the environment doesn't have, or has empty. */
+/** The required secrets the steps need that the environment doesn't have, or has empty. */
 export function missingSecrets(
   env: Readonly<Record<string, string | undefined>>,
   steps: readonly Step[],
 ): string[] {
-  const needed = new Set(steps.flatMap((step) => SECRETS[step.provider]));
+  const needed = new Set(
+    steps
+      .filter((step) => !OPTIONAL_PROVIDERS.has(step.provider))
+      .flatMap((step) => SECRETS[step.provider]),
+  );
   return [...needed].filter((name) => !env[name]?.trim());
+}
+
+/**
+ * Splits out steps of optional providers whose secrets are absent, returning the steps to run
+ * and one plain line per skipped provider.
+ */
+export function availableSteps(
+  env: Readonly<Record<string, string | undefined>>,
+  steps: readonly Step[],
+): { run: Step[]; skippedLines: string[] } {
+  const skippedByProvider = new Map<Provider, string[]>();
+  const run: Step[] = [];
+  for (const step of steps) {
+    if (
+      OPTIONAL_PROVIDERS.has(step.provider) &&
+      SECRETS[step.provider].every((name) => !env[name]?.trim())
+    ) {
+      const ids = skippedByProvider.get(step.provider) ?? [];
+      ids.push(step.id);
+      skippedByProvider.set(step.provider, ids);
+      continue;
+    }
+    run.push(step);
+  }
+  const skippedLines = [...skippedByProvider].map(([provider, ids]) => {
+    const names = SECRETS[provider];
+    return `Skipping ${PROVIDER_NAMES[provider]} (${ids.join(", ")}): ${names.join(", ")} ${names.length === 1 ? "is" : "are"} not set.`;
+  });
+  return { run, skippedLines };
 }
 
 export function missingMessage(names: readonly string[]): string {
@@ -545,7 +638,7 @@ export function summary(
   results: readonly Result[],
   date: string,
   /** The steps the night means to run, and why it is unfinished when it is: what isn't in `results` is listed as not measured. */
-  night: { planned?: readonly Step[]; unfinished?: string } = {},
+  night: { planned?: readonly Step[]; unfinished?: string; notes?: readonly string[] } = {},
 ): { text: string; passed: boolean; status: Status } {
   const steps = [...new Set(results.map((result) => result.step))];
   const waiting = (night.planned ?? []).filter((step) => !steps.includes(step));
@@ -553,7 +646,7 @@ export function summary(
     night.unfinished ?? (waiting.length > 0 ? "the night ended before every step ran" : null);
   const rows: string[] = [];
   const sections: string[] = [];
-  const notes = new Set<string>();
+  const notes = new Set<string>(night.notes ?? []);
   let total = 0;
   let unpriced = 0;
   let passed = true;
@@ -854,11 +947,13 @@ export async function runNight({
   env,
   out,
   probe,
+  notes,
 }: {
   steps: readonly Step[];
   env: Record<string, string | undefined>;
   out: string;
   probe?: (secret: string, provider: Provider) => Promise<Probe>;
+  notes?: readonly string[];
 }): Promise<{ text: string; passed: boolean; status: Status }> {
   const limit = Number(env.NIGHTLY_MAX_USD) > 0 ? Number(env.NIGHTLY_MAX_USD) : DEFAULT_MAX_USD;
   mkdirSync(out, { recursive: true });
@@ -877,6 +972,7 @@ export async function runNight({
     const night = summary(resultsOf(attempts), date, {
       planned: steps,
       ...(unfinished && { unfinished }),
+      ...(notes && notes.length > 0 && { notes }),
     });
     const text = withoutKeys(night.text, keys);
     writeFileSync(join(out, "summary.md"), text);
@@ -962,12 +1058,16 @@ async function main(): Promise<void> {
     console.error(`${env.GITHUB_ACTIONS ? "::error::" : ""}${missingMessage(missing)}`);
     process.exit(1);
   }
+  const { run, skippedLines } = availableSteps(env, steps);
+  for (const line of skippedLines) console.log(line);
+  if (run.length === 0) return;
   const out = resolve(ROOT, env.NIGHTLY_OUT ?? join("eval", "results", "nightly-real-model"));
   const night = await runNight({
-    steps,
+    steps: run,
     env,
     out,
     probe: (secret, provider) => probeKey(provider, env[secret] ?? ""),
+    notes: skippedLines,
   });
   console.log(night.text);
   process.exit(night.passed ? 0 : 1);

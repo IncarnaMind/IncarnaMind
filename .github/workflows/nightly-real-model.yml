@@ -1,10 +1,11 @@
 name: Nightly real models
 
 # The checks that ask real models: the live tests (tests/live) and the everyday requests
-# (eval/everyday) on Claude Haiku 5.5, and Kimi International for Chinese. Every night on main, and
-# by hand (workflow_dispatch). It costs money, so it is a file of its own: nightly.yml's jobs can
-# be run by hand without it. scripts/nightlyRealModel.ts says how it picks a key, what it writes
-# and what it needs; docs/agents/checks.md says how to run it and which secrets to set.
+# (eval/everyday) on Claude Haiku 5.5, Kimi International for Chinese, and DeepSeek V4.1 Flash for
+# Chinese (skipped when NIGHTLY_DEEPSEEK_KEY is absent). Every night on main, and by hand
+# (workflow_dispatch). It costs money, so it is a file of its own: nightly.yml's jobs can be run
+# by hand without it. scripts/nightlyRealModel.ts says how it picks a key, what it writes and what
+# it needs; docs/agents/checks.md says how to run it and which secrets to set.
 
 on:
   schedule:
@@ -12,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       steps:
-        description: "Only these steps, separated by commas: live, everyday, kimi-live, kimi-everyday. Empty: all of them."
+        description: "Only these steps, separated by commas: live, everyday, kimi-live, kimi-everyday, deepseek-live, deepseek-everyday, claim-probes. Empty: all of them."
         required: false
         default: ""
       requests:
@@ -40,7 +41,7 @@ jobs:
     # A run by hand from another branch would give that branch's files the keys.
     if: github.repository == 'IncarnaMind/IncarnaMind' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 320
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -64,6 +65,7 @@ jobs:
           NIGHTLY_ANTHROPIC_KEY_1: ${{ secrets.NIGHTLY_ANTHROPIC_KEY_1 }}
           NIGHTLY_ANTHROPIC_KEY_2: ${{ secrets.NIGHTLY_ANTHROPIC_KEY_2 }}
           NIGHTLY_KIMI_KEY: ${{ secrets.NIGHTLY_KIMI_KEY }}
+          NIGHTLY_DEEPSEEK_KEY: ${{ secrets.NIGHTLY_DEEPSEEK_KEY }}
           NIGHTLY_STEPS: ${{ inputs.steps }}
           INCARNAMIND_EVAL_EVERYDAY: ${{ inputs.requests }}
       - name: Keep the models and the fetched Documents

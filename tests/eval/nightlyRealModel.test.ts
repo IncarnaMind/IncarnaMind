@@ -7,6 +7,7 @@ import { describe, expect, test, vi } from "vitest";
 import { readStatus } from "../../scripts/nightlyIssue";
 import {
   type Attempt,
+  availableSteps,
   casesOf,
   describeFailure,
   executeIn,
@@ -27,6 +28,7 @@ import {
   summary,
 } from "../../scripts/nightlyRealModel";
 import { usageOf } from "../../scripts/usageTally";
+import { rateAt } from "../../src/core/cost/price";
 import { catalogFacts } from "../../src/core/providers/catalog";
 import { createTempDataFolder } from "../helpers/core";
 
@@ -35,6 +37,10 @@ if (!live || !everyday || !kimiLive) throw new Error("The steps changed.");
 
 const claimProbes = STEPS.find((step) => step.id === "claim-probes");
 if (!claimProbes) throw new Error("The claim-probes step is missing.");
+
+const deepseekLive = STEPS.find((step) => step.id === "deepseek-live");
+const deepseekEveryday = STEPS.find((step) => step.id === "deepseek-everyday");
+if (!deepseekLive || !deepseekEveryday) throw new Error("The DeepSeek steps are missing.");
 
 const KEY_1 = "sk-ant-first-key-0000";
 const KEY_2 = "sk-ant-second-key-1111";
@@ -65,6 +71,27 @@ describe("the secrets", () => {
         everyday,
       ]),
     ).toEqual([]);
+  });
+
+  // protects=an absent NIGHTLY_DEEPSEEK_KEY skips the DeepSeek steps cleanly with one plain line instead of failing startup, while a present key runs them; fails_when=a missing optional secret aborts the night or leaves DeepSeek in the runnable steps, or a present secret still skips; no_claim=that the key works at the provider.
+  test("an absent DeepSeek secret skips cleanly with a plain line, and a present one runs", () => {
+    expect(missingSecrets({}, [deepseekLive, deepseekEveryday])).toEqual([]);
+    const skipped = availableSteps({ NIGHTLY_DEEPSEEK_KEY: "  " }, [
+      live,
+      deepseekLive,
+      deepseekEveryday,
+    ]);
+    expect(skipped.run).toEqual([live]);
+    expect(skipped.skippedLines).toEqual([
+      "Skipping DeepSeek (deepseek-live, deepseek-everyday): NIGHTLY_DEEPSEEK_KEY is not set.",
+    ]);
+    const ready = availableSteps({ NIGHTLY_DEEPSEEK_KEY: "ds-key" }, [
+      live,
+      deepseekLive,
+      deepseekEveryday,
+    ]);
+    expect(ready.run).toEqual([live, deepseekLive, deepseekEveryday]);
+    expect(ready.skippedLines).toEqual([]);
   });
 });
 
@@ -387,7 +414,8 @@ describe("a night that goes wrong", () => {
 describe("the spend", () => {
   // protects=the prices the night counts with are the catalog's, which the app's own cost meter uses; fails_when=the catalog changes a price or a model the night uses and its table doesn't; no_claim=that the prices are what the providers charge today.
   test("the night's price table is the catalog's", () => {
-    const provider = (model: string) => (model.startsWith("claude") ? "anthropic" : "kimi");
+    const provider = (model: string) =>
+      model.startsWith("claude") ? "anthropic" : model.startsWith("deepseek") ? "deepseek" : "kimi";
     for (const [model, price] of Object.entries(RATES)) {
       expect(catalogFacts(provider(model), model)?.price).toMatchObject(price);
     }
@@ -418,13 +446,25 @@ describe("the spend", () => {
       outputTokens: 1_000_000,
     };
     expect(spendOf([kimi], "kimi").dollars).toBeCloseTo(27 / 7.1);
+    const deepseek = {
+      model: "deepseek-flash",
+      inputTokens: 0,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 1_000_000,
+    };
+    const deepseekPrice = RATES["deepseek-flash"];
+    if (!deepseekPrice) throw new Error("Missing deepseek-flash rate.");
+    expect(spendOf([deepseek], "deepseek").dollars).toBeCloseTo(
+      (8 / 7.1) * rateAt(deepseekPrice, new Date()),
+    );
     expect(spendOf([{ ...haiku, model: "claude-unknown-9" }], "anthropic")).toEqual({
       dollars: 0,
       unpricedTokens: 2_000_000,
     });
   });
 
-  // protects=the tokens read from Anthropic's and Kimi's replies, one JSON body or a stream, are what the bill counts; fails_when=a stream's first count of output tokens is kept instead of its last, or Anthropic's cache tokens are left out of the input; no_claim=none.
+  // protects=the tokens read from Anthropic's, Kimi's and DeepSeek's replies, one JSON body or a stream, are what the bill counts; fails_when=a stream's first count of output tokens is kept instead of its last, Anthropic's cache tokens are left out of the input, or DeepSeek's prompt_cache_hit_tokens are missed; no_claim=none.
   test("reads usage from a body and from a stream of events", () => {
     const stream = [
       'event: message_start\ndata: {"type":"message_start","message":{"model":"claude-haiku-5-5","usage":{"input_tokens":10,"cache_creation_input_tokens":200,"cache_read_input_tokens":3000,"output_tokens":1}}}',
@@ -443,6 +483,14 @@ describe("the spend", () => {
       cachedInputTokens: 400,
       cacheWriteTokens: 0,
       outputTokens: 60,
+    });
+    const deepseek =
+      '{"id":"x","usage":{"prompt_tokens":900,"completion_tokens":80,"prompt_cache_hit_tokens":700,"prompt_cache_miss_tokens":200}}';
+    expect(usageOf(deepseek)).toEqual({
+      inputTokens: 900,
+      cachedInputTokens: 700,
+      cacheWriteTokens: 0,
+      outputTokens: 80,
     });
   });
 });
@@ -560,8 +608,8 @@ describe("a key asked for its first request", () => {
     expect(String(sent[0]?.init?.body)).not.toContain(KEY_1);
   });
 
-  // protects=a key the provider accepts passes, and Kimi's key goes in the bearer header to Kimi's international host; fails_when=a 2xx counts as refused, or Kimi's probe goes to another host; no_claim=none.
-  test("accepts any success, and asks Kimi on its own host", async () => {
+  // protects=a key the provider accepts passes, and Kimi's and DeepSeek's keys go in the bearer header to their own hosts; fails_when=a 2xx counts as refused, or a probe goes to another host; no_claim=none.
+  test("accepts any success, and asks Kimi and DeepSeek on their own hosts", async () => {
     const urls: string[] = [];
     const headers: unknown[] = [];
     const answer = await probeKey("kimi", "kimi-key-0000", async (url, init) => {
@@ -572,6 +620,23 @@ describe("a key asked for its first request", () => {
     expect(answer).toEqual({ ok: true });
     expect(urls).toEqual(["https://api.moonshot.ai/v1/chat/completions"]);
     expect(headers[0]).toMatchObject({ authorization: "Bearer kimi-key-0000" });
+
+    const dsUrls: string[] = [];
+    const dsHeaders: unknown[] = [];
+    const dsBodies: string[] = [];
+    const dsAnswer = await probeKey("deepseek", "ds-key-0000", async (url, init) => {
+      dsUrls.push(String(url));
+      dsHeaders.push(init?.headers);
+      dsBodies.push(String(init?.body));
+      return new Response("{}", { status: 200 });
+    });
+    expect(dsAnswer).toEqual({ ok: true });
+    expect(dsUrls).toEqual(["https://api.deepseek.com/chat/completions"]);
+    expect(dsHeaders[0]).toMatchObject({ authorization: "Bearer ds-key-0000" });
+    expect(JSON.parse(dsBodies[0] ?? "{}")).toMatchObject({
+      model: "deepseek-flash",
+      max_tokens: 1,
+    });
   });
 
   // protects=a provider that cannot be reached is a key not measured, not a thrown error that ends the night; fails_when=the probe rejects; no_claim=none.
@@ -645,12 +710,15 @@ describe("the three states of a night", () => {
   });
   const noCredit = "no key was accepted: the first request got status 400";
 
-  // protects=a night where everything ran and passed is green: nothing red, nothing not measured; fails_when=a passing night reports a gap or a failure; no_claim=none.
+  // protects=a night where everything ran and passed is green: nothing red, nothing not measured, even with an optional provider's skip note; fails_when=a passing night reports a gap or a failure, or drops its skip note; no_claim=none.
   test("green: every step ran and passed", () => {
-    const night = summary([attempt(live, {})], "2026-11-12");
+    const note =
+      "Skipping DeepSeek (deepseek-live, deepseek-everyday): NIGHTLY_DEEPSEEK_KEY is not set.";
+    const night = summary([attempt(live, {})], "2026-11-12", { notes: [note] });
     expect(night.passed).toBe(true);
     expect(night.status).toEqual({ red: [], gaps: [], measured: true });
     expect(night.text).toContain("Every step passed.");
+    expect(night.text).toContain(`- ${note}`);
   });
 
   // protects=a failing case is red and named with its step, and what the provider said about it stays out of the status; fails_when=the status carries a case's failure text; no_claim=none.
