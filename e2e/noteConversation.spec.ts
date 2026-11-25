@@ -647,13 +647,13 @@ async function twoNotes(window: Page) {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     return (await bridge.listDocuments()).find((each) => each.name.startsWith(name))?.id ?? "";
   }, INTERVIEWS[0]?.[0] ?? "");
-  for (const [mindId, asked] of [
-    [harbour, HARBOUR_ASKED],
-    [timetable, TIMETABLE_ASKED],
+  for (const [mindId, asked, mode] of [
+    [harbour, HARBOUR_ASKED, "plan"],
+    [timetable, TIMETABLE_ASKED, "timetable"],
   ] as const) {
     await arrange(window, [{ kind: "mind", mindId }]);
     const group = window.getByTestId("tab-group").first();
-    await nextRun("plan");
+    await nextRun(mode);
     const before = (await outcomesOf(window, mindId)).length;
     await pointAndClick(window, group.getByTestId("note-ask-input"));
     await window.keyboard.type(asked);
@@ -828,6 +828,15 @@ test("the conversation is one column left of every group, and follows the Note i
     await expectColumnBeside(window, TIMETABLE_ASKED);
     await pressIn(window, 0);
     await expect(window.getByTestId("note-column")).toHaveCount(0);
+    // Side by side, each Note's box says its own last answer, never the other's.
+    for (const [index, answer] of [
+      [0, "A second ramp at Kestrel Bay"],
+      [1, "The 07:40 crossing leaves at about 07:55"],
+    ] as const) {
+      await expect(
+        window.getByTestId("tab-group").nth(index).getByTestId("note-ask-pill-open"),
+      ).toContainText(answer);
+    }
     await showConversation(window, 0, true);
     await expectColumnBeside(window, HARBOUR_ASKED);
 
