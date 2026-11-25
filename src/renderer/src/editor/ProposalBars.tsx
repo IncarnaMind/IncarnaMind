@@ -479,12 +479,8 @@ function useBarPlace(
         ?.querySelector("[data-ask-pill]")
         ?.getBoundingClientRect();
       const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
-      // The Note's own input (#3627): at its foot with its line, or in the conversation's sheet
-      // over a narrow Note (#3677).
-      const input = (
-        pageOf?.querySelector(".note-ask") ??
-        pageOf?.querySelector(".note-column-over-slot .note-ask-box")
-      )?.getBoundingClientRect();
+      // The Note's own input at its foot, with its line (#3627).
+      const input = pageOf?.querySelector(".note-ask")?.getBoundingClientRect();
       // Its width at the widest it is drawn, before this placement's own cap.
       element.style.maxWidth = "";
       const size = { width: element.offsetWidth, height: element.offsetHeight };

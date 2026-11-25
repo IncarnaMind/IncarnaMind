@@ -15,6 +15,7 @@ import {
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
+import { SidebarToggle } from "../SidebarToggle";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
 
@@ -123,9 +124,9 @@ function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
 }
 
 /**
- * The Note's conversation, opened as a column at the Note's right (#3677): each request as a
- * bubble, its steps, what it made or changed, and its reply. While it is open the Note's one input
- * is at its foot, so the User reads and asks in one place.
+ * The Note's conversation, opened as the window's column beside the tab groups (#3677, #3759):
+ * each request as a bubble, its steps, what it made or changed, and its reply. While it is open the
+ * Note's one input is at its foot, so the User reads and asks in one place.
  */
 export function NoteColumn({
   mindId,
@@ -152,6 +153,7 @@ export function NoteColumn({
       }}
     >
       <header className="note-column-head">
+        <SidebarToggle place="band" />
         <h2 className="note-column-title">{t("noteColumn.title")}</h2>
         <MoveConversation to="upward" className="note-column-icon" />
         <button

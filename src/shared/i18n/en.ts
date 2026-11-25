@@ -9347,7 +9347,7 @@ export const en = {
   "noteColumn.answered": "Answered by {model} in {seconds}s",
   "noteColumn.model": "Model for this note’s conversation",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
-  "noteColumn.moveRight": "Move to the right",
+  "noteColumn.moveLeft": "Move to the left",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
   "noteColumn.citation": "Citation {number}",

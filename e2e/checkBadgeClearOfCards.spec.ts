@@ -3,8 +3,8 @@
  * card, a footnote's card and the format menu opened near it leave it uncovered, at 900 and
  * 1440 px, in English and Chinese, with the conversation closed and open as a column, and
  * pressing it opens the checks. Each card is opened where, hanging from its anchor, it would reach
- * the badge's row. At 900 px the open conversation is a sheet over the Note's right, under its own
- * controls: the badge opens the checks, and Show conversation closes the sheet. Every press lands
+ * the badge's row. At 900 px the open conversation rises from the input's box at the Note's foot:
+ * the badge opens the checks, and Show conversation folds it. Every press lands
  * where its target stands: with a Citation on every line, a pointer sliding across the Note rests
  * on some on the way, and the card one opens would take the press. Test data only: Kestrel Bay.
  */
@@ -106,22 +106,18 @@ async function boxOf(locator: Locator): Promise<Box> {
 }
 
 /**
- * Of `anchors` in the middle of the Note, so it can be scrolled to any height, and left of a
- * conversation over the Note, the one a card hanging from it would reach the badge from: `reach`
- * left of the badge's left edge; with `under`, the one closest under the badge's middle.
+ * Of `anchors` in the middle of the Note, so it can be scrolled to any height, the one a card
+ * hanging from it would reach the badge from: `reach` left of the badge's left edge; with `under`,
+ * the one closest under the badge's middle.
  */
 async function anchorNear(anchors: Locator, badge: Box, reach: number, under = false) {
   const index = await anchors.evaluateAll(
     (elements, { badge, reach, under }) => {
-      const sheet = document
-        .querySelector('.note-column-over-slot [data-testid="note-column"]')
-        ?.getBoundingClientRect();
       let best = -1;
       let score = Number.POSITIVE_INFINITY;
       elements.forEach((element, at) => {
         if (at < elements.length / 4 || at > (elements.length * 3) / 4) return;
         const box = element.getBoundingClientRect();
-        if (sheet && box.right > sheet.left - 8) return;
         const middle = box.left + box.width / 2;
         const off = under
           ? Math.abs(middle - (badge.x + badge.width / 2))
@@ -238,20 +234,19 @@ async function pressable(window: Page, badge: Locator, card: Locator | null): Pr
 }
 
 /**
- * The conversation as a column at the Note's right (a sheet over it in a narrow window), or
- * closed: Show conversation opens it upward in the input's box, and Move to the right moves it.
+ * The conversation open or closed: Show conversation opens it upward in the input's box, and Move
+ * to the left moves it into the column at the window's left, where the window has room for one.
  */
 async function setColumn(window: Page, group: Locator, open: boolean): Promise<void> {
   const toggle = group.getByTestId("note-ask-conversation-toggle");
   const column = window.getByTestId("note-column");
+  const move = group.getByTestId("conversation-move-left");
   if ((await toggle.getAttribute("aria-expanded")) !== String(open)) {
     await toggle.click();
   }
   await expect(toggle).toHaveAttribute("aria-expanded", String(open));
-  if (open && (await column.count()) === 0) {
-    await group.getByTestId("conversation-move-right").click();
-  }
-  await expect(column).toHaveCount(open ? 1 : 0);
+  if (open && (await column.count()) === 0 && (await move.count()) > 0) await move.click();
+  await expect(column.or(group.getByTestId("note-ask-panel"))).toHaveCount(open ? 1 : 0);
   await motionSettled(window);
 }
 
@@ -302,8 +297,8 @@ async function cardsNearTheBadge(
       const place = `${language}, ${width} px, conversation ${column ? "open" : "closed"}`;
       await expect(badge).toBeVisible();
       const badgeBox = await boxOf(badge);
-      // In a narrow window the conversation is a sheet over the Note's right, under the Note's
-      // own controls: the badge opens the checks with it open, and Show conversation closes it.
+      // In a narrow window the conversation rises from the input's box at the Note's foot: the
+      // badge opens the checks with it open, and Show conversation folds it.
       if (column) {
         if (width === 900) await still(window, `conversation-open-${language}-900`);
         await pressable(window, badge, null);
@@ -356,12 +351,8 @@ async function cardsNearTheBadge(
         await pressable(window, badge, card);
       }
 
-      if (column) {
-        const toggle = group.getByTestId("note-ask-conversation-toggle");
-        await toggle.click();
-        await expect(toggle).toHaveAttribute("aria-expanded", "false");
-        await expect(window.getByTestId("note-column")).toHaveCount(0);
-      }
+      // Folded by Show conversation, or already by a press in the Note, as one opened upward is.
+      if (column) await setColumn(window, group, false);
     }
   }
 }

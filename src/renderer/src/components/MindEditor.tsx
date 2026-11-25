@@ -1335,15 +1335,7 @@ function MindEditorView({
         {showingNotes &&
           !readOnly &&
           slots.ask &&
-          createPortal(
-            <NoteAsk
-              mindId={mindId}
-              editor={editor}
-              columnSlot={slots.column ?? null}
-              overSlot={slots.columnOver ?? null}
-            />,
-            slots.ask,
-          )}
+          createPortal(<NoteAsk mindId={mindId} editor={editor} />, slots.ask)}
         {showingNotes &&
           badgeTarget &&
           createPortal(
