@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { isWordFile, isWordType } from "../../../../shared/wordFileTypes";
 import { files } from "../../core";
 import { useDropTarget } from "../../dragDrop";
@@ -35,7 +35,6 @@ import { MeetingFoot, MeetingSheet, useMeetingFootShown } from "../meetings/Meet
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
-import { GroupColumnContext } from "./groupColumn";
 import { useTabPlace } from "./tabItems";
 
 /**
@@ -52,13 +51,12 @@ export function MindTab({ mindId }: { mindId: string }) {
   const [count, setCount] = useState<HTMLElement | null>(null);
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [ask, setAsk] = useState<HTMLElement | null>(null);
-  const [columnOver, setColumnOver] = useState<HTMLElement | null>(null);
   const [sheetSlot, setSheetSlot] = useState<HTMLElement | null>(null);
+  const [scroller, setScroller] = useState<HTMLElement | null>(null);
+  const scrollbar = useScrollbarRoom(scroller);
   const [outlineButton, setOutlineButton] = useState<HTMLElement | null>(null);
   const [outline, setOutline] = useState<HTMLElement | null>(null);
   const assistantSlot = useContext(ComposerDockContext);
-  // The Note's conversation at its right is a column the tab group's full height (#3677).
-  const groupColumn = useContext(GroupColumnContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
   const meeting = useMeetingOf(mindId);
@@ -70,12 +68,12 @@ export function MindTab({ mindId }: { mindId: string }) {
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
-  // The page fades out above the floating Ask pill, and above the way to ask at its own foot for
-  // a User with only their own AI, whose assistant is quiet too.
-  const pill = useQuietAssistant();
+  const quiet = useQuietAssistant();
   const ownAiOnly = useOwnAiOnly();
   const hiddenForOwnAi = useHiddenForOwnAi();
-  const floatingPill = pill && !hiddenForOwnAi;
+  // The page fades out above the Ask pill a quiet assistant floats over it. Above the way to ask at
+  // the Note's own foot, the foot fades it, and only while something stands there (styles.css).
+  const floatingPill = quiet && !hiddenForOwnAi;
   // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
@@ -99,6 +97,7 @@ export function MindTab({ mindId }: { mindId: string }) {
           <div className="relative flex min-h-0 flex-grow flex-col">
             {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}
             <div
+              ref={setScroller}
               data-testid="mind-scroller"
               data-drop-target={wordDrop.over ? "true" : undefined}
               onDragEnterCapture={wordDrop.props.onDragEnter}
@@ -140,8 +139,6 @@ export function MindTab({ mindId }: { mindId: string }) {
                         outlineButton,
                         outline,
                         ask,
-                        column: groupColumn,
-                        columnOver,
                       }}
                     >
                       <CompareSheetSlotContext.Provider value={sheetSlot}>
@@ -152,14 +149,15 @@ export function MindTab({ mindId }: { mindId: string }) {
                   <MakeSkillCard mindId={mind.id} />
                 </div>
               </article>
-              {pill && (
-                <div aria-hidden="true" data-testid="ask-pill-fade" className="ask-pill-fade" />
-              )}
+              <div
+                aria-hidden="true"
+                data-testid="ask-pill-fade"
+                data-pill={floatingPill || undefined}
+                className="ask-pill-fade"
+              />
             </div>
             {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
             {meetingFoot && <MeetingSheet mindId={mind.id} />}
-            {/* In a narrow window the Note's conversation opens over the Note, above its input (#3677). */}
-            <div ref={setColumnOver} className="note-column-over-slot" />
             <div className="mind-menu-slot">
               {/* A meeting's one place is its control at the foot and the sheet it raises (#3762). */}
               {hasViews && tabId && meeting.status === "stopped" && meeting.kind !== "meeting" && (
@@ -178,7 +176,7 @@ export function MindTab({ mindId }: { mindId: string }) {
           {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
           <div
             className={`note-ask-foot ${meetingFoot ? "note-ask-foot--meeting" : ""}`}
-            style={transcriptShown ? { display: "none" } : undefined}
+            style={transcriptShown ? { display: "none" } : { paddingRight: scrollbar }}
           >
             {meetingFoot && <MeetingFoot mindId={mind.id} />}
             <div ref={setAsk} className="mind-measure" />
@@ -198,6 +196,23 @@ export function MindTab({ mindId }: { mindId: string }) {
       </div>
     </div>
   );
+}
+
+/**
+ * The room the Note's scrollbar keeps at its right, where scrollbars take room: the input at the
+ * Note's foot keeps it too, so it stands on the text's edges.
+ */
+function useScrollbarRoom(scroller: HTMLElement | null): number {
+  const [room, setRoom] = useState(0);
+  useLayoutEffect(() => {
+    if (!scroller) return;
+    const measure = () => setRoom(scroller.offsetWidth - scroller.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [scroller]);
+  return room;
 }
 
 function useReviewShown(mindId: string) {

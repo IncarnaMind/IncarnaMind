@@ -5,8 +5,10 @@
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
 // "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
-// "explain" answers and changes nothing ("plan" too, about the harbour plan); "write" writes a new
-// Note, "Ferry summary"; "long" reads the ferry interviews step by step, each step
+// "explain" answers and changes nothing ("plan" too, about the harbour plan, and "timetable", about
+// the 07:40 crossing); "write" writes a new Note, "Ferry summary"; "summary" writes a summary into
+// the Note asked from, from its top when it has no named paragraph and at its end otherwise
+// ("plan", "timetable", "explain" and "summary" answer in Chinese to a request in Chinese); "long" reads the ferry interviews step by step, each step
 // waiting until the number in the mode file's ".step" file reaches it, then answers with
 // Citations; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
 // a new Note, proposes a change to the Note the mode file's ".other" file names, and makes a page.
@@ -217,6 +219,8 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   }
   const prompt = String(message.message.content);
   const mindId = prompt.match(/mindId: ([^)]+)\)/)?.[1];
+  // As the instructions ask, it answers in the language the User wrote in.
+  const chinese = /[㐀-鿿]/.test(prompt.match(/the User asks: (.*)/)?.[1] ?? "");
   const use = async (name, input) => {
     say({
       type: "assistant",
@@ -328,8 +332,21 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         type: "result",
         subtype: "success",
         is_error: false,
-        result:
-          "A second ramp at Kestrel Bay, in 2027, so the vans and the foot passengers can board at once.",
+        result: chinese
+          ? "2027 年在红隼湾增加第二条坡道，让货车和步行乘客可以同时登船。"
+          : "A second ramp at Kestrel Bay, in 2027, so the vans and the foot passengers can board at once.",
+      });
+      return;
+    }
+    if (mode === "timetable") {
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: chinese
+          ? "工作日 07:40 的班次实际约 07:55 开出。"
+          : "The 07:40 crossing leaves at about 07:55 on weekdays.",
       });
       return;
     }
@@ -339,7 +356,40 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         type: "result",
         subtype: "success",
         is_error: false,
-        result: "It counts the ship calls the harbour handled in 2025.",
+        result: chinese
+          ? "它统计的是港口在 2025 年接待的船舶靠港次数。"
+          : "It counts the ship calls the harbour handled in 2025.",
+      });
+      return;
+    }
+    if (mode === "summary") {
+      // As the instructions say: in a note with no named paragraph, the whole note from its top;
+      // otherwise at its end.
+      const read = await use("read_mind", { mindId, named: true });
+      const names = [...(read?.markdown ?? "").matchAll(/^¶(\d+)/gm)].map((each) =>
+        Number(each[1]),
+      );
+      const paragraph = names.length === 0 ? "¶0+" : `¶${Math.max(...names)}+`;
+      await use("propose_changes", {
+        mindId,
+        version: read?.version,
+        changes: [
+          {
+            paragraph,
+            text: chinese
+              ? "## 渡轮访谈\n\n红隼湾工作日 07:40 的班次大多晚点，因为货车先上船。\n\n晚点时，通勤者会错过 08:15 的火车。"
+              : "## Ferry interviews\n\nThe 07:40 crossing from Kestrel Bay leaves late most weeks, because the freight vans load first.\n\nCommuters miss the 08:15 train when it does.",
+          },
+        ],
+      });
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: chinese
+          ? "我已在你的笔记里写好渡轮访谈的总结。"
+          : "I wrote a summary of the ferry interviews in your note.",
       });
       return;
     }

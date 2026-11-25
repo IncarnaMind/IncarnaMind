@@ -502,6 +502,11 @@ export function appliedWaiting(
 
 export const TEXT_BLOCKS: ReadonlySet<string> = new Set(["paragraph", "heading"]);
 
+/** A paragraph or heading with nothing in it: an empty line, which no count takes for a paragraph. */
+export const isEmptyLine = (element: Y.XmlElement): boolean =>
+  TEXT_BLOCKS.has(element.nodeName) &&
+  element.toArray().every((child) => child instanceof Y.XmlText && child.length === 0);
+
 /**
  * What a paragraph or heading came to in a change: its words changed where they stand; the whole
  * Block added or removed (a heading that way is a section's title, not a paragraph written, as
@@ -632,6 +637,8 @@ export function changeKinds(
         continue;
       }
       if (TEXT_BLOCKS.has(child.nodeName)) {
+        // An empty line taken out, as text written into an empty Note takes its place (#3759).
+        if (own === "removed" && isEmptyLine(child)) continue;
         if (own) kinds.push(child.nodeName === "heading" ? `title-${own}` : own);
         else kinds.push(wordsChanged(child) ? "edited" : "kept");
       } else visit(child, own);

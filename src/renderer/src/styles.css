@@ -705,35 +705,21 @@
     background: var(--color-sheet);
   }
   /*
-   * The Note's conversation as a column the tab group's full height (#3677), as the
-   * sidebar is the window's. The strip, and its Export, split and ⋯, end at the Note's right edge.
+   * The Note's conversation as the window's one column, the tab area's full height left of every
+   * tab group (#3759), as the sidebar is the window's: its own top row at the strips' height, its
+   * rule level with their foot.
    */
-  .tab-group-column {
-    display: none;
-  }
-  .tab-group:has(> .tab-group-column:not(:empty)) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto minmax(0, 1fr);
-    > .tab-strip {
-      grid-column: 1;
-      grid-row: 1;
+  .note-column-place {
+    display: flex;
+    flex: none;
+    min-height: 0;
+    &:empty {
+      display: none;
     }
-    > .tab-body {
-      grid-column: 1;
-      grid-row: 2;
+    .note-column-head {
+      height: 36px;
+      border-bottom: 1px solid var(--color-rule);
     }
-    > .tab-group-column {
-      display: flex;
-      grid-column: 2;
-      grid-row: 1 / -1;
-      min-height: 0;
-    }
-  }
-  /* Its own top row at the strip's height, its rule level with the strip's foot. */
-  .tab-group-column .note-column-head {
-    height: 36px;
-    border-bottom: 1px solid var(--color-rule);
   }
 
   /*
@@ -761,6 +747,10 @@
     align-self: center;
     margin: 0 6px 0 8px;
   }
+  /* In the conversation's top row, where the first strip has it: 8px in. */
+  .note-column-place .note-column-head > .sidebar-toggle {
+    margin: 0 6px 0 -8px;
+  }
   :root[data-title-bar="inset"]:not([data-full-screen])
     .app-card[data-sidebar-hidden]
     .tab-strip[data-first-group] {
@@ -769,6 +759,25 @@
   }
   :root[data-title-bar="inset"] .app-card[data-sidebar-hidden] .tab-strip > .sidebar-toggle {
     margin-left: 0;
+  }
+  /*
+   * With the sidebar hidden, the Note's conversation (#3759) has the window's top left corner and
+   * the sidebar button: its top row starts after the traffic lights, where the first strip would,
+   * and the first strip, no longer at the corner, keeps nothing.
+   */
+  :root[data-title-bar="inset"]:not([data-full-screen])
+    .app-card[data-sidebar-hidden]
+    > .note-column-place
+    .note-column-head {
+    padding-left: max(16px, calc(var(--window-buttons-left) - 8px));
+    > .sidebar-toggle {
+      margin-left: 0;
+    }
+  }
+  :root[data-title-bar="inset"]:not([data-full-screen])
+    .app-card[data-sidebar-hidden]:has(> .note-column-place:not(:empty))
+    .tab-strip[data-first-group] {
+    padding-left: 0;
   }
   /* 10px at each end: room for the shown tab's feet when it is first or last. */
   .tab-list {
@@ -1216,8 +1225,11 @@
     --mind-band: 26px;
 
     container: mind / inline-size;
-    /* The band above the first line is part of the 64px top margin: the page doesn't grow for it. */
-    padding-block: calc(64px - var(--mind-band)) 160px;
+    /*
+     * The band above the first line is part of the 64px top margin: the page doesn't grow for it.
+     * At its end, room for the conversation open upward over the Note's foot (`--note-ask-over`).
+     */
+    padding-block: calc(64px - var(--mind-band)) max(160px, calc(var(--note-ask-over, 0px) + 16px));
   }
   /*
    * The one line above a Mind, in the page's own top margin: the assistant's "Writing…" and the
@@ -1238,14 +1250,47 @@
   .ask-pill-fade {
     position: sticky;
     bottom: 0;
+    display: none;
+    pointer-events: none;
+  }
+  /* The same over the pill or the line at the Note's own foot, where its input can't show (#3764). */
+  .ask-pill-fade[data-pill],
+  .mind-tab-page:has(> .note-ask-foot .note-foot-ask) .ask-pill-fade {
+    display: block;
     height: 116px;
     margin-top: -116px;
     background: linear-gradient(to bottom, transparent, var(--color-sheet) 56px);
-    pointer-events: none;
+  }
+  /*
+   * The input at the Note's foot stands below the page, not over it: only the page's last pixels
+   * fade into it, so no line is cut off at the edge and none hides behind a blank band (#3759).
+   * With the input in the window's column, the foot holds nothing and nothing fades.
+   */
+  .mind-tab-page:has(> .note-ask-foot .note-ask) .ask-pill-fade {
+    display: block;
+    height: 24px;
+    margin-top: -24px;
+    background: linear-gradient(to bottom, transparent, var(--color-sheet));
   }
   .mind-measure {
     width: 680px;
     margin-left: calc((100% - 784px) / 2 + 56px - var(--comment-shift, 0px));
+  }
+  /*
+   * A Note alone beside its conversation keeps its text where it stood before the conversation
+   * opened, moving it only as far as the 360px column needs (#3759): half the column less than
+   * centred, never nearer it than the 56px margin.
+   */
+  @container mind (width >= 784px) {
+    .app-card:has(> .note-column-place:not(:empty))
+      > .tab-groups
+      > .tab-group:only-of-type
+      .mind-measure {
+      margin-left: max(
+        calc(56px - var(--comment-shift, 0px)),
+        calc((100% - 1144px) / 2 + 56px - var(--comment-shift, 0px))
+      );
+    }
   }
 
   /* How far a Word import has got (#104), at the top of the page while it goes on. */
@@ -2619,10 +2664,11 @@
     color: var(--color-ink-placeholder);
   }
   /*
-   * The Note's one input (#3627, #3677): one rounded box, narrower than the text and
-   * centred at the Note's foot, or as wide as the column at the column's foot. The box alone draws
-   * the outline; its rows only lay out inside it, on one pair of left and right edges: the line's
-   * first letter stands over the words' first, and its right end, or the check badge, over Send's.
+   * The Note's one input (#3627, #3677): one rounded box with its edges on the text's at the Note's
+   * foot (#3759), its measure and offset, or as wide as the column at the column's foot. The box
+   * alone draws the outline; its rows only lay out inside it, on one pair of left and right edges:
+   * the line's first letter stands over the words' first, and its right end, or the check badge,
+   * over Send's.
    */
   .note-ask-foot {
     container: mind / inline-size;
@@ -2911,8 +2957,6 @@
   }
   .note-ask {
     position: relative;
-    width: min(100%, 560px);
-    margin-inline: auto;
   }
   /* Where the input can't show, the pill or the line that stands in its place, centred. */
   .note-foot-ask {
@@ -2987,7 +3031,10 @@
     font: inherit;
     color: var(--color-ink);
     &::placeholder {
+      overflow: hidden;
       color: var(--color-ink-placeholder);
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
   /* The selection the request is about, before the words; its × makes it about the whole Note. */
@@ -3194,34 +3241,12 @@
    * The Note's conversation as a column (#3677): the request as a bubble, the steps folded to one
    * line, the reply in full, the Note's one input at its foot.
    */
-  /*
-   * In a narrow window: a sheet over the Note from its right, above the Note's input, under the
-   * Note's own controls (16px down, 28px tall, .mind-menu-slot), which stay pressable while it is
-   * open: the check badge, Show conversation and ⋯.
-   */
-  .note-column-over-slot {
-    position: absolute;
-    top: 52px;
-    right: 0;
-    bottom: 0;
-    z-index: 20;
-    display: flex;
-    &:empty {
-      display: none;
-    }
-    > .note-column {
-      border-left: 0;
-      border-top-left-radius: 8px;
-      border-bottom-left-radius: 8px;
-      box-shadow: var(--shadow-popover);
-    }
-  }
   .note-column {
     display: flex;
     flex-direction: column;
     width: 360px;
     min-height: 0;
-    border-left: 1px solid var(--color-rule);
+    border-right: 1px solid var(--color-rule);
     background: var(--color-sheet);
     font-family: var(--font-sans);
   }
@@ -3362,7 +3387,9 @@
     /* Unseen until the reply is pointed at or holds the focus, yet reachable by Tab. */
     opacity: 0;
   }
-  .note-column-reply:is(:hover, :focus-within) .note-column-reply-meta {
+  /* The newest reply keeps them in view, as a chat keeps its last reply's actions. */
+  .note-column-reply:is(:hover, :focus-within) .note-column-reply-meta,
+  .note-column-turn:last-child .note-column-reply-meta {
     opacity: 1;
   }
   .note-column-step-item > .note-column-step {
@@ -3446,14 +3473,26 @@
     bottom: 0;
     left: 0;
     z-index: 30;
+    /*
+     * The page fades out just above it, as it does above the folded box, and shows nowhere at its
+     * rounded corners: no line is cut at its edge.
+     */
+    box-shadow:
+      var(--shadow-popover),
+      0 -8px 16px 24px var(--color-sheet);
   }
   .note-ask-panel {
+    --note-ask-tools: 32px;
+    position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
     /* About half the Note's visible height at the window sizes the app opens at. */
     max-height: 40vh;
     border-bottom: 1px solid var(--color-rule);
+    &:has(> .note-ask-panel-tools > :nth-child(2)) {
+      --note-ask-tools: 62px;
+    }
   }
   .note-ask-panel-body {
     --scroll-foot: 12px;
@@ -3463,7 +3502,33 @@
     gap: 16px;
     min-height: 0;
     overflow: auto;
-    padding: 4px var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
+    /*
+     * 12px above the first request and under the last reply's copy-and-model line, which keeps its
+     * 16px while Copy's 28px pressable square reaches past it.
+     */
+    padding: 12px var(--note-ask-end) 12px var(--note-ask-start);
+    .note-column-reply-foot {
+      min-height: 16px;
+    }
+    .note-column-reply-foot .note-column-icon {
+      margin-block: -6px;
+    }
+    /* The first request stops short of the controls beside it. */
+    > .note-column-notice:first-child,
+    > .note-column-turn:first-child > :first-child {
+      max-width: min(85%, calc(100% - var(--note-ask-tools)));
+      margin-right: var(--note-ask-tools);
+    }
+  }
+  /* Level with the first request's one line: its 12px from the top and its 36px height. */
+  .note-ask-panel-tools {
+    position: absolute;
+    top: 16px;
+    right: var(--note-ask-end);
+    display: flex;
+    gap: 2px;
+    border-radius: 6px;
+    background: var(--color-sheet);
   }
   .own-ask-panel .note-ask-panel-body {
     padding-top: 10px;
@@ -3798,6 +3863,10 @@
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
+    /* A reply with nothing to accept or undo keeps no gap under it. */
+    &:empty {
+      display: none;
+    }
   }
   .note-column-foot {
     display: flex;
@@ -9862,6 +9931,15 @@
   /* The recording bar reaches into the page controls' gutters in a narrow pane. */
   @container mind (width < 808px) {
     .meeting-bar {
+      top: 48px;
+    }
+  }
+  /*
+   * With Show conversation and the check badge among them, the page's controls reach the bar in a
+   * wider pane too, as a Note beside its conversation is (#3759).
+   */
+  @container mind (width < 1000px) {
+    .mind-tab-page:has([data-conversation-toggle]) .meeting-bar {
       top: 48px;
     }
   }

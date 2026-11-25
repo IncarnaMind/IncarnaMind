@@ -8799,7 +8799,7 @@ export const zhCN = {
   "noteColumn.model": "这篇笔记的对话所用的模型",
   "noteAsk.modelNone": "模型",
   "noteAsk.modelBusy": "这次请求结束后可以换模型",
-  "noteColumn.moveRight": "移到右侧",
+  "noteColumn.moveLeft": "移到左侧",
   "noteColumn.moveDown": "移回笔记下方",
   "noteColumn.copy": "拷贝",
   "noteColumn.citation": "引用 {number}",
