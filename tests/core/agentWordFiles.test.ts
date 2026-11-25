@@ -31,7 +31,7 @@ import {
   startMeetingAgentsCore,
 } from "../helpers/agents";
 import { askAssistant } from "../helpers/assistant";
-import { checkGenerate } from "../helpers/checks";
+import { checkGenerate, checkReply, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { sortReply } from "../helpers/claimSentences";
 import { NO_MODEL_FILES, type TestAdapters, tickingClock } from "../helpers/core";
@@ -44,6 +44,7 @@ import {
   handOver,
   NORTH,
   OFFICE,
+  PLANS,
   refusal,
   SOUTH,
   started,
@@ -1363,6 +1364,34 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     structured(await first);
     expect(refusal(await asked)).toBe(await saving.refusedNow());
     await saving.keptNothing();
+  });
+
+  // protects=the Word file is saved in the Output location only while the agent may still write: a write grant the User took back while the file's check ran ends the call in the read-only words, and nothing is saved for the User (#3751); fails_when=the file is saved in the Output location after the User took the grant back
+  it("saves no Word file in the Output location once the agent's write grant is taken back during its check", async () => {
+    const held = gate();
+    let first = true;
+    const plans: Record<string, Plan> = {
+      ...PLANS,
+      [OFFICE]: {
+        ...PLANS[OFFICE],
+        reply: (call: ModelCall) => {
+          const reply = checkReply(call, PLANS);
+          if (!first) return reply;
+          first = false;
+          return { ...reply, pause: { after: 0, until: held.shut, reached: held.reached } };
+        },
+      },
+    };
+    const { core, coast, writer } = await started([], { plans });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    const agent = await connectLegacyAgent(writer.launch);
+    const asked = save(agent, { title: "Office hours", markdown: OFFICE, folderId: coast.id });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { propose: false });
+    held.open();
+    expect(refusal(await asked)).toBe(translate("en", "agents.problem.read-only"));
+    expect(readdirSync(output)).toEqual([]);
   });
 
   // protects=a Note left where the agent reaches it while its Word file is written is saved as before: in the Library with its check Note, and in the Output location (#3751); fails_when=reading the Note's reach again refuses or loses a file the agent may have

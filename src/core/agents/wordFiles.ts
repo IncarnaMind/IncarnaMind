@@ -125,6 +125,11 @@ export function createWordFileTool(context: WordFileToolContext) {
     }
   };
 
+  /** Saving the file in the Output location writes too: a grant taken back meanwhile saves nothing. */
+  const mayWrite = (now: AdmittedPairing) => {
+    if (!now.propose) throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+  };
+
   return {
     saveAsWord(input: SaveAsWordInput): Promise<AgentWordFile> {
       const mindId = typeof input?.mindId === "string" ? input.mindId : "";
@@ -188,7 +193,8 @@ export function createWordFileTool(context: WordFileToolContext) {
                 return { file: { place: path, title, kind: "docx", bytes }, documentIds: [] };
               },
               kept,
-              stillReached: (now) => {
+              stillAllowed: (now) => {
+                mayWrite(now);
                 context.noteInScope(now, mind.id);
               },
             };
@@ -215,6 +221,7 @@ export function createWordFileTool(context: WordFileToolContext) {
               };
             },
             kept,
+            stillAllowed: mayWrite,
           };
         },
       );

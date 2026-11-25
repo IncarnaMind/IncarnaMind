@@ -104,10 +104,10 @@ export interface PlannedHandOver<T> {
   ): Promise<{ file: GivenFile; documentIds: readonly string[] }>;
   kept(): Promise<{ also: T; saved?: AgentSavedFile }>;
   /**
-   * Refuses unless the pairing still reaches what the bytes were made of: read with the Folder
-   * each time the hand-over reads it, after every wait, and again before `kept`.
+   * Refuses unless the pairing may still have what the call does: read with the Folder each time
+   * the hand-over reads it, after every wait, and again before `kept`.
    */
-  stillReached?(pairing: AdmittedPairing): void;
+  stillAllowed?(pairing: AdmittedPairing): void;
 }
 
 /** What handing a file over did: the item, its version, and the Note its check is in. */
@@ -256,7 +256,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           if (!(folder.id === null ? reach.has(NOT_IN_A_FOLDER_ID) : reach.has(folder.id))) {
             throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
           }
-          planned.stillReached?.(now);
+          planned.stillAllowed?.(now);
         },
         reaches: (folderId) => {
           const reach = context.reached(context.again());
@@ -285,7 +285,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
       if (done.mindId !== null && !context.noteReached(granted, done.mindId)) {
         throw new AgentRefusedError("not-found", t("agents.handOver.notFound"));
       }
-      planned.stillReached?.(granted);
+      planned.stillAllowed?.(granted);
       const inScope = context.documentsIn(granted);
       const claims = check.claims
         .slice(0, MAX_LISTED)
