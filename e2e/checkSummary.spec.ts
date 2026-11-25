@@ -282,6 +282,75 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
+test("Check again on a Note whose checks keep no time says nothing changed, with Check every sentence again; a writer's own view keeps the card from saying All supported (#3756)", async () => {
+  test.setTimeout(180_000);
+  await writeFile(join(sources, "Tides.pdf"), TIDES);
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 900);
+  await addDocuments(window, [join(sources, "Tides.pdf")]);
+  const [tides] = await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDocuments(),
+  );
+  const passage = passageOf(tides);
+  const cited = WORDS.en.sentences.cited;
+  const insert = (content: object[]) =>
+    window.getByTestId("mind-editor").evaluate((dom, nodes) => {
+      (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, nodes);
+    }, content);
+
+  // A check kept from before checks kept their time: the plan names no time to say "since".
+  await newMind(window);
+  await insert([
+    paragraph(checked("old-1", "supported", cited, { evidence: passage, checkedAt: "" }), {
+      type: "citation",
+      attrs: { ...passage },
+    }),
+  ]);
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    const card = await checkCard(window);
+    const again = card.getByTestId("badge-check-mind");
+    await expect(again).toHaveText(language === "en" ? "Check again" : "重新核对");
+    await pointAndClick(window, again);
+    const unchanged = card.getByTestId("mind-check-unchanged");
+    await expect(unchanged).toContainText(language === "en" ? "Nothing changed" : "没有改动");
+    await expect(unchanged).not.toContainText(language === "en" ? "since" : "起");
+    await expect(unchanged.getByTestId("mind-check-every")).toHaveText(
+      language === "en" ? "Check every sentence again" : "重新核对每一句",
+    );
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+  }
+
+  // Supported, and a writer's own view: everything is checked, but not all of it is supported.
+  await setLanguage(window, "en");
+  await newMind(window);
+  await insert([
+    paragraph(checked("view-1", "supported", cited, { evidence: passage }), {
+      type: "citation",
+      attrs: { ...passage },
+    }),
+    paragraph(
+      checked("view-2", "unsupported", "The harbour office should open on Sundays.", {
+        unsupported: { word: "own-view" },
+      }),
+    ),
+  ]);
+  for (const language of ["en", "zh-CN"] as const) {
+    await setLanguage(window, language);
+    const card = await checkCard(window);
+    await expect(card.getByTestId("health-ownViews")).toBeVisible();
+    await expect(card.getByTestId("health-all-checked")).toHaveText(
+      language === "en" ? "Everything checked" : "已全部核对",
+    );
+    await window.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+  }
+  await app.close();
+});
+
 test("the card keeps one height as a result lands, its body taking what it needs", async () => {
   test.setTimeout(120_000);
   await writeFile(join(sources, "Tides.pdf"), TIDES);
