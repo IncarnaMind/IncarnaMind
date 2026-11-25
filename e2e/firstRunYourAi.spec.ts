@@ -399,6 +399,23 @@ for (const language of LANGUAGES) {
       .poll(async () => (await bridge(window).agents()).pairings.map((each) => each.client).sort())
       .toEqual(["claude-code", "claude-desktop"]);
   });
+
+  // protects=a User whose Anthropic plan has no Claude Code is told so on Claude Code's row, and the step waits for them; fails_when=the row says nothing of the plan, or the step moves on by itself
+  test(`only the Claude app found, a plan without Claude Code: its row says so (${language})`, async () => {
+    test.setTimeout(180_000);
+    installer = await startInstallerStandIn({ signIn: "no-plan", auth: "signed-out" });
+    const window = await launch(["claude-desktop"], language, { installer });
+    const ai = await yourAi(window);
+    await ai.getByTestId("setup-connect").click();
+    const claudeCode = ai.locator('[data-testid="setup-done-row"][data-client="claude-code"]');
+    await expect(claudeCode).toHaveAttribute("data-state", "no-plan", { timeout: 30_000 });
+    await expect(claudeCode).toContainText(say(language, "agents.install.noPlan.title"));
+    await expect(claudeCode.getByTestId("setup-install-other-account")).toBeVisible();
+    await expect(ai).toHaveAttribute("data-step", "ai");
+    expect((await bridge(window).agents()).pairings.map((each) => each.client)).toEqual([
+      "claude-desktop",
+    ]);
+  });
 }
 
 // protects=connecting an app again never widens what it may read or write unasked: the sheet for an app already connected starts from the connection's own Folders and its may-propose setting; fails_when=the sheet starts from all of the User's Documents or with changes allowed

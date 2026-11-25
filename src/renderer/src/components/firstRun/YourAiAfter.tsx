@@ -106,12 +106,14 @@ export function YourAiAfter({
     ...(installing && install.kind !== "no-plan" ? ["Claude Code"] : []),
   ];
   const nothingLeft = leftNames.length === 0;
+  // A plan without Claude Code stays on screen, said on its row, until the User goes on.
+  const stays = installing && install.kind === "no-plan";
 
   useEffect(() => {
-    if (!nothingLeft || moved.current) return;
+    if (!nothingLeft || stays || moved.current) return;
     moved.current = true;
     place.next();
-  }, [nothingLeft, place]);
+  }, [nothingLeft, stays, place]);
 
   const retry = async (client: AgentClient) => {
     const [outcome] = await connectWithChoice(client);
