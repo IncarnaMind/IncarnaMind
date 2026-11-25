@@ -1569,26 +1569,27 @@ export async function closeSettings(window: Page): Promise<void> {
   await expect(settings).toBeHidden();
 }
 
-/** The + menu's "Record a meeting": a new Mind with the start block. */
+/**
+ * The + menu's "Record a meeting": a new Note recording at once, the first time too (#3762). The
+ * meeting's control at the Note's foot.
+ */
 export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
   await window.getByTestId("plus-record-meeting").click();
-  const start = window.getByTestId("meeting-start");
-  await expect(start).toBeVisible();
-  return start;
+  const control = window.getByTestId("meeting-foot");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  return control;
 }
 
-/** The + menu's "Record a meeting" once the recording notice is read: recording at once, in one action. */
-export async function recordMeetingNow(window: Page): Promise<Locator> {
-  const plus = window.getByTestId("plus-menu");
-  await plus.hover();
-  await plus.click();
-  await window.getByTestId("plus-record-meeting").click();
-  const bar = window.getByTestId("meeting-bar");
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  return bar;
+/** The meeting's Transcript sheet, raised from its control's chevron (#3762). */
+export async function openMeetingSheet(window: Page): Promise<Locator> {
+  const sheet = window.getByTestId("meeting-sheet");
+  if (await sheet.isVisible()) return sheet;
+  await pointAndClick(window, window.getByTestId("meeting-foot-transcript"));
+  await expect(sheet).toBeVisible();
+  return sheet;
 }
 
 /** Waits until a recording meeting's Transcript has its first finished line. */
@@ -1604,17 +1605,6 @@ export async function firstTranscriptLine(window: Page, timeout = 20_000): Promi
       { timeout },
     )
     .toBe(true);
-}
-
-/**
- * After the first fill on a computer, the stopped call's chip opens its popover by itself, once,
- * leaving the focus where it was (#2527): Esc closes it.
- */
-export async function closeFirstFillPopover(window: Page): Promise<void> {
-  const menu = window.getByTestId("meeting-view-menu");
-  await expect(menu).toBeVisible();
-  await window.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
 }
 
 /** Waits until a stopped meeting's Transcript is saved: its page says nothing of it (#2527). */
@@ -1633,20 +1623,16 @@ export async function transcriptSaved(window: Page, timeout = 30_000): Promise<v
 }
 
 /**
- * The recording bar's Transcript view, then its "Open beside" once the Transcript has a line: the
- * live Transcript in a tab of the next group, and the meeting's page back on its notes (#138).
+ * The Transcript sheet, then its "Open beside" once the Transcript has a line: the live Transcript
+ * in a tab of the next group, and the sheet folded back to the notes (#138, #3762).
  */
-export async function openTranscriptBeside(
-  window: Page,
-  bar: Locator,
-  timeout = 20_000,
-): Promise<void> {
+export async function openTranscriptBeside(window: Page, timeout = 20_000): Promise<void> {
   await firstTranscriptLine(window, timeout);
-  await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-  const beside = window.getByTestId("meeting-transcript-beside");
+  const sheet = await openMeetingSheet(window);
+  const beside = sheet.getByTestId("meeting-sheet-beside");
   await expect(beside).toBeEnabled();
   await pointAndClick(window, beside);
-  await expect(window.getByTestId("meeting-note-transcript")).toHaveCount(0);
+  await expect(sheet).toBeHidden();
   await expect(window.getByTestId("viewer-transcript")).toBeVisible();
 }
 
@@ -1654,30 +1640,16 @@ export async function openTranscriptBeside(
 export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
 
 /**
- * On the first recording's sheet, chooses this computer where the sheet still asks where the
- * audio is transcribed (#3305): a cloud service is picked first there, and the tests' engine is
- * on this computer.
+ * Starts recording from a Meeting's start block, where a Note shows one (a calendar event's, or
+ * one whose start failed): the meeting's control at the Note's foot, recording.
  */
-export async function transcribeHere(notice: Locator): Promise<void> {
-  await expect(notice).toBeVisible();
-  const here = notice.locator('[data-testid="setup-transcription"][data-value="local"] input');
-  if ((await here.count()) > 0) await here.check();
-}
-
-/** Starts recording from the start block; the first time, through the one-time notice. */
-export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
+export async function startRecording(window: Page, start: Locator): Promise<Locator> {
   const record = start.getByTestId("meeting-start-record");
   await record.hover();
   await record.click();
-  if (notice) {
-    const dialog = window.getByTestId("meeting-notice");
-    await transcribeHere(dialog);
-    await dialog.getByTestId("meeting-notice-start").click();
-    await expect(dialog).toBeHidden();
-  }
-  const bar = window.getByTestId("meeting-bar");
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  return bar;
+  const control = window.getByTestId("meeting-foot");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  return control;
 }
 
 /** Opens Settings from the sidebar, on its Privacy page. */

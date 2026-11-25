@@ -11,12 +11,13 @@ import { undoAsked, useAskedState } from "../../askedChanges";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
+import { useMeetings } from "../../meetings";
 import { showWaitingChanges } from "../../mindChanges";
 import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
-import { showQuoteInTranscript } from "../meetings/MeetingFoot";
+import { showCitedInTranscript } from "../meetings/MeetingFoot";
 import { ProblemLine } from "../ProblemLine";
 import { OwnStepText, useAnnounce, WaitingLine } from "./OwnAsk";
 
@@ -382,6 +383,23 @@ const CHIP_OPEN = "\uE000";
 const CHIP_CLOSE = "\uE001";
 
 /**
+ * A reply's Citation of a meeting's Transcript opens the sheet over that meeting's Note at the
+ * words cited (#3762). Whether it opened; else the chip stays as it was.
+ */
+function openCitedInTranscript(cited: NoteCitation): boolean {
+  const { documents } = useAppStore.getState();
+  const transcript = documents.find(
+    (each) =>
+      each.name === cited.documentName &&
+      useMeetings.getState().meetings.some((meeting) => meeting.transcript?.documentId === each.id),
+  );
+  return (
+    !!transcript &&
+    showCitedInTranscript({ documentId: transcript.id, quote: cited.quote, request: 0 })
+  );
+}
+
+/**
  * A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces
  * show Markdown, and each Citation IncarnaMind gave its connection as the numbered chip a Note
  * shows (#3677). Any other `[cite:…]` is left out, never drawn as a Citation.
@@ -420,7 +438,7 @@ export function Reply({ text, citations }: { text: string; citations: readonly N
           ? `${cited.documentName}: “${cited.quote}”`
           : t("noteColumn.citation", { number: part });
         if (cited) {
-          chip.dataset.quote = cited.quote;
+          chip.dataset.token = cited.token;
           chip.setAttribute("role", "button");
           chip.tabIndex = 0;
         }
@@ -438,9 +456,9 @@ export function Reply({ text, citations }: { text: string; citations: readonly N
       data-testid="note-ask-reply"
       className="note-ask-reply-text"
       onClick={(event) => {
-        const chip = (event.target as Element).closest<HTMLElement>(".citation-marker[data-quote]");
-        if (chip?.dataset.quote && showQuoteInTranscript(chip.dataset.quote))
-          event.stopPropagation();
+        const chip = (event.target as Element).closest<HTMLElement>(".citation-marker[data-token]");
+        const cited = citations.find((each) => each.token === chip?.dataset.token);
+        if (cited && openCitedInTranscript(cited)) event.stopPropagation();
       }}
     >
       <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />

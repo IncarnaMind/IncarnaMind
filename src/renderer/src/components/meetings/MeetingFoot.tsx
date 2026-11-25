@@ -6,14 +6,24 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { shortcutLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
 import { useT } from "../../i18n";
+import { currentTabOf } from "../../layoutSlice";
 import { isLive, useMeetingOf, useMeetings, useMeetingTime } from "../../meetings";
 import { clockTime } from "../../meetingTime";
-import { askInNote, setColumnOpen } from "../../ownAiInNote";
+import {
+  focusTaken,
+  showMeetingNoteView,
+  useMeetingNoteView,
+  useMeetingViewFocus,
+} from "../../meetingViews";
+import { setColumnOpen } from "../../ownAiInNote";
 import { useAppStore, type ViewerTarget } from "../../store";
+import { closeTip, useFeatureTip } from "../../tips";
 import { openTranscriptBeside } from "../../transcripts";
 import { TranscriptHeadLine } from "../../viewer/TranscriptHeadLine";
 import { MeetingTranscriptView } from "../../viewer/TranscriptView";
 import { type ViewerFrame, ViewerFrameContext } from "../../viewer/ViewerHeader";
+import { writeMeetingNotes } from "../../writeMeetingNotes";
+import { CallEndingLine } from "../CallEndingLine";
 import { CaptureDetails, CaptureDetailsToggle } from "../CaptureDetails";
 import {
   BookmarkLineIcon,
@@ -33,6 +43,7 @@ import { MeetingAudioLine } from "../MeetingInMind";
 import { ProblemLine } from "../ProblemLine";
 import { SharedScreenLine } from "../SharedScreenLine";
 import { TipPopover } from "../TipPopover";
+import { TranscriptLines } from "../TranscriptLines";
 import { useTabPlace } from "../tabs/tabItems";
 import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
@@ -41,45 +52,60 @@ import { LevelBars, levelName } from "./LevelBars";
 import { applyMeetingWriteupTemplate, MeetingTemplateRows } from "./MeetingTemplatePicker";
 
 /**
- * Whether a meeting Note's Transcript sheet is up, per Note, and the words a Citation asked it to
- * show. `refocus` counts each fold that gives the focus back to the control's chevron.
+ * The sheet's own state beside the tab's view (the Transcript is the view the sheet shows): the
+ * first tip seen, the place a Citation asked it to open at, and `refocus`, which counts each fold
+ * that gives the focus back to the control's chevron, by tab.
  */
-const useSheets = create<{
-  open: Record<string, boolean>;
+const useSheet = create<{
   tipSeen: boolean;
-  quote: string;
+  cited: ViewerTarget | null;
   refocus: Record<string, number>;
-}>(() => ({ open: {}, tipSeen: false, quote: "", refocus: {} }));
-const setSheet = (mindId: string, open: boolean) =>
-  useSheets.setState((state) => ({
-    open: { ...state.open, [mindId]: open },
-    tipSeen: true,
-    quote: open ? state.quote : "",
-  }));
+}>(() => ({ tipSeen: false, cited: null, refocus: {} }));
+
+/** The Transcript is the tab's view the sheet shows over the Note: ⌘K and ⌥⌘← ⌥⌘→ raise it too. */
+export const useSheetOpen = (tabId: string | undefined, mindId: string) =>
+  useMeetingNoteView(tabId, mindId) === "transcript";
+
+function setSheet(tabId: string, mindId: string, open: boolean): void {
+  useSheet.setState((state) => ({ tipSeen: true, cited: open ? state.cited : null }));
+  showMeetingNoteView(tabId, mindId, open ? "transcript" : "notes");
+}
+
 /** Folds the sheet from inside it (Esc, Hide): the focus goes back to the chevron it rose from. */
-const foldSheet = (mindId: string) =>
-  useSheets.setState((state) => ({
-    open: { ...state.open, [mindId]: false },
-    quote: "",
-    refocus: { ...state.refocus, [mindId]: (state.refocus[mindId] ?? 0) + 1 },
+function foldSheet(tabId: string, mindId: string): void {
+  useSheet.setState((state) => ({
+    cited: null,
+    refocus: { ...state.refocus, [tabId]: (state.refocus[tabId] ?? 0) + 1 },
   }));
-export const useSheetOpen = (mindId: string) => useSheets((state) => state.open[mindId] === true);
+  showMeetingNoteView(tabId, mindId, "notes");
+}
 
 /**
- * A Citation of the meeting's Transcript in a reply, pressed: the Transcript rises over the Note
- * at the words said, which are washed as a found quote is. False when no meeting is there to show.
+ * A Citation of a meeting's Transcript, pressed in a reply: the sheet rises over that meeting's
+ * Note at the line cited, washed as a found quote is. False when the Citation isn't to a meeting's
+ * Transcript shown in this window, so the caller opens it as any Citation.
  */
-export function showQuoteInTranscript(quote: string): boolean {
-  const { meetings } = useMeetings.getState();
-  const meeting = meetings.find((each) => isLive(each)) ?? meetings.find((each) => each.transcript);
-  if (!meeting) return false;
+export function showCitedInTranscript(cited: ViewerTarget): boolean {
+  const meeting = useMeetings
+    .getState()
+    .meetings.find((each) => each.transcript?.documentId === cited.documentId);
+  if (!meeting || meeting.kind !== "meeting") return false;
+  const { layout } = useAppStore.getState();
+  const current = currentTabOf(layout);
+  const tab =
+    current?.item.kind === "mind" && current.item.mindId === meeting.mindId
+      ? current
+      : layout?.groups
+          .flatMap((group) => group.tabs)
+          .find((each) => each.item.kind === "mind" && each.item.mindId === meeting.mindId);
+  if (!tab) return false;
   // Opened upward the conversation would lie over the sheet; in the window's column it stays beside.
   if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(meeting.mindId, false);
-  useSheets.setState((state) => ({
-    open: { ...state.open, [meeting.mindId]: true },
+  useSheet.setState((state) => ({
     tipSeen: true,
-    quote,
+    cited: { ...cited, request: (state.cited?.request ?? 0) + 1 },
   }));
+  showMeetingNoteView(tab.id, meeting.mindId, "transcript");
   return true;
 }
 
@@ -108,25 +134,27 @@ export function MeetingFoot({ mindId }: { mindId: string }) {
 
 function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   const t = useT();
-  const open = useSheetOpen(mindId);
-  const tipSeen = useSheets((state) => state.tipSeen);
-  const refocus = useSheets((state) => state.refocus[mindId] ?? 0);
+  const tabId = useTabPlace()?.tabId ?? "";
+  const open = useSheetOpen(tabId, mindId);
+  const refocus = useSheet((state) => state.refocus[tabId] ?? 0);
   const [asked, setAsked] = useState(false);
   const live = isLive(meeting);
   const paused = meeting.status === "paused";
   const { stop, resume, openSettings } = useMeetings.getState();
   const keys = shortcutLabel("meeting.nextView");
   const micProblem = live ? MICROPHONE_PROBLEMS[meeting.sources.microphone] : undefined;
+  // Interaction rule 14: one line where the feature is, gone with its ✕ or once the sheet is used.
+  const tipShown = useFeatureTip("meeting-transcript", meeting.id, live && !micProblem && !open);
+  useEffect(() => {
+    if (open) closeTip("meeting-transcript");
+  }, [open]);
   const writeNotes = async () => {
     setAsked(true);
-    setSheet(mindId, false);
+    setSheet(tabId, mindId, false);
     try {
-      await askInNote(mindId, {
-        words: t("meetings.foot.writeNotesRequest"),
-        quote: "",
-        selection: null,
-        caret: "",
-      });
+      // The button comes back where the request didn't go: its line says why.
+      if (!(await writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest"))))
+        setAsked(false);
     } catch (error) {
       setAsked(false);
       useAppStore.getState().reportError(error);
@@ -152,7 +180,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             </ProblemLine>
           </div>
         )}
-        {live && !tipSeen && !micProblem && (
+        {tipShown && (
           <div role="status" data-testid="meeting-foot-tip" className="meeting-foot-tip">
             <span>{t("meetings.foot.tip")}</span>
             <button
@@ -160,14 +188,24 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               data-testid="meeting-foot-tip-close"
               aria-label={t("meetings.foot.tipClose")}
               title={t("meetings.foot.tipClose")}
-              onClick={() => useSheets.setState({ tipSeen: true })}
+              onClick={() => closeTip("meeting-transcript")}
               className="meeting-foot-tip-close"
             >
               <CloseLineIcon className="size-4" />
             </button>
           </div>
         )}
-        {!open && <SharedScreenLine meeting={meeting} />}
+        {!open && (
+          <>
+            <SharedScreenLine meeting={meeting} />
+            <div className="meeting-foot-card">
+              <CallEndingLine meeting={meeting} />
+            </div>
+            <div className="meeting-foot-card">
+              <TranscriptLines meeting={meeting} over />
+            </div>
+          </>
+        )}
       </div>
       {!live && !asked && meeting.fill?.state === "own-ai" && (
         <button
@@ -205,7 +243,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               expanded={open}
               focusOn={refocus}
               tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
-              onClick={() => setSheet(mindId, !open)}
+              onClick={() => setSheet(tabId, mindId, !open)}
             >
               <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
             </SlotButton>
@@ -224,7 +262,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             expanded={open}
             focusOn={refocus}
             tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
-            onClick={() => setSheet(mindId, !open)}
+            onClick={() => setSheet(tabId, mindId, !open)}
           >
             <span>{t("meetings.views.transcript")}</span>
             <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
@@ -305,14 +343,19 @@ function SlotButton({
 export function MeetingSheet({ mindId }: { mindId: string }) {
   const t = useT();
   const meeting = useMeetingOf(mindId);
-  const open = useSheetOpen(mindId);
   const place = useTabPlace();
   const tabId = place?.tabId ?? "";
+  const open = useSheetOpen(tabId, mindId);
   const documentId = meeting?.transcript?.documentId;
   const file = useAppStore((state) => state.documents.find((each) => each.id === documentId));
+  const cited = useSheet((state) => state.cited);
+  // A Citation pressed opens the sheet at its line, which the Transcript washes as a found quote.
   const target = useMemo<ViewerTarget>(
-    () => ({ documentId: documentId ?? "", request: 0 }),
-    [documentId],
+    () =>
+      cited && cited.documentId === documentId
+        ? cited
+        : { documentId: documentId ?? "", request: 0 },
+    [cited, documentId],
   );
   const frame = useMemo<ViewerFrame>(
     () => ({
@@ -325,34 +368,17 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     }),
     [file, tabId, target],
   );
-  const quote = useSheets((state) => state.quote);
   const detailsShown = useMeetings(
     (state) => meeting !== undefined && state.detailsShown[meeting.id] === true,
   );
-  const body = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLElement>(null);
+  // ⌘K's Show the Transcript and ⌥⌘→ take the User to it, as they took them to the old view.
+  const focusAsked = useMeetingViewFocus(tabId, "transcript");
   useEffect(() => {
-    const root = body.current;
-    if (!open || !root) return;
-    for (const line of root.querySelectorAll("[data-cited]")) line.removeAttribute("data-cited");
-    if (!quote) return;
-    const start = quote.slice(0, 24);
-    const wash = () => {
-      const line = [...root.querySelectorAll<HTMLElement>('[data-testid="transcript-line"]')].find(
-        (each) => (each.textContent ?? "").includes(start),
-      );
-      if (!line) return false;
-      line.setAttribute("data-cited", "true");
-      line.scrollIntoView({ block: "center" });
-      return true;
-    };
-    if (wash()) return;
-    // The lines arrive after the sheet opens: wash the cited one as it is drawn.
-    const watch = new MutationObserver(() => {
-      if (wash()) watch.disconnect();
-    });
-    watch.observe(root, { childList: true, subtree: true });
-    return () => watch.disconnect();
-  });
+    if (focusAsked === null || !sheet.current) return;
+    sheet.current.focus();
+    focusTaken(focusAsked);
+  }, [focusAsked]);
   useEffect(() => {
     if (!open) return;
     // Esc closes the innermost thing open: a menu or a dialog over the sheet takes it first.
@@ -360,11 +386,11 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
       if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
       if (document.querySelector("dialog:modal") !== null) return;
       event.preventDefault();
-      foldSheet(mindId);
+      foldSheet(tabId, mindId);
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [open, mindId]);
+  }, [open, tabId, mindId]);
   if (!meeting || !open) return null;
   const live = isLive(meeting);
   return (
@@ -372,9 +398,12 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     <div className="meeting-sheet-place">
       <div className="mind-measure">
         <section
+          ref={sheet}
           data-testid="meeting-sheet"
           data-live={live || undefined}
+          data-document-id={documentId ?? undefined}
           aria-label={t("meetings.views.transcript")}
+          tabIndex={-1}
           className="meeting-sheet viewer-pane [container:viewer/inline-size]"
         >
           <header className="meeting-sheet-head">
@@ -388,10 +417,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 disabled={!documentId}
                 aria-label={t("meetings.views.besideCommand")}
                 title={t("meetings.views.besideCommand")}
-                onClick={() => {
-                  setSheet(mindId, false);
-                  openTranscriptBeside({ meeting, tabId, groupId: place?.groupId });
-                }}
+                onClick={() => openTranscriptBeside({ meeting, tabId, groupId: place?.groupId })}
                 className="meeting-sheet-icon"
               >
                 <OpenBesideLineIcon className="size-4" />
@@ -401,7 +427,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 data-testid="meeting-sheet-hide"
                 aria-label={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
                 title={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
-                onClick={() => foldSheet(mindId)}
+                onClick={() => foldSheet(tabId, mindId)}
                 className="meeting-sheet-icon"
               >
                 <ChevronDownLineIcon className="size-4" />
@@ -410,7 +436,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           </header>
           {detailsShown && (
             <div data-testid="meeting-sheet-details" className="meeting-sheet-details">
-              {!live && <MeetingAudioLine meeting={meeting} />}
+              {meeting.status !== "recording" && <MeetingAudioLine meeting={meeting} />}
               <CaptureDetails meeting={meeting} />
             </div>
           )}
@@ -424,7 +450,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
             </div>
           )}
           {live && <MeetingLines meeting={meeting} />}
-          <div ref={body} className="meeting-sheet-body">
+          <div className="meeting-sheet-body">
             <ViewerFrameContext.Provider value={frame}>
               <MeetingTranscriptView
                 key={meeting.id}
@@ -453,14 +479,8 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
               <button
                 type="button"
                 data-testid="meeting-sheet-review-speakers"
-                // The review itself still opens where the Transcript view has it, at the top of the lines.
-                onClick={() =>
-                  body.current
-                    ?.querySelector<HTMLButtonElement>(
-                      ".transcript-review-row > button[aria-expanded]",
-                    )
-                    ?.click()
-                }
+                // The review opens where the Transcript has it, at the top of its lines.
+                onClick={() => void commands.run("meeting.reviewSpeakers")}
                 className="meeting-button meeting-button--words"
               >
                 <span>{t("meetings.review.open")}</span>

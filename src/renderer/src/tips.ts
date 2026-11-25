@@ -9,7 +9,7 @@ export type TipId =
   | "citation-style"
   | "connect-app"
   | "deck-edits"
-  | "meeting-recorded";
+  | "meeting-transcript";
 
 /** Interaction rule 14: a tip never shows a third time on a device. */
 export const TIP_SHOWS = 2;

@@ -2875,6 +2875,15 @@
       width: 16px;
       height: 16px;
     }
+    .meeting-foot-card {
+      padding: 6px 8px;
+      border-radius: 10px;
+      background: var(--color-sheet);
+      box-shadow: var(--shadow-popover);
+      &:empty {
+        display: none;
+      }
+    }
   }
   .meeting-foot-tip {
     display: flex;

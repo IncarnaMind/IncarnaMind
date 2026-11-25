@@ -3,7 +3,6 @@ import type { ReactNode, Ref } from "react";
 import type { AudioSource, Meeting, MeetingSourceState } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { shortcutLabel } from "../commands/keymap";
-import { commands } from "../commands/registry";
 import { files } from "../core";
 import { useT } from "../i18n";
 import { helpKeysLabel, useMeetingHelp } from "../meetingHelp";
@@ -16,32 +15,16 @@ import {
   checkTranscriptionKey,
   ROUTE_LABELS,
 } from "../transcriptionServices";
-import { CallEndingLine } from "./CallEndingLine";
-import { CaptureDetailsToggle } from "./CaptureDetails";
-import {
-  BookmarkLineIcon,
-  FloatLineIcon,
-  PauseLineIcon,
-  ResumeLineIcon,
-  StopLineIcon,
-} from "./lineIcons";
-import { BarMore } from "./meetings/BarMore";
+import { FloatLineIcon, PauseLineIcon, ResumeLineIcon, StopLineIcon } from "./lineIcons";
 import { LevelBars } from "./meetings/LevelBars";
-import { MeetingTemplatePicker } from "./meetings/MeetingTemplatePicker";
-import { MicrophoneButton } from "./meetings/MicrophoneButton";
-import { ViewSwitch } from "./meetings/ViewSwitch";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
-import { SharedScreenLine } from "./SharedScreenLine";
 import { TranscriptLines } from "./TranscriptLines";
-import { useTabPlace } from "./tabs/tabItems";
 
 /**
- * The meeting bar, while the Mind's Meeting records or is paused: at the top
- * of the Mind, under its title, and kept in view as the notes scroll (the
- * owner's direction of 2026-10-11, in place of DESIGN.md's bar in the
- * composer). Its controls, the shared screen's line (ADR-0031), then a line
- * for each thing about the recording the User should know, then whatever the
- * Mind adds (its audio, once paused).
+ * A voice memo's bar while it records or is paused, at the top of its Note, kept in view as the
+ * notes scroll: its controls, then a line for each thing about the recording the User should
+ * know, then whatever the Note adds (its audio, once paused). A recorded call has its control at
+ * the Note's foot instead (`meetings/MeetingFoot.tsx`, #3762).
  */
 export function MeetingBar({
   meeting,
@@ -63,9 +46,7 @@ export function MeetingBar({
       className="meeting-bar"
     >
       <MeetingControls meeting={meeting} />
-      <SharedScreenLine meeting={meeting} />
       <MeetingLines meeting={meeting} />
-      <CallEndingLine meeting={meeting} />
       <TranscriptLines meeting={meeting} over />
       {children}
     </section>
@@ -82,23 +63,18 @@ export function MeetingBarRoom({ meeting }: { meeting: Meeting }) {
 }
 
 /**
- * The live-recording dot (red, the one red outside Citation checks; grey
- * while paused), "Recording 24:16" (or "Paused"), Pause my mic, Pause or
- * Resume and Stop, then Notes | Transcript with the level bars. ⌘⇧P is the
- * "meeting.pauseResume" command's (../commands/meetings). A voice memo's reads
- * "Voice memo 00:42" with its level bars, and Pause and Stop only: it has no call's parts (#1568).
+ * The live-recording dot (red, the one red outside Citation checks; grey while paused), "Voice
+ * memo 00:42" (or "Paused") with its level bars, Pause or Resume, and Stop: a memo has no call's
+ * parts (#1568). ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings).
  */
 function MeetingControls({ meeting }: { meeting: Meeting }) {
   const t = useT();
-  const tabId = useTabPlace()?.tabId;
   const time = clockTime(useMeetingTime(meeting));
   const { pause, resume, stop } = useMeetings.getState();
   const recording = meeting.status === "recording";
   const waiting = isWaitingForPermission(meeting);
-  const memo = meeting.kind === "memo";
   const toggle = () => void (recording ? pause(meeting.id) : resume(meeting.id));
   const shortcut = shortcutLabel("meeting.pauseResume");
-  const markShortcut = shortcutLabel("meeting.mark");
 
   return (
     <div data-testid="meeting-controls" className="meeting-controls">
@@ -115,9 +91,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
               ? "meetings.bar.waiting"
               : !recording
                 ? "meetings.bar.paused"
-                : memo
-                  ? "memos.bar.recording"
-                  : "meetings.bar.recording",
+                : "memos.bar.recording",
           )}
         </span>
         {!waiting && (
@@ -125,15 +99,8 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
             {time}
           </span>
         )}
-        {memo && <LevelBars meeting={meeting} />}
+        <LevelBars meeting={meeting} />
       </span>
-      {!memo && (
-        <MicrophoneButton
-          meeting={meeting}
-          testId="meeting-mic"
-          className="meeting-button meeting-button--icon"
-        />
-      )}
       <button
         type="button"
         data-testid={recording ? "meeting-pause" : "meeting-resume"}
@@ -159,30 +126,6 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         <StopLineIcon className="size-3.5" />
         <span className="meeting-button-word">{t("meetings.bar.stop")}</span>
       </button>
-      {!memo && (
-        <>
-          <button
-            type="button"
-            data-testid="meeting-mark"
-            data-fold="mark"
-            disabled={!recording}
-            aria-label={t("meetings.mark.title", { shortcut: markShortcut })}
-            title={t(recording ? "meetings.mark.title" : "meetings.command.markPaused", {
-              shortcut: markShortcut,
-            })}
-            onClick={() => void commands.run("meeting.mark")}
-            className="meeting-button meeting-button--words"
-          >
-            <BookmarkLineIcon className="size-3.5" />
-            <span className="meeting-button-word">{t("meetings.mark")}</span>
-          </button>
-          <CallHelpToggle />
-          <CaptureDetailsToggle meeting={meeting} />
-          <MeetingTemplatePicker meeting={meeting} />
-          {tabId && <ViewSwitch meeting={meeting} tabId={tabId} />}
-          <BarMore meeting={meeting} />
-        </>
-      )}
     </div>
   );
 }
