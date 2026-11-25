@@ -1170,32 +1170,33 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=a walk whose links each add hundreds of parts gives up, and asks, once the place it reached or the parts left are longer than a path can be, at once rather than after a long walk in the main process; fails_when=the hook can be made to walk for seconds, or let such a write go on
-  it("gives up a steering walk that grows past a path's length, at once", async () => {
-    const work = await mkdtemp(join(tmpdir(), "im-steer-"));
-    await mkdir(join(work, "grow"));
-    // Each link leads to the next and parts that aren't there: well under the link limit, past a
-    // path's length. A link's target is at most 1,023 characters on macOS; Windows's paths are
-    // longer.
-    const added = process.platform === "win32" ? 1000 : 200;
-    for (let n = 0; n < 30; n += 1) {
-      await symlink(
-        [`g${n + 1}`, ...Array(added).fill("xxxx")].join(sep),
-        join(work, "grow", `g${n}`),
-        "file",
-      );
-    }
-    const started = performance.now();
-    const { answers } = await useHookAnswers([
-      {
-        tool_name: "Write",
-        tool_input: { file_path: join(work, "grow", "g0"), content: "x" },
-        cwd: work,
-      },
-    ]).finally(() => rm(work, { recursive: true, force: true }));
-    expect(answers).toEqual(["ask"]);
-    expect(performance.now() - started).toBeLessThan(10_000);
-  });
+  // protects=a walk whose links each add hundreds of parts gives up, and asks, once the place it reached or the parts left are longer than a path can be, at once rather than after a long walk in the main process; fails_when=the hook can be made to walk for seconds, or let such a write go on; no_claim=Windows, where a link's target can't be made long enough to pass its 32,767 characters within the link limit (a 5,000-character target is refused)
+  it.skipIf(process.platform === "win32")(
+    "gives up a steering walk that grows past a path's length, at once",
+    async () => {
+      const work = await mkdtemp(join(tmpdir(), "im-steer-"));
+      await mkdir(join(work, "grow"));
+      // Each link leads to the next and 200 parts that aren't there: well under the link limit, past
+      // a path's length. A link's target is at most 1,023 characters on macOS.
+      for (let n = 0; n < 30; n += 1) {
+        await symlink(
+          [`g${n + 1}`, ...Array(200).fill("xxxx")].join(sep),
+          join(work, "grow", `g${n}`),
+          "file",
+        );
+      }
+      const started = performance.now();
+      const { answers } = await useHookAnswers([
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "grow", "g0"), content: "x" },
+          cwd: work,
+        },
+      ]).finally(() => rm(work, { recursive: true, force: true }));
+      expect(answers).toEqual(["ask"]);
+      expect(performance.now() - started).toBeLessThan(10_000);
+    },
+  );
 
   /** The hooks a run registers, and its answer to each PreToolUse call, as a fake Claude Code sends them. */
   async function useHookAnswers(calls: readonly Record<string, unknown>[]) {
@@ -1543,10 +1544,13 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "ask",
       ],
       [
-        "a path of 5,000 characters",
+        "a path longer than the system's longest",
         {
           tool_name: "Write",
-          tool_input: { file_path: join(work, "a".repeat(5000)), content: "x" },
+          tool_input: {
+            file_path: join(work, "a".repeat(process.platform === "win32" ? 33_000 : 5000)),
+            content: "x",
+          },
         },
         "ask",
       ],
