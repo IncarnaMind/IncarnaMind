@@ -577,8 +577,8 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     await dismissChatSetup(cant.window);
     await setWindowSize(cant.app, cant.window, 1440, 900);
-    await setLanguage(cant.window, language);
     const settings = await openSettings(cant.window, "general");
+    await setLanguage(cant.window, language);
     await expect(settings.getByTestId("call-offers-switch")).not.toBeChecked();
     await expect(settings.getByTestId("call-offers-problem")).toHaveText(why);
     await shots(cant.app, cant.window, "settings-calls-off-cant");
@@ -590,8 +590,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const can = await launchApp(other, { extraEnv: { INCARNAMIND_TEST_CALLS: "1" } });
       await dismissChatSetup(can.window);
       await setWindowSize(can.app, can.window, 1440, 900);
-      await setLanguage(can.window, language);
       const page = await openSettings(can.window, "general");
+      await setLanguage(can.window, language);
       await page.getByTestId("call-offers-switch").click();
       await expect(page.getByTestId("call-offers-switch")).not.toBeChecked();
       await expect(page.getByTestId("call-offers-problem")).toHaveCount(0);
