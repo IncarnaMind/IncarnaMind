@@ -1,0 +1,549 @@
+/**
+ * Full-window stills of a recorded meeting, from the way in to the notes after (#3762), with what
+ * each still measures beside it. A drawing, not a test: it records a call with the fake microphone
+ * and the fake transcriber speaking a harbour meeting, asks the stand-in for the User's Claude Code,
+ * stops, has it write the notes and check them. Build the test app first, then:
+ *
+ *   STILLS_OUT=<folder> STILLS_LANG=en STILLS_VARIANT=today npx playwright test \
+ *     -c e2e/audit/playwright.audit.config.ts meetingStills
+ */
+import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
+import type { CoreBridge, Meeting } from "../../src/core/api";
+import {
+  acceptPlainTextKeys,
+  createDataFolder,
+  dismissChatSetup,
+  launchApp,
+  motionSettled,
+  removeDataFolder,
+  runCommand,
+  setLanguage,
+  setWindowSize,
+  transcribeHere,
+} from "../app";
+
+const OUT = process.env.STILLS_OUT ?? "";
+const LANG = (process.env.STILLS_LANG ?? "en") as "en" | "zh-CN";
+const VARIANT = (process.env.STILLS_VARIANT ?? "today") as "today" | "proposed";
+const proposed = VARIANT === "proposed";
+const HEIGHT = 900;
+
+const WORDS = {
+  en: {
+    folder: "Kestrel Bay",
+    title: "Harbour board: second ramp",
+    longTitle:
+      "Harbour board call with the contractor and the harbour master about the second ramp, the dredging and the winter timetable",
+    typed: ["Ramp works: dates and cost", "Early ferry during the works"],
+    question: "When do the ramp works start?",
+    check: "Check",
+    mine: [
+      "Can everyone hear me?",
+      "Thanks for joining.",
+      "Let's start with the second ramp at Kestrel Bay.",
+      "When do the works start?",
+      "Is that the contractor's date?",
+      "What does the dredging add?",
+      "And the figure in the tender?",
+      "Please send it round after the call.",
+      "Can the early ferry keep running?",
+      "Who confirms the tide tables?",
+      "I'll write to the commuters about the new time.",
+      "Thursday after next is fine.",
+    ],
+    theirs: [
+      "Yes, we can hear you.",
+      "The contractor is with us today.",
+      "The ramp works start on the third of March and close the slipway for six weeks.",
+      "We checked the tide tables last week.",
+      "The contractor wants an early start.",
+      "The dredging adds about two hundred thousand pounds, so the budget is one point four million.",
+      "That was the figure in the tender.",
+      "We can send the tender after the call.",
+      "The 07:40 crossing moves to 07:55 while the works last.",
+      "The harbour master confirms the tide tables by Friday.",
+      "The café owner asked for two weeks' notice.",
+      "Thursday after next works for us.",
+    ],
+  },
+  "zh-CN": {
+    folder: "Kestrel Bay",
+    title: "港务委员会：第二条坡道",
+    longTitle: "与承包商和港务长的港务委员会通话：第二条坡道、疏浚工程和冬季时刻表的安排与费用",
+    typed: ["坡道工程：日期和费用", "施工期间的早班渡轮"],
+    question: "坡道工程什么时候开工？",
+    check: "核对",
+    mine: [
+      "大家能听到我吗？",
+      "谢谢大家参加。",
+      "我们先说 Kestrel Bay 的第二条坡道。",
+      "工程什么时候开工？",
+      "这是承包商定的日期吗？",
+      "疏浚要增加多少费用？",
+      "招标里是多少？",
+      "请会后发给我。",
+      "早班渡轮还能开吗？",
+      "潮汐表由谁确认？",
+      "我来通知通勤乘客新的时间。",
+      "下下周四可以。",
+    ],
+    theirs: [
+      "能听到。",
+      "承包商今天也在。",
+      "坡道工程三月三日开工，滑道关闭六周。",
+      "上周我们核对过潮汐表。",
+      "承包商希望早点开工。",
+      "疏浚大约增加二十万英镑，预算因此增至一百四十万英镑。",
+      "这是招标里的数字。",
+      "会后我们可以把标书发给你。",
+      "施工期间，七点四十的班次改到七点五十五。",
+      "港务长周五前确认潮汐表。",
+      "咖啡馆老板希望提前两周通知。",
+      "下下周四我们可以。",
+    ],
+  },
+}[LANG];
+
+type Core = { incarnamind: CoreBridge };
+const meetings = (window: Page): Promise<Meeting[]> =>
+  window.evaluate(() => (globalThis as unknown as Core).incarnamind.listMeetings());
+
+/** Nothing under the pointer: it rests in the window's top-left corner, left of the traffic lights. */
+async function rest(window: Page) {
+  await window.mouse.move(2, 2);
+}
+
+/** What a still measures: each region's box, and each control in it with its type and icon sizes. */
+async function measure(window: Page, regions: readonly string[]) {
+  return window.evaluate((testIds) => {
+    const box = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return {
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+      };
+    };
+    const shown = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return (
+        r.width > 0 && r.height > 0 && style.visibility !== "hidden" && style.display !== "none"
+      );
+    };
+    const type = (el: Element) => {
+      const s = getComputedStyle(el);
+      return { size: s.fontSize, line: s.lineHeight, weight: s.fontWeight, color: s.color };
+    };
+    const out: Record<string, unknown> = {
+      window: { w: globalThis.innerWidth, h: globalThis.innerHeight },
+    };
+    for (const id of testIds) {
+      const root = [...document.querySelectorAll(`[data-testid="${id}"]`)].find(shown);
+      if (!root) continue;
+      const controls = [...root.querySelectorAll("button, [role=button], select, input, textarea")]
+        .filter(shown)
+        .map((el) => ({
+          name:
+            el.getAttribute("aria-label") ||
+            el.getAttribute("title") ||
+            (el as HTMLElement).innerText?.trim().slice(0, 60) ||
+            el.getAttribute("placeholder") ||
+            "",
+          box: box(el),
+          type: type(el),
+          radius: getComputedStyle(el).borderRadius,
+          icons: [...el.querySelectorAll("svg")]
+            .filter(shown)
+            .map((svg) => box(svg))
+            .map((b) => `${b.w}x${b.h}`),
+          disabled: (el as HTMLButtonElement).disabled === true,
+        }));
+      const texts = [...root.querySelectorAll("h1, h2, h3, p, li, span, label")]
+        .filter((el) => shown(el) && el.children.length === 0 && (el.textContent ?? "").trim())
+        .slice(0, 40)
+        .map((el) => ({
+          text: (el.textContent ?? "").trim().slice(0, 80),
+          box: box(el),
+          type: type(el),
+        }));
+      out[id] = { box: box(root), radius: getComputedStyle(root).borderRadius, controls, texts };
+    }
+    const title = document.querySelector('[data-testid="mind-editor"] h1');
+    if (title) out.noteTitle = { box: box(title), type: type(title) };
+    const firstLine = document.querySelector('[data-testid="mind-editor"] p');
+    if (firstLine) out.noteText = { box: box(firstLine), type: type(firstLine) };
+    return out;
+  }, regions);
+}
+
+const REGIONS = [
+  "meeting-notice",
+  "meeting-bar",
+  "meeting-foot",
+  "meeting-sheet",
+  "meeting-note-transcript",
+  "note-ask-box",
+  "note-ask-panel",
+  "note-column",
+  "citation-card",
+  "meeting-agent-notes",
+  "meeting-write-notes",
+  "meeting-view-chip",
+  "meeting-view-menu",
+  "check-card",
+  "plus-menu-items",
+  "mind-pane",
+] as const;
+
+test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
+  test.setTimeout(30 * 60_000);
+  if (!OUT) throw new Error("Set STILLS_OUT.");
+  await mkdir(OUT, { recursive: true });
+  const dataDir = await createDataFolder();
+  const home = await realpath(await createDataFolder());
+  const bin = await realpath(await createDataFolder());
+  await writeFile(
+    join(bin, "claude"),
+    `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "meetingClaudeCode.mjs")}" "$@"\n`,
+  );
+  await chmod(join(bin, "claude"), 0o755);
+  const mode = (value: string) => writeFile(join(bin, "mode"), value);
+  const log: string[] = [];
+  const { app, window } = await launchApp(dataDir, {
+    home,
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+    transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
+  });
+  const tag = LANG === "en" ? "en" : "zh";
+
+  /** The window at each width the state is drawn at, with what it measures. */
+  const still = async (
+    name: string,
+    widths: readonly number[] = [1440, 900],
+    before?: () => Promise<void>,
+  ) => {
+    for (const width of widths) {
+      try {
+        await setWindowSize(app, window, width, HEIGHT);
+        await before?.();
+        await rest(window);
+        await motionSettled(window);
+        await window.waitForTimeout(500);
+        const file = `${name}-${tag}-${width}`;
+        await window.screenshot({ path: join(OUT, `${file}.png`) });
+        await writeFile(
+          join(OUT, `${file}.json`),
+          JSON.stringify(await measure(window, REGIONS), null, 2),
+        );
+        log.push(`ok ${file}`);
+      } catch (error) {
+        log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
+      }
+    }
+    await setWindowSize(app, window, 1440, HEIGHT);
+  };
+  const step = async (name: string, run: () => Promise<void>) => {
+    try {
+      await run();
+    } catch (error) {
+      log.push(`FAILED step ${name}: ${String(error).slice(0, 400)}`);
+    }
+  };
+
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setLanguage(window, LANG);
+    await setWindowSize(app, window, 1440, HEIGHT);
+    const ids = await window.evaluate(async (name) => {
+      const core = (globalThis as unknown as Core).incarnamind;
+      const folder = await core.createLibraryGroup({ name, description: "" });
+      await core.setAgentsEnabled(true);
+      const { pairing } = await core.connectAgent({
+        name: "Claude Code",
+        client: "claude-code",
+        folderIds: [folder.id, "not-in-a-folder"],
+        propose: true,
+      });
+      await core.updateSettings({
+        device: { meetingNotesAgentId: pairing.id, meetingPanel: false },
+      });
+      return { folder: folder.id, agent: pairing.id };
+    }, WORDS.folder);
+
+    // a. The way in: the + menu's Record a meeting, then the step before the first recording.
+    const plus = window.getByTestId("plus-menu");
+    await step("way in", async () => {
+      await still("a1-way-in", [1440, 900], async () => {
+        if (!(await window.getByTestId("plus-record-meeting").isVisible())) await plus.click();
+        await expect(window.getByTestId("plus-record-meeting")).toBeVisible();
+      });
+      await window.keyboard.press("Escape");
+    });
+    await plus.click();
+    await window.getByTestId("plus-record-meeting").click();
+    const notice = window.getByTestId("meeting-notice");
+    const start = window.getByTestId("meeting-start");
+    await expect(start.or(notice).or(window.getByTestId("meeting-bar")).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    if (await start.isVisible()) {
+      await step("start block", async () => {
+        await still("a2-start-block");
+      });
+      await start.getByTestId("meeting-start-record").click();
+    }
+    await step("before you record", async () => {
+      await expect(notice).toBeVisible({ timeout: 10_000 });
+      await still("a3-before-record");
+    });
+    if (await notice.isVisible()) {
+      for (const row of ["meeting-card-mine", "meeting-card-theirs"]) {
+        const allow = notice.getByTestId(row);
+        if (await allow.isVisible()) await allow.click();
+      }
+      if (proposed) await still("a4-card-allowed", [1440]);
+      await transcribeHere(notice);
+      await notice.getByTestId("meeting-notice-start").click();
+      await expect(notice).toBeHidden();
+    }
+    await expect
+      .poll(async () => (await meetings(window)).some((each) => each.status === "recording"), {
+        timeout: 30_000,
+      })
+      .toBe(true);
+    const meeting = (await meetings(window)).find((each) => each.status === "recording");
+    if (!meeting) throw new Error("No meeting recording.");
+    await window.evaluate(
+      async ({ mindId, folderId }) => {
+        const core = (globalThis as unknown as Core).incarnamind;
+        await core.moveToFolder({ mindIds: [mindId], folderId });
+      },
+      { mindId: meeting.mindId, folderId: ids.folder },
+    );
+
+    // b. Recording, the Note in view: first an empty Note, then two lines the User typed.
+    await step("recording empty", async () => {
+      await still("b0-recording-empty", proposed ? [1440, 1280, 900] : [1440, 900]);
+    });
+    const editor = window.getByTestId("mind-editor");
+    const rename = (title: string) =>
+      window.evaluate(
+        ({ mindId, name }) => (globalThis as unknown as Core).incarnamind.renameMind(mindId, name),
+        { mindId: meeting.mindId, name: title },
+      );
+    const named = (
+      await window
+        .locator(`[data-testid="mind-row"][data-mind-id="${meeting.mindId}"]`)
+        .first()
+        .innerText()
+        .catch(() => "")
+    ).trim();
+    await step("type", async () => {
+      await window
+        .getByTestId("meeting-foot-tip-close")
+        .click({ timeout: 2000 })
+        .catch(() => undefined);
+      await editor.locator("p").first().click();
+      await window.keyboard.type(WORDS.typed[0] ?? "");
+      await window.keyboard.press("Enter");
+      await window.keyboard.type(WORDS.typed[1] ?? "");
+      await editor.evaluate((el) => (el as HTMLElement).blur());
+    });
+    await expect
+      .poll(
+        async () =>
+          (await meetings(window)).find((each) => each.id === meeting.id)?.transcript?.lines ?? 0,
+        {
+          timeout: 60_000,
+        },
+      )
+      .toBeGreaterThanOrEqual(5);
+    await step("recording", async () => {
+      await still("b1-recording", proposed ? [1440, 1280, 900] : [1440, 900]);
+    });
+
+    // c. The live Transcript.
+    await step("transcript", async () => {
+      if (proposed) {
+        await window.getByTestId("meeting-foot-transcript").click();
+        await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+      } else {
+        await window
+          .getByTestId("meeting-bar")
+          .getByTestId("meeting-view-transcript")
+          .locator("..")
+          .click();
+        await expect(window.getByTestId("meeting-note-transcript")).toBeVisible();
+      }
+      await still("c1-transcript");
+      if (proposed) {
+        await window.getByTestId("meeting-foot-transcript").click();
+        await expect(window.getByTestId("meeting-sheet")).toBeHidden();
+      } else {
+        await window
+          .getByTestId("meeting-note-transcript")
+          .getByTestId("meeting-view-notes")
+          .locator("..")
+          .click();
+        await expect(editor).toBeVisible();
+      }
+    });
+
+    // d. Asking during the meeting: the reply on its line, then opened, with a Citation's card.
+    const documentId = (await meetings(window)).find((each) => each.id === meeting.id)?.transcript
+      ?.documentId;
+    await writeFile(join(bin, "mode.doc"), documentId ?? "");
+    await step("ask", async () => {
+      await mode("ask");
+      const input = window.getByTestId("note-ask-input");
+      await input.click();
+      await window.keyboard.type(WORDS.question);
+      await window.keyboard.press("Enter");
+      await expect(window.getByTestId("note-ask-pill-open")).toBeVisible({ timeout: 60_000 });
+      await editor.evaluate((el) => (el as HTMLElement).blur());
+      await window.getByTestId("note-ask-input").blur();
+      await still("d1-asked");
+      await window.getByTestId("note-ask-handle-toggle").click();
+      await expect(window.getByTestId("note-ask-panel")).toBeVisible();
+      await still("d2-reply");
+      if (proposed) {
+        await still("d3-citation", [1440, 900], async () => {
+          if (!(await window.getByTestId("note-ask-panel").isVisible()))
+            await window.getByTestId("note-ask-handle-toggle").click();
+          await window.getByTestId("note-ask-panel").locator(".citation-marker").first().click();
+          await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+        });
+        await window.getByTestId("meeting-sheet-hide").click();
+      }
+      if (proposed) {
+        await still("d4-narrow-conversation", [900], async () => {
+          if (!(await window.getByTestId("note-ask-panel").isVisible()))
+            await window.getByTestId("note-ask-handle-toggle").click();
+        });
+      }
+      if (proposed) {
+        await still("d5-narrow-column", [900], async () => {
+          if (!(await window.getByTestId("note-ask-panel").isVisible()))
+            await window.getByTestId("note-ask-handle-toggle").click();
+          await window.getByTestId("conversation-move-right").click();
+          await expect(window.getByTestId("note-column")).toBeVisible();
+        });
+        await setWindowSize(app, window, 900, HEIGHT);
+        await window
+          .getByTestId("conversation-move-down")
+          .click({ timeout: 5000 })
+          .catch(() => log.push("no way back under the note"));
+        await setWindowSize(app, window, 1440, HEIGHT);
+      }
+      if (await window.getByTestId("note-ask-panel").isVisible())
+        await window.getByTestId("note-ask-handle-toggle").click();
+    });
+
+    if (proposed) {
+      await step("long title", async () => {
+        await rename(WORDS.longTitle);
+        await still("b2-long-title", [1440, 900]);
+        if (named) await rename(named);
+      });
+    }
+
+    // e. After Stop.
+    await step("stop", async () => {
+      const stop = proposed
+        ? window.getByTestId("meeting-foot-stop")
+        : window.getByTestId("meeting-bar").getByTestId("meeting-stop");
+      await stop.click();
+      await expect
+        .poll(async () => (await meetings(window)).find((each) => each.id === meeting.id)?.status, {
+          timeout: 60_000,
+        })
+        .toBe("stopped");
+      await expect
+        .poll(
+          async () =>
+            (await meetings(window)).find((each) => each.id === meeting.id)?.transcript?.state,
+          { timeout: 60_000 },
+        )
+        .toBe("saved");
+      await window.waitForTimeout(1500);
+      if (await window.getByTestId("meeting-view-menu").isVisible())
+        await window.keyboard.press("Escape");
+      await still("e1-stopped");
+    });
+
+    // f. The notes the User's AI writes, then the check, then the words said for one sentence.
+    await step("notes", async () => {
+      await mode(LANG === "en" ? "notes" : "notes-zh");
+      if (proposed) {
+        await window.getByTestId("meeting-write-notes").click();
+        // Drawn: the name written from what was said, which no tool of the AI's can set yet.
+        await rename(WORDS.title);
+      } else {
+        const input = window.getByTestId("note-ask-input");
+        await input.click();
+        await window.keyboard.type(
+          LANG === "en" ? "Fill in my notes from the call" : "根据通话补全我的笔记",
+        );
+        await window.keyboard.press("Enter");
+      }
+      await expect
+        .poll(async () => (await editor.innerText()).includes(LANG === "en" ? "slipway" : "滑道"), {
+          timeout: 60_000,
+        })
+        .toBe(true);
+      const accept = window.getByTestId("proposals-accept-all");
+      if (await accept.isVisible().catch(() => false)) await accept.click();
+      await window.waitForTimeout(1500);
+      await still("f0-notes-written");
+      await mode(LANG === "en" ? "check" : "check-zh");
+      await editor.click();
+      await runCommand(window, "mind.check", WORDS.check);
+      await expect
+        .poll(
+          async () =>
+            (await window.getByTestId("check-badge-open").first().getAttribute("aria-label")) ?? "",
+          { timeout: 90_000 },
+        )
+        .toMatch(/look|留意/)
+        .catch(() => log.push("the check badge never named a sentence to look at"));
+      await window.waitForTimeout(2000);
+      await editor.evaluate((el) => (el as HTMLElement).blur());
+      const closeCard = async () => {
+        if (
+          await window
+            .getByTestId("check-card")
+            .isVisible()
+            .catch(() => false)
+        )
+          await window.keyboard.press("Escape");
+      };
+      await still("f1-notes-checked", [1440, 900], closeCard);
+      const cite = editor.getByTestId("citation").first();
+      await still("f2-words-said", [1440, 900], async () => {
+        await closeCard();
+        await cite.click({ force: true });
+        await expect(window.getByTestId("citation-card")).toBeVisible();
+      });
+      await still("f3-unsupported", [1440, 900], async () => {
+        await window.keyboard.press("Escape");
+        await window
+          .getByText(LANG === "en" ? "already approved" : "已经批准")
+          .first()
+          .click({ force: true });
+      });
+      await window.keyboard.press("Escape");
+    });
+  } finally {
+    await writeFile(join(OUT, `log-${tag}.txt`), log.join("\n"));
+    await app.close().catch(() => undefined);
+    await removeDataFolder(dataDir);
+    await removeDataFolder(home);
+    await removeDataFolder(bin);
+  }
+});
