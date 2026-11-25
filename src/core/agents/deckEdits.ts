@@ -6,7 +6,7 @@
  * - `propose_deck_changes`: validates and queues a Proposal changing only the named shapes,
  *   table cells, speaker notes, or chart series, re-checking reach and write grant right before
  *   publication, checking text fit against each shape's autofit, and recording IncarnaMind-minted
- *   Citations as shape tags or embedded workbook cell notes.
+ *   Citations as ids-only shape tags.
  */
 
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
@@ -172,7 +172,7 @@ function toDeckCitation(cited: AgentCitation, t: DeckEditToolContext["t"]): Deck
   };
 }
 
-/** Hydrates in-reach ids-only Citation tags from the index and masks any outside this pairing's reach (#149 M3). */
+/** Hydrates in-reach ids-only Citation tags from the index, masks out-of-reach known ids, and omits unknown ids (#149 M3). */
 function maskSlideCitations(
   slides: readonly DeckSlideSummary[],
   context: DeckEditToolContext,
@@ -185,26 +185,41 @@ function maskSlideCitations(
       const cleanedSeries = shape.series?.map(({ formula: _, ...rest }) => rest);
       const baseShape = cleanedSeries ? { ...shape, series: cleanedSeries } : shape;
       if (!baseShape.citations || baseShape.citations.length === 0) return baseShape;
-      const citations: DeckCitationRecord[] = baseShape.citations.map((cite) => {
-        if (cite.documentId && context.reachesDocument(pairing, cite.documentId)) {
-          if (cite.document !== "") return cite;
-          const hydrated = context.lookupCitation?.(cite.documentId, cite.passageId);
-          return {
-            ...cite,
-            document: hydrated?.document ?? "",
-            location: hydrated?.location ?? null,
-            quote: hydrated?.quote ?? "",
-          };
+      const citations = baseShape.citations.flatMap<DeckCitationRecord>((cite) => {
+        if (!cite.documentId) return [];
+        const hydrated = context.lookupCitation?.(cite.documentId, cite.passageId);
+        if (context.lookupCitation && !hydrated) return [];
+        if (context.reachesDocument(pairing, cite.documentId)) {
+          if (!hydrated) return [];
+          return [
+            {
+              document: hydrated.document,
+              location: hydrated.location,
+              quote: hydrated.quote,
+              documentId: cite.documentId,
+              ...(cite.passageId ? { passageId: cite.passageId } : {}),
+              ...(cite.row !== undefined ? { row: cite.row } : {}),
+              ...(cite.column !== undefined ? { column: cite.column } : {}),
+              ...(cite.pointIndex !== undefined ? { pointIndex: cite.pointIndex } : {}),
+            },
+          ];
         }
-        return {
-          document: restrictedLabel,
-          location: null,
-          quote: "",
-          ...(cite.row !== undefined ? { row: cite.row } : {}),
-          ...(cite.column !== undefined ? { column: cite.column } : {}),
-          restricted: true,
-        };
+        return [
+          {
+            document: restrictedLabel,
+            location: null,
+            quote: "",
+            ...(cite.row !== undefined ? { row: cite.row } : {}),
+            ...(cite.column !== undefined ? { column: cite.column } : {}),
+            ...(cite.pointIndex !== undefined ? { pointIndex: cite.pointIndex } : {}),
+            restricted: true as const,
+          },
+        ];
       });
+      if (citations.length === 0) {
+        const { citations: _dropped, ...withoutCitations } = baseShape;
+        return withoutCitations;
+      }
       return { ...baseShape, citations };
     }),
   }));

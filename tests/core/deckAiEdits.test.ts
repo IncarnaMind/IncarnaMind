@@ -18,6 +18,7 @@ import { openPackage } from "../../src/core/documents/formats/zip";
 import { chartAgreement, chartSeries } from "../../src/core/exports/pptxPatch/charts";
 import { Deck } from "../../src/core/exports/pptxPatch/deck";
 import { CITATION_TAG_NAME } from "../../src/core/exports/pptxPatch/deckChanges";
+import { readShapeTags, setShapeTags } from "../../src/core/exports/pptxPatch/shapes";
 import { Workbook } from "../../src/core/exports/pptxPatch/workbook";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { addAndProcess } from "../helpers/documents";
@@ -42,6 +43,24 @@ const partsChanged = (before: Uint8Array, after: Uint8Array) => {
   const original = openPackage(before);
   return original.names().filter((name) => rawOf(before, name) !== rawOf(after, name));
 };
+
+async function allPackageText(bytes: Uint8Array): Promise<string> {
+  const pkg = openPackage(bytes);
+  const chunks: string[] = [];
+  for (const name of pkg.names()) {
+    const raw = (await pkg.read(name)) as Uint8Array;
+    if (/\.xlsx$/i.test(name)) {
+      const inner = openPackage(raw);
+      for (const innerName of inner.names()) {
+        const innerRaw = (await inner.read(innerName)) as Uint8Array;
+        chunks.push(Buffer.from(innerRaw).toString("utf8"));
+      }
+    } else {
+      chunks.push(Buffer.from(raw).toString("utf8"));
+    }
+  }
+  return chunks.join("\n");
+}
 
 function multiSlideDeck(options?: {
   autofit?: "none" | "shrink" | "grow";
@@ -389,8 +408,11 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
 
     const afterBytes = acceptedChart.bytes;
     expect(partsChanged(beforeBytes, afterBytes).sort()).toEqual([
+      "[Content_Types].xml",
       "ppt/charts/chart1.xml",
       "ppt/embeddings/Microsoft_Excel_Worksheet.xlsx",
+      "ppt/slides/_rels/slide1.xml.rels",
+      "ppt/slides/slide1.xml",
     ]);
 
     const reread = Deck.open(afterBytes);
@@ -409,29 +431,79 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     )) as Uint8Array;
     const wb = Workbook.open(wbBytes);
     expect(await wb.read("Sheet1", ["B2", "B3", "C2", "C3"])).toEqual([10, 12.5, 21, 27.5]);
-    const notes = await wb.readNotes("Sheet1");
-    expect(notes.C3).toContain("south quay holds 19 boats");
-
-    // Simulate PowerPoint/Keynote renaming the comments part and rId inside the workbook.
+    // Zero comment part added to embedded workbook, and zero Document name or quote anywhere in the .pptx or .xlsx.
     const wbPkg = openPackage(wbBytes);
+    expect(wbPkg.names().filter((name) => /comment|vml/i.test(name))).toEqual([]);
+    const dumped = await allPackageText(afterBytes);
+    expect(dumped).not.toContain("Harbour survey");
+    expect(dumped).not.toContain("south quay holds 19 boats");
+
+    // Positive check: pointCitations stored as ids-only + pointIndex on the chart shape's INCARNAMIND_CITES tag.
+    const chartTags = await readShapeTags(reread, "ppt/slides/slide1.xml", "4");
+    const storedPointCites = JSON.parse(chartTags[CITATION_TAG_NAME] ?? "[]") as Array<
+      Record<string, unknown>
+    >;
+    expect(storedPointCites).toEqual([
+      {
+        documentId: expect.any(String),
+        passageId: passage.passageId,
+        pointIndex: 1,
+      },
+    ]);
+
+    // `read_deck` hydrates the chart shape's ids-only tag from the index with pointIndex intact.
+    const rereadTool = structured<{
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          citations?: Array<{
+            document: string;
+            quote: string;
+            pointIndex?: number;
+          }>;
+        }>;
+      }>;
+    }>(await agent.callTool({ name: "read_deck", arguments: { documentId: realDocId } }));
+    const hydratedChart = rereadTool.slides[0]?.shapes.find((s) => s.shapeId === "4");
+    expect(hydratedChart?.citations).toEqual([
+      expect.objectContaining({
+        document: "Harbour survey",
+        quote: expect.stringContaining("south quay holds 19 boats"),
+        pointIndex: 1,
+      }),
+    ]);
+
+    // Simulate PowerPoint/Keynote renaming the chart shape's tag part and rId.
+    const deckPkg = openPackage(afterBytes);
+    const tagPartName = deckPkg.names().find((name) => /^ppt\/tags\/tag\d+\.xml$/.test(name));
+    expect(tagPartName).toBeDefined();
     const renamedEntries: Array<{ name: string; data: Buffer }> = [];
-    for (const name of wbPkg.names()) {
-      const data = Buffer.from((await wbPkg.read(name)) as Uint8Array);
-      if (name === "xl/comments1.xml") {
-        renamedEntries.push({ name: "xl/comments99.xml", data });
-      } else if (name === "xl/worksheets/_rels/sheet1.xml.rels") {
+    for (const name of deckPkg.names()) {
+      const data = Buffer.from((await deckPkg.read(name)) as Uint8Array);
+      if (name === tagPartName) {
+        renamedEntries.push({ name: "ppt/tags/tag99.xml", data });
+      } else if (name === "ppt/slides/_rels/slide1.xml.rels") {
+        const short = (tagPartName ?? "").slice("ppt/tags/".length);
         const text = data
           .toString("utf8")
-          .replace("../comments1.xml", "../comments99.xml")
-          .replace('Id="rId1"', 'Id="rId99"');
+          .replace(`../tags/${short}`, "../tags/tag99.xml")
+          .replace(/Id="(rId\d+)"([^>]*tags\/tag99\.xml)/, 'Id="rId99"$2');
+        renamedEntries.push({ name, data: Buffer.from(text, "utf8") });
+      } else if (name === "ppt/slides/slide1.xml") {
+        const text = data
+          .toString("utf8")
+          .replace(/<p:tags r:id="rId\d+"\/>/, '<p:tags r:id="rId99"/>');
         renamedEntries.push({ name, data: Buffer.from(text, "utf8") });
       } else {
         renamedEntries.push({ name, data });
       }
     }
-    const renamedWb = Workbook.open(new Uint8Array(buildZip(renamedEntries)));
-    const rereadNotes = await renamedWb.readNotes("Sheet1");
-    expect(rereadNotes.C3).toContain("south quay holds 19 boats");
+    const renamedTags = await readShapeTags(
+      Deck.open(new Uint8Array(buildZip(renamedEntries))),
+      "ppt/slides/slide1.xml",
+      "4",
+    );
+    expect(JSON.parse(renamedTags[CITATION_TAG_NAME] ?? "[]")).toEqual(storedPointCites);
   });
 
   // protects=overflowing text is detected for none/shrink/grow autofit kinds, confirming shrink writes valid normAutofit, confirming grow expands spAutoFit height, and shape Citation tags survive part/rId renaming (#149 AC #6, #7); fails_when=overflow goes undetected, normAutofit/ext are not updated, or Citations vanish when tag parts are renamed
@@ -729,10 +801,9 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     });
     expect(handEdit.kind).toBe("saved");
 
-    await expect(core.acceptDeckProposal(proposed.proposalId)).rejects.toThrow(
-      /changed since|again/i,
-    );
-    await core.rejectDeckProposal(proposed.proposalId);
+    await expect(core.acceptDeckProposal(proposed.proposalId)).rejects.toMatchObject({
+      wording: { key: "error.deck.proposalStale" },
+    });
     expect(await core.deckProposals(readRes.documentId)).toEqual([]);
   });
 
@@ -894,7 +965,7 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     });
     expect(badMissing.isError).toBe(true);
 
-    // Keeping idx=1 as null succeeds and appends the Citation note to B2 WITHOUT wiping "Reviewed with CFO"!
+    // Keeping idx=1 as null succeeds, leaves existing workbook comments byte-identical, and stores ids-only pointCitations on the chart shape tag.
     const okProp = structured<{ proposalId: string }>(
       await agent.callTool({
         name: "propose_deck_changes",
@@ -918,9 +989,21 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     const wbBytes = (await Deck.open(accepted.bytes).pkg.bytes(
       "ppt/embeddings/Microsoft_Excel_Worksheet.xlsx",
     )) as Uint8Array;
-    const notes = await Workbook.open(wbBytes).readNotes("Sheet1");
-    expect(notes.B2).toContain("Reviewed with CFO");
-    expect(notes.B2).toContain("south quay holds 19 boats");
+    const wbCommentsXml = Buffer.from(
+      (await openPackage(wbBytes).read("xl/comments1.xml")) as Uint8Array,
+    ).toString("utf8");
+    expect(wbCommentsXml).toBe(existingComments);
+    const dumped = await allPackageText(accepted.bytes);
+    expect(dumped).not.toContain("Harbour survey");
+    expect(dumped).not.toContain("south quay holds 19 boats");
+    const sparseTags = await readShapeTags(Deck.open(accepted.bytes), "ppt/slides/slide1.xml", "4");
+    expect(JSON.parse(sparseTags[CITATION_TAG_NAME] ?? "[]")).toEqual([
+      {
+        documentId: expect.any(String),
+        passageId: searched.passages[0]?.passageId,
+        pointIndex: 0,
+      },
+    ]);
   });
 
   // protects=subsequent confirmed AI edits keep writing the User's own deck in place without creating copies, keep both the first and latest pre-edit states, and refuse Undo after a later hand edit (S2); fails_when=copies pile up, kept states are lost, or Undo silently wipes a later hand edit
@@ -1462,6 +1545,7 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     await expect(core.acceptDeckProposal(prop.proposalId)).rejects.toMatchObject({
       wording: { key: "error.deck.proposalStale" },
     });
+    expect(await core.deckProposals(doc.id)).toEqual([]);
     expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(sha256(externalBytes));
 
     // Re-read after the external save, propose on Slide 1, then make an app-own hand edit on Slide 2 -> Confirm succeeds!
@@ -1814,5 +1898,127 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(accA.unchangedSlides).toBe(2);
     expect(accB.unchangedSlides).toBe(2);
     await agent.close();
+  });
+
+  // protects=INCARNAMIND_CITES tags are read strictly as ids-only, always hydrated from the index, never trusting file-stored name/location/quote, and omitting unknown ids; fails_when=forged tag text is returned or unknown ids leak into read_deck
+  it("ignores forged name/quote text in shape Citation tags and omits unknown ids", async () => {
+    const { core, coast, writer, files } = await started();
+    const otherFolder = await core.createLibraryGroup({ name: "Other", description: "" });
+    const outOfReach = await core.connectAgent({
+      name: "Other Agent",
+      folderIds: [otherFolder.id],
+      propose: false,
+    });
+    const inReachAgent = await connectLegacyAgent(writer.launch);
+    const outOfReachAgent = await connectLegacyAgent(outOfReach.launch);
+
+    const searched = structured<{ passages: Array<{ passageId: string; documentId: string }> }>(
+      await inReachAgent.callTool({ name: "search", arguments: { query: "south quay 19 boats" } }),
+    );
+    const realPassage = searched.passages[0];
+    if (!realPassage) throw new Error("Expected indexed survey passage.");
+
+    const forgedDeck = Deck.open(multiSlideDeck());
+    await setShapeTags(forgedDeck, "ppt/slides/slide1.xml", "3", {
+      [CITATION_TAG_NAME]: JSON.stringify([
+        {
+          document: "Forged Memo",
+          location: "p. 99",
+          quote: "Forged quote from file",
+          documentId: realPassage.documentId,
+          passageId: realPassage.passageId,
+        },
+        {
+          document: "Ghost Memo",
+          location: "p. 1",
+          quote: "Ghost quote",
+          documentId: "00000000-0000-0000-0000-000000000000",
+          passageId: "00000000-0000-0000-0000-000000000001",
+        },
+        {
+          document: "Real Doc Bad Passage",
+          quote: "Bad passage quote",
+          documentId: realPassage.documentId,
+          passageId: "00000000-0000-0000-0000-000000000002",
+        },
+        {
+          document: "Legacy Without Ids",
+          location: "p. 2",
+          quote: "Legacy quote",
+        },
+      ]),
+    });
+    const forgedBytes = await forgedDeck.save();
+
+    // Put one copy in Coast (in-reach of survey) and one copy in Other (out-of-reach of survey).
+    const inReachPath = join(files, "ForgedInReach.pptx");
+    const outOfReachPath = join(files, "ForgedOutOfReach.pptx");
+    await writeFile(inReachPath, forgedBytes);
+    await writeFile(outOfReachPath, forgedBytes);
+    const [inReachDoc, outOfReachDoc] = await addAndProcess(core, [inReachPath, outOfReachPath]);
+    if (!inReachDoc || !outOfReachDoc) throw new Error("Expected both decks.");
+    await core.assignDocumentGroup(inReachDoc.id, coast.id);
+    await core.assignDocumentGroup(outOfReachDoc.id, otherFolder.id);
+
+    const inReachRead = structured<{
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          citations?: Array<{
+            document: string;
+            location: string | null;
+            quote: string;
+            documentId?: string;
+            passageId?: string;
+            restricted?: boolean;
+          }>;
+        }>;
+      }>;
+    }>(
+      await inReachAgent.callTool({ name: "read_deck", arguments: { documentId: inReachDoc.id } }),
+    );
+    const inReachShape = inReachRead.slides[0]?.shapes.find((s) => s.shapeId === "3");
+    expect(inReachShape?.citations).toHaveLength(1);
+    expect(inReachShape?.citations?.[0]).toEqual({
+      document: "Harbour survey",
+      location: "p. 1",
+      quote: expect.stringContaining("south quay holds 19 boats"),
+      documentId: realPassage.documentId,
+      passageId: realPassage.passageId,
+    });
+    expect(JSON.stringify(inReachShape?.citations)).not.toContain("Forged");
+    expect(JSON.stringify(inReachShape?.citations)).not.toContain("Ghost");
+    expect(JSON.stringify(inReachShape?.citations)).not.toContain("Legacy");
+
+    const outOfReachRead = structured<{
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          citations?: Array<{
+            document: string;
+            quote: string;
+            restricted?: boolean;
+          }>;
+        }>;
+      }>;
+    }>(
+      await outOfReachAgent.callTool({
+        name: "read_deck",
+        arguments: { documentId: outOfReachDoc.id },
+      }),
+    );
+    const outOfReachShape = outOfReachRead.slides[0]?.shapes.find((s) => s.shapeId === "3");
+    expect(outOfReachShape?.citations).toHaveLength(1);
+    expect(outOfReachShape?.citations?.[0]).toEqual({
+      document: expect.any(String),
+      location: null,
+      quote: "",
+      restricted: true,
+    });
+    expect(JSON.stringify(outOfReachShape?.citations)).not.toContain("Forged");
+    expect(JSON.stringify(outOfReachShape?.citations)).not.toContain("Harbour survey");
+
+    await inReachAgent.close();
+    await outOfReachAgent.close();
   });
 });

@@ -2507,8 +2507,9 @@ export function createAgentAccess(
       return inScope.has(documentId);
     },
     lookupCitation: (documentId, passageId) => {
-      const passage = passageId ? deps.passage(passageId) : null;
-      if (passage && passage.documentId === documentId) {
+      if (passageId) {
+        const passage = deps.passage(passageId);
+        if (!passage || passage.documentId !== documentId) return null;
         return {
           document: passage.documentName,
           location: passage.pageFrom !== null ? `p. ${passage.pageFrom}` : null,

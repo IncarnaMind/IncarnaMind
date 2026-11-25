@@ -1,7 +1,7 @@
 /**
  * Unified deck patch application for AI-proposed changes (#149 part 2): applies targeted text,
- * table-cell, position/size, speaker-notes, single-series chart, autofit, and Citation tag/cell-note
- * edits through the exact same package-patch layer as hand editing, so every untouched shape,
+ * table-cell, position/size, speaker-notes, single-series chart, autofit, and ids-only Citation
+ * tag edits through the exact same package-patch layer as hand editing, so every untouched shape,
  * slide, and package part remains byte-identical.
  */
 import type { DeckChange, DeckCitationRecord } from "../../decks/proposalTypes";
@@ -20,25 +20,13 @@ export type { DeckChange, DeckCitationRecord };
 /** Tag name under `p:custDataLst/p:tags` storing IncarnaMind Citations on a shape (#149). */
 export const CITATION_TAG_NAME = "INCARNAMIND_CITES";
 
-/** Author name on Excel cell notes written into a chart's embedded workbook (#149). */
-export const CITATION_NOTE_AUTHOR = "IncarnaMind";
-
-/** Formats one or more Citations as a plain-text cell note for Excel / PowerPoint Edit Data. */
-export function formatCellCitationNote(citations: readonly DeckCitationRecord[]): string {
-  return citations
-    .map((cite) => {
-      const place = cite.location ? `${cite.document}, ${cite.location}` : cite.document;
-      return `IncarnaMind Citation: ${place} — "${cite.quote}"`;
-    })
-    .join("\n");
-}
-
 /** Ids-only Citation stored on a shape's `INCARNAMIND_CITES` tag so no Document name or quote enters the `.pptx`. */
 interface StoredShapeCitation {
   documentId: string;
   passageId?: string;
   row?: number;
   column?: number;
+  pointIndex?: number;
 }
 
 function toStoredShapeCitation(cite: DeckCitationRecord): StoredShapeCitation[] {
@@ -49,11 +37,12 @@ function toStoredShapeCitation(cite: DeckCitationRecord): StoredShapeCitation[] 
       ...(cite.passageId ? { passageId: cite.passageId } : {}),
       ...(cite.row !== undefined ? { row: cite.row } : {}),
       ...(cite.column !== undefined ? { column: cite.column } : {}),
+      ...(cite.pointIndex !== undefined ? { pointIndex: cite.pointIndex } : {}),
     },
   ];
 }
 
-/** Parses Citations stored in a shape's `INCARNAMIND_CITES` tag (ids-only or legacy); returns [] if absent or invalid. */
+/** Parses ids-only Citations stored in a shape's `INCARNAMIND_CITES` tag; ignores any text fields in the file. */
 export function parseShapeCitations(tags: Readonly<Record<string, string>>): DeckCitationRecord[] {
   const raw = tags[CITATION_TAG_NAME];
   if (!raw) return [];
@@ -64,23 +53,27 @@ export function parseShapeCitations(tags: Readonly<Record<string, string>>): Dec
     for (const item of parsed) {
       if (typeof item !== "object" || item === null) continue;
       const rec = item as Record<string, unknown>;
-      const documentId = typeof rec.documentId === "string" ? rec.documentId : undefined;
-      const passageId = typeof rec.passageId === "string" ? rec.passageId : undefined;
-      const document = typeof rec.document === "string" ? rec.document : "";
-      const quote = typeof rec.quote === "string" ? rec.quote : "";
-      if (!documentId && (document === "" || quote === "")) continue;
-      const location = typeof rec.location === "string" ? rec.location : null;
+      const documentId =
+        typeof rec.documentId === "string" && rec.documentId !== "" ? rec.documentId : undefined;
+      if (!documentId) continue;
+      const passageId =
+        typeof rec.passageId === "string" && rec.passageId !== "" ? rec.passageId : undefined;
       const row = typeof rec.row === "number" && Number.isInteger(rec.row) ? rec.row : undefined;
       const column =
         typeof rec.column === "number" && Number.isInteger(rec.column) ? rec.column : undefined;
+      const pointIndex =
+        typeof rec.pointIndex === "number" && Number.isInteger(rec.pointIndex)
+          ? rec.pointIndex
+          : undefined;
       out.push({
-        document,
-        location,
-        quote,
-        ...(documentId ? { documentId } : {}),
+        document: "",
+        location: null,
+        quote: "",
+        documentId,
         ...(passageId ? { passageId } : {}),
         ...(row !== undefined ? { row } : {}),
         ...(column !== undefined ? { column } : {}),
+        ...(pointIndex !== undefined ? { pointIndex } : {}),
       });
     }
     return out;
@@ -417,8 +410,7 @@ export async function applyDeckChanges(
       );
       const otherCells = existingCitations
         .filter((each) => each.row !== change.row || each.column !== change.column)
-        .map((each) => (each.documentId ? toStoredShapeCitation(each)[0] : each))
-        .filter((each): each is StoredShapeCitation | DeckCitationRecord => each !== undefined);
+        .flatMap(toStoredShapeCitation);
       const stamped = (change.citations ?? [])
         .map((each) => ({
           ...each,
@@ -441,14 +433,27 @@ export async function applyDeckChanges(
       if (!chartPart) {
         throw new PackagePartError(slide.part, `has no chart on shape ${change.shape}.`);
       }
-      const notes = change.pointCitations
-        ?.filter((entry) => entry.citations.length > 0)
-        .map((entry) => ({
-          pointIndex: entry.pointIndex,
-          author: CITATION_NOTE_AUTHOR,
-          text: formatCellCitationNote(entry.citations),
-        }));
-      await setChartSeriesValues(deck, chartPart, change.series, change.values, { notes });
+      await setChartSeriesValues(deck, chartPart, change.series, change.values);
+      if (change.pointCitations && change.pointCitations.length > 0) {
+        const existingCitations = parseShapeCitations(
+          await readShapeTags(deck, slide.part, change.shape),
+        );
+        const replacedPoints = new Set(change.pointCitations.map((entry) => entry.pointIndex));
+        const otherPoints = existingCitations
+          .filter((each) => each.pointIndex === undefined || !replacedPoints.has(each.pointIndex))
+          .flatMap(toStoredShapeCitation);
+        const stamped = change.pointCitations.flatMap((entry) =>
+          entry.citations
+            .map((each) => ({ ...each, pointIndex: entry.pointIndex }))
+            .flatMap(toStoredShapeCitation),
+        );
+        const merged = [...otherPoints, ...stamped];
+        if (merged.length > 0 || existingCitations.length > 0) {
+          await setShapeTags(deck, slide.part, change.shape, {
+            [CITATION_TAG_NAME]: JSON.stringify(merged),
+          });
+        }
+      }
     }
   }
   const out = await deck.save();

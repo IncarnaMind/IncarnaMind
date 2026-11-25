@@ -6,7 +6,7 @@ import type { DeckSaved } from "../api";
 import type { Autofit } from "../documents/formats/pptxDrawing";
 import type { ShapeBox, TextFit } from "../exports/pptxPatch/shapeEdit";
 
-/** One Citation stored on a shape tag or chart cell note. */
+/** One Citation stored on a shape tag. */
 export interface DeckCitationRecord {
   document: string;
   location: string | null;
@@ -16,6 +16,8 @@ export interface DeckCitationRecord {
   /** Set for Citations attached to a specific table cell (#149 S7). */
   row?: number;
   column?: number;
+  /** Set for Citations attached to a specific chart point (#149). */
+  pointIndex?: number;
   /** True when masked because the reading agent cannot reach the cited Document's Folder (#149 M3). */
   restricted?: true;
 }
@@ -70,7 +72,7 @@ export type DeckChange =
       series: number | string;
       /** Replacement numeric values by point index (null leaves that point unchanged). */
       values: (number | null)[];
-      /** Optional Citations attached as Excel cell notes on specific points. */
+      /** Optional Citations attached to specific points as ids-only entries on the chart shape's tag. */
       pointCitations?: { pointIndex: number; citations: DeckCitationRecord[] }[];
     };
 

@@ -227,24 +227,15 @@ export async function setChartValues(
   deck.pkg.set(embedded, await workbook.save());
 }
 
-/** A cell note attached to one point of an edited chart series (e.g. a Citation, #149). */
-export interface ChartPointNote {
-  pointIndex: number;
-  author: string;
-  text: string;
-}
-
 /**
  * Sets ONLY one named (or indexed) series' values in both the chart's cache and its embedded
- * workbook, leaving every other series' XML bytes and cells untouched (#149). Optionally writes
- * Excel cell notes on specified points in the embedded workbook.
+ * workbook, leaving every other series' XML bytes and cells untouched (#149).
  */
 export async function setChartSeriesValues(
   deck: Deck,
   chartPart: string,
   target: number | string,
   values: readonly (number | null | undefined)[],
-  options?: { notes?: readonly ChartPointNote[] },
 ): Promise<{ seriesIndex: number; seriesName: string | null; sheet: string; cells: string[] }> {
   const embedded = await workbookPart(deck, chartPart);
   if (!embedded) throw new PackagePartError(chartPart, "has no embedded workbook to keep in step.");
@@ -344,24 +335,12 @@ export async function setChartSeriesValues(
     touchedCells.push(ref);
   }
 
-  const workbook = Workbook.open(bytes);
-  let workbookChanged = false;
   if (written.size > 0) {
+    const workbook = Workbook.open(bytes);
     await workbook.writeNumbers(sheet, written);
-    workbookChanged = true;
-  }
-  if (options?.notes && options.notes.length > 0) {
-    const cellNotes = options.notes.flatMap((note) => {
-      const ref = refs[note.pointIndex];
-      return ref ? [{ ref, author: note.author, text: note.text }] : [];
-    });
-    if (cellNotes.length > 0) {
-      await workbook.setNotes(sheet, cellNotes);
-      workbookChanged = true;
-    }
+    deck.pkg.set(embedded, await workbook.save());
   }
   if (splices.length > 0) deck.pkg.set(chartPart, applySplices(part.text, splices));
-  if (workbookChanged) deck.pkg.set(embedded, await workbook.save());
   return {
     seriesIndex: chosenIndex,
     seriesName: seriesNameOf(chosen.series),

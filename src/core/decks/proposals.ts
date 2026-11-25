@@ -207,6 +207,7 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
       categories: chosen.categories,
       formula: chosen.formula ?? null,
       values: chosen.values,
+      citations: shape.citations ?? [],
     }),
   };
 }
@@ -481,6 +482,8 @@ export function createDeckProposals(deps: DeckProposalDeps) {
         // (e.g. a hand edit or another confirmed proposal on a different shape) and targeted shapes match.
         if (currentHash !== proposal.baseVersion) {
           if (!deps.isAppOwnChange?.(proposal.documentId, proposal.baseVersion, currentHash)) {
+            waiting.delete(proposal.id);
+            notify(proposal.documentId);
             throw new TranslatableError({ key: "error.deck.proposalStale" });
           }
           const { structure } = await readDeckStructure(currentBytes);
@@ -494,6 +497,8 @@ export function createDeckProposals(deps: DeckProposalDeps) {
           for (const item of proposal.items) {
             const now = inspectTarget(structure, item.change);
             if (now.fingerprint !== item.targetFingerprint) {
+              waiting.delete(proposal.id);
+              notify(proposal.documentId);
               throw new TranslatableError({ key: "error.deck.proposalStale" });
             }
           }

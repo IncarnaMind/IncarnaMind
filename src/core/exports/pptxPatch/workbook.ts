@@ -4,14 +4,7 @@
  * and parts it doesn't change keep their bytes.
  */
 import { deflateRawSync } from "node:zlib";
-import {
-  child,
-  descendants,
-  elements,
-  local,
-  textOf,
-  type XmlElement,
-} from "../../documents/formats/xml";
+import { child, descendants, elements, textOf, type XmlElement } from "../../documents/formats/xml";
 import { openPackage } from "../../documents/formats/zip";
 import { checkWellFormed, PackagePartError, PackageWriter } from "../packagePatch/package";
 import { appendInside, applySplices, endOf, type Splice, startOf } from "../packagePatch/text";
@@ -182,152 +175,23 @@ export class Workbook {
    * on a chart's figure.
    */
   async addNote(sheet: string, ref: string, author: string, text: string): Promise<void> {
-    await this.setNotes(sheet, [{ ref, author, text }]);
-  }
-
-  /**
-   * Puts or updates Excel notes on one or more cells (legacy comments + VML). Works whether the
-   * sheet already has notes or not, leaving notes on other cells untouched.
-   */
-  async setNotes(
-    sheet: string,
-    notes: readonly { ref: string; author: string; text: string }[],
-  ): Promise<void> {
-    if (notes.length === 0) return;
     const name = await this.sheetPart(sheet);
     const part = await this.pkg.part(name);
     if (!part) throw new PackagePartError(name, "is missing.");
     const relationships = await this.pkg.relationshipsOf(name);
-    const existingCommentsRel = relationships.ofType(COMMENTS_RELATIONSHIP);
-    const existingVmlRel = relationships.ofType(VML_RELATIONSHIP);
-    const vmlShape = (idNum: number, ref: string) => {
-      const { row, column } = cellAt(ref);
-      return `<v:shape id="_x0000_s${idNum}" type="#_x0000_t202" style="position:absolute;margin-left:80pt;margin-top:2pt;width:108pt;height:59.25pt;z-index:${idNum - 1024};visibility:hidden" fillcolor="#ffffe1" o:insetmode="auto"><v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/><v:path o:connecttype="none"/><v:textbox style="mso-direction-alt:auto"><div style="text-align:left"></div></v:textbox><x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/><x:AutoFill>False</x:AutoFill><x:Row>${row - 1}</x:Row><x:Column>${column - 1}</x:Column></x:ClientData></v:shape>`;
-    };
-
-    if (existingCommentsRel) {
-      const commentsPart = await this.pkg.part(existingCommentsRel.target);
-      if (!commentsPart) throw new PackagePartError(existingCommentsRel.target, "is missing.");
-      const rootName = commentsPart.root.name;
-      const prefix = rootName.includes(":") ? rootName.slice(0, rootName.indexOf(":") + 1) : "";
-      const tag = (localName: string) => `${prefix}${localName}`;
-      const authorsEl = child(commentsPart.root, "authors");
-      const commentList = child(commentsPart.root, "commentList");
-      if (!authorsEl || !commentList) {
-        throw new PackagePartError(existingCommentsRel.target, "is malformed.");
-      }
-      const existingAuthors = elements(authorsEl)
-        .filter((each) => local(each.name) === "author")
-        .map((each) => textOf(each));
-      const newAuthors: string[] = [];
-      const authorIndex = (author: string) => {
-        const found = existingAuthors.indexOf(author);
-        if (found >= 0) return found;
-        const added = newAuthors.indexOf(author);
-        if (added >= 0) return existingAuthors.length + added;
-        newAuthors.push(author);
-        return existingAuthors.length + newAuthors.length - 1;
-      };
-      const existingByRef = new Map(
-        elements(commentList)
-          .filter((each) => local(each.name) === "comment" && each.attrs.ref)
-          .map((each) => [each.attrs.ref as string, each]),
-      );
-      const splices: Splice[] = [];
-      const addedRefs: string[] = [];
-      const appendedComments: string[] = [];
-      for (const note of notes) {
-        const prev = existingByRef.get(note.ref);
-        if (prev) {
-          const prevAuthorId = Number(prev.attrs.authorId);
-          const prevAuthor = Number.isInteger(prevAuthorId)
-            ? (existingAuthors[prevAuthorId] ?? "")
-            : "";
-          if (prevAuthor === note.author) {
-            const aid = authorIndex(note.author);
-            const xml = `<${tag("comment")} ref="${note.ref}" authorId="${aid}"><${tag("text")}><${tag("r")}><${tag("t")} xml:space="preserve">${escapeXml(note.text)}</${tag("t")}></${tag("r")}></${tag("text")}></${tag("comment")}>`;
-            splices.push({ from: startOf(prev), to: endOf(prev), text: xml });
-          } else {
-            // Preserve the User's own note and author, appending or refreshing our Citation line (#149 M4).
-            const prevText = descendants(prev, "t")
-              .map((node) => textOf(node))
-              .join("");
-            const marker = "\n\nIncarnaMind Citation:";
-            const cutAt = prevText.indexOf(marker);
-            const baseText = cutAt >= 0 ? prevText.slice(0, cutAt) : prevText;
-            const combined = baseText.length > 0 ? `${baseText}\n\n${note.text}` : note.text;
-            const keepAid = prev.attrs.authorId ?? String(authorIndex(note.author));
-            const xml = `<${tag("comment")} ref="${note.ref}" authorId="${keepAid}"><${tag("text")}><${tag("r")}><${tag("t")} xml:space="preserve">${escapeXml(combined)}</${tag("t")}></${tag("r")}></${tag("text")}></${tag("comment")}>`;
-            splices.push({ from: startOf(prev), to: endOf(prev), text: xml });
-          }
-        } else {
-          const aid = authorIndex(note.author);
-          const xml = `<${tag("comment")} ref="${note.ref}" authorId="${aid}"><${tag("text")}><${tag("r")}><${tag("t")} xml:space="preserve">${escapeXml(note.text)}</${tag("t")}></${tag("r")}></${tag("text")}></${tag("comment")}>`;
-          appendedComments.push(xml);
-          addedRefs.push(note.ref);
-        }
-      }
-      if (newAuthors.length > 0) {
-        splices.push(
-          appendInside(
-            commentsPart.text,
-            authorsEl,
-            newAuthors
-              .map((author) => `<${tag("author")}>${escapeXml(author)}</${tag("author")}>`)
-              .join(""),
-          ),
-        );
-      }
-      if (appendedComments.length > 0) {
-        splices.push(appendInside(commentsPart.text, commentList, appendedComments.join("")));
-      }
-      this.pkg.set(existingCommentsRel.target, applySplices(commentsPart.text, splices));
-
-      if (addedRefs.length > 0 && existingVmlRel) {
-        const vmlBytes = await this.pkg.bytes(existingVmlRel.target);
-        if (vmlBytes) {
-          const vmlText = new TextDecoder().decode(vmlBytes);
-          let maxId = 1024;
-          for (const match of vmlText.matchAll(/_x0000_s(\d+)/g)) {
-            maxId = Math.max(maxId, Number(match[1]));
-          }
-          const shapesXml = addedRefs.map((ref, idx) => vmlShape(maxId + 1 + idx, ref)).join("");
-          const closeAt = vmlText.lastIndexOf("</xml>");
-          if (closeAt >= 0) {
-            this.pkg.set(
-              existingVmlRel.target,
-              `${vmlText.slice(0, closeAt)}${shapesXml}${vmlText.slice(closeAt)}`,
-            );
-          }
-        }
-      }
-      return;
-    }
-
-    if (child(part.root, "legacyDrawing")) {
-      throw new PackagePartError(name, "already has a legacyDrawing without comments.");
+    if (relationships.ofType(COMMENTS_RELATIONSHIP) || child(part.root, "legacyDrawing")) {
+      throw new PackagePartError(name, "already has notes.");
     }
     const comments = this.pkg.freeName("xl/comments", "xml");
     const drawing = this.pkg.freeName("xl/drawings/vmlDrawing", "vml");
-    const authors: string[] = [];
-    const commentsXml = notes
-      .map((note) => {
-        let aid = authors.indexOf(note.author);
-        if (aid < 0) {
-          aid = authors.length;
-          authors.push(note.author);
-        }
-        return `<comment ref="${note.ref}" authorId="${aid}"><text><r><t xml:space="preserve">${escapeXml(note.text)}</t></r></text></comment>`;
-      })
-      .join("");
+    const { row, column } = cellAt(ref);
     this.pkg.add(
       comments,
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><authors>${authors.map((a) => `<author>${escapeXml(a)}</author>`).join("")}</authors><commentList>${commentsXml}</commentList></comments>`,
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><authors><author>${escapeXml(author)}</author></authors><commentList><comment ref="${ref}" authorId="0"><text><r><t xml:space="preserve">${escapeXml(text)}</t></r></text></comment></commentList></comments>`,
     );
-    const shapesXml = notes.map((note, idx) => vmlShape(1025 + idx, note.ref)).join("");
     this.pkg.add(
       drawing,
-      `<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="1"/></o:shapelayout><v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>${shapesXml}</xml>`,
+      `<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><o:shapelayout v:ext="edit"><o:idmap v:ext="edit" data="1"/></o:shapelayout><v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype><v:shape id="_x0000_s1025" type="#_x0000_t202" style="position:absolute;margin-left:80pt;margin-top:2pt;width:108pt;height:59.25pt;z-index:1;visibility:hidden" fillcolor="#ffffe1" o:insetmode="auto"><v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/><v:path o:connecttype="none"/><v:textbox style="mso-direction-alt:auto"><div style="text-align:left"></div></v:textbox><x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/><x:AutoFill>False</x:AutoFill><x:Row>${row - 1}</x:Row><x:Column>${column - 1}</x:Column></x:ClientData></v:shape></xml>`,
     );
     await this.pkg.addContentType(comments, COMMENTS_CONTENT_TYPE);
     await this.pkg.addDefaultContentType("vml", VML_CONTENT_TYPE);
@@ -354,29 +218,6 @@ export class Workbook {
       ? { from: startOf(later), to: startOf(later), text: xml }
       : appendInside(part.text, part.root, xml);
     this.pkg.set(name, applySplices(part.text, [splice]));
-  }
-
-  /**
-   * Reads a sheet's cell notes by cell reference, locating the comments part through the
-   * worksheet's comments relationship rather than by part name or relationship id (#149).
-   */
-  async readNotes(sheet: string): Promise<Record<string, string>> {
-    const name = await this.sheetPart(sheet);
-    const relationships = await this.pkg.relationshipsOf(name);
-    const rel = relationships.ofType(COMMENTS_RELATIONSHIP);
-    if (!rel) return {};
-    const commentsPart = await this.pkg.part(rel.target);
-    if (!commentsPart) return {};
-    const out: Record<string, string> = {};
-    for (const comment of descendants(commentsPart.root, "comment")) {
-      const ref = comment.attrs.ref;
-      if (!ref) continue;
-      const text = descendants(comment, "t")
-        .map((node) => textOf(node))
-        .join("");
-      out[ref] = text;
-    }
-    return out;
   }
 
   save(): Promise<Uint8Array> {
