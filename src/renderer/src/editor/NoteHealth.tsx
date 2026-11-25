@@ -306,13 +306,15 @@ export function HealthCard({
   const allCheckedShown = running === undefined && summary?.kind === "all";
   // What a checked Note leaves that no row counts, said once on the card's first line (#3756).
   const caveat = allCheckedShown && state ? checkedCaveat(state, t, format) : null;
-  // "All supported" only where it is true: nothing left, kept as written or unread.
+  // "All supported" only where it is true: nothing left, kept as written, a writer's own view or
+  // unread.
   const allSupported =
     allCheckedShown &&
     caveat === null &&
     (state?.unread ?? 0) === 0 &&
     health.kept.length === 0 &&
-    health.keptCharts.length === 0;
+    health.keptCharts.length === 0 &&
+    health.ownViews.length === 0;
   // What the note line says: when the Note was last checked. While a run is on it says nothing:
   // the rows show each sentence move as its check ends, and a line of what landed would count
   // them twice (#2831). With nothing to say it takes no line, so no empty line is reserved.

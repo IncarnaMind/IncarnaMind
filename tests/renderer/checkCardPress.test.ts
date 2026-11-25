@@ -18,11 +18,12 @@ const pressed = vi.hoisted(() => ({
   check: vi.fn(),
   unpriced: vi.fn(),
   running: { value: false },
+  unchanged: { value: undefined as true | undefined },
 }));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   startCheck: pressed.check,
   startCheckUnpriced: pressed.unpriced,
-  useMindCheck: () => undefined,
+  useMindCheck: () => pressed.unchanged.value,
   useMindCheckRun: () => null,
 }));
 vi.mock("@tiptap/react", () => ({
@@ -110,7 +111,7 @@ vi.mock("../../src/renderer/src/editor/changedSentences", () => ({
 vi.mock("../../src/renderer/src/editor/checkPlace", () => ({ useCardPlace: () => "card" }));
 vi.mock("../../src/renderer/src/editor/MindCheckLine", () => ({
   MindCheckAsk: () => null,
-  MindUnchanged: () => null,
+  MindUnchanged: () => createElement("p", { "data-testid": "mind-unchanged" }),
   RunningText: () => null,
 }));
 vi.mock("../../src/renderer/src/editor/NoteHealth", () => ({
@@ -223,6 +224,17 @@ afterEach(async () => {
   root = null;
   container.remove();
   vi.unstubAllGlobals();
+  pressed.unchanged.value = undefined;
+});
+
+// protects=#3756: a Check that finds nothing changed says so, with its way to check every sentence again, even when no time of the last check is known, and the quiet Check again stays under it; fails_when=the line goes when the plan names no time, so the press runs nothing and nothing says why
+test("nothing changed is said even with no time to name", async () => {
+  pressed.unchanged.value = true;
+  await render("none", { ...planned, plan: { kind: "unchanged", since: null } }, null);
+  expect(container.querySelector('[data-testid="mind-unchanged"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="badge-check-mind"]')?.textContent).toBe(
+    "mindCheck.again",
+  );
 });
 
 // protects=#2313: the card's press hands `startCheck` the plan its price line was for; fails_when=it presses without that plan, so a plan made since the price runs at once, unpriced; no_claim=the press waiting for a price.
