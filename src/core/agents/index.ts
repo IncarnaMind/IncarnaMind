@@ -1084,8 +1084,9 @@ export function createAgents(options: AgentsOptions) {
 
     /**
      * Takes back what `connectAgain` changed on a connection that stays: what it reads and writes,
-     * and each decision on its data flows as it stood before the press. A renewed token stays new:
-     * the one before it works nowhere.
+     * and each decision on its data flows as it stood before the press, or, for a flow with none,
+     * the press's taken back (`consent.putBack`). A renewed token stays new: the one before it
+     * works nowhere.
      */
     putBack(pairingId: string, before: ConnectedBefore): AgentPairing {
       const pairing = requirePairing(pairingId);

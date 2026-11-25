@@ -268,4 +268,64 @@ describe("IncarnaMind's entry read back from a settings file, in each format", (
       expect(writtenEntry(format, written(elsewhere), "")?.socket).toBe("/other/agents.sock");
     },
   );
+
+  /** IncarnaMind's Codex table with its command and env lines as given. */
+  const codexWith = (command: string, env: string) =>
+    `model = "gpt-6-luna"\n\n[mcp_servers.incarnamind]\n${command}\nargs = []\n${env}\n`;
+
+  it("codex-toml: the socket is read from the env table itself, never from a comment after it", () => {
+    const text = codexWith(
+      `command = ${JSON.stringify(LAUNCH.command)}`,
+      `env = { INCARNAMIND_AGENT_SOCKET = "/other/agents.sock" } # INCARNAMIND_AGENT_SOCKET = "/ours/agents.sock"`,
+    );
+    expect(writtenEntry("codex-toml", text, "")).toEqual({
+      command: LAUNCH.command,
+      socket: "/other/agents.sock",
+    });
+  });
+
+  it("codex-toml: a command line with a comment after it is still read", () => {
+    const text = codexWith(
+      `command = ${JSON.stringify(LAUNCH.command)} # where IncarnaMind is`,
+      `env = { INCARNAMIND_AGENT_SOCKET = ${JSON.stringify(SOCKET)} }`,
+    );
+    expect(writtenEntry("codex-toml", text, "")).toEqual({
+      command: LAUNCH.command,
+      socket: SOCKET,
+    });
+  });
+
+  it("an entry whose program or socket isn't in a form this reads is still an entry, with that part unknown", () => {
+    expect(
+      writtenEntry(
+        "codex-toml",
+        codexWith(
+          `command = ${JSON.stringify(LAUNCH.command)}`,
+          `env = { INCARNAMIND_AGENT_SOCKET = /ours/agents.sock }`,
+        ),
+        "",
+      ),
+    ).toEqual({ command: LAUNCH.command, socket: null });
+    expect(
+      writtenEntry(
+        "codex-toml",
+        codexWith(
+          "command = [1]",
+          `env = { INCARNAMIND_AGENT_SOCKET = ${JSON.stringify(SOCKET)} }`,
+        ),
+        "",
+      ),
+    ).toEqual({ command: null, socket: SOCKET });
+    expect(
+      writtenEntry(
+        "mcp-servers-json",
+        JSON.stringify({
+          mcpServers: { incarnamind: { command: 7, env: { INCARNAMIND_AGENT_SOCKET: 8 } } },
+        }),
+        "",
+      ),
+    ).toEqual({ command: null, socket: null });
+    expect(writtenEntry("codex-toml", 'model = "gpt-6-luna"\n', "")).toBeNull();
+    expect(writtenEntry("mcp-servers-json", JSON.stringify({ mcpServers: {} }), "")).toBeNull();
+  });
 });

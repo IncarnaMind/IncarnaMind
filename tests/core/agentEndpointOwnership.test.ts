@@ -6,6 +6,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -592,7 +593,15 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     await core.setAgentsEnabled(true);
     const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
     const folderIds = [coast.id];
-    return { core, start, keychain, opened, opening, folderIds, dataDir, home };
+    /**
+     * Once the install file a set-up opened has gone, as it goes when Claude's agent connects: its
+     * removal runs in the background, and would take a file made after it in the same folder.
+     */
+    const installFileGone = (pairingId: string) =>
+      vi.waitFor(async () =>
+        expect(await readdir(tempDir)).not.toContain(`incarnamind-agent-${pairingId}`),
+      );
+    return { core, start, keychain, opened, opening, folderIds, dataDir, home, installFileGone };
   }
 
   const keyInBundle = async (path: string) =>
@@ -603,7 +612,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     ).server.mcp_config.env[AGENT_TOKEN_ENV] ?? "";
 
   it("set up again after its agent used an out-of-date shim, Claude's one connection gets a new key: the new one works, the old is refused", async () => {
-    const { core, opened, folderIds } = await claudeComputer();
+    const { core, opened, folderIds, installFileGone } = await claudeComputer();
     const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
     const oldLaunch = await core.getAgentLaunch(pairing.id);
     const oldToken = oldLaunch.env[AGENT_TOKEN_ENV] ?? "";
@@ -615,6 +624,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
       params: {},
     });
     expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+    await installFileGone(pairing.id);
 
     const again = await core.setUpAgent({ client: "claude-desktop", folderIds });
     expect(again.pairing.id).toBe(pairing.id);
@@ -740,8 +750,20 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect((await restarted.getAgents()).pairings).toEqual([]);
   }, 60_000);
 
+  it("an entry whose program can't be read stays when a connection whose key can't be read leaves, and is said, not counted as gone", async () => {
+    const { restarted, pairing, claudeJson } = await keyUnreadable("claude-code");
+    const settings = JSON.parse(await readFile(claudeJson, "utf8"));
+    settings.mcpServers.incarnamind.command = 8;
+    await writeFile(claudeJson, `${JSON.stringify(settings, null, 2)}\n`);
+    const left = await restarted.disconnectAgent(pairing.id);
+    expect(left.settingsLeft?.map((each) => each.path)).toEqual([claudeJson]);
+    expect(await serversIn(claudeJson)).toEqual(["notes", "incarnamind"]);
+    expect(await readFile(`${claudeJson}.incarnamind-backup`, "utf8")).toBe(CLAUDE_JSON);
+    expect((await restarted.getAgents()).pairings).toEqual([]);
+  }, 60_000);
+
   it("a second press whose install can't open keeps Claude's out-of-date mark, so install again finishes it with a key that works", async () => {
-    const { core, opened, opening, folderIds } = await claudeComputer();
+    const { core, opened, opening, folderIds, installFileGone } = await claudeComputer();
     const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
     const oldLaunch = await core.getAgentLaunch(pairing.id);
     await callViaLegacyV1(
@@ -749,6 +771,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
       oldLaunch.env[AGENT_TOKEN_ENV] ?? "",
       { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
     );
+    await installFileGone(pairing.id);
     opening.refused = true;
     await expect(core.setUpAgent({ client: "claude-desktop", folderIds })).rejects.toThrow(
       /No app opens it/,
@@ -805,7 +828,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
   }, 60_000);
 
   it("install again and a second press of Claude take turns: the install opened last holds the key that works", async () => {
-    const { core, opened, folderIds } = await claudeComputer();
+    const { core, opened, folderIds, installFileGone } = await claudeComputer();
     const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
     const oldLaunch = await core.getAgentLaunch(pairing.id);
     await callViaLegacyV1(
@@ -819,6 +842,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
       },
     );
     expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+    await installFileGone(pairing.id);
 
     await Promise.all([
       core.setUpAgent({ client: "claude-desktop", folderIds }),

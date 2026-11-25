@@ -68,8 +68,8 @@ interface ConsentRow {
 }
 
 /**
- * A flow's decision for one service as `choose` found it, for `putBack` to write back: its row as
- * it stood, or null where there was none.
+ * A flow's decision for one service as `choose` found it, for `putBack`: its row as it stood, to
+ * write back, or null where there was none, so the choice made since is taken back.
  */
 export interface ReplacedDecision {
   flowId: DataFlowId;
@@ -431,17 +431,20 @@ export function createConsent(
 
     /**
      * Sets each flow's decision for its service back to what `choose` replaced, the User having
-     * taken that choice back: the row as it stood, with its kinds, date and how it was given, or no
-     * decision where there was none. A decision forgotten since stays forgotten.
+     * taken that choice back: the row as it stood, with its kinds, date and how it was given; where
+     * there was none, the decision made since is taken back as `revoke` takes one back, so the flow
+     * reads as taken back (`takenBack`) until the User allows it again. A decision forgotten since
+     * stays forgotten.
      */
     putBack(replaced: readonly ReplacedDecision[]): void {
+      const at = now();
       db.transaction(() => {
         for (const { flowId, serviceId, row } of replaced) {
           if (row === null) {
-            // Removed, not marked forgotten: a forgotten one reads as taken back (`takenBack`), never asked doesn't.
             db.run(
-              "DELETE FROM data_flow_consents WHERE flow = ? AND service_id = ? AND deleted_at IS NULL",
-              [flowId, serviceId],
+              `UPDATE data_flow_consents SET deleted_at = ?
+               WHERE flow = ? AND service_id = ? AND deleted_at IS NULL`,
+              [at, flowId, serviceId],
             );
             continue;
           }

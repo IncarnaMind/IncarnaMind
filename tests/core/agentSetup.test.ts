@@ -1586,28 +1586,37 @@ describe("one connection per app on this computer", () => {
       added,
     });
 
+    // Never asked before the press comes back as taken back, which the listing shows as never asked.
     it.each([
       ["declined", "declined" as const],
       ["never asked", "none" as const],
       ["accepted for fewer kinds, before the flow sent more", ["scoped-passages"] as DataKind[]],
-    ])("%s before the press stays so after it fails", async (_case, as) => {
-      const { core, opened, coast, dataDir } = await started();
-      const { pairing } = await core.setUpAgent({
-        client: "claude-desktop",
-        folderIds: [coast.id],
-      });
-      decide(dataDir, pairing.id, as);
-      const before = await agentsFlow(core, pairing.id);
-      expect(before?.consent).not.toBe("accepted");
-      opened.push = () => {
-        throw new Error("No app opens it.");
-      };
-      await expect(
-        core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] }),
-      ).rejects.toThrow(/No app/);
-      expect(await agentsFlow(core, pairing.id)).toEqual(before);
-      expect(await searchWorks(await core.getAgentLaunch(pairing.id))).toBe(false);
-    });
+    ])(
+      "%s before the press: nothing goes after it fails, until a press that works allows it",
+      async (_case, as) => {
+        const { core, opened, coast, dataDir } = await started();
+        const { pairing } = await core.setUpAgent({
+          client: "claude-desktop",
+          folderIds: [coast.id],
+        });
+        decide(dataDir, pairing.id, as);
+        const before = await agentsFlow(core, pairing.id);
+        expect(before?.consent).not.toBe("accepted");
+        opened.push = () => {
+          throw new Error("No app opens it.");
+        };
+        await expect(
+          core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] }),
+        ).rejects.toThrow(/No app/);
+        expect(await agentsFlow(core, pairing.id)).toEqual(before);
+        expect(await searchWorks(await core.getAgentLaunch(pairing.id))).toBe(false);
+
+        Reflect.deleteProperty(opened, "push");
+        await core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] });
+        expect((await agentsFlow(core, pairing.id))?.consent).toBe("accepted");
+        expect(await searchWorks(await core.getAgentLaunch(pairing.id))).toBe(true);
+      },
+    );
 
     it("accepted before the press stays accepted after it fails, and the connection works", async () => {
       const { core, opened, coast } = await started();

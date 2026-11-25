@@ -672,7 +672,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (key && text.includes(key)) return true;
     }
     const launch = options.agents.launchFor("");
+    // An entry whose program or socket can't be read is no one's for sure: it stays, and is said.
     const ours =
+      entry.command !== null &&
       entry.command === launch.command &&
       entry.socket !== null &&
       entry.socket === launch.env[AGENT_SOCKET_ENV];

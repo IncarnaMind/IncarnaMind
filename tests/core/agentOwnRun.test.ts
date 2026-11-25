@@ -777,21 +777,24 @@ describe("Undo of a second press on Claude Code puts its check's consent back as
     expect(run.runs).toEqual([]);
   });
 
-  it("never asked before the press: never asked after its Undo, so the check asks again", async () => {
-    const started = await written(runner().adapter);
+  it("never asked before the press: taken back after its Undo, so the check keeps the link without asking, until a new press allows it", async () => {
+    const run = runner();
+    const started = await written(run.adapter);
     madeBefore(started.dataDir);
-    const before = await hosted(started);
-    expect(before).toMatchObject({ consent: "not-asked", decidedAt: null });
+    expect(await hosted(started)).toMatchObject({ consent: "not-asked", decidedAt: null });
 
     await pressedAndUndone(started);
-    expect(await hosted(started)).toEqual(before);
+    expect((await hosted(started))?.consent).not.toBe("accepted");
     const asked: string[] = [];
-    started.core.on("consent.requested", (request) => {
-      asked.push(request.flow.id);
-      void started.core.respondToConsent(request.requestId, false);
-    });
+    started.core.on("consent.requested", (request) => asked.push(request.flow.id));
     expect(await started.core.checkWithOwnAi(started.mindId)).toEqual({ kind: "link" });
-    expect(asked).toEqual(["hosted-agents"]);
+    expect(asked).toEqual([]);
+    expect(run.runs).toEqual([]);
+
+    await started.core.setUpAgent({ client: "claude-code", folderIds: [started.coast.id] });
+    expect((await hosted(started))?.consent).toBe("accepted");
+    expect((await started.core.checkWithOwnAi(started.mindId)).kind).toBe("started");
+    expect(asked).toEqual([]);
   });
 
   it("accepted for fewer kinds before the press, as before the check sent more: the same kinds after its Undo", async () => {
