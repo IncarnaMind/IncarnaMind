@@ -174,14 +174,20 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     const asked = window.getByTestId("checks-asked");
 
     // While it runs: the badge says so, naming it, and Stop takes Check's place in the card's foot
-    // (the card's words for it read only to a screen reader); nothing opens or is copied.
+    // (the card's words for it read only to a screen reader), with the focus Check had, so a
+    // keyboard User can stop it; nothing opens or is copied.
     await nextRun("wait");
-    await press(window);
+    if (!(await window.getByTestId("check-card").isVisible())) {
+      await pointAndClick(window, window.getByTestId("check-badge-open"));
+    }
+    await window.getByTestId("badge-check-mind").focus();
+    await window.keyboard.press("Enter");
     await expect(asked).toHaveText("Checking this note in Claude Code.");
     await expect(asked).toHaveClass(/\bsr-only\b/);
     await expect(window.getByTestId("badge-asked")).toHaveText("Claude Code is checking");
     const foot = window.getByTestId("check-card-foot");
     await expect(foot.getByTestId("checks-asked-stop")).toHaveText("Stop");
+    await expect(foot.getByTestId("checks-asked-stop")).toBeFocused();
     await expect(foot.getByTestId("badge-check-mind")).toBeHidden();
     await both(app, window, "background-running", async () => {
       await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
