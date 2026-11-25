@@ -9,7 +9,9 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorState } from "@tiptap/pm/state";
 import { create } from "zustand";
 import type {
+  NoteAnswer,
   NoteChangeApplied,
+  NoteQuestion,
   NoteSelectionBlock,
   NoteStep,
   NoteTurnEvent,
@@ -53,6 +55,10 @@ export interface NoteAsk {
   /** While it works, the AI has sent nothing for a while. */
   quiet: boolean;
   documentsFound: number;
+  /** What its AI asks now and waits on, oldest first (#3653). */
+  questions: NoteQuestion[];
+  /** While it works, the AI's own mode when no earlier request of the conversation ran in it. */
+  mode: string | null;
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -74,7 +80,15 @@ export interface NoteTrail {
   startedAt: string;
   endedAt: string | null;
   fresh: boolean;
+  /** This request began a new conversation that can use the AI's own tools (#3653). */
+  renewed: boolean;
   documentsFound: number;
+  /** The AI's own mode, as it named it (#3653). */
+  mode: string | null;
+  /** Since when, in ms since the epoch, a question of its waits on the User; null while none does. */
+  askingSince: number | null;
+  /** How long, in ms, its questions waited on the User's answers before this one. */
+  waitedMs: number;
 }
 
 export const useNoteTrails = create<{ byTurn: Readonly<Record<string, NoteTrail>> }>(() => ({
@@ -133,6 +147,9 @@ function keepTrail(event: NoteTurnEvent): void {
   useNoteTrails.setState((state) => {
     const was = state.byTurn[event.turnId];
     const ended = event.state !== "working";
+    const now = Date.now();
+    const asking = !ended && event.questions.length > 0;
+    const since = was?.askingSince ?? null;
     return {
       byTurn: {
         ...state.byTurn,
@@ -145,7 +162,11 @@ function keepTrail(event: NoteTurnEvent): void {
           startedAt: was?.startedAt ?? event.startedAt,
           endedAt: ended ? new Date().toISOString() : null,
           fresh: event.fresh || (was?.fresh ?? false),
+          renewed: event.renewed || (was?.renewed ?? false),
           documentsFound: Math.max(event.documentsFound, was?.documentsFound ?? 0),
+          mode: event.mode ?? was?.mode ?? null,
+          askingSince: asking ? (since ?? now) : null,
+          waitedMs: (was?.waitedMs ?? 0) + (since !== null && !asking ? now - since : 0),
         },
       },
     };
@@ -223,6 +244,8 @@ function heard(event: NoteTurnEvent): void {
     fresh: event.fresh,
     quiet: event.state === "working" && event.quiet,
     documentsFound: event.documentsFound,
+    questions: event.state === "working" ? event.questions : [],
+    mode: event.state === "working" && event.modeNew ? event.mode : null,
     asked: was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
@@ -298,6 +321,8 @@ export async function askInNote(
     fresh: false,
     quiet: false,
     documentsFound: 0,
+    questions: [],
+    mode: null,
     asked,
   };
   if (start.kind === "started") askedHere.add(start.turnId);
@@ -310,12 +335,42 @@ export async function askInNote(
 
 export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(mindId);
 
-/** Lets the agent propose changes, the switch Settings shows, and sends the request again. */
-export async function allowAndAskAgain(mindId: string): Promise<void> {
+/** Answers what the User's own AI asks in the Note's conversation (#3653). */
+export const answerInNote = (mindId: string, questionId: string, answer: NoteAnswer) =>
+  core.answerInNote(mindId, questionId, answer).catch(useAppStore.getState().reportError);
+
+/**
+ * A window opened while a request runs at the Note's foot hears of it, and of what its AI asks,
+ * from the core: a waiting question tells nothing more until it is answered (#3653).
+ */
+export async function seedRunning(mindId: string): Promise<void> {
+  if (useNoteAsks.getState().byMind[mindId]) return;
+  listen();
+  const now = await core.noteTurnNow(mindId);
+  if (now && !useNoteAsks.getState().byMind[mindId]) heard(now);
+}
+
+/**
+ * Lets the agent propose changes, the switch Settings shows, and sends the request again: as this
+ * window sent it, else from `turn`, the record of it a window that didn't send it has.
+ */
+export async function allowAndAskAgain(
+  mindId: string,
+  turn?: { request: string; quote: string },
+): Promise<void> {
   const ask = useNoteAsks.getState().byMind[mindId];
   if (!ask) return;
+  // The record keeps the words a request was about, not where they are: sent again without them,
+  // its changes would no longer be held to them, so such a request is left for the User to ask.
+  const asked =
+    ask.asked.words !== ""
+      ? ask.asked
+      : turn && turn.request !== "" && turn.quote === ""
+        ? { words: turn.request, quote: "", selection: null }
+        : null;
   await core.updateAgent(ask.pairingId, { propose: true });
-  await askInNote(mindId, ask.asked);
+  if (asked) await askInNote(mindId, asked);
+  else clearNoteAsk(mindId);
 }
 
 /**

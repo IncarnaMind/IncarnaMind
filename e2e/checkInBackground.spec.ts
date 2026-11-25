@@ -286,14 +286,14 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
       "Checks and note requests run Claude Code in the background on your Claude plan or API key.",
     );
     await expect(sheet.getByTestId("connect-agent-background-details")).toHaveText(
-      "Only while no AI model is set up here: nothing opens, no chat is added, and it works only through IncarnaMind.",
+      "Only while no AI model is set up here: nothing opens and no chat is added. A check works only through IncarnaMind; in a note’s conversation it also uses its own tools, as its own settings allow.",
     );
     await both(app, window, "background-connect-sheet", async () => {
       await expect(sheet.getByTestId("connect-agent-background")).toHaveText(
         "核对和笔记请求在后台运行 Claude Code，用你的订阅或 API 密钥。",
       );
       await expect(sheet.getByTestId("connect-agent-background-details")).toHaveText(
-        "只在没设置 AI 模型时这样运行：不打开窗口，也不新增对话，只通过 IncarnaMind 工作。",
+        "只在没设置 AI 模型时这样运行：不打开窗口，也不新增对话。核对只通过 IncarnaMind 工作；在笔记的对话里，它还会按自己的设置使用自己的工具。",
       );
     });
   } finally {

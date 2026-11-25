@@ -1,4 +1,4 @@
-import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import {
   askToChange,
@@ -17,6 +17,7 @@ import {
   recordMeeting,
   removeDataFolder,
   runCommand,
+  secondWindow,
   useLocalChatModel as selectLocalChatModel,
   setLanguage,
   setWindowSize,
@@ -397,37 +398,6 @@ test("the core fills a call's notes while its tab is hidden: ⌘Z after coming b
     await app.close();
   }
 });
-
-/** A second window of the app on the same data, as comparisons.spec.ts opens one. */
-async function secondWindow(app: ElectronApplication): Promise<Page> {
-  const info = await app.evaluate(({ app: electronApp, BrowserWindow }) => {
-    const [first] = BrowserWindow.getAllWindows();
-    if (!first) throw new Error("The app has no window.");
-    return {
-      url: first.webContents.getURL(),
-      preload: `${electronApp.getAppPath()}/out/preload/index.js`,
-    };
-  });
-  const spawned = app.waitForEvent("window");
-  await app.evaluate(({ BrowserWindow }, values) => {
-    const win = new BrowserWindow({
-      width: 1200,
-      height: 800,
-      show: true,
-      webPreferences: {
-        preload: values.preload,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-    void win.loadURL(values.url);
-  }, info);
-  const second = await spawned;
-  await second.waitForLoadState("domcontentloaded");
-  await second.getByTestId("plus-menu").waitFor();
-  return second;
-}
 
 // protects=another window typing in the Note while its tab here is hidden: back here, ⌘Z takes back only what was typed here, and the other window's words stay in both (#3115); fails_when=⌘Z here takes back or deletes the other window's words, or loses this window's typing; no_claim=the other window's own Undo.
 test("another window types in the Note while its tab here is hidden: ⌘Z here takes back only what was typed here", async () => {

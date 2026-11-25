@@ -1164,6 +1164,32 @@ describe("an outside agent's proposed changes (#352)", () => {
     );
   });
 
+  // protects=a paragraph of the User's that opens like a status IncarnaMind writes after a name, "(Draft) …", reads escaped, so no agent takes the User's words for a status, and comes back as the User wrote it when the agent keeps it; fails_when=it reads as "¶1 (Draft) …", or a change writes the backslash into the Note
+  it("read a paragraph that opens like a status as the User's words, and keep it so", async () => {
+    const { agent, mind, client } = await pairedWithNote([
+      paragraph("(Draft) The ferry leaves at 07:40."),
+      paragraph("\\(x\\) is the crossing time."),
+    ]);
+    const named = await readNamed(agent, mind.id);
+    expect(named.markdown).toBe(
+      "¶1 \\(Draft) The ferry leaves at 07:40.\n\n¶2 \\\\(x\\\\) is the crossing time.",
+    );
+    structured<Proposed>(
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version: named.version,
+          changes: [{ paragraph: "¶1", text: "\\(Draft) The ferry leaves at 07:55." }],
+        },
+      }),
+    );
+    await client.settled();
+    decide(client, undoOf(client), () => true, "accept");
+    expect(readMind(client).textContent).toContain("(Draft) The ferry leaves at 07:55.");
+    expect(readMind(client).textContent).not.toContain("\\(Draft)");
+  });
+
   it("cite no source a table's cell names in brackets: the User's Citation doesn't come back on their words", async () => {
     const { core, agent, mind, client, tides, sources } = await pairedWithNote([]);
     writeMind(client, [

@@ -12,6 +12,34 @@ const userVersion = (db: ReturnType<typeof openDatabase>) =>
   db.get<{ user_version: number }>("PRAGMA user_version")?.user_version;
 
 describe("Migrations", () => {
+  // protects=a database from before the AI kept its own abilities in a Note's conversation (#3653) gains what it asks and its mode: every live conversation begins anew once, a deleted one is left as it was, and the requests are kept; fails_when=an existing conversation resumes the prompt that said it had no tools, or a database at 163 doesn't open
+  test("a conversation kept before 164 begins anew once, with its requests kept", async () => {
+    const db = openDatabase(join(await createTempDataFolder(), "conversations.db"));
+    try {
+      migrate(
+        db,
+        migrations.filter((migration) => migration.version < 164),
+      );
+      db.exec(`
+        INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at, deleted_at)
+          VALUES ('live', 'm1', 'p1', 's1', '0', '0', NULL), ('gone', 'm2', 'p1', 's2', '0', '0', '1');
+        INSERT INTO own_ai_turns (id, conversation_id, request, outcome, created_at, updated_at)
+          VALUES ('t1', 'live', 'count the late crossings', 'landed', '0', '0');
+      `);
+      migrate(db);
+      expect(db.all("SELECT id, renewed FROM own_ai_conversations ORDER BY id")).toEqual([
+        { id: "gone", renewed: 0 },
+        { id: "live", renewed: 1 },
+      ]);
+      expect(db.all("SELECT request, mode FROM own_ai_turns")).toEqual([
+        { request: "count the late crossings", mode: null },
+      ]);
+      expect(db.all("SELECT * FROM own_ai_questions")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   test("existing remote Connectors keep their OAuth configuration when header metadata is introduced", async () => {
     const db = openDatabase(join(await createTempDataFolder(), "connectors.db"));
     migrate(

@@ -60,10 +60,6 @@ const EXCEPTIONS: readonly Exception[] = [
     ],
   },
   {
-    why: "Changed by the open pull request #3752 (a Note's conversation with the User's own AI)",
-    pattern: /^(ownAsk|noteAsk)\./,
-  },
-  {
     why: "Says what leaves the computer, to whom and when: ADR-0022 keeps every fact, and only repetition goes",
     pattern: /^(consent\.data|privacy\.traffic|providers\.sends|status\.sends|agents\.connect)\b/,
   },

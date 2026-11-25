@@ -10357,6 +10357,7 @@ export const dataKinds = [
   "library-counts",
   "note-requests",
   "installer-request",
+  "own-ai-context",
 ] as const;
 
 export type DataKind = (typeof dataKinds)[number];
@@ -13485,7 +13486,11 @@ export interface NoteRequestInput {
  * Why a request at a Note's foot didn't go or didn't finish: the check's reasons, and "read-only",
  * the connection may only read and the request would change something.
  */
-export type NoteTurnProblem = OwnAiCheckProblem | "read-only";
+export type NoteTurnProblem =
+  | OwnAiCheckProblem
+  | "read-only"
+  /** The User's own AI must be updated before a Note's conversation can run on it (#3653). */
+  | "update";
 
 /**
  * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",
@@ -13532,7 +13537,107 @@ export interface NoteTurn {
    * reply that isn't here is not one of them, and is not shown as a Citation.
    */
   citations: NoteCitation[];
+  /** While it works: what its AI asks now and waits on, oldest first (#3653). */
+  questions: NoteQuestion[];
+  /** What its AI asked and waited on when IncarnaMind closed: none of it ran (#3653). */
+  closed: NoteAction[];
+  /**
+   * The AI's own mode for this request, as it named it (#3653): "auto" and "bypassPermissions"
+   * ask nothing. Null when it named none.
+   */
+  mode: string | null;
 }
+
+/**
+ * What the User's own AI does, or asks to do, with a tool of its own in a Note's conversation
+ * (#3653): a command; a file it writes anew, changes or reads (`value` its path, from the
+ * conversation's folder when `inFolder`); a web page it opens (`host` its site) or a web search;
+ * a tool of a server the User set up in it; a skill of the User's; any other tool, by name.
+ */
+export interface NoteAction {
+  kind: "command" | "write" | "change" | "read" | "web" | "search" | "tool" | "skill" | "other";
+  /** Exactly what it would run, write, read, open or search, or the tool's or skill's name: whole. */
+  value: string;
+  /** For a file: it is in the conversation's own folder. */
+  inFolder?: boolean;
+  host?: string;
+  /** For a tool: the server it is on, and the input it would send, one row per field. */
+  server?: string;
+  input?: { name: string; value: string }[];
+  /**
+   * For a file it writes or changes: a new file, a whole file written again, or lines changed, in
+   * `count` lines; a text changed everywhere it appears; a notebook's cell added, written again, or
+   * deleted. `count` is 0 where it says nothing.
+   */
+  size?: {
+    kind: "new" | "whole" | "changes" | "everywhere" | "cellNew" | "cellWhole" | "cellGone";
+    count: number;
+  };
+  /** For a change: the lines taken out ("- ") and put in ("+ "). */
+  change?: string;
+  /** For a file it writes: what it writes, whole. */
+  content?: string;
+  /** For a file, or a command that names one: one the AI reads as its own (CLAUDE.md, .claude/, .mcp.json). */
+  steers?: true;
+  /** For a file: where it really leads can't be told (a loop of links, say), so it is asked about. */
+  unsure?: true;
+  /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
+  background?: true;
+  unsandboxed?: true;
+  /** For a command: what the AI says it does, in its own words, as its own prompt shows them. */
+  description?: string;
+}
+
+/**
+ * Where an answer the AI suggests keeps what it allows: until the request ends; in the AI's own
+ * settings in the conversation's folder, which is the conversation's own; or in the User's own
+ * settings for it, wherever it runs.
+ */
+export type NoteKept = "request" | "conversation" | "everywhere";
+
+/**
+ * What a rule the AI suggests covers: commands that start with `start`, one exact command, pages
+ * on a site, one tool of a server, web searches, reading or changing the files in a folder (`""`:
+ * the conversation's own); or a rule the card can't say in plain words, as it is.
+ */
+export type NoteRule =
+  | { kind: "commands"; start: string }
+  | { kind: "command"; value: string }
+  | { kind: "site"; host: string }
+  | { kind: "tool"; tool: string; server: string }
+  | { kind: "searches" }
+  | { kind: "files"; change: boolean; folder: string }
+  | { kind: "rule"; rule: string };
+
+/**
+ * An answer the AI's own question suggests, as it gave it (#3653): rules it won't ask about again,
+ * a mode of its own, folders it then works in; or another change to its settings, as it is.
+ */
+export type NoteSuggested =
+  | { kind: "rules"; kept: NoteKept; rules: NoteRule[] }
+  | { kind: "mode"; kept: NoteKept; mode: string }
+  /** Folders as `files` names them, `""` the conversation's own. */
+  | { kind: "folders"; kept: NoteKept; folders: string[] }
+  | { kind: "other"; kept: NoteKept; text: string };
+
+/**
+ * An answer to a question: "deny"; "once"; or "suggested", Claude Code's own "don't ask again",
+ * which applies every answer its question suggests, as it gave them.
+ */
+export type NoteAnswer = "deny" | "once" | "suggested";
+
+/** What the User's own AI asks before it does something with a tool of its own (#3653). */
+export interface NoteQuestion {
+  id: string;
+  action: NoteAction;
+  /** In the card's order: "deny", "suggested" when it suggests any, "once". */
+  answers: NoteAnswer[];
+  /** The answers its own question suggests, all applied by "suggested". */
+  suggested: NoteSuggested[];
+}
+
+/** How a step of the AI's own went with its question: as answered, or ended before it was. */
+export type NoteAnswered = NoteAnswer | "stopped" | "closed" | "refused";
 
 /** A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document and its quote. */
 export interface NoteCitation {
@@ -13564,6 +13669,11 @@ export interface NoteTurnEvent {
   /** The Notes it wrote, to open from the line. */
   made: { mindId: string; title: string }[];
   fresh: boolean;
+  /**
+   * The Note's conversation began before its AI kept its own abilities, so this request began a
+   * new one, which can use them (#3653).
+   */
+  renewed: boolean;
   /** While it works: the AI has sent nothing for a while, and no call of it runs here. */
   quiet: boolean;
   /** The model the run answers on, as its start names it ("claude-haiku-5-5"); null until it starts. */
@@ -13572,11 +13682,22 @@ export interface NoteTurnEvent {
   steps: NoteStep[];
   /** How many Documents its searches found and its reads reached, for "Reading 3 of 10". */
   documentsFound: number;
+  /** What its AI asks now and waits on, oldest first; the card shows the first (#3653). */
+  questions: NoteQuestion[];
+  /** The AI's own mode, as it named it; null until it does (#3653). */
+  mode: string | null;
+  /** No earlier request of the conversation ran in `mode`. */
+  modeNew: boolean;
 }
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
 export type NoteStep =
   | { kind: "said"; text: string }
+  /**
+   * A step the AI took with a tool of its own (#3653): `by`, how its question was answered, absent
+   * when it asked none; `going` while it runs.
+   */
+  | { kind: "own"; action: NoteAction; by?: NoteAnswered; going?: boolean }
   | {
       kind: "call";
       tool: AgentToolName;
@@ -13601,6 +13722,13 @@ export interface NoteModel {
   description: string;
 }
 
+/** The models a Note's conversation may run on, and the one its last run named (#3653). */
+export interface NoteModels {
+  models: NoteModel[];
+  /** As the run named it, e.g. "claude-haiku-5-5"; null until a run in this conversation has. */
+  ran: string | null;
+}
+
 /**
  * What a request at a Note's foot is doing, as its line says it (#3677): a Tool call, with what it
  * names (a Note's or Document's title) and how many of that Tool's calls it has made so far; the
@@ -13609,6 +13737,8 @@ export interface NoteModel {
  */
 export type NoteDoing =
   | { kind: "call"; tool: AgentToolName; summary: string; count: number }
+  /** A step with a tool of its own (#3653). */
+  | { kind: "own"; action: NoteAction }
   | { kind: "said"; text: string }
   | { kind: "thinking" }
   | { kind: "compacting" };
@@ -16277,6 +16407,16 @@ export interface CoreApi {
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
   /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
   stopInNote(mindId: string): Promise<void>;
+  /**
+   * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
+   * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
+   */
+  answerInNote(mindId: string, questionId: string, answer: NoteAnswer): Promise<void>;
+  /**
+   * The request running at the Note's foot as it is now, as "agents.noteTurn" last told it, for a
+   * window opened while it runs (#3653); null when none runs. Looking starts nothing.
+   */
+  noteTurnNow(mindId: string): Promise<NoteTurnEvent | null>;
   /** The Note's conversation with the User's own AI, as IncarnaMind keeps it, oldest first. */
   noteConversation(mindId: string): Promise<NoteTurn[]>;
   /** Whether the Note has a conversation kept, reading none of it (#3677). */
@@ -16286,7 +16426,7 @@ export interface CoreApi {
    * request's run heard them before its prompt went: looking starts nothing. [] until a request
    * has run since IncarnaMind started, and while none from this Note could run.
    */
-  noteModels(mindId: string): Promise<NoteModel[]>;
+  noteModels(mindId: string): Promise<NoteModels>;
   /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.
@@ -17178,6 +17318,8 @@ const methods: Record<CoreApiMethod, true> = {
   stopOwnAiCheck: true,
   askInNote: true,
   stopInNote: true,
+  answerInNote: true,
+  noteTurnNow: true,
   noteConversation: true,
   noteConversationKept: true,
   noteModels: true,

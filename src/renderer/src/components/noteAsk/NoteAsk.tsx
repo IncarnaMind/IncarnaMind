@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { core } from "../../core";
 import { useT } from "../../i18n";
@@ -16,9 +17,11 @@ import {
   askInNote,
   caretOf,
   clearNoteAsk,
+  focusNoteAsk,
   listen,
   moveConversation,
   openColumnAt,
+  seedRunning,
   selectedForRequest,
   setColumnOpen,
   stopInNote,
@@ -39,6 +42,7 @@ import { WindowColumnContext } from "../tabs/windowColumn";
 import { type InputCarry, NoteAskInput } from "./NoteAskInput";
 import { NoteAskPill } from "./NoteAskPill";
 import { NoteColumn, NoteConversationBody } from "./NoteColumn";
+import { ASKS_NOTHING, QuestionCard } from "./OwnAsk";
 
 /**
  * The window's column, where it is drawn while it fits beside the tab groups, and whether it follows
@@ -78,6 +82,7 @@ export function NoteAsk({ mindId, editor }: { mindId: string; editor: Editor }) 
 }
 
 function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
+  const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const [words, setWords] = useState("");
   const carry = useRef<InputCarry | null>(null);
@@ -89,7 +94,20 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   // With no column to open in, or none that fits beside the groups, it opens upward.
   const upward = place === "upward" || slot === null;
   useEffect(listen, []);
+  // A window opened while a request runs hears of it, and of what its AI asks, from the record.
+  useEffect(() => {
+    seedRunning(mindId).catch((error: unknown) =>
+      console.warn("The request running in this Note couldn't be read:", error),
+    );
+  }, [mindId]);
   const working = ask?.state === "working";
+  const [question] = ask?.state === "working" ? ask.questions : [];
+  // Folded, a question shows its card in the box, which grows over the Note as the conversation
+  // does upward, and goes back once it is answered (#3653).
+  const asking = question !== undefined && !open;
+  // An AI set to ask nothing says so once in the box too, where the User sees it (#3653).
+  const unasking = working && !open && ASKS_NOTHING.has(ask?.mode ?? "") ? ask?.mode : undefined;
+  const floating = (upward && open) || asking || unasking !== undefined;
   // With no conversation yet there is nothing to open: no handle, and the box is its input row.
   const kept = useKeptConversation(mindId, ask?.state ?? null);
 
@@ -124,6 +142,17 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // The card never takes the focus: Shift+Tab from the input reaches its answers, on Deny (#3653).
+    if (event.key === "Tab" && event.shiftKey && question) {
+      const deny = document.querySelector<HTMLButtonElement>(
+        `[data-testid="own-ask-card"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="own-ask-deny"]`,
+      );
+      if (deny) {
+        event.preventDefault();
+        deny.focus();
+        return;
+      }
+    }
     if (event.key === "Escape") {
       if (working) void stopInNote(mindId);
       else if (open) setColumnOpen(mindId, false);
@@ -142,7 +171,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const foot = useRef<HTMLDivElement>(null);
   const folded = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (!open && foot.current) folded.current = foot.current.offsetHeight;
+    if (!open && !asking && foot.current) folded.current = foot.current.offsetHeight;
   });
   const toggle = () => setColumnOpen(mindId, !open);
   // Grown over the Note's foot, it gives the Note's end as much more room, so the Note's last line
@@ -152,7 +181,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     const scroller = foot.current
       ?.closest(".mind-tab-page")
       ?.querySelector<HTMLElement>(".mind-scroller");
-    if (!upward || !open || !(box instanceof HTMLElement) || !scroller) return;
+    if (!floating || !(box instanceof HTMLElement) || !scroller) return;
     const measure = () => {
       const over = scroller.getBoundingClientRect().bottom - box.getBoundingClientRect().top;
       scroller.style.setProperty("--note-ask-over", `${Math.max(0, Math.round(over))}px`);
@@ -165,7 +194,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       observer.disconnect();
       scroller.style.removeProperty("--note-ask-over");
     };
-  }, [upward, open]);
+  }, [floating]);
   useEffect(() => {
     if (!upward || !open) return;
     const fold = (event: PointerEvent) => {
@@ -186,9 +215,17 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       ask={ask}
       mindId={mindId}
       editor={editor}
-      onOpen={() => (upward ? toggle() : openColumnAt(mindId, ask.turnId))}
+      onOpen={() => {
+        // The pressed line goes as the conversation opens: the keyboard goes to the input.
+        focusNoteAsk(mindId);
+        if (upward) toggle();
+        else openColumnAt(mindId, ask.turnId);
+      }}
     />
   ) : null;
+  // Open, the conversation shows the line's reply and a failure of its request; a request that
+  // failed before it began has no turn there, so its line stays above the input.
+  const shownLine = open && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
   const agent = ask?.agent || "Claude Code";
   const input = (
     <NoteAskInput
@@ -205,10 +242,25 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       onStop={() => void stopInNote(mindId)}
       onKeyDown={onKeyDown}
       carry={carry}
-      // Closed, the box says how to see the conversation again in words, wherever it opens.
-      line={!open && (kept || ask) ? <ConversationHandle line={line} onOpen={toggle} /> : null}
+      // Folded, the box says how to see the conversation again in words, wherever it opens; open,
+      // only a line the conversation can't show stays above the input.
+      line={
+        open ? shownLine : kept || ask ? <ConversationHandle line={line} onOpen={toggle} /> : null
+      }
       panel={
-        upward && open ? (
+        asking ? (
+          <div data-testid="note-ask-panel" className="note-ask-panel own-ask-panel">
+            <div className="note-ask-panel-body">
+              <QuestionCard question={question} agent={agent} mindId={mindId} />
+            </div>
+          </div>
+        ) : unasking ? (
+          <div data-testid="note-ask-panel" className="note-ask-panel own-ask-panel">
+            <p data-testid="note-ask-mode" className="note-ask-panel-body own-mode">
+              {t(`ownAsk.mode.${unasking}` as MessageKey, { agent })}
+            </p>
+          </div>
+        ) : upward && open ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">
             <NoteConversationBody
               mindId={mindId}
@@ -233,8 +285,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       ref={foot}
       data-testid="note-ask"
       data-mind-id={mindId}
-      data-upward-open={upward && open ? "" : undefined}
-      style={upward && open && folded.current !== null ? { height: folded.current } : undefined}
+      data-upward-open={floating ? "" : undefined}
+      style={floating && folded.current !== null ? { height: folded.current } : undefined}
       className="note-ask"
     >
       {input}

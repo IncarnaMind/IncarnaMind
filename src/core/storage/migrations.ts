@@ -3481,6 +3481,35 @@ export const migrations: readonly Migration[] = [
       CREATE INDEX deck_kept_by_document ON deck_kept (document_id) WHERE deleted_at IS NULL;
     `,
   },
+  {
+    version: 164,
+    description: "What the User's own AI asks in a Note's conversation, and its mode (#3653)",
+    sql: `
+      -- Each question the User's own AI asked before it used a tool of its own in a Note's
+      -- conversation, and how it was answered: kept so that one still waiting when IncarnaMind
+      -- closed reads, after a restart, as asked and not run. On this device only, as own_ai_turns
+      -- is; a deleted one keeps no words: its row stays only as the deletion.
+      CREATE TABLE own_ai_questions (
+        id TEXT PRIMARY KEY,
+        turn_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        server TEXT,
+        answer TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      ) STRICT;
+      CREATE INDEX own_ai_questions_by_turn ON own_ai_questions (turn_id) WHERE deleted_at IS NULL;
+      -- The AI's own permission mode a request ran in, as the AI named it.
+      ALTER TABLE own_ai_turns ADD COLUMN mode TEXT;
+      -- A conversation begun before its AI kept its own abilities: Claude Code keeps the system
+      -- prompt a conversation began with, which said it had none, so its next request begins a new
+      -- one, under a new id, and says so once.
+      ALTER TABLE own_ai_conversations ADD COLUMN renewed INTEGER NOT NULL DEFAULT 0;
+      UPDATE own_ai_conversations SET renewed = 1 WHERE deleted_at IS NULL;
+    `,
+  },
 ];
 
 /**

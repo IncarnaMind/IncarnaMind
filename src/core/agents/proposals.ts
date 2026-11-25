@@ -63,7 +63,15 @@ import {
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
 } from "../api";
-import { escapeNames, paragraphName, readName, readRemovals, unescapeNames } from "../edits/prompt";
+import {
+  escapeNames,
+  escapeOpening,
+  paragraphName,
+  readName,
+  readRemovals,
+  unescapeNames,
+  unescapeOpening,
+} from "../edits/prompt";
 import { PICTURE_IN_NOTE } from "../exports/markdown";
 import type { MindContent } from "../mindContent";
 import { createChanges, refusalOf, type WriteReport, type Wrote } from "../proposals/apply";
@@ -397,7 +405,9 @@ export function namedNote(
     const adding = addingRequest(element);
     if (adding !== null) {
       const text = (onceIn && own?.has(adding) && visual === null ? onceIn(blockId) : null) ?? "";
-      if (text !== "") added.push({ at: topOf(element, tops), text: `${words.yours} ${text}` });
+      if (text !== "") {
+        added.push({ at: topOf(element, tops), text: `${words.yours} ${escapeOpening(text)}` });
+      }
       continue;
     }
     if (visual !== null) {
@@ -417,7 +427,9 @@ export function namedNote(
     const { from, to } = wholeOf(element, blockId);
     const read = readSelection(blocks, from, to);
     const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
-    const text = read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element));
+    const text = escapeOpening(
+      read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element)),
+    );
     const changed =
       onceIn && held === "waiting" && onlyOwn(element, own) ? onceIn(blockId) : undefined;
     if (text.trim() === "" && !changed) continue;
@@ -443,7 +455,7 @@ export function namedNote(
         paragraphs.length - 1,
         changed === null
           ? `${name} ${words.yoursRemoved ?? words.yours}`
-          : `${name} ${words.yours} ${changed}`,
+          : `${name} ${words.yours} ${escapeOpening(changed)}`,
       );
     }
   }
@@ -847,7 +859,7 @@ export function newBlocks(
     if (each) each.back += 1;
   };
   const markdown = withTokens(
-    openTabs(withoutName(written)),
+    openTabs(unescapeOpening(withoutName(written))),
     (part) =>
       holdHandles(
         unescapeNames(part)

@@ -413,3 +413,127 @@ test("a check on the User's own Codex lands through the packaged shim, from a te
     await app.close();
   }
 });
+
+/*
+ * A request in a Note's conversation runs the User's own Claude Code with its own abilities
+ * (#3653): the packaged app finds `claude` on the login shell's PATH and starts it with the
+ * conversation's flags, and what the stand-in asks (e2e/fixtures/fakeClaudeCode.mjs) waits on the
+ * User's answer. Allowed, the command runs; stopped with a question open, Claude Code and a process
+ * it started in a group of its own, as its shells are, end on each system.
+ */
+test("a request in a Note's conversation asks through the packaged app, runs what is allowed, and Stop with a question open ends Claude Code and all it started", async () => {
+  expect(existsSync(packagedExecutable)).toBe(true);
+  const home = await mkdtemp(
+    join(process.platform === "win32" ? tmpdir() : "/tmp", "incarnamind-claude-home-"),
+  );
+  const data = await mkdtemp(join(tmpdir(), "incarnamind-claude-data-"));
+  const sources = await mkdtemp(join(tmpdir(), "incarnamind-claude-sources-"));
+  const bin = await mkdtemp(join(tmpdir(), "incarnamind-claude-bin-"));
+  folders = [home, data, sources, bin];
+  dataFolder = data;
+  const fake = join(__dirname, "..", "fixtures", "fakeClaudeCode.mjs");
+  if (process.platform === "win32") {
+    await writeFile(join(bin, "claude.cmd"), `@"${process.execPath}" "${fake}" %*\r\n`);
+  } else {
+    await writeFile(join(bin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+    await chmod(join(bin, "claude"), 0o755);
+  }
+  const mode = join(bin, "mode");
+  const file = join(sources, "Tides.md");
+  await writeFile(file, "Spring tides happen at new moon and full moon.");
+  const app = await test.step(
+    "Launch the packaged app with a stand-in claude on its PATH",
+    () =>
+      launchPackaged(home, data, {
+        testHooks: true,
+        env: {
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          INCARNAMIND_TEST_OWN_AI_MODE_FILE: mode,
+        },
+      }),
+    { box: true },
+  );
+  try {
+    const window = await app.firstWindow();
+    await setWindowSize(app, window, 900, 700);
+    await dismissChatSetup(window);
+    await acceptPlainTextKeys(window);
+    const core = await coreOf(window);
+    const folder = await core.evaluate((bridge) =>
+      bridge.createLibraryGroup({ name: "Coast", description: "Tides" }),
+    );
+    await core.evaluate(
+      (bridge, input) => bridge.addDocuments([input.file], { groupId: input.folder }),
+      { file, folder: folder.id },
+    );
+    await core.evaluate((bridge) => bridge.setAgentsEnabled(true));
+    await core.evaluate(
+      (bridge, id) =>
+        bridge.connectAgent({
+          name: "Claude Code",
+          client: "claude-code",
+          folderIds: [id],
+          propose: true,
+        }),
+      folder.id,
+    );
+    const mindId = await writeNote(
+      window,
+      "Tide notes",
+      [{ text: "Spring tides happen at new moon and full moon." }],
+      { folderId: folder.id },
+    );
+    const asking = () =>
+      expect
+        .poll(
+          async () =>
+            (await core.evaluate((bridge, id) => bridge.noteTurnNow(id), mindId))?.questions ?? [],
+          { timeout: 60_000 },
+        )
+        .toHaveLength(1)
+        .then(async () => {
+          const now = await core.evaluate((bridge, id) => bridge.noteTurnNow(id), mindId);
+          return now?.questions[0];
+        });
+    const outcome = () =>
+      core.evaluate(
+        async (bridge, id) => (await bridge.noteConversation(id)).at(-1)?.outcome,
+        mindId,
+      );
+
+    await test.step("A command it asks to run runs once allowed", async () => {
+      await writeFile(mode, "ask-command");
+      expect(
+        await core.evaluate(
+          (bridge, id) => bridge.askInNote({ mindId: id, words: "Count the late crossings" }),
+          mindId,
+        ),
+      ).toMatchObject({ kind: "started" });
+      const question = await asking();
+      // Where a command runs can't be told from it: no place is claimed for it.
+      expect(question?.action).toMatchObject({ kind: "command" });
+      expect(question?.action.inFolder).toBeUndefined();
+      await core.evaluate((bridge, input) => bridge.answerInNote(input.mindId, input.id, "once"), {
+        mindId,
+        id: question?.id ?? "",
+      });
+      await expect.poll(outcome, { timeout: 60_000 }).toBe("landed");
+    });
+
+    await test.step("Stop with a question open ends Claude Code and all it started", async () => {
+      await writeFile(mode, "ask-child");
+      await core.evaluate(
+        (bridge, id) => bridge.askInNote({ mindId: id, words: "Count them again" }),
+        mindId,
+      );
+      await asking();
+      const pids = (await readFile(`${mode}.child`, "utf8")).split(" ").map(Number);
+      expect(pids.filter(processRunning)).toEqual(pids);
+      await core.evaluate((bridge, id) => bridge.stopInNote(id), mindId);
+      await expect.poll(() => pids.filter(processRunning), { timeout: 15_000 }).toEqual([]);
+      await expect.poll(outcome, { timeout: 30_000 }).toBe("stopped");
+    });
+  } finally {
+    await app.close();
+  }
+});

@@ -12,6 +12,7 @@ import type { NamedFile } from "../adapters";
 import type { HandOverInput } from "../agentFiles/handOver";
 import type { AgentToolName, Effect, HandedFile } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
+import { isInside } from "../documents/files";
 import type { AdmittedPairing } from "./access";
 import { AgentRefusedError, MAX_PATH_CHARS, text } from "./refusals";
 
@@ -119,6 +120,12 @@ export interface HandedFileToolContext {
   placeToWriteIn(pairing: AdmittedPairing, folderId: unknown): { id: string | null; name: string };
   /** How long a call waits for the check before it answers "running". */
   waitMs: number;
+  /**
+   * For a Note's conversation, the real path of its own folder: a file is taken only from under
+   * it, so nothing the AI's own tools would have asked about reaches the Library unasked (#3653).
+   * Null for an agent the User runs, whose files are its own.
+   */
+  within: string | null;
 }
 
 const WRITES_LIBRARY: Effect = { action: "write", scope: { kind: "library" } };
@@ -191,6 +198,14 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         }
         if (read.kind !== "read") {
           throw new AgentRefusedError("invalid", t("agents.handOver.unreadable"));
+        }
+        const { within } = context;
+        // By this computer's own separator: on macOS and Linux a backslash is a letter of a name.
+        if (
+          within !== null &&
+          (within === "" || read.path === within || !isInside(within, read.path))
+        ) {
+          throw new AgentRefusedError("invalid", t("agents.handOver.outsideConversation"));
         }
         const done = await deps.handOver({
           pairingId: pairing.id,

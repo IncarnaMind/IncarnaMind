@@ -138,7 +138,11 @@ for (const language of ["en", "zh-CN"] as const) {
         });
       await pointAndClick(window, item.getByTestId("open-document"));
       const warning = window.getByTestId("viewer").getByTestId("forms-unread");
-      await expect(warning).toContainText(language === "zh-CN" ? "打印为 PDF" : "Print to PDF");
+      await expect(warning).toContainText(
+        language === "zh-CN"
+          ? "请在原应用中打印为 PDF，再添加该副本"
+          : "print it to PDF in its app, then add that copy",
+      );
       const print = warning.getByTestId("forms-print");
       await expect(print).toHaveText(
         language === "zh-CN" ? "打开以打印为 PDF…" : "Open to print to PDF…",

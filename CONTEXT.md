@@ -235,7 +235,7 @@ An AI agent the User runs themselves, such as Claude Code or Codex, connected to
 _Avoid_: harness, plugin, client, bot
 
 **The Note's conversation**:
-The requests the User typed in the box at a Note's foot and their replies, kept for that Note with their own command-line AI (ADR-0034): the first request starts it and every later one continues it. It is not a Conversation of the assistant: it is shown only from its Note, out of sight until the User opens it, and goes when the Note is deleted for good.
+The requests the User typed in the box at a Note's foot and their replies, kept for that Note with their own command-line AI (ADR-0034): the first request starts it and every later one continues it. It is not a Conversation of the assistant: it is shown only from its Note, out of sight until the User opens it, and goes when the Note is deleted for good. In it the AI keeps its own tools too, on the User's own settings for it, and what it asks before using one shows there as a card (#3653).
 _Avoid_: session, thread, chat
 
 **Canvas** (页面):

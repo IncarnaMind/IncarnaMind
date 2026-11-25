@@ -5,6 +5,7 @@ import type { CoreBridge, TabItem } from "../src/core/api";
 import {
   acceptPlainTextKeys,
   createDataFolder,
+  cutIn,
   dismissChatSetup,
   expectReadyDocuments,
   frontMind,
@@ -13,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  secondWindow,
   setLanguage,
   setSidebarShown,
   setWindowSize,
@@ -526,6 +528,208 @@ test("a run stopped after it read says what it read, and after a restart only th
   }
 });
 
+test("a request that can't start says why where the User typed, whole, with the conversation folded, open upward or in the column, at both widths and in English and Chinese; one that may only read is let to propose from the open conversation", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = window.getByTestId("note-ask-input");
+    const problem = window.getByTestId("note-ask-problem");
+    const column = window.getByTestId("note-column");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await send("What does the harbour plan add?");
+    await ended(window, mindId, before);
+
+    const tooOld =
+      "Claude Code 2.0.1 is older than IncarnaMind needs (2.1.248 or later). Update it, then send it again.";
+    /** The one line, in the input's box, every word of it shown. */
+    const shownWhole = async (text: string) => {
+      await expect(problem).toHaveCount(1);
+      await expect(problem).toHaveText(text);
+      await expect(
+        window.getByTestId("note-ask-box").getByTestId("note-ask-problem"),
+      ).toBeVisible();
+      expect(await cutIn(problem)).toEqual([]);
+    };
+    // Open upward, the request goes nowhere: the line says why, in the box's top row.
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await expect(group.getByTestId("note-ask-panel")).toBeVisible();
+    await nextRun("too-old");
+    await send("Make it shorter");
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-upward-en");
+    // In the window's column, at its foot; in the narrow window, where the column isn't drawn,
+    // above the input of the conversation open upward again, in Chinese.
+    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await expect(column).toBeVisible();
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-column-en");
+    await setLanguage(window, "zh-CN");
+    await setWindowSize(app, window, 900, 760);
+    await expect(group.getByTestId("note-ask-panel")).toBeVisible();
+    await expect(column).toHaveCount(0);
+    await shownWhole("Claude Code 2.0.1 版本过旧，需要 2.1.248 或更高版本。更新后再发送一次。");
+    await shot(window, "conversation-problem-upward-zh-CN");
+    // Folded, at both widths: it wraps, never cut.
+    await setLanguage(window, "en");
+    await pointAndClick(window, group.getByTestId("note-ask-fold"));
+    await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
+    await shownWhole(tooOld);
+    await shot(window, "conversation-problem-folded-en");
+    await setWindowSize(app, window, 1440, 900);
+    await shownWhole(tooOld);
+
+    // A connection that may only read, asked here while a second window has the conversation
+    // open: Allow is in that window's turn, and sends the request again as it was typed, though
+    // that window didn't send it.
+    await window.evaluate(async () => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      const [pairing] = (await bridge.getAgents()).pairings;
+      if (pairing) await bridge.updateAgent(pairing.id, { propose: false });
+    });
+    const second = await secondWindow(app);
+    await setWindowSize(app, second, 1440, 900);
+    await open(second, mindId);
+    await pointAndClick(
+      second,
+      second
+        .locator('[data-testid="tab-group"][data-focused]')
+        .getByTestId("note-ask-conversation-toggle"),
+    );
+    const secondColumn = second.getByTestId("note-column");
+    await expect(secondColumn).toBeVisible();
+    await nextRun("change");
+    before = (await outcomesOf(window, mindId)).length;
+    await send("Put it in capitals");
+    await ended(window, mindId, before);
+    const last = secondColumn.getByTestId("note-column-turn").last();
+    await expect(last.getByTestId("note-ask-problem")).toContainText(
+      "Claude Code may only read. Let it propose changes?",
+    );
+    await expect(last.getByTestId("note-ask-allow")).toHaveText("Allow");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(second, last.getByTestId("note-ask-allow"));
+    await ended(window, mindId, before);
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put it in capitals",
+    );
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put the selected words in capitals.",
+    );
+    await expect(frontMind(second)).toContainText(P2.toUpperCase());
+    await second.close();
+  } finally {
+    await app.close();
+  }
+});
+
+/** Where `part` stands in the conversation it is in: its top and height against the view's. */
+const placeIn = (part: Locator) =>
+  part.evaluate(
+    (element) =>
+      new Promise<{ top: number; height: number; view: number; fromEnd: number }>((done) =>
+        // Two frames: what keeps the conversation at its end acts after the layout a change brings.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const body = element.closest('[data-testid="note-conversation-body"]');
+            const box = body?.getBoundingClientRect();
+            const at = element.getBoundingClientRect();
+            done({
+              top: at.top - (box?.top ?? 0),
+              height: at.height,
+              view: body?.clientHeight ?? 0,
+              fromEnd: body ? body.scrollHeight - body.scrollTop - body.clientHeight : 0,
+            });
+          }),
+        ),
+      ),
+  );
+
+test("pressed in the column's place, the line above the input opens the conversation at its reply's start, a reply taller than the column too, and keeps it there as it grows; a later request's card keeps its answers put as the turn above settles, and the column follows its end again", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 560);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await stepTo(99);
+    await nextRun("long");
+    let before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    // The conversation's place is the column; closed, the line stands above the input.
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    const column = window.getByTestId("note-column");
+    await pointAndClick(window, column.getByTestId("note-column-close"));
+    await expect(column).toHaveCount(0);
+    await pointAndClick(window, group.getByTestId("note-ask-pill-open"));
+    const reply = column.getByTestId("note-column-turn").last().getByTestId("note-column-reply");
+    await expect(reply).toContainText("The five interviews agree");
+    // The keyboard is in the input, where the next request is typed.
+    await expect(column.getByTestId("note-ask-input")).toBeFocused();
+    const opened = await placeIn(reply);
+    expect(opened.height).toBeGreaterThan(opened.view);
+    expect({
+      ...opened,
+      startInView: opened.top >= 0 && opened.top < opened.view,
+      atEnd: opened.fromEnd <= 2,
+    }).toMatchObject({ startInView: true, atEnd: false });
+    // As the reply still grows at its foot, its start stays where it is.
+    for (const grown of ["48px", "0px"]) {
+      await column
+        .getByTestId("note-column-turn")
+        .last()
+        .evaluate((turn, padding) => {
+          (turn as HTMLElement).style.paddingBottom = padding;
+        }, grown);
+      expect([grown, (await placeIn(reply)).top]).toEqual([grown, opened.top]);
+    }
+
+    // A later request's card: its answers stay put as the turn above grows and shrinks a moment
+    // after it shows.
+    await nextRun("ask-command");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, column.getByTestId("note-ask-input"));
+    await window.keyboard.type("Count the late crossings");
+    await window.keyboard.press("Enter");
+    const card = column.getByTestId("own-ask-card");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    const answer = card.getByTestId("own-ask-deny");
+    const shown = await placeIn(answer);
+    expect(shown.top + shown.height).toBeLessThanOrEqual(shown.view);
+    for (const settled of ["48px", "0px"]) {
+      await column
+        .getByTestId("note-column-turn")
+        .nth(-2)
+        .evaluate((turn, padding) => {
+          (turn as HTMLElement).style.paddingBottom = padding;
+        }, settled);
+      expect([settled, (await placeIn(answer)).top]).toEqual([settled, shown.top]);
+    }
+    // And the column follows its end again: the newest turn grows at its foot, the end in view.
+    await column
+      .getByTestId("note-column-turn")
+      .last()
+      .evaluate((turn) => {
+        (turn as HTMLElement).style.paddingBottom = "48px";
+      });
+    expect((await placeIn(answer)).fromEnd).toBeLessThanOrEqual(2);
+    await pointAndClick(window, answer);
+    await ended(window, mindId, before);
+  } finally {
+    await app.close();
+  }
+});
+
 test("the conversation moved to the column opens there again after a restart", async () => {
   let { app, window } = await launched();
   let mindId = "";
@@ -967,7 +1171,7 @@ test("scrolled to its end, a Note's last line stands above its conversation open
   }
 });
 
-test("the input at a Note's foot stands on the text's edges, wide, narrow and beside comments, and the page fades out only just above it", async () => {
+test("the input at a Note's foot stands on the text's edges, wide, narrow and beside comments, in English and Chinese, and the page fades out only just above it", async () => {
   const { app, window } = await launched();
   try {
     await acceptPlainTextKeys(window);
@@ -991,15 +1195,19 @@ test("the input at a Note's foot stands on the text's edges, wide, narrow and be
         `${where}: right`,
       ).toBeLessThanOrEqual(1);
     };
-    for (const [width, height] of [
-      [1440, 900],
-      [1280, 800],
-      [900, 760],
-    ] as const) {
-      await setWindowSize(app, window, width, height);
-      await expect(box).toBeVisible();
-      await onTheText(`${width} px`);
+    for (const language of ["en", "zh-CN"] as const) {
+      await setLanguage(window, language);
+      for (const [width, height] of [
+        [1440, 900],
+        [1280, 800],
+        [900, 760],
+      ] as const) {
+        await setWindowSize(app, window, width, height);
+        await expect(box).toBeVisible();
+        await onTheText(`${language} ${width} px`);
+      }
     }
+    await setLanguage(window, "en");
 
     // Scrolled into the middle, the text runs to the input: only the last pixels above it fade.
     await setWindowSize(app, window, 1440, 900);

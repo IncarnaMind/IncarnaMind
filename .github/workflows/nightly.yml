@@ -59,6 +59,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Unit tests run on Linux: how Windows spells a steering file (8.3 names, its own resolver) is tried only here.
+      - run: npx vitest run tests/main/ownAi.test.ts -t steering
       - run: npm run dist:dir
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"

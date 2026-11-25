@@ -2867,6 +2867,16 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* A problem is read to its last word: it wraps, never cut. */
+  .note-ask-pill[data-state="failed"] {
+    height: auto;
+    min-height: 24px;
+    padding-block: 2px;
+  }
+  .note-ask-problem-line {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   .note-ask-pill-reply {
     color: var(--color-ink);
     text-align: left;
@@ -3006,13 +3016,15 @@
     }
   }
   .note-column-body {
+    --scroll-head: 8px;
+    --scroll-foot: 16px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 20px;
     min-height: 0;
     overflow: auto;
-    padding: 8px 16px 16px;
+    padding: var(--scroll-head) 16px var(--scroll-foot);
   }
   .note-column-turn {
     display: flex;
@@ -3176,7 +3188,7 @@
     align-items: center;
     gap: 6px;
     min-width: 0;
-    height: 24px;
+    min-height: 24px;
     font-size: 13px;
     line-height: 20px;
     color: var(--color-ink-meta);
@@ -3219,17 +3231,19 @@
     }
   }
   .note-ask-panel-body {
+    /*
+     * 12px above the first request and under the last reply's copy-and-model line, which keeps its
+     * 16px while Copy's 28px pressable square reaches past it.
+     */
+    --scroll-head: 12px;
+    --scroll-foot: 12px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 16px;
     min-height: 0;
     overflow: auto;
-    /*
-     * 12px above the first request and under the last reply's copy-and-model line, which keeps its
-     * 16px while Copy's 28px pressable square reaches past it.
-     */
-    padding: 12px var(--note-ask-end) 12px var(--note-ask-start);
+    padding: var(--scroll-head) var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
     .note-column-reply-foot {
       min-height: 16px;
     }
@@ -3252,6 +3266,284 @@
     gap: 2px;
     border-radius: 6px;
     background: var(--color-sheet);
+  }
+  .own-ask-panel .note-ask-panel-body {
+    --scroll-head: 10px;
+  }
+  /* A question from the User's own command-line AI in a Note's conversation (#3653). */
+  .own-ask-card {
+    container: own-ask / inline-size;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  /* A name with nowhere to break (a tool's, a site's) wraps inside the card, never past its edge. */
+  .own-ask-card .approval-title {
+    align-items: flex-start;
+    overflow-wrap: anywhere;
+  }
+  .own-ask-card .approval-dot {
+    margin-top: 7px;
+  }
+  .own-clamp {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .own-clamp--2 {
+    -webkit-line-clamp: 2;
+  }
+  .own-ask-card .own-ask-details {
+    gap: 8px;
+  }
+  .own-ask-details[data-all] .own-clamp {
+    display: block;
+    overflow: visible;
+  }
+  .own-ask-value {
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--color-chip);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  /* Twelve lines at most until Show all, which the card says how many lines more it shows. */
+  .own-ask-whole {
+    max-height: calc(12 * 18px + 12px);
+    overflow: hidden;
+    &[data-all] {
+      max-height: none;
+    }
+  }
+  .own-ask-content {
+    color: var(--color-ink-secondary);
+  }
+  /* The AI's own words for its command, the card's main line; the command under them, grey. */
+  .own-ask-description {
+    margin: 0;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  .own-ask-value.own-ask-value--under {
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
+  }
+  /* Everything a lasting answer of several parts grants, under its button. */
+  .own-ask-grants {
+    margin: 0;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    overflow-wrap: anywhere;
+  }
+  /* What runs is read in the order it is stored: nothing in it can turn its text around. */
+  .own-ask-text,
+  .own-ask-text * {
+    unicode-bidi: bidi-override;
+    direction: ltr;
+  }
+  .own-ask-value-tail {
+    display: block;
+  }
+  .own-ask-link {
+    align-self: flex-start;
+    font-size: 12px;
+    line-height: 18px;
+    font-weight: 600;
+    color: var(--color-accent);
+    &:hover {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+  }
+  /* Nothing a card asks about scrolls in a box of its own: the card's one view, and the line at its
+     edge that says what is past it, cover all of it. */
+  .own-ask-card .own-ask-args {
+    /* An input's name takes at most 40% of the row, so a long one leaves its value room. */
+    grid-template-columns: fit-content(40%) minmax(0, 1fr);
+    gap: 2px 12px;
+    max-height: none;
+    overflow: visible;
+    dt {
+      overflow-wrap: anywhere;
+    }
+    dd {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
+  .own-ask-input {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .own-ask-change {
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--color-frame);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .own-ask-card .own-ask-actions {
+    flex-direction: column;
+    /* One line, so the answers are as wide as the card, not as their one row would be. */
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 16px 12px 32px;
+    /* A card taller than the box it scrolls in keeps its answers at the box's foot: flush with it,
+       since a box's padding would otherwise show what scrolls under them. */
+    position: sticky;
+    bottom: calc(-1 * var(--scroll-foot, 0px));
+    border-radius: 0 0 7px 7px;
+    background: var(--color-sheet);
+  }
+  /*
+   * Where the thing itself runs past the box the card scrolls in: a line at that edge says how many
+   * of its lines are past it. Above, it covers the box's top, flush with it, and takes no room.
+   */
+  .own-ask-more-above {
+    position: sticky;
+    top: calc(-1 * var(--scroll-head, 0px));
+    z-index: 1;
+    height: 0;
+  }
+  .own-ask-more--above {
+    position: absolute;
+    inset: 0 0 auto;
+    padding: 4px 16px 4px 32px;
+    border-bottom: 1px solid var(--color-rule);
+    background: var(--color-sheet);
+    text-align: left;
+  }
+  .own-ask-answers {
+    display: flex;
+    flex-wrap: nowrap;
+    min-width: 0;
+    justify-content: flex-end;
+    gap: 6px;
+    & .approval-button {
+      flex: none;
+      padding-inline: 10px;
+      white-space: nowrap;
+    }
+    & .approval-button--ghost {
+      margin-left: 0;
+      padding-inline: 8px;
+    }
+    & .approval-button--primary {
+      padding-inline: 12px;
+    }
+    /* Too wide for one row: one under another, full width, every word of each shown. */
+    &[data-stacked] {
+      flex-direction: column;
+      align-items: stretch;
+      & .approval-button {
+        height: auto;
+        min-height: 32px;
+        padding-block: 6px;
+        white-space: normal;
+        text-wrap: pretty;
+      }
+    }
+  }
+  .own-ask-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-inline: 4px;
+    border-radius: 9999px;
+    background: var(--color-attention);
+  }
+  .own-waiting,
+  .own-ask-pill {
+    color: var(--color-ink-secondary);
+  }
+  .own-step-parts {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .own-step-fixed {
+    flex: none;
+    white-space: pre;
+  }
+  .own-step-code {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-ligatures: none;
+  }
+  .own-step-by {
+    color: var(--color-ink-meta);
+  }
+  /* In the conversation a step wraps, every word of what it names shown, at any width. */
+  .note-column-list .own-step-parts {
+    display: block;
+    overflow: visible;
+    white-space: normal;
+  }
+  .note-column-list .own-step-fixed {
+    white-space: pre-wrap;
+  }
+  .note-column-list .own-step-code {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .own-first {
+    margin: 2px 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    white-space: normal;
+  }
+  .own-mode {
+    margin: 0;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
+  }
+  /* What didn't run, and Ask again after its last word. */
+  .own-closed .note-column-step-item {
+    display: block;
+  }
+  .own-closed .own-step-parts {
+    display: inline;
+  }
+  .own-closed .note-ask-pill-action {
+    margin-left: 4px;
+  }
+  .note-ask-pill-own {
+    min-width: 0;
+    flex: 1;
+  }
+  /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
+  .own-ask-card :is(code, pre, .own-ask-value, .own-ask-input, .own-ask-args dt) {
+    font-variant-ligatures: none;
   }
   /*
    * The check badge with the Note's own controls at its top right, left of the conversation button
