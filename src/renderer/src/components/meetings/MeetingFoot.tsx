@@ -294,11 +294,6 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     >
       <header className="meeting-sheet-head">
         <h2 className="meeting-sheet-title">{t("meetings.views.transcript")}</h2>
-        {!live && (
-          <span data-testid="meeting-sheet-recorded" className="meeting-sheet-meta">
-            {t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) })}
-          </span>
-        )}
         <div className="ml-auto flex items-center gap-1">
           <CaptureDetailsToggle meeting={meeting} />
           <button
@@ -330,7 +325,9 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
       {live ? (
         <p className="meeting-sheet-consent">{t("meetings.foot.tell")}</p>
       ) : (
-        <MeetingAudioLine meeting={meeting} className="meeting-sheet-consent" />
+        <div data-testid="meeting-sheet-audio" className="meeting-sheet-consent">
+          <MeetingAudioLine meeting={meeting} />
+        </div>
       )}
       {live && <MeetingLines meeting={meeting} />}
       <CaptureDetails meeting={meeting} />
