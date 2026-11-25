@@ -12,13 +12,12 @@ import {
   acceptPlainTextKeys,
   catchCopies,
   createDataFolder,
-  expectHomeInFront,
+  expectExampleInFront,
   frontMind,
   interceptOpenDialog,
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
-  openExample,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -191,7 +190,7 @@ async function typedInClaudeCode(): Promise<string[]> {
     .map((link) => new URL(link).searchParams.get("q") ?? "");
 }
 
-/** What the window says, its Note, sidebar, setup and Get started included. */
+/** What the window says, its Note, sidebar and setup included. */
 async function shown(window: Page): Promise<string> {
   return (await window.locator("body").innerText()).trim();
 }
@@ -241,36 +240,25 @@ for (const language of ["en", "zh-CN"] as const) {
     };
     const assistant = window.getByTestId("assistant");
 
-    // 1. The first run: the User's own AI comes first, and it connects inside the step.
+    // 1. The first run: the User's own AI comes first, found and ticked, and Connect moves on.
     await pointAndClick(window, (await atStep("work")).getByTestId("setup-skip"));
     const ai = await atStep("ai");
-    const found = ai.locator('[data-testid="setup-agent"][data-value="claude-code"]');
-    await expect(found).toContainText(t("setupPage.agent.found"));
+    const found = ai.locator('[data-testid="setup-app"][data-value="claude-code"]');
+    await expect(found.getByTestId("setup-app-tick")).toBeChecked();
     await plainAndWithAWayOn(window, language, "the Your AI step");
-    await found.locator("input").press("Space");
-    await pointAndClick(
-      window,
-      ai.getByTestId("setup-agent-connect").getByTestId("setup-agent-allow"),
-    );
-    await expect(ai.getByTestId("setup-agent-connected")).toHaveText(
-      t("setupPage.agent.connected", { agent: "Claude Code" }),
-    );
-    await pointAndClick(window, ai.getByTestId("setup-next"));
+    await pointAndClick(window, ai.getByTestId("setup-connect"));
     await pointAndClick(window, (await atStep("meetings")).getByTestId("setup-skip"));
     await expect(panel).toHaveCount(0);
-    await expectHomeInFront(window);
-    await openExample(window);
+    await expectExampleInFront(window);
 
-    // 2. Get started: the User adds their files with its own press; every one of the 40 is read.
-    const card = window.getByTestId("first-open-steps");
-    const step = (name: string) =>
-      card.locator(`[data-testid="first-open-step"][data-step="${name}"]`);
-    await expect(step("files")).toHaveAttribute("data-state", "open");
+    // 2. The example: the User adds their files from its line; every one of the 40 is read.
+    const addOwn = window.getByTestId("example-line").getByTestId("example-add-own");
+    await expect(addOwn).toBeVisible();
     await expect(assistant).toBeHidden();
-    await plainAndWithAWayOn(window, language, "Get started");
+    await plainAndWithAWayOn(window, language, "the example");
     await interceptOpenDialog(app, paths);
-    await pointAndClick(window, step("files").getByTestId("first-open-add-files"));
-    await expect(step("files")).toHaveAttribute("data-state", "done", { timeout: 60_000 });
+    await pointAndClick(window, addOwn);
+    await pointAndClick(window, window.getByTestId("example-add-files"));
     // The example's own Documents are there too, apart from the User's; each of the User's 40 is
     // read, a scan with no text in it as such.
     const stems = new Set(files.map((name) => name.replace(/\.[^.]+$/, "")));
@@ -286,7 +274,6 @@ for (const language of ["en", "zh-CN"] as const) {
         { timeout: 240_000, intervals: [2_000] },
       )
       .toBeGreaterThan(files.length - 6);
-    await expect(step("agentAsk")).toHaveAttribute("data-state", "open");
 
     // 3. The User opens one file from ⌘K and asks their AI about it with ⌘J, as its viewer's Ask
     // names: no pill floats over the file (#3764).

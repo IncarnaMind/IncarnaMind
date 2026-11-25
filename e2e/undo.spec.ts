@@ -11,6 +11,7 @@ import {
   documentIdOf,
   editItem,
   enterContent,
+  examplesMenu,
   launchApp,
   leaveFirstOpen,
   leaveText,
@@ -406,9 +407,8 @@ test("Remove the examples: made again by ⌘Z, removed again by ⇧⌘Z", async 
   const { window } = await launchApp(dataDir, { examples: true });
   await openExample(window);
   await leaveFirstOpen(window);
-  await expect(window.getByTestId("example-banner")).toBeVisible();
   const exampleMind = () => read(window, async (core) => (await core.getExamples()).mindId);
-  await pointAndClick(window, window.getByTestId("example-remove"));
+  await pointAndClick(window, (await examplesMenu(window)).getByTestId("examples-remove"));
   await expect(undoLine(window).getByTestId("undo-message")).toHaveText("Removed the examples");
   await expect.poll(exampleMind).toBeNull();
   await dismissChatSetup(window);

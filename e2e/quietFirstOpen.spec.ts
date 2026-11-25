@@ -66,10 +66,13 @@ test("a first open shows Home with no assistant and a slim sidebar, and the exam
   await expect(window.getByTestId("mind-tab")).toHaveCount(1);
   await expect(window.getByTestId("mind-tab")).toHaveText("Draft: credit committee paper");
   await expect(window.getByTestId("assistant")).toBeHidden();
-  await expect(window.getByTestId("ask-pill")).toBeVisible();
-  await expect(window.getByTestId("ask-pill")).toContainText("Ask anything");
+  // With no AI app and no model, the example's foot says how to ask, and no pill floats (#3791).
+  await expect(window.getByTestId("note-ask-no-ai")).toBeVisible();
+  await expect(window.getByTestId("ask-pill")).toHaveCount(0);
 
+  // The pill asks IncarnaMind's own model, so it floats once one is set up.
   await useLocalChatModel(window);
+  await expect(window.getByTestId("ask-pill")).toContainText("Ask anything");
   await window.getByTestId("ask-pill").click();
   await expect(window.getByTestId("assistant")).toBeVisible();
   await expect(window.getByTestId("composer-input")).toBeFocused();
@@ -132,10 +135,10 @@ test("the tab strip stays when a second tab is closed again", async () => {
   await app.close();
 });
 
-test("the page menu's Rename names the example in its tab while the first open's steps show", async () => {
+test("the page menu's Rename names the example in its tab in the quiet first open", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(window);
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(window.getByTestId("example-line")).toBeVisible();
   await pointAndClick(window, (await openPageMenu(window)).getByTestId("mind.rename"));
   const field = window.getByTestId("tab-rename");
   await expect(field).toBeFocused();
@@ -177,7 +180,8 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   await setWindowSize(app, window, 1440, 900);
   const sidebar = window.getByTestId("sidebar");
   const line = sidebar.getByTestId("tagging-waiting");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  const assistant = window.getByTestId("assistant");
+  await expect(assistant).toBeHidden();
 
   // The examples need no model, so their Tags waiting for one is no news.
   await expect
@@ -196,7 +200,7 @@ test("the examples alone keep the footer quiet, but the User's own file waiting 
   await makeTagOnDocument(window, "Harbour notes");
   await expect(line).toBeVisible();
   await expect(line.getByTestId("status-label")).toHaveText("Tags need an AI model");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(assistant).toBeHidden();
 
   const choose = line.getByTestId("tagging-waiting-setup");
   await expect(choose).toHaveText("Choose…");
@@ -241,13 +245,14 @@ test("Tagging stopped for the User's own files shows in the footer on the first 
     await bridge.setTaggingWithAi(null, false);
   });
   const sidebar = window.getByTestId("sidebar");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  const assistant = window.getByTestId("assistant");
+  await expect(assistant).toBeHidden();
   await window.getByTestId("add-documents-input").setInputFiles([notes]);
   // A Tag of the User's own: only then is Tags named (#1942).
   await makeTagOnDocument(window, "Harbour notes");
   const row = sidebar.getByTestId("tagging-stopped");
   await expect(row).toContainText("Tagging stopped");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(assistant).toBeHidden();
   await row.getByTestId("tagging-resume").focus();
   await window.keyboard.press("Enter");
   await expect(row).toHaveCount(0);
@@ -276,12 +281,13 @@ test("Tagging paused by a rate limit shows in the footer on the first open, with
     });
   });
   const sidebar = window.getByTestId("sidebar");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  const assistant = window.getByTestId("assistant");
+  await expect(assistant).toBeHidden();
   await window.getByTestId("add-documents-input").setInputFiles([limited]);
   await makeTagOnDocument(window, "Harbour notes");
   const row = sidebar.getByTestId("tagging-rate-limited");
   await expect(row.getByTestId("status-label")).toContainText("Rate limit reached");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(assistant).toBeHidden();
   await row.getByTestId("tagging-rate-limited-retry").focus();
   await window.keyboard.press("Enter");
   await expect(row).toHaveCount(0);
@@ -327,8 +333,10 @@ test("the assistant comes with the first Question, and stays after a restart (#1
 });
 
 test("the quiet first open holds at 1,100 px in Chinese (#123)", async () => {
-  const { app, window } = await launchApp(dataDir, { examples: true });
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(window);
+  // The Ask pill asks IncarnaMind's own model, so it floats where one is set up (#3791).
+  await useLocalChatModel(window);
   await setWindowSize(app, window, 1100, 720);
   await setLanguage(window, "zh-CN");
   const pill = window.getByTestId("ask-pill");

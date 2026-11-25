@@ -62,15 +62,19 @@ const linkedRow = (window: Page, name: string) =>
 /** The row itself, which says the folder's state. */
 const rowOf = (row: ReturnType<typeof linkedRow>) => row.locator("[data-linked-folder-id]");
 
-/** Links `folder` from the first step, with the sidebar hidden first: the link opens it again. */
-async function linkFromFirstStep(app: ElectronApplication, window: Page, folder: string) {
-  const steps = window.getByTestId("first-open-steps");
-  await expect(steps).toBeVisible();
+/**
+ * Links `folder` from the example's own line, Add your own files, with the sidebar hidden first:
+ * the link opens it again.
+ */
+async function linkFromExample(app: ElectronApplication, window: Page, folder: string) {
+  const line = window.getByTestId("example-line");
+  await expect(line).toBeVisible();
   const panel = window.getByTestId("sidebar-panel");
   await window.getByTestId("sidebar-toggle").click();
   await expect(panel).toHaveAttribute("data-hidden", "true");
   await interceptOpenDialog(app, folder);
-  await steps.getByTestId("first-open-link-folder").click();
+  await line.getByTestId("example-add-own").click();
+  await window.getByTestId("example-add-link-folder").click();
   const dialog = window.getByTestId("link-folder-dialog");
   await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 15_000 });
   await confirmLink(dialog);
@@ -88,7 +92,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await openExample(window);
     await setWindowSize(app, window, 900, 700);
     await setLanguage(window, language);
-    await linkFromFirstStep(app, window, folder);
+    await linkFromExample(app, window, folder);
 
     // The section and its row came with the link, the row washed as any new item is.
     const row = linkedRow(window, "contracts");
@@ -128,7 +132,7 @@ test("a folder holding only files IncarnaMind can't read says so under its row, 
   await openExample(window);
   await setWindowSize(app, window, 900, 700);
   await setLanguage(window, "en");
-  await linkFromFirstStep(app, window, folder);
+  await linkFromExample(app, window, folder);
 
   const row = linkedRow(window, "scans");
   const item = rowOf(row);

@@ -4,13 +4,12 @@ import { expect, test } from "@playwright/test";
 import {
   askInAssistant,
   assistantAnswers,
+  coreOf,
   createDataFolder,
   dismissChatSetup,
   frontMind,
   launchApp,
-  markSteps,
   openExample,
-  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -28,6 +27,7 @@ const WALKS = [
     file: "Employment agreement.md",
     text: "# Employment agreement\n\nThe employee may work from home three days a week.\n\nHoliday is 27 working days a year.\n",
     question: "What are the home working rules?",
+    find: "leverage",
   },
   {
     name: "Chinese",
@@ -36,6 +36,7 @@ const WALKS = [
     file: "劳动合同.md",
     text: "# 劳动合同\n\n乙方每周可居家办公两天。\n\n年假为 15 个工作日。\n",
     question: "居家办公的规定是什么？",
+    find: "杠杆率上限",
   },
 ] as const;
 
@@ -59,17 +60,23 @@ for (const walk of WALKS) {
     await expect(frontMind(window).locator(".mind-editor h1")).toHaveText(walk.example, {
       timeout: 30_000,
     });
-    // The ready Question waits for the example's Documents to be read, as its Citations show.
+    // The example's own Question waits for its Documents to be read, as its Citations show; its
+    // Conversation is then the one the User asks in.
     const checks = frontMind(window).getByTestId("mind-editor").getByTestId("citation-chip");
     await expect(checks).toHaveCount(2);
     await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 60_000 });
-    await markSteps(window, { indexed: true });
-    await pointAndClick(
-      window,
+    await (await coreOf(window)).evaluate((core) => core.askExampleReadyQuestion());
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(walk.find);
+    await expect(
       window
-        .locator('[data-testid="first-open-step"][data-step="question"]')
-        .getByTestId("first-open-ready"),
-    );
+        .getByTestId("palette")
+        .locator('[data-testid="palette-group"][data-group="conversations"]')
+        .getByTestId("palette-item")
+        .first(),
+    ).toBeVisible();
+    await window.keyboard.press("Enter");
     await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
     await dismissChatSetup(window);
     await useLocalChatModel(window);

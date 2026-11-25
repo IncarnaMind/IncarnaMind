@@ -250,39 +250,37 @@ test("A1 first run: the example Mind and its Citation card", async () => {
       await window.waitForTimeout(250);
       record("walk.escape.citationCard", { closes: !(await card.isVisible()) });
     });
-    await step(T, "the first open's steps", async () => {
-      const card = window.getByTestId("first-open-steps");
-      await expect(card).toBeVisible();
-      await shot(card, "A04-first-open-steps");
+    await step(T, "the example's line above its foot", async () => {
+      const line = window.getByTestId("example-line");
+      await expect(line).toBeVisible();
+      await shot(line, "A04-example-line");
     });
     await step(T, "focus walk from the window", async () => {
       await window.mouse.click(5, 5);
       const stops = await focusWalk(window, 45, "focus/A05");
       record("walk.focus.exampleMind", stops);
     });
-    // The card offers its Question once a Document of the User's own has been read, so the
-    // step links a folder from the card first, as a first run does; asked about those
-    // Documents it needs a model, so the scripted one is chosen.
-    await step(
-      T,
-      "the ready question: the assistant with its Answer, from the folder linked",
-      async () => {
-        await window.keyboard.press("Escape");
-        await answerOpenDialog((app as Launched).app, fixtures.formats);
-        await click(window, window.getByTestId("first-open-link-folder"));
-        const dialog = window.getByTestId("link-folder-dialog");
-        await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 20_000 });
-        await click(window, dialog.getByTestId("link-folder-confirm"));
-        await expect(dialog).toBeHidden();
-        await documentsSettled(window, 14);
-        await chooseFakeModel(window);
-        await click(window, window.getByTestId("first-open-ready"));
-        const answer = window.getByTestId("assistant-answer").last();
-        await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
-        await window.waitForTimeout(300);
-        await shot(window, "A06-ready-question");
-      },
-    );
+    // A folder linked from the example's line, as a first run does; asked about those Documents
+    // the assistant needs a model, so the scripted one is chosen.
+    await step(T, "a Question about the folder linked: the assistant with its Answer", async () => {
+      await window.keyboard.press("Escape");
+      await answerOpenDialog((app as Launched).app, fixtures.formats);
+      await click(window, window.getByTestId("example-add-own"));
+      await click(window, window.getByTestId("example-add-link-folder"));
+      const dialog = window.getByTestId("link-folder-dialog");
+      await expect(dialog.getByTestId("link-folder-files")).toBeVisible({ timeout: 20_000 });
+      await click(window, dialog.getByTestId("link-folder-confirm"));
+      await expect(dialog).toBeHidden();
+      await documentsSettled(window, 14);
+      await chooseFakeModel(window);
+      await window.keyboard.press("ControlOrMeta+j");
+      await window.keyboard.type("What do my files say about the budget?");
+      await window.keyboard.press("Enter");
+      const answer = window.getByTestId("assistant-answer").last();
+      await expect(answer).toHaveAttribute("data-status", "done", { timeout: 30_000 });
+      await window.waitForTimeout(300);
+      await shot(window, "A06-own-question");
+    });
   } finally {
     if (app) await close(app);
     removeDir(dataDir);

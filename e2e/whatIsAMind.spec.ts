@@ -13,9 +13,9 @@ import {
 } from "./app";
 
 /**
- * One sentence says what a Mind is where the User first meets it (#721): in the
- * example's banner, on the first empty Mind's first line until something is
- * written, and in New note's tooltip; in English and Chinese.
+ * One sentence says what a Mind is where the User first meets it (#721): on the first empty
+ * Mind's first line until something is written, and in New note's tooltip; in English and
+ * Chinese.
  */
 
 const SENTENCE = {
@@ -36,13 +36,12 @@ test.afterEach(async () => {
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`the example's banner and New note's tooltip say what a Mind is, in ${language}`, async () => {
+  test(`New note's tooltip says what a Mind is, in ${language}`, async () => {
     const { app, window } = await launchApp(dataDir, { examples: true });
     await openExample(window);
     await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, language);
     await leaveFirstOpen(window);
-    await expect(window.getByTestId("example-banner")).toContainText(SENTENCE[language]);
     await expect(window.getByTestId("new-tab").first()).toHaveAttribute(
       "title",
       new RegExp(`^${TOOLTIP[language]}`),

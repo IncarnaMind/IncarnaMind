@@ -5,13 +5,11 @@ import {
   createDataFolder,
   frontMind,
   launchApp,
-  markSteps,
   openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  welcomeStep as step,
 } from "./app";
 
 const mindTitle = (window: Page) => window.getByTestId("mind-editor").locator("h1");
@@ -24,7 +22,11 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-async function askReady(window: Page): Promise<Locator> {
+/**
+ * The example's own Question, asked as the core asks it, with its Answer written in advance; then
+ * its Conversation opened from ⌘K by `find`, as a person comes back to one.
+ */
+async function askReady(window: Page, find: string): Promise<Locator> {
   const checks = window
     .getByTestId("mind-pane")
     .getByTestId("mind-editor")
@@ -33,9 +35,8 @@ async function askReady(window: Page): Promise<Locator> {
   for (const chip of await checks.all()) {
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
   }
-  await markSteps(window, { indexed: true });
-  await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
-  const answer = assistantAnswers(window).last();
+  await (await coreOf(window)).evaluate((core) => core.askExampleReadyQuestion());
+  const answer = await openFromPalette(window, find);
   await expect(answer).toHaveAttribute("data-status", "done");
   return answer;
 }
@@ -85,7 +86,7 @@ test("an English Conversation's Citations open their original pages after the in
   const first = await launchApp(dataDir, { examples: true });
   await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
-  const answer = await askReady(first.window);
+  const answer = await askReady(first.window, "leverage");
   await first.window.keyboard.press("Escape");
 
   await setLanguage(first.window, "zh-CN");
@@ -133,7 +134,7 @@ test("a Chinese Conversation's Citations open their original pages after the int
   await setWindowSize(first.app, first.window, 1440, 900);
   await setLanguage(first.window, "zh-CN");
   await expect(mindTitle(first.window)).toHaveText("授信委员会报告（草稿）", { timeout: 30_000 });
-  const answer = await askReady(first.window);
+  const answer = await askReady(first.window, "杠杆率上限");
   await first.window.keyboard.press("Escape");
 
   await setLanguage(first.window, "en");
@@ -179,7 +180,7 @@ test("a Citation copied from the example's Answer into a Mind opens its original
   const { app, window } = await launchApp(dataDir, { examples: true });
   await openExample(window);
   await setWindowSize(app, window, 1440, 900);
-  const answer = await askReady(window);
+  const answer = await askReady(window, "leverage");
   await pointAndClick(window, answer.getByTestId("answer-write-note"));
   const copy = frontMind(window).getByTestId("mind-editor");
   await expect(copy.getByTestId("citation-chip")).toHaveCount(2);
