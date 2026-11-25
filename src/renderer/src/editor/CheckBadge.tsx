@@ -749,22 +749,12 @@ function BadgeFrame({
     setCheckCardOpen(place, false);
   };
   // The card is placed from this box's right edge, which the badge growing left never moves, so
-  // the run's wider badge leaves the card where it was (#1312, #2313). From the badge in the tab
-  // strip (#3765) it hangs under the strip's end instead, over the page's margin as it hung from
-  // the page's top right before, not over the top of the text and what stands there.
-  const placedFrom = useMemo(() => {
-    if (!anchor || !fromTop) return anchor;
-    const group = anchor.closest('[data-testid="tab-group"]');
-    if (!group) return anchor;
-    return {
-      contextElement: anchor,
-      getBoundingClientRect: () => {
-        const badge = anchor.getBoundingClientRect();
-        const right = Math.max(badge.right, group.getBoundingClientRect().right - CARD_MARGIN);
-        return { ...badge.toJSON(), right, width: right - badge.left };
-      },
-    };
-  }, [anchor, fromTop]);
+  // the run's wider badge leaves the card where it was (#1312, #2313); in the tab strip, under the
+  // strip's end (`placingUnderStrip`).
+  const middleware = useMemo(
+    () => (anchor && fromTop ? placingUnderStrip(anchor) : placing),
+    [anchor, fromTop],
+  );
   return (
     <div ref={setAnchor} className="check-badge-place">
       {badge ? (
@@ -784,12 +774,12 @@ function BadgeFrame({
       ) : (
         <span className="check-badge-anchor" />
       )}
-      {open && placedFrom && (
+      {open && anchor && (
         <Popover
-          anchor={placedFrom}
+          anchor={anchor}
           placement={fromTop ? "bottom-end" : "top-end"}
           fromBottom={!fromTop}
-          middleware={placing}
+          middleware={middleware}
           aria-label={t("health.label")}
           data-testid="check-card"
           className="check-card"
@@ -837,6 +827,20 @@ function stepThroughCard(event: KeyboardEvent<HTMLDivElement>) {
   event.preventDefault();
   buttons[next]?.focus();
 }
+
+/**
+ * Under the badge in the tab strip (#3765), its right edge at the strip's end rather than the
+ * badge's: over the page's margin, as it hung from the page's top right before, not over the top
+ * of the text and what stands there.
+ */
+const placingUnderStrip = (badge: Element) => () => [
+  offset(() => {
+    const group = badge.closest('[data-testid="tab-group"]')?.getBoundingClientRect();
+    const reach = group ? group.right - CARD_MARGIN - badge.getBoundingClientRect().right : 0;
+    return { mainAxis: 8, crossAxis: Math.max(0, reach) };
+  }),
+  ...placing().slice(1),
+];
 
 // Above the badge, and never taller than the room above it: its rows scroll instead.
 const placing = () => [
