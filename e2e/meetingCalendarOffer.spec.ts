@@ -18,6 +18,7 @@ import {
   setLanguage,
   setWindowSize,
   showSettingsPage,
+  transcribeHere,
   urlsOpened,
 } from "./app";
 
@@ -144,7 +145,9 @@ async function allowMeetingOffers(window: Page) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`calendar reminder waits for consent and opens and records only the chosen event (${language})`, async () => {
+  // A reminder can come before Meetings are set up (#3758): Take notes then waits for the
+  // recording notice, and nothing records or opens before its Start.
+  test(`calendar reminder before Meetings are set up waits for the recording notice, then opens and records only the chosen event (${language})`, async () => {
     const dataDir = await createDataFolder();
     const words = labels[language];
     try {
@@ -162,15 +165,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const target = event("target", words.target, now + 55_000, "two");
       await syncCalendarEvents(app, window, [solo, target]);
       await expect(window.getByTestId("home-coming-up")).toContainText(target.title);
-      expect(await reminders(app)).toEqual([]);
-      expect(await meetings(window)).toEqual([]);
       const card = window.getByTestId("calendar-offer-line");
-      await expect(card).toHaveCount(0);
-      await motionSettled(window);
-      await window.screenshot({
-        path: test.info().outputPath(`calendar-before-reminder-${language}.png`),
-      });
-      await allowMeetingOffers(window);
 
       const index = await shownNotification(app, words.reminder(target.title));
       expect(await reminders(app)).toHaveLength(1);
@@ -196,6 +191,12 @@ for (const language of ["en", "zh-CN"] as const) {
       } else {
         await pointAndClick(window, card.getByTestId("calendar-offer-take"));
       }
+      const notice = window.getByTestId("meeting-notice");
+      await expect(notice).toBeVisible();
+      expect(await meetings(window)).toEqual([]);
+      expect(await urlsOpened(app)).toEqual([]);
+      await transcribeHere(notice);
+      await notice.getByTestId("meeting-notice-start").click();
       await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
       await expect(window.locator('[data-testid="mind-tab"][aria-selected="true"]')).toContainText(
         target.title,
