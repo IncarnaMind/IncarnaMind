@@ -1545,7 +1545,28 @@ describe("one connection per app on this computer", () => {
     expect(await consent("agents")).toBe("accepted");
   });
 
-  it.skipIf(process.getuid?.() === 0)(
+  it("an Undo pressed twice takes back the last set-up once: a second press's leaves the connection, a first one's leaves nothing", async () => {
+    const { core, coast } = await started();
+    const first = await core.setUpAgent({ client: "codex", folderIds: [coast.id] });
+    const again = await core.setUpAgent({ client: "codex", folderIds: [ALL_SHARED_ID] });
+    await Promise.all([
+      core.undoAgentSetup(again.pairing.id),
+      core.undoAgentSetup(again.pairing.id),
+    ]);
+    expect((await core.getAgents()).pairings).toMatchObject([
+      { id: first.pairing.id, folderIds: [coast.id] },
+    ]);
+    expect(await searchWorks(await core.getAgentLaunch(first.pairing.id))).toBe(true);
+
+    const cursor = await core.setUpAgent({ client: "cursor", folderIds: [coast.id] });
+    await Promise.all([
+      core.undoAgentSetup(cursor.pairing.id),
+      core.undoAgentSetup(cursor.pairing.id),
+    ]);
+    expect((await core.getAgents()).pairings.map((each) => each.id)).toEqual([first.pairing.id]);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "an Undo of a second press that failed half way can be pressed again, and finishes with the connection kept",
     async () => {
       const { core, home, coast } = await started();

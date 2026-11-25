@@ -291,6 +291,11 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const clientTurns = new Map<string, Promise<void>>();
   const clientOf = (pairingId: unknown) =>
     options.agents.settings().pairings.find((each) => each.id === pairingId)?.client ?? "";
+  /**
+   * The pairings whose last set-up was their first, while its Undo stands; each Undo takes back the
+   * last set-up once, so a second Undo of it (a double click) finds nothing more to take back.
+   */
+  const madeHere = new Set<string>();
   /** What the last set-up replaced, by pairing, where that set-up was a second press on it, while its Undo stands. */
   const madeAgain = new Map<string, ConnectedBefore>();
   /** Of an app's connections, the one used last, else the newest: the one its settings likely hold. */
@@ -689,6 +694,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
     const shown = (path: string) => ({ path, shown: pathFromHome(path, options.home) });
     const skillsLeft = left.map(shown);
     written.delete(pairing.id);
+    madeHere.delete(pairing.id);
     madeAgain.delete(pairing.id);
     const files = settingsFilesFor(pairing.client);
     const token = await keyOf(pairing.id);
@@ -825,6 +831,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
           const again = await options.agents.connectAgain(connected.id, chosen);
           try {
             const result = await install(client, again.pairing.id, again.launch);
+            madeHere.delete(again.pairing.id);
             madeAgain.set(again.pairing.id, again.before);
             return { pairing: again.pairing, result };
           } catch (error) {
@@ -844,7 +851,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
           });
         if (addedSkill) options.agents.recordCreated(pairing.id, skillFolders);
         try {
-          return { pairing, result: await install(client, pairing.id, launch) };
+          const result = await install(client, pairing.id, launch);
+          madeHere.add(pairing.id);
+          return { pairing, result };
         } catch (error) {
           // Nothing half made: the pairing goes with the setup that failed.
           if (addedSkill) await removeSkill(client.id, pairing.id).catch(options.reportError);
@@ -862,6 +871,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
           await undoAgain(pairingId, before);
           return;
         }
+        if (!madeHere.has(pairingId)) return;
         const files = written.get(pairingId) ?? [];
         // A file the agent keeps its own state in is rewritten by it at once: only IncarnaMind's entry goes.
         for (const file of files) {
@@ -891,6 +901,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
         await removeSkill(pairing?.client ?? null, pairingId).catch(options.reportError);
         await removeCreatedFolders(options.agents.created(pairingId));
         await options.agents.disconnect(pairingId);
+        madeHere.delete(pairingId);
       });
     },
 
