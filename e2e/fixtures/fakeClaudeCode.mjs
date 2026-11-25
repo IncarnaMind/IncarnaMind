@@ -6,7 +6,8 @@
 // "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
 // "explain" answers and changes nothing ("plan" too, about the harbour plan); "write" writes a new
-// Note, "Ferry summary"; "long" reads the ferry interviews step by step, each step
+// Note, "Ferry summary"; "summary" writes a summary into the Note asked from, from its top when it
+// has no named paragraph and at its end otherwise; "long" reads the ferry interviews step by step, each step
 // waiting until the number in the mode file's ".step" file reaches it, then answers with
 // Citations; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
 // a new Note, proposes a change to the Note the mode file's ".other" file names, and makes a page.
@@ -253,6 +254,33 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         subtype: "success",
         is_error: false,
         result: "It counts the ship calls the harbour handled in 2025.",
+      });
+      return;
+    }
+    if (mode === "summary") {
+      // As the instructions say: in a note with no named paragraph, the whole note from its top;
+      // otherwise at its end.
+      const read = await use("read_mind", { mindId, named: true });
+      const names = [...(read?.markdown ?? "").matchAll(/^¶(\d+)/gm)].map((each) =>
+        Number(each[1]),
+      );
+      const paragraph = names.length === 0 ? "¶0+" : `¶${Math.max(...names)}+`;
+      await use("propose_changes", {
+        mindId,
+        version: read?.version,
+        changes: [
+          {
+            paragraph,
+            text: "## Ferry interviews\n\nThe 07:40 crossing from Kestrel Bay leaves late most weeks, because the freight vans load first.\n\nCommuters miss the 08:15 train when it does.",
+          },
+        ],
+      });
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "I wrote a summary of the ferry interviews in your note.",
       });
       return;
     }

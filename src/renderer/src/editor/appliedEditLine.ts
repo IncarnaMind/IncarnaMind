@@ -527,13 +527,16 @@ export function changedBlocksOf(
     if (change.block === "removed") {
       let blocks = 0;
       let wholeTables = 0;
+      let emptyLines = 0;
       change.removed.descendants((node) => {
         if (node.type.name === "table") {
           wholeTables++;
           kinds.push("table-removed");
           return false;
         }
-        if (COUNTED.has(node.type.name)) {
+        // An empty line taken out is no paragraph, as the core counts it (#3759).
+        if (COUNTED.has(node.type.name) && node.content.size === 0) emptyLines++;
+        else if (COUNTED.has(node.type.name)) {
           blocks++;
           kinds.push(node.type.name === "heading" ? "title-removed" : "removed");
           if (node.type.name !== "heading") removedTexts.push(node.textContent);
@@ -541,7 +544,7 @@ export function changedBlocksOf(
         return !node.isTextblock;
       });
       removedTables += wholeTables;
-      if (blocks === 0 && wholeTables === 0) kinds.push("removed");
+      if (blocks === 0 && wholeTables === 0 && emptyLines === 0) kinds.push("removed");
       continue;
     }
     state.doc.nodesBetween(place.from, Math.max(place.to, place.from + 1), (node, pos) => {
