@@ -648,7 +648,26 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
     // Its answers stay where they are when the turn above grows or shrinks a moment after the card
     // shows, as a turn that just ended settles: a press on its way lands on the answer it aims at.
     const answerAt = async () => (await card.getByTestId("own-ask-once").boundingBox())?.y ?? -1;
+    // Where the answer, the column's end and its foot were, kept when the answer moved.
+    const layout = () =>
+      column.evaluate((element) => {
+        const body = element.querySelector('[data-testid="note-conversation-body"]');
+        const box = (each: Element | null | undefined) => {
+          const at = each?.getBoundingClientRect();
+          return at ? `${Math.round(at.top)}+${Math.round(at.height)}` : null;
+        };
+        return {
+          answer: box(element.querySelector('[data-testid="own-ask-once"]')),
+          end: body ? body.scrollHeight - body.scrollTop - body.clientHeight : null,
+          body: box(body),
+          foot: box(element.querySelector(".note-column-foot")),
+          live: [...(body?.lastElementChild?.children ?? [])].map(
+            (each) => `${each.getAttribute("data-testid") ?? each.className}:${box(each)}`,
+          ),
+        };
+      });
     const shown = await answerAt();
+    const was = await layout();
     for (const settled of ["48px", "0px"]) {
       await column
         .getByTestId("note-column-turn")
@@ -661,7 +680,14 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
             }),
           settled,
         );
-      expect([settled, await answerAt()]).toEqual([settled, shown]);
+      const now = await answerAt();
+      if (now !== shown) {
+        await test.info().attach("layout", {
+          body: JSON.stringify({ was, now: await layout() }, null, 2),
+          contentType: "application/json",
+        });
+      }
+      expect([settled, now]).toEqual([settled, shown]);
     }
     await pointAndClick(window, card.getByTestId("own-ask-once"));
     await ended(window, mindId, before);
