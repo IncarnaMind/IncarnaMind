@@ -140,6 +140,7 @@ export function SlidesView({ document, target }: { document: Document; target: V
   // A version this window's hand edits wrote is drawn from what they wrote, not read again.
   const { loaded, reload } = useDocumentFile(document.id, editing.steady, read);
   editing.read.current = loaded.kind === "ready" ? loaded.value.hash : null;
+  editing.loadedBytes.current = loaded.kind === "ready" ? loaded.value.bytes : null;
   const refusal = useDeckRefusal(document);
   const editable =
     document.kind === "pptx" &&

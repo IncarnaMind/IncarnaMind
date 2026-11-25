@@ -6088,6 +6088,12 @@ export const en = {
     "Still locked. If no app has it open, delete “{lock}” beside it.",
   "error.deck.unwritable.folder":
     "The folder “{folder}” can’t be written, so the change isn’t saved yet.",
+  "error.deck.unwritable.cloud":
+    "“{name}” isn’t downloaded from the cloud, so the change isn’t saved yet.",
+  "error.deck.copyFailed.full":
+    "Couldn’t save a copy: the disk is full. Free some space, then try again.",
+  "error.deck.copyFailed.folder": "Couldn’t save a copy: neither folder can be written.",
+  "error.deck.copyFailed.other": "Couldn’t save a copy right now. Your change is still here.",
   "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
   "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
   "error.verify.notAllRead":
@@ -6188,6 +6194,7 @@ export const en = {
   "error.files.needsAnswer": "IncarnaMind needs to ask where it goes: keep it open to answer.",
   "quit.unsaved.deck.folder": "The folder “{folder}” can’t be written.",
   "quit.unsaved.deck.copyFailed": "The copy of “{name}” couldn’t be saved. {reason}",
+  "quit.unsaved.deck.cloud": "“{name}” isn’t downloaded from the cloud.",
   "quit.copiedElsewhere": "The copy of “{name}” is in “{folder}”.",
   "quit.copiedElsewhere.ok": "Quit",
   "quit.unsaved.quit": "Quit anyway",

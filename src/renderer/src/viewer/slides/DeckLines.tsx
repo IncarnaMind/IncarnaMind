@@ -22,7 +22,7 @@ function unwritableActions(
 ): { action: ProblemAction; also?: ProblemAction } {
   // Gone, or written by another program since: only a copy beside it keeps the change.
   if (why === "gone" || why === "changed") return { action: actions.saveCopy };
-  return why === "locked"
+  return why === "locked" || why === "full"
     ? { action: actions.tryAgain, also: actions.saveCopy }
     : { action: actions.saveCopy, also: actions.tryAgain };
 }
@@ -68,13 +68,15 @@ export function DeckLines({
           })}
         >
           <ProblemMark />
-          {/* The lock file is named only once Try again has failed on it: most often the app is open. */}
-          {waiting.lock && waiting.again && !fileGone
-            ? t("error.deck.unwritable.lockFile", { lock: middleCut(waiting.lock) })
-            : t(`error.deck.unwritable.${why ?? waiting.why}`, {
-                name: middleCut(waiting.name),
-                folder: middleCut(waiting.folder ?? ""),
-              })}
+          {/* Copy-beside refusal is said right where the User clicked; the edit stays waiting. */}
+          {waiting.copyFailed && !fileGone
+            ? t(`error.deck.copyFailed.${waiting.copyFailed}`)
+            : waiting.lock && waiting.again && !fileGone
+              ? t("error.deck.unwritable.lockFile", { lock: middleCut(waiting.lock) })
+              : t(`error.deck.unwritable.${why ?? waiting.why}`, {
+                  name: middleCut(waiting.name),
+                  folder: middleCut(waiting.folder ?? ""),
+                })}
         </ProblemLine>
       )}
       {overflow && (

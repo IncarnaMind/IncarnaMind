@@ -63,6 +63,7 @@ import { createCanvasFiles } from "./canvasFiles";
 import { createCitedPageCapture } from "./citedPageCapture";
 import { createClaudeCodeInstaller } from "./claudeCodeInstaller";
 import { createSentryCrashReporter } from "./crashReports";
+import { createHostDeckFiles } from "./deckFiles";
 import { documentsFolder } from "./documentsFolder";
 import { createUtilityProcessEmbedder } from "./embedder";
 import { summarizeWithMeetingAgent } from "./meetingSummaryAgent";
@@ -1239,5 +1240,9 @@ export async function createElectronAdapters(log: Logger): Promise<CoreAdapters>
     ...(fakeRecognizer && {
       textRecognitionModelSource: { baseUrl: "http://localhost/", files: [] },
     }),
+    ...(() => {
+      const deckFiles = createHostDeckFiles();
+      return deckFiles ? { deckFiles } : {};
+    })(),
   };
 }

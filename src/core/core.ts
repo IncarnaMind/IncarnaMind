@@ -227,7 +227,13 @@ import { createConversations, type QuestionInput, type Turn } from "./conversati
 import { createMeter } from "./cost/meter";
 import { inCurrency } from "./cost/price";
 import { createKeptDecks, type KeptDeck } from "./decks/kept";
-import { copyBeside, type DeckPlaceDeps, deckPlaceFor, restoreKept } from "./decks/places";
+import {
+  copyBeside,
+  createNodeDeckFiles,
+  type DeckPlaceDeps,
+  deckPlaceFor,
+  restoreKept,
+} from "./decks/places";
 import { protectionOf } from "./decks/protection";
 import { createDeckSittings } from "./decks/sittings";
 import {
@@ -6464,6 +6470,12 @@ export function createCore(adapters: CoreAdapters): Core {
   keptDecks
     .dropGone(documentLive, Date.now())
     .catch((error: unknown) => console.error("The kept decks couldn't be tidied.", error));
+  const deckFiles = {
+    ...createNodeDeckFiles({
+      detectDataless: adapters.linkedFolders?.detectDatalessFiles ?? platform === "darwin",
+    }),
+    ...adapters.deckFiles,
+  };
   const deckPlaces: DeckPlaceDeps = {
     dataDir,
     document: (documentId) => documents.get(documentId),
@@ -6482,11 +6494,37 @@ export function createCore(adapters: CoreAdapters): Core {
     handed: handedFiles,
     kept: keptDecks,
     inHandOverTurn: (run) => handOver.inTurn(run),
+    files: deckFiles,
     now,
     newId: () => crypto.randomUUID(),
   };
-  const readDeck = async (documentId: string) =>
-    new Uint8Array(await readFile(await documents.filePath(documentId)));
+  const readDeck = async (documentId: string, shown?: string, shownBytes?: Uint8Array) => {
+    const path = documents.pathEvenDeleted(documentId);
+    const info = await deckFiles.stat(path).catch(() => null);
+    const cloud = await deckFiles.isCloudPlaceholder(path, info);
+    if (!cloud && info !== null) {
+      try {
+        return await deckFiles.readFile(path);
+      } catch {
+        // File vanished or became exclusively locked between stat and read: fall back below.
+      }
+    }
+    if (
+      shownBytes &&
+      shown &&
+      hashBytes(shownBytes) === shown &&
+      documents.get(documentId).contentHash === shown
+    ) {
+      return shownBytes;
+    }
+    if (cloud) {
+      throw new TranslatableError({
+        key: "error.deck.unwritable.cloud",
+        values: { name: basename(path) },
+      });
+    }
+    return await deckFiles.readFile(await documents.filePath(documentId));
+  };
   const deckSittings = createDeckSittings({
     read: readDeck,
     placeFor: (documentId, bytes) => deckPlaceFor(deckPlaces, documentId, bytes),

@@ -4204,11 +4204,12 @@ export interface DeckUnwritable {
   sittingId: string;
   documentId: string;
   /**
-   * "unkept": IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't
-   * write it. "changed": another program wrote the file while the change waited, so only a copy
-   * beside it keeps the change.
+   * "cloud": not downloaded from a cloud folder (macOS dataless / iCloud stub, Windows Files
+   * On-Demand placeholder). "unkept": IncarnaMind couldn't keep the file as it was first, in its
+   * data folder, so it didn't write it. "changed": another program wrote the file while the change
+   * waited, so only a copy beside it keeps the change.
    */
-  why: "read-only" | "folder" | "locked" | "gone" | "full" | "unkept" | "changed";
+  why: "read-only" | "folder" | "locked" | "cloud" | "gone" | "full" | "unkept" | "changed";
   /** The file's name. */
   name: string;
   /** "folder": the name of the folder that takes no writes. */
@@ -4217,6 +4218,8 @@ export interface DeckUnwritable {
   lock?: string;
   /** Try again was refused for the same reason: the line then says what else to do. */
   again?: boolean;
+  /** Saving a copy beside it (and in the Output location) failed too; the change still waits. */
+  copyFailed?: "full" | "folder" | "other";
   /** The deck with the change that waits: what the viewer draws, and a copy would hold. */
   bytes: Uint8Array;
   /** The SHA-256 of `bytes`. */
@@ -16452,6 +16455,11 @@ export interface CoreApi {
     shown: string;
     edits: ShapeEdit[];
     viewer?: string;
+    /**
+     * The bytes the viewer already showed, supplied only when a sitting's first edit finds the
+     * file gone, evicted to a cloud placeholder or locked for reading on disk; verified against `shown`.
+     */
+    shownBytes?: Uint8Array;
   }): Promise<DeckEdit>;
   /** Takes back a deck's newest step done by hand, writing the deck as it was before it (#149). */
   undoDeckEdit(sittingId: string, stepId: string): Promise<DeckEdit>;

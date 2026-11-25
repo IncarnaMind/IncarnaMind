@@ -18,6 +18,7 @@ import { Deck } from "../exports/pptxPatch/deck";
 import { applyShapeEdits } from "../exports/pptxPatch/edits";
 import type { ShapeEdit } from "../exports/pptxPatch/shapeEdit";
 import { parseShapeEdits } from "./parse";
+import { copyFailureOf } from "./places";
 import { protectionOf } from "./protection";
 
 /** What writing a sitting's deck did: where it is now, that it changed under it, or why it couldn't. */
@@ -37,7 +38,7 @@ export interface DeckPlace {
 
 export interface DeckSittingDeps {
   /** The bytes of the Document's file as they are now. */
-  read(documentId: string): Promise<Uint8Array>;
+  read(documentId: string, shown?: string, shownBytes?: Uint8Array): Promise<Uint8Array>;
   /** Where a sitting that starts on this Document, whose bytes are `bytes`, writes. */
   placeFor(documentId: string, bytes: Uint8Array): DeckPlace;
   /**
@@ -110,7 +111,7 @@ async function slideCounts(base: Uint8Array, now: Uint8Array) {
 }
 
 /** Why a sitting's change waits; `again` once Try again was refused for the same reason. */
-type WaitingWhy = Pick<DeckUnwritable, "why" | "name" | "lock" | "folder" | "again">;
+type WaitingWhy = Pick<DeckUnwritable, "why" | "name" | "lock" | "folder" | "again" | "copyFailed">;
 
 export function createDeckSittings(deps: DeckSittingDeps) {
   const sittings = new Map<string, Sitting>();
@@ -127,6 +128,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       ...(why.lock && { lock: why.lock }),
       ...(why.folder && { folder: why.folder }),
       ...(why.again && { again: true }),
+      ...(why.copyFailed && { copyFailed: why.copyFailed }),
       bytes,
       contentHash: hashBytes(bytes),
     };
@@ -238,10 +240,20 @@ export function createDeckSittings(deps: DeckSittingDeps) {
    * The sitting a gesture with none joins or begins. In the Document's turn, so a write under way
    * lands first and two gestures arriving together don't both begin one.
    */
-  const start = (documentId: string, shown: string, viewer: string | null): Promise<Sitting> =>
-    inDocumentTurn(documentId, () => begin(documentId, shown, viewer));
+  const start = (
+    documentId: string,
+    shown: string,
+    viewer: string | null,
+    shownBytes?: Uint8Array,
+  ): Promise<Sitting> =>
+    inDocumentTurn(documentId, () => begin(documentId, shown, viewer, shownBytes));
 
-  async function begin(documentId: string, shown: string, viewer: string | null): Promise<Sitting> {
+  async function begin(
+    documentId: string,
+    shown: string,
+    viewer: string | null,
+    shownBytes?: Uint8Array,
+  ): Promise<Sitting> {
     const others = [...sittings.values()].filter((other) => other.documentId === documentId);
     if (others.some((other) => other.waiting)) {
       throw new InvalidInputError({ key: "error.deck.waiting" });
@@ -260,7 +272,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
           : other.inFlight === 0 && hashBytes(other.current) === shown),
     );
     if (going) return going;
-    const base = await deps.read(documentId);
+    const base = await deps.read(documentId, shown, shownBytes);
     // The viewer showed another version than the file holds now: nothing is applied to it.
     if (hashBytes(base) !== shown) throw changedError();
     const zip = openPackage(base);
@@ -307,11 +319,13 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       shown: unknown;
       edits: unknown;
       viewer?: unknown;
+      shownBytes?: unknown;
     }): Promise<DeckEdit> {
       if (typeof input?.documentId !== "string" || typeof input.shown !== "string") {
         throw new InvalidInputError({ key: "error.deck.noSitting" });
       }
       const edits = parseShapeEdits(input.edits);
+      const shownBytes = input.shownBytes instanceof Uint8Array ? input.shownBytes : undefined;
       const going = typeof input.sittingId === "string" ? sittings.get(input.sittingId) : undefined;
       const sitting =
         going && !going.ended && !going.closed && going.documentId === input.documentId
@@ -320,6 +334,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
               input.documentId,
               input.shown,
               typeof input.viewer === "string" ? input.viewer : null,
+              shownBytes,
             );
       const begun = sitting !== going;
       // A sitting whose first gesture was refused was never handed out: it goes.
@@ -404,7 +419,26 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       return inTurn(sitting, async () => {
         const { waiting } = sitting;
         if (!waiting) throw new InvalidInputError({ key: "error.deck.noStep" });
-        const copy = await deps.copyBeside(sitting.documentId, waiting.bytes, unasked);
+        let copy: Awaited<ReturnType<DeckSittingDeps["copyBeside"]>>;
+        try {
+          copy = await deps.copyBeside(sitting.documentId, waiting.bytes, unasked);
+        } catch (error) {
+          const failed = copyFailureOf(error);
+          if (!failed) throw error;
+          if (unasked) {
+            throw new TranslatableError(
+              { key: `error.deck.copyFailed.${failed}` },
+              { cause: error },
+            );
+          }
+          const current = waitingWhy.get(sitting.id) ?? {
+            why: "read-only" as const,
+            name: deps.nameOf(sitting.documentId),
+          };
+          const next: WaitingWhy = { ...current, copyFailed: failed };
+          waitingWhy.set(sitting.id, next);
+          return waitingOf(sitting, next);
+        }
         sitting.place = copy.place;
         sitting.waiting = null;
         waitingWhy.delete(sitting.id);
