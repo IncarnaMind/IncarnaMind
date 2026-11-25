@@ -4,6 +4,8 @@ import type { Language } from "../../src/core/language";
 import {
   badgeMessage,
   changedOnMessage,
+  changedSinceCited,
+  changedSourceLines,
   changedSourceNote,
   citationAttributesOf,
   citationCheckRan,
@@ -834,6 +836,36 @@ describe("A Citation whose Document changed after it was cited", () => {
     // The words about how the quote stands in the new version are the same as for a file.
     expect(changedSourceNote(true, found, rechecked({}), in_("en"), "21 October 2026")?.quote).toBe(
       "The quote is still here.",
+    );
+  });
+
+  // protects=a Citation of a meeting's Transcript that only grew since (lines added after its own) says nothing of a change, and one whose lines changed still says so (#3762); fails_when=every Citation of a live Transcript says the Document changed after it was cited, or an edited Transcript's says nothing
+  test("a Transcript that only grew since its line was cited hasn't changed for it", () => {
+    const line = {
+      ...found,
+      pageFrom: 1,
+      pageTo: 1,
+      location: { kind: "time" as const, from: 0, to: 2000, speaker: "Them" },
+    };
+    const atLine = { pageFrom: 1, pageTo: 1, location: line.location };
+    for (const language of ["en", "zh-CN"] as const) {
+      const lines = (recheck: Parameters<typeof changedSourceLines>[2]) =>
+        changedSourceLines(true, line, recheck, undefined, language, in_(language));
+      expect(lines(rechecked({ ...atLine, grew: true }))).toEqual({ note: null, on: null });
+      // Its new version not read yet: nothing, rather than a change it may not have.
+      expect(lines(null)).toEqual({ note: null, on: null });
+      expect(lines(rechecked(atLine)).note).toEqual({
+        notice: translate(language, "citation.changedAfterCited"),
+        quote: translate(language, "citation.changed.still"),
+      });
+      expect(lines("failed").note?.notice).toBe(translate(language, "citation.changedAfterCited"));
+    }
+    expect(changedSinceCited(true, line, rechecked({ ...atLine, grew: true }))).toBe(false);
+    expect(changedSinceCited(false, line, rechecked(atLine))).toBe(false);
+    // Any other Document says so as soon as its version differs.
+    expect(changedSinceCited(true, found, null)).toBe(true);
+    expect(changedSourceNote(true, found, null, in_("en"))?.notice).toBe(
+      "The Document changed after this was cited.",
     );
   });
 

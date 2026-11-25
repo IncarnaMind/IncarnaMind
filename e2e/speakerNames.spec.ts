@@ -3,17 +3,17 @@ import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import {
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   pointAndClick,
-  recordMeetingNow,
+  recordMeeting,
   removeDataFolder,
   runCommand,
   setLanguage,
   setWindowSize,
+  stopMeeting,
   turnOf,
   useLocalChatModel,
 } from "./app";
@@ -128,26 +128,22 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       await useLocalChatModel(window);
       await setLanguage(window, language);
-      await window.evaluate(async () => {
-        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-      });
 
-      const bar = await recordMeetingNow(window);
+      await recordMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.transcript?.lines ?? 0, {
           timeout: 30_000,
         })
         .toBeGreaterThanOrEqual(6);
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.fill?.state, { timeout: 30_000 })
         .toBe("filled");
-      await closeFirstFillPopover(window);
+      await expect(window.getByTestId("meeting-sheet")).toBeHidden();
       await shot(window, `speakers-notes-before-${language}`);
 
       await runCommand(window, "meeting.showTranscript", words.showTranscript);
-      const transcript = window.getByTestId("meeting-note-transcript");
+      const transcript = window.getByTestId("meeting-sheet");
       const lines = transcript.getByTestId("transcript-lines");
       await expect(lines.getByTestId("transcript-line").first()).toBeVisible();
       const before = await speakersOf(lines);

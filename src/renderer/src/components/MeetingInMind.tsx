@@ -1,4 +1,4 @@
-import { type Ref, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { commands } from "../commands/registry";
 import { useDismissOnEscape } from "../escapeDismiss";
@@ -6,7 +6,7 @@ import { useGap, useLanguage, useT } from "../i18n";
 import { canKeepAudio, useAudioSaid } from "../meetingAudioWords";
 import { isLive, useMeetingOf, useMeetings } from "../meetings";
 import { clockTime } from "../meetingTime";
-import { showMeetingDetails, useMeetingNoteView } from "../meetingViews";
+import { showMeetingNoteView, useMeetingNoteView } from "../meetingViews";
 import { useRequests } from "../requests";
 import { useAppStore } from "../store";
 import { useAudioKeptKey } from "../transcriptionServices";
@@ -22,11 +22,10 @@ import { useTabPlace } from "./tabs/tabItems";
 import { buttonStyle, fieldLabelClass, inputClass } from "./ui";
 
 /**
- * A Meeting's place in its Mind, under the title: the start block while it is
- * ready, and the meeting bar while it records or is paused, its recording
- * details (#161) opening from it. Once a call stops, its summary and any
- * problems show here, and the rest is in the chip beside ⋯
- * (`MeetingViewChip`). A stopped voice memo keeps its lines about its
+ * A Meeting's place in its Note, under the title: the start block while it is ready, and a voice
+ * memo's bar while it records or is paused, its recording details (#161) opening from it; a call's
+ * control stands at the Note's foot instead. Once a call stops, its summary and any problems show
+ * here, and the rest is in its Transcript sheet. A stopped voice memo keeps its lines about its
  * Transcript, its note and its audio here.
  */
 export function MeetingInMind({ mindId }: { mindId: string }) {
@@ -34,38 +33,23 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   const starting = useMeetings((state) => !!meeting && state.starting[meeting.id] === true);
   const tabId = useTabPlace()?.tabId;
   const view = useMeetingNoteView(tabId, mindId);
-  const barHeight = useRef(0);
-  const rememberBarHeight = useCallback((bar: HTMLElement | null) => {
-    if (!bar) return;
-    barHeight.current = bar.offsetHeight;
-    const resized = new ResizeObserver(([entry]) => {
-      const size = entry?.borderBoxSize[0];
-      if (size) barHeight.current = Math.round(size.blockSize);
-    });
-    resized.observe(bar, { box: "border-box" });
-    return () => resized.disconnect();
-  }, []);
   if (!meeting) return null;
+  // A meeting's controls stand at the Note's foot (#3762): nothing above the notes.
+  if (meeting.kind === "meeting" && (isLive(meeting) || starting)) return null;
   if (meeting.status === "ready" && starting) {
     return <MeetingBarRoom meeting={meeting} />;
   }
   if (meeting.status === "ready") return <MeetingStart meeting={meeting} />;
-  if (isLive(meeting)) {
-    if (view === "notes" || meeting.kind === "memo") {
-      return <LiveMeetingBar meeting={meeting} ref={rememberBarHeight} />;
-    }
-    // The Transcript view draws the bar over the Transcript; the hidden notes keep its room, so
-    // they come back where the User left them.
-    return (
-      <div aria-hidden="true" className="meeting-bar-space" style={{ height: barHeight.current }} />
-    );
-  }
+  if (isLive(meeting)) return <LiveMeetingBar meeting={meeting} />;
   if (meeting.kind === "meeting") {
     return (
       <div className="empty:hidden mb-4">
         {view === "notes" && <MeetingSummary meeting={meeting} />}
         <TranscriptLines meeting={meeting} className="" problemsOnly />
-        <CaptureProblem meeting={meeting} onDetails={() => showMeetingDetails(meeting.mindId)} />
+        <CaptureProblem
+          meeting={meeting}
+          onDetails={tabId ? () => raiseMeetingDetails(tabId, meeting) : undefined}
+        />
       </div>
     );
   }
@@ -81,9 +65,15 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   );
 }
 
-export function LiveMeetingBar({ meeting, ref }: { meeting: Meeting; ref?: Ref<HTMLElement> }) {
+/** A call's recording details, where they are: open in its Transcript sheet, raised in this tab. */
+export function raiseMeetingDetails(tabId: string, meeting: Pick<Meeting, "id" | "mindId">): void {
+  useMeetings.getState().showDetails(meeting.id, true);
+  showMeetingNoteView(tabId, meeting.mindId, "transcript");
+}
+
+function LiveMeetingBar({ meeting }: { meeting: Meeting }) {
   return (
-    <MeetingBar meeting={meeting} ref={ref}>
+    <MeetingBar meeting={meeting}>
       <CaptureProblem meeting={meeting} className="meeting-line" />
       {meeting.status === "paused" && <MeetingAudioLine meeting={meeting} />}
       <CaptureDetails meeting={meeting} />
@@ -227,8 +217,18 @@ function keepAudio(meetingId: string): void {
  * How long was recorded, how long the audio stays on this computer, and
  * "Delete audio now", which is the "meeting.deleteAudio" command, as ⌘K's
  * "Delete audio" is: it asks first, on the same line, because it can't be undone.
+ * `raisedToAsk`: shown where ⌘K's question is raised (the call's sheet), which keeps a question
+ * asked just before it showed.
  */
-function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; className?: string }) {
+export function MeetingAudioLine({
+  meeting,
+  className = "",
+  raisedToAsk = false,
+}: {
+  meeting: Meeting;
+  className?: string;
+  raisedToAsk?: boolean;
+}) {
   const t = useT();
   const language = useLanguage();
   const gap = useGap();
@@ -241,13 +241,20 @@ function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; class
   useDismissOnEscape(asking, () => keepAudio(meeting.id));
   // Asked about while this line wasn't on screen, it is a question nobody saw.
   useEffect(() => {
-    keepAudio(meeting.id);
-  }, [meeting.id]);
+    if (!raisedToAsk) keepAudio(meeting.id);
+  }, [meeting.id, raisedToAsk]);
   if (asking) {
     return (
       <p
         role="alert"
         data-testid="meeting-audio-confirm"
+        // Esc inside the question keeps the audio before anything around it folds.
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.nativeEvent.isComposing || event.defaultPrevented)
+            return;
+          event.preventDefault();
+          keepAudio(meeting.id);
+        }}
         className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
       >
         {t("meetings.audio.confirm")}

@@ -98,7 +98,8 @@ export interface CitationState {
    * The Document changed after the Citation was made: its current version
    * isn't the one quoted. The check still stands for the version quoted,
    * whose text is kept; `recheckCitation` checks the current one, so the
-   * card can say "the Document changed after this was cited" and offer it.
+   * card can say "the Document changed after this was cited" and offer it,
+   * as `changedSinceCited` decides: a Transcript that only grew hasn't.
    */
   changedAfterCited: boolean;
   /** The User compared the quote with the page and it matched (#535). */
@@ -466,8 +467,31 @@ export function changedSourceLines(
   );
   const on = document?.web
     ? null
-    : changedOnMessage(changedAfterCited, document ? versionMoment(document) : null, language, t);
+    : changedOnMessage(
+        changedSinceCited(changedAfterCited, cited, recheck),
+        document ? versionMoment(document) : null,
+        language,
+        t,
+      );
   return { note, on };
+}
+
+/**
+ * Whether a Citation says its Document changed after it was cited, given that its version did
+ * (`changedAfterCited`) and the current version as `recheck` read it. A Transcript's version
+ * changes with every line a meeting records, so one only grown since (`CitationRecheck.grew`)
+ * hasn't changed for it, and nothing is said until the current version is read (#3762). A line
+ * edited, split or given another speaker is a change, as any other Document's new version is.
+ */
+export function changedSinceCited(
+  changedAfterCited: boolean,
+  cited: Partial<Pick<CitationAttributes, "pageFrom" | "pageTo" | "location">>,
+  recheck: RecheckResult | "failed" | null,
+): boolean {
+  if (!changedAfterCited) return false;
+  if (!isTranscriptLocation(citationLocation(cited))) return true;
+  if (recheck === null) return false;
+  return recheck === "failed" || "keptInside" in recheck || recheck.grew !== true;
 }
 
 /** What a Citation's card and the viewer say once its Document changed after it was cited. */
@@ -480,7 +504,7 @@ export interface ChangedSource {
 /**
  * What a Citation's card and its viewer say when its Document changed after
  * it was cited: that it changed, and where its quote stands in the new
- * version once it is looked for. Null only while the Document is unchanged.
+ * version once it is looked for. Null while the Document is as cited (`changedSinceCited`).
  */
 export function changedSourceNote(
   changed: boolean,
@@ -489,7 +513,7 @@ export function changedSourceNote(
   t: Translate,
   fetchedAgain: string | null = null,
 ): ChangedSource | null {
-  if (!changed) return null;
+  if (!changedSinceCited(changed, cited, recheck)) return null;
   // A saved page was fetched again: the viewer shows the new copy, and the one cited is kept.
   const notice =
     fetchedAgain === null

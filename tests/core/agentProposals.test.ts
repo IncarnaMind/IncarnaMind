@@ -601,7 +601,7 @@ describe("an outside agent's proposed changes (#352)", () => {
       [[{ paragraph: "¶2a", text: "x" }], /“¶2a” isn’t a paragraph’s name/],
       [
         [{ paragraph: "¶+", text: "x" }],
-        "¶+ adds after the change before it: name a paragraph first.",
+        "¶+ adds after the change before it: name a paragraph first, or write at the top of the note, as into an empty one, with ¶0+.",
       ],
       [
         [

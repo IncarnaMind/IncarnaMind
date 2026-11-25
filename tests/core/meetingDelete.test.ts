@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { CitationAttributes, Core, Meeting } from "../../src/core";
@@ -495,6 +495,42 @@ describe("A deleted Meeting's files that can't be removed", { timeout: 60_000 },
 
     const cleaned = startCore(dataDir);
     expect(existsSync(audio)).toBe(false);
+    expect(
+      queryDatabase<{ purged: number }>(
+        dataDir,
+        "SELECT purged_at IS NOT NULL AS purged FROM meetings WHERE id = ?",
+        [meeting.id],
+      ),
+    ).toEqual([{ purged: 1 }]);
+    cleaned.close();
+  });
+
+  // protects=a part that can't be read while a deleted Meeting's audio is looked for, as one that vanishes between listing and reading it, is a recording that couldn't be removed yet: said in plain words at Delete permanently, never stopping IncarnaMind from opening, and gone at a start that can remove it (#3762); fails_when=the system's error escapes the purge, or a start throws on it
+  test("a part that can't be read never stops a purge or a start, and goes once it can", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, record } = await transcribingCore(dataDir);
+    const meeting = await core.createMeeting();
+    await core.startMeeting({ meetingId: meeting.id });
+    record(9 * SECOND);
+    await core.stopMeeting(meeting.id);
+    await core.deleteMeetingAudio(meeting.id);
+    await core.deleteMind(meeting.mindId);
+    core.close();
+    const audio = meetingFolder(dataDir, meeting.id);
+    mkdirSync(audio, { recursive: true });
+    const vanished = join(audio, "microphone-0000009000.wav");
+    symlinkSync(join(audio, "gone.wav"), vanished);
+    const second = startCore(dataDir);
+    await expect(
+      second.deletePermanently([{ kind: "mind", id: meeting.mindId }]),
+    ).rejects.toMatchObject({ wording: { key: "error.meeting.purgeFailed" } });
+    second.close();
+    const opened = startCore(dataDir);
+    expect(await opened.listMinds()).toEqual([]);
+    opened.close();
+
+    rmSync(vanished);
+    const cleaned = startCore(dataDir);
     expect(
       queryDatabase<{ purged: number }>(
         dataDir,

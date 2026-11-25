@@ -275,7 +275,7 @@ async function recorded(
     expect(live?.transcript?.lines ?? 0).toBeGreaterThanOrEqual(5);
   });
   await stop(core, meeting.id);
-  return { core, meeting, client, dataDir };
+  return { core, meeting, client, dataDir, record };
 }
 
 async function fillOf(core: Core, meetingId: string): Promise<MeetingFill | null> {
@@ -1907,6 +1907,64 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
         (line) => line === "«The enterprise price is 45 dollars a seat »\uFFFC«.»",
       ),
     ).toHaveLength(1);
+    core.close();
+  });
+
+  // protects=a call resumed after its notes were written, and stopped again, gets notes of the whole call in place of the first ones, the User's lines kept as typed and nothing written while it records, and Undo brings the first notes back as they were (#3762); fails_when=the second Stop adds a second set beside the first, a fill runs during the recording, or Undo can't bring the first notes back; no_claim=the sheet's Resume button, which the window's spec covers.
+  test("a call resumed and stopped again gets notes of the whole call in place of the first, and Undo brings those back", async () => {
+    const FIRST = "«The enterprise price is 45 dollars a seat »￼«.»";
+    const LATER = "«The enterprise price of 45 dollars a seat holds for the year »￼«.»";
+    let fills = 0;
+    const model = fillingModel(
+      () =>
+        fills > 1
+          ? [
+              lineFact(
+                "L1",
+                "pricing",
+                "The enterprise price of 45 dollars a seat holds for the year [^1].",
+              ),
+              overview("The call covered pricing [^1]."),
+            ].join("\n\n")
+          : PRICING_REPLY,
+      { 1: MY_LINES[0] as string },
+      {},
+      { seen: (call) => fillRun(call) && fills++ },
+    );
+    const { core, meeting, client, record } = await recorded(model, NOTES);
+    const first = await settledFill(core, meeting);
+    expect(first.state).toBe("filled");
+    await vi.waitFor(() => expect(shown(client)).toContain(FIRST));
+    await client.settled();
+    const firstShown = shown(client);
+    const linesAtStop =
+      (await core.listMeetings()).find((each) => each.id === meeting.id)?.transcript?.lines ?? 0;
+
+    const resumed = await core.resumeMeeting(meeting.id);
+    expect(resumed.fill).toMatchObject({ state: "filled", addedBlockIds: first.addedBlockIds });
+    record(6 * SECOND);
+    await until(core, meeting.id, (transcript) => transcript.lines >= linesAtStop + 2);
+    expect(fills).toBe(1);
+    expect(shown(client)).toEqual(firstShown);
+
+    await core.stopMeeting(meeting.id);
+    const second = await settledFill(core, meeting);
+    expect(second).toMatchObject({ state: "filled", mode: "notes", problem: null });
+    expect(fills).toBe(2);
+    const firstIds = new Set(first.addedBlockIds ?? []);
+    expect(firstIds.size).toBeGreaterThan(0);
+    expect(second.addedBlockIds?.length).toBeGreaterThan(0);
+    expect(second.addedBlockIds?.filter((id) => firstIds.has(id))).toEqual([]);
+    await vi.waitFor(() =>
+      expect(shown(client)).toEqual(firstShown.map((line) => (line === FIRST ? LATER : line))),
+    );
+
+    await core.undoMeetingFill(meeting.id);
+    await vi.waitFor(() => expect(shown(client)).toEqual(firstShown));
+    expect(await fillOf(core, meeting.id)).toMatchObject({
+      state: "filled",
+      addedBlockIds: first.addedBlockIds,
+    });
     core.close();
   });
 

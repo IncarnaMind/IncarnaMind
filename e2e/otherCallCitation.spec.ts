@@ -11,12 +11,11 @@ import {
   panelOpen,
   pointAndClick,
   recordMeeting,
-  recordMeetingNow,
   removeDataFolder,
   setLanguage,
   setMeetingKeys,
   setWindowSize,
-  startRecording,
+  stopMeeting,
   useLocalChatModel,
 } from "./app";
 
@@ -73,9 +72,9 @@ for (const call of CALLS) {
     );
 
     // The earlier call, recorded and stopped.
-    const earlier = await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await firstTranscriptLine(window);
-    await earlier.getByTestId("meeting-stop").click();
+    await stopMeeting(window);
     await expect
       .poll(
         () =>
@@ -88,9 +87,8 @@ for (const call of CALLS) {
       )
       .toBe(true);
 
-    // The live call, in a Note of its own that keeps a Citation of the earlier call's line; the
-    // recording notice read once, it records at once.
-    await recordMeetingNow(window);
+    // The live call, in a Note of its own that keeps a Citation of the earlier call's line.
+    await recordMeeting(window);
     await firstTranscriptLine(window);
     await bridge.evaluate(async (core, line) => {
       const meetings = await core.listMeetings();

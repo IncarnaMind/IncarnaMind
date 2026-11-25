@@ -74,6 +74,7 @@ import {
   removePreviousFill,
   replaceableFillBlocks,
   restorePreviousFill,
+  shownFill,
 } from "./refill";
 import { withUserName } from "./userName";
 import { type WriteupTemplate, writeupPlan } from "./writeupTemplates";
@@ -207,7 +208,7 @@ export interface MeetingFillOptions {
   meetings: {
     get(meetingId: string): Meeting;
     storedFill(meetingId: string): StoredFill | null;
-    setFill(meetingId: string, fill: StoredFill, templateId?: string | null): Meeting;
+    setFill(meetingId: string, fill: StoredFill | null, templateId?: string | null): Meeting;
     unfinishedFills(): { meetingId: string; fill: StoredFill }[];
     isDeleted(meetingId: string): boolean;
   };
@@ -1625,7 +1626,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
   }
 
   return {
-    /** Stop was pressed: the notes wait for the Transcript. */
+    /**
+     * Stop was pressed: the notes wait for the Transcript. A call stopped again after Resume
+     * (#3762) gets notes of the whole call in place of those its first Stop wrote, as a template
+     * changed after Stop does, and Undo brings those back.
+     */
     stopped(meetingId: string): void {
       // A copy that can't transcribe has no Transcript to wait for, and one that heard nothing
       // is finished, empty, at Stop.
@@ -1633,6 +1638,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
       const transcript = meeting.transcript;
       const agentId = meeting.kind === "meeting" ? options.notesAgentId() : null;
       const transcribed = transcript !== null && transcript.state !== "empty";
+      const templateId = meeting.writeupTemplateId ?? null;
+      const stored = meetings.storedFill(meetingId);
+      const earlier = stored && shownFill(stored, templateId);
+      const written =
+        earlier?.fill.state === "filled" && earlier.fill.blocks.length > 0 ? earlier : null;
       meetings.setFill(meetingId, {
         state: transcribed ? "waiting" : "off",
         ...(agentId && { agentId }),
@@ -1642,7 +1652,31 @@ export function createMeetingFill(options: MeetingFillOptions) {
           ? null
           : { kind: "no-transcript", message: alone("meetings.fill.problem.noTranscript") },
         blocks: [],
+        ...(written && {
+          refill: {
+            previous: written.fill,
+            previousTemplateId: written.templateId,
+            templateId,
+            removed: [],
+          },
+        }),
       });
+    },
+
+    /**
+     * A stopped call records again (#3762): a fill under way stops, writing nothing, and only notes
+     * the Note holds stay recorded, for the next Stop to write anew and its Undo to bring back.
+     */
+    resumed(meetingId: string): void {
+      running.get(meetingId)?.abort("resumed");
+      told.get(meetingId)?.settle();
+      told.delete(meetingId);
+      const stored = meetings.storedFill(meetingId);
+      if (!stored) return;
+      const { fill } = shownFill(stored, null);
+      const written = fill.state === "filled" && fill.blocks.length > 0;
+      if (written && stored.state === "filled") return;
+      meetings.setFill(meetingId, written ? fill : null);
     },
 
     /**
@@ -1679,18 +1713,10 @@ export function createMeetingFill(options: MeetingFillOptions) {
       ) {
         throw new InvalidInputError({ key: "error.meeting.templateBusy" });
       }
-      const { refill: earlier, ...latest } = original ?? {
-        state: "off" as const,
-        mode: null,
-        local: false,
-        problem: null,
-        blocks: [],
-      };
-      const earlierStillShows = earlier && (earlier.undone || latest.state !== "filled");
-      const previous = earlierStillShows ? earlier.previous : latest;
-      const previousTemplateId = earlierStillShows
-        ? earlier.previousTemplateId
-        : (meeting.writeupTemplateId ?? null);
+      const { fill: previous, templateId: previousTemplateId } = shownFill(
+        original ?? { state: "off", mode: null, local: false, problem: null, blocks: [] },
+        meeting.writeupTemplateId ?? null,
+      );
       const chosen = meetings.setFill(
         meetingId,
         {

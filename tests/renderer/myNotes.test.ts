@@ -615,6 +615,24 @@ describe.each(["en", "zh-CN"] as const)("My notes (%s)", (language) => {
     editor.destroy();
   });
 
+  // protects=switching between Notes and My notes ends the Undo step typed before it, however soon the next change comes, so ⌘Z takes back only what came after the switch (#3762); fails_when=an edit made just before a switch and a cut just after are taken back together.
+  test("a switch between Notes and My notes ends the step typed before it", () => {
+    const editor = noteOf(filledDoc(words));
+    showMyNotes(editor, true);
+    select(editor, inLine(editor, words.own));
+    editor.view.dispatch(editor.state.tr.insertText(words.typed));
+    showMyNotes(editor, false);
+    showMyNotes(editor, true);
+    select(editor, inLine(editor, `${words.own}${words.typed}`, 0), inLine(editor, words.last));
+    editor.view.dispatch(editor.state.tr.deleteSelection());
+
+    editor.commands.undo();
+    expect(shownLines(editor)[0]).toBe(`${words.own}${words.typed}`);
+    editor.commands.undo();
+    expect(shownLines(editor)[0]).toBe(words.own);
+    editor.destroy();
+  });
+
   // protects=before the fill lands, and after it is taken back or fails, My notes shows the Note as typed, every line of it (#138); fails_when=a typed line hides with no fill to hide; no_claim=the fill's own states, which the window test reads.
   test("with no AI line, everything typed shows", () => {
     const editor = noteOf(

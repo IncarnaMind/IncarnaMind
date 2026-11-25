@@ -1,22 +1,29 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { AgentToolName, NoteCitation } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
+import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
+import { showMeetingNoteView, useMeetingNoteView } from "../../meetingViews";
 import { showWaitingChanges } from "../../mindChanges";
+import { openCited } from "../../openCited";
 import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
+import { showCitedInTranscript } from "../meetings/MeetingFoot";
 import { ProblemLine } from "../ProblemLine";
-import { OwnStepText, useAnnounce, WaitingLine } from "./OwnAsk";
+import { useTabPlace } from "../tabs/tabItems";
+import { useAnnounce, WaitingLine } from "./OwnAsk";
+import { ownDoingWords } from "./ownAskWords";
 
 /** What the pill says of each Tool while it runs, with what the call names as `{summary}`. */
 const DOING: Partial<Record<AgentToolName, MessageKey>> = {
@@ -135,13 +142,14 @@ function Facts({ ask, mindId }: { ask: NoteAsk; mindId: string }) {
   );
 }
 
-/** What a running request is doing, in the AI's own words where it wrote some. */
+/**
+ * What a running request is doing, in the AI's own words where it wrote some; else in plain words,
+ * never the name of a tool or a server, a path or a command.
+ */
 function doingOf(ask: NoteAsk, t: Translate): ReactNode {
   const { doing } = ask;
   if (ask.quiet) return t("noteAsk.pill.quiet", { agent: ask.agent });
-  if (doing?.kind === "own") {
-    return <OwnStepText action={doing.action} going className="note-ask-pill-own" />;
-  }
+  if (doing?.kind === "own") return ownDoingWords(t, doing.action);
   if (doing === null) return t("noteAsk.pill.working");
   if (doing.kind === "thinking") return t("noteAsk.pill.thinking");
   if (doing.kind === "compacting") return t("noteAsk.pill.compacting");
@@ -279,6 +287,15 @@ export function NoteAskPill({
 }
 
 /**
+ * Notes in place of My notes, at what the AI changed, as Review shows it. My notes goes first: with
+ * it, the review's cursor would land in lines it hides.
+ */
+function showInNotes(editor: Editor, tabId: string, mindId: string): void {
+  flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
+  if (canReviewApplied(editor)) reviewApplied(editor, { focus: true });
+}
+
+/**
  * Why a request failed, in one line that wraps, with the one thing to do when there is one. In a
  * turn of the conversation, `turn` is that turn's record: the line is part of it, read out only as
  * a status, and what Allow sends again comes from it where this window didn't send the request.
@@ -326,7 +343,8 @@ export function FailureLine({
 /**
  * The one thing to do next, at the line's end: Accept all while its changes wait in the Note; else
  * open the Note it wrote, or left changes waiting in, unless the line names it already; else Undo,
- * while what it changed here can still be undone.
+ * while what it changed here can still be undone. In a meeting's My notes, which hides the AI's
+ * lines, the change is in Notes, and the one thing is to show it there (#3762).
  */
 export function EndAction({
   ask,
@@ -342,6 +360,8 @@ export function EndAction({
   const t = useT();
   const waiting = useWaitingInNote(editor);
   const undoable = useAskedState(ask.turnId ?? "", mindId) === "can-undo";
+  const tabId = useTabPlace()?.tabId;
+  const inMyNotes = useMeetingNoteView(tabId, mindId) === "mine";
   if (waiting > 0) {
     return (
       <button
@@ -376,15 +396,40 @@ export function EndAction({
   }
   if (!undoable || ask.turnId === null) return null;
   const { turnId } = ask;
+  if (inMyNotes && tabId) {
+    return (
+      <button
+        type="button"
+        data-testid="note-ask-show-in-notes"
+        onClick={() => showInNotes(editor, tabId, mindId)}
+        className="note-ask-pill-action"
+      >
+        {t("noteAsk.showInNotes")}
+      </button>
+    );
+  }
+  // The finished change is said once, here: the page draws no line of its own (#3762).
   return (
-    <button
-      type="button"
-      data-testid="note-ask-undo"
-      onClick={() => undoAsked(turnId, mindId)}
-      className="note-ask-pill-action"
-    >
-      {t("edit.applied.undo")}
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid="note-ask-undo"
+        onClick={() => undoAsked(turnId, mindId)}
+        className="note-ask-pill-action"
+      >
+        {t("edit.applied.undo")}
+      </button>
+      {canReviewApplied(editor) && (
+        <button
+          type="button"
+          data-testid="note-ask-review"
+          onClick={() => reviewApplied(editor, { focus: true })}
+          className="note-ask-pill-action"
+        >
+          {t("edit.applied.review")}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -393,12 +438,51 @@ const CHIP_OPEN = "\uE000";
 const CHIP_CLOSE = "\uE001";
 
 /**
+ * A reply's Citation opens at the words cited: a meeting's Transcript in the sheet over that
+ * meeting's Note (#3762), any other Document beside the Note, as a Note's own Citation opens it.
+ * `from`: the group the Note is in.
+ */
+function openReplyCitation(cited: NoteCitation, from: string | undefined): void {
+  const units = {
+    ...(cited.pageFrom !== null && { pageFrom: cited.pageFrom }),
+    ...(cited.pageTo !== null && { pageTo: cited.pageTo }),
+  };
+  // With the Citation's own place, the sheet says so when that place is gone.
+  const inTranscript = showCitedInTranscript({
+    documentId: cited.documentId,
+    quote: cited.quote,
+    ...units,
+    citation: {
+      check: "found",
+      origin: "note",
+      contentHash: cited.contentHash,
+      ...(cited.location && { location: cited.location }),
+      ...units,
+    },
+    request: 0,
+  });
+  if (inTranscript) return;
+  openCited(
+    {
+      documentId: cited.documentId,
+      quote: cited.quote,
+      pageFrom: cited.pageFrom,
+      pageTo: cited.pageTo,
+      contentHash: cited.contentHash,
+      ...(cited.location && { location: cited.location }),
+    },
+    { origin: "note", check: "found", withQuote: true, ...(from && { from }) },
+  );
+}
+
+/**
  * A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces
  * show Markdown, and each Citation IncarnaMind gave its connection as the numbered chip a Note
  * shows (#3677). Any other `[cite:…]` is left out, never drawn as a Citation.
  */
 export function Reply({ text, citations }: { text: string; citations: readonly NoteCitation[] }) {
   const t = useT();
+  const groupId = useTabPlace()?.groupId;
   const drawn = useRef<HTMLDivElement>(null);
   const tokens: string[] = [];
   const shown = text.replace(/\s?\[cite:([a-z0-9]{1,32})\]/g, (_, token: string) => {
@@ -430,13 +514,42 @@ export function Reply({ text, citations }: { text: string; citations: readonly N
         chip.title = cited
           ? `${cited.documentName}: “${cited.quote}”`
           : t("noteColumn.citation", { number: part });
+        if (cited) {
+          chip.dataset.token = cited.token;
+          chip.setAttribute("role", "button");
+          chip.tabIndex = 0;
+        }
         return chip;
       });
       node.replaceWith(...pieces);
     }
   }, [shown, t, citations]);
+  /** The chip pressed, or given Enter or Space, opens its Citation: whether one did. */
+  const opened = (target: EventTarget): boolean => {
+    if (!(target instanceof Element)) return false;
+    const chip = target.closest<HTMLElement>(".citation-marker[data-token]");
+    const cited = citations.find((each) => each.token === chip?.dataset.token);
+    if (!cited) return false;
+    openReplyCitation(cited, groupId);
+    return true;
+  };
   return (
-    <div key={shown} ref={drawn} data-testid="note-ask-reply" className="note-ask-reply-text">
+    // biome-ignore lint/a11y/noStaticElementInteractions: the chips inside are the buttons; this hears their press.
+    <div
+      key={shown}
+      ref={drawn}
+      data-testid="note-ask-reply"
+      className="note-ask-reply-text"
+      onClick={(event) => {
+        if (opened(event.target)) event.stopPropagation();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (!opened(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    >
       <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />
     </div>
   );

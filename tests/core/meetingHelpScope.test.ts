@@ -223,6 +223,10 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(scope).toContain(
       "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
     );
+    // A follow-up answers from the call as it is now, not from the reply before it (#3762).
+    expect(scope).toContain(
+      "The call has gone on since that reply, so the transcript above may hold more than it did: answer from the transcript as it is now, not by repeating the earlier reply.",
+    );
     expect(scope).toContain(
       "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
     );

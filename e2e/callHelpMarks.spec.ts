@@ -18,7 +18,6 @@ import {
   setLanguage,
   setMeetingKeys,
   setWindowSize,
-  startRecording,
   useLocalChatModel,
 } from "./app";
 import { holdModel, modelHeld } from "./heldModel";
@@ -113,7 +112,7 @@ async function callWithSheet(call: (typeof CALLS)[number], model?: string) {
       ),
     )
     .toEqual(["ready"]);
-  await startRecording(window, await recordMeeting(window), { notice: true });
+  await recordMeeting(window);
   await firstTranscriptLine(window);
   return { app, window, panel: await panelOf(app) };
 }

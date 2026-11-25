@@ -19,7 +19,7 @@ import {
   setLanguage,
   setMeetingKeys,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 
 /**
@@ -97,9 +97,9 @@ async function recording(language: keyof typeof CALLS = "en", lines?: readonly s
       ),
     )
     .toEqual(["ready"]);
-  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+  await recordMeeting(window);
   await firstTranscriptLine(window);
-  return { app, window, bar, panel: await panelOf(app) };
+  return { app, window, panel: await panelOf(app) };
 }
 
 const newest = (panel: Page) => panel.getByTestId("help-suggestion").last();
@@ -232,7 +232,7 @@ test("a Chinese question on a Chinese call answered in English is asked anew onc
 test("typed question: the panel's conversation is the one the assistant shows, Open in assistant goes on there, and History keeps it after Stop", async () => {
   test.skip(LINUX, NO_FIELD);
   test.setTimeout(120_000);
-  const { app, window, bar, panel } = await recording();
+  const { app, window, panel } = await recording();
   await pressHelp(panel, "Answer their question");
   await chooseMode(panel, "Ask");
   await askInPanel(panel, CALLS.en.question);
@@ -246,7 +246,7 @@ test("typed question: the panel's conversation is the one the assistant shows, O
   ]);
   await expect(window.getByTestId("composer-input")).toBeFocused();
 
-  await bar.getByTestId("meeting-stop").click();
+  await stopMeeting(window);
   await pointAndClick(window, window.getByTestId("assistant-title"));
   await expect(
     window.getByTestId("assistant-history-row").filter({ hasText: "Answer their question" }),

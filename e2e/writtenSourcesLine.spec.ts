@@ -17,7 +17,6 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  startRecording,
   useLocalChatModel,
 } from "./app";
 
@@ -98,7 +97,7 @@ test("a cited write during a meeting names its sources; in Chinese", async () =>
   await useLocalChatModel(window);
   await setLanguage(window, "zh-CN");
   await addDocuments(window, await library("zh-CN"));
-  await startRecording(window, await recordMeeting(window), { notice: true });
+  await recordMeeting(window);
   await firstTranscriptLine(window);
   await window.getByTestId("mind-editor").click();
 
