@@ -272,15 +272,22 @@ export function CheckActions({
     if (!running && estimate) setLastPrice(estimate);
   }, [estimate, running]);
   const price = estimate ?? lastPrice;
+  // While the User's own AI is asked to check, the card's line says how that goes and asks again
+  // itself: a second Check here would ask once more (#3587). A run in the background is stopped
+  // where Check was, as a run on a model is (#3756).
+  const askedNow = useAskedAgent({ kind: "check", mindId });
+  const asked = askedNow !== null;
+  const backgroundRun = askedNow?.asked.background === true && askedNow.asked.state === "working";
+  const stoppable = running || backgroundRun;
   // The press disables Check and the focus falls to the page: it goes to Stop, so a keyboard User
   // can stop the run, and back to Check when the run ends. A focus somewhere else, such as the
   // composer being typed in, stays where the User put it.
   const checkPress = useRef<HTMLButtonElement>(null);
   const stopPress = useRef<HTMLButtonElement>(null);
-  const wasRunning = useRef(running);
+  const wasStoppable = useRef(stoppable);
   useLayoutEffect(() => {
-    if (wasRunning.current === running) return;
-    wasRunning.current = running;
+    if (wasStoppable.current === stoppable) return;
+    wasStoppable.current = stoppable;
     const active = document.activeElement;
     const lost =
       !(active instanceof HTMLElement) ||
@@ -289,9 +296,9 @@ export function CheckActions({
       active === checkPress.current ||
       active.matches(":disabled");
     if (!lost) return;
-    if (running) stopPress.current?.focus();
+    if (stoppable) stopPress.current?.focus();
     else checkPress.current?.focus();
-  }, [running]);
+  }, [stoppable]);
   const correctable = useEditorState({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
@@ -302,12 +309,6 @@ export function CheckActions({
   });
   const askAll = useAskAll(editor, mindId, true);
   const noModel = useNoModel();
-  // While the User's own AI is asked to check, the card's line says how that goes and asks again
-  // itself: a second Check here would ask once more (#3587). A run in the background is stopped
-  // where Check was, as a run on a model is (#3756).
-  const askedNow = useAskedAgent({ kind: "check", mindId });
-  const asked = askedNow !== null;
-  const backgroundRun = askedNow?.asked.background === true && askedNow.asked.state === "working";
   // With no AI to check with, the card's line offers what sets one up: a Check would ask again.
   // Once a model is set up, the line it left behind gives way to Check again.
   const notReady = useChecks((state) => state.problems[mindId]?.kind === "not-ready") && noModel;
@@ -323,12 +324,14 @@ export function CheckActions({
   const again = !pressHidden && nothingNew;
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
-  const since = unchanged && planned?.plan.kind === "unchanged" ? planned.plan.since : null;
+  const unchangedPlan = unchanged && planned?.plan.kind === "unchanged" ? planned.plan : null;
   // A foot with nothing in it would be an empty band under the card's line (#3756).
-  if (!pressRoom && !running && fixes === 0 && !askAll && !price && since === null) return null;
+  if (!pressRoom && !running && fixes === 0 && !askAll && !price && unchangedPlan === null) {
+    return null;
+  }
   return (
     <>
-      {since !== null && <MindUnchanged mindId={mindId} since={since} />}
+      {unchangedPlan && <MindUnchanged mindId={mindId} since={unchangedPlan.since} />}
       {price && (
         <div className="check-card-estimate">
           <EstimateMeta testId="check-estimate" line={price} />
