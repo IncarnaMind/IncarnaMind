@@ -6153,6 +6153,7 @@ export const zhCN = {
   "error.files.notSkipped.show": "只能显示上次添加时跳过的文件。",
   "error.files.notSaved.show": "只能显示 IncarnaMind 保存的文件。",
   "error.files.notSaved.open": "只能打开 IncarnaMind 保存的文件。",
+  "error.files.savedGone": "这个文件已不在原处，它被移动或删除了",
   "error.provider.unknown": "无法识别服务商“{provider}”。",
   "error.provider.removed": "这个服务已移除。",
   "error.provider.fieldMissing": "这个服务的地址需要一个值，请先填写。",
@@ -8535,6 +8536,7 @@ export const zhCN = {
   "agents.activity.update_canvas": "修改了页面“{text}”",
   "agents.activity.read_request": "读取了你关于“{text}”的请求",
   "agents.activity.hand_over_file": "提交了文件“{text}”",
+  "agents.activity.save_as_word": "生成了 Word 文件“{text}”",
   "agents.handOver.kind":
     "IncarnaMind 接收演示文稿（.pptx）、工作簿（.xlsx）、Word 文件（.docx）或 PDF。",
   "agents.handOver.outsideConversation":
@@ -8554,6 +8556,17 @@ export const zhCN = {
   "agents.handOver.inLibrary":
     "用户的资料库里已经有这个文件，而 IncarnaMind 每个文件只保留一份：修改后再提交。",
   "agents.handOver.untitled": "未命名文件",
+  "agents.handOver.word.which": "只给其中一个：笔记的 mindId，或你的文字 markdown。",
+  "agents.handOver.word.unshared":
+    "这篇笔记引用了一个没有与你共享的文件夹中的文档，因此 IncarnaMind 不会替你把它写成 Word 文件。请用户把那个文件夹共享给你，或者自己把这篇笔记导出为 Word。",
+  "agents.handOver.word.deleted":
+    "这篇笔记引用了一个已不在用户资料库中的文档，因此 IncarnaMind 不会替你把它写成 Word 文件。请用户从笔记中删掉这条引用，或者自己把这篇笔记导出为 Word。",
+  "agents.handOver.word.libraryFacts":
+    "这篇笔记引用了关于用户资料库的事实，你无法读取这些内容，因此 IncarnaMind 不会替你把它写成 Word 文件。请用户自己把这篇笔记导出为 Word。",
+  "agents.handOver.word.askLocation":
+    "不先问用户，IncarnaMind 就无法把它保存到新文件的位置。请用户在 IncarnaMind 的设置 › 通用中选择一个保存位置，然后再保存一次。",
+  "agents.handOver.word.askLinked":
+    "保存位置在关联文件夹“{folder}”中，而用户还没有允许在那里添加新文件。请用户在 IncarnaMind 的设置 › 通用中允许在那里添加新文件，然后再保存一次。",
   "agents.handOver.unread.unreadable": "IncarnaMind 已保留文件，但无法读取：文件可能已损坏。",
   "agents.handOver.unread.password-protected": "IncarnaMind 已保留文件，但无法读取：文件需要密码。",
   "agents.handOver.unread.no-text": "IncarnaMind 已保留文件，但其中没有可核对的内容。",
@@ -8735,6 +8748,7 @@ export const zhCN = {
   "noteAsk.doing.create_mind": "正在写“{summary}”",
   "noteAsk.doing.run_analysis": "正在计算数字",
   "noteAsk.doing.publish_canvas": "正在制作页面",
+  "noteAsk.doing.save_as_word": "正在生成 Word 文件“{summary}”",
   "noteAsk.stopped": "已停止。",
   "noteAsk.fresh": "已开始新的对话：之前的对话已清除。",
   "noteAsk.renewed": "已开始新的对话：这次可以使用 {agent} 自己的工具。",
@@ -8755,6 +8769,7 @@ export const zhCN = {
   "noteAsk.doing.search.any": "正在搜索你的文档",
   "noteAsk.doing.propose_changes.any": "正在写修改",
   "noteAsk.doing.create_mind.any": "正在写新笔记",
+  "noteAsk.doing.save_as_word.any": "正在生成 Word 文件",
   "noteAsk.doing.read_passages.counted": "正在读“{summary}” · 已读 {count} 个文档",
   "noteAsk.done.held.one": "这篇笔记中有 1 处修改等你确认。",
   "noteAsk.done.held.other": "这篇笔记中有 {count} 处修改等你确认。",
@@ -8929,6 +8944,7 @@ export const zhCN = {
   "noteAsk.did.create_mind": "写了“{summary}”",
   "noteAsk.did.run_analysis": "计算了数字",
   "noteAsk.did.publish_canvas": "制作了页面",
+  "noteAsk.did.save_as_word": "生成了 Word 文件“{summary}”",
   "noteAsk.did.other": "调用了 IncarnaMind",
   "noteAsk.wholeNote": "改为针对整篇笔记",
   "noteAsk.command": "提问，或描述对这篇笔记的修改…",
@@ -9104,6 +9120,23 @@ export const zhCN = {
   "agents.ask.request.fixFile.where": "在{where}：",
   "agents.ask.request.noteFile":
     "我这条消息说的是你提交给 IncarnaMind 的文件{title}（第 {version} 版，来自 {path}）。",
+  "agents.ask.request.fixWordNote":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
+  "agents.ask.request.fixWordNoteAll":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
+  "agents.ask.request.fixWordNoteWaits":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里提出改正，其他内容不要改动。这篇笔记是我的，你的修改要等我接受，而 Word 文件不会写入待处理的修改：请告诉我这一点，等我接受后，再用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
+  "agents.ask.request.fixWordNoteAllWaits":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一提出改正，其他内容不要改动。这篇笔记是我的，你的修改要等我接受，而 Word 文件不会写入待处理的修改：请告诉我这一点，等我接受后，再用 save_as_word 和这个 mindId 重新生成 Word 文件{folder}。",
+  "agents.ask.request.wordFolder": "，保存时带上 folderId {folderId}",
+  "agents.ask.request.wordNote":
+    "我这条消息说的是在 IncarnaMind 中从我的笔记{title}生成的 Word 文件（第 {version} 版，mindId：{mindId}）。",
+  "agents.ask.request.fixWordText":
+    "在 IncarnaMind 中，你用自己写的文字生成的 Word 文件{title}（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n它的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档改正，其他内容不要改动，然后用 save_as_word、标题{title}、folderId {folderId} 和改正后的 markdown 重新生成。",
+  "agents.ask.request.fixWordTextAll":
+    "在 IncarnaMind 中，你用自己写的文字生成的 Word 文件{title}（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n它的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档逐一改正，其他内容不要改动，然后用 save_as_word、标题{title}、folderId {folderId} 和改正后的 markdown 重新生成。",
+  "agents.ask.request.wordText":
+    "我这条消息说的是你用自己写的文字生成、保存在 IncarnaMind 中的 Word 文件{title}（第 {version} 版）；它的文字在笔记 mindId {mindId} 中。",
   "agents.ask.request.note":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
   "agents.ask.request.document": "我这条消息说的是我在 IncarnaMind 中打开的文档：{documents}。",

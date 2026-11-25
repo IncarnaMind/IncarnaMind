@@ -9,8 +9,8 @@
 
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DATABASE_FILE } from "../../src/core";
 import type { OwnAiAsk, OwnAiRunner, OwnAiStatus } from "../../src/core/adapters";
 import type {
@@ -522,6 +522,63 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       state: "landed",
       made: [{ mindId: wrote, title: "Ferry summary" }],
     });
+  });
+
+  // protects=a Word file the AI saves with save_as_word is named on its step with where it was saved, so the conversation offers Open and Show in Finder as a file Export saved (#3751); fails_when=the step names no file, or a path that isn't the one saved
+  it("names the Word file it saved, to open or show", async () => {
+    let saved = "";
+    const run = runner(async (agent) => {
+      saved =
+        structured<{ saved: string | null }>(
+          await agent.callTool({
+            name: "save_as_word",
+            arguments: { title: "Ferry figures", markdown: FERRY },
+          }),
+        ).saved ?? "";
+      return { kind: "finished", reply: "I saved “Ferry figures” as a Word file." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "save the ferry figures as a Word file" });
+    await ended();
+    expect(saved).toMatch(/Ferry figures\.docx$/);
+    const steps = turns.flatMap((turn) => turn.steps ?? []);
+    expect(steps).toContainEqual({
+      kind: "call",
+      tool: "save_as_word",
+      summary: "Ferry figures",
+      done: true,
+      file: { path: saved, name: "Ferry figures.docx" },
+    });
+  });
+
+  // protects=in a Note's own conversation, with the User at its window, a Word file the default folder can't take asks them where new files go, as Export › Word does, and is saved where they answer (#3751); fails_when=the call gives up without asking, or the file isn't saved where they chose
+  it("asks where the Word file goes when the default folder can't take it", async () => {
+    let saved = "";
+    const run = runner(async (agent) => {
+      saved =
+        structured<{ saved: string | null }>(
+          await agent.callTool({
+            name: "save_as_word",
+            arguments: { title: "Ferry figures", markdown: FERRY },
+          }),
+        ).saved ?? "";
+      return { kind: "finished", reply: "Saved." };
+    });
+    const { core, mindId, ended, dataDir } = await written(run.adapter);
+    const suggested = join(dataDir, "Documents", "IncarnaMind");
+    await mkdir(dirname(suggested), { recursive: true });
+    await writeFile(suggested, "Not a folder.");
+    await core.askInNote({ mindId, words: "save the ferry figures as a Word file" });
+    const question = await vi.waitFor(async () => {
+      const [asked] = await core.listFileWriteRequests();
+      if (!asked) throw new Error("Nothing has been asked yet.");
+      return asked;
+    });
+    expect(question).toMatchObject({ kind: "output-location", fileName: "Ferry figures.docx" });
+    const picked = await createSourceFolder();
+    await core.setOutputLocation(picked);
+    await ended();
+    expect(saved).toBe(join(picked, "Ferry figures.docx"));
   });
 
   // protects=once a turn has ended, a call of its run that finishes later tells no window it is working again; fails_when=the input stays on Working for good, with nothing to stop

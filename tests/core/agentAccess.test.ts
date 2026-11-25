@@ -116,6 +116,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       mint: () => {
         throw new Error("Not called.");
       },
+      documentsOf: () => new Set(),
     },
     requests: { ofPairing: () => [], markRead: () => null },
     askedChecks: { holds: () => false, end: () => undefined },
@@ -145,6 +146,8 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     handedNote: () => null,
     handOver: () => Promise.reject(new Error("No file is handed over here.")),
     handedCheck: () => Promise.reject(new Error("No file is handed over here.")),
+    wordFile: () => Promise.reject(new Error("No Word file is written here.")),
+    saveWordFile: () => Promise.reject(new Error("No Word file is saved here.")),
     checksWritten: () => false,
     ...overrides,
   };
@@ -767,6 +770,7 @@ for (const language of ["en", "zh-CN"] as const) {
           mint: () => {
             throw new Error("Not called.");
           },
+          documentsOf: () => new Set(),
         },
         recheck: (input) => recheckCitation(documents, input),
         minds: () => [
