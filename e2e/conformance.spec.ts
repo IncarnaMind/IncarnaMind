@@ -528,7 +528,10 @@ async function conform(run: Run, kind: ObjectKind, stage: Stage): Promise<void> 
     const commandsOnly = byRightClick.at(-1) === "—" ? byRightClick.slice(0, -1) : byRightClick;
     expect(commandsOnly).toEqual(menuOf(byRightClick, registry, kind));
     await closeMenu(window, place);
-    expect(await menuByButton(window, place)).toEqual(byRightClick);
+    // A paragraph's right-click starts with Cut, Copy and Paste for the words under the pointer;
+    // its ⋯ beside the Block holds the Block's own items (#3765).
+    const clipboard = byRightClick[0] === "text-cut" ? byRightClick.indexOf("—") + 1 : 0;
+    expect(await menuByButton(window, place)).toEqual(byRightClick.slice(clipboard));
     await closeMenu(window, place);
   });
 
