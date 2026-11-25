@@ -43,11 +43,17 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     meetings: Meeting[];
     detailsShown: Record<string, boolean>;
     audioProblems: Record<string, string>;
+    problems: Record<string, string>;
+    gapsSeen: Record<string, number>;
+    screenExplained: Record<string, boolean>;
     showDetails: (meetingId: string) => void;
   }>()((set) => ({
     meetings: [],
     detailsShown: {},
     audioProblems: {},
+    problems: {},
+    gapsSeen: {},
+    screenExplained: {},
     showDetails: (meetingId) =>
       set((state) => ({
         detailsShown: { ...state.detailsShown, [meetingId]: !state.detailsShown[meetingId] },
@@ -57,8 +63,10 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     useMeetings,
     useMeetingOf: (mindId: string) =>
       useMeetings((state) => state.meetings.find((meeting) => meeting.mindId === mindId)),
+    useMeetingTime: (meeting: Meeting) => meeting.recordedMs,
     canRecordMeetings: () => false,
     isLive: (meeting?: Meeting) => meeting?.status === "recording" || meeting?.status === "paused",
+    isWaitingForPermission: () => false,
   };
 });
 vi.mock("../../src/renderer/src/core", () => ({
@@ -66,7 +74,7 @@ vi.mock("../../src/renderer/src/core", () => ({
     {},
     { get: (_target, name) => (name === "on" ? () => () => undefined : async () => []) },
   ),
-  files: {},
+  files: new Proxy({}, { get: () => () => () => undefined }),
 }));
 vi.mock("../../src/renderer/src/i18n", () => ({
   useT: () => translate.bind(null, actions.language),
@@ -98,7 +106,7 @@ vi.mock("../../src/renderer/src/components/GettingStarted", () => ({ useIsExampl
 vi.mock("../../src/renderer/src/components/MakeSkillCard", () => ({ MakeSkillCard: () => null }));
 vi.mock("../../src/renderer/src/components/MeetingInMind", () => ({
   MeetingInMind: () => null,
-  LiveMeetingBar: () => createElement("section", { "data-testid": "meeting-bar" }),
+  MeetingAudioLine: () => null,
 }));
 vi.mock("../../src/renderer/src/components/providers/ChatReadinessNotice", () => ({
   ChatReadinessNotice: () => null,
@@ -165,7 +173,12 @@ vi.mock("../../src/renderer/src/transcripts", () => ({
   showTranscript: actions.showTranscript,
   openTranscriptBeside: actions.openBeside,
 }));
-vi.mock("../../src/renderer/src/motion", () => ({ enterFrom: vi.fn(), exitToward: vi.fn() }));
+vi.mock("../../src/renderer/src/motion", () => ({
+  enterFrom: vi.fn(),
+  exitToward: vi.fn(),
+  motionMode: () => "off",
+  subscribeMotion: () => () => undefined,
+}));
 
 import { useMeetings } from "../../src/renderer/src/meetings";
 import { useAppStore } from "../../src/renderer/src/store";
@@ -179,6 +192,7 @@ let TabPlace: ComponentType<{
 }>;
 let views: typeof import("../../src/renderer/src/meetingViews");
 let meetingCommands: typeof import("../../src/renderer/src/commands/meetings").meetingCommands;
+let shortcutLabel: typeof import("../../src/renderer/src/commands/keymap").shortcutLabel;
 let response: "ready" | "pending" | "missing" | "failed";
 const FIRST_LINE = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<v Me>Keep the go-live date.\n";
 /** The Transcript's file as the request reads it now. */
@@ -220,6 +234,10 @@ const meetingOf = (overrides: Partial<Meeting> = {}): Meeting =>
       keptUntilDeleted: false,
     },
     gaps: [],
+    sources: { microphone: "recording", system: "recording" },
+    systemAudio: true,
+    microphonePausedAtMs: null,
+    screen: null,
     saveError: null,
     health: { realTimeFactor: null, measuredMs: 0, keepsUp: null, events: [] },
     fill: null,
@@ -262,6 +280,10 @@ beforeAll(async () => {
   ({ TabPlaceContext: TabPlace } = await import(tabsPath));
   views = await import("../../src/renderer/src/meetingViews");
   ({ meetingCommands } = await import("../../src/renderer/src/commands/meetings"));
+  ({ shortcutLabel } = await import("../../src/renderer/src/commands/keymap"));
+  // The sheet and the control name their keys from the window's commands, as the app registers them.
+  const { commands } = await import("../../src/renderer/src/commands/registry");
+  for (const each of meetingCommands) commands.register(each);
 });
 
 beforeEach(() => {
@@ -296,7 +318,7 @@ beforeEach(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   }))
     vi.stubGlobal(name, value);
-  views.useMeetingNoteViews.setState({ views: {} });
+  views.useMeetingNoteViews.setState({ views: {}, focus: null });
   useAppStore.setState({
     minds: [{ id: "note" }, { id: "other" }] as Mind[],
     documents: [documentOf()],
@@ -345,22 +367,44 @@ async function click(id: string, within: ParentNode = container) {
   );
 }
 
-describe("the Meeting's Note-local views", () => {
-  test("switches the same tab without changing Layout and retains the editor and scroll", async () => {
+const sheetIn = (within: ParentNode = container) =>
+  within.querySelector<HTMLElement>('[data-testid="meeting-sheet"]');
+
+const focusesOf = (id: string) => actions.focus.mock.calls.filter(([each]) => each === id).length;
+
+const command = (id: string) => {
+  const found = meetingCommands.find((each) => each.id === id);
+  if (!found) throw new Error(`Missing ${id}`);
+  return found;
+};
+const PALETTE = { surface: "palette", selection: [], focus: null } as const;
+
+describe("the Meeting's Transcript sheet over its Note", () => {
+  test("raises over the same tab without changing Layout, and the notes keep their editor and scroll", async () => {
     await show();
     const editor = find("retained-editor") as HTMLInputElement;
     editor.value = "Typed while recording";
     const scroller = find("mind-scroller");
     scroller.scrollTop = 137;
-    expect(find("meeting-view-chip").textContent).toContain("Recorded 1:00");
-    await click("meeting-view-transcript");
-    expect(find("mind-scroller").style.visibility).toBe("hidden");
-    expect(container.querySelector<HTMLElement>(".mind-foot-slot")?.style.display).toBe("none");
-    expect(container.querySelector(".review-slot")?.getAttribute("data-shown")).toBe("closed");
-    expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
-    expect(find("transcript-count").textContent).toBe("1 line");
-    expect(find("meeting-view-chip").textContent).toContain("Transcript");
-    expect(container.querySelector('[data-testid="viewer-title"]')).toBeNull();
+    // After Stop the meeting's control is one button, Transcript, which raises the sheet.
+    const control = find("meeting-foot");
+    expect(control.getAttribute("data-status")).toBe("stopped");
+    const transcriptButton = find("meeting-foot-transcript", control);
+    expect(transcriptButton.textContent).toBe("Transcript");
+    expect(transcriptButton.getAttribute("aria-expanded")).toBe("false");
+    expect(sheetIn()).toBeNull();
+    await click("meeting-foot-transcript");
+    const sheet = find("meeting-sheet");
+    expect(transcriptButton.getAttribute("aria-expanded")).toBe("true");
+    expect(sheet.getAttribute("data-document-id")).toBe("transcript");
+    expect(sheet.querySelector("h2")?.textContent).toBe("Transcript");
+    expect(sheet.textContent).toContain("Keep the go-live date.");
+    // Over the notes: they stay drawn under it, with their foot and the review beside them.
+    expect(scroller.style.visibility).not.toBe("hidden");
+    expect(container.querySelector<HTMLElement>(".mind-foot-slot")?.style.display).not.toBe("none");
+    expect(container.querySelector(".review-slot")?.getAttribute("data-shown")).toBe("beside");
+    // The sheet names the Transcript itself: the Document's own title and menu stay out.
+    expect(sheet.querySelector('[data-testid="viewer-title"]')).toBeNull();
     expect(container.querySelector('[data-testid="document-menu"]')).toBeNull();
     expect(requests).toHaveLength(1);
     expect(requests[0]).toContain("transcript");
@@ -377,13 +421,12 @@ describe("the Meeting's Note-local views", () => {
         cue: expect.objectContaining({ text: "Keep the go-live date." }),
       }),
     );
-    await click("meeting-view-notes");
-    expect(container.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
+    await click("meeting-sheet-hide");
+    expect(sheetIn()).toBeNull();
+    expect(transcriptButton.getAttribute("aria-expanded")).toBe("false");
     expect(find("retained-editor")).toBe(editor);
     expect(editor.value).toBe("Typed while recording");
     expect(scroller.scrollTop).toBe(137);
-    expect(scroller.style.visibility).not.toBe("hidden");
-    expect(container.querySelector<HTMLElement>(".mind-foot-slot")?.style.display).not.toBe("none");
     expect(container.querySelector(".review-slot")?.getAttribute("data-shown")).toBe("beside");
     expect(actions.mounts).toHaveBeenCalledTimes(1);
     expect(actions.unmounts).not.toHaveBeenCalled();
@@ -392,7 +435,7 @@ describe("the Meeting's Note-local views", () => {
     expect(useAppStore.getState().layout?.groups[0]?.tabs[0]?.id).toBe("tab");
   });
 
-  test("keeps two tabs of one Note independent and a reused tab defaults to Notes", async () => {
+  test("keeps two tabs of one Note independent, and a tab reused for another Note shows its notes", async () => {
     await show([
       { tabId: "tab", mindId: "note" },
       { tabId: "second", mindId: "note" },
@@ -400,26 +443,27 @@ describe("the Meeting's Note-local views", () => {
     const first = container.querySelector('[data-tab-id="tab"]');
     const second = container.querySelector('[data-tab-id="second"]');
     if (!first || !second) throw new Error("Missing tabs");
-    await click("meeting-view-transcript", first);
-    expect(first.querySelector('[data-testid="meeting-note-transcript"]')).not.toBeNull();
-    expect(second.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
+    await click("meeting-foot-transcript", first);
+    expect(sheetIn(first)).not.toBeNull();
+    expect(sheetIn(second)).toBeNull();
+    expect(find("meeting-foot-transcript", second).getAttribute("aria-expanded")).toBe("false");
     await act(async () =>
       useMeetings.setState({
         meetings: [meetingOf(), meetingOf({ id: "other-meeting", mindId: "other" })],
       }),
     );
     await show([{ tabId: "tab", mindId: "other" }]);
-    expect(container.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
-    expect(find("mind-scroller").style.visibility).not.toBe("hidden");
+    expect(sheetIn()).toBeNull();
+    expect(find("meeting-foot-transcript").getAttribute("aria-expanded")).toBe("false");
   });
 
   test.each(["pending", "missing", "failed"] as const)(
-    "keeps %s file states in place without Document rename chrome",
+    "keeps %s file states in the sheet without Document rename chrome",
     async (state) => {
       response = state;
       await show();
-      await click("meeting-view-transcript");
-      const transcript = find("meeting-note-transcript");
+      await click("meeting-foot-transcript");
+      const transcript = find("meeting-sheet");
       expect(transcript.querySelector('[data-testid="viewer-title"]')).toBeNull();
       expect(transcript.querySelector('[data-testid="viewer-title-rename"]')).toBeNull();
       expect(transcript.querySelector('[data-testid="document-menu"]')).toBeNull();
@@ -437,34 +481,33 @@ describe("the Meeting's Note-local views", () => {
   test("shows loading while the Meeting's Document metadata catches up, then loads its actual file", async () => {
     useAppStore.setState({ documents: [] });
     await show();
-    await click("meeting-view-transcript");
-    expect(find("meeting-note-transcript").textContent).toContain("Opening the Document");
+    await click("meeting-foot-transcript");
+    expect(find("meeting-sheet").textContent).toContain("Opening the Document");
     expect(requests).toHaveLength(0);
     await act(async () => useAppStore.setState({ documents: [documentOf()] }));
-    expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
+    expect(find("meeting-sheet").textContent).toContain("Keep the go-live date.");
     expect(requests).toHaveLength(1);
   });
 
-  test("focuses the accessible Transcript region once per opening, not on metadata updates", async () => {
+  test("takes the focus to the sheet once per opening from ⌘K, not on metadata updates, and its Hide gives it back to the control", async () => {
     await show();
-    await click("meeting-view-transcript");
-    expect(find("meeting-note-transcript").tagName).toBe("SECTION");
-    expect(find("meeting-note-transcript").getAttribute("aria-label")).toBe("Transcript");
-    expect(find("meeting-note-transcript").getAttribute("tabindex")).toBe("-1");
-    expect(
-      actions.focus.mock.calls.filter(([id]) => id === "meeting-note-transcript"),
-    ).toHaveLength(1);
+    await act(async () => command("meeting.showTranscript").run(PALETTE));
+    const sheet = find("meeting-sheet");
+    expect(sheet.tagName).toBe("SECTION");
+    expect(sheet.getAttribute("aria-label")).toBe("Transcript");
+    expect(sheet.getAttribute("tabindex")).toBe("-1");
+    expect(focusesOf("meeting-sheet")).toBe(1);
     await act(async () =>
       useAppStore.setState({ documents: [{ ...documentOf(), contentHash: "v2" }] }),
     );
-    expect(
-      actions.focus.mock.calls.filter(([id]) => id === "meeting-note-transcript"),
-    ).toHaveLength(1);
-    await click("meeting-view-notes");
-    await click("meeting-view-transcript");
-    expect(
-      actions.focus.mock.calls.filter(([id]) => id === "meeting-note-transcript"),
-    ).toHaveLength(2);
+    expect(focusesOf("meeting-sheet")).toBe(1);
+    const toChevron = focusesOf("meeting-foot-transcript");
+    await click("meeting-sheet-hide");
+    expect(sheetIn()).toBeNull();
+    expect(focusesOf("meeting-foot-transcript")).toBe(toChevron + 1);
+    await act(async () => command("meeting.showTranscript").run(PALETTE));
+    expect(sheetIn()).not.toBeNull();
+    expect(focusesOf("meeting-sheet")).toBe(2);
   });
 
   test("retains the real file failure's Retry and rereads the VTT in place", async () => {
@@ -479,12 +522,13 @@ describe("the Meeting's Note-local views", () => {
       ],
     });
     await show();
-    await click("meeting-view-transcript");
-    expect(find("viewer-retry")).toBeDefined();
+    await click("meeting-foot-transcript");
+    const sheet = find("meeting-sheet");
+    expect(find("viewer-retry", sheet)).toBeDefined();
     response = "ready";
-    await click("viewer-retry");
+    await click("viewer-retry", sheet);
     expect(actions.retryDocument).toHaveBeenCalledWith("transcript");
-    expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
+    expect(find("meeting-sheet").textContent).toContain("Keep the go-live date.");
     expect(actions.changeLayout).not.toHaveBeenCalled();
   });
 
@@ -512,10 +556,12 @@ describe("the Meeting's Note-local views", () => {
     useMeetings.setState({ meetings: [live(2)] });
     await show();
     await act(async () => views.showMeetingNoteView("tab", "note", "transcript"));
-    const turns = () => [...container.querySelectorAll('[data-testid="transcript-turn"]')];
+    const turns = () => [
+      ...find("meeting-sheet").querySelectorAll('[data-testid="transcript-turn"]'),
+    ];
     expect(turns()).toHaveLength(1);
     const turn = turns()[0] as HTMLElement;
-    const scroller = find("viewer-transcript");
+    const scroller = find("viewer-transcript", find("meeting-sheet"));
     // The reader scrolls up to read.
     Object.assign(scroller, { scrollTop: 120 });
     await act(async () => scroller.dispatchEvent(new window.Event("scroll")));
@@ -546,34 +592,53 @@ describe("the Meeting's Note-local views", () => {
     expect(scroller.scrollTop).toBe(120);
   });
 
-  test("adds no chip to a Voice memo, and no Transcript view to a call without a Transcript", async () => {
+  test("draws no control and no sheet for a Voice memo, and a call with nothing transcribed says so in its sheet", async () => {
     useMeetings.setState({ meetings: [meetingOf({ kind: "memo" })] });
     await show();
-    expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();
+    await act(async () => views.showMeetingNoteView("tab", "note", "transcript"));
+    expect(container.querySelector('[data-testid="meeting-foot"]')).toBeNull();
+    expect(sheetIn()).toBeNull();
+    await act(async () => views.showMeetingNoteView("tab", "note", "notes"));
     await act(async () => useMeetings.setState({ meetings: [meetingOf({ transcript: null })] }));
-    expect(find("meeting-view-chip").textContent).toContain("Recorded 1:00");
-    expect(find("meeting-view-notes")).toBeDefined();
-    expect(container.querySelector('[data-testid="meeting-view-transcript"]')).toBeNull();
+    await click("meeting-foot-transcript");
+    const sheet = find("meeting-sheet");
+    expect(find("transcript-empty", sheet).textContent).toBe("Nothing was transcribed.");
+    expect((find("meeting-sheet-beside", sheet) as HTMLButtonElement).disabled).toBe(true);
+    expect(requests).toHaveLength(0);
   });
 
-  test.each(["en", "zh-CN"] as const)("uses labelled radio choices in %s", async (language) => {
-    actions.language = language;
-    await show();
-    expect(find("meeting-view-menu").getAttribute("aria-label")).toBe(
-      translate(language, "meetings.views.label"),
-    );
-    expect(find("meeting-view-notes").getAttribute("role")).toBe("menuitemradio");
-    expect(find("meeting-view-notes").getAttribute("aria-checked")).toBe("true");
-    await click("meeting-view-transcript");
-    expect(find("meeting-view-transcript").getAttribute("aria-checked")).toBe("true");
-    expect(find("meeting-view-chip").textContent).toContain(
-      translate(language, "meetings.views.transcript"),
-    );
-  });
-
-  // protects=a call whose notes failed on a provider's refusal still reaches its Transcript without the fill line, which then offers the fix and Try again in its place (#3099): the page's chip, "Recorded" / "已录制", opens it from its menu; fails_when=the chip is gone or its Transcript choice doesn't open the Transcript in that state; no_claim=the fill line's own actions, which tests/renderer/meetingFillLine.test.ts covers.
   test.each(["en", "zh-CN"] as const)(
-    "with its notes failed on a refused key, the chip still opens the Transcript (%s)",
+    "names the control's Transcript button and the sheet in %s",
+    async (language) => {
+      actions.language = language;
+      await show();
+      const keys = shortcutLabel("meeting.nextView");
+      const button = find("meeting-foot-transcript");
+      expect(button.textContent).toBe(translate(language, "meetings.views.transcript"));
+      expect(button.getAttribute("aria-label")).toBe(
+        translate(language, "meetings.foot.show", { keys }),
+      );
+      await click("meeting-foot-transcript");
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+      expect(button.getAttribute("aria-label")).toBe(
+        translate(language, "meetings.foot.hide", { keys }),
+      );
+      const sheet = find("meeting-sheet");
+      expect(sheet.getAttribute("aria-label")).toBe(
+        translate(language, "meetings.views.transcript"),
+      );
+      expect(find("meeting-sheet-hide", sheet).getAttribute("aria-label")).toBe(
+        translate(language, "meetings.foot.hide", { keys }),
+      );
+      expect(find("meeting-sheet-beside", sheet).getAttribute("aria-label")).toBe(
+        translate(language, "meetings.views.besideCommand"),
+      );
+    },
+  );
+
+  // protects=a call whose notes failed on a provider's refusal still reaches its Transcript without the fill line, which then offers the fix and Try again in its place (#3099): the meeting's control, "Transcript" / "转写稿", raises it; fails_when=the control is gone or its Transcript button doesn't open the Transcript in that state; no_claim=the fill line's own actions, which tests/renderer/meetingFillLine.test.ts covers.
+  test.each(["en", "zh-CN"] as const)(
+    "with its notes failed on a refused key, the control still opens the Transcript (%s)",
     async (language) => {
       actions.language = language;
       useMeetings.setState({
@@ -596,46 +661,43 @@ describe("the Meeting's Note-local views", () => {
         ],
       });
       await show();
-      expect(find("meeting-view-chip").textContent).toContain(
-        translate(language, "meetings.audio.recorded", { time: "1:00" }),
-      );
-      expect(find("meeting-view-transcript").textContent).toBe(
+      expect(find("meeting-foot").getAttribute("data-status")).toBe("stopped");
+      expect(find("meeting-foot-transcript").textContent).toBe(
         translate(language, "meetings.views.transcript"),
       );
-      await click("meeting-view-transcript");
-      expect(find("meeting-note-transcript").textContent).toContain("Keep the go-live date.");
-      expect(find("meeting-view-chip").textContent).toContain(
-        translate(language, "meetings.views.transcript"),
-      );
+      await click("meeting-foot-transcript");
+      expect(find("meeting-sheet").textContent).toContain("Keep the go-live date.");
+      expect(find("meeting-foot-transcript").getAttribute("aria-expanded")).toBe("true");
     },
   );
 
   test.each(["stopped", "recording"] as const)(
-    "⌘K's views of a %s call switch the page in place and Open beside opens the Transcript next to it",
+    "⌘K's views of a %s call raise and fold the sheet in place, and Open beside opens the Transcript next to it",
     async (status) => {
       useMeetings.setState({ meetings: [meetingOf({ status })] });
       await show();
-      const command = (id: string) => {
-        const found = meetingCommands.find((each) => each.id === id);
-        if (!found) throw new Error(`Missing ${id}`);
-        return found;
-      };
-      const context = { surface: "palette", selection: [], focus: null } as const;
-      expect(command("meeting.showNotes").when?.(context)).toBe(false);
-      expect(command("meeting.showTranscript").when?.(context)).toBe(true);
+      expect(command("meeting.showNotes").when?.(PALETTE)).toBe(false);
+      expect(command("meeting.showTranscript").when?.(PALETTE)).toBe(true);
       expect(command("meeting.showTranscript").label).toBe("meetings.views.showTranscript");
-      await act(async () => command("meeting.showTranscript").run(context));
-      expect(find("meeting-note-transcript")).toBeDefined();
-      expect(command("meeting.showTranscript").when?.(context)).toBe(false);
-      await act(async () => command("meeting.previousView").run(context));
-      expect(container.querySelector('[data-testid="meeting-note-transcript"]')).toBeNull();
-      await act(async () => command("meeting.nextView").run(context));
-      expect(find("meeting-note-transcript")).toBeDefined();
+      await act(async () => command("meeting.showTranscript").run(PALETTE));
+      expect(sheetIn()).not.toBeNull();
+      expect(find("meeting-foot-transcript").getAttribute("aria-expanded")).toBe("true");
+      expect(command("meeting.showTranscript").when?.(PALETTE)).toBe(false);
+      expect(command("meeting.showNotes").when?.(PALETTE)).toBe(true);
+      await act(async () => command("meeting.previousView").run(PALETTE));
+      expect(sheetIn()).toBeNull();
+      await act(async () => command("meeting.nextView").run(PALETTE));
+      expect(sheetIn()).not.toBeNull();
+      await act(async () => command("meeting.showNotes").run(PALETTE));
+      expect(sheetIn()).toBeNull();
+      expect(find("meeting-foot-transcript").getAttribute("aria-expanded")).toBe("false");
+      // My notes is a view once the call is over.
+      expect(command("meeting.showMyNotes").when?.(PALETTE)).toBe(status === "stopped");
       expect(command("meeting.previousView").shortcut?.keys).toBe("CmdOrCtrl+Alt+Left");
       expect(command("meeting.nextView").shortcut?.keys).toBe("CmdOrCtrl+Alt+Right");
       expect(command("meeting.nextView").palette).toBe(false);
-      expect(command("meeting.transcriptBeside").enabled?.(context)).toBe(true);
-      await act(async () => command("meeting.transcriptBeside").run(context));
+      expect(command("meeting.transcriptBeside").enabled?.(PALETTE)).toBe(true);
+      await act(async () => command("meeting.transcriptBeside").run(PALETTE));
       expect(actions.openBeside).toHaveBeenCalledWith(
         expect.objectContaining({ tabId: "tab", groupId: "group" }),
       );
@@ -644,7 +706,7 @@ describe("the Meeting's Note-local views", () => {
   );
 
   test.each(["en", "zh-CN"] as const)(
-    "while it records, the Transcript view shows both sides' words being said before its first line, under the bar (%s)",
+    "while it records, the sheet shows both sides' words being said before its first line, between its line to tell everyone and the recording's controls (%s)",
     async (language) => {
       actions.language = language;
       useAppStore.setState({ documents: [] });
@@ -666,8 +728,15 @@ describe("the Meeting's Note-local views", () => {
       });
       await show();
       await act(async () => views.showMeetingNoteView("tab", "note", "transcript"));
-      const transcript = find("meeting-note-transcript");
-      expect(find("meeting-bar", transcript)).toBeDefined();
+      const transcript = find("meeting-sheet");
+      expect(transcript.hasAttribute("data-live")).toBe(true);
+      expect(find("meeting-sheet-time", transcript).textContent).toBe("1:00");
+      expect(transcript.querySelector(".meeting-sheet-consent")?.textContent).toBe(
+        translate(language, "meetings.foot.tell"),
+      );
+      const foot = find("meeting-sheet-foot", transcript);
+      for (const id of ["meeting-sheet-mic", "meeting-sheet-pause", "meeting-sheet-mark"])
+        expect(find(id, foot)).toBeDefined();
       const said = [...transcript.querySelectorAll('[data-testid="transcript-partial"]')];
       expect(said.map((each) => each.querySelector(".transcript-text")?.textContent)).toEqual([
         "The budget holds",
@@ -679,26 +748,30 @@ describe("the Meeting's Note-local views", () => {
       expect(transcript.querySelectorAll('[data-testid="transcript-line"]')).toHaveLength(0);
       expect(transcript.querySelector('[data-testid="transcript-empty"]')).toBeNull();
       expect(requests).toHaveLength(0);
-      const beside = find("meeting-transcript-beside", transcript) as HTMLButtonElement;
-      expect(beside.textContent).toBe(translate(language, "command.openBeside"));
-      expect(beside.disabled).toBe(true);
-      expect(beside.title).toBe(translate(language, "meetings.bar.transcriptSoon"));
-      expect(container.querySelector('[data-testid="meeting-view-chip"]')).toBeNull();
+      expect(find("meeting-foot").getAttribute("data-status")).toBe("recording");
     },
   );
 
-  test("before its first line, a live call's Transcript can't open beside yet, and says why", async () => {
-    useMeetings.setState({
-      meetings: [
-        meetingOf({
-          status: "recording",
-          transcript: { documentId: null, lines: 0, state: "live", partials: [] },
-        } as unknown as Partial<Meeting>),
-      ],
-    });
-    await show();
-    const command = meetingCommands.find((each) => each.id === "meeting.transcriptBeside");
-    const context = { surface: "palette", selection: [], focus: null } as const;
-    expect(command?.enabled?.(context)).toEqual({ reason: "meetings.bar.transcriptSoon" });
-  });
+  test.each(["en", "zh-CN"] as const)(
+    "before its first line, a live call's Transcript can't open beside yet, and says why (%s)",
+    async (language) => {
+      actions.language = language;
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            status: "recording",
+            transcript: { documentId: null, lines: 0, state: "live", partials: [] },
+          } as unknown as Partial<Meeting>),
+        ],
+      });
+      await show();
+      expect(command("meeting.transcriptBeside").enabled?.(PALETTE)).toEqual({
+        reason: "meetings.bar.transcriptSoon",
+      });
+      await click("meeting-foot-transcript");
+      const beside = find("meeting-sheet-beside", find("meeting-sheet")) as HTMLButtonElement;
+      expect(beside.disabled).toBe(true);
+      expect(beside.title).toBe(translate(language, "meetings.bar.transcriptSoon"));
+    },
+  );
 });

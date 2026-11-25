@@ -10,7 +10,7 @@ import {
   pointAndClick,
   recordMeeting,
   removeDataFolder,
-  startRecording,
+  stopMeeting,
 } from "./app";
 
 test("reopening a stopped Meeting resumes its unwritten notes and Stop cancels that request", async () => {
@@ -39,11 +39,9 @@ test("reopening a stopped Meeting resumes its unwritten notes and Stop cancels t
       const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await core.saveChatProvider({ kind: "ollama", modelId: "fake-model", baseUrl });
     }, url);
-    const bar = await startRecording(first.window, await recordMeeting(first.window), {
-      notice: true,
-    });
+    await recordMeeting(first.window);
     await firstTranscriptLine(first.window);
-    await pointAndClick(first.window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(first.window);
     await expect(first.window.getByTestId("meeting-fill-stop")).toBeVisible();
     await expect(first.window.getByTestId("end-hint")).toHaveText("Add your meeting notes…");
     await expect.poll(() => requested).toBe(1);

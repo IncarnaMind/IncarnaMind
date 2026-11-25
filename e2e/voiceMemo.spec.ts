@@ -12,16 +12,15 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  transcribeHere,
   useLocalChatModel,
   useOutputLocation,
 } from "./app";
 
 /*
- * A voice memo (#1568): + › Voice memo and ⌘K record at once (the first time, after the
- * recording notice), the bar reads "Voice memo · 00:42 · Pause · Stop" with no call's parts, and
- * Stop writes the note as one Undo: a title line that names the Mind, then the speech with its
- * times; with no model, the Transcript as it is.
+ * A voice memo (#1568): + › Voice memo and ⌘K record at once, the first time too (#3762), the bar
+ * reads "Voice memo · 00:42 · Pause · Stop" with no call's parts, and Stop writes the note as one
+ * Undo: a title line that names the Mind, then the speech with its times; with no model, the
+ * Transcript as it is.
  */
 
 let dataDir: string;
@@ -43,8 +42,6 @@ const WORDS = {
     command: "Record a voice memo",
     stop: "Stop recording",
     bar: "Voice memo",
-    microphone: "IncarnaMind records your microphone.",
-    tell: "Tell everyone",
     hint: "Speak, then Stop: your note is written here.",
     written: "Memo written",
     undone: "Memo undone",
@@ -57,8 +54,6 @@ const WORDS = {
     command: "录一段语音备忘",
     stop: "停止录制",
     bar: "语音备忘",
-    microphone: "IncarnaMind 会录制你的麦克风。",
-    tell: "告诉所有人",
     hint: "说完后停止录制，笔记就会写在这里。",
     written: "已写入语音备忘",
     undone: "已撤销语音备忘",
@@ -78,11 +73,6 @@ const memosOf = async (window: Page): Promise<Meeting[]> =>
 
 const mindCount = async (window: Page) =>
   (await (await bridge(window)).evaluate((core) => core.listMinds())).length;
-
-const readNotice = async (window: Page) =>
-  (await bridge(window)).evaluate((core) =>
-    core.updateSettings({ device: { meetingNoticeAccepted: true } }),
-  );
 
 const heard = (window: Page, lines: number) =>
   expect
@@ -112,14 +102,13 @@ async function expectBarFits(bar: Locator): Promise<void> {
 }
 
 async function expectNoCallParts(bar: Locator): Promise<void> {
-  for (const testId of [
-    "meeting-mic",
-    "meeting-mark",
-    "meeting-call-help",
-    "meeting-views",
-    "meeting-more",
-  ]) {
+  for (const testId of ["meeting-mic", "meeting-mark", "meeting-call-help", "meeting-more"]) {
     await expect(bar.getByTestId(testId), testId).toHaveCount(0);
+  }
+  // A call's control at the Note's foot and its Transcript sheet are not a memo's (#3762).
+  const window = bar.page();
+  for (const testId of ["meeting-foot", "meeting-sheet", "meeting-call-help"]) {
+    await expect(window.getByTestId(testId), testId).toHaveCount(0);
   }
 }
 
@@ -137,7 +126,7 @@ for (const [language, width] of [
   ["en", 1600],
   ["zh-CN", 900],
 ] as const) {
-  test(`+ › Voice memo records at once after the first notice, with no call's parts, and Stop writes a titled note with its times, one Undo (${language}, ${width}px)`, async () => {
+  test(`+ › Voice memo records at once the first time too, with no card and no call's parts, and Stop writes a titled note with its times, one Undo (${language}, ${width}px)`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
@@ -154,17 +143,10 @@ for (const [language, width] of [
       await expect(item).toHaveText(words.menu);
       await pointAndClick(window, item);
 
-      // The first time, the recording notice: the microphone only, and no one else to tell.
-      const notice = window.getByTestId("meeting-notice");
-      await expect(notice).toContainText(words.microphone);
-      await expect(notice).not.toContainText(words.tell);
-      expect(await memosOf(window)).toEqual([]);
-      await transcribeHere(notice);
-      await pointAndClick(window, notice.getByTestId("meeting-notice-start"));
-      await expect(notice).toBeHidden();
-
+      // The first time on this device too, it records at once: no card or dialog to read first.
       const bar = window.getByTestId("meeting-bar");
       await expect(bar).toHaveAttribute("data-status", "recording");
+      await expect(window.locator("dialog[open]")).toHaveCount(0);
       await expect(bar).toHaveAttribute("data-kind", "memo");
       await expect(bar.getByTestId("meeting-state")).toHaveText(words.bar);
       await expect(bar.getByTestId("meeting-time")).toHaveText(/^\d{1,2}:\d{2}$/);
@@ -209,8 +191,6 @@ for (const [language, width] of [
     await useLocalChatModel(window);
     await useOutputLocation(window, sources);
     try {
-      await readNotice(window);
-
       await window.keyboard.press("ControlOrMeta+t");
       await expect.poll(() => mindCount(window)).toBe(1);
 
@@ -257,8 +237,6 @@ test("with no model, Stop writes the Transcript in as it is, under a dated title
   await dismissChatSetup(window);
   await useOutputLocation(window, sources);
   try {
-    await readNotice(window);
-
     await pointAndClick(window, window.getByTestId("plus-menu"));
     await pointAndClick(window, window.getByTestId("plus-record-memo"));
     const bar = window.getByTestId("meeting-bar");

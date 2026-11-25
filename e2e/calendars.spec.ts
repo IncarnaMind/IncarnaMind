@@ -218,8 +218,9 @@ for (const language of ["en", "zh-CN"] as const) {
 
       await bar.getByTestId("event-bar-record").click();
       await expect.poll(() => urlsOpened(app)).toContain(MEET);
-      // The Meeting takes over from the event's bar.
+      // The Meeting takes over from the event's bar, recording at once, the first time too.
       await expect(window.locator('[data-testid="event-bar"]:visible')).toHaveCount(0);
+      await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
     } finally {
       await app.close();
     }

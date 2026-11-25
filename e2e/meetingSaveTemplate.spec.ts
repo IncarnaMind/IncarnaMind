@@ -11,7 +11,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -21,7 +21,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await dismissChatSetup(window);
       await setWindowSize(app, window, language === "en" ? 1100 : 900, 740);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      const control = await recordMeeting(window);
       const editor = window.getByTestId("mind-editor");
       await pointAndClick(window, editor);
       await window.keyboard.type("## Decisions ");
@@ -34,18 +34,18 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Enter");
       await expect(editor.locator("h2")).toHaveText(["Decisions", "Open questions"]);
       const buttonRect = await pageMenuButton(window).boundingBox();
-      const barRect = await bar.boundingBox();
-      if (!buttonRect || !barRect) throw new Error("The live controls must be visible.");
+      const controlRect = await control.boundingBox();
+      if (!buttonRect || !controlRect) throw new Error("The live controls must be visible.");
       expect(
-        buttonRect.x >= barRect.x + barRect.width || buttonRect.y + buttonRect.height <= barRect.y,
+        buttonRect.x >= controlRect.x + controlRect.width ||
+          buttonRect.y + buttonRect.height <= controlRect.y,
       ).toBe(true);
       await pageMenuButton(window).click();
       const liveMenu = window.getByTestId("page-actions");
       await expect(liveMenu).toBeVisible();
       await expect(liveMenu.getByTestId("meeting.saveTemplate")).toHaveCount(0);
       await window.keyboard.press("Escape");
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
-      await expect(bar).toBeHidden();
+      await stopMeeting(window);
       if (language === "zh-CN") await setLanguage(window, language);
       const openDraft = async () => {
         await pageMenuButton(window).click();

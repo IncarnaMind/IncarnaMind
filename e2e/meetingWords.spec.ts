@@ -18,7 +18,6 @@ import {
   setLanguage,
   setWindowSize,
   showSettingsPage,
-  startRecording,
 } from "./app";
 
 /** INCARNAMIND_SCREENSHOTS: a folder to also save screenshots in. */
@@ -162,8 +161,8 @@ test("⌘K opens Words to know with its field ready, and a word told there is wr
   await expect(section.getByTestId("meeting-word-name")).toHaveText(["Dana"]);
   await closeSettings(window);
 
-  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-  await openTranscriptBeside(window, bar);
+  await recordMeeting(window);
+  await openTranscriptBeside(window);
   const transcript = window.getByTestId("viewer-transcript");
   // The other side's third line names Dana, whom the engine hears as Donna unless told.
   await expect(transcript.getByText("Dana is joining us from the Leeds office.")).toBeVisible({

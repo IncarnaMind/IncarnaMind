@@ -2,12 +2,20 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { encodeWav, monoSamples, toPcm16 } from "../../eval/lib/wav";
 import { MEETING_SAMPLE_RATE } from "../../src/core/adapters";
 import type { CoreBridge } from "../../src/core/api";
 import { listParts, meetingFolder, msOf } from "../../src/core/meetings/audioFiles";
-import { recordMeeting, startRecording, transcriptSaved, turnOf, useOutputLocation } from "../app";
+import {
+  openMeetingSheet,
+  pointAndClick,
+  recordMeeting,
+  stopMeeting,
+  transcriptSaved,
+  turnOf,
+  useOutputLocation,
+} from "../app";
 import {
   copyModelsIn,
   copyModelsOut,
@@ -49,6 +57,48 @@ async function oneHandoff(home: string, overlap: boolean): Promise<string> {
   const file = join(home, overlap ? "overlapping-voices.wav" : "close-voices.wav");
   await writeFile(file, encodeWav(toPcm16(mixed)));
   return file;
+}
+
+/**
+ * Records a meeting of the microphone alone, as Settings › Meetings' "What is recorded" chooses
+ * it, and raises its Transcript sheet: a runner may have no computer sound to record.
+ */
+async function recordMicrophone(window: Page): Promise<Locator> {
+  await window.evaluate(() =>
+    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+      device: { meetingSystemAudio: false },
+    }),
+  );
+  await recordMeeting(window);
+  return openMeetingSheet(window);
+}
+
+/**
+ * The sheet's "Open beside", once the Transcript has its first line: the model is downloaded and
+ * the engine runs. Meanwhile the sheet is folded, so an engine that doesn't load says so over the
+ * meeting's control at once, and the test stops there instead of waiting out the download's time.
+ */
+async function besideOnceTranscribing(window: Page, sheet: Locator): Promise<Locator> {
+  const stopped = window
+    .getByTestId("meeting-transcript-line")
+    .filter({ hasText: /Transcription stopped|couldn’t/ });
+  await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+  await expect(sheet).toBeHidden();
+  const firstLine = () =>
+    window.evaluate(async () =>
+      (
+        await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings()
+      ).some((each) => each.status !== "stopped" && (each.transcript?.lines ?? 0) > 0),
+    );
+  await expect
+    .poll(async () => (await stopped.count()) > 0 || (await firstLine()), {
+      timeout: 20 * 60_000,
+    })
+    .toBe(true);
+  await expect(stopped).toHaveCount(0);
+  const beside = (await openMeetingSheet(window)).getByTestId("meeting-sheet-beside");
+  await expect(beside).toBeEnabled();
+  return beside;
 }
 
 async function savedWithSpeakers(window: Page): Promise<void> {
@@ -108,26 +158,18 @@ test("the packaged app transcribes a meeting from the microphone on this compute
     }),
   );
 
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-audio").selectOption("me");
-  const bar = await startRecording(window, start, { notice: true });
-
-  // "Open beside" is greyed until the Transcript has its first line: the model is downloaded and
-  // the engine runs. An engine that doesn't load says so instead, and the test stops there.
-  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
-  const beside = window.getByTestId("meeting-transcript-beside");
+  const sheet = await recordMicrophone(window);
+  const beside = await besideOnceTranscribing(window, sheet);
+  // The words being said, before their line is finished: the streaming model loaded and reads.
+  await expect(sheet.getByTestId("transcript-partial").first()).toContainText(/\p{L}/u, {
+    timeout: 2 * 60_000,
+  });
+  await pointAndClick(window, beside);
+  await expect(sheet).toBeHidden();
+  // With the sheet folded, the Transcript's own lines stand over the meeting's control.
   const stopped = window
     .getByTestId("meeting-transcript-line")
     .filter({ hasText: /Transcription stopped|couldn’t/ });
-  await expect(beside.and(window.locator(":enabled")).or(stopped)).toBeVisible({
-    timeout: 20 * 60_000,
-  });
-  await expect(stopped).toHaveCount(0);
-  // The words being said, before their line is finished: the streaming model loaded and reads.
-  await expect(window.getByTestId("transcript-partial").first()).toContainText(/\p{L}/u, {
-    timeout: 2 * 60_000,
-  });
-  await beside.click();
   const lines = window.getByTestId("transcript-lines");
   for (const word of [/fathers/i, /nation/i, /liberty/i, /equal/i, /Thursday/i]) {
     await expect(lines).toContainText(word, { timeout: 2 * 60_000 });
@@ -143,7 +185,7 @@ test("the packaged app transcribes a meeting from the microphone on this compute
   // one that failed left the whole Meeting with nothing captured (#3248).
   if (process.platform === "darwin") expect(await audioOutputsHeldBy(app)).toEqual([]);
 
-  await bar.getByTestId("meeting-stop").click();
+  await stopMeeting(window);
   await transcriptSaved(window, 5 * 60_000);
   // Finished, it is kept in the Library: its file is the data folder's own, and the chosen
   // Output location gets nothing (#763).
@@ -189,19 +231,17 @@ for (const { kind, overlap } of [
     const speech = await oneHandoff(home, overlap);
     app = await launchPackaged(home, dataDir, { speech });
     const window = await app.firstWindow();
-    const start = await recordMeeting(window);
-    await start.getByTestId("meeting-start-audio").selectOption("me");
-    const bar = await startRecording(window, start, { notice: true });
-    await bar.getByTestId("meeting-views").locator("label").nth(1).click();
-    const beside = window.getByTestId("meeting-transcript-beside");
+    const sheet = await recordMicrophone(window);
+    const beside = sheet.getByTestId("meeting-sheet-beside");
     await expect(beside).toBeEnabled({ timeout: HANDOFF_WAIT_MS });
-    await beside.click();
+    await pointAndClick(window, beside);
+    await expect(sheet).toBeHidden();
 
     const lines = window.getByTestId("transcript-line");
     const shared = lines.filter({ hasText: /created equal.*thank you/i });
     await expect(shared.first()).toBeVisible({ timeout: HANDOFF_WAIT_MS });
     const wordsBefore = (await shared.first().innerText()).trim();
-    await bar.getByTestId("meeting-stop").click();
+    await stopMeeting(window);
     await savedWithSpeakers(window);
     const first = lines.filter({ hasText: /created equal/i }).first();
     const second = lines.filter({ hasText: /Thursday morning/i }).first();
@@ -227,19 +267,9 @@ test("the packaged app keeps the short first word of each Chinese line", async (
   app = await launchPackaged(home, dataDir, { speech: `${shortFirstWords}%noloop` });
   const window = await app.firstWindow();
 
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-audio").selectOption("me");
-  const bar = await startRecording(window, start, { notice: true });
-  await bar.getByTestId("meeting-views").locator("label").nth(1).click();
-  const beside = window.getByTestId("meeting-transcript-beside");
-  const stopped = window
-    .getByTestId("meeting-transcript-line")
-    .filter({ hasText: /Transcription stopped|couldn’t/ });
-  await expect(beside.and(window.locator(":enabled")).or(stopped)).toBeVisible({
-    timeout: 20 * 60_000,
-  });
-  await expect(stopped).toHaveCount(0);
-  await beside.click();
+  const sheet = await recordMicrophone(window);
+  await pointAndClick(window, await besideOnceTranscribing(window, sheet));
+  await expect(sheet).toBeHidden();
 
   const meetingId = await window.evaluate(async () => {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
@@ -257,7 +287,7 @@ test("the packaged app keeps the short first word of each Chinese line", async (
       { timeout: 2 * 60_000 },
     )
     .toBeGreaterThanOrEqual(durationMs);
-  await bar.getByTestId("meeting-stop").click();
+  await stopMeeting(window);
   await savedWithSpeakers(window);
 
   // A breath can put the first word in its own cue in the same speaker's paragraph (#2305).

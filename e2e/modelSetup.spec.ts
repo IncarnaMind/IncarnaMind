@@ -33,7 +33,6 @@ import {
   useLocalChatModel as setLocalChatModel,
   setWindowSize,
   showSettingsPage,
-  startRecording,
   urlsOpened,
 } from "./app";
 
@@ -1318,8 +1317,8 @@ test("call help with no model offers the key field where the help was asked, and
     await setWindowSize(app, window, 1440, 900);
     await acceptPlainTextKeys(window);
     await setLanguage(window, "en");
-    const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-    await expect(bar).toBeVisible();
+    const control = await recordMeeting(window);
+    await expect(control).toBeVisible();
     await firstTranscriptLine(window);
     await window.getByTestId("mind-editor").click();
     const needs = window.getByTestId("meeting-needs-model");

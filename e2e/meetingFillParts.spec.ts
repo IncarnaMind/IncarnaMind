@@ -6,12 +6,11 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
-  pointAndClick,
   recordMeeting,
   removeDataFolder,
   useLocalChatModel as selectLocalChatModel,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 
 /** Set INCARNAMIND_SCREENSHOTS to keep a still of the line there. */
@@ -85,11 +84,11 @@ test("a long call's line says which part the note is on", async () => {
         }
       }).observe(document.body, { childList: true, subtree: true, characterData: true });
     }, PART.source);
-    const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await expect
       .poll(async () => (await meetingOf(window))?.transcript?.lines ?? 0, { timeout: 90_000 })
       .toBeGreaterThanOrEqual(LINES_FOR_TWO_PARTS);
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(window);
     await expect
       .poll(async () => (await meetingOf(window))?.fill?.state, { timeout: 60_000 })
       .toBe("filled");

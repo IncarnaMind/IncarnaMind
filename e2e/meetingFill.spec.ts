@@ -10,7 +10,6 @@ import { INTERVIEW } from "../src/main/fakeChat/meetingInterview";
 import { translate } from "../src/shared/i18n";
 import {
   addDocuments,
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   firstTranscriptLine,
@@ -22,7 +21,7 @@ import {
   removeDataFolder,
   useLocalChatModel as selectLocalChatModel,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 import { encode, film } from "./feel";
 
@@ -79,10 +78,9 @@ const LINES = {
     omittedOne: "1 item couldn’t be added",
     omittedTwo: "2 items couldn’t be added",
     transcript: "View Transcript",
-    viewNotes: "Notes",
     viewTranscript: "Transcript",
-    viewLabel: "Meeting views",
-    recordedChip: /^Recorded \d+:\d{2}(?::\d{2})?$/,
+    showTranscript: /^Show the Transcript \(.+\)$/,
+    hideTranscript: /^Hide the Transcript \(.+\)$/,
     retry: "Try again",
     speech: ["We confirmed the launch date", "We discussed the release checklist"],
     notes: ["Launch date", "UK fee"],
@@ -100,10 +98,9 @@ const LINES = {
     omittedOne: "1 项内容未能添加",
     omittedTwo: "2 项内容未能添加",
     transcript: "查看转写稿",
-    viewNotes: "笔记",
     viewTranscript: "转写稿",
-    viewLabel: "会议视图",
-    recordedChip: /^已录制 \d+:\d{2}(?::\d{2})?$/,
+    showTranscript: /^显示转写稿（.+）$/,
+    hideTranscript: /^隐藏转写稿（.+）$/,
     retry: "重试",
     speech: ["我们确认了上线日期", "我们讨论了后续分工"],
     notes: ["上线日期", "英国费用"],
@@ -185,7 +182,8 @@ async function expectFillPlace(notes: Locator, addedBlockIds: readonly string[])
       return {
         noneditable: slot.getAttribute("contenteditable") === "false",
         notAContentBlock: !slot.hasAttribute("data-id"),
-        outsideBar: line.closest('[data-testid="meeting-bar"]') === null,
+        outsideMeeting:
+          line.closest('[data-testid="meeting-foot"], [data-testid="meeting-sheet"]') === null,
         withinEditor: slot.parentElement === editor,
         survivingAnchor: first?.getAttribute("data-id") ?? null,
         adjacent: first ? slot.nextElementSibling === first : slot.nextElementSibling === null,
@@ -199,7 +197,7 @@ async function expectFillPlace(notes: Locator, addedBlockIds: readonly string[])
   expect(place).toEqual({
     noneditable: true,
     notAContentBlock: true,
-    outsideBar: true,
+    outsideMeeting: true,
     withinEditor: true,
     survivingAnchor: addedBlockIds.length > 0 ? expect.any(String) : null,
     adjacent: true,
@@ -207,40 +205,37 @@ async function expectFillPlace(notes: Locator, addedBlockIds: readonly string[])
   });
 }
 
-async function chooseMeetingView(
+/** By keyboard, the stopped call's Transcript button raises the sheet over the Note (#3762). */
+async function raiseSheetByKeyboard(
+  panel: Locator,
+  words: (typeof LINES)[keyof typeof LINES],
+): Promise<void> {
+  const control = panel.getByTestId("meeting-foot-transcript");
+  await expect(control).toBeInViewport({ ratio: 1 });
+  await expect(control).toHaveText(words.viewTranscript);
+  await expect(control).toHaveAttribute("aria-expanded", "false");
+  await expect(control).toHaveAccessibleName(words.showTranscript);
+  await control.focus();
+  // Its name opens at once on keyboard focus.
+  await expect(control.page().getByRole("tooltip")).toHaveText(words.showTranscript);
+  await control.press("Enter");
+  await expect(panel.getByTestId("meeting-sheet")).toBeVisible();
+  await expect(control).toHaveAttribute("aria-expanded", "true");
+  await expect(control).toHaveAccessibleName(words.hideTranscript);
+}
+
+/** Esc folds the sheet back to the notes and gives the focus back to the Transcript button. */
+async function foldSheetByEscape(
   window: Page,
   panel: Locator,
   words: (typeof LINES)[keyof typeof LINES],
-  view: "notes" | "transcript",
 ): Promise<void> {
-  const chip = panel.getByTestId("meeting-view-chip");
-  await expect(chip).toBeInViewport({ ratio: 1 });
-  await chip.focus();
-  await chip.press("Enter");
-  await expect(window.getByTestId("meeting-view-menu")).toHaveAttribute(
-    "aria-label",
-    words.viewLabel,
-  );
-  const notes = window.getByTestId("meeting-view-notes");
-  const transcript = window.getByTestId("meeting-view-transcript");
-  await expect(notes).toHaveText(words.viewNotes);
-  await expect(transcript).toHaveText(words.viewTranscript);
-  await expect(notes).toHaveAttribute("role", "menuitemradio");
-  await expect(transcript).toHaveAttribute("role", "menuitemradio");
-  await expect(view === "notes" ? transcript : notes).toHaveAttribute("aria-checked", "true");
-  await window.keyboard.press("Home");
-  await expect(notes).toBeFocused();
-  // My notes sits between them.
-  if (view === "transcript") {
-    await window.keyboard.press("ArrowDown");
-    await window.keyboard.press("ArrowDown");
-  }
-  const choice = view === "notes" ? notes : transcript;
-  await expect(choice).toBeFocused();
-  await choice.press("Enter");
-  await expect(choice).toBeHidden();
-  await expect(choice).toHaveAttribute("aria-checked", "true");
-  await expect(chip).toHaveText(view === "notes" ? words.recordedChip : words.viewTranscript);
+  const control = panel.getByTestId("meeting-foot-transcript");
+  await window.keyboard.press("Escape");
+  await expect(panel.getByTestId("meeting-sheet")).toHaveCount(0);
+  await expect(control).toBeFocused();
+  await expect(control).toHaveAttribute("aria-expanded", "false");
+  await expect(control).toHaveText(words.viewTranscript);
 }
 
 async function ownTranscriptRoundTrip(
@@ -281,18 +276,28 @@ async function ownTranscriptRoundTrip(
     for (const status of [words.filled, words.partial, words.notFilled]) {
       expect(serialized).not.toContain(status);
     }
-    await expect(panel.getByTestId("meeting-view-chip")).toHaveText(words.recordedChip);
+    const control = panel.getByTestId("meeting-foot-transcript");
+    await expect(control).toHaveText(words.viewTranscript);
+    await expect(control).toHaveAttribute("aria-expanded", "false");
     await open(panel);
-    const transcript = panel.getByTestId("meeting-note-transcript");
+    const transcript = panel.getByTestId("meeting-sheet");
     await expect(transcript).toHaveAttribute("data-document-id", meeting.transcript.documentId);
     const viewer = transcript.getByTestId("viewer-transcript");
     await expect(viewer).toBeVisible();
-    await expect(panel.getByTestId("meeting-view-chip")).toContainText(words.viewTranscript);
+    await expect(control).toHaveAttribute("aria-expanded", "true");
     const cue = viewer.getByTestId("transcript-line").first();
     await expect(cue).toBeVisible();
     await expect(cue).toHaveAttribute("data-start", /^\d+$/);
     expect(speech).toContain((await cue.innerText()).trim());
-    await expect(notes).toBeHidden();
+    // The sheet lies over the notes, which stay where they were under it.
+    expect(
+      await transcript.evaluate((sheet) => {
+        const box = sheet.getBoundingClientRect();
+        return sheet.contains(
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+        );
+      }),
+    ).toBe(true);
     expect(await retained.evaluate(({ element }) => element.isConnected)).toBe(true);
     await expect(noteTab).toHaveAttribute("aria-selected", "true");
     await expect(noteTab).toHaveAttribute("data-tab-id", tabId);
@@ -304,7 +309,7 @@ async function ownTranscriptRoundTrip(
       ),
     ).toHaveCount(0);
     await shot(window, `${name}-transcript`);
-    await chooseMeetingView(window, panel, words, "notes");
+    await foldSheetByEscape(window, panel, words);
     await expect(notes).toBeVisible();
     await expect(transcript).toBeHidden();
     expect(
@@ -328,16 +333,8 @@ async function ownTranscriptRoundTrip(
     await expect(noteTab).toHaveAttribute("aria-selected", "true");
     expect(await tabIds()).toEqual(originalTabs);
     await expect(documentBlocks(notes)).toHaveText(originalBlocks);
-    const chip = panel.getByTestId("meeting-view-chip");
-    await expect(chip).toBeInViewport({ ratio: 1 });
-    await chip.focus();
-    await chip.press("Enter");
-    await expect(window.getByTestId("meeting-view-notes")).toBeVisible();
-    await expect(window.getByTestId("meeting-view-notes")).toHaveAttribute("aria-checked", "true");
-    await window.keyboard.press("Escape");
-    await expect(window.getByTestId("meeting-view-notes")).toBeHidden();
-    await expect(chip).toBeFocused();
-    await expect(chip).toHaveText(words.recordedChip);
+    await expect(control).toBeInViewport({ ratio: 1 });
+    await expect(control).toHaveAccessibleName(words.showTranscript);
     await shot(window, `${name}-notes-restored`);
   } finally {
     await retained.dispose();
@@ -354,7 +351,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await selectLocalChatModel(window);
 
-    const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await firstTranscriptLine(window);
     const notes = window.getByTestId("mind-editor");
     await pointAndClick(window, notes);
@@ -375,10 +372,12 @@ for (const language of ["en", "zh-CN"] as const) {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.updateSettings({ user: { language: chosen } });
     }, language);
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(window);
     const line = window.getByTestId("meeting-fill-line");
     await expect(line).toContainText(words.filled, { timeout: 30_000 });
-    await closeFirstFillPopover(window);
+    // The first fill on a computer opens nothing by itself: the Transcript stays folded (#3762).
+    await expect(window.getByTestId("meeting-sheet")).toHaveCount(0);
+    await expect(window.locator('[role="menu"]:visible')).toHaveCount(0);
     await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo);
     const meeting = await recordedMeeting(window);
     expect(meeting.fill).toMatchObject({ state: "filled", omitted: 0, unfinishedParts: 0 });
@@ -427,7 +426,7 @@ for (const language of ["en", "zh-CN"] as const) {
       meeting,
       words,
       [...FAKE_LINES, ...FAKE_THEIR_LINES],
-      (panel) => chooseMeetingView(window, panel, words, "transcript"),
+      (panel) => raiseSheetByKeyboard(panel, words),
       `meeting-fill-sections-${language}`,
     );
     await expectFillPlace(notes, addedBlockIds);
@@ -463,7 +462,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await recordOnClose(app, window, `meeting-fill-${outcome}-${language}`);
         await dismissChatSetup(window);
         await selectLocalChatModel(window);
-        const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+        await recordMeeting(window);
         await firstTranscriptLine(window);
         const notes = window.getByTestId("mind-editor");
         await pointAndClick(window, notes);
@@ -481,7 +480,7 @@ for (const language of ["en", "zh-CN"] as const) {
           const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
           await core.updateSettings({ user: { language: chosen } });
         }, language);
-        await pointAndClick(window, bar.getByTestId("meeting-stop"));
+        await stopMeeting(window);
         const line = window.getByTestId("meeting-fill-line");
         await expect(line).toContainText(outcome === "partial" ? words.partial : words.notFilled, {
           timeout: 30_000,
@@ -489,7 +488,7 @@ for (const language of ["en", "zh-CN"] as const) {
         // Not filled, the reason already says no item could be checked: the count is left off.
         if (outcome === "partial") await expect(line).toContainText(words.omittedOne);
         else await expect(line).not.toContainText(words.omittedTwo);
-        if (outcome === "partial") await closeFirstFillPopover(window);
+        await expect(window.locator('[role="menu"]:visible')).toHaveCount(0);
         await expect(line).not.toContainText(words.filled);
         await expect(line).toHaveAttribute("role", outcome === "partial" ? "status" : "alert");
         const transcript = line.getByTestId("meeting-fill-transcript");
@@ -664,7 +663,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await selectLocalChatModel(window);
       await writeFile(join(sources, "Course.md"), `${call.answers[4]?.written ?? ""}\n`);
       await addDocuments(window, [join(sources, "Course.md")]);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       // Every answer is heard before Stop: the other side's stream says them in turn.
       await expect
         .poll(
@@ -681,10 +680,9 @@ for (const language of ["en", "zh-CN"] as const) {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.updateSettings({ user: { language: chosen } });
       }, language);
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       const line = window.getByTestId("meeting-fill-line");
       await expect(line).toContainText(words.filled, { timeout: 30_000 });
-      await closeFirstFillPopover(window);
       const notes = window.getByTestId("mind-editor");
       const topics = [...new Set(call.answers.map((answer) => answer.heading))];
       await expect(notes.locator("h2")).toHaveText([words.summary, ...topics]);
@@ -763,7 +761,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.saveChatProvider({ kind: "ollama", baseUrl, modelId: "test-model" });
       }, model.url);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       await firstTranscriptLine(window);
       const notes = window.getByTestId("mind-editor");
       await pointAndClick(window, notes);
@@ -777,7 +775,7 @@ for (const language of ["en", "zh-CN"] as const) {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await core.updateSettings({ user: { language: chosen } });
       }, language);
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       const line = window.getByTestId("meeting-fill-line");
       const fix = line.getByTestId("meeting-fill-fix");
       const again = line.getByTestId("meeting-fill-again");

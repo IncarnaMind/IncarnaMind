@@ -1,10 +1,10 @@
 /**
  * Records one take of the README film's meeting part (#1812): a call recorded and transcribed on
  * this computer, and its notes prepared by the User's own agent, with no AI model set up in the
- * app. The User records a meeting beside their notes for the call, watches the transcript come,
- * stops, and presses "Prepare notes with Claude Code" on the line the note shows. Claude Code
- * gets the one line the app wrote for it, reads the request and the transcript, and proposes the
- * notes, each point quoting the call; the User accepts them and opens a quote.
+ * app. The User records a meeting beside their notes for the call, watches the transcript come in
+ * its sheet, stops, and presses Write notes above the meeting's control. Claude Code gets the one
+ * line the app wrote for it, reads the request and the transcript, and proposes the notes, each
+ * point quoting the call; the User accepts them and opens a quote.
  *
  * The call is a test recording in synthetic voices (`call.ts`), heard by the app's own speech
  * models: no real person's voice is used. The frames, the stream and the marks are kept as
@@ -136,9 +136,9 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
     const { folderId, launch } = await window.evaluate(
       async ({ name, paths, prep, keys }) => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        // As a User who has recorded before has it: the notice read, transcription on this
-        // computer. The call help is the built-in assistant's and holds system-wide shortcuts
-        // while a Meeting records: off, so the recording takes no key from this computer.
+        // As a User who has recorded before has it: a recording made on this device, transcription
+        // on this computer. The call help is the built-in assistant's and holds system-wide
+        // shortcuts while a Meeting records: off, so the recording takes no key from this computer.
         await core.updateSettings({
           device: {
             meetingNoticeAccepted: true,
@@ -236,10 +236,10 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
     await shot("02-menu");
     await click(record, "record");
     mark("record");
-    const bar = window.getByTestId("meeting-bar");
-    await expect(bar).toHaveAttribute("data-status", "recording", { timeout: 60_000 });
+    const control = window.getByTestId("meeting-foot");
+    await expect(control).toHaveAttribute("data-status", "recording", { timeout: 60_000 });
     mark("recording");
-    await boxOf(bar, "bar");
+    await boxOf(control, "control");
     await sleep(900);
     await shot("03-recording");
 
@@ -254,12 +254,13 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
     })();
     await sleep(2500);
     mark("to-transcript");
-    await click(bar.getByTestId("meeting-view-transcript").locator(".."), "view-transcript");
-    await expect(window.getByTestId("meeting-note-transcript")).toBeVisible();
+    await click(control.getByTestId("meeting-foot-transcript"), "view-transcript");
+    const sheet = window.getByTestId("meeting-sheet");
+    await expect(sheet).toBeVisible();
     mark("transcript");
     await leave();
     await talk;
-    const lines = window.getByTestId("transcript-line");
+    const lines = sheet.getByTestId("transcript-line");
     await expect
       .poll(() => lines.count(), { timeout: 120_000 })
       .toBeGreaterThan(0)
@@ -272,17 +273,17 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
       return;
     }
 
-    // Back to the notes, where the note says what comes after the call, and Stop.
+    // Back to the notes, and Stop: Write notes comes above the control.
     mark("to-notes");
-    await click(bar.getByTestId("meeting-view-notes").locator(".."), "view-notes");
-    await expect(editor).toBeVisible();
+    await click(sheet.getByTestId("meeting-sheet-hide"), "view-notes");
+    await expect(sheet).toBeHidden();
     mark("notes");
     await sleep(900);
     mark("to-stop");
-    await click(bar.getByTestId("meeting-stop"), "stop");
+    await click(control.getByTestId("meeting-foot-stop"), "stop");
     mark("stop");
     await leave();
-    const ready = window.getByTestId("meeting-agent-notes");
+    const ready = window.getByTestId("meeting-write-notes");
     const offered = await ready
       .waitFor({ timeout: 300_000 })
       .then(() => true)
@@ -306,7 +307,7 @@ test(`records a take of the film's meeting part in ${language}`, async () => {
     await sleep(1800);
 
     mark("ask");
-    await click(ready.getByRole("button"), "ask");
+    await click(ready, "ask");
     mark("asked");
     await expect
       .poll(async () => (await urlsOpened(app)).some((url) => url.startsWith("claude-cli://")))

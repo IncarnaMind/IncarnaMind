@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { readVtt, writeVtt } from "../src/core/documents/formats/vtt";
+import { translate } from "../src/shared/i18n";
 import { meetingSummaryModelRoute } from "../src/shared/meetingSummary";
 import { meetingWords } from "../tests/fixtures/meetingSummaryWords";
 import {
@@ -15,6 +16,7 @@ import {
   focusSettled,
   launchApp,
   motionSettled,
+  openMeetingSheet,
   openSettings,
   pointAndClick,
   recordMeeting,
@@ -24,7 +26,7 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
-  startRecording,
+  stopMeeting,
   transcriptSaved,
   turnOf,
 } from "./app";
@@ -144,17 +146,25 @@ async function settleFirstFill(window: Page) {
       { timeout: 30_000 },
     )
     .toBe(true);
-  await motionSettled(window);
-  const menu = window.getByTestId("meeting-view-menu");
-  if (await menu.isVisible()) await window.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+  // The first fill opens nothing by itself (#3762).
+  await expect(window.locator('[role="menu"]:visible')).toHaveCount(0);
   await motionSettled(window);
 }
 
-async function showMeetingView(window: Page, pane: Page | Locator, view: "notes" | "mine") {
-  const menu = pane.getByTestId("meeting-view-menu");
-  if (!(await menu.isVisible())) await pointAndClick(window, pane.getByTestId("meeting-view-chip"));
-  await pointAndClick(window, menu.getByTestId(`meeting-view-${view}`));
+/** The Transcript sheet folded by its Hide, back to the Note's notes, where the summary is. */
+async function foldSheet(window: Page, sheet: Locator) {
+  await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+  await expect(sheet).toHaveCount(0);
+}
+
+/** ⌘K's Show my notes, or Show notes from there, in the focused tab (#3762). */
+async function showMeetingView(window: Page, language: "en" | "zh-CN", view: "notes" | "mine") {
+  await runCommand(
+    window,
+    view === "mine" ? "meeting.showMyNotes" : "meeting.showNotes",
+    translate(language, view === "mine" ? "meetings.views.showMine" : "meetings.views.showNotes"),
+  );
+  await expect(window.getByTestId("palette")).toBeHidden();
 }
 
 // protects=the exact opt-in route and a separate Summary in the stopped meeting's existing views
@@ -248,7 +258,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await closeSettings(window);
       await setLanguage(window, language);
 
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       const editor = window.getByTestId("mind-editor");
       const myText =
         language === "en" ? "A note I typed during the meeting." : "我在开会时写的笔记。";
@@ -258,9 +268,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(editor).toContainText(myText);
       await firstTranscriptLine(window);
       await expect(window.getByTestId("meeting-summary")).toHaveCount(0);
-      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-      const transcript = window.getByTestId("meeting-note-transcript");
-      await expect(transcript).toBeVisible();
+      const transcript = await openMeetingSheet(window);
       await expect
         .poll(() =>
           bridge.evaluate(async (core) => (await core.listMeetings())[0]?.summary?.items?.length),
@@ -274,9 +282,18 @@ for (const language of ["en", "zh-CN"] as const) {
           animations: "disabled",
           path: join(screenshots, `meeting-summary-before-stop-${language}.png`),
         });
-      await pointAndClick(window, transcript.getByTestId("meeting-stop"));
+      await stopMeeting(window);
+      // The saved Transcript stays in the sheet; the summary is the Note's own, under it (#3762).
+      const transcriptLines = transcript.getByTestId("viewer-transcript");
+      await expect(transcriptLines).toBeVisible();
+      await expect(transcriptLines).toContainText(/\S/);
+      await expect(transcript.getByTestId("meeting-summary")).toHaveCount(0);
+      if (screenshots && language === "zh-CN")
+        await pointAndClick(window, window.getByTestId("assistant-fold"));
+      await afterShot("transcript");
+      await foldSheet(window, transcript);
 
-      const summary = transcript.getByTestId("meeting-summary");
+      const summary = window.getByTestId("meeting-summary");
 
       await expect(summary).toBeVisible();
       const items = summary.getByTestId("meeting-summary-items");
@@ -302,12 +319,6 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await expect(summary.getByTestId("meeting-summary-text")).toHaveText(words.overview);
       await expectSummaryItems(items, words);
-      const transcriptLines = transcript.getByTestId("viewer-transcript");
-      await expect(transcriptLines).toBeVisible();
-      await expect(transcriptLines).toContainText(/\S/);
-      if (screenshots && language === "zh-CN")
-        await pointAndClick(window, window.getByTestId("assistant-fold"));
-      await afterShot("transcript");
 
       const [launchQuote, , invitationsQuote] = words.correction;
       const launchItem = items.getByTestId("meeting-summary-item").filter({ hasText: launchQuote });
@@ -332,14 +343,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, sourceTab.getByTestId("tab-close"));
       await expect(sourceTab).toHaveCount(0);
 
-      // The first Note fill opens a menu that takes Escape before the inline editor.
       await settleFirstFill(window);
-      await showMeetingView(window, window, "notes");
       await expect(transcript).toHaveCount(0);
       await expect(window.getByTestId("meeting-summary-text")).toHaveText(words.overview);
       const noteItems = window.getByTestId("meeting-summary-items");
-      await expect(noteItems).toHaveJSProperty("open", false);
-      await pointAndClick(window, noteItems.locator("summary"));
+      if ((await noteItems.getAttribute("open")) === null)
+        await pointAndClick(window, noteItems.locator("summary"));
       await expectSummaryItems(noteItems, words);
       await expect(editor).toContainText(myText);
       await expect(editor.getByTestId("meeting-summary-text")).toHaveCount(0);
@@ -433,11 +442,11 @@ for (const language of ["en", "zh-CN"] as const) {
         }))
         .toMatchObject({ saved: expect.stringContaining(words.addition), problem: [] });
       if (screenshots) await afterShot("overview-after");
-      await showMeetingView(window, window, "mine");
+      await showMeetingView(window, language, "mine");
       await expect(window.getByTestId("meeting-summary")).toHaveCount(0);
       await expect(editor).toContainText(myText);
       if (language === "en") {
-        await showMeetingView(window, window, "notes");
+        await showMeetingView(window, language, "notes");
         await setWindowSize(app, window, 1600, 660);
         await runCommand(window, "tab.split", "Split to the Right");
         const panes = window.getByTestId("tab-group");
@@ -449,7 +458,7 @@ for (const language of ["en", "zh-CN"] as const) {
           words.addition,
         );
         await expect(original.getByTestId("meeting-summary")).toHaveCount(0);
-        await showMeetingView(window, copy, "mine");
+        await showMeetingView(window, language, "mine");
         await expect(copy.getByTestId("meeting-summary")).toHaveCount(0);
         await expect(original.getByTestId("meeting-summary-text").locator("strong")).toHaveText(
           words.addition,
@@ -474,7 +483,9 @@ for (const language of ["en", "zh-CN"] as const) {
       });
       await pointAndClick(reopened.window, reopened.window.getByTestId("mind-tab").first());
       const focused = reopened.window.locator('[data-testid="tab-group"][data-focused="true"]');
-      await showMeetingView(reopened.window, focused, "notes");
+      // Opened again, the Note shows its notes: no sheet is up.
+      await expect(focused.getByTestId("meeting-foot")).toHaveAttribute("data-status", "stopped");
+      await expect(focused.getByTestId("meeting-sheet")).toHaveCount(0);
       await expect(focused.getByTestId("meeting-summary-text").locator("p strong")).toHaveText(
         words.addition,
       );
@@ -547,16 +558,16 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-// protects=the first note fill offers recording details in the focused copy of a split meeting
-// fails_when=the background copy opens its popover and dismisses the focused copy's view menu
-test("the first fill opens the recorded meeting menu in the focused split pane", async () => {
+// protects=a split meeting's first note fill opens nothing by itself in either copy, and the focused copy's view changes alone (#3762)
+// fails_when=either copy raises its Transcript or a menu at the fill, or My notes in one copy changes the other
+test("the first fill in a split meeting opens nothing, and My notes shows in the focused copy only", async () => {
   const dir = await createDataFolder();
   const { app, window } = await launchApp(dir, { fakeChat: true });
   try {
     await setWindowSize(app, window, 1600, 660);
     await dismissChatSetup(window);
     await selectLocalChatModel(window);
-    await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await firstTranscriptLine(window);
     await runCommand(window, "tab.split", "Split to the Right");
     const panes = window.getByTestId("tab-group");
@@ -564,12 +575,24 @@ test("the first fill opens the recorded meeting menu in the focused split pane",
     const original = panes.nth(0);
     const copy = panes.nth(1);
     await expect(copy).toHaveAttribute("data-focused", "true");
-    await pointAndClick(window, copy.getByTestId("meeting-stop"));
-    await expect(copy.getByTestId("meeting-view-menu")).toBeVisible({ timeout: 30_000 });
-    await expect(original.getByTestId("meeting-view-menu")).toBeHidden();
-    await pointAndClick(window, copy.getByTestId("meeting-view-mine"));
-    await expect(copy.getByTestId("meeting-view-chip")).toHaveText("My notes");
-    await expect(original.getByTestId("meeting-view-chip")).toContainText("Recorded");
+    await pointAndClick(window, copy.getByTestId("meeting-foot-stop"));
+    for (const pane of [original, copy])
+      await expect(pane.getByTestId("meeting-foot")).toHaveAttribute("data-status", "stopped");
+    await settleFirstFill(window);
+    for (const pane of [original, copy]) {
+      await expect(pane.getByTestId("meeting-sheet")).toHaveCount(0);
+      await expect(pane.getByTestId("meeting-foot-transcript")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+    }
+    await expect(copy).toHaveAttribute("data-focused", "true");
+    await showMeetingView(window, "en", "mine");
+    await expect(copy.getByTestId("my-notes-empty")).toBeVisible();
+    await expect(original.getByTestId("my-notes-empty")).toHaveCount(0);
+    await expect(
+      original.getByTestId("mind-editor").locator(".generated-text").first(),
+    ).toBeVisible();
   } finally {
     await app.close();
     await removeDataFolder(dir);
@@ -578,7 +601,7 @@ test("the first fill opens the recorded meeting menu in the focused split pane",
 
 // protects=a stopped meeting with a failed summary still shows its saved Transcript
 // fails_when=a provider failure produces a blank result or hides the meeting's words
-test("a failed automatic meeting summary shows a problem beside the transcript", async () => {
+test("a failed automatic meeting summary shows a problem, and the Transcript still shows", async () => {
   const dir = await createDataFolder();
   const { app, window } = await launchApp(dir, { fakeChat: true });
   try {
@@ -590,13 +613,14 @@ test("a failed automatic meeting summary shows a problem beside the transcript",
       "fake-model-claims-not-found",
     );
     await closeSettings(window);
-    const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await firstTranscriptLine(window);
-    await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-    const transcript = window.getByTestId("meeting-note-transcript");
-    await pointAndClick(window, transcript.getByTestId("meeting-stop"));
+    const transcript = await openMeetingSheet(window);
+    await stopMeeting(window);
     await transcriptSaved(window);
-    const summary = transcript.getByTestId("meeting-summary");
+    await expect(transcript.getByTestId("viewer-transcript")).toContainText(/\S/);
+    await foldSheet(window, transcript);
+    const summary = window.getByTestId("meeting-summary");
     await expect(summary).toHaveAttribute("data-state", "failed", { timeout: 45_000 });
     await expect(summary.getByRole("alert")).toContainText("Couldn’t prepare a summary.");
     const retry = summary.getByTestId("meeting-summary-retry");
@@ -605,6 +629,7 @@ test("a failed automatic meeting summary shows a problem beside the transcript",
     await window.keyboard.press("Enter");
     await expect(retry).toBeEnabled();
     await expect(summary.getByTestId("meeting-summary-text")).toHaveCount(0);
+    await openMeetingSheet(window);
     await expect(transcript.getByTestId("viewer-transcript")).toContainText(/\S/);
   } finally {
     await app.close();
@@ -646,14 +671,14 @@ for (const [language, request, reply] of [
       await chooseSummaryModel(window, settings.getByTestId("meeting-summary-route"));
       await closeSettings(window);
       await setLanguage(window, language);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       await firstTranscriptLine(window);
-      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-      const transcript = window.getByTestId("meeting-note-transcript");
+      const transcript = await openMeetingSheet(window);
       await expect(transcript.getByTestId("viewer-transcript")).toContainText(reply);
-      await pointAndClick(window, transcript.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       await transcriptSaved(window);
-      const summary = transcript.getByTestId("meeting-summary");
+      await foldSheet(window, transcript);
+      const summary = window.getByTestId("meeting-summary");
       await expect(summary).toHaveAttribute("data-state", "ready", { timeout: 45_000 });
       const candidates = summary.getByTestId("meeting-summary-candidates");
       const disclosure = candidates.locator("button[aria-expanded]");
@@ -784,15 +809,14 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, width, 720);
       await dismissChatSetup(window);
       await setLanguage(window, language);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       await firstTranscriptLine(window);
-      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-      const inline = window.getByTestId("meeting-note-transcript");
+      const inline = await openMeetingSheet(window);
       const cue = (scope: Locator, text: string) =>
         scope.getByTestId("transcript-line").filter({ hasText: text }).first();
       await expect(cue(inline, secondQuote)).toBeVisible();
       await expect(inline.getByTestId("transcript-line-actions")).toHaveCount(0);
-      await pointAndClick(window, inline.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       await transcriptSaved(window);
       await settleFirstFill(window);
       const first = cue(inline, firstQuote);
@@ -839,7 +863,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(menu).toBeHidden();
       await expect(first).toBeFocused();
       await expect(window.getByTestId("undo-message")).toHaveText(words.added);
-      const summary = inline.getByTestId("meeting-summary");
+      // The action is the Note's summary's, under the sheet.
+      await foldSheet(window, inline);
+      const summary = window.getByTestId("meeting-summary");
       await expect(summary).not.toContainText(words.empty);
       await expect(summary.getByTestId("meeting-summary-text")).toHaveCount(0);
       const items = summary.getByTestId("meeting-summary-items");
@@ -990,11 +1016,10 @@ for (const language of ["en", "zh-CN"] as const) {
       const { window } = app;
       await dismissChatSetup(window);
       await setLanguage(window, language);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       await firstTranscriptLine(window);
-      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-      const inline = window.getByTestId("meeting-note-transcript");
-      await pointAndClick(window, inline.getByTestId("meeting-stop"));
+      const inline = await openMeetingSheet(window);
+      await stopMeeting(window);
       await transcriptSaved(window);
       await settleFirstFill(window);
       const bridge = await coreOf(window);
@@ -1064,7 +1089,8 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await read()).toMatchObject(
         [first, second].map((text) => ({ text, sources: [{ ...bounds, text }] })),
       );
-      const items = inline.getByTestId("meeting-summary-items");
+      await foldSheet(window, inline);
+      const items = window.getByTestId("meeting-summary-items");
       if ((await items.getAttribute("open")) === null)
         await pointAndClick(window, items.locator("summary"));
       const item = items.getByTestId("meeting-summary-item").filter({ hasText: second });

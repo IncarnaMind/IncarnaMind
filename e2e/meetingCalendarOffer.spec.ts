@@ -196,7 +196,7 @@ for (const language of ["en", "zh-CN"] as const) {
       } else {
         await pointAndClick(window, card.getByTestId("calendar-offer-take"));
       }
-      await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+      await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
       await expect(window.locator('[data-testid="mind-tab"][aria-selected="true"]')).toContainText(
         target.title,
       );
@@ -286,7 +286,7 @@ test("Take notes from a calendar notification keeps recording if the browser can
       await shownNotification(app, labels.en.reminder(target.title)),
     );
 
-    await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
     await expect(window.getByTestId("error-notice-message")).toContainText(
       "Recording, but the meeting link didn’t open: open it from your calendar.",
     );

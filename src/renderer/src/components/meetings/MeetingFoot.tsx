@@ -42,12 +42,10 @@ import { CallHelpToggle, MeetingLines } from "../MeetingBar";
 import { MeetingAudioLine } from "../MeetingInMind";
 import { ProblemLine } from "../ProblemLine";
 import { SharedScreenLine } from "../SharedScreenLine";
-import { TipPopover } from "../TipPopover";
 import { TranscriptLines } from "../TranscriptLines";
 import { useTabPlace } from "../tabs/tabItems";
 import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
-import { useTip } from "../useTip";
 import { LevelBars, levelName } from "./LevelBars";
 import { applyMeetingWriteupTemplate, MeetingTemplateRows } from "./MeetingTemplatePicker";
 
@@ -201,9 +199,12 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             <div className="meeting-foot-card">
               <CallEndingLine meeting={meeting} />
             </div>
-            <div className="meeting-foot-card">
-              <TranscriptLines meeting={meeting} over />
-            </div>
+            {/* After Stop the page says a Transcript's problem itself (MeetingInMind). */}
+            {live && (
+              <div className="meeting-foot-card">
+                <TranscriptLines meeting={meeting} over />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -285,7 +286,11 @@ function SlotLevel({ tip, children }: { tip: string; children: ReactNode }) {
   );
 }
 
-/** One of the control's icon slots: its name is its tooltip and its accessible name. */
+/**
+ * One of the control's icon slots: its name is its title and its accessible name. A title, as the
+ * sheet's own buttons have: a tip that stayed open after the press covered the buttons over the
+ * control and took the Esc that folds the sheet.
+ */
 function SlotButton({
   testId,
   tip,
@@ -299,39 +304,31 @@ function SlotButton({
   tip: string;
   expanded?: boolean;
   wide?: boolean;
-  /** Each time it grows past 0, the button takes the focus. */
+  /** Each time it grows while the button is shown, the button takes the focus. */
   focusOn?: number;
   onClick(): void;
   children: ReactNode;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
-  const opened = useTip(trigger);
+  const seen = useRef(focusOn);
   useEffect(() => {
-    if (focusOn > 0) trigger.current?.focus();
+    if (focusOn <= seen.current) return;
+    seen.current = focusOn;
+    trigger.current?.focus();
   }, [focusOn]);
   return (
-    <>
-      <button
-        ref={trigger}
-        type="button"
-        data-testid={testId}
-        aria-label={tip}
-        aria-expanded={expanded}
-        onClick={onClick}
-        onFocus={opened.show}
-        onBlur={opened.blur}
-        onPointerMove={opened.point}
-        onPointerLeave={opened.leave}
-        className={`meeting-foot-slot ${wide ? "meeting-foot-slot--wide" : ""}`}
-      >
-        {children}
-      </button>
-      {opened.shown && trigger.current && (
-        <TipPopover anchor={trigger.current} tip={opened}>
-          {tip}
-        </TipPopover>
-      )}
-    </>
+    <button
+      ref={trigger}
+      type="button"
+      data-testid={testId}
+      aria-label={tip}
+      aria-expanded={expanded}
+      title={tip}
+      onClick={onClick}
+      className={`meeting-foot-slot ${wide ? "meeting-foot-slot--wide" : ""}`}
+    >
+      {children}
+    </button>
   );
 }
 

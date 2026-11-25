@@ -4,7 +4,7 @@
  * and the fake transcriber speaking a harbour meeting, asks the stand-in for the User's Claude Code,
  * stops, has it write the notes and check them. Build the test app first, then:
  *
- *   STILLS_OUT=<folder> STILLS_LANG=en STILLS_VARIANT=today npx playwright test \
+ *   STILLS_OUT=<folder> STILLS_LANG=en npx playwright test \
  *     -c e2e/audit/playwright.audit.config.ts meetingStills
  */
 import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
@@ -21,13 +21,10 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
-  transcribeHere,
 } from "../app";
 
 const OUT = process.env.STILLS_OUT ?? "";
 const LANG = (process.env.STILLS_LANG ?? "en") as "en" | "zh-CN";
-const VARIANT = (process.env.STILLS_VARIANT ?? "today") as "today" | "proposed";
-const proposed = VARIANT === "proposed";
 const HEIGHT = 900;
 
 const WORDS = {
@@ -277,25 +274,20 @@ async function measure(window: Page, regions: readonly string[]) {
 }
 
 const REGIONS = [
-  "meeting-notice",
-  "meeting-bar",
   "meeting-foot",
+  "meeting-foot-tip",
   "meeting-sheet",
-  "meeting-note-transcript",
   "note-ask-box",
   "note-ask-panel",
   "note-column",
   "citation-card",
-  "meeting-agent-notes",
   "meeting-write-notes",
-  "meeting-view-chip",
-  "meeting-view-menu",
   "check-card",
   "plus-menu-items",
   "mind-pane",
 ] as const;
 
-test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
+test(`meeting stills, ${LANG}`, async () => {
   test.setTimeout(30 * 60_000);
   if (!OUT) throw new Error("Set STILLS_OUT.");
   await mkdir(OUT, { recursive: true });
@@ -372,7 +364,7 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
       return { folder: folder.id, agent: pairing.id };
     }, WORDS.folder);
 
-    // a. The way in: the + menu's Record a meeting, then the step before the first recording.
+    // a. The way in: the + menu's Record a meeting, which records at once, the first time too.
     const plus = window.getByTestId("plus-menu");
     await step("way in", async () => {
       await still("a1-way-in", [1440, 900], async () => {
@@ -383,31 +375,9 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
     });
     await plus.click();
     await window.getByTestId("plus-record-meeting").click();
-    const notice = window.getByTestId("meeting-notice");
-    const start = window.getByTestId("meeting-start");
-    await expect(start.or(notice).or(window.getByTestId("meeting-bar")).first()).toBeVisible({
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording", {
       timeout: 10_000,
     });
-    if (await start.isVisible()) {
-      await step("start block", async () => {
-        await still("a2-start-block");
-      });
-      await start.getByTestId("meeting-start-record").click();
-    }
-    await step("before you record", async () => {
-      await expect(notice).toBeVisible({ timeout: 10_000 });
-      await still("a3-before-record");
-    });
-    if (await notice.isVisible()) {
-      for (const row of ["meeting-card-mine", "meeting-card-theirs"]) {
-        const allow = notice.getByTestId(row);
-        if (await allow.isVisible()) await allow.click();
-      }
-      if (proposed) await still("a4-card-allowed", [1440]);
-      await transcribeHere(notice);
-      await notice.getByTestId("meeting-notice-start").click();
-      await expect(notice).toBeHidden();
-    }
     await expect
       .poll(async () => (await meetings(window)).some((each) => each.status === "recording"), {
         timeout: 30_000,
@@ -423,9 +393,10 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
       { mindId: meeting.mindId, folderId: ids.folder },
     );
 
-    // b. Recording, the Note in view: first an empty Note, then two lines the User typed.
+    // b. Recording, the Note in view: first an empty Note with the first tip, then two lines the
+    // User typed.
     await step("recording empty", async () => {
-      await still("b0-recording-empty", proposed ? [1440, 1280, 900] : [1440, 900]);
+      await still("b0-recording-empty", [1440, 1280, 900]);
     });
     const editor = window.getByTestId("mind-editor");
     const rename = (title: string) =>
@@ -461,34 +432,16 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
       )
       .toBeGreaterThanOrEqual(5);
     await step("recording", async () => {
-      await still("b1-recording", proposed ? [1440, 1280, 900] : [1440, 900]);
+      await still("b1-recording", [1440, 1280, 900]);
     });
 
     // c. The live Transcript.
     await step("transcript", async () => {
-      if (proposed) {
-        await window.getByTestId("meeting-foot-transcript").click();
-        await expect(window.getByTestId("meeting-sheet")).toBeVisible();
-      } else {
-        await window
-          .getByTestId("meeting-bar")
-          .getByTestId("meeting-view-transcript")
-          .locator("..")
-          .click();
-        await expect(window.getByTestId("meeting-note-transcript")).toBeVisible();
-      }
-      await still("c1-transcript", proposed ? [1440, 1280, 900] : [1440, 900]);
-      if (proposed) {
-        await window.getByTestId("meeting-foot-transcript").click();
-        await expect(window.getByTestId("meeting-sheet")).toBeHidden();
-      } else {
-        await window
-          .getByTestId("meeting-note-transcript")
-          .getByTestId("meeting-view-notes")
-          .locator("..")
-          .click();
-        await expect(editor).toBeVisible();
-      }
+      await window.getByTestId("meeting-foot-transcript").click();
+      await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+      await still("c1-transcript", [1440, 1280, 900]);
+      await window.getByTestId("meeting-foot-transcript").click();
+      await expect(window.getByTestId("meeting-sheet")).toBeHidden();
     });
 
     // d. Asking during the meeting: the reply on its line, then opened, with a Citation's card.
@@ -522,32 +475,25 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
         await expect(panel).toBeVisible();
       };
       await still("d2-reply", [1440, 900], openUpward);
-      if (proposed) {
-        await still("d3-citation", [1440, 900], async () => {
-          await openUpward();
-          await panel.locator(".citation-marker").first().click();
-          await expect(window.getByTestId("meeting-sheet")).toBeVisible();
-        });
-        await window.getByTestId("meeting-sheet-hide").click();
-      }
-      if (proposed) await still("d4-narrow-conversation", [900], openUpward);
+      await still("d3-citation", [1440, 900], async () => {
+        await openUpward();
+        await panel.locator(".citation-marker").first().click();
+        await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+      });
+      await window.getByTestId("meeting-sheet-hide").click();
+      await still("d4-narrow-conversation", [900], openUpward);
       if (await panel.isVisible()) await window.keyboard.press("Escape");
     });
 
-    if (proposed) {
-      await step("long title", async () => {
-        await rename(WORDS.longTitle);
-        await still("b2-long-title", [1440, 900]);
-        if (named) await rename(named);
-      });
-    }
+    await step("long title", async () => {
+      await rename(WORDS.longTitle);
+      await still("b2-long-title", [1440, 900]);
+      if (named) await rename(named);
+    });
 
     // e. After Stop.
     await step("stop", async () => {
-      const stop = proposed
-        ? window.getByTestId("meeting-foot-stop")
-        : window.getByTestId("meeting-bar").getByTestId("meeting-stop");
-      await stop.click();
+      await window.getByTestId("meeting-foot-stop").click();
       await expect
         .poll(async () => (await meetings(window)).find((each) => each.id === meeting.id)?.status, {
           timeout: 60_000,
@@ -561,37 +507,24 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
         )
         .toBe("saved");
       await window.waitForTimeout(1500);
-      if (await window.getByTestId("meeting-view-menu").isVisible())
-        await window.keyboard.press("Escape");
       await still("e1-stopped");
-      if (proposed) {
-        await window.getByTestId("meeting-foot-transcript").click();
-        await expect(window.getByTestId("meeting-sheet")).toBeVisible();
-        await still("e2-stopped-sheet");
-        const details = window.getByTestId("meeting-sheet").getByTestId("meeting-details-toggle");
-        await details.click();
-        await expect(window.getByTestId("meeting-sheet-details")).toBeVisible();
-        await still("e3-details-open", [1440]);
-        await details.click();
-        await window.getByTestId("meeting-sheet-hide").click();
-      }
+      await window.getByTestId("meeting-foot-transcript").click();
+      await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+      await still("e2-stopped-sheet");
+      const details = window.getByTestId("meeting-sheet").getByTestId("meeting-details-toggle");
+      await details.click();
+      await expect(window.getByTestId("meeting-sheet-details")).toBeVisible();
+      await still("e3-details-open", [1440]);
+      await details.click();
+      await window.getByTestId("meeting-sheet-hide").click();
     });
 
     // f. The notes the User's AI writes, then the check, then the words said for one sentence.
     await step("notes", async () => {
       await mode(LANG === "en" ? "notes" : "notes-zh");
-      if (proposed) {
-        await window.getByTestId("meeting-write-notes").click();
-        // Drawn: the name written from what was said, which no tool of the AI's can set yet.
-        await rename(WORDS.title);
-      } else {
-        const input = window.getByTestId("note-ask-input");
-        await input.click();
-        await window.keyboard.type(
-          LANG === "en" ? "Fill in my notes from the call" : "根据通话补全我的笔记",
-        );
-        await window.keyboard.press("Enter");
-      }
+      await window.getByTestId("meeting-write-notes").click();
+      // Drawn: the name written from what was said, which no tool of the AI's can set yet.
+      await rename(WORDS.title);
       await expect
         .poll(async () => (await editor.innerText()).includes(LANG === "en" ? "slipway" : "滑道"), {
           timeout: 60_000,
@@ -651,8 +584,7 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
 // The control's states that change its words or width: the time past an hour, paused, and a
 // microphone the app may not use. The clock is the page's own, fixed; the core records on.
 for (const microphone of ["allowed", "denied"] as const)
-  test(`meeting control states, microphone ${microphone}, ${VARIANT}, ${LANG}`, async () => {
-    test.skip(!proposed, "the control is the proposal's");
+  test(`meeting control states, microphone ${microphone}, ${LANG}`, async () => {
     test.setTimeout(10 * 60_000);
     await mkdir(OUT, { recursive: true });
     const dataDir = await createDataFolder();
@@ -699,7 +631,7 @@ for (const microphone of ["allowed", "denied"] as const)
       const folderId = await window.evaluate(async () => {
         const core = (globalThis as unknown as Core).incarnamind;
         await core.updateSettings({
-          device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
+          device: { transcriptionRoute: "local", meetingPanel: false },
         });
         const folder = await core.createLibraryGroup({ name: "Kestrel Bay", description: "" });
         await core.setAgentsEnabled(true);
@@ -812,8 +744,7 @@ for (const microphone of ["allowed", "denied"] as const)
 
 // The meeting with the Note's conversation in the window's column at the left (#3759): the control
 // stays at the Note's foot, the input goes with the conversation, the sheet rises over the Note.
-test(`meeting with the conversation at the left, ${VARIANT}, ${LANG}`, async () => {
-  test.skip(!proposed, "the control is the proposal's");
+test(`meeting with the conversation at the left, ${LANG}`, async () => {
   test.setTimeout(15 * 60_000);
   await mkdir(OUT, { recursive: true });
   const dataDir = await createDataFolder();
@@ -862,7 +793,7 @@ test(`meeting with the conversation at the left, ${VARIANT}, ${LANG}`, async () 
     const folderId = await window.evaluate(async () => {
       const core = (globalThis as unknown as Core).incarnamind;
       await core.updateSettings({
-        device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
+        device: { transcriptionRoute: "local", meetingPanel: false },
       });
       const folder = await core.createLibraryGroup({ name: "Kestrel Bay", description: "" });
       await core.setAgentsEnabled(true);

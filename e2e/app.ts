@@ -854,62 +854,63 @@ export async function pressHelp(panel: Page, name: string): Promise<Locator> {
   return suggestion;
 }
 
-export async function expectBarOneRow(bar: Locator): Promise<void> {
+/**
+ * The Transcript sheet's foot holds every control of the recording on one row, inside the sheet,
+ * none of its words cut (#3762): while it records, Pause my mic, Pause or Resume, Mark, Shared
+ * screen, Call help and ⋯; after Stop, Resume and Review speakers.
+ */
+export async function expectSheetFootOneRow(sheet: Locator): Promise<void> {
   await expect
     .poll(() =>
-      bar.evaluate((element) => {
-        const controls = element.querySelector<HTMLElement>('[data-testid="meeting-controls"]');
-        if (!controls) throw new Error("The bar has no controls.");
+      sheet.evaluate((element) => {
+        const foot = element.querySelector<HTMLElement>('[data-testid="meeting-sheet-foot"]');
+        if (!foot) throw new Error("The sheet has no foot.");
         const shown = (id: string) => {
-          const found = element.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+          const found = foot.querySelector<HTMLElement>(`[data-testid="${id}"]`);
           return found !== null && found.offsetParent !== null;
         };
-        const row = parseFloat(
-          getComputedStyle(document.documentElement).getPropertyValue("--meeting-bar-row"),
-        );
-        const frame = controls.getBoundingClientRect();
-        const seen = [...controls.children].filter(
-          (each): each is HTMLElement => each instanceof HTMLElement && each.offsetParent !== null,
+        const frame = foot.getBoundingClientRect();
+        const sheetBox = element.getBoundingClientRect();
+        const seen = [...foot.children].filter(
+          (each): each is HTMLElement =>
+            each instanceof HTMLElement &&
+            each.offsetParent !== null &&
+            each.getBoundingClientRect().width > 0,
         );
         const middle = (each: Element) => {
           const box = each.getBoundingClientRect();
           return box.top + box.height / 2;
         };
-        const buttons = [...element.querySelectorAll<HTMLElement>(".meeting-button")].filter(
+        const buttons = [...foot.querySelectorAll<HTMLElement>("button")].filter(
           (each) => each.offsetParent !== null,
         );
+        const live = element.hasAttribute("data-live");
         return {
-          rowHeight: Math.abs(frame.height - row) < 1,
           oneRow: seen.every(
             (each) =>
-              Math.abs(middle(each) - middle(controls)) < 2 &&
+              Math.abs(middle(each) - middle(foot)) < 2 &&
               each.getBoundingClientRect().right <= frame.right + 1,
           ),
-          kept:
-            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop", "meeting-views"].every(
-              shown,
-            ) &&
-            (shown("meeting-pause") || shown("meeting-resume")),
-          fits: element.scrollWidth <= element.clientWidth + 1,
+          kept: live
+            ? [
+                "meeting-sheet-mic",
+                "meeting-sheet-mark",
+                "meeting-sheet-screen",
+                "meeting-call-help",
+                "meeting-sheet-more",
+              ].every(shown) &&
+              (shown("meeting-sheet-pause") || shown("meeting-sheet-resume"))
+            : ["meeting-sheet-resume-meeting", "meeting-sheet-review-speakers"].every(shown),
+          fits: foot.scrollWidth <= foot.clientWidth + 1 && frame.right <= sheetBox.right + 1,
           cut: buttons.some((button) =>
             [button, ...button.querySelectorAll("span")].some(
               (each) => each.scrollWidth > each.clientWidth + 1,
             ),
           ),
-          foldedHaveMore:
-            ["meeting-mark", "meeting-call-help", "meeting-details-toggle"].every(shown) ||
-            shown("meeting-more"),
         };
       }),
     )
-    .toEqual({
-      rowHeight: true,
-      oneRow: true,
-      kept: true,
-      fits: true,
-      cut: false,
-      foldedHaveMore: true,
-    });
+    .toEqual({ oneRow: true, kept: true, fits: true, cut: false });
 }
 
 export const panelOpen = (app: ElectronApplication) =>
@@ -1590,6 +1591,24 @@ export async function openMeetingSheet(window: Page): Promise<Locator> {
   await pointAndClick(window, window.getByTestId("meeting-foot-transcript"));
   await expect(sheet).toBeVisible();
   return sheet;
+}
+
+/** Stop at the meeting's control: the control stays, saying Transcript (#3762). */
+export async function stopMeeting(window: Page): Promise<Locator> {
+  const control = window.getByTestId("meeting-foot");
+  await pointAndClick(window, control.getByTestId("meeting-foot-stop"));
+  await expect(control).toHaveAttribute("data-status", "stopped");
+  return control;
+}
+
+/** The Transcript sheet with its recording details shown: the audio's line too, once not recording. */
+export async function openMeetingDetails(window: Page): Promise<Locator> {
+  const sheet = await openMeetingSheet(window);
+  const toggle = sheet.getByTestId("meeting-details-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await pointAndClick(window, toggle);
+  const details = sheet.getByTestId("meeting-sheet-details");
+  await expect(details).toBeVisible();
+  return details;
 }
 
 /** Waits until a recording meeting's Transcript has its first finished line. */

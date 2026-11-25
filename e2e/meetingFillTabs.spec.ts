@@ -3,19 +3,21 @@ import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
 import {
   clickEditItem,
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   firstTranscriptLine,
   focusSettled,
   launchApp,
   motionSettled,
+  openMeetingDetails,
+  openMeetingSheet,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
+  runCommand,
   useLocalChatModel as selectLocalChatModel,
   setWindowSize,
-  startRecording,
+  stopMeeting,
   undoMenuItem,
 } from "./app";
 
@@ -60,7 +62,7 @@ const PARTIAL = "Meeting fill fixture: partial";
 /** A call recorded, its notes typed, stopped and filled: the Note, its line, and its Blocks before the fill. */
 async function filledCall(window: Page, language: Language, partial = false) {
   const words = WORDS[language];
-  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+  await recordMeeting(window);
   await firstTranscriptLine(window);
   const notes = window.getByTestId("mind-editor");
   await pointAndClick(window, notes);
@@ -76,10 +78,9 @@ async function filledCall(window: Page, language: Language, partial = false) {
     const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
     await core.updateSettings({ user: { language: chosen } });
   }, language);
-  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+  await stopMeeting(window);
   const line = window.getByTestId("meeting-fill-line");
   await expect(line).toHaveText(partial ? words.partial : words.filled, { timeout: 30_000 });
-  await closeFirstFillPopover(window);
   return { notes, line, blocks, original };
 }
 
@@ -159,19 +160,29 @@ async function undoLeavesTheFill(
   expect(await fillState(window)).toBe("filled");
 }
 
-/** The chip shows one of the Note's views in its tab. */
-async function showView(window: Page, view: "notes" | "mine" | "transcript") {
-  await pointAndClick(window, window.getByTestId("meeting-view-chip"));
-  await pointAndClick(window, window.getByTestId(`meeting-view-${view}`));
-  const menu = window.getByTestId("meeting-view-menu");
-  if (await menu.isVisible()) await window.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
+/**
+ * One of the Note's views in its tab (#3762): the Transcript is the sheet the control raises and
+ * its Hide folds; My notes, and Notes from there, are ⌘K's.
+ */
+async function showView(window: Page, language: Language, view: "notes" | "mine" | "transcript") {
+  const sheet = window.getByTestId("meeting-sheet");
+  if (view === "transcript") await openMeetingSheet(window);
+  else if (view === "notes" && (await sheet.isVisible()))
+    await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+  else
+    await runCommand(
+      window,
+      view === "mine" ? "meeting.showMyNotes" : "meeting.showNotes",
+      translate(language, view === "mine" ? "meetings.views.showMine" : "meetings.views.showNotes"),
+    );
+  if (view !== "transcript") await expect(sheet).toHaveCount(0);
+  await expect(window.getByTestId("palette")).toBeHidden();
   await motionSettled(window);
 }
 
 /** ⌘Z in the note on My notes leaves the fill, and says where to undo it. */
 async function myNotesLeavesTheFill(window: Page, notes: Locator, language: Language) {
-  await showView(window, "mine");
+  await showView(window, language, "mine");
   await pointAndClick(window, notes.locator(":scope > p[data-id]:visible").first());
   await window.keyboard.press("ControlOrMeta+z");
   await expect(window.getByTestId("undo-line")).toHaveText(
@@ -294,8 +305,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(notes).toBeVisible();
       await motionSettled(window);
       await expect(line).toHaveCount(0);
-      await pointAndClick(window, window.getByTestId("meeting-view-chip"));
-      await pointAndClick(window, window.getByTestId("meeting-view-mine"));
+      await showView(window, language, "mine");
       await expect(notes.locator(".generated-text:visible")).toHaveCount(0);
       await expect(notes.locator(":scope > p[data-id]:visible")).toHaveText([...words.notes]);
       await expect(line).toHaveCount(0);
@@ -357,15 +367,15 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  // protects=the chip's Transcript view and My notes hide the fill's text: ⌘Z on the Transcript view leaves the fill, and the User's own lines behind it, and the menu doesn't name it; ⌘Z in the note on My notes leaves the fill and says to undo it from Notes (#138); back on Notes the line and its Undo are as before (#3099); fails_when=⌘Z takes the fill back while its text is hidden, the browser's own undo takes back the User's typing out of sight, or My notes stops saying where to undo it; no_claim=My notes' other steps.
+  // protects=the Transcript sheet over the Note and My notes hide the fill's text: ⌘Z with the sheet raised leaves the fill, and the User's own lines behind it, and the menu doesn't name it; ⌘Z in the note on My notes leaves the fill and says to undo it from Notes (#138, #3762); back on Notes the line and its Undo are as before (#3099); fails_when=⌘Z takes the fill back while its text is hidden, the browser's own undo takes back the User's typing out of sight, or My notes stops saying where to undo it; no_claim=My notes' other steps.
   test(`i: on the Transcript view and My notes, ⌘Z leaves the fill (${language})`, async () => {
     const { app, window } = await launched(language);
     try {
       const { notes, line, blocks, original } = await filledCall(window, language);
-      await showView(window, "transcript");
+      await showView(window, language, "transcript");
       await undoLeavesTheFill(app, window, language, "key");
       await myNotesLeavesTheFill(window, notes, language);
-      await showView(window, "notes");
+      await showView(window, language, "notes");
       await expect(line).toHaveText(words.filled);
       await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
       await expect(line).toHaveText(words.undone);
@@ -382,7 +392,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const { notes, line, blocks, original } = await filledCall(window, language);
       await throughTheTranscript(window, notes);
       await myNotesLeavesTheFill(window, notes, language);
-      await showView(window, "notes");
+      await showView(window, language, "notes");
       await expect(line).toHaveText(words.filled);
       await pointAndClick(window, line.getByTestId("meeting-fill-undo"));
       await expect(line).toHaveText(words.undone);
@@ -392,25 +402,23 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  // protects=the fill's Undo keeps its place in the order of changes: a change made after the fill, here Keep audio, is taken back first, through the chip's Transcript view and a tab switch, and Edit › Undo names each in turn (#3099); fails_when=the fill jumps ahead of the later change, or ⌘Z skips it; no_claim=Keep audio's own Undo, which meetingAudio holds.
+  // protects=the fill's Undo keeps its place in the order of changes: a change made after the fill, here Keep audio from the Transcript sheet's recording details, is taken back first, through the sheet raised and folded and a tab switch, and Edit › Undo names each in turn (#3099, #3762); fails_when=the fill jumps ahead of the later change, or ⌘Z skips it; no_claim=Keep audio's own Undo, which meetingAudio holds.
   test(`j: a change made after the fill is taken back first, after a view switch and a tab switch (${language})`, async () => {
     const { app, window } = await launched(language);
     try {
       const { notes, line, blocks, original } = await filledCall(window, language);
-      await pointAndClick(window, window.getByTestId("meeting-view-chip"));
-      await pointAndClick(window, window.getByTestId("meeting-audio-keep-for-good"));
+      const details = await openMeetingDetails(window);
+      await pointAndClick(window, details.getByTestId("meeting-audio-keep-for-good"));
       await expect.poll(() => audioKept(window)).toBe(true);
-      const menu = window.getByTestId("meeting-view-menu");
-      if (await menu.isVisible()) await window.keyboard.press("Escape");
-      await expect(menu).toBeHidden();
-      await showView(window, "transcript");
-      await showView(window, "notes");
+      await showView(window, language, "notes");
+      await showView(window, language, "transcript");
+      await showView(window, language, "notes");
       await throughTheTranscript(window, notes);
       await expect(line).toHaveText(words.filled);
 
       const named = (key: "meetings.command.keepAudio" | "meetings.fill.undoName") =>
         translate(language, "menu.undo.named", { action: translate(language, key) });
-      await window.getByTestId("meeting-view-chip").focus();
+      await window.getByTestId("meeting-foot-transcript").focus();
       await expect
         .poll(async () => (await undoMenuItem(app)).label)
         .toBe(named("meetings.command.keepAudio"));

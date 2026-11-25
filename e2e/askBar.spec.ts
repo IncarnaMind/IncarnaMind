@@ -13,7 +13,6 @@ import {
   setLanguage,
   setMeetingKeys,
   setWindowSize,
-  startRecording,
 } from "./app";
 
 /**
@@ -44,7 +43,7 @@ async function openPanel() {
   await dismissChatSetup(window);
   await setMeetingKeys(window);
   await connectLocalChatModel(window);
-  await startRecording(window, await recordMeeting(window), { notice: true });
+  await recordMeeting(window);
   await firstTranscriptLine(window);
   return { app, window, panel: await panelOf(app) };
 }

@@ -8,6 +8,7 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  openMeetingSheet,
   openSettings,
   recordMeeting,
   removeDataFolder,
@@ -20,7 +21,7 @@ import {
 /**
  * The live routes with a key of their own (#866), with the pretend services every smoke test's
  * fake transcriber has: Deepgram's server kept with its key in Settings › AI, and an
- * account out of credit as one line in the meeting bar. Set INCARNAMIND_SCREENSHOTS to a folder
+ * account out of credit as one line in the meeting's sheet. Set INCARNAMIND_SCREENSHOTS to a folder
  * to also save screenshots.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -132,7 +133,7 @@ test("Deepgram's row in Your providers names the server it sends to; Change key 
   await closeSettings(window);
 });
 
-test("an AssemblyAI account out of credit is one line in the bar with Add credit, and recording goes on on this computer", async () => {
+test("an AssemblyAI account out of credit is one line in the Transcript sheet with Add credit, and recording goes on on this computer", async () => {
   const { app, window } = await launchApp(dataDir, { transcriber: { cloud: { noCredit: true } } });
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
@@ -154,25 +155,21 @@ test("an AssemblyAI account out of credit is one line in the bar with Add credit
   );
   await closeSettings(window);
 
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-record").click();
-  const sheet = window.getByTestId("meeting-notice");
-  await expect(sheet.getByTestId("meeting-route")).toContainText("Transcribe with AssemblyAI");
-  await sheet.getByTestId("meeting-notice-start").click();
-  await expect(sheet).toBeHidden();
-  const bar = window.getByTestId("meeting-bar");
-  const credit = bar.getByTestId("meeting-line-cloud");
+  // The first recording starts at once on the service chosen (#3762); the line is in its sheet.
+  const control = await recordMeeting(window);
+  const sheet = await openMeetingSheet(window);
+  const credit = sheet.getByTestId("meeting-line-cloud");
   await expect(credit).toContainText(
     "AssemblyAI says this account is out of credit. Transcribing on this computer.",
     { timeout: 20_000 },
   );
   await expect(credit.getByTestId("meeting-line-add-credit")).toHaveText("Add credit");
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  await shot(window, "meeting-bar-assemblyai-credit-en");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  await shot(window, "meeting-sheet-assemblyai-credit-en");
   await setLanguage(window, "zh-CN");
   await expect(credit).toContainText("提示此账户余额不足，正在这台电脑上转写。");
   await expect(credit.getByTestId("meeting-line-add-credit")).toHaveText("充值");
-  await shot(window, "meeting-bar-assemblyai-credit-zh");
+  await shot(window, "meeting-sheet-assemblyai-credit-zh");
 });
 
 test("each service set up from the picker says whether Save checks its key; Gladia, which can't be checked, chosen names what it does with the audio", async () => {

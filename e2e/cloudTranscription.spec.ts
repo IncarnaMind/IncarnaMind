@@ -7,13 +7,16 @@ import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
+  firstTranscriptLine,
   launchApp,
+  openMeetingSheet,
   openSettings,
   recordMeeting,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   showSettingsPage,
+  stopMeeting,
   useOutputLocation,
 } from "./app";
 
@@ -54,7 +57,7 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-test("with a Soniox key and nothing chosen, the first recording's sheet picks Soniox and Start is the consent; it records, and the bar says when Soniox dropped", async () => {
+test("with a Soniox key and nothing chosen, the first recording starts at once on this computer and sends Soniox nothing; chosen in Settings › AI, Soniox records the next, and the sheet says when it dropped", async () => {
   const { app, window } = await launchApp(dataDir, {
     transcriber: { cloud: { dropAfterMs: 4000 } },
   });
@@ -79,28 +82,8 @@ test("with a Soniox key and nothing chosen, the first recording's sheet picks So
   await shot(window, "settings-meetings-key-en");
   await closeSettings(window);
 
-  // The first Start of a User who never chose (#3305): a cloud service first and already picked,
-  // on the key they have, with where the audio goes; this computer is the other choice.
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-record").click();
-  const sheet = window.getByTestId("meeting-notice");
-  await expect(sheet).toBeVisible();
-  const choices = sheet.getByTestId("setup-transcription");
-  await expect(choices).toHaveCount(2);
-  await expect(choices.first()).toContainText("A cloud service");
-  await expect(choices.first().locator("input")).toBeChecked();
-  await expect(choices.last()).toContainText("On this computer");
-  await expect(sheet.getByTestId("setup-transcription-service")).toHaveValue("soniox");
-  await expect(sheet.getByTestId("setup-transcription-works")).toHaveText("Soniox key works");
-  const sends = sheet.getByTestId("setup-transcription-sends");
-  await expect(sends).toContainText(
-    "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
-  );
-  await expect(sheet).not.toContainText("Transcribed on this computer");
-  const begin = sheet.getByTestId("meeting-notice-start");
-  await expect(begin).toHaveText("Start recording");
-  await expect(begin).toBeEnabled();
-  // Picked, not chosen: nothing is kept and no consent is given before Start.
+  // The first recording of a User who never chose starts at once (#3762), on this computer, and
+  // says so over its control: no service is picked and no consent given by recording.
   const accepted = expect.objectContaining({
     flow: expect.objectContaining({
       id: "transcription",
@@ -108,53 +91,81 @@ test("with a Soniox key and nothing chosen, the first recording's sheet picks So
     }),
     consent: "accepted",
   });
-  const before = await core(window);
-  expect(before.settings.device.transcriptionRoute).toBeNull();
-  expect(before.flows).not.toContainEqual(accepted);
-  await shot(window, "route-first-en-1600");
-
-  // In Chinese, at the narrowest width, the same in Chinese, nothing cut.
+  await recordMeeting(window);
+  const tip = window.getByTestId("meeting-foot-tip");
+  await expect(tip).toHaveText("Transcribing on this computer. The Transcript opens here.");
   await setLanguage(window, "zh-CN");
-  await expect(choices.first()).toContainText("云端服务");
-  await expect(sheet.getByTestId("setup-transcription-works")).toHaveText("Soniox 密钥可以使用了");
+  await expect(tip).toHaveText("正在这台电脑上转写。转写稿在这里打开。");
+  await setLanguage(window, "en");
+  await firstTranscriptLine(window);
+  const first = await core(window);
+  expect(first.settings.device.transcriptionRoute).toBeNull();
+  expect(first.flows).not.toContainEqual(accepted);
+  expect(first.meetings[0]?.transcript?.cloud ?? null).toBeNull();
+  await shot(window, "route-first-recording-en-1600");
+  await stopMeeting(window);
+  const firstTab = window.getByTestId("mind-tab").filter({ hasText: "Meeting" });
+  await firstTab.hover();
+  await firstTab.getByTestId("tab-close").click();
+  await expect(firstTab).toHaveCount(0);
+
+  // Settings › AI says what choosing a cloud service sends; choosing Soniox there is the consent,
+  // and then it says where the audio goes, in Chinese too, at the narrowest width, nothing cut.
+  const ai = await openSettings(window, "ai");
+  const consent = ai.getByTestId("meetings-route-consent");
+  await expect(consent).toContainText(
+    "Once you choose a cloud service, it gets the meeting’s audio while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
+  );
+  await ai.getByTestId("meetings-route").selectOption("soniox");
+  await expect(consent).toContainText(
+    "Audio goes to Soniox while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
+  );
+  await expect.poll(async () => (await core(window)).flows).toContainEqual(accepted);
+  expect((await core(window)).settings.device.transcriptionRoute).toBe("soniox");
+  await shot(window, "route-chosen-en-1600");
+  await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
-  const frame = await sheet.boundingBox();
-  const line = await sends.boundingBox();
-  expect(frame && line && line.x + line.width <= frame.x + frame.width).toBe(true);
-  await shot(window, "route-first-zh-900");
+  await expect(consent).toContainText("录音期间，音频会发送给 Soniox");
+  const frame = await ai.boundingBox();
+  const said = await consent.boundingBox();
+  expect(frame && said && said.x + said.width <= frame.x + frame.width).toBe(true);
+  await shot(window, "route-chosen-zh-900");
   await setLanguage(window, "en");
   await setWindowSize(app, window, 1600, 900);
+  await closeSettings(window);
 
-  // This computer is one press away and says so. Back on the cloud service, Start is the consent.
-  await choices.last().locator("input").check();
-  await expect(sheet).toContainText("Transcribed on this computer");
-  await expect(sheet.getByTestId("setup-cloud")).toHaveCount(0);
-  await choices.first().locator("input").check();
-  await expect(sheet).not.toContainText("Transcribed on this computer");
-  await begin.click();
-  await expect(sheet).toBeHidden();
-  const chosen = await core(window);
-  expect(chosen.settings.device.transcriptionRoute).toBe("soniox");
-  expect(chosen.flows).toContainEqual(accepted);
-  const bar = window.getByTestId("meeting-bar");
-  await expect(bar).toHaveAttribute("data-status", "recording");
-
-  // The pretend service drops: this computer takes over, recording goes on, and the bar says when.
-  const dropped = bar.getByTestId("meeting-line-cloud");
+  // The next recording goes to Soniox, and nothing over its control says this computer. The
+  // pretend service drops: this computer takes over, recording goes on, and the sheet says when.
+  const control = await recordMeeting(window);
+  await expect
+    .poll(
+      async () =>
+        (await core(window)).meetings.find((each) => each.status !== "stopped")?.transcript?.cloud,
+    )
+    .toBe("soniox");
+  await expect(tip.filter({ hasText: "on this computer" })).toHaveCount(0);
+  const sheet = await openMeetingSheet(window);
+  const dropped = sheet.getByTestId("meeting-line-cloud");
   await expect(dropped).toContainText(
     /^Transcribing on this computer \(Soniox dropped at \d+:\d\d\)/,
     {
       timeout: 20_000,
     },
   );
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  await shot(window, "meeting-bar-cloud-dropped-en");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  await shot(window, "meeting-sheet-cloud-dropped-en");
   await setLanguage(window, "zh-CN");
   await expect(dropped).toContainText(/^正在这台电脑上转写（Soniox 在 \d+:\d\d 断开）/);
-  await shot(window, "meeting-bar-cloud-dropped-zh");
+  await setWindowSize(app, window, 900, 720);
+  const sheetBox = await sheet.boundingBox();
+  const droppedBox = await dropped.boundingBox();
+  expect(
+    sheetBox && droppedBox && droppedBox.x + droppedBox.width <= sheetBox.x + sheetBox.width,
+  ).toBe(true);
+  await shot(window, "meeting-sheet-cloud-dropped-zh");
 });
 
-test("with the Qwen key from Models and nothing chosen, the sheet picks Qwen and says what Alibaba Cloud's agreement says; a key the service turns away is one problem in the bar", async () => {
+test("with the Qwen key from Models and nothing chosen, the first recording sends Qwen nothing; choosing Qwen says what Alibaba Cloud's agreement says, and a key the service turns away is one problem in the sheet", async () => {
   const { app, window } = await launchApp(dataDir, { transcriber: { cloud: { refuse: true } } });
   await setWindowSize(app, window, 1600, 900);
   await dismissChatSetup(window);
@@ -169,15 +180,35 @@ test("with the Qwen key from Models and nothing chosen, the sheet picks Qwen and
     });
   });
 
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-record").click();
-  const sheet = window.getByTestId("meeting-notice");
-  const choices = sheet.getByTestId("setup-transcription");
-  await expect(choices.first()).toContainText("Uses the key you already added");
-  await expect(choices.first().locator("input")).toBeChecked();
-  await expect(sheet.getByTestId("setup-transcription-service")).toHaveCount(0);
-  await expect(sheet.getByTestId("setup-transcription-works")).toContainText("Qwen");
-  const sends = sheet.getByTestId("setup-transcription-sends");
+  // The first recording starts at once on this computer (#3762): the key from Models is used for
+  // nothing more, and Alibaba Cloud gets no audio and no consent.
+  const qwenAccepted = expect.objectContaining({
+    flow: expect.objectContaining({
+      id: "transcription",
+      service: expect.objectContaining({ id: "https://dashscope.aliyuncs.com" }),
+    }),
+    consent: "accepted",
+  });
+  await recordMeeting(window);
+  await firstTranscriptLine(window);
+  const first = await core(window);
+  expect(first.settings.device.transcriptionRoute).toBeNull();
+  expect(first.flows).not.toContainEqual(qwenAccepted);
+  expect(first.meetings[0]?.transcript?.cloud ?? null).toBeNull();
+  await stopMeeting(window);
+  const firstTab = window.getByTestId("mind-tab").filter({ hasText: "Meeting" });
+  await firstTab.hover();
+  await firstTab.getByTestId("tab-close").click();
+  await expect(firstTab).toHaveCount(0);
+
+  // Settings › AI offers Qwen on that key; choosing it is the consent, for the service at the
+  // key's region, and says what Alibaba Cloud's agreement says.
+  const ai = await openSettings(window, "ai");
+  const picker = ai.getByTestId("meetings-route");
+  await expect(picker.locator(OFFERED)).toHaveText(["Qwen", "On this computer"]);
+  await expect(picker).toHaveValue("local");
+  await picker.selectOption("qwen");
+  const sends = ai.getByTestId("meetings-route-consent");
   await expect(sends).toContainText(
     "Audio goes to Alibaba Cloud while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",
   );
@@ -186,7 +217,9 @@ test("with the Qwen key from Models and nothing chosen, the sheet picks Qwen and
     "href",
     "https://docs.agent.bailian.aliyun.com/en/resources/agreements",
   );
-  await shot(window, "route-qwen-first-en-1600");
+  await expect.poll(async () => (await core(window)).flows).toContainEqual(qwenAccepted);
+  expect((await core(window)).settings.device.transcriptionRoute).toBe("qwen");
+  await shot(window, "route-qwen-chosen-en-1600");
 
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
@@ -197,41 +230,30 @@ test("with the Qwen key from Models and nothing chosen, the sheet picks Qwen and
     "href",
     "https://docs.agent.bailian.aliyun.com/zh/resources/agreements",
   );
-  const frame = await sheet.boundingBox();
+  const frame = await ai.boundingBox();
   const line = await sends.boundingBox();
   expect(frame && line && line.x + line.width <= frame.x + frame.width).toBe(true);
-  await shot(window, "route-qwen-first-zh-900");
+  await shot(window, "route-qwen-chosen-zh-900");
   await setLanguage(window, "en");
   await setWindowSize(app, window, 1600, 900);
+  await closeSettings(window);
 
-  // Start is the consent, for the service at the key's region; the pretend service turns the key away.
-  await sheet.getByTestId("meeting-notice-start").click();
-  await expect(sheet).toBeHidden();
-  const chosen = await core(window);
-  expect(chosen.settings.device.transcriptionRoute).toBe("qwen");
-  expect(chosen.flows).toContainEqual(
-    expect.objectContaining({
-      flow: expect.objectContaining({
-        id: "transcription",
-        service: expect.objectContaining({ id: "https://dashscope.aliyuncs.com" }),
-      }),
-      consent: "accepted",
-    }),
-  );
-  const bar = window.getByTestId("meeting-bar");
-  const refused = bar.getByTestId("meeting-line-cloud");
+  // The next recording goes to Qwen, which turns the key away: one line in the sheet.
+  const control = await recordMeeting(window);
+  const sheet = await openMeetingSheet(window);
+  const refused = sheet.getByTestId("meeting-line-cloud");
   await expect(refused).toContainText(
     "Qwen refused the key (wrong, expired or another region). Transcribing on this computer.",
     { timeout: 20_000 },
   );
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  await shot(window, "meeting-bar-qwen-refused-en");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  await shot(window, "meeting-sheet-qwen-refused-en");
   await setLanguage(window, "zh-CN");
   await expect(refused).toContainText(
     "通义千问拒绝了这个密钥（有误、已过期或属于其他区域）。正在这台电脑上转写。",
   );
-  await shot(window, "meeting-bar-qwen-refused-zh");
-  await bar.getByTestId("meeting-line-change-key").click();
+  await shot(window, "meeting-sheet-qwen-refused-zh");
+  await refused.getByTestId("meeting-line-change-key").click();
   await expect(window.getByTestId("settings")).toBeVisible();
 });
 

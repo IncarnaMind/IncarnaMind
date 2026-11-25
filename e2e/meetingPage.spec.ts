@@ -7,29 +7,32 @@ import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import { FAKE_CLOUD_LINES } from "../src/core/transcription/fakeCloud";
 import {
   acceptPlainTextKeys,
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
-  expectBarOneRow,
+  expectSheetFootOneRow,
   firstTranscriptLine,
   focusSettled,
   launchApp,
   motionSettled,
+  openMeetingDetails,
+  openMeetingSheet,
   pointAndClick,
-  recordMeetingNow,
+  recordMeeting,
   removeDataFolder,
   runCommand,
   setLanguage,
   setWindowSize,
+  stopMeeting,
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
 import { holdModel, modelHeld } from "./heldModel";
 
 /**
- * The meeting's one page (#138, #2527): Notes | Transcript in the recording bar, switched in place,
- * with the words being said from the first one; and after Stop, a bare page whose one chip holds
- * the views, the audio and the recording details. Set INCARNAMIND_SCREENSHOTS to keep stills.
+ * The meeting's one page (#138, #2527, #3762): the meeting's control at the Note's foot raises
+ * the Transcript as a sheet over the Note, with the words being said from the first one; and
+ * after Stop, a bare page whose control raises the Transcript, the audio and the recording
+ * details. Set INCARNAMIND_SCREENSHOTS to keep stills.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function shot(window: Page, name: string): Promise<void> {
@@ -60,12 +63,10 @@ async function recordOnClose(app: ElectronApplication, window: Page, name: strin
 
 const WORDS = {
   en: {
-    notes: "Notes",
-    mine: "My notes",
     transcript: "Transcript",
-    views: "Meeting views",
-    switchTip: /^Switch views \(outside a table: \S+ \S+\)$/,
-    beside: "Open in a split on the right",
+    show: /^Show the Transcript \(.+\)$/,
+    hide: /^Hide the Transcript \(.+\)$/,
+    tell: "Tell everyone you’re recording.",
     besideTip: "Open the Transcript in a split on the right",
     soon: "The transcript appears with its first line",
     showNotes: "Show notes",
@@ -76,23 +77,21 @@ const WORDS = {
     undo: "Undo",
     undone: "Fill-in undone",
     again: "Fill in again",
-    recorded: /^Recorded \d+:\d{2}$/,
-    audio: /^Audio kept until .*\d:\d{2}/,
-    deleteNow: "Delete now",
+    audio: /^Recorded \d+:\d{2} · Audio kept until .*\d:\d{2}/,
+    deleteNow: "Delete audio now",
     confirm: "Delete this meeting’s audio for good? The note stays.",
     keep: "Keep it",
     details: "Recording details",
+    showDetails: "Show recording details",
     heading: "Action items",
     lines: ["Launch date", "UK fee"],
     overview: "The call reviewed priorities and follow-through",
   },
   "zh-CN": {
-    notes: "笔记",
-    mine: "我的笔记",
     transcript: "转写稿",
-    views: "会议视图",
-    switchTip: /^切换视图（表格外：\S+ \S+）$/,
-    beside: "在右侧一栏中打开",
+    show: /^显示转写稿（.+）$/,
+    hide: /^隐藏转写稿（.+）$/,
+    tell: "告诉所有人你正在录音。",
     besideTip: "在右侧一栏中打开转写稿",
     soon: "第一句话转写后即可显示转写稿",
     showNotes: "显示笔记",
@@ -103,12 +102,12 @@ const WORDS = {
     undo: "撤销",
     undone: "已撤销补全",
     again: "重新补全",
-    recorded: /^已录制 \d+:\d{2}$/,
-    audio: /^音频保留到.*\d:\d{2}/,
-    deleteNow: "立即删除",
+    audio: /^已录制 \d+:\d{2} · 音频保留到.*\d:\d{2}/,
+    deleteNow: "立即删除音频",
     confirm: "永久删除这次会议的音频？笔记会保留。",
     keep: "保留",
     details: "录制详情",
+    showDetails: "显示录制详情",
     heading: "待办",
     lines: ["上线日期", "英国费用"],
     // The fake transcription speaks English in either language, and the fill follows it.
@@ -165,21 +164,41 @@ const notesPlace = (editor: Locator) =>
     };
   });
 
-// protects=choosing the next recording while a stopped meeting's first fill finishes
-// fails_when=the recorded meeting popover replaces the open New menu or is never offered on a later fill
-test("a first fill keeps the New menu open while choosing the next meeting", async () => {
+/**
+ * The control stands under the notes, on the text's edges: at its left with the Note's input to
+ * its right, or centred on the text where the Note's foot holds no input.
+ */
+async function expectControlAtFoot(panel: Locator): Promise<void> {
+  const ask = panel.locator(".meeting-foot-ask");
+  const [control, measure, scroller, askBox, alone] = await Promise.all([
+    panel.getByTestId("meeting-foot").boundingBox(),
+    panel.getByTestId("mind-pane").locator(".mind-measure").first().boundingBox(),
+    panel.getByTestId("mind-scroller").boundingBox(),
+    ask.boundingBox(),
+    ask.evaluate((element) => element.matches(":empty")),
+  ]);
+  if (!control || !measure || !scroller) throw new Error("The meeting's control isn't drawn.");
+  expect(control.y).toBeGreaterThanOrEqual(scroller.y + scroller.height - 1);
+  if (alone) {
+    const middle = (box: { x: number; width: number }) => box.x + box.width / 2;
+    expect(Math.abs(middle(control) - middle(measure))).toBeLessThanOrEqual(1);
+    return;
+  }
+  if (!askBox) throw new Error("The Note's input isn't drawn.");
+  expect(Math.abs(control.x - measure.x)).toBeLessThanOrEqual(1);
+  expect(askBox.x).toBeGreaterThanOrEqual(control.x + control.width);
+}
+
+// protects=choosing the next recording while a stopped meeting's first fill finishes; no fill opens anything by itself (#3762)
+// fails_when=something opens over the New menu as the fill ends, the menu closes, or a later fill raises the Transcript or a menu by itself
+test("a first fill keeps the New menu open while choosing the next meeting, and no fill opens anything by itself", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
-  await window.evaluate(() =>
-    (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-      device: { meetingNoticeAccepted: true },
-    }),
-  );
-  const first = await recordMeetingNow(window);
+  await recordMeeting(window);
   await firstTranscriptLine(window);
   await holdModel(app, "holdCite", true);
-  await first.getByTestId("meeting-stop").click();
+  await stopMeeting(window);
   await expect.poll(() => modelHeld(app), { timeout: 30_000 }).toBe(true);
   await setLanguage(window, "zh-CN");
   const { panel } = await notePanel(window);
@@ -191,21 +210,22 @@ test("a first fill keeps the New menu open while choosing the next meeting", asy
     timeout: 30_000,
   });
   await expect(record).toBeVisible();
-  await expect(panel.getByTestId("meeting-view-menu")).toBeHidden();
+  await expect(panel.getByTestId("meeting-sheet")).toHaveCount(0);
   await record.click();
   await firstTranscriptLine(window);
   const next = await notePanel(window);
-  await next.panel.getByTestId("meeting-stop").click();
-  const details = next.panel.getByTestId("meeting-view-menu");
-  await expect(details).toBeVisible({ timeout: 30_000 });
-  await window.keyboard.press("Escape");
-  await expect(details).toBeHidden();
+  await stopMeeting(window);
+  await expect(next.panel.getByTestId("meeting-fill-line")).toContainText(WORDS["zh-CN"].filled, {
+    timeout: 30_000,
+  });
+  await expect(window.getByRole("menu")).toHaveCount(0);
+  await expect(next.panel.getByTestId("meeting-sheet")).toHaveCount(0);
   await app.close();
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=during the call the bar's Notes | Transcript switches the page in place by mouse, ⌥⌘←/⌥⌘→ and ⌘K; the Transcript shows both sides' words being said before any line is finished, from a cloud service sending unfinished words; Notes comes back to its cursor and scroll; Open beside opens the Transcript in the next group (#138); fails_when=a new tab opens, the live view waits for a finished line, one side's words are missing, the notes lose their place, or the layout breaks at 900 or 1,440 px; no_claim=the real service's timing.
-  test(`during the call, Notes | Transcript switch the page in place, the words being said show from the first, and Notes keeps its place (${language})`, async () => {
+  // protects=during the call the control at the Note's foot raises the Transcript as a sheet over the Note by mouse, ⌥⌘←/⌥⌘→, ⌘K and folds it with Esc back to its chevron; the sheet shows both sides' words being said before any line is finished, from a cloud service sending unfinished words; the notes under it keep their cursor and scroll; Open beside is off until the first line and opens the Transcript in the next group (#138, #3762); fails_when=a new tab opens, the live view waits for a finished line, one side's words are missing, the notes lose their place, the focus is lost on folding, or the sheet's foot breaks at 900 or 1,440 px; no_claim=the real service's timing.
+  test(`during the call, the control raises the Transcript sheet over the Note, the words being said show from the first, and the notes keep their place (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, {
       transcriber: { cloud: { lineMs: 8000 } },
@@ -218,34 +238,31 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       await bridge.setTranscriptionKey({ route: "soniox", apiKey: "soniox-test-key" });
-      await bridge.updateSettings({
-        device: { transcriptionRoute: "soniox", meetingNoticeAccepted: true },
-      });
+      await bridge.updateSettings({ device: { transcriptionRoute: "soniox" } });
     });
 
-    const bar = await recordMeetingNow(window);
+    const control = await recordMeeting(window);
     const { panel, tabs, mindId } = await notePanel(window);
     const editor = panel.getByTestId("mind-editor");
-    const switcher = bar.getByTestId("meeting-views");
-    await expect(switcher).toHaveAttribute("aria-label", words.views);
-    await expect(switcher).toHaveAttribute("title", words.switchTip);
-    await expect(switcher.locator("label")).toHaveText([words.notes, words.transcript]);
-    await expect(switcher.getByTestId("meeting-view-notes")).toBeChecked();
-    // The Transcript carries the level bars.
-    await expect(
-      switcher.locator("label").filter({ hasText: words.transcript }).getByTestId("level-bars"),
-    ).toBeVisible();
-    await expectBarOneRow(bar);
+    const raise = control.getByTestId("meeting-foot-transcript");
+    await expectControlAtFoot(panel);
+    await expect(raise).toHaveAttribute("aria-expanded", "false");
+    await expect(raise).toHaveAccessibleName(words.show);
+    await expect(control.getByTestId("meeting-foot-level").getByTestId("level-bars")).toBeVisible();
 
-    // The Transcript, at once and in place: the words being said, both sides', before any line is finished.
-    await pointAndClick(window, switcher.locator("label").filter({ hasText: words.transcript }));
-    const transcript = panel.getByTestId("meeting-note-transcript");
-    await expect(transcript).toBeVisible();
-    await expect(editor).toBeHidden();
-    await expect(transcript).toBeFocused();
+    // The Transcript, at once, over the Note: the words being said, both sides', before any line is finished.
+    await pointAndClick(window, raise);
+    const sheet = panel.getByTestId("meeting-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(raise).toHaveAttribute("aria-expanded", "true");
+    await expect(raise).toHaveAccessibleName(words.hide);
+    // The Note and its input stay under it: the sheet lies over the notes.
+    await expect(editor).toBeVisible();
     await expect(window.locator("[data-tab-id]")).toHaveCount(tabs);
-    await expect(panel.getByTestId("meeting-bar")).toHaveCount(1);
-    await expect(transcript.getByTestId("meeting-bar")).toBeVisible();
+    await expect(sheet.getByTestId("meeting-sheet-time")).toHaveText(/\d+:\d{2}$/);
+    await expect(sheet.locator(".meeting-sheet-consent")).toHaveText(words.tell);
+    await expectSheetFootOneRow(sheet);
+    const transcript = sheet.getByTestId("viewer-transcript");
     // What the words arriving every quarter second cost the page: no shift, no long task.
     await window.evaluate(() => {
       const feel = { shift: 0, longest: 0 };
@@ -283,28 +300,35 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const said of await partials.locator(".transcript-text").allInnerTexts()) {
       expect(FAKE_CLOUD_LINES.some((line) => line.startsWith(said.trim()))).toBe(true);
     }
-    const beside = transcript.getByTestId("meeting-transcript-beside");
-    await expect(beside).toHaveText(words.beside);
+    // Before the first line there is nothing to open beside, and it says why.
+    const beside = sheet.getByTestId("meeting-sheet-beside");
     await expect(beside).toBeDisabled();
     await expect(beside).toHaveAttribute("title", words.soon);
     await shot(window, `meeting-page-live-transcript-${language}-1440`);
 
-    // ⌥⌘← and ⌥⌘→, then ⌘K, switch it too.
+    // ⌥⌘← and ⌥⌘→, then ⌘K, raise and fold it too; Esc folds it back to its chevron.
     await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
-    await expect(editor).toBeVisible();
+    await expect(sheet).toBeHidden();
     await expect(editor).toBeFocused();
-    await expect(transcript).toBeHidden();
-    await expect(bar.getByTestId("meeting-view-notes")).toBeChecked();
+    await expect(raise).toHaveAttribute("aria-expanded", "false");
     await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
-    await expect(panel.getByTestId("meeting-note-transcript")).toBeFocused();
+    await expect(sheet).toBeFocused();
     await runCommand(window, "meeting.showNotes", words.showNotes);
+    await expect(sheet).toBeHidden();
     await expect(editor).toBeFocused();
     await runCommand(window, "meeting.showTranscript", words.showTranscript);
-    await expect(panel.getByTestId("meeting-note-transcript")).toBeVisible();
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toBeFocused();
+    await expect(window.getByRole("tooltip")).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    await expect(raise).toBeFocused();
+    await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
+    await expect(sheet).toBeVisible();
     await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
     await expect(editor).toBeFocused();
 
-    // Notes come back to the cursor and the scroll the User left.
+    // The notes under the sheet keep the cursor and the scroll the User left.
     await focusSettled(window, editor);
     for (let line = 1; line <= 40; line++) {
       await window.keyboard.type(`${words.lines[line % 2]} ${line}`);
@@ -327,25 +351,31 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     await expect.poll(settled).toBe(true);
     expect(before.top).toBeGreaterThan(0);
-    await pointAndClick(window, switcher.locator("label").filter({ hasText: words.transcript }));
-    await expect(editor).toBeHidden();
-    await pointAndClick(window, switcher.locator("label").filter({ hasText: words.notes }));
+    await pointAndClick(window, raise);
+    await expect(sheet).toBeVisible();
+    expect(await notesPlace(editor)).toEqual(before);
+    await pointAndClick(window, raise);
+    await expect(sheet).toBeHidden();
+    expect(await notesPlace(editor)).toEqual(before);
+    await pointAndClick(window, raise);
+    await expect(sheet).toBeVisible();
+    await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
     await expect(editor).toBeFocused();
     expect(await notesPlace(editor)).toEqual(before);
     await window.keyboard.type("!");
     await expect(tenth).toHaveText(/10!$/);
 
-    // Lines arrive; Open beside opens the Transcript in the next group, the page back on the notes.
-    await pointAndClick(window, switcher.locator("label").filter({ hasText: words.transcript }));
+    // Lines arrive; Open beside opens the Transcript in the next group, the sheet folded back.
+    await pointAndClick(window, raise);
     await expect(transcript.getByTestId("transcript-line").first()).toBeVisible({
       timeout: 20_000,
     });
     await expect(beside).toBeEnabled();
     await expect(beside).toHaveAttribute("title", words.besideTip);
 
-    // At 900 px: the bar on one row, the Transcript's words keep their width.
+    // At 900 px: the sheet's foot on one row, the Transcript's words keep their width.
     await setWindowSize(app, window, 900, 660);
-    await expectBarOneRow(bar);
+    await expectSheetFootOneRow(sheet);
     const widths = await transcript
       .getByTestId("transcript-turn")
       .first()
@@ -360,8 +390,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await pointAndClick(window, beside);
     const besideTab = window.getByTestId("document-tab");
     await expect(besideTab).toHaveCount(1);
+    await expect(sheet).toBeHidden();
     await expect(editor).toBeVisible();
-    await expect(bar.getByTestId("meeting-view-notes")).toBeChecked();
+    await expect(raise).toHaveAttribute("aria-expanded", "false");
     const noteGroup = await window
       .locator(`[data-testid="mind-tab"][data-mind-id="${mindId}"]`)
       .getAttribute("data-group-id");
@@ -369,27 +400,23 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(besideGroup).not.toBeNull();
     expect(besideGroup).not.toBe(noteGroup);
     await shot(window, `meeting-page-beside-${language}-1440`);
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
-    await expect(panel.getByTestId("meeting-bar")).toHaveCount(0);
+    await stopMeeting(window);
+    await expect(raise).toHaveText(words.transcript);
     await app.close();
   });
 
-  // protects=with the cursor in a table ⌥⌘← and ⌥⌘→ are the table's (a column is added, the view stays), and ⌘K still switches the views from inside one (#2682); fails_when=the keys switch the page instead of adding a column, the view moves, or Show the Transcript and Show notes do nothing with the cursor in a table; no_claim=the hint's wording, which the first test reads.
-  test(`in a table, ⌥⌘← and ⌥⌘→ add a column and the view stays; ⌘K still switches (${language})`, async () => {
+  // protects=with the cursor in a table ⌥⌘← and ⌥⌘→ are the table's (a column is added, the Transcript stays down), and ⌘K still raises and folds the Transcript from inside one (#2682); fails_when=the keys raise the sheet instead of adding a column, or Show the Transcript and Show notes do nothing with the cursor in a table; no_claim=the control's name, which the first test reads.
+  test(`in a table, ⌥⌘← and ⌥⌘→ add a column and the Transcript stays down; ⌘K still raises it (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir);
     await setWindowSize(app, window, 1440, 660);
     await dismissChatSetup(window);
     await setLanguage(window, language);
-    await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-        device: { meetingNoticeAccepted: true },
-      }),
-    );
 
-    const bar = await recordMeetingNow(window);
+    const control = await recordMeeting(window);
     const { panel } = await notePanel(window);
     const editor = panel.getByTestId("mind-editor");
+    const sheet = panel.getByTestId("meeting-sheet");
     await pointAndClick(window, editor);
     await focusSettled(window, editor);
     await window.keyboard.insertText(words.lines[0]);
@@ -399,26 +426,29 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     const columns = () => editor.locator("table tr").first().locator("td, th").count();
     await expect.poll(columns).toBe(2);
-    const switcher = bar.getByTestId("meeting-views");
-    await expect(switcher).toHaveAttribute("title", words.switchTip);
 
     await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
     await expect.poll(columns).toBe(3);
     await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
     await expect.poll(columns).toBe(4);
-    await expect(bar.getByTestId("meeting-view-notes")).toBeChecked();
+    await expect(sheet).toHaveCount(0);
+    await expect(control.getByTestId("meeting-foot-transcript")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     await expect(editor).toBeVisible();
 
     await runCommand(window, "meeting.showTranscript", words.showTranscript);
-    await expect(panel.getByTestId("meeting-note-transcript")).toBeVisible();
+    await expect(sheet).toBeVisible();
     await runCommand(window, "meeting.showNotes", words.showNotes);
+    await expect(sheet).toHaveCount(0);
     await expect(editor).toBeVisible();
 
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(window);
     await app.close();
   });
 
-  // protects=on this computer, a streaming model's words being said show in the Transcript view before any line is finished, both sides' (#138, #2662); fails_when=the live view waits for a finished line, or one side's words are missing; no_claim=the real streaming model, which the packaged spec reads.
+  // protects=on this computer, a streaming model's words being said show in the Transcript sheet before any line is finished, both sides' (#138, #2662); fails_when=the live view waits for a finished line, or one side's words are missing; no_claim=the real streaming model, which the packaged spec reads.
   test(`on this computer, the Transcript shows a streaming model's words being said, before any line (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, {
@@ -427,19 +457,9 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 900, 660);
     await dismissChatSetup(window);
     await setLanguage(window, language);
-    await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-        device: { meetingNoticeAccepted: true },
-      }),
-    );
 
-    const bar = await recordMeetingNow(window);
-    const { panel } = await notePanel(window);
-    await pointAndClick(
-      window,
-      bar.getByTestId("meeting-views").locator("label").filter({ hasText: words.transcript }),
-    );
-    const transcript = panel.getByTestId("meeting-note-transcript");
+    await recordMeeting(window);
+    const transcript = (await openMeetingSheet(window)).getByTestId("viewer-transcript");
     const partials = transcript.getByTestId("transcript-partial");
     await expect(partials).toHaveCount(2);
     await expect(transcript.getByTestId("transcript-line")).toHaveCount(0);
@@ -456,7 +476,7 @@ for (const language of ["en", "zh-CN"] as const) {
         [...FAKE_LINES, ...FAKE_THEIR_LINES].some((line) => line.startsWith(said.trim())),
       ).toBe(true);
     }
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(window);
     await app.close();
   });
 
@@ -468,11 +488,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await window.evaluate(async () => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-    });
-    const bar = await recordMeetingNow(window);
+    await recordMeeting(window);
     const { panel, mindId } = await notePanel(window);
     const editor = panel.getByTestId("mind-editor");
     await pointAndClick(window, editor);
@@ -481,13 +497,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect
       .poll(async () => (await meetingsOf(window))[0]?.transcript?.lines ?? 0, { timeout: 20_000 })
       .toBeGreaterThanOrEqual(2);
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(window);
     const line = panel.getByTestId("meeting-fill-line");
     await expect(line).toHaveText(`${words.filled} · ${words.undo}`, {
       timeout: 30_000,
       useInnerText: false,
     });
-    await closeFirstFillPopover(window);
 
     // The same Note again, in a split on the right.
     await pointAndClick(window, editor.locator("p").first());
@@ -544,8 +559,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
-  // protects=after Stop the page stays bare: the bar goes, the fill shows only at the place it writes, with its Undo line that goes on the next keystroke; ⌘Z takes back exactly the fill and ⇧⌘Z puts it back; the one chip holds the views, the audio's line and the recording details, and opens by itself only after the first fill (#2527, #138); fails_when=a line stays above the notes, ⌘Z takes back the User's own heading, the popover opens twice or never, or a string is wrong; no_claim=a real model's fill.
-  test(`after Stop the page stays bare, the chip holds the rest, and ⌘Z takes back the fill (${language})`, async () => {
+  // protects=after Stop the page stays bare: the control says Transcript, the fill shows only at the place it writes, with its Undo line that goes on the next keystroke; ⌘Z takes back exactly the fill and ⇧⌘Z puts it back; the control raises the Transcript, whose recording details hold the audio's line, nothing opening by itself after a fill (#2527, #138, #3762); fails_when=a line stays above the notes, ⌘Z takes back the User's own heading, anything rises by itself after the fill, or a string is wrong; no_claim=a real model's fill.
+  test(`after Stop the page stays bare, the control raises the rest, and ⌘Z takes back the fill (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     await setWindowSize(app, window, language === "en" ? 1440 : 900, 660);
@@ -553,14 +568,10 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await window.evaluate(async () => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-    });
 
     for (const round of [1, 2]) {
       await motionSettled(window);
-      const bar = await recordMeetingNow(window);
+      const control = await recordMeeting(window);
       const { panel, mindId } = await notePanel(window);
       const editor = panel.getByTestId("mind-editor");
       await pointAndClick(window, editor);
@@ -598,8 +609,9 @@ for (const language of ["en", "zh-CN"] as const) {
           }
         }).observe(document.body, { subtree: true, childList: true, characterData: true });
       });
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
-      await expect(bar).toBeHidden();
+      await stopMeeting(window);
+      const raise = control.getByTestId("meeting-foot-transcript");
+      await expect(raise).toHaveText(words.transcript);
       const line = panel.getByTestId("meeting-fill-line");
       await expect(line).toHaveText(`${words.filled} · ${words.undo}`, {
         timeout: 30_000,
@@ -617,56 +629,49 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(seen.filter((each) => each.text === words.filling).every((each) => each.writing)).toBe(
         true,
       );
-      // Nothing above the notes: no bar, no Transcript or audio line, no details.
+      // Nothing above the notes or over the control: no bar, no Transcript or audio line, no details.
       const page = panel.getByTestId("mind-pane");
       await expect(panel.getByTestId("meeting-bar")).toHaveCount(0);
-      await expect(page.getByTestId("meeting-transcript-line")).toHaveCount(0);
+      await expect(panel.getByTestId("meeting-transcript-line")).toHaveCount(0);
       await expect(page.getByTestId("meeting-audio")).toHaveCount(0);
       await expect(page.getByTestId("meeting-details-toggle")).toHaveCount(0);
       await expect(line.locator("xpath=ancestor::*[@data-testid='mind-editor']")).toHaveCount(1);
+      // The fill opens nothing by itself, the first time on this computer or after.
+      await expect(panel.getByTestId("meeting-sheet")).toHaveCount(0);
+      await expect(window.getByRole("menu")).toHaveCount(0);
+      if (round === 1) await shot(window, `meeting-page-stopped-${language}`);
 
-      const chip = panel.getByTestId("meeting-view-chip");
-      await expect(chip).toHaveText(words.recorded);
-      const menu = panel.getByTestId("meeting-view-menu");
-      if (round === 1) {
-        // The first fill on this computer opens it, once, and the User keeps their place.
-        await expect(menu).toBeVisible();
-        await expect(menu.getByTestId("meeting-audio")).toContainText(words.audio);
-        await expect(menu.getByTestId("meeting-audio-delete")).toHaveText(words.deleteNow);
-        await expect(menu.locator(":focus")).toHaveCount(0);
-        await shot(window, `meeting-page-chip-first-${language}`);
-        await window.keyboard.press("Escape");
-        await expect(menu).toBeHidden();
-      } else {
-        await expect(menu).toBeHidden();
-      }
-
-      // The chip's views, its audio's Delete now (asked first) and the recording details.
-      await pointAndClick(window, chip);
-      await expect(menu).toBeVisible();
-      await expect(menu.locator('[role="menuitemradio"]')).toHaveText([
-        words.notes,
-        words.mine,
-        words.transcript,
-      ]);
-      await expect(menu.getByTestId("meeting-details-toggle")).toHaveText(words.details);
-      await pointAndClick(window, menu.getByTestId("meeting-details-toggle"));
-      await expect(menu.getByTestId("meeting-details")).toBeVisible();
-      await pointAndClick(window, menu.getByTestId("meeting-audio-delete"));
-      const confirm = menu.getByTestId("meeting-audio-confirm");
+      // The control raises the Transcript; its recording details hold the audio's Delete now
+      // (asked first) and the capture's lines.
+      const sheet = await openMeetingSheet(window);
+      await expect(raise).toHaveAttribute("aria-expanded", "true");
+      await expect(sheet.getByTestId("meeting-details-toggle")).toHaveAccessibleName(
+        words.showDetails,
+      );
+      const details = await openMeetingDetails(window);
+      await expect(details.getByTestId("meeting-details")).toHaveAttribute(
+        "aria-label",
+        words.details,
+      );
+      const audio = details.getByTestId("meeting-audio");
+      await expect(audio).toContainText(words.audio);
+      await expect(audio.getByTestId("meeting-audio-delete")).toHaveText(words.deleteNow);
+      await pointAndClick(window, audio.getByTestId("meeting-audio-delete"));
+      const confirm = details.getByTestId("meeting-audio-confirm");
       await expect(confirm).toContainText(words.confirm);
       await expect(confirm.getByTestId("meeting-audio-delete-confirm")).toBeFocused();
-      await pointAndClick(window, confirm.getByTestId("meeting-audio-keep"));
-      await expect(menu.getByTestId("meeting-audio")).toContainText(words.audio);
-      await pointAndClick(window, menu.getByTestId("meeting-view-transcript"));
-      await expect(menu).toBeHidden();
-      await expect(chip).toHaveText(words.transcript);
-      await expect(panel.getByTestId("meeting-note-transcript")).toBeVisible();
+      await pointAndClick(window, confirm.getByRole("button", { name: words.keep, exact: true }));
+      await expect(audio).toContainText(words.audio);
+      await expect(sheet).toBeVisible();
+      if (round === 1) await shot(window, `meeting-page-details-${language}`);
+      // ⌥⌘← goes to My notes, then to the notes, with the focus in them.
       await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
-      await expect(chip).toHaveText(words.mine);
+      await expect(sheet).toBeHidden();
+      await expect(editor.locator("p").filter({ hasText: words.overview })).toBeHidden();
       await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
       await expect(editor).toBeFocused();
-      await expect(chip).toHaveText(words.recorded);
+      await expect(editor.locator("p").filter({ hasText: words.overview })).toBeVisible();
+      await expect(raise).toHaveAttribute("aria-expanded", "false");
 
       if (round === 1) {
         // ⌘Z in the note takes back exactly the fill, ⇧⌘Z puts it back, and so does its line's Undo.

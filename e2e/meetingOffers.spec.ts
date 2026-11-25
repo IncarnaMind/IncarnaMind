@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
@@ -11,10 +12,11 @@ import {
   launchApp,
   motionSettled,
   openSettings,
+  recordMeeting,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  transcribeHere,
+  stopMeeting,
 } from "./app";
 
 /*
@@ -93,7 +95,7 @@ const clickNotification = (app: ElectronApplication, kind: "offer" | "ending", a
     [HOOKS, kind, action ?? null] as const,
   );
 
-/** As the first-recording sheet leaves a new User: Meetings set up, offers and the tray on. */
+/** Meetings in use on this device, with the offers and the tray turned on in Settings › General. */
 const setUpMeetings = async (window: Page) =>
   (await bridge(window)).evaluate((core) =>
     core.updateSettings({
@@ -228,8 +230,8 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await meetingStatuses(window)).toEqual([]);
 
       await clickNotification(app, "offer", 0);
-      const bar = window.getByTestId("meeting-bar");
-      await expect(bar).toHaveAttribute("data-status", "recording");
+      const control = window.getByTestId("meeting-foot");
+      await expect(control).toHaveAttribute("data-status", "recording");
       await expect.poll(() => notifications(app)).toEqual([]);
       await shot(window, `offer-taken-recording-${language}`);
 
@@ -237,10 +239,10 @@ for (const language of ["en", "zh-CN"] as const) {
       const line = window.getByTestId("meeting-line-call-ended");
       if (process.platform === "win32") {
         await expect(line).toHaveCount(0);
-        await expect(bar).toHaveAttribute("data-status", "recording");
+        await expect(control).toHaveAttribute("data-status", "recording");
         expect(await notifications(app)).toEqual([]);
         await shot(window, `offer-manual-stop-${language}`);
-        await bar.getByTestId("meeting-stop").click();
+        await stopMeeting(window);
       } else {
         await expect(line).toContainText(
           language === "en" ? "Did your meeting end?" : "会议结束了吗？",
@@ -363,7 +365,7 @@ test("a click on the notification itself records nothing: Home shows the offer, 
   expect(await notifications(app)).toHaveLength(1);
 
   await line.getByTestId("call-offer-take").click();
-  await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+  await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
   await expect(line).toHaveCount(0);
   await app.close();
 });
@@ -400,25 +402,27 @@ test("someone who set up Meetings before this version is asked once on Home, and
   await app.close();
 });
 
-test("someone setting up Meetings now reads that the offers turn on, and Home never asks", async () => {
+test("a first recording starts at once and turns nothing else on; Home then asks once to turn the offers on", async () => {
   const { app, window } = await launch();
   await dismissChatSetup(window);
-  await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-record-meeting").click();
-  await window.getByTestId("meeting-start-record").click();
-  const notice = window.getByTestId("meeting-notice");
-  // Windows can't notice calls yet (#2843): its sheet neither says nor turns on the offers.
-  const windows = process.platform === "win32";
-  await expect(notice).toBeVisible();
-  await expect(notice.getByTestId("meeting-notice-background")).toHaveCount(windows ? 0 : 1);
-  await transcribeHere(notice);
-  await notice.getByTestId("meeting-notice-start").click();
+  await recordMeeting(window);
   await expect
     .poll(() => deviceSettings(window))
-    .toMatchObject({ meetingNoticeAccepted: true, callOffers: !windows, keepRunning: !windows });
-  await window.getByTestId("meeting-stop").click();
+    .toMatchObject({ meetingNoticeAccepted: true, callOffers: false, keepRunning: false });
+  const loginItem = join(dataDir, "login-item.json");
+  expect(
+    existsSync(loginItem) ? JSON.parse(await readFile(loginItem, "utf8")) : { on: false },
+  ).toEqual({ on: false });
+  await stopMeeting(window);
   await window.getByTestId("sidebar-home").click();
   await expect(window.getByTestId("home")).toBeVisible();
-  await expect(window.getByTestId("call-offers-tip")).toHaveCount(0);
+  const tip = window.getByTestId("call-offers-tip");
+  // Windows can't notice calls yet (#2843): Home asks nothing there.
+  if (process.platform === "win32") {
+    await expect(tip).toHaveCount(0);
+  } else {
+    await expect(tip.getByTestId("call-offers-turn-on")).toBeVisible();
+  }
+  expect(await deviceSettings(window)).toMatchObject({ callOffers: false, keepRunning: false });
   await app.close();
 });

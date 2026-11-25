@@ -4,17 +4,17 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { parseClockTime } from "../src/shared/clock";
 import {
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   pointAndClick,
-  recordMeetingNow,
+  recordMeeting,
   removeDataFolder,
   runCommand,
   setLanguage,
   setWindowSize,
+  stopMeeting,
   turnOf,
   useLocalChatModel,
 } from "./app";
@@ -55,6 +55,7 @@ async function recordOnClose(app: ElectronApplication, window: Page, name: strin
 const WORDS = {
   en: {
     what: "Transcribed automatically. Names, numbers and “not” can be misheard.",
+    tell: "Tell everyone you’re recording.",
     whole:
       "Transcribed automatically. Names, numbers and “not” can be misheard. Click a word to play from there.",
     playHere: "Play from here",
@@ -71,6 +72,7 @@ const WORDS = {
   },
   "zh-CN": {
     what: "自动转写，人名、数字和“不”字可能听错。",
+    tell: "告诉所有人你正在录音。",
     whole: "自动转写，人名、数字和“不”字可能听错。点一个词，从那里开始播放。",
     playHere: "从这里播放",
     pause: "暂停（空格）",
@@ -126,7 +128,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await removeDataFolder(dataDir);
     });
 
-    // protects=while a saved Meeting's audio is kept, its words say "Play from here", the line at the Transcript's head says so, and a click plays from that word; while it records and once the audio is deleted the head line says only what a Transcript is, and a selection of the view never takes it: the player shows where it is within the clicked line, Space pauses and plays again from the line, and Esc closes it; Enter at a word splits the line, asks who speaks the rest, and one ⌘Z sets the line back; Right puts the caret on a line's words and Esc keeps the rest's Speaker; ⌘K splits and plays; once the audio is deleted words don't offer to play and nothing breaks; at 1,100 px in English and Chinese the player sits inside the Transcript; fails_when=a click doesn't play or plays from outside its line, Space scrolls instead of pausing, Enter adds to the note with a caret, the split asks nothing, Undo takes two steps, or a word offers to play once the audio is gone; no_claim=the sound itself (the app is muted), and word times from a cloud service, which the core tests cover.
+    // protects=while a saved Meeting's audio is kept, its words say "Play from here", the line at the Transcript sheet's head says so, and a click plays from that word; while it records the sheet's line only asks the User to tell everyone and no word offers to play; once the audio is deleted the head line says only what a Transcript is, and a selection of the sheet never takes it: the player shows where it is within the clicked line, Space pauses and plays again from the line, and Esc closes it; Enter at a word splits the line, asks who speaks the rest, and one ⌘Z sets the line back; Right puts the caret on a line's words and Esc keeps the rest's Speaker; ⌘K splits and plays; once the audio is deleted words don't offer to play and nothing breaks; at 1,100 px in English and Chinese the player sits inside the Transcript; fails_when=a click doesn't play or plays from outside its line, Space scrolls instead of pausing, Enter adds to the note with a caret, the split asks nothing, Undo takes two steps, or a word offers to play once the audio is gone; no_claim=the sound itself (the app is muted), and word times from a cloud service, which the core tests cover.
     test("a word plays from where it was said, and a line splits at a word with one Undo", async () => {
       const words = WORDS[language];
       const { app, window } = await launchApp(dataDir, {
@@ -138,32 +140,32 @@ for (const language of ["en", "zh-CN"] as const) {
       await dismissChatSetup(window);
       await useLocalChatModel(window);
       await setLanguage(window, language);
-      await window.evaluate(async () => {
-        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-      });
 
-      const bar = await recordMeetingNow(window);
+      await recordMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.transcript?.lines ?? 0, {
           timeout: 30_000,
         })
         .toBeGreaterThanOrEqual(14);
 
-      // While it records, the Transcript says what it is and nothing of playing.
-      const transcript = window.getByTestId("meeting-note-transcript");
-      const headLine = transcript.getByTestId("transcript-head");
+      // While it records, the sheet's one line asks the User to tell everyone, and says nothing
+      // of playing (#3762).
+      const transcript = window.getByTestId("meeting-sheet");
+      const headLine = transcript.getByTestId("transcript-head").filter({ visible: true });
       await runCommand(window, "meeting.showTranscript", words.showTranscript);
       await expect(transcript.getByTestId("transcript-line").first()).toBeVisible();
-      await expect(headLine).toHaveText(words.what);
+      await expect(transcript.getByText(words.tell, { exact: true })).toBeVisible();
+      await expect(headLine).toHaveCount(0);
+      await expect(transcript.locator(`[data-word][title="${words.playHere}"]`)).toHaveCount(0);
       await shot(window, `transcript-head-recording-${language}`);
       await runCommand(window, "meeting.showNotes", words.showNotes);
+      await expect(transcript).toBeHidden();
 
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.fill?.state, { timeout: 30_000 })
         .toBe("filled");
-      await closeFirstFillPopover(window);
+      await expect(transcript).toBeHidden();
       await runCommand(window, "meeting.showTranscript", words.showTranscript);
       const lines = transcript.getByTestId("transcript-line");
       await expect(lines.first()).toBeVisible();
