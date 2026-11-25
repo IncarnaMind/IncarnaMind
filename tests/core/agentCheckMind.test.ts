@@ -552,6 +552,53 @@ describe("an outside agent has its Note checked (#3317)", () => {
       canBeCited: tableRows.notYetCited,
       ownViews: tableRows.ownViews,
     });
+
+    // A cantCheck sentence before a toCheck sentence stays first in notChecked (Note order).
+    const uncheckable = "See Smith v. Harbor Board for the mooring rule.";
+    editMind(client, (blocks) => [
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: uncheckable,
+            marks: [
+              {
+                type: "claimCheck",
+                attrs: {
+                  id: "cant-check-first",
+                  request: "request-1",
+                  action: "find-support",
+                  state: "not-checked",
+                  reason: "cited-case-missing",
+                  detail: null,
+                  providerId: null,
+                  modelId: null,
+                  text: uncheckable,
+                  evidence: null,
+                  says: null,
+                  unsupported: null,
+                  calculation: null,
+                  citedCaseUnchecked: true,
+                  citedCaseFound: false,
+                  scope: { folderId: coast.id, widened: false },
+                  versions: [{ documentId: tides.id, contentHash: tides.contentHash }],
+                  excluded: [],
+                  checkedAt: "2026-11-18T09:00:00.000Z",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      ...blocks,
+    ]);
+    await client.settled();
+    const ordered = structured<Checked>(await check(agent, mindId));
+    const notCheckedSentences = ordered.claims
+      .filter((claim) => claim.group === "notChecked")
+      .map((claim) => claim.sentence);
+    expect(notCheckedSentences).toEqual([uncheckable, UNREAD]);
   });
 
   // protects=nothing of a Note goes to a service the User took checks back from, and an agent's call never puts a question on their screen (ADR-0022); fails_when=check_mind raises the consent dialog or sends while checks aren't allowed there
