@@ -5,7 +5,7 @@
  * of its call, and the answers it suggests, each a change to its permissions with where it would
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
-import { existsSync, readlinkSync, realpathSync } from "node:fs";
+import { existsSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
@@ -21,11 +21,14 @@ export interface Places {
   home: string;
 }
 
+// On Windows the system's own resolver also gives a short 8.3 name (CLAUDE~1) its long one.
+const realpath = process.platform === "win32" ? realpathSync.native : realpathSync;
+
 /** Where `path` really is, links followed: its nearest folder that is there, resolved, and the rest. */
 function realOf(path: string): string | null {
   for (let at = path, rest = ""; ; ) {
     try {
-      return join(realpathSync(at), rest);
+      return join(realpath(at), rest);
     } catch {
       const up = dirname(at);
       if (up === at) return null;
@@ -226,32 +229,60 @@ const STEERING_FILES: ReadonlySet<string> = new Set([
   ".claude.json",
 ]);
 
+/**
+ * A part of a path as the disk finds it: letters a disk takes as others folded (the long s, ſ, is
+ * an s), and, as Windows opens a file, without the dots and spaces that end it or a stream named
+ * after a colon (CLAUDE.md::$DATA is CLAUDE.md).
+ */
+const asFound = (part: string) =>
+  part
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/:.*$/, "")
+    .replace(/[. ]+$/, "");
+
 const steersAsNamed = (path: string) => {
-  const parts = path.split(/[\\/]/).map((part) => part.toLowerCase());
+  const parts = path.split(/[\\/]/).map(asFound);
   return STEERING_FILES.has(parts.at(-1) ?? "") || parts.includes(".claude");
 };
+
+/** Whether `path` is a file with other names: a hard link to it can be one Claude Code reads. */
+function linkedHard(path: string): boolean {
+  try {
+    const stat = statSync(path);
+    return stat.isFile() && stat.nlink > 1;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
  * skills and its memory (under a .claude folder), and servers (.mcp.json, .claude.json). Written in
  * the conversation's folder, or in its memory, it steers every later request there. Checked as
- * named and where it really is from `cwd`, since a link by another name can lead to one.
+ * named, where it really is from `cwd` (a symbolic link by another name can lead to one), and, for
+ * a file with other names (a hard link), as one, since which of them it is can't be told cheaply.
  */
 function steers(path: string, cwd: string): boolean {
   if (steersAsNamed(path)) return true;
-  const real = leadsTo(resolve(cwd, path));
-  return real !== null && steersAsNamed(real);
+  const whole = resolve(cwd, path);
+  const real = leadsTo(whole);
+  return (real !== null && steersAsNamed(real)) || linkedHard(real ?? whole);
 }
 
 const STEERING_NAMES =
   /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|(?:^|[^\w.-])\.claude(?:$|[^\w.-])/i;
 
 /**
- * A command that names one of those files or folders, in any case and with the quotes and
- * backslashes a shell takes out of a name taken out first: it may write one. A command that writes
- * one without naming it, a script or a name it builds, is not seen.
+ * A command that names one of those files or folders, in any case, its letters folded as a disk
+ * does, with the quotes and backslashes a shell takes out of a name taken out too: it may write
+ * one. A command that writes one without naming it, as a script, a pattern, a name it builds or an
+ * archive it unpacks, is not seen.
  */
-const namesSteering = (command: string) => STEERING_NAMES.test(command.replace(/["'\\]/g, ""));
+const namesSteering = (command: string) => {
+  const folded = command.normalize("NFKC");
+  return STEERING_NAMES.test(folded) || STEERING_NAMES.test(folded.replace(/["'\\]/g, ""));
+};
 
 /** The id IncarnaMind's PreToolUse hook is registered under, in `initialize`. */
 export const STEERING_HOOK = "incarnamind-steering";

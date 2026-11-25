@@ -8890,6 +8890,9 @@ export const zhCN = {
   "ownAsk.here.folder": "这个对话的文件夹",
   // Between the parts of one lasting answer, each after the first starting in lower case.
   "ownAsk.lasting.then": "；",
+  "ownAsk.lasting.short.request": "本次请求内不再询问",
+  "ownAsk.lasting.short.conversation": "本对话内不再询问",
+  "ownAsk.lasting.short.everywhere": "在所有地方不再询问",
   "ownAsk.lasting.rules.request": "本次请求内不再询问：{what}",
   "ownAsk.lasting.rules.conversation": "本对话内不再询问：{what}",
   "ownAsk.lasting.rules.everywhere": "在所有地方不再询问：{what}",

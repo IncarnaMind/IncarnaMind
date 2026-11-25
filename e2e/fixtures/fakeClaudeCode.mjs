@@ -17,9 +17,10 @@
 // Code 2.1.331 does: "ask-command", "ask-write", "ask-change", "ask-read", "ask-web", "ask-search"
 // and "ask-tool" ask one question of that kind, act on the answer and say how it went, as do
 // "ask-steers" (it writes its own CLAUDE.md), "ask-long" (a command of fifteen lines whose last
-// holds a right-to-left mark) and "ask-background" (a command in the background and out of its
-// sandbox); "ask-twice" asks for a command, then runs it again, asking again only without a rule
-// it was given;
+// holds a right-to-left mark), "ask-described" (a command whose own words for it run long) and
+// "ask-background" (a command in the background and out of its sandbox); "ask-twice" asks for a
+// command, then runs it again, asking again only without a rule it was given. Asked in Chinese, it
+// says its own words in Chinese;
 // "ask-two" asks two questions at once; "ask-child" starts a process that leads its own group, writes its own id and that
 // process's to the mode file's ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
 // with no input; "ask-other" asks for a tool the host can't show; "auto" runs a command unasked,
@@ -117,6 +118,8 @@ const ask = (request) =>
   });
 /** The rules the host kept for this process, as Claude Code keeps a "session" answer. */
 const kept = [];
+/** Whether the request was asked in Chinese: the AI then says its own words in Chinese. */
+let chinese = false;
 
 createInterface({ input: process.stdin }).on("line", async (line) => {
   const message = JSON.parse(line);
@@ -166,6 +169,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
   if (message.type !== "user") return;
+  chinese = /\p{Script=Han}/u.test(String(message.message?.content ?? ""));
   if (mode === "lost" && args.includes("--resume")) {
     say({ type: "result", subtype: "error_during_execution", is_error: true });
     process.exit(1);
@@ -427,6 +431,15 @@ const QUESTIONS = {
       { type: "setMode", mode: "acceptEdits", destination: "session" },
     ],
   },
+  described: {
+    tool_name: "Bash",
+    input: {
+      command: "python3 late_crossings.py --all",
+      description:
+        "Count every late crossing in the delays file for each weekday of the autumn timetable, group them by crossing time and by the reason the harbour log gives, and write the counts, with the share of each crossing that left late, to a table in late.md in this folder, so the note can cite them.",
+    },
+    permission_suggestions: [],
+  },
   write: {
     tool_name: "Write",
     input: {
@@ -526,10 +539,20 @@ const QUESTIONS = {
   },
 };
 
+/** The AI's own words for a command, as it says them to a request asked in Chinese. */
+const DESCRIBED_ZH = {
+  "Count the late 07:40 crossings and write them to late.md": "统计 7:40 晚点的航班，写进 late.md",
+};
+
 let calls = 0;
 /** One call of a tool of its own: asked about when `asking`, then done or not as the answer says. */
-async function ownCall(question, asking = true) {
+async function ownCall(given, asking = true) {
   const id = `toolu_${++calls}`;
+  const described = given.input?.description;
+  const question =
+    chinese && described && DESCRIBED_ZH[described]
+      ? { ...given, input: { ...given.input, description: DESCRIBED_ZH[described] } }
+      : given;
   say({
     type: "assistant",
     message: {
@@ -622,9 +645,19 @@ async function askingModes() {
     return;
   }
   const kind = mode.slice("ask-".length);
-  sayText(readOr(`${modeFile}.said`, "Looking at the late crossings."));
+  sayText(
+    readOr(`${modeFile}.said`, chinese ? "正在查看晚点的航班。" : "Looking at the late crossings."),
+  );
   const allowed = await ownCall(QUESTIONS[kind]);
-  end(allowed ? "Done with my own tools." : "You said no, so I didn't do it.");
+  end(
+    chinese
+      ? allowed
+        ? "用我自己的工具做好了。"
+        : "你拒绝了，所以我没有做。"
+      : allowed
+        ? "Done with my own tools."
+        : "You said no, so I didn't do it.",
+  );
 }
 
 function sayText(text) {

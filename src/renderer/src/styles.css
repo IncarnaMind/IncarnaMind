@@ -3201,8 +3201,24 @@
   .own-ask-content {
     color: var(--color-ink-secondary);
   }
-  /* The AI's own words for its command, as its prompt prints them under it. */
+  /* The AI's own words for its command, the card's main line; the command under them, grey. */
   .own-ask-description {
+    margin: 0;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  .own-ask-value.own-ask-value--under {
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--color-ink-secondary);
+    &:not([data-all]) {
+      max-height: calc(12 * 16px + 12px);
+    }
+  }
+  /* Everything a lasting answer of several parts grants, under its button. */
+  .own-ask-grants {
     margin: 0;
     font-size: 12px;
     line-height: 18px;

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type KeyboardEvent,
   type RefObject,
   useId,
@@ -6,18 +7,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  NoteAction,
-  NoteAnswer,
-  NoteAnswered,
-  NoteQuestion,
-  NoteRule,
-  NoteSuggested,
-} from "../../../../core/api";
+import type { NoteAction, NoteAnswer, NoteAnswered, NoteQuestion } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { useLanguage, useT } from "../../i18n";
 import { answerInNote, focusNoteAsk } from "../../ownAiInNote";
 import { visible } from "../../visibleText";
+import { lastingWords } from "./ownAskWords";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -132,19 +127,24 @@ function Whole({ value, testId, className }: { value: string; testId: string; cl
 }
 
 /**
- * A value as the User must read it: a command or a search whole; a path or an address with its
- * last part whole and its start cut to two lines until Show all.
+ * A value as the User must read it: a command or a search whole, a command under the AI's own words
+ * for it when it gave some (two lines of them until Show all); a path or an address with its last
+ * part whole and its start cut to two lines until Show all.
  */
 function Value({ action }: { action: NoteAction }) {
   if (action.kind === "command" || action.kind === "search") {
     return (
       <>
-        <Whole value={action.value} testId="own-ask-value" className="own-ask-value--command" />
         {action.description && (
-          <p data-testid="own-ask-description" className="own-ask-description">
-            {visible(action.description)}
+          <p data-testid="own-ask-description" className="own-ask-description own-ask-text">
+            <span className="own-clamp own-clamp--2">{visible(action.description)}</span>
           </p>
         )}
+        <Whole
+          value={action.value}
+          testId="own-ask-value"
+          className={`own-ask-value--command ${action.description ? "own-ask-value--under" : ""}`}
+        />
       </>
     );
   }
@@ -170,64 +170,6 @@ function sizeWords(t: Translate, size: NonNullable<NoteAction["size"]>) {
   return t(`${key}.${size.count === 1 ? "one" : "other"}` as MessageKey, { count: size.count });
 }
 
-/** What a rule covers, as Claude Code's own prompt names it after "don't ask again for". */
-function ruleWords(t: Translate, rule: NoteRule): string {
-  if (rule.kind === "commands") return t("ownAsk.what.commands", { start: visible(rule.start) });
-  if (rule.kind === "command") return t("ownAsk.what.command", { value: visible(rule.value) });
-  if (rule.kind === "site") return visible(rule.host);
-  if (rule.kind === "tool") {
-    return t("ownAsk.what.tool", { tool: visible(rule.tool), server: visible(rule.server) });
-  }
-  if (rule.kind === "searches") return t("ownAsk.what.searches");
-  if (rule.kind === "files") {
-    const folder = rule.folder === "" ? t("ownAsk.here.folder") : visible(rule.folder);
-    return t(rule.change ? "ownAsk.what.changes" : "ownAsk.what.reads", { folder });
-  }
-  return visible(rule.rule);
-}
-
-/** One suggested answer in a few words, ending with where it is kept. */
-function suggestedWords(t: Translate, language: string, suggested: NoteSuggested): string {
-  if (suggested.kind === "rules") {
-    const what = new Intl.ListFormat(language, { type: "conjunction" }).format(
-      suggested.rules.map((rule) => ruleWords(t, rule)),
-    );
-    return t(`ownAsk.lasting.rules.${suggested.kept}`, { what });
-  }
-  if (suggested.kind === "mode" && suggested.mode === "acceptEdits") {
-    return t(`ownAsk.lasting.edits.${suggested.kept}`);
-  }
-  if (suggested.kind === "mode") {
-    return t(`ownAsk.lasting.mode.${suggested.kept}`, { mode: visible(suggested.mode) });
-  }
-  if (suggested.kind === "folders") {
-    const what = new Intl.ListFormat(language, { type: "conjunction" }).format(
-      suggested.folders.map((folder) =>
-        folder === "" ? t("ownAsk.here.folder") : visible(folder),
-      ),
-    );
-    return t(`ownAsk.lasting.folders.${suggested.kept}`, { what });
-  }
-  return t(`ownAsk.lasting.other.${suggested.kept}`, { text: visible(suggested.text) });
-}
-
-/** The order Claude Code's own "don't ask again" names what it applies: its rules first. */
-const FIRST: Record<NoteSuggested["kind"], number> = { rules: 0, mode: 1, folders: 2, other: 3 };
-
-/**
- * Claude Code's own "don't ask again", as its button says it: everything it applies, each with
- * where it is kept, never cut, since the User agrees to what it reads.
- */
-function lastingWords(t: Translate, language: string, suggested: readonly NoteSuggested[]) {
-  return [...suggested]
-    .sort((a, b) => FIRST[a.kind] - FIRST[b.kind])
-    .map((each, index) => {
-      const said = suggestedWords(t, language, each);
-      return index === 0 ? said : `${said.charAt(0).toLocaleLowerCase(language)}${said.slice(1)}`;
-    })
-    .join(t("ownAsk.lasting.then"));
-}
-
 /**
  * Whether the answers need more than one row: measured as one row, whatever they show now. Then
  * they stand one under another, as Claude Code lists them.
@@ -242,7 +184,7 @@ function useStacked(toolbar: RefObject<HTMLDivElement | null>, key: string) {
       const was = element.dataset.stacked;
       delete element.dataset.stacked;
       const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
-      const buttons = [...element.children];
+      const buttons = [...element.querySelectorAll("button")];
       const needed =
         buttons.reduce((sum, each) => sum + each.getBoundingClientRect().width, 0) +
         gap * Math.max(0, buttons.length - 1);
@@ -298,8 +240,9 @@ export function QuestionCard({
     `${question.id}\u0000${all}`,
   );
   const lasting = lastingWords(t, language, question.suggested);
+  const grantsId = useId();
   const toolbar = useRef<HTMLDivElement>(null);
-  const stacked = useStacked(toolbar, `${question.id}\u0000${language}\u0000${lasting}`);
+  const stacked = useStacked(toolbar, `${question.id}\u0000${language}\u0000${lasting.label}`);
   // On one row Deny comes first and Allow once last, as the app's approval cards put them; one under
   // another, as Claude Code lists them: Allow once, its "don't ask again", Deny.
   const answers = stacked ? [...question.answers].reverse() : question.answers;
@@ -442,31 +385,46 @@ export function QuestionCard({
           className="own-ask-answers"
         >
           {answers.map((kind) => (
-            <button
-              key={kind}
-              ref={(element) => {
-                if (element) buttons.current.set(kind, element);
-                else buttons.current.delete(kind);
-              }}
-              type="button"
-              tabIndex={kind === at ? 0 : -1}
-              data-testid={`own-ask-${kind}`}
-              onFocus={() => setAt(kind)}
-              onClick={() => answer(kind)}
-              className={`approval-button ${
-                kind === "once"
-                  ? "approval-button--primary"
-                  : kind === "deny"
-                    ? "approval-button--ghost"
-                    : ""
-              }`}
-            >
-              {kind === "suggested" ? lasting : t(`ownAsk.answer.${kind}`)}
-            </button>
+            <Fragment key={kind}>
+              <button
+                ref={(element) => {
+                  if (element) buttons.current.set(kind, element);
+                  else buttons.current.delete(kind);
+                }}
+                type="button"
+                tabIndex={kind === at ? 0 : -1}
+                data-testid={`own-ask-${kind}`}
+                aria-describedby={kind === "suggested" && lasting.grants ? grantsId : undefined}
+                onFocus={() => setAt(kind)}
+                onClick={() => answer(kind)}
+                className={`approval-button ${
+                  kind === "once"
+                    ? "approval-button--primary"
+                    : kind === "deny"
+                      ? "approval-button--ghost"
+                      : ""
+                }`}
+              >
+                {kind === "suggested" ? lasting.label : t(`ownAsk.answer.${kind}`)}
+              </button>
+              {stacked && kind === "suggested" && lasting.grants && (
+                <Grants id={grantsId} grants={lasting.grants} />
+              )}
+            </Fragment>
           ))}
         </div>
+        {!stacked && lasting.grants && <Grants id={grantsId} grants={lasting.grants} />}
       </div>
     </fieldset>
+  );
+}
+
+/** Everything a lasting answer of several parts grants, whole, under its button. */
+function Grants({ id, grants }: { id: string; grants: string }) {
+  return (
+    <p id={id} data-testid="own-ask-grants" className="own-ask-grants">
+      {grants}
+    </p>
   );
 }
 
@@ -481,6 +439,9 @@ function InputRow({ name, value }: { name: string; value: string }) {
   );
 }
 
+const lastingSaid = ({ label, grants }: { label: string; grants: string | null }) =>
+  grants ? `${label} (${grants})` : label;
+
 /** What a screen reader hears as a question arrives, said by the live line it joins. */
 export function useAnnounce(question: NoteQuestion | undefined, agent: string): string {
   const t = useT();
@@ -494,7 +455,7 @@ export function useAnnounce(question: NoteQuestion | undefined, agent: string): 
     answers: question.answers
       .map((kind) =>
         kind === "suggested"
-          ? lastingWords(t, language, question.suggested)
+          ? lastingSaid(lastingWords(t, language, question.suggested))
           : t(`ownAsk.answer.${kind}`),
       )
       .join(language === "zh-CN" ? "、" : ", "),

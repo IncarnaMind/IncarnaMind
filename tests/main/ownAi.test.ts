@@ -7,6 +7,7 @@ import { spawn as spawnNode } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -1134,120 +1135,176 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), where a link by another name really leads, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
-  it.skipIf(process.platform === "win32")(
-    "knows a steering file in any case, through a link, in a command spelt another way, and the User's own servers",
-    async () => {
-      const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
-      await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
-      await mkdir(join(work, ".claude"));
-      await symlink(join(work, "CLAUDE.md"), join(work, "notes.md"));
-      await symlink(join(work, ".claude"), join(work, "docs"));
-      await symlink("CLAUDE.local.md", join(work, "plan.md"));
-      const cases: [string, Record<string, unknown>, string][] = [
-        [
-          "claude.md in lower case",
-          {
-            tool_name: "Write",
-            tool_input: { file_path: join(work, "claude.md"), content: "x" },
+  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (ſ is s), as Windows opens it (dots or spaces at a part's end, a stream after a colon, an 8.3 short name), where a symbolic link by another name really leads, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
+  it("knows a steering file in any case, as Windows spells it, through a link, in a command spelt another way, and the User's own servers", async () => {
+    const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+    await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
+    await mkdir(join(work, ".claude"));
+    await symlink(join(work, "CLAUDE.md"), join(work, "notes.md"), "file");
+    await symlink(join(work, ".claude"), join(work, "docs"), "junction");
+    await symlink("CLAUDE.local.md", join(work, "plan.md"), "file");
+    await link(join(work, "CLAUDE.md"), join(work, "copy.md"));
+    // Windows gives the folder a short 8.3 name where the disk keeps them.
+    const short = process.platform === "win32" && existsSync(join(work, "CLAUDE~1"));
+    const cases: [string, Record<string, unknown>, string][] = [
+      ...(short
+        ? [
+            [
+              "CLAUDE~1/settings.local.json, .claude's short name",
+              {
+                tool_name: "Write",
+                tool_input: {
+                  file_path: join(work, "CLAUDE~1", "settings.local.json"),
+                  content: "{}",
+                },
+              },
+              "ask",
+            ] as [string, Record<string, unknown>, string],
+          ]
+        : []),
+      [
+        "CLAUDE.md. with a dot at its end",
+        { tool_name: "Write", tool_input: { file_path: join(work, "CLAUDE.md."), content: "x" } },
+        "ask",
+      ],
+      [
+        ".claude with a space at its end",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, ".claude ", "settings.json"), content: "{}" },
+        },
+        "ask",
+      ],
+      [
+        "CLAUDE.md::$DATA, its stream",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "CLAUDE.md::$DATA"), content: "x" },
+        },
+        "ask",
+      ],
+      [
+        ".claude.json with a long s",
+        { tool_name: "Write", tool_input: { file_path: "/h/.claude.jſon", content: "{}" } },
+        "ask",
+      ],
+      [
+        "copy.md, a hard link to CLAUDE.md",
+        { tool_name: "Write", tool_input: { file_path: "copy.md", content: "x" }, cwd: work },
+        "ask",
+      ],
+      [
+        ".mcp.json with a long s, in a command",
+        { tool_name: "Bash", tool_input: { command: "cp servers.json .mcp.jſon" } },
+        "ask",
+      ],
+      [
+        "a Windows path into .claude, in a command",
+        { tool_name: "Bash", tool_input: { command: "copy x.json .claude\\settings.json" } },
+        "ask",
+      ],
+      [
+        "claude.md in lower case",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "claude.md"), content: "x" },
+        },
+        "ask",
+      ],
+      [
+        ".Claude/settings.local.json",
+        {
+          tool_name: "Write",
+          tool_input: {
+            file_path: join(work, ".Claude", "settings.local.json"),
+            content: "{}",
           },
-          "ask",
-        ],
-        [
-          ".Claude/settings.local.json",
-          {
-            tool_name: "Write",
-            tool_input: {
-              file_path: join(work, ".Claude", "settings.local.json"),
-              content: "{}",
-            },
+        },
+        "ask",
+      ],
+      [
+        "CLAUDE.LOCAL.MD",
+        {
+          tool_name: "Edit",
+          tool_input: {
+            file_path: join(work, "CLAUDE.LOCAL.MD"),
+            old_string: "a",
+            new_string: "b",
           },
-          "ask",
-        ],
-        [
-          "CLAUDE.LOCAL.MD",
-          {
-            tool_name: "Edit",
-            tool_input: {
-              file_path: join(work, "CLAUDE.LOCAL.MD"),
-              old_string: "a",
-              new_string: "b",
-            },
-          },
-          "ask",
-        ],
-        [
-          "notes.md, a link to CLAUDE.md",
-          { tool_name: "Write", tool_input: { file_path: "notes.md", content: "x" }, cwd: work },
-          "ask",
-        ],
-        [
-          "plan.md, a link to CLAUDE.local.md, not there yet",
-          { tool_name: "Write", tool_input: { file_path: "plan.md", content: "x" }, cwd: work },
-          "ask",
-        ],
-        [
-          "docs/settings.json, docs a link to .claude",
-          {
-            tool_name: "Write",
-            tool_input: { file_path: join(work, "docs", "settings.json"), content: "{}" },
-            cwd: work,
-          },
-          "ask",
-        ],
-        [
-          "~/.claude.json",
-          { tool_name: "Write", tool_input: { file_path: "/h/.claude.json", content: "{}" } },
-          "ask",
-        ],
-        [
-          "mv draft.md claude.md",
-          { tool_name: "Bash", tool_input: { command: "mv draft.md claude.md" } },
-          "ask",
-        ],
-        [
-          "quotes inside the name",
-          { tool_name: "Bash", tool_input: { command: 'mv draft.md CLA"UDE".md' } },
-          "ask",
-        ],
-        [
-          "a backslash inside the name",
-          { tool_name: "Bash", tool_input: { command: "cp draft.md CLAUDE\\.md" } },
-          "ask",
-        ],
-        [
-          "a redirect into .claude",
-          { tool_name: "Bash", tool_input: { command: "echo {} >.claude/settings.json" } },
-          "ask",
-        ],
-        [
-          ".claude.json in a command",
-          { tool_name: "Bash", tool_input: { command: "cat servers.json > ~/.claude.json" } },
-          "ask",
-        ],
-        [
-          "notes.md, no link",
-          {
-            tool_name: "Write",
-            tool_input: { file_path: join(work, "crossings.md"), content: "x" },
-            cwd: work,
-          },
-          "goes on",
-        ],
-        [
-          "a .claudeignore",
-          { tool_name: "Bash", tool_input: { command: "touch .claudeignore" } },
-          "goes on",
-        ],
-      ];
-      const { answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(() =>
-        rm(work, { recursive: true, force: true }),
-      );
-      expect(cases.map(([name], index) => [name, answers[index]])).toEqual(
-        cases.map(([name, , said]) => [name, said]),
-      );
-    },
-  );
+        },
+        "ask",
+      ],
+      [
+        "notes.md, a link to CLAUDE.md",
+        { tool_name: "Write", tool_input: { file_path: "notes.md", content: "x" }, cwd: work },
+        "ask",
+      ],
+      [
+        "plan.md, a link to CLAUDE.local.md, not there yet",
+        { tool_name: "Write", tool_input: { file_path: "plan.md", content: "x" }, cwd: work },
+        "ask",
+      ],
+      [
+        "docs/settings.json, docs a link to .claude",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "docs", "settings.json"), content: "{}" },
+          cwd: work,
+        },
+        "ask",
+      ],
+      [
+        "~/.claude.json",
+        { tool_name: "Write", tool_input: { file_path: "/h/.claude.json", content: "{}" } },
+        "ask",
+      ],
+      [
+        "mv draft.md claude.md",
+        { tool_name: "Bash", tool_input: { command: "mv draft.md claude.md" } },
+        "ask",
+      ],
+      [
+        "quotes inside the name",
+        { tool_name: "Bash", tool_input: { command: 'mv draft.md CLA"UDE".md' } },
+        "ask",
+      ],
+      [
+        "a backslash inside the name",
+        { tool_name: "Bash", tool_input: { command: "cp draft.md CLAUDE\\.md" } },
+        "ask",
+      ],
+      [
+        "a redirect into .claude",
+        { tool_name: "Bash", tool_input: { command: "echo {} >.claude/settings.json" } },
+        "ask",
+      ],
+      [
+        ".claude.json in a command",
+        { tool_name: "Bash", tool_input: { command: "cat servers.json > ~/.claude.json" } },
+        "ask",
+      ],
+      [
+        "notes.md, no link",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "crossings.md"), content: "x" },
+          cwd: work,
+        },
+        "goes on",
+      ],
+      [
+        "a .claudeignore",
+        { tool_name: "Bash", tool_input: { command: "touch .claudeignore" } },
+        "goes on",
+      ],
+    ];
+    const { answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(() =>
+      rm(work, { recursive: true, force: true }),
+    );
+    expect(cases.map(([name], index) => [name, answers[index]])).toEqual(
+      cases.map(([name, , said]) => [name, said]),
+    );
+  });
 
   // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
   it("allows a call of IncarnaMind's own without asking", async () => {

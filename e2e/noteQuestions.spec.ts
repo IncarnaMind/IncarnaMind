@@ -198,19 +198,26 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await expect(card.locator(".approval-title")).toHaveText("Run a command");
     // As Claude Code's own prompt: what it wants to do, the thing itself, the answers.
     await expect(card.locator(".approval-explanation")).toHaveCount(0);
+    // The AI's own words for the command lead; the command, whole, under them.
+    const described = card.getByTestId("own-ask-description");
+    await expect(described).toHaveText(DESCRIBED);
     await expect(card.getByTestId("own-ask-value")).toHaveText(COMMAND);
-    // Under it, the AI's own words for it, as Claude Code's prompt prints them.
-    await expect(card.getByTestId("own-ask-description")).toHaveText(DESCRIBED);
+    expect((await described.boundingBox())?.y ?? 0).toBeLessThan(
+      (await card.getByTestId("own-ask-value").boundingBox())?.y ?? 0,
+    );
     // Where a command runs can't be told from it.
     await expect(card.getByTestId("own-ask-where")).toHaveCount(0);
-    // Claude Code's own three choices, its "don't ask again" saying all it applies, never cut: too
-    // wide for one row, they stand one under another as Claude Code lists them.
+    // Claude Code's own three choices; its "don't ask again" of three parts is a short button
+    // with every part, whole, in a line under it.
     expect(await answersOf(card)).toEqual([
       "Allow once",
-      "Don’t ask again for python3 late_crossings.py commands in this conversation; allow all edits for this request; allow access to this conversation’s folder for this request",
+      "Don’t ask again in this conversation",
       "Deny",
     ]);
-    expect(await stackedOf(card)).toBe(true);
+    const grants =
+      "Don’t ask again for python3 late_crossings.py commands in this conversation; allow all edits for this request; allow access to this conversation’s folder for this request";
+    await expect(card.getByTestId("own-ask-grants")).toHaveText(grants);
+    await expect(card.getByTestId("own-ask-suggested")).toHaveAccessibleDescription(grants);
     expect(await card.getByTestId("own-ask-suggested").getAttribute("title")).toBeNull();
     await expect(box.getByTestId("note-ask-pill")).toContainText("Waiting for your approval");
     await expect(input).toBeFocused();
@@ -221,7 +228,7 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     // answers.
     await window.keyboard.press("Shift+Tab");
     await expect(card.getByTestId("own-ask-deny")).toBeFocused();
-    await window.keyboard.press("ArrowUp");
+    await window.keyboard.press((await stackedOf(card)) ? "ArrowUp" : "ArrowRight");
     await expect(card.getByTestId("own-ask-suggested")).toBeFocused();
     await window.keyboard.press("Escape");
     await expect(input).toBeFocused();
@@ -288,6 +295,7 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
         "Didn’t use",
       ],
       ["long", "command", "Run a command", ["Allow once", "Deny"], "deny", "Didn’t run"],
+      ["described", "command", "Run a command", ["Allow once", "Deny"], "deny", "Didn’t run"],
       ["background", "command", "Run a command", ["Allow once", "Deny"], "deny", "Didn’t run"],
     ];
     for (const [kind, shown, title, offered, answer, did] of kinds) {
@@ -297,6 +305,28 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
       await expect(card).toHaveAttribute("data-kind", shown);
       await expect(card.locator(".approval-title")).toHaveText(title);
       expect(await answersOf(card)).toEqual(offered);
+      // One thing granted is the button's own words, with no line under it.
+      await expect(card.getByTestId("own-ask-grants")).toHaveCount(0);
+      // A command the AI gave no words for leads with the command itself.
+      if (kind === "long" || kind === "background") {
+        await expect(card.getByTestId("own-ask-description")).toHaveCount(0);
+      }
+      if (kind === "described") {
+        // Its words run long: two lines of them, then Show all shows the rest.
+        const words = card.getByTestId("own-ask-description");
+        await expect(words).toContainText("Count every late crossing");
+        const clamp = words.locator(".own-clamp");
+        expect(await clamp.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+          true,
+        );
+        await pointAndClick(window, card.getByTestId("own-ask-show-all"));
+        expect(
+          await clamp.evaluate((element) => element.scrollHeight - element.clientHeight),
+        ).toBeLessThanOrEqual(1);
+        await expect(card.getByTestId("own-ask-value")).toHaveText(
+          "python3 late_crossings.py --all",
+        );
+      }
       if (kind === "write") {
         await expect(card.getByTestId("own-ask-value")).toHaveText(
           join("drafts", "late-crossings.md"),

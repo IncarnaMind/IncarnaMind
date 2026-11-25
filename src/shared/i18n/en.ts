@@ -9465,6 +9465,10 @@ export const en = {
   "ownAsk.here.folder": "this conversation’s folder",
   // Between the parts of one lasting answer, each after the first starting in lower case.
   "ownAsk.lasting.then": "; ",
+  // A lasting answer of several parts, by the widest place it keeps them; the parts go under it.
+  "ownAsk.lasting.short.request": "Don’t ask again for this request",
+  "ownAsk.lasting.short.conversation": "Don’t ask again in this conversation",
+  "ownAsk.lasting.short.everywhere": "Don’t ask again anywhere",
   "ownAsk.lasting.rules.request": "Don’t ask again for {what} for this request",
   "ownAsk.lasting.rules.conversation": "Don’t ask again for {what} in this conversation",
   "ownAsk.lasting.rules.everywhere": "Don’t ask again for {what} anywhere",
