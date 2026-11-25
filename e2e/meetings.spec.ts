@@ -9,6 +9,8 @@ import type { FakeCapture } from "../src/core/meetings/fakeCapture";
 import type { TestHooks } from "../src/shared/testHooks";
 import {
   askInAssistant,
+  boxBottom,
+  boxOf,
   closeSettings,
   createDataFolder,
   dismissChatSetup,
@@ -772,23 +774,41 @@ test("notes during the call: typed lines get their time, Mark (⌘D) and Add to 
   await expect(typed).toHaveAttribute("data-meeting-time", /^\d+:\d{2}$/);
 });
 
+// protects=with the computer's sound denied, the line saying only the microphone is recorded shows over the meeting's control with the sheet folded, once, with the way to System Settings, and in the sheet instead while it is up (#3762); fails_when=the folded control says nothing of it, the line shows twice, or its action opens nothing
 test("with the computer's sound denied, a line says so and opens System Settings; the microphone records on", async () => {
   const { app, window } = await launchApp(dataDir, { computerSound: "denied" });
   await dismissChatSetup(window);
   const control = await recordMeeting(window);
 
-  // The line is in the sheet, under its head, with the way to System Settings.
+  // With the sheet folded, the line stands over the control, with the way to System Settings.
+  const said = window.getByTestId("meeting-line-system");
+  await expect(said).toContainText(
+    "Only your microphone is recorded: computer sound isn’t allowed.",
+  );
+  await expect(window.getByTestId("meeting-sheet")).toHaveCount(0);
+  await expect(said).toHaveCount(1);
+  expect(boxBottom(await boxOf(said))).toBeLessThanOrEqual((await boxOf(control)).y);
+  const fromCard = said.getByTestId("meeting-settings-system");
+  await fromCard.hover();
+  await fromCard.click();
+  await expect.poll(async () => (await fakeAudio(app)).settingsOpened).toEqual(["system"]);
+
+  // The line is in the sheet, under its head, with the way to System Settings, and over the
+  // control no more.
   const sheet = await openMeetingSheet(window);
   const line = sheet.getByTestId("meeting-line-system");
   await expect(line).toContainText(
     "Only your microphone is recorded: computer sound isn’t allowed.",
   );
+  await expect(said).toHaveCount(1);
   await expect(control).toHaveAttribute("data-status", "recording");
   await shot(window, "meeting-system-denied-en");
   const open = line.getByTestId("meeting-settings-system");
   await open.hover();
   await open.click();
-  await expect.poll(async () => (await fakeAudio(app)).settingsOpened).toEqual(["system"]);
+  await expect
+    .poll(async () => (await fakeAudio(app)).settingsOpened)
+    .toEqual(["system", "system"]);
 
   // Nothing tells the User from the others without the computer's sound: the lines read Speaker ?
   await openTranscriptBeside(window);
@@ -807,6 +827,10 @@ test("with the computer's sound denied, a line says so and opens System Settings
   await openMeetingSheet(window);
   await expect(line).toContainText("只录到了麦克风：没有录制电脑声音的权限。");
   await shot(window, "meeting-system-denied-zh");
+  await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+  await expect(said).toContainText("只录到了麦克风：没有录制电脑声音的权限。");
+  await expect(said).toHaveCount(1);
+  await openMeetingSheet(window);
   if (SCREENSHOTS) {
     await window.getByTestId("sidebar-footer").getByRole("button", { name: "设置" }).click();
     await showSettingsPage(window, "meetings");
@@ -938,7 +962,15 @@ test("killed mid-recording, IncarnaMind recovers the audio up to the last part a
   await expect(control.getByTestId("meeting-foot-resume-recording")).toBeVisible();
   // A recovered, paused Meeting opens no call help panel: it would open before the app's window.
   expect(app.windows()).toHaveLength(1);
+  // With the sheet folded, the line saying why it is paused stands over the control, with Resume.
+  const folded = window.getByTestId("meeting-line-interrupted");
+  await expect(folded).toContainText(
+    "IncarnaMind closed while recording. Everything up to 0:10 is saved.",
+  );
+  await expect(folded.getByTestId("meeting-line-resume")).toBeVisible();
+  expect(boxBottom(await boxOf(folded))).toBeLessThanOrEqual((await boxOf(control)).y);
   const sheet = await openMeetingSheet(window);
+  await expect(window.getByTestId("meeting-line-interrupted")).toHaveCount(1);
   const interrupted = sheet.getByTestId("meeting-line-interrupted");
   await expect(interrupted).toContainText(
     "IncarnaMind closed while recording. Everything up to 0:10 is saved.",
@@ -1092,6 +1124,43 @@ test("recording details: a slow engine, a fallback and a part that can't be save
   await expect(sheet).toBeHidden();
   await expect(stoppedUnsaved).toBeVisible();
   await shot(window, "meeting-line-unsaved-stopped-en");
+});
+
+// protects=with the sheet folded, audio that can't be saved while the call records is said over the meeting's control, once, in English and Chinese, without opening the sheet; with the sheet up, in the sheet instead (#3762); fails_when=nothing over the folded control says the audio isn't being saved, or the line shows twice; no_claim=the line once saving works again, which the recording details test covers.
+test("with the sheet folded, audio that can't be saved is said over the control, in English and Chinese", async () => {
+  test.setTimeout(120_000);
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await dismissChatSetup(window);
+  const control = await recordMeeting(window);
+  const [meeting] = await bridge(window);
+  const meetingId = meeting?.id ?? "";
+
+  // Once the first part is saved, a file stands where the meeting's folder was: the next can't be.
+  await expect.poll(() => partsOf(meetingId, "microphone").length, { timeout: 30_000 }).toBe(1);
+  const folder = join(dataDir, "meetings", meetingId);
+  await rename(folder, `${folder}-aside`);
+  await writeFile(folder, "");
+  try {
+    const said = window.getByTestId("meeting-line-save");
+    await expect(said).toContainText("Audio couldn’t be saved: ", { timeout: 30_000 });
+    await expect(window.getByTestId("meeting-sheet")).toHaveCount(0);
+    await expect(said).toHaveCount(1);
+    expect(boxBottom(await boxOf(said))).toBeLessThanOrEqual((await boxOf(control)).y);
+    await shot(window, "meeting-save-failed-folded-en");
+    await setLanguage(window, "zh-CN");
+    await expect(said).toContainText("无法保存音频：");
+    await shot(window, "meeting-save-failed-folded-zh");
+
+    // With the sheet up, the sheet says it, and nothing over the control does.
+    const sheet = await openMeetingSheet(window);
+    await expect(sheet.getByTestId("meeting-line-save")).toContainText("无法保存音频：");
+    await expect(said).toHaveCount(1);
+  } finally {
+    await rm(folder);
+    await rename(`${folder}-aside`, folder);
+  }
+  await stopMeeting(window);
 });
 
 test("asking during the call: the assistant listens to the live transcript, its Answer cites a time that opens the transcript there, quick asks start a conversation, and after Stop it is in the meeting's Folder", async () => {

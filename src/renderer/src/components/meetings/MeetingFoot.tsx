@@ -247,6 +247,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             </ProblemLine>
           </div>
         )}
+        {live && !open && <MeetingLines meeting={meeting} cards />}
         {tipShown && (
           <div role="status" data-testid="meeting-foot-tip" className="meeting-foot-tip">
             <span>
@@ -475,6 +476,9 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   const detailsShown = useMeetings(
     (state) => meeting !== undefined && state.detailsShown[meeting.id] === true,
   );
+  const resumeRefused = useMeetings((state) =>
+    meeting === undefined ? undefined : state.resumeProblems[meeting.id],
+  );
   const sheet = useRef<HTMLElement>(null);
   const [added, setAdded] = useState<MessageKey | null>(null);
   // ⌘K's Show the Transcript and ⌥⌘→ take the User to it, as they took them to the old view.
@@ -562,12 +566,20 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
             </div>
           )}
           {/* What the control says over itself while the sheet is down, the sheet says while up. */}
-          {live && (
+          {live ? (
             <div data-testid="meeting-sheet-lines" className="meeting-sheet-lines empty:hidden">
               <MeetingLines meeting={meeting} />
               <TranscriptLines meeting={meeting} />
               <CaptureProblem meeting={meeting} className="meeting-line" />
             </div>
+          ) : (
+            resumeRefused && (
+              <div data-testid="meeting-sheet-lines" className="meeting-sheet-lines">
+                <ProblemLine testId="meeting-sheet-problem" className="meeting-line">
+                  {resumeRefused}
+                </ProblemLine>
+              </div>
+            )
           )}
           <div className="meeting-sheet-body">
             <ViewerFrameContext.Provider value={frame}>

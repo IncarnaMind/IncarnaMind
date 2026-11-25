@@ -1,4 +1,4 @@
-import { type Ref, useCallback, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Meeting } from "../../../core/api";
 import { commands } from "../commands/registry";
 import { useDismissOnEscape } from "../escapeDismiss";
@@ -22,11 +22,10 @@ import { useTabPlace } from "./tabs/tabItems";
 import { buttonStyle, fieldLabelClass, inputClass } from "./ui";
 
 /**
- * A Meeting's place in its Mind, under the title: the start block while it is
- * ready, and the meeting bar while it records or is paused, its recording
- * details (#161) opening from it. Once a call stops, its summary and any
- * problems show here, and the rest is in the chip beside ⋯
- * (`MeetingViewChip`). A stopped voice memo keeps its lines about its
+ * A Meeting's place in its Note, under the title: the start block while it is ready, and a voice
+ * memo's bar while it records or is paused, its recording details (#161) opening from it; a call's
+ * control stands at the Note's foot instead. Once a call stops, its summary and any problems show
+ * here, and the rest is in its Transcript sheet. A stopped voice memo keeps its lines about its
  * Transcript, its note and its audio here.
  */
 export function MeetingInMind({ mindId }: { mindId: string }) {
@@ -34,17 +33,6 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
   const starting = useMeetings((state) => !!meeting && state.starting[meeting.id] === true);
   const tabId = useTabPlace()?.tabId;
   const view = useMeetingNoteView(tabId, mindId);
-  const barHeight = useRef(0);
-  const rememberBarHeight = useCallback((bar: HTMLElement | null) => {
-    if (!bar) return;
-    barHeight.current = bar.offsetHeight;
-    const resized = new ResizeObserver(([entry]) => {
-      const size = entry?.borderBoxSize[0];
-      if (size) barHeight.current = Math.round(size.blockSize);
-    });
-    resized.observe(bar, { box: "border-box" });
-    return () => resized.disconnect();
-  }, []);
   if (!meeting) return null;
   // A meeting's controls stand at the Note's foot (#3762): nothing above the notes.
   if (meeting.kind === "meeting" && (isLive(meeting) || starting)) return null;
@@ -52,16 +40,7 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
     return <MeetingBarRoom meeting={meeting} />;
   }
   if (meeting.status === "ready") return <MeetingStart meeting={meeting} />;
-  if (isLive(meeting)) {
-    if (view === "notes" || meeting.kind === "memo") {
-      return <LiveMeetingBar meeting={meeting} ref={rememberBarHeight} />;
-    }
-    // The Transcript view draws the bar over the Transcript; the hidden notes keep its room, so
-    // they come back where the User left them.
-    return (
-      <div aria-hidden="true" className="meeting-bar-space" style={{ height: barHeight.current }} />
-    );
-  }
+  if (isLive(meeting)) return <LiveMeetingBar meeting={meeting} />;
   if (meeting.kind === "meeting") {
     return (
       <div className="empty:hidden mb-4">
@@ -92,9 +71,9 @@ export function raiseMeetingDetails(tabId: string, meeting: Pick<Meeting, "id" |
   showMeetingNoteView(tabId, meeting.mindId, "transcript");
 }
 
-export function LiveMeetingBar({ meeting, ref }: { meeting: Meeting; ref?: Ref<HTMLElement> }) {
+function LiveMeetingBar({ meeting }: { meeting: Meeting }) {
   return (
-    <MeetingBar meeting={meeting} ref={ref}>
+    <MeetingBar meeting={meeting}>
       <CaptureProblem meeting={meeting} className="meeting-line" />
       {meeting.status === "paused" && <MeetingAudioLine meeting={meeting} />}
       <CaptureDetails meeting={meeting} />

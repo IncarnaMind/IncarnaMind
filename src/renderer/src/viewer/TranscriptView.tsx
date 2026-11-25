@@ -26,7 +26,7 @@ import { timeAt } from "../../../shared/wordTimes";
 import { transcriptHandle, useHandle, useViewerHandle } from "../commands/handles";
 import { MicOffLineIcon } from "../components/lineIcons";
 import { MetaLine } from "../components/MetaLine";
-import { LineAction } from "../components/ProblemLine";
+import { LineAction, ProblemLine } from "../components/ProblemLine";
 import { Popover } from "../editor/Popover";
 import { useDismissOnEscape } from "../escapeDismiss";
 import { useLanguage, useT } from "../i18n";
@@ -38,7 +38,7 @@ import { addTranscriptAction } from "../transcriptActions";
 import { addLineToNote } from "../transcriptNotes";
 import { useTranscriptPlayer } from "../transcriptPlayer";
 import { useCitedArea } from "./citedArea";
-import { citedPlaceGone } from "./citedPlace";
+import { citedPlaceGone, citedPlaceGoneLine } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError } from "./documentBytes";
 import { markQuote, textNodes, unmarkQuote } from "./domQuote";
 import { FileStates } from "./FileStates";
@@ -377,6 +377,11 @@ function TranscriptContent({
   );
   const ownTurns = partials.filter((partial) => partial !== goesOn);
   const units = useMemo(() => transcriptUnits(transcript), [transcript]);
+  const documents = useAppStore((state) =>
+    state.status.kind === "ready" ? state.documents : null,
+  );
+  const placeGoneLine =
+    !live && citedPlaceGone(target, units.length) ? citedPlaceGoneLine(target, t, documents) : null;
   const lines = useMemo<TranscriptLine[]>(
     () =>
       parts.flatMap(({ cue, part }) =>
@@ -868,6 +873,16 @@ function TranscriptContent({
         </ViewerHeader>
       )}
       {!bare && meeting && hasLines && <TranscriptHeadLine playable={playable} />}
+      {/* With no header of its own, the place a Citation opened it at is said gone here. */}
+      {bare && placeGoneLine && (
+        <ProblemLine
+          role="status"
+          testId="viewer-citation-changed"
+          className="shrink-0 px-4 pb-2 text-[13px] leading-5"
+        >
+          {placeGoneLine}
+        </ProblemLine>
+      )}
       <QuoteStepsLine stepper={stepper} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         {reviewable && nameable && meetingId && (

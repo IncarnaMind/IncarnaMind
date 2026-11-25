@@ -14,6 +14,7 @@ import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
 import { showMeetingNoteView, useMeetingNoteView } from "../../meetingViews";
 import { showWaitingChanges } from "../../mindChanges";
+import { openCited } from "../../openCited";
 import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
@@ -437,17 +438,41 @@ const CHIP_OPEN = "\uE000";
 const CHIP_CLOSE = "\uE001";
 
 /**
- * A reply's Citation of a meeting's Transcript opens the sheet over that meeting's Note at the
- * words cited (#3762). Whether it opened; else the chip stays as it was.
+ * A reply's Citation opens at the words cited: a meeting's Transcript in the sheet over that
+ * meeting's Note (#3762), any other Document beside the Note, as a Note's own Citation opens it.
+ * `from`: the group the Note is in.
  */
-function openCitedInTranscript(cited: NoteCitation): boolean {
-  return showCitedInTranscript({
-    documentId: cited.documentId,
-    quote: cited.quote,
+function openReplyCitation(cited: NoteCitation, from: string | undefined): void {
+  const units = {
     ...(cited.pageFrom !== null && { pageFrom: cited.pageFrom }),
     ...(cited.pageTo !== null && { pageTo: cited.pageTo }),
+  };
+  // With the Citation's own place, the sheet says so when that place is gone.
+  const inTranscript = showCitedInTranscript({
+    documentId: cited.documentId,
+    quote: cited.quote,
+    ...units,
+    citation: {
+      check: "found",
+      origin: "note",
+      contentHash: cited.contentHash,
+      ...(cited.location && { location: cited.location }),
+      ...units,
+    },
     request: 0,
   });
+  if (inTranscript) return;
+  openCited(
+    {
+      documentId: cited.documentId,
+      quote: cited.quote,
+      pageFrom: cited.pageFrom,
+      pageTo: cited.pageTo,
+      contentHash: cited.contentHash,
+      ...(cited.location && { location: cited.location }),
+    },
+    { origin: "note", check: "found", withQuote: true, ...(from && { from }) },
+  );
 }
 
 /**
@@ -457,6 +482,7 @@ function openCitedInTranscript(cited: NoteCitation): boolean {
  */
 export function Reply({ text, citations }: { text: string; citations: readonly NoteCitation[] }) {
   const t = useT();
+  const groupId = useTabPlace()?.groupId;
   const drawn = useRef<HTMLDivElement>(null);
   const tokens: string[] = [];
   const shown = text.replace(/\s?\[cite:([a-z0-9]{1,32})\]/g, (_, token: string) => {
@@ -498,18 +524,30 @@ export function Reply({ text, citations }: { text: string; citations: readonly N
       node.replaceWith(...pieces);
     }
   }, [shown, t, citations]);
+  /** The chip pressed, or given Enter or Space, opens its Citation: whether one did. */
+  const opened = (target: EventTarget): boolean => {
+    if (!(target instanceof Element)) return false;
+    const chip = target.closest<HTMLElement>(".citation-marker[data-token]");
+    const cited = citations.find((each) => each.token === chip?.dataset.token);
+    if (!cited) return false;
+    openReplyCitation(cited, groupId);
+    return true;
+  };
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the chips inside are the buttons; this hears their press.
-    // biome-ignore lint/a11y/useKeyWithClickEvents: a chip's Enter reaches it as a click.
     <div
       key={shown}
       ref={drawn}
       data-testid="note-ask-reply"
       className="note-ask-reply-text"
       onClick={(event) => {
-        const chip = (event.target as Element).closest<HTMLElement>(".citation-marker[data-token]");
-        const cited = citations.find((each) => each.token === chip?.dataset.token);
-        if (cited && openCitedInTranscript(cited)) event.stopPropagation();
+        if (opened(event.target)) event.stopPropagation();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (!opened(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
       }}
     >
       <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />

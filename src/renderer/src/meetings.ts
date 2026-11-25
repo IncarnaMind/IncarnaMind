@@ -44,6 +44,8 @@ interface MeetingsState {
   problems: Readonly<Record<string, string>>;
   /** What went wrong deleting or keeping a Meeting's audio, said on its audio line (#687). */
   audioProblems: Readonly<Record<string, string>>;
+  /** Why Resume after Stop couldn't record, said in the stopped call's sheet, until the next try (#3762). */
+  resumeProblems: Readonly<Record<string, string>>;
   starting: Readonly<Record<string, true>>;
   /** The Meeting whose start block Record just made: its Start recording takes the focus once it shows. */
   startToFocus: string | null;
@@ -122,31 +124,33 @@ interface MeetingsState {
 
 /** Meetings (#135), as the core lists them, and what the UI does with them. */
 export const useMeetings = create<MeetingsState>()((set, get) => {
-  /** Runs one action on a Meeting, keeping its failure as that Meeting's problem. */
-  const attempt = async (meetingId: string, action: () => Promise<unknown>) => {
-    set((state) => ({ problems: withoutKey(state.problems, meetingId) }));
-    try {
-      await action();
-    } catch (error) {
-      set((state) => ({
-        problems: { ...state.problems, [meetingId]: errorMessage(error, translateNow) },
-      }));
-    }
-  };
-
-  const onAudio = async (meetingId: string, action: () => Promise<unknown>) => {
-    set((state) => ({ audioProblems: withoutKey(state.audioProblems, meetingId) }));
-    try {
-      await action();
-    } catch (error) {
-      set((state) => ({
-        audioProblems: {
-          ...state.audioProblems,
-          [meetingId]: errorMessage(error, translateNow),
-        },
-      }));
-    }
-  };
+  type Failures = Readonly<Record<string, string>>;
+  /** Runs one action on a Meeting, keeping its failure, until the next try, where `read` finds it. */
+  const keeping =
+    (
+      read: (state: MeetingsState) => Failures,
+      write: (failures: Failures) => Partial<MeetingsState>,
+    ) =>
+    async (meetingId: string, action: () => Promise<unknown>) => {
+      set((state) => write(withoutKey(read(state), meetingId)));
+      try {
+        await action();
+      } catch (error) {
+        set((state) => write({ ...read(state), [meetingId]: errorMessage(error, translateNow) }));
+      }
+    };
+  const attempt = keeping(
+    (state) => state.problems,
+    (problems) => ({ problems }),
+  );
+  const onAudio = keeping(
+    (state) => state.audioProblems,
+    (audioProblems) => ({ audioProblems }),
+  );
+  const onResumeAfterStop = keeping(
+    (state) => state.resumeProblems,
+    (resumeProblems) => ({ resumeProblems }),
+  );
 
   // Asked for twice quickly, a memo is made once.
   let makingMemo = false;
@@ -204,6 +208,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     meetings: [],
     problems: {},
     audioProblems: {},
+    resumeProblems: {},
     cantRecord: false,
     starting: {},
     startToFocus: null,
@@ -300,7 +305,12 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     },
 
     pause: (meetingId) => attempt(meetingId, () => core.pauseMeeting(meetingId)),
-    resume: (meetingId) => attempt(meetingId, () => core.resumeMeeting(meetingId)),
+    resume(meetingId) {
+      const afterStop = get().meetings.find((each) => each.id === meetingId)?.status === "stopped";
+      // After Stop the notes' line says the notes' own problems, beside their Undo: not Resume's.
+      const keep = afterStop ? onResumeAfterStop : attempt;
+      return keep(meetingId, () => core.resumeMeeting(meetingId));
+    },
     async setMicrophonePaused(meetingId, paused) {
       const before = get().meetings.find((each) => each.id === meetingId);
       const show = (meeting: Meeting) =>

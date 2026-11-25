@@ -1,5 +1,5 @@
 import { isMacOS } from "@tiptap/core";
-import type { ReactNode, Ref } from "react";
+import type { ReactNode } from "react";
 import type { AudioSource, Meeting, MeetingSourceState } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { shortcutLabel } from "../commands/keymap";
@@ -26,19 +26,10 @@ import { TranscriptLines } from "./TranscriptLines";
  * know, then whatever the Note adds (its audio, once paused). A recorded call has its control at
  * the Note's foot instead (`meetings/MeetingFoot.tsx`, #3762).
  */
-export function MeetingBar({
-  meeting,
-  children,
-  ref,
-}: {
-  meeting: Meeting;
-  children?: ReactNode;
-  ref?: Ref<HTMLElement>;
-}) {
+export function MeetingBar({ meeting, children }: { meeting: Meeting; children?: ReactNode }) {
   const t = useT();
   return (
     <section
-      ref={ref}
       data-testid="meeting-bar"
       data-status={meeting.status}
       data-kind={meeting.kind}
@@ -159,9 +150,12 @@ export function CallHelpToggle() {
 
 /**
  * What the User should know about the recording, a line each: its health, a cut, a gap, and
- * transcription back on this computer after the cloud service stopped (#141).
+ * transcription back on this computer after the cloud service stopped (#141). `cards`: over a
+ * call's control with its sheet folded, each a card of its own, only the lines that can't wait for
+ * the sheet: what failed, audio not saved, the cut, the computer's sound, and the steps its
+ * settings asked for. The control's own card says the microphone's.
  */
-export function MeetingLines({ meeting }: { meeting: Meeting }) {
+export function MeetingLines({ meeting, cards = false }: { meeting: Meeting; cards?: boolean }) {
   const t = useT();
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const gapsSeen = useMeetings((state) => state.gapsSeen[meeting.id] ?? 0);
@@ -262,38 +256,47 @@ export function MeetingLines({ meeting }: { meeting: Meeting }) {
     });
   }
 
-  return (
-    <>
-      {lines.map((line) => (
-        <ProblemLine
-          key={line.key}
-          testId={`meeting-line-${line.key}`}
-          role={STATUS_LINES.has(line.key) ? "status" : "alert"}
-          className="meeting-line"
-          action={line.action}
-        >
-          {line.text}
-        </ProblemLine>
-      ))}
-      {inPlace && (
-        <ProblemLine
-          testId="meeting-line-guide"
-          role="status"
-          className="meeting-line"
-          action={{
-            label: t("move.dismiss"),
-            testId: "meeting-line-guide-close",
-            onClick: () => files.closePermissionGuide(),
-          }}
-        >
-          {inPlace.status === "granted"
-            ? t(`meetings.guide.done.${inPlace.source}`)
-            : t("meetings.guide.inline", { where: t(`meetings.guide.where.${inPlace.source}`) })}
-        </ProblemLine>
-      )}
-    </>
-  );
+  const shown = lines
+    .filter((line) => !cards || FOLDED_LINES.has(line.key))
+    .map((line) => (
+      <ProblemLine
+        key={line.key}
+        testId={`meeting-line-${line.key}`}
+        role={STATUS_LINES.has(line.key) ? "status" : "alert"}
+        className="meeting-line"
+        action={line.action}
+      >
+        {line.text}
+      </ProblemLine>
+    ));
+  if (inPlace) {
+    shown.push(
+      <ProblemLine
+        key="guide"
+        testId="meeting-line-guide"
+        role="status"
+        className="meeting-line"
+        action={{
+          label: t("move.dismiss"),
+          testId: "meeting-line-guide-close",
+          onClick: () => files.closePermissionGuide(),
+        }}
+      >
+        {inPlace.status === "granted"
+          ? t(`meetings.guide.done.${inPlace.source}`)
+          : t("meetings.guide.inline", { where: t(`meetings.guide.where.${inPlace.source}`) })}
+      </ProblemLine>,
+    );
+  }
+  if (!cards) return shown;
+  return shown.map((line) => (
+    <div key={line.key} className="meeting-foot-card">
+      {line}
+    </div>
+  ));
 }
+
+const FOLDED_LINES: ReadonlySet<string> = new Set(["problem", "save", "interrupted", "system"]);
 
 const STATUS_LINES: ReadonlySet<string> = new Set([
   "gap",

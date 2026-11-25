@@ -48,6 +48,7 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     detailsShown: Record<string, boolean>;
     audioProblems: Record<string, string>;
     problems: Record<string, string>;
+    resumeProblems: Record<string, string>;
     gapsSeen: Record<string, number>;
     screenExplained: Record<string, boolean>;
     showDetails: (meetingId: string, shown?: boolean) => void;
@@ -56,6 +57,7 @@ vi.mock("../../src/renderer/src/meetings", async () => {
     detailsShown: {},
     audioProblems: {},
     problems: {},
+    resumeProblems: {},
     gapsSeen: {},
     screenExplained: {},
     showDetails: (meetingId, shown) =>
@@ -1081,12 +1083,20 @@ describe("the meeting's control and sheet after #3762's review", () => {
   });
 
   test.each([
-    ["en", "soniox", "Transcribing with Soniox. The Transcript opens here."],
-    ["zh-CN", "soniox", "正在用 Soniox 转写。转写稿在这里打开。"],
-    ["zh-CN", "qwen", "正在用通义千问转写。转写稿在这里打开。"],
-    ["en", null, "Transcribing on this computer. The Transcript opens here."],
+    [
+      "en",
+      "soniox",
+      "Transcribing with Soniox. The Transcript opens here. Tell everyone you’re recording.",
+    ],
+    ["zh-CN", "soniox", "正在用 Soniox 转写。转写稿在这里打开。告诉所有人你正在录音。"],
+    ["zh-CN", "qwen", "正在用通义千问转写。转写稿在这里打开。告诉所有人你正在录音。"],
+    [
+      "en",
+      null,
+      "Transcribing on this computer. The Transcript opens here. Tell everyone you’re recording.",
+    ],
   ] as const)(
-    "the first tip names the way it transcribes (%s, %s)",
+    "the first tip names the way it transcribes and says to tell everyone (%s, %s)",
     async (language, cloud, said) => {
       actions.language = language;
       useMeetings.setState({

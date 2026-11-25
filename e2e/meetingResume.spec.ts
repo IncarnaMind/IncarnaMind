@@ -154,6 +154,45 @@ async function oneMeetingOneTranscript(window: Page, meeting: Meeting): Promise<
   expect(transcripts).toEqual([meeting.transcript?.documentId]);
 }
 
+// protects=Resume after Stop that can't go ahead, here because another meeting records, says why inside the stopped sheet where it was pressed, in English and Chinese, and the stopped call stays as it was; the line about the notes says nothing of it (#3762); fails_when=the refusal shows nowhere in the sheet, or lands on the notes' line beside its Undo or Try again
+test("Resume refused while another meeting records says why in the stopped sheet, in English and Chinese, and not on the notes' line", async () => {
+  test.setTimeout(150_000);
+  const { app, window } = await launchApp(dataDir);
+  await setWindowSize(app, window, 1440, 900);
+  await recordMeeting(window);
+  const [first] = await (await coreOf(window)).evaluate((core) => core.listMeetings());
+  if (!first) throw new Error("No Meeting is recording.");
+  await stopMeeting(window);
+
+  // Another call records, in a Note of its own; the stopped one's tab is still open.
+  await recordMeeting(window);
+  await pointAndClick(
+    window,
+    window.locator(`[data-testid="mind-tab"][data-mind-id="${first.mindId}"]`),
+  );
+  await expect(window.getByTestId("mind-pane")).toHaveAttribute("data-mind-id", first.mindId);
+  const control = window.getByTestId("meeting-foot");
+  await expect(control).toHaveAttribute("data-status", "stopped");
+  const sheet = await openMeetingSheet(window);
+  const resume = sheet.getByTestId("meeting-sheet-resume-meeting");
+  await pointAndClick(window, resume);
+  const refused = sheet.getByTestId("meeting-sheet-problem");
+  await expect(refused).toHaveText("Another Meeting is being recorded. Stop it first.");
+  await expect(control).toHaveAttribute("data-status", "stopped");
+  await expect(
+    window.getByTestId("meeting-fill-line").filter({ hasText: "Another Meeting" }),
+  ).toHaveCount(0);
+
+  await setLanguage(window, "zh-CN");
+  await pointAndClick(window, resume);
+  await expect(refused).toHaveText("正在录制另一个会议。先停止它。");
+  await expect(control).toHaveAttribute("data-status", "stopped");
+  await expect(
+    window.getByTestId("meeting-fill-line").filter({ hasText: "正在录制另一个会议" }),
+  ).toHaveCount(0);
+  expect((await meetingOf(window, first.id)).status).toBe("stopped");
+});
+
 for (const language of ["en", "zh-CN"] as const) {
   test(`Resume after Stop records more of the same meeting: its time goes on, its earlier lines stay first as they were, Stop saves one Transcript, and after a quit it resumes again (${language})`, async () => {
     test.setTimeout(240_000);

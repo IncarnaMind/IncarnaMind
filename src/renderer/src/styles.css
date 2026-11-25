@@ -2832,8 +2832,9 @@
     display: none;
   }
   /*
-   * What the meeting says over its control, each a card of its own: the microphone's problem, the
-   * first tip, the shared screen's question or state. Over the page, so the row never moves.
+   * What the meeting says over its control, each a card of its own: the microphone's problem, what
+   * failed or isn't recorded, the first tip, the shared screen's question or state. Over the page,
+   * so the row never moves.
    */
   .meeting-foot-over {
     position: absolute;
@@ -4326,9 +4327,6 @@
   .meeting-bar-room {
     visibility: hidden;
     pointer-events: none;
-  }
-  .meeting-bar-space {
-    margin-bottom: 24px;
   }
   /* Hangs in the 24px the bar keeps below it; notes scrolled under the bar pass behind it, not through it. */
   .meeting-bar .meeting-line-over {
