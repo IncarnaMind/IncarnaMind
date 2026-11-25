@@ -16,7 +16,7 @@ import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { stopBackgroundCheck, useAskedAgent } from "../askedAgent";
-import { useNoModel } from "../askYourAi";
+import { askToCheck, useAgentsToAsk, useNoModel, useReadAgentsToAsk } from "../askYourAi";
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { EstimateMeta } from "../components/EstimateSource";
@@ -126,6 +126,19 @@ export function CheckBadge(props: {
   );
 }
 
+/** The Note's health as Home counts it, with the sentences its last check left out. */
+function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
+  const checkedAll = useMindCheckRun(doc);
+  const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
+  const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
+  const unexaminedKeys = checkedAll?.unexamined.join(" ") ?? "";
+  const unexamined = useMemo(
+    () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
+    [unexaminedKeys],
+  );
+  return { checkedAll, health: useHealth(editor, skipped, unexamined, doc, running) };
+}
+
 function MindBadge({
   editor,
   doc,
@@ -137,22 +150,12 @@ function MindBadge({
   mindId: string;
   quiet: boolean;
 }) {
-  const checkedAll = useMindCheckRun(doc);
-  const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
-  const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
-  const unexaminedKeys = checkedAll?.unexamined.join(" ") ?? "";
-  const unexamined = useMemo(
-    () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
-    [unexaminedKeys],
-  );
   const running = useChecks((state) => state.running[mindId]);
   // The User's own AI asked to check the Note: the badge says how that goes until its marks land (#3587).
   const asked = useAskedAgent({ kind: "check", mindId });
   // Counted again as the AI's marks land, as at a run's end, so the badge says what it marked.
-  const health = useHealth(
+  const { checkedAll, health } = useMindHealth(
     editor,
-    skipped,
-    unexamined,
     doc,
     running !== undefined || asked !== null,
   );
@@ -442,19 +445,34 @@ function VerifyBadge({
   const language = useLanguage();
   const place = useCardPlace(mindId);
   const state = useVerifyState(editor, doc, mindId, verification);
+  const noModel = useNoModel();
+  const asked = useAskedAgent({ kind: "check", mindId });
+  const backgroundRun = asked?.asked.background === true && asked.asked.state === "working";
+  const { health } = useMindHealth(editor, doc, state.running !== null || asked !== null);
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAsk(mindId);
   const kept = useVerificationBrief(doc);
   // The brief lands once the claims are found, in a card that opened with less: it takes its height again then.
-  const holdKey = kept && kept.sortedText === verification.sortedText ? "brief" : "plain";
+  const holdKey =
+    kept && kept.sortedText === verification.sortedText ? "brief" : asked ? "asked" : "plain";
   const { rows, marked, checking } = state.marks;
   const phase = shownPhase(state.running, marked);
   const checked = useJustChecked(editor, state.running, () => (state.problem ? 0 : marked));
-  const toCheck = state.asking ? state.total : 0;
+  const toCheck = state.asking
+    ? state.total
+    : state.claims === null && marked === 0
+      ? health.toCheck.length
+      : 0;
   // A file an agent handed over is fixed by that agent: everything its check flagged, in one request.
   const handed = useHandedFile(mindId, doc) !== null;
   const askAll = useAskAll(editor, mindId, false);
   // No claims to check, or none found yet: the card says why, so the page isn't silently bare.
   const nothing =
-    state.running === null && !state.asking && marked === 0 && state.opinions.length === 0;
+    state.running === null &&
+    !state.asking &&
+    marked === 0 &&
+    state.opinions.length === 0 &&
+    toCheck === 0;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const input: BadgeInput = {
     marks: {
@@ -464,9 +482,9 @@ function VerifyBadge({
       notChecked: rows.notChecked.length,
       notYetCited: rows.notYetCited.length,
     },
-    checkable: state.total,
+    checkable: Math.max(state.total, health.checkable),
     toCheck,
-    running: state.running !== null,
+    running: state.running !== null || asked !== null,
     asking: state.asking,
     problem: state.problem || nothing,
     checked: state.running ? null : checked,
@@ -486,9 +504,21 @@ function VerifyBadge({
           <span data-testid="badge-progress" className="tabular-nums">
             {t("badge.checking", { done: format(marked - checking), total: format(marked) })}
           </span>
-        ) : null
+        ) : (
+          asked && (
+            <span data-testid="badge-asked" data-state={asked.asked.state} title={asked.words}>
+              {asked.short}
+            </span>
+          )
+        )
       }
-      onStop={() => stopVerify(mindId)}
+      onStop={
+        state.running !== null
+          ? () => stopVerify(mindId)
+          : backgroundRun
+            ? () => void stopBackgroundCheck(mindId)
+            : null
+      }
       actions={
         state.asking &&
         holdKey === "brief" &&
@@ -510,7 +540,7 @@ function VerifyBadge({
                 mindId={mindId}
                 ask={askAll}
                 primary
-                disabled={state.running !== null}
+                disabled={state.running !== null || backgroundRun}
                 onAsked={() => setCheckCardOpen(place, false)}
               />
             </div>
@@ -518,15 +548,30 @@ function VerifyBadge({
         )
       }
       foot={
-        verifyDone(state) && (
-          <button
-            type="button"
-            data-testid="verify-again"
-            className={buttonStyle("ghost", "sm")}
-            onClick={() => void checkClaims(mindId, doc)}
-          >
-            {t("claim.checkAgain")}
-          </button>
+        backgroundRun ? (
+          <div data-testid="card-foot-progress" className="check-card-progress">
+            <button
+              type="button"
+              data-testid="checks-asked-stop"
+              className="check-badge-stop"
+              onClick={() => void stopBackgroundCheck(mindId)}
+            >
+              {t("checks.stop")}
+            </button>
+          </div>
+        ) : (
+          verifyDone(state) &&
+          !asked &&
+          (!noModel || agents.length > 0) && (
+            <button
+              type="button"
+              data-testid="verify-again"
+              className={buttonStyle("ghost", "sm")}
+              onClick={() => void (noModel ? askToCheck(mindId) : checkClaims(mindId, doc))}
+            >
+              {t("claim.checkAgain")}
+            </button>
+          )
         )
       }
     >
@@ -536,6 +581,7 @@ function VerifyBadge({
         mindId={mindId}
         verification={verification}
         state={state}
+        toCheck={health.toCheck.length}
         onNotNow={() => setCheckCardOpen(place, false)}
       />
     </BadgeFrame>

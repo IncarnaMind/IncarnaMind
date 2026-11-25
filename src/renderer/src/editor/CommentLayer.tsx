@@ -45,7 +45,8 @@ import { Popover } from "./Popover";
  * inside the page's right edge. When the column leaves less, the text column
  * moves left, up to the card's width, so the card sits beside it; only when that
  * still isn't enough do the cards fold into the count (#328). The shift is set
- * before the first paint, so a Note opened with comments is laid out at once.
+ * before the first paint, so a Note opened with comments is laid out at once,
+ * on the page, so the input at its foot moves with the text (#3759).
  */
 const COMMENT_GAP = 64;
 const COMMENT_WIDTH = 264;
@@ -58,7 +59,8 @@ function useRoomBeside(editor: Editor, wanted: boolean): boolean {
     const column = editor.view.dom.closest<HTMLElement>(".mind-column");
     const frame = editor.view.dom.closest<HTMLElement>(".mind-editor-frame");
     if (!column || !frame) return;
-    const reset = () => column.style.setProperty("--comment-shift", "0px");
+    const shifted = column.closest<HTMLElement>(".mind-tab-page") ?? column;
+    const reset = () => shifted.style.setProperty("--comment-shift", "0px");
     if (!wanted) {
       reset();
       setRoom(false);
@@ -70,14 +72,14 @@ function useRoomBeside(editor: Editor, wanted: boolean): boolean {
     const measure = () => {
       // The shift already applied is part of the room and the margin measured: take it out first.
       const applied =
-        Number.parseFloat(column.style.getPropertyValue("--comment-shift") || "0") || 0;
+        Number.parseFloat(shifted.style.getPropertyValue("--comment-shift") || "0") || 0;
       const columnRect = column.getBoundingClientRect();
       const frameRect = frame.getBoundingClientRect();
       const natural = columnRect.right - frameRect.right - applied;
       const room = Math.max(0, frameRect.left - columnRect.left + applied - LEFT_EDGE);
       const shift = Math.max(0, Math.min(COMMENT_MOST_SHIFT, room, needed - natural));
       const fits = natural + shift >= needed - 0.5;
-      column.style.setProperty("--comment-shift", `${fits ? shift : 0}px`);
+      shifted.style.setProperty("--comment-shift", `${fits ? shift : 0}px`);
       setRoom(fits);
     };
     measure();
@@ -163,7 +165,15 @@ export function CommentLayer({
     if (!element || !frame) return;
     const cards = [...element.querySelectorAll<HTMLElement>("[data-comment-card]")];
     const next: { id: string; top: number }[] = [];
-    let bottom = -Infinity;
+    // The first card stays 8px under the page's own controls at its top right, where the first
+    // line's card would touch them (#3759); scrolled, the cards go under them with the text.
+    const scroller = frame.closest<HTMLElement>(".mind-scroller");
+    const controls = frame.closest(".mind-tab-page")?.querySelector(".mind-menu-slot");
+    let bottom =
+      scroller && controls
+        ? controls.getBoundingClientRect().bottom -
+          (frame.getBoundingClientRect().top + scroller.scrollTop)
+        : -Infinity;
     for (const card of cards) {
       const id = card.dataset.commentCard;
       if (!id) continue;

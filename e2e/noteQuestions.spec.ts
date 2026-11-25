@@ -183,13 +183,20 @@ async function ended(window: Page, mindId: string, before: number) {
 
 const group = (window: Page) => window.locator('[data-testid="tab-group"][data-focused]');
 
+/**
+ * `testId` where the Note in focus has it: in its tab group, or in the window's column at the
+ * groups' left while that shows the Note's conversation (#3759).
+ */
+const inNote = (window: Page, testId: string) =>
+  group(window).getByTestId(testId).or(window.getByTestId("note-column").getByTestId(testId));
+
 /** Sends `words` from the Note's input and waits for its card. */
 async function ask(window: Page, mode: string, words: string): Promise<Locator> {
   await nextRun(mode);
-  await pointAndClick(window, group(window).getByTestId("note-ask-input"));
+  await pointAndClick(window, inNote(window, "note-ask-input"));
   await window.keyboard.type(words);
   await window.keyboard.press("Enter");
-  const card = group(window).getByTestId("own-ask-card");
+  const card = inNote(window, "own-ask-card");
   await expect(card).toBeVisible({ timeout: 20_000 });
   return card;
 }
@@ -380,7 +387,7 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
     expect(worked * 1000).toBeLessThanOrEqual(endedAt - sentAt - (answeredAt - shownAt) + 1000);
     await pointAndClick(window, panel.getByTestId("note-column-steps-toggle").last());
     expect(await stepsIn(panel)).toEqual([`Didn’t run ${COMMAND} · denied`]);
-    await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
 
     // A card far taller than the box, in a low window: its answers are in view as it opens, and
     // stay in view as the command scrolls under them.
@@ -473,7 +480,7 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
 
 /**
  * "Harbour notes" with a first request whose question was denied, its conversation opened in the
- * column beside the Note, and each press noted.
+ * window's column left of the Note, and each press noted.
  */
 async function conversationInColumn(app: ElectronApplication, window: Page) {
   await setWindowSize(app, window, 1440, 900);
@@ -484,7 +491,7 @@ async function conversationInColumn(app: ElectronApplication, window: Page) {
   await pointAndClick(window, card.getByTestId("own-ask-deny"));
   await ended(window, mindId, before);
   await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
-  await pointAndClick(window, group(window).getByTestId("conversation-move-right"));
+  await pointAndClick(window, group(window).getByTestId("conversation-move-left"));
   return { mindId, column: window.getByTestId("note-column") };
 }
 
@@ -864,11 +871,20 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
       "Didn’t use AskUserQuestion · IncarnaMind can’t show this question, so it said no",
     ]);
 
-    // In Chinese, at 900 px: the card in the sheet.
+    // In Chinese, at 900 px, where the column isn't drawn: the card in the conversation open
+    // upward from the Note's input.
     await setLanguage(window, "zh-CN");
     await setWindowSize(app, window, 900, 760);
     before = (await outcomesOf(window, mindId)).length;
     card = await ask(window, "ask-tool", "查一下票务数据");
+    await expect(window.getByTestId("note-column")).toHaveCount(0);
+    await expect(
+      group(window).getByTestId("note-ask-panel").getByTestId("own-ask-card"),
+    ).toBeVisible();
+    // Its answers are in view there, as a card taller than its box keeps them.
+    await expect
+      .poll(async () => (await shownOf(card.getByTestId("own-ask-deny"))).whole)
+      .toBe(true);
     await expect(card.locator(".approval-title")).toHaveText("使用 ferry-data 的 search_tickets");
     await expect(card.locator(".approval-explanation")).toHaveCount(0);
     await expect(card).toContainText("ferry-data · 在 Claude Code 中设置");
@@ -889,7 +905,7 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
   }
 });
 
-test("a question asked with the conversation folded shows whole once the conversation opens in a narrow window's column, its answers clear of the address it asks to open", async () => {
+test("a question asked with the conversation folded shows whole once the conversation opens in a narrow window, where the column isn't drawn and it opens upward, its answers clear of the address it asks to open", async () => {
   const { app, window } = await launched();
   try {
     await setWindowSize(app, window, 1440, 900);
@@ -902,19 +918,21 @@ test("a question asked with the conversation folded shows whole once the convers
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
     await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
-    await pointAndClick(window, group(window).getByTestId("conversation-move-right"));
+    await pointAndClick(window, group(window).getByTestId("conversation-move-left"));
     const column = window.getByTestId("note-column");
     await pointAndClick(window, column.getByTestId("note-column-close"));
     await expect(column).toHaveCount(0);
-    // Asked with it folded; read once the window is narrow, in the column over the Note.
+    // Asked with it folded; read once the window is narrow, where the column isn't drawn: the
+    // conversation opens upward from the Note's input.
     before = (await outcomesOf(window, mindId)).length;
     await ask(window, "ask-web", "What does the harbour's notice about the ramp works say?");
     await setWindowSize(app, window, 900, 760);
     await expect.poll(() => window.evaluate(() => innerHeight)).toBe(760);
     await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
-    const card = column.getByTestId("own-ask-card");
+    await expect(column).toHaveCount(0);
+    const card = group(window).getByTestId("note-ask-panel").getByTestId("own-ask-card");
     await expect(card).toBeVisible();
-    // The whole card is in the column's view, above the input, and its answers are under the
+    // The whole card is in the conversation's view, above the input, and its answers are under the
     // address, not over it.
     await expect.poll(async () => (await shownOf(card)).whole).toBe(true);
     const [address, answers] = [
@@ -922,7 +940,7 @@ test("a question asked with the conversation folded shows whole once the convers
       await boxOf(card.locator(".own-ask-actions")),
     ];
     expect(answers.y).toBeGreaterThanOrEqual(address.y + address.height);
-    await shot(window, "card-web-column-900-en");
+    await shot(window, "card-web-upward-900-en");
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, before);
   } finally {
@@ -975,7 +993,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
       "Claude Code also uses its own tools here, on its own settings. IncarnaMind can’t see or undo them.",
     );
     await shot(window, "card-auto-en");
-    await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
 
     // Elsewhere: the Note's tab and its row carry the dot an approval waiting shows.
     before = (await outcomesOf(window, mindId)).length;
@@ -1025,7 +1043,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     expect(await cutIn(stopped.getByTestId("own-step"))).toEqual([]);
     await setWindowSize(app, window, 1440, 900);
     await shot(window, "card-stopped-en");
-    await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
 
     // Stopped after it read the Note and then asked: the step says what didn't run, and a line
     // what it had read.
@@ -1041,7 +1059,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     await expect(readThenStopped.getByTestId("note-column-interrupted")).toHaveText(
       "Stopped. It had read “Harbour notes”.",
     );
-    await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
 
     // Closed with a question open.
     await ask(window, "ask-command", "Save the table");

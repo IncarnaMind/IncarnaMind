@@ -9402,7 +9402,7 @@ export const en = {
   // Before a request here has named its model: the box names none.
   "noteAsk.modelNone": "Model",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
-  "noteColumn.moveRight": "Move to the right",
+  "noteColumn.moveLeft": "Move to the left",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
   "noteColumn.citation": "Citation {number}",
@@ -9532,6 +9532,8 @@ export const en = {
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
   "noteAsk.noAi": "Asking needs your AI",
+  "noteAsk.cantRead.one": "{agent} can’t read this note",
+  "noteAsk.cantRead": "Your AI can’t read this note",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",
   "noteAsk.action.translate": "Translate it into {language}",
