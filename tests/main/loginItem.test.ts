@@ -282,7 +282,7 @@ describe("Opening at login", () => {
     });
   });
 
-  test("an entry this account can't rewrite after an update moved the program lets IncarnaMind start, is left as it was and is logged", async () => {
+  test("an entry this account can't rewrite after an update moved the program lets IncarnaMind start, reads off, is left as it was and is logged", async () => {
     const configHome = await createTempDataFolder();
     const entry = join(configHome, "autostart", AUTOSTART_FILE);
     createSystemLoginItem({
@@ -306,7 +306,7 @@ describe("Opening at login", () => {
         log,
       });
       expect(readFileSync(entry, "utf8")).toBe(before);
-      expect(item.get().on).toBe(true);
+      expect(item.get().on).toBe(false);
       expect(logged).toEqual([
         {
           event: "loginItem.autostartFailed",
@@ -315,6 +315,16 @@ describe("Opening at login", () => {
           code: "EACCES",
         },
       ]);
+      // An unwritable entry that already points at this copy still reads on.
+      const same = createSystemLoginItem({
+        platform: "linux",
+        app: fakeApp().app,
+        program: "/home/ana/Apps/IncarnaMind-1.0.0.AppImage",
+        configHome,
+        openUrl,
+        log: unlogged,
+      });
+      expect(same.get().on).toBe(true);
     } finally {
       unwritable.delete(entry);
     }
