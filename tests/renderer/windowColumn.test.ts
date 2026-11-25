@@ -21,6 +21,14 @@ describe("the window's conversation column beside the tab groups (#3759)", () =>
     expect(columnFits(cardOf(1600), 3)).toBe(false);
   });
 
+  // protects=where a scrollbar takes room beside the Note's text, the Note keeps that room on top of its 570px, so its text is still about 490px; fails_when=a Note with a scrollbar beside its text is left narrower than 490px of text
+  it("keeps a scrollbar's room for the Note on top of its readable width", () => {
+    expect(columnFits(944, 1, 15)).toBe(false);
+    expect(columnFits(945, 1, 15)).toBe(true);
+    const px = (shares: number[], room: number) => shares.map((share) => Math.round(share * room));
+    expect(px(sharesBeside([0.5, 0.5], 0, 990, 15), 990)).toEqual([585, 405]);
+  });
+
   // protects=beside the column the Note's group keeps 570px, taken first from the groups that have room above 400px, and the shares still fill the room; fails_when=the Note stays narrow, a Document goes under 400px, or the groups no longer fill the tab area
   it("gives the Note its room from the other groups, as far as they are wider than 400px", () => {
     const px = (shares: number[], room: number) => shares.map((share) => Math.round(share * room));

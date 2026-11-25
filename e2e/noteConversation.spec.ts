@@ -976,7 +976,8 @@ test("the conversation is one column left of every group, and follows the Note i
   try {
     await acceptPlainTextKeys(window);
     await dismissChatSetup(window);
-    await setWindowSize(app, window, 1600, 900);
+    // Wide enough for a Note and a Document beside the column where a scrollbar takes room too.
+    await setWindowSize(app, window, 1680, 900);
     const { harbour, timetable, documentId } = await twoNotes(window);
     const note = (mindId: string): TabItem => ({ kind: "mind", mindId });
     const document: TabItem = { kind: "document", documentId };

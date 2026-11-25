@@ -26,8 +26,9 @@ export const WindowColumnContext = createContext<WindowColumn>({
 const COLUMN_WIDTH = 360;
 
 /**
- * The least a Note keeps beside its column: about 490px of text, as Claude's page view keeps beside
- * its conversation, with the 40px gutter a narrow Note keeps on each side.
+ * The least a Note keeps beside its column: about 490px of text, as the page views of the User's AI
+ * apps keep beside their conversation, with the 40px gutter a narrow Note keeps on each side. A
+ * scrollbar that takes room (`scrollbar`, the Note's scroller keeps it) comes on top.
  */
 const NOTE_PANE = 570;
 
@@ -36,23 +37,29 @@ const OTHER_PANE = 400;
 
 /**
  * Whether the column fits beside `groups` groups in a card `card` px wide: the Note it follows keeps
- * `NOTE_PANE` and every other group `OTHER_PANE`; when it doesn't, the conversation opens upward
- * from the input at the Note's foot.
+ * `NOTE_PANE` and its scrollbar's room, and every other group `OTHER_PANE`; when it doesn't, the
+ * conversation opens upward from the input at the Note's foot.
  */
-export const columnFits = (card: number | null, groups: number): boolean =>
+export const columnFits = (card: number | null, groups: number, scrollbar = 0): boolean =>
   card !== null &&
-  card - COLUMN_WIDTH - Math.max(0, groups - 1) >= NOTE_PANE + Math.max(0, groups - 1) * OTHER_PANE;
+  card - COLUMN_WIDTH - Math.max(0, groups - 1) >=
+    NOTE_PANE + scrollbar + Math.max(0, groups - 1) * OTHER_PANE;
 
 /**
  * The groups' shares of `room` px with the column beside them: the group at `at`, the Note's,
- * keeps `NOTE_PANE` at least, taken from the others as far as they are wider than `OTHER_PANE`,
- * the widest giving most. Shares as the layout keeps them, which sum to 1.
+ * keeps `NOTE_PANE` and its scrollbar's room at least, taken from the others as far as they are
+ * wider than `OTHER_PANE`, the widest giving most. Shares as the layout keeps them, which sum to 1.
  */
-export function sharesBeside(shares: readonly number[], at: number, room: number): number[] {
+export function sharesBeside(
+  shares: readonly number[],
+  at: number,
+  room: number,
+  scrollbar = 0,
+): number[] {
   const total = shares.reduce((sum, share) => sum + share, 0);
   if (at < 0 || room <= 0 || total <= 0) return [...shares];
   const widths = shares.map((share) => (share / total) * room);
-  const short = Math.min(room, NOTE_PANE) - (widths[at] ?? 0);
+  const short = Math.min(room, NOTE_PANE + scrollbar) - (widths[at] ?? 0);
   if (short <= 0) return [...shares];
   const spare = widths.map((width, index) => (index === at ? 0 : Math.max(0, width - OTHER_PANE)));
   const all = spare.reduce((sum, each) => sum + each, 0);
@@ -62,4 +69,17 @@ export function sharesBeside(shares: readonly number[], at: number, room: number
       ? (width + given) / room
       : (width - (all > 0 ? (given * (spare[index] ?? 0)) / all : 0)) / room,
   );
+}
+
+/**
+ * The room a scrollbar takes beside a scrolling pane, where scrollbars take room rather than
+ * overlay the text (Windows, most Linux desktops): 0 where they overlay (macOS by default).
+ */
+export function scrollbarRoom(): number {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position: absolute; visibility: hidden; width: 100px; overflow: scroll";
+  document.body.append(probe);
+  const room = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return room;
 }

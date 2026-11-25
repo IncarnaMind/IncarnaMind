@@ -881,7 +881,10 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
     await expect(
       group(window).getByTestId("note-ask-panel").getByTestId("own-ask-card"),
     ).toBeVisible();
-    await expect.poll(async () => (await shownOf(card)).whole).toBe(true);
+    // Its answers are in view there, as a card taller than its box keeps them.
+    await expect
+      .poll(async () => (await shownOf(card.getByTestId("own-ask-deny"))).whole)
+      .toBe(true);
     await expect(card.locator(".approval-title")).toHaveText("使用 ferry-data 的 search_tickets");
     await expect(card.locator(".approval-explanation")).toHaveCount(0);
     await expect(card).toContainText("ferry-data · 在 Claude Code 中设置");

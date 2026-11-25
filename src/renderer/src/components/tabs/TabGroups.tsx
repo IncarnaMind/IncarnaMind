@@ -25,7 +25,7 @@ import { MindTab, NoTabOpen } from "./MindTab";
 import { TabStrip } from "./TabStrip";
 import { TabPlaceContext } from "./tabItems";
 import { type DropTarget, type TabDrag, useTabDrag } from "./useTabDrag";
-import { columnFits, sharesBeside, WindowColumnContext } from "./windowColumn";
+import { columnFits, scrollbarRoom, sharesBeside, WindowColumnContext } from "./windowColumn";
 
 /**
  * The card's content: up to three groups side by side, each with its tab
@@ -33,7 +33,7 @@ import { columnFits, sharesBeside, WindowColumnContext } from "./windowColumn";
  * (a double-click makes them equal). Below 1,000px they merge into one strip
  * holding every tab, and come back when the window is wider. Left of them, the
  * tab area's full height, the column a Note's conversation opens in, as the
- * page views of Claude and ChatGPT have it (#3759).
+ * page views of the User's AI apps have it (#3759).
  */
 export function TabGroups() {
   const layout = useAppStore((state) => state.layout);
@@ -55,7 +55,8 @@ export function TabGroups() {
   /** The Mind whose Share sheet is open (Export › More formats, ⌘K). */
   const sharing = useShareDialog((state) => state.mindId);
   const shareMind = useAppStore((state) => state.minds.find((mind) => mind.id === sharing));
-  const column = useWindowColumn(merged);
+  const [scrollbar] = useState(scrollbarRoom);
+  const column = useWindowColumn(merged, scrollbar);
 
   // A double-click on a divider makes the groups equal, as in VS Code.
   useEffect(() => {
@@ -80,6 +81,7 @@ export function TabGroups() {
         kept,
         groups.findIndex((group) => group.activeTabId === column.value.tabId),
         room,
+        scrollbar,
       )
     : kept;
 
@@ -138,10 +140,10 @@ export function TabGroups() {
  * it follows. It follows the Note in focus; a press in a Document, the Library or Home leaves it on
  * the Note it showed.
  */
-function useWindowColumn(merged: boolean) {
+function useWindowColumn(merged: boolean, scrollbar: number) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const groups = useAppStore((state) => (merged ? 1 : (state.layout?.groups.length ?? 1)));
-  const fits = useCardWidth((state) => columnFits(state.width, groups));
+  const fits = useCardWidth((state) => columnFits(state.width, groups, scrollbar));
   const focused = useAppStore((state) => {
     const tab = currentTabOf(state.layout);
     return tab?.item.kind === "mind" ? tab.id : null;
