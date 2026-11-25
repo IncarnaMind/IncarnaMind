@@ -7,6 +7,7 @@ import { useT } from "../../i18n";
 import {
   askInNote,
   firstWordsOf,
+  type NoteAsk,
   type NoteTrail,
   setColumnOpen,
   useNoteAsks,
@@ -17,7 +18,7 @@ import {
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { MoveConversation } from "./NoteAsk";
-import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
+import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 
 type Translate = ReturnType<typeof useT>;
@@ -84,17 +85,24 @@ export const shortModel = (id: string): string => {
   return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
 };
 
-const secondsOf = (trail: NoteTrail) =>
+/** Seconds since the request, less `waitedMs`. */
+const secondsOf = (trail: NoteTrail, waitedMs = 0) =>
   Math.max(
     1,
     Math.floor(
-      (Date.parse(trail.endedAt ?? new Date().toISOString()) - Date.parse(trail.startedAt)) / 1000,
+      (Date.parse(trail.endedAt ?? new Date().toISOString()) -
+        Date.parse(trail.startedAt) -
+        waitedMs) /
+        1000,
     ),
   );
 
+/** How long it worked, the time its questions waited on the User left out. */
+const workedOf = (trail: NoteTrail) => secondsOf(trail, trail.waitedMs);
+
 /** The steps folded to one line: how many Documents it read of those it found, and how long it took. */
 function foldedOf(trail: NoteTrail, t: Translate): string {
-  const seconds = secondsOf(trail);
+  const seconds = workedOf(trail);
   const { count, part } = readsOf(trail.steps);
   if (count === 0) return t("noteColumn.worked", { seconds });
   const total = Math.max(trail.documentsFound, count);
@@ -125,6 +133,12 @@ export const unasked = (step: NoteStep) => step.kind === "own" && step.by === un
 
 /** What a stopped run had done: what it read, as one line. */
 function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
+  const what = readOf(steps, t);
+  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+}
+
+/** What a run read, in words: the Note and the Documents; null when it read none. */
+function readOf(steps: readonly NoteStep[], t: Translate): string | null {
   const mind = steps.find((step) => step.kind === "call" && step.tool === "read_mind");
   const documents = [
     ...new Set(
@@ -133,19 +147,17 @@ function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
   ];
   const [only] = documents;
   const named = mind?.kind === "call" ? mind.summary : null;
-  const what =
-    named && documents.length > 1
-      ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
-      : named && only
-        ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
-        : named
-          ? t("noteColumn.what.mind", { mind: named })
-          : documents.length > 1
-            ? t("noteColumn.what.docs", { count: documents.length })
-            : only
-              ? t("noteColumn.what.doc", { document: only })
-              : null;
-  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+  return named && documents.length > 1
+    ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
+    : named && only
+      ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
+      : named
+        ? t("noteColumn.what.mind", { mind: named })
+        : documents.length > 1
+          ? t("noteColumn.what.docs", { count: documents.length })
+          : only
+            ? t("noteColumn.what.doc", { document: only })
+            : null;
 }
 
 /**
@@ -329,6 +341,11 @@ export function NoteConversationBody({
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
             ) : null
           }
+          failed={
+            index === turns.length - 1 && ask?.state === "failed" && ask.turnId === turn.id
+              ? ask
+              : null
+          }
         />
       ))}
     </div>
@@ -344,6 +361,7 @@ function Turn({
   first,
   modeLine,
   accept,
+  failed,
 }: {
   mindId: string;
   turn: NoteTurn;
@@ -353,6 +371,8 @@ function Turn({
   first: boolean;
   modeLine: boolean;
   accept: ReactNode;
+  /** The request, while this turn is its newest and failed: its line has the one thing to do. */
+  failed: NoteAsk | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -362,6 +382,10 @@ function Turn({
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
+  // A step that didn't run for the stop already says it stopped: the line goes, unless it says
+  // what the run had read.
+  const stopSaid =
+    steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
   return (
     <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
@@ -407,6 +431,7 @@ function Turn({
           </ol>
         )}
       {state === "stopped" &&
+        !stopSaid &&
         (turn.closed.length > 0 && !trail ? (
           <ol data-testid="note-column-interrupted" className="note-column-list own-closed">
             {turn.closed.map((action, index) => (
@@ -440,11 +465,20 @@ function Turn({
             {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
           </p>
         ))}
-      {state === "failed" && turn.problem && (
-        <p className="note-column-interrupted">
-          {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
-        </p>
-      )}
+      {state === "failed" &&
+        turn.problem &&
+        (failed ? (
+          <FailureLine
+            ask={failed}
+            mindId={mindId}
+            className="note-column-interrupted"
+            turn={{ request: turn.request, quote: turn.quote }}
+          />
+        ) : (
+          <p className="note-column-interrupted">
+            {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
+          </p>
+        ))}
       {state === "landed" && trail && (
         <div className="note-column-steps">
           <button
@@ -474,7 +508,7 @@ function Turn({
                 <li className="note-column-step">
                   {t("noteColumn.answered", {
                     model: shortModel(trail.model),
-                    seconds: secondsOf(trail),
+                    seconds: workedOf(trail),
                   })}
                 </li>
               )}

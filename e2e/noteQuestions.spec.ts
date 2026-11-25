@@ -4,7 +4,10 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import type { CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  boxOf,
+  boxRight,
   createDataFolder,
+  cutIn,
   dismissChatSetup,
   expectReadyDocuments,
   frontMind,
@@ -276,7 +279,9 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
     // Folded: the card shows in the box, over the Note's foot; the Note doesn't move, and the
     // keyboard stays in the input, where Return sends nothing while the run waits.
     let before = (await outcomesOf(window, mindId)).length;
+    const sentAt = Date.now();
     let card = await ask(window, "ask-command", "Check the late crossings and save a table");
+    const shownAt = Date.now();
     await expect(box.getByTestId("own-ask-card")).toBeVisible();
     await expect(card.locator(".approval-title")).toHaveText("Run a command");
     // As Claude Code's own prompt: what it wants to do, the thing itself, the answers.
@@ -288,6 +293,12 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
     expect((await described.boundingBox())?.y ?? 0).toBeLessThan(
       (await card.getByTestId("own-ask-value").boundingBox())?.y ?? 0,
     );
+    // The command's box ends where the answers' row ends.
+    const [valueBox, answersBox] = [
+      await boxOf(card.getByTestId("own-ask-value")),
+      await boxOf(card.getByTestId("own-ask-answers")),
+    ];
+    expect(Math.abs(boxRight(valueBox) - boxRight(answersBox))).toBeLessThanOrEqual(1);
     // Where a command runs can't be told from it.
     await expect(card.getByTestId("own-ask-where")).toHaveCount(0);
     // Claude Code's own three choices; its "don't ask again" of three parts is a short button
@@ -342,16 +353,31 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
     await expect(input).toBeFocused();
     await window.keyboard.press("Shift+Tab");
     await expect(card.getByTestId("own-ask-deny")).toBeFocused();
+    // Answered once the request has run at least eight seconds, most of them waiting.
+    await expect(box.getByTestId("note-ask-pill").locator(".note-ask-pill-time")).toHaveText(
+      /^(?:[89]|\d\d+)s$/,
+      { timeout: 20_000 },
+    );
+    const answeredAt = Date.now();
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
+    const endedAt = Date.now();
     await expect(group(window).getByTestId("own-ask-card")).toHaveCount(0);
     await expect(group(window).getByTestId("note-ask-pill-open")).toHaveText(
       "You said no, so I didn't do it.",
     );
 
-    // In the conversation, the step says it didn't run, denied.
+    // In the conversation, the step says it didn't run, denied; the time it worked leaves out the
+    // time the card waited for the answer: at most the whole request less that wait, give or take
+    // the second it is rounded to.
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
     const panel = group(window).getByTestId("note-ask-panel");
+    const worked = Number(
+      /^Worked for (\d+)s$/.exec(
+        (await panel.getByTestId("note-column-steps-toggle").last().textContent()) ?? "",
+      )?.[1] ?? Number.NaN,
+    );
+    expect(worked * 1000).toBeLessThanOrEqual(endedAt - sentAt - (answeredAt - shownAt) + 1000);
     await pointAndClick(window, panel.getByTestId("note-column-steps-toggle").last());
     expect(await stepsIn(panel)).toEqual([`Didn’t run ${COMMAND} · denied`]);
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
@@ -389,6 +415,53 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
             node.getBoundingClientRect().bottom,
         );
       expect([where, Math.abs(under) <= 1]).toEqual([where, true]);
+    }
+    // What runs that is out of sight is said where it is cut, with how many lines, and a press
+    // brings it into view: its last lines from under the answers, then, in the low window, its
+    // first from above the box.
+    const value = card.getByTestId("own-ask-value");
+    /** How far the command's lines run under the answers and above the box. */
+    const pastView = () =>
+      value.evaluate((node) => {
+        const style = getComputedStyle(node);
+        const at = node.getBoundingClientRect();
+        const top = at.top + Number.parseFloat(style.paddingTop);
+        const bottom = at.bottom - Number.parseFloat(style.paddingBottom);
+        const answers = node
+          .closest('[data-testid="own-ask-card"]')
+          ?.querySelector(".own-ask-actions")
+          ?.getBoundingClientRect();
+        const view = node.closest(".note-ask-panel-body")?.getBoundingClientRect();
+        return {
+          below: Math.max(0, bottom - (answers?.top ?? bottom)),
+          above: Math.max(0, (view?.top ?? top) - top),
+        };
+      });
+    const below = card.getByTestId("own-ask-more-below");
+    const above = card.getByTestId("own-ask-more-above");
+    for (const [width, height] of [
+      [900, 560],
+      [1440, 900],
+    ] as const) {
+      await setWindowSize(app, window, width, height);
+      await expect.poll(innerHeightOf).toBe(height);
+      await scroller.evaluate((element) => {
+        element.scrollTop = 0;
+      });
+      await expect(below).toHaveText(/^\d+ more lines? below · Show$/);
+      expect((await pastView()).below).toBeGreaterThan(1);
+      await pointAndClick(window, below);
+      await expect.poll(async () => (await pastView()).below).toBeLessThanOrEqual(1);
+      await expect(below).toHaveCount(0);
+      if (height === 560) {
+        await expect(above).toHaveText(/^\d+ more lines? above · Show$/);
+        await pointAndClick(window, above);
+        await expect.poll(async () => (await pastView()).above).toBeLessThanOrEqual(1);
+        await expect(above).toHaveCount(0);
+        await expect(below).toBeVisible();
+      } else {
+        await expect(above).toHaveCount(0);
+      }
     }
     await shot(window, "card-folded-long-en");
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
@@ -540,6 +613,8 @@ test("each kind of question shows as a card in the conversation's column, what i
           "IncarnaMind can’t tell where this file leads.",
         );
         await expect(card.getByTestId("own-ask-steers")).toHaveCount(0);
+        // Where it can't tell, it doesn't say where either.
+        await expect(card.getByTestId("own-ask-where")).toHaveCount(0);
       } else if (kind !== "steers") {
         await expect(card.locator(".approval-explanation")).toHaveCount(0);
       }
@@ -569,6 +644,84 @@ test("each kind of question shows as a card in the conversation's column, what i
         column.getByTestId("note-column-turn").last().getByTestId("own-step"),
       ).toContainText(answer === "once" ? "· allowed once" : "· denied");
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test("nothing a card asks about scrolls in a box of its own: a tool's many inputs and a long change run past the folded box, a line at the answers says so, and a press brings the last into view; long names with nowhere to break wrap inside the card", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const { mindId } = await harbourNotes(window);
+    let before: number;
+    let card: Locator;
+    // Folded, a tool's twenty inputs and a change of twenty lines run past the box: nothing of
+    // them scrolls in a box of its own, a line at the answers says how much is past them, and a
+    // press brings the last into view.
+    /** Whether the last line of `part`, inside its padding, shows in the box, clear of the answers. */
+    const clearOfAnswers = (part: Locator) =>
+      part.evaluate((node) => {
+        const last =
+          node.getBoundingClientRect().bottom -
+          Number.parseFloat(getComputedStyle(node).paddingBottom);
+        const answers = node
+          .closest('[data-testid="own-ask-card"]')
+          ?.querySelector(".own-ask-actions")
+          ?.getBoundingClientRect();
+        const view = node.closest(".note-ask-panel-body")?.getBoundingClientRect();
+        return last > (view?.top ?? 0) + 18 && last <= (answers?.top ?? 0) + 0.5;
+      });
+    for (const [mode, open, last] of [
+      ["ask-tool-many", null, (shown: Locator) => shown.locator(".own-ask-input").last()],
+      [
+        "ask-change-long",
+        "own-ask-show-change",
+        (shown: Locator) => shown.getByTestId("own-ask-change"),
+      ],
+    ] as const) {
+      before = (await outcomesOf(window, mindId)).length;
+      card = await ask(window, mode, "Do all of it");
+      if (open) await pointAndClick(window, card.getByTestId(open));
+      // How much a box on the card, the part itself or one around it, hides of it.
+      const hiddenInside = await last(card).evaluate((node) => {
+        for (let at: Element | null = node; at && at.matches(":not(fieldset)"); ) {
+          if (getComputedStyle(at).overflowY !== "visible" && at.scrollHeight > at.clientHeight + 1)
+            return at.scrollHeight - at.clientHeight;
+          at = at.parentElement;
+        }
+        return 0;
+      });
+      expect([mode, hiddenInside]).toEqual([mode, 0]);
+      const below = card.getByTestId("own-ask-more-below");
+      await expect(below).toHaveText(/^\d+ more lines? below · Show$/);
+      expect([mode, await clearOfAnswers(last(card))]).toEqual([mode, false]);
+      await pointAndClick(window, below);
+      await expect.poll(() => clearOfAnswers(last(card))).toBe(true);
+      await pointAndClick(window, card.getByTestId("own-ask-deny"));
+      await ended(window, mindId, before);
+    }
+
+    // A tool and an input whose names have nowhere to break: they wrap inside the card, and
+    // nothing of the card is cut or runs past its edge, at both widths.
+    before = (await outcomesOf(window, mindId)).length;
+    card = await ask(window, "ask-tool-long", "Look up every ticket");
+    for (const width of [1440, 900]) {
+      await setWindowSize(app, window, width, 900);
+      await expect.poll(() => window.evaluate(() => innerWidth)).toBe(width);
+      expect([width, await cutIn(card)]).toEqual([width, []]);
+      const past = await card.evaluate((node) => {
+        const at = node.getBoundingClientRect();
+        return [...node.querySelectorAll("*")].filter((each) => {
+          const box = each.getBoundingClientRect();
+          return box.width > 0 && (box.right > at.right + 0.5 || box.left < at.left - 0.5);
+        }).length;
+      });
+      expect([width, past]).toEqual([width, 0]);
+    }
+    await setWindowSize(app, window, 1440, 900);
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, before);
   } finally {
     await app.close();
   }
@@ -696,6 +849,8 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
       `Wrote ${join("drafts", "late-crossings.md")} · allowed once`,
     ]);
     await expect(failed.locator(".note-column-interrupted")).toBeVisible();
+    // In the conversation it is a turn's record: opening the conversation doesn't read it out again.
+    await expect(failed.getByTestId("note-ask-problem")).toHaveAttribute("role", "status");
 
     // A question IncarnaMind can't show is denied, and the step says so; no card.
     before = (await outcomesOf(window, mindId)).length;
@@ -729,6 +884,47 @@ test("in the conversation's column, a suggested answer reads in Chinese; a lasti
     await expect(window.getByTestId("note-column-turn").last().getByTestId("own-step")).toHaveText(
       "未调用 ferry-data 的 search_tickets · 已拒绝",
     );
+  } finally {
+    await app.close();
+  }
+});
+
+test("a question asked with the conversation folded shows whole once the conversation opens in a narrow window's column, its answers clear of the address it asks to open", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const { mindId } = await harbourNotes(window);
+    // A first reply, and the conversation's place set to the column, where it is then closed.
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group(window).getByTestId("note-ask-input"));
+    await window.keyboard.type("What does the harbour plan add?");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
+    await pointAndClick(window, group(window).getByTestId("conversation-move-right"));
+    const column = window.getByTestId("note-column");
+    await pointAndClick(window, column.getByTestId("note-column-close"));
+    await expect(column).toHaveCount(0);
+    // Asked with it folded; read once the window is narrow, in the column over the Note.
+    before = (await outcomesOf(window, mindId)).length;
+    await ask(window, "ask-web", "What does the harbour's notice about the ramp works say?");
+    await setWindowSize(app, window, 900, 760);
+    await expect.poll(() => window.evaluate(() => innerHeight)).toBe(760);
+    await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
+    const card = column.getByTestId("own-ask-card");
+    await expect(card).toBeVisible();
+    // The whole card is in the column's view, above the input, and its answers are under the
+    // address, not over it.
+    await expect.poll(async () => (await shownOf(card)).whole).toBe(true);
+    const [address, answers] = [
+      await boxOf(card.getByTestId("own-ask-value")),
+      await boxOf(card.locator(".own-ask-actions")),
+    ];
+    expect(answers.y).toBeGreaterThanOrEqual(address.y + address.height);
+    await shot(window, "card-web-column-900-en");
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, before);
   } finally {
     await app.close();
   }
@@ -820,10 +1016,31 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
       )
       .toBe("gone");
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
-    expect(await stepsIn(panel.getByTestId("note-column-turn").last())).toEqual([
+    const stopped = panel.getByTestId("note-column-turn").last();
+    expect(await stepsIn(stopped)).toEqual([`Didn’t run ${COMMAND} · stopped before you answered`]);
+    // One line says it stopped, every word of it shown in a narrow window too.
+    await expect(stopped.getByTestId("note-column-interrupted")).toHaveCount(0);
+    await setWindowSize(app, window, 900, 760);
+    await expect.poll(() => window.evaluate(() => innerWidth)).toBe(900);
+    expect(await cutIn(stopped.getByTestId("own-step"))).toEqual([]);
+    await setWindowSize(app, window, 1440, 900);
+    await shot(window, "card-stopped-en");
+    await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+
+    // Stopped after it read the Note and then asked: the step says what didn't run, and a line
+    // what it had read.
+    before = (await outcomesOf(window, mindId)).length;
+    await ask(window, "ask-after-read", "Read the note, then count them");
+    await pointAndClick(window, group(window).getByTestId("note-ask-stop"));
+    await ended(window, mindId, before);
+    await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
+    const readThenStopped = panel.getByTestId("note-column-turn").last();
+    expect(await stepsIn(readThenStopped)).toEqual([
       `Didn’t run ${COMMAND} · stopped before you answered`,
     ]);
-    await shot(window, "card-stopped-en");
+    await expect(readThenStopped.getByTestId("note-column-interrupted")).toHaveText(
+      "Stopped. It had read “Harbour notes”.",
+    );
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
 
     // Closed with a question open.
@@ -847,6 +1064,12 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
       `Didn’t run ${COMMAND} · IncarnaMind closed before you answeredAsk again`,
     );
     await shot(window, "card-reopened-en");
+    // Every word of it, Ask again at its end, in a narrow window too.
+    await setWindowSize(app, window, 900, 760);
+    await expect.poll(() => window.evaluate(() => innerWidth)).toBe(900);
+    expect(await cutIn(last.getByTestId("note-column-interrupted"))).toEqual([]);
+    expect((await shownOf(last.getByTestId("own-ask-again"))).whole).toBe(true);
+    await setWindowSize(app, window, 1440, 900);
     await setLanguage(window, "zh-CN");
     await expect(last.getByTestId("note-column-interrupted")).toHaveText(
       `未运行 ${COMMAND} · 回答前 IncarnaMind 已关闭再问一次`,

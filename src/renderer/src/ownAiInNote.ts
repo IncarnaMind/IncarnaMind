@@ -85,6 +85,10 @@ export interface NoteTrail {
   documentsFound: number;
   /** The AI's own mode, as it named it (#3653). */
   mode: string | null;
+  /** Since when, in ms since the epoch, a question of its waits on the User; null while none does. */
+  askingSince: number | null;
+  /** How long, in ms, its questions waited on the User's answers before this one. */
+  waitedMs: number;
 }
 
 export const useNoteTrails = create<{ byTurn: Readonly<Record<string, NoteTrail>> }>(() => ({
@@ -143,6 +147,9 @@ function keepTrail(event: NoteTurnEvent): void {
   useNoteTrails.setState((state) => {
     const was = state.byTurn[event.turnId];
     const ended = event.state !== "working";
+    const now = Date.now();
+    const asking = !ended && event.questions.length > 0;
+    const since = was?.askingSince ?? null;
     return {
       byTurn: {
         ...state.byTurn,
@@ -158,6 +165,8 @@ function keepTrail(event: NoteTurnEvent): void {
           renewed: event.renewed || (was?.renewed ?? false),
           documentsFound: Math.max(event.documentsFound, was?.documentsFound ?? 0),
           mode: event.mode ?? was?.mode ?? null,
+          askingSince: asking ? (since ?? now) : null,
+          waitedMs: (was?.waitedMs ?? 0) + (since !== null && !asking ? now - since : 0),
         },
       },
     };
@@ -341,12 +350,27 @@ export async function seedRunning(mindId: string): Promise<void> {
   if (now && !useNoteAsks.getState().byMind[mindId]) heard(now);
 }
 
-/** Lets the agent propose changes, the switch Settings shows, and sends the request again. */
-export async function allowAndAskAgain(mindId: string): Promise<void> {
+/**
+ * Lets the agent propose changes, the switch Settings shows, and sends the request again: as this
+ * window sent it, else from `turn`, the record of it a window that didn't send it has.
+ */
+export async function allowAndAskAgain(
+  mindId: string,
+  turn?: { request: string; quote: string },
+): Promise<void> {
   const ask = useNoteAsks.getState().byMind[mindId];
   if (!ask) return;
+  // The record keeps the words a request was about, not where they are: sent again without them,
+  // its changes would no longer be held to them, so such a request is left for the User to ask.
+  const asked =
+    ask.asked.words !== ""
+      ? ask.asked
+      : turn && turn.request !== "" && turn.quote === ""
+        ? { words: turn.request, quote: "", selection: null }
+        : null;
   await core.updateAgent(ask.pairingId, { propose: true });
-  await askInNote(mindId, ask.asked);
+  if (asked) await askInNote(mindId, asked);
+  else clearNoteAsk(mindId);
 }
 
 /**

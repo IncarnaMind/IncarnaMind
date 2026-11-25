@@ -29,6 +29,10 @@
 // its own mode named in the mode file's ".permission" ("auto" when it names none), and ends once
 // the mode file's ".hold" file is gone. Each answer is
 // appended to the mode file's ".answers".
+// "too-old" is a version older than IncarnaMind needs. "ask-tool-many" asks for a tool with twenty
+// inputs, "ask-tool-long" for a tool and an input whose names have no place to break,
+// "ask-change-long" for a change of twenty lines, and "ask-after-read" reads the Note first, then
+// asks as "ask-command" does.
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -52,7 +56,7 @@ if (modeFile !== "") {
   appendFileSync(`${modeFile}.starts`, `${what}${asked}\n`);
 }
 if (args[0] === "--version") {
-  console.log("2.1.330 (Claude Code)");
+  console.log(mode === "too-old" ? "2.0.1 (Claude Code)" : "2.1.330 (Claude Code)");
   process.exit(0);
 }
 if (args[0] === "auth") process.exit(mode === "signed-out" ? 1 : 0);
@@ -198,6 +202,17 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     mcp_servers: [{ name: "incarnamind", status: "connected" }],
   });
   if (own && (mode.startsWith("ask-") || mode === "auto")) {
+    if (mode === "ask-after-read") {
+      const note = String(message.message.content).match(/mindId: ([^)]+)\)/)?.[1];
+      const input = { mindId: note, named: true };
+      say({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", id: "read", name: "mcp__incarnamind__read_mind", input }],
+        },
+      });
+      await agent.callTool({ name: "read_mind", arguments: input });
+    }
     await agent.close();
     await askingModes();
     return;
@@ -564,6 +579,37 @@ const QUESTIONS = {
       },
     ],
   },
+  "tool-many": {
+    tool_name: "mcp__ferry-data__search_tickets",
+    mcp_server: { name: "ferry-data", source: "user" },
+    input: Object.fromEntries(
+      Array.from({ length: 20 }, (_, at) => [
+        `crossing_${at + 1}`,
+        `07:${String(at).padStart(2, "0")}`,
+      ]),
+    ),
+    permission_suggestions: [],
+  },
+  "tool-long": {
+    tool_name:
+      "mcp__ferry-data__search_every_ticket_sold_for_each_crossing_of_the_autumn_timetable",
+    mcp_server: { name: "ferry-data", source: "user" },
+    input: { the_crossing_times_of_every_ferry_that_left_kestrel_bay_late_this_autumn: "07:40" },
+    permission_suggestions: [],
+  },
+  "change-long": {
+    tool_name: "Edit",
+    input: {
+      file_path: `${process.env.HOME ?? ""}/Documents/Kestrel Bay/board/ferry-review.md`,
+      old_string: Array.from({ length: 20 }, (_, at) => `Crossing ${at + 1} leaves on time.`).join(
+        "\n",
+      ),
+      new_string: Array.from({ length: 20 }, (_, at) => `Crossing ${at + 1} leaves late.`).join(
+        "\n",
+      ),
+    },
+    permission_suggestions: [],
+  },
 };
 
 /** The AI's own words for a command, as it says them to a request asked in Chinese. */
@@ -681,7 +727,7 @@ async function askingModes() {
     end(`${first ? "Ran" : "Didn't run"} it, then ${second ? "ran" : "didn't run"} it again.`);
     return;
   }
-  const kind = mode.slice("ask-".length);
+  const kind = mode === "ask-after-read" ? "command" : mode.slice("ask-".length);
   sayText(
     readOr(`${modeFile}.said`, chinese ? "正在查看晚点的航班。" : "Looking at the late crossings."),
   );

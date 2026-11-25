@@ -21,6 +21,7 @@ import type { Worker } from "node:worker_threads";
 import type { TextUnit } from "../../shared/units";
 import type { LogFields, PagePicture, PictureRead, RecognizedLine } from "../adapters";
 import type { DocumentKind } from "../api";
+import { closeWorkerThread } from "../workerClose";
 import type {
   DocumentHead,
   KeywordsJob,
@@ -188,7 +189,7 @@ export function createProcessor(
       return;
     }
     worker.alive = false;
-    void worker.thread.terminate();
+    closeWorkerThread(worker.thread);
   }
 
   /** A worker died mid-job (a crash, or out of memory): fail its job; the next starts afresh. */
@@ -445,7 +446,7 @@ export function createProcessor(
       idle.length = 0;
       for (const each of workers) {
         each.alive = false;
-        void each.thread.terminate();
+        closeWorkerThread(each.thread);
       }
     },
   };

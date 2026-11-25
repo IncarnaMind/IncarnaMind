@@ -2788,6 +2788,28 @@ export async function changeOnScreen(
   }, id);
 }
 
+/**
+ * What of `scope`, itself included, is cut by a box that hides what overflows it, sideways or
+ * below, with the words cut: empty when every word in it shows whole.
+ */
+export const cutIn = (scope: Locator): Promise<string[]> =>
+  scope.evaluate((root) =>
+    [root, ...root.querySelectorAll("*")].flatMap((element) => {
+      const style = getComputedStyle(element);
+      if (style.display === "none" || element.closest(".sr-only")) return [];
+      const words = (element.textContent ?? "").slice(0, 60);
+      const hides = (overflow: string) => /hidden|clip/.test(overflow);
+      return [
+        ...(hides(style.overflowX) && element.scrollWidth > element.clientWidth + 1
+          ? [`sideways: ${words}`]
+          : []),
+        ...(hides(style.overflowY) && element.scrollHeight > element.clientHeight + 1
+          ? [`below: ${words}`]
+          : []),
+      ];
+    }),
+  );
+
 /** The rendered width of an element, in CSS pixels. */
 export async function widthOf(locator: Locator): Promise<number> {
   const box = await locator.boundingBox();
