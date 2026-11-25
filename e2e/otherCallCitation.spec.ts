@@ -46,14 +46,13 @@ const CALLS = [
     interface: "en" as const,
     buyer: ["Our data has to stay in Europe.", "Can we host it in Frankfurt?"],
     say: "What should I say?",
-    reason:
-      "The quote is from another call. A call help reply is checked against its own call and your Documents.",
+    reason: "The quote is from another call, not this one.",
   },
   {
     interface: "zh-CN" as const,
     buyer: ["我们的数据必须留在欧洲。", "能放在法兰克福吗？"],
     say: "我该怎么说？",
-    reason: "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
+    reason: "引文出自另一场会议，不是这一场。",
   },
 ];
 

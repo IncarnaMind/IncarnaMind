@@ -436,9 +436,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(said).toContainText("Charter");
     await expect(said).toContainText("Matter A");
     expect(await said.innerText()).toMatch(
-      language === "en"
-        ? /outside “Matter A”, so this Question doesn’t search them/
-        : /不在“Matter A”里/,
+      language === "en" ? /outside “Matter A”: this Question skips them/ : /不在“Matter A”里/,
     );
     // Not searched, not moved: the Folder's own chip alone, and both Documents where they were.
     await expect(composer.getByTestId("scope-chip")).toHaveCount(1);

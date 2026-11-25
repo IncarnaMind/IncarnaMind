@@ -131,7 +131,7 @@ export const en = {
   "organizeReview.leftOut.noTag": "No Tag fits",
   "organizeReview.leftOut.tooFew": "Too few like it for a Folder yet",
   "organizeReview.apart":
-    "These {count} Documents are too different to group yet. A Folder needs at least 3 that belong together.",
+    "These {count} Documents are too different to group: a Folder needs at least 3 that belong together.",
   "organizeReview.apart.one":
     "1 Document is too few to group yet. A Folder needs at least 3 that belong together.",
   "organizeReview.noTagFits": "No Tag fits these {count} Documents. Nothing has changed.",
@@ -249,7 +249,7 @@ export const en = {
   "library.fix.pictureNoText": "No text was found in the picture",
   "library.fix.pages": "Some scanned pages couldn’t be read",
   "library.fix.forms":
-    "Some form fields couldn’t be read. Print to PDF in the app that created it, then add that copy",
+    "Some form fields couldn’t be read: print it to PDF in its app, then add that copy",
   "library.fix.empty": "This file is empty",
   "library.fix.open": "Open in default app",
   "library.fix.retry": "Retry",
@@ -428,7 +428,7 @@ export const en = {
   "calendars.problem.signIn": "Signed out of {service}",
   "calendars.problem.notAllowed": "Turned off in Settings › Privacy",
   "calendars.problem.denied":
-    "IncarnaMind can’t read your calendars. Allow it in System Settings › Privacy & Security › Calendars.",
+    "IncarnaMind can’t read your calendars: allow it under Privacy & Security › Calendars.",
   "calendars.problem.failed": "Couldn’t read {service}",
   "calendars.tryAgain": "Try again",
   "calendars.signInAgain": "Sign in again",
@@ -438,7 +438,7 @@ export const en = {
   "meetings.brief.questions": "They may ask",
   "meetings.brief.noAnswer": "No answer was found in the sources for this meeting.",
   "error.meeting.briefChanged":
-    "This meeting or its sources changed. Open the meeting brief again to use the current information.",
+    "This meeting or its sources changed. Open the meeting brief again.",
   "error.meeting.briefTooLong":
     "The meeting sources are too long for this model. Choose a model with a larger context window for this note.",
   "error.meeting.briefIncomplete":
@@ -596,11 +596,11 @@ export const en = {
   "folder.wall.changed":
     "This Folder’s “Keep this Folder’s work inside it” changed while the Answer was written.",
   "folder.wall.notFiled":
-    "Nothing new was made: this work stays inside its Folder, which can’t be found now. Your notes are unchanged.",
+    "Nothing was made: this work’s Folder can’t be found. Your notes are unchanged.",
   "folder.wall.pageNotFiled":
-    "A page this Answer read wasn’t filed in a Folder: a Folder’s “Keep this Folder’s work inside it” changed while the Answer was written.",
+    "A web page it read wasn’t filed, since “Keep this Folder’s work inside it” changed.",
   "folder.wall.pageNotFiledGone":
-    "A page this Answer read wasn’t filed in a Folder: the Folder it would go in was deleted while the Answer was written.",
+    "A web page it read wasn’t filed: its Folder was deleted meanwhile.",
   "status.savedOutside.one": "1 page saved outside its Folder",
   "status.savedOutside.other": "{count} pages saved outside their Folder",
   "documents.savedOutside": "These pages were saved, but not into the Folder you chose: {names}",
@@ -627,7 +627,7 @@ export const en = {
   "folder.wall.title": "This Folder keeps its work inside it",
   "folder.bound.mark": "Linked folder: {path}",
   "folder.bound.promise":
-    "IncarnaMind never moves or deletes the files already in this folder, and changes one only when you edit a deck by hand.",
+    "Files in this folder are never moved or deleted; a deck changes only if you edit it.",
   "folder.fileAsFolder": "File as one Folder",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
@@ -904,7 +904,7 @@ export const en = {
   "wordCount.selected": "{selected} of {total} {unit}",
   "wordCount.target": "{count} / {target} {unit}",
   "wordCount.rule":
-    "Words in English, characters in Chinese and Japanese; Citation markers and Questions don’t count.",
+    "Counts English words and Chinese and Japanese characters, not Citation markers or Questions.",
   "page.count.words": "{count} words",
   "page.count.words.one": "1 word",
   "page.count.characters": "{count} characters",
@@ -1135,14 +1135,12 @@ export const en = {
   "figures.inline.pending": "calc.",
   "figures.inline.recalculated": "Inputs found · recalculated",
   "figures.inline.retained": "Saved Analysis · not run again",
-  "figures.inline.savedNote":
-    "This figure keeps its formula and original inputs. Check them before relying on the result.",
+  "figures.inline.savedNote": "Check its formula and inputs before you rely on it.",
   "figures.inline.note":
-    "Each input is quoted from its Document, and IncarnaMind did the arithmetic. This doesn’t show that these were the right figures to use.",
-  "figures.inline.analysisNote":
-    "These are the inputs and steps saved with this figure. Keeping the record doesn’t run the Analysis again.",
+    "Each input is quoted from its Document; whether they’re the right figures isn’t checked.",
+  "figures.inline.analysisNote": "The inputs and steps saved with this figure.",
   "figures.inline.analysisUnavailable":
-    "The inputs and steps saved with this figure aren’t available. IncarnaMind writes it as its value.",
+    "Its saved inputs and steps aren’t available, so it’s kept as a plain value.",
   "figures.inline.analysis": "Saved Analysis: {title}",
   "figures.analysisRows.worked.one": "{how} of {label} in {count} row of {input}: {rows}",
   "figures.analysisRows.worked.other": "{how} of {label} in {count} rows of {input}: {rows}",
@@ -1152,7 +1150,7 @@ export const en = {
   "figures.analysisRows.how.max": "Highest value",
   "figures.analysisRows.how.count": "Count",
   "figures.analysisRows.recalculated":
-    "When the Analysis ran, IncarnaMind worked this out again from these cells and got the same number.",
+    "IncarnaMind worked this out again from these cells and got the same number.",
   "figures.analysisRows.used.one": "Worked out from {count} row of {input}: {rows}, using {names}",
   "figures.analysisRows.used.other":
     "Worked out from {count} rows of {input}: {rows}, using {names}",
@@ -1208,16 +1206,15 @@ export const en = {
   "figures.workbook.whatIfLabel": "{label} (what-if: {changes})",
   "figures.workbook.whatIfAt": "{input} at {value}",
   "figures.workbook.moreInputs": "{count} more inputs not listed",
-  "figures.workbook.keptNote":
-    "This is the value the workbook saved: IncarnaMind couldn’t work it out again, for the reason above. Each input is cited to its cell.",
+  "figures.workbook.keptNote": "Each input is cited to its cell.",
   "figures.workbook.note":
-    "IncarnaMind worked this out again from the workbook’s own formulas, in memory: the file is unchanged. Each input is cited to its cell. This doesn’t show that the workbook’s assumptions are right.",
+    "Each input is cited to its cell; the workbook’s assumptions aren’t checked.",
   "figures.workbook.kept.volatile":
     "{cell} uses {name}, which gives a new value each time, so its saved value is used",
   "figures.workbook.kept.finds-cells":
     "{cell} uses {name} to find its cells as it runs, so its saved value is used",
   "figures.workbook.kept.function":
-    "IncarnaMind can’t work out {name} in {cell} (a macro’s, perhaps), so its saved value is used",
+    "IncarnaMind can’t work out {name} in {cell}, so its saved value is used",
   "figures.workbook.kept.add-in":
     "{cell} uses {name}, an add-in’s function, so its saved value is used",
   "figures.workbook.kept.data-table": "{cell} is part of a data table, so its saved value is used",
@@ -1230,27 +1227,27 @@ export const en = {
     "IncarnaMind can’t read the formula in {cell}, so its saved value is used",
   "figures.workbook.kept.circular": "{cell} is in a circular reference, so its saved value is used",
   "figures.workbook.kept.iterative":
-    "{cell} is in a circular reference that Excel works out by iterating, so its saved value is used",
+    "{cell} is in a circular reference Excel iterates, so its saved value is used",
   "figures.workbook.kept.not-read":
-    "{cell} reads “{name}”, which wasn’t read (hidden, or past the reading limit), so its saved value is used",
+    "{cell} reads “{name}”, hidden or past the reading limit, so its saved value is used",
   "figures.workbook.kept.array":
     "{cell} is an array formula over several cells, so its saved value is used",
   "figures.workbook.kept.no-saved-value":
-    "The workbook saved no result for {cell}: perhaps it was written by a program and not opened in Excel since",
+    "The workbook saved no result for {cell}: open and save it in Excel",
   "figures.workbook.kept.differs":
-    "IncarnaMind’s result for {cell} differs from the value the workbook saved, so the saved value is used. The workbook may not have been recalculated since an input changed: open it in Excel and save it",
+    "IncarnaMind’s result for {cell} differs, so its saved value is used: resave it in Excel",
   "figures.workbook.kept.too-many":
-    "{cell} depends on more than {name} formulas, more than IncarnaMind works out at once, so its saved value is used",
+    "{cell} depends on more than {name} formulas, so its saved value is used",
   "figures.workbook.kept.unsorted":
-    "{cell} looks a value up approximately in a range that isn’t sorted, where Excel’s answer can’t be told, so its saved value is used",
+    "{cell} looks up approximately in an unsorted range, so its saved value is used",
   "figures.workbook.kept.early-date":
-    "{cell} uses a date before 1 March 1900, where Excel counts a 29 February 1900 that never was, so its saved value is used",
+    "{cell} uses a date before 1 March 1900, so its saved value is used",
   "figures.workbook.kept.criterion":
-    "{cell} uses a condition IncarnaMind can’t read the way Excel does, such as a time, so its saved value is used",
+    "{cell} uses a condition IncarnaMind can’t read, so its saved value is used",
   "figures.workbook.kept.date-text":
-    "{cell} reads a date or time written as text, which Excel reads by the computer’s date settings, so its saved value is used",
+    "{cell} reads a date written as text, so its saved value is used",
   "figures.workbook.kept.text-order":
-    "{cell} orders text Excel’s rules leave unclear (punctuation, letters outside A to Z, or a space against a digit), so its saved value is used",
+    "{cell} sorts text in a way Excel leaves unclear, so its saved value is used",
   "figures.workbook.kept.too-large":
     "{cell} reads a block too large to work out here, so its saved value is used",
   "figures.card.source": "{figure}: the source gives {value} ({source})",
@@ -1508,7 +1505,7 @@ export const en = {
   "claim.acceptChange": "Accept change",
   "claim.changeAccepted": "Accepted the change",
   "claim.change.inside":
-    "This change would take out a Citation or a worked-out figure, so it can’t be made here. Ask your AI to fix the sentence.",
+    "This would remove a Citation or a worked-out figure. Ask your AI to fix the sentence.",
   "claim.change.underReview":
     "A change waiting for you covers these words. Accept or reject it first.",
   "claim.change.title": "Suggested change",
@@ -1615,10 +1612,10 @@ export const en = {
   "claim.reason.number-unquoted":
     "Verdict hidden: no quote found gives this number, and this model can’t work it out from the Documents’ numbers. Compare it with your Document.",
   "claim.reason.number-not-worked-out":
-    "Verdict hidden: no quote found gives this number, and it couldn’t be worked out from the Documents’ numbers. Compare it with your Document.",
+    "Verdict hidden: no quote gives this number, and it couldn’t be worked out. Check your Document.",
   "claim.reason.unread": "Verdict hidden: the model didn’t read your Documents.",
   "claim.reason.other-cell":
-    "Verdict hidden: the model named another row or column of the Document’s table for this number.",
+    "Verdict hidden: the model named another row or column of the table for this number.",
   "claim.reason.analysis": "From the Analysis · not recalculated",
   "claim.reason.analysis-gone": "The Analysis it came from is no longer available",
   "claim.reason.analysis-unnamed": "The sentence doesn’t clearly say this figure is {detail}",
@@ -1644,31 +1641,29 @@ export const en = {
   "claim.reason.absence-unconfirmed":
     "Verdict hidden: the quote the model gave doesn’t show what the sentence says is absent.",
   "claim.reason.absence-other-document":
-    "Verdict hidden: the quote the model gave is from another Document than the one the sentence is about.",
+    "Verdict hidden: the model’s quote is from another Document than the sentence’s.",
   "claim.reason.found-elsewhere":
-    "Verdict hidden: the quote that backs this sentence isn’t among its Citations. Add it as a Citation, then check again.",
+    "Verdict hidden: the backing quote isn’t among its Citations. Cite it, then check again.",
   "claim.reason.assistant-conclusion":
     "The assistant’s own conclusion wasn’t checked. The rest of the sentence is supported.",
-  "claim.absenceBesideFact":
-    "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
+  "claim.absenceBesideFact": "Supported, except what it says is missing, which wasn’t checked.",
   "claim.reason.kept-inside": "Kept inside {detail}",
   "claim.reason.outside-scope": "“{detail}” is outside this note’s Search scope.",
   "claim.reason.rows-run-failed":
-    "Not checked: the code that works this out from “{detail}” failed. Check again to try once more.",
+    "Not checked: working it out from “{detail}” failed. Check again to retry.",
   "claim.reason.rows-run-timed-out":
     "Not checked: working this out from “{detail}” took longer than a minute.",
   "claim.reason.rows-unavailable":
-    "Not checked: Python couldn’t run on this computer, so this wasn’t worked out from “{detail}”.",
-  "claim.reason.rows-cut":
-    "Not checked: “{detail}” has more rows than a check reads, and a figure is never judged from part of a file.",
+    "Not checked: Python couldn’t run here to work this out from “{detail}”.",
+  "claim.reason.rows-cut": "Not checked: “{detail}” has more rows than a check reads.",
   "claim.reason.read-budget": "Stopped · {spent} spent",
   "claim.reason.read-budget.unknown": "Stopped at the most this read may spend.",
   "claim.reason.workbook-differs":
-    "The value Excel saved differs from what the workbook’s formulas give, so this figure can’t be checked. Open the workbook in Excel and save it.",
+    "Excel’s saved value differs from the formulas: open and save the workbook in Excel.",
   "claim.reason.workbook-external":
-    "It uses a link to another file, which IncarnaMind can’t read, so this figure can’t be checked.",
+    "Can’t be checked: it links to another file, which IncarnaMind can’t read.",
   "claim.reason.workbook-volatile":
-    "It uses a value that changes each time the workbook is worked out, so this figure can’t be checked.",
+    "Can’t be checked: it uses a value that changes on every recalculation.",
   "claim.reason.workbook-circular":
     "Its formulas refer to each other, so this figure can’t be checked.",
   "claim.reason.workbook-not-read":
@@ -1680,7 +1675,7 @@ export const en = {
   "claim.reason.workbook-text":
     "It’s a text result, such as “OK” or “Breach”, so it isn’t checked against a number.",
   "claim.reason.workbook-changed":
-    "The workbook’s cells no longer give this figure. Ask again to work it out from the workbook as it is now.",
+    "The workbook no longer gives this figure: ask again to work it out from it now.",
   "claim.reason.figures-not-read": "The figures in “{document}”, {location}, couldn’t be read.",
   "claim.reason.figures-not-read.whole": "The figures in “{document}” couldn’t be read.",
   "claim.reason.figures-not-read.unknown": "The figures in a Document couldn’t be read.",
@@ -1695,7 +1690,7 @@ export const en = {
   "claim.reason.readings-unsettled": "“{detail}” could be read several ways, so it wasn’t checked.",
   "claim.reason.library-unsettled": "Only your Library’s counts, names and kinds can be checked.",
   "claim.reason.working-not-sent":
-    "Checked when you run Check: the background check doesn’t send how this figure was worked out.",
+    "Checked when you run Check: the background check doesn’t send its working.",
   "claim.recheck.edited": "The sentence has changed since it was checked.",
   "claim.recheck.new-version": "A Document it was checked against has a new version.",
   "claim.recheck.document-removed": "A Document it was checked against was deleted.",
@@ -1829,9 +1824,9 @@ export const en = {
   "checks.problem.scope.empty.more":
     "Nothing to check against: “{scope}” and {count} more, this note’s Search scope, have no Documents.",
   "checks.problem.scope.ownFile":
-    "Nothing to check against: “{scope}”, this note’s Search scope, holds only the file this note was made from, which a check never counts.",
+    "Nothing to check against: “{scope}”, this note’s Search scope, holds only this note’s source file.",
   "checks.problem.scope.ownFile.more":
-    "Nothing to check against: “{scope}” and {count} more, this note’s Search scope, hold only the file this note was made from, which a check never counts.",
+    "Nothing to check against: “{scope}” and {count} more, this note’s Search scope, hold only its source file.",
   "checks.problem.scope.gone.folder":
     "Nothing to check against: the Folder this note’s Search scope names was deleted.",
   "checks.problem.scope.gone.tag":
@@ -1911,7 +1906,7 @@ export const en = {
     "That has {typed} typed-in numbers, and a check takes up to {most}. Choose a smaller range.",
   "verify.workbook.title": "Check a workbook",
   "verify.workbook.note":
-    "Choose the sheet to check. Each typed-in number is looked for in your Documents, and each formula is worked out again.",
+    "Typed-in numbers are looked for in your Documents, and formulas are worked out again.",
   "verify.workbook.sheet": "Sheet",
   "verify.workbook.allSheets": "All sheets",
   "verify.workbook.typed.one": "1 typed-in number",
@@ -2050,7 +2045,7 @@ export const en = {
   "edit.problem.too-long": "Too much text for the model: select less.",
   "edit.problem.block-too-long": "This paragraph is too long for {model}",
   "edit.problem.part-changed":
-    "You typed in a later part while the edit ran, so it stopped there. What it already changed stays.",
+    "You typed further down while it ran, so the edit stopped there; what it changed stays.",
   "edit.problem.block-too-long.cap":
     "This paragraph is longer than one edit can take. Split it into shorter paragraphs.",
   "edit.problem.chooseAnotherModel": "Choose another model",
@@ -2063,16 +2058,16 @@ export const en = {
   "edit.problem.cut-short":
     "The AI’s reply ran too long, so nothing changed. Select less text and try again.",
   "edit.problem.unplaced":
-    "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
+    "Nothing changed: the AI’s text to remove isn’t in exactly one place, word for word. Try again.",
   "edit.problem.unchanged.said": "Nothing changed. The AI said: “{said}”",
   "edit.problem.typed-tag":
     "The AI’s rewrite left out a <removed> tag you typed, so nothing changed. Try again.",
   "edit.problem.missing-number":
     "The AI’s rewrite left out [number missing], so nothing changed. Try again.",
   "edit.problem.not-placed":
-    "The AI’s rewrite would have added or edited a Citation, footnote or figure, so nothing changed. Try again.",
+    "Nothing changed: the rewrite would have changed a Citation, footnote or figure. Try again.",
   "edit.problem.misnamed":
-    "The AI didn’t say clearly which paragraph each change replaces, so nothing changed. Try again.",
+    "Nothing changed: the AI didn’t say which paragraph each change replaces. Try again.",
   "edit.problem.late": "This edit arrived too late to apply. Accept or reject its changes.",
   "edit.problem.busy": "Another edit is still running. Wait for it, or stop it.",
   "composer.edit.placeholder": "Say what to change…",
@@ -2103,7 +2098,7 @@ export const en = {
   "composer.quote.tooMany":
     "A Question can be about {count} selections at most: remove one to add this.",
   "assistant.quote.leftOut":
-    "A quote from “{document}” wasn’t sent: the Document no longer has those words where you selected them.",
+    "The selection from “{document}” wasn’t sent: those words aren’t there now.",
   "composer.edit.translateInto": "Translate into ",
   "proposal.region": "Changes waiting",
   "proposal.count": "{count} changes waiting",
@@ -2352,7 +2347,7 @@ export const en = {
   "viewer.pictureSizeUnreadable": "This picture’s size can’t be read.",
   "viewer.removed.body": "This Document has been deleted from IncarnaMind, so it can’t be shown.",
   "viewer.removed.unlinked":
-    "This Document’s Linked folder was unlinked. IncarnaMind kept the text your Citation quotes.",
+    "Its Linked folder was unlinked; the text your Citation quotes is kept.",
   "viewer.removed.quote": "The quoted text:",
   "viewer.file.missing": "The file for {name} is missing from its folder.",
   "viewer.file.unavailable": "Can’t reach “{name}” right now (drive unplugged?).",
@@ -2418,9 +2413,9 @@ export const en = {
   "viewer.area.highlightTip": "Drag over a page to highlight that area (Esc stops)",
   "viewer.slide.ask": "Ask about this slide",
   "viewer.selection.notOpened":
-    "The quote wasn’t added: “{mind}” didn’t open for changes. You can copy it with its citation instead.",
+    "Not added: “{mind}” didn’t open. Copy the quote with its citation instead.",
   "viewer.selection.notOpenedNew":
-    "The quote wasn’t added: the new note didn’t open. You can copy it with its citation instead.",
+    "Not added: the new note didn’t open. Copy the quote with its citation instead.",
   "viewer.selection.copied": "Copied with its citation",
   "viewer.selection.refused.blocks":
     "A Citation covers two blocks of rows of a sheet at most. Select fewer rows.",
@@ -2428,13 +2423,13 @@ export const en = {
   "viewer.selection.refused":
     "Couldn’t cite these words: the Document’s text where you selected them doesn’t have them.",
   "viewer.selection.refused.places":
-    "Couldn’t cite these words: the Document has them in several places. Select a few more words around them.",
+    "Couldn’t cite: these words are in several places. Select a few more around them.",
   "viewer.selection.refused.pages":
     "Couldn’t cite these words: a Citation covers two pages at most.",
   "viewer.selection.refused.noText":
     "Couldn’t cite these words: the Document has no text there to check them against.",
   "viewer.selection.refused.unsure":
-    "Couldn’t cite these words: text recognition may have misread them. Compare them with the page, or select other words.",
+    "Couldn’t cite these words: they may be misread. Compare them with the page, or select others.",
   "command.viewer.range.ask": "Ask about these cells",
   "command.viewer.range.addToNote": "Add these cells to note",
   "command.viewer.range.copy": "Copy these cells with their citation",
@@ -2485,7 +2480,7 @@ export const en = {
   "annotations.collect.empty": "There are no highlights to collect.",
   "annotations.collect.failed": "Couldn’t collect the highlights.",
   "annotations.collect.tooMany":
-    "There are too many highlights ({count}) to collect into one note. Collect one Document or one color at a time.",
+    "Too many highlights ({count}) for one note: collect one Document or color at a time.",
   "annotations.addToNote.added": "Added the highlight to “{mind}”",
   "annotations.export.empty": "This Document has no highlights to export.",
   "annotations.export.title": "highlights and comments",
@@ -2501,7 +2496,7 @@ export const en = {
   "annotations.more": "More actions for “{quote}”",
   "annotations.cantShow": "Couldn’t scroll to it in this view.",
   "annotations.export.notAllowed":
-    "Couldn’t save the highlights in “{folder}”: IncarnaMind may not add files there. Choose another Output location in Settings.",
+    "Can’t add files to “{folder}”: choose another Output location in Settings.",
   "annotations.search.title": "Highlights and comments",
   "annotations.search.open": "Open this highlight",
   "viewer.mark.found": "Citation {number}: quote found",
@@ -2573,7 +2568,7 @@ export const en = {
   "viewer.web.look.failed.stopped":
     "The page as it looks wasn’t kept: IncarnaMind stopped while making it.",
   "viewer.web.look.failed.local-mode":
-    "Not kept as it looks: “Keep everything on this computer” is on. It would load the page from its site.",
+    "Not kept as it looks: “Keep everything on this computer” is on.",
   "viewer.web.look.failed.failed": "The page as it looks wasn’t kept.",
   "viewer.web.pictureNotSaved": "Not saved with the page",
   "viewer.docx.comment": "Comment by {author}",
@@ -2708,7 +2703,7 @@ export const en = {
   "evidence.notCited.label": "Not cited",
   "library.citedBy.label": "Cited by {agent}",
   "library.citedBy.hint":
-    "A file from outside your Library that {agent} cited. IncarnaMind doesn’t search it or file it: it is evidence only for the sentences that cite it.",
+    "Cited by {agent} from outside your Library: evidence only for the sentences that cite it.",
   "evidence.notCited.done": "“{name}” won’t be cited",
   "evidence.notCited.doneMany": "{count} Documents won’t be cited",
   "evidence.citeAgain.done": "“{name}” can be cited again",
@@ -2718,7 +2713,7 @@ export const en = {
   "evidence.citeHanded.done": "“{name}” can be cited now",
   "evidence.citeHanded.doneMany": "{count} Documents can be cited now",
   "evidence.notCited.handedHint":
-    "{agent} made this file for you to check: it’s never read or cited as a source until you cite it.",
+    "{agent} made this for you to check; it isn’t a source until you cite it.",
   "evidence.settings.title": "Checks",
   "evidence.settings.switch": "Leave out files IncarnaMind wrote",
   "evidence.settings.body": "Exports don’t count as evidence.",
@@ -3225,7 +3220,7 @@ export const en = {
   "tags.dialog.create": "Add Tag",
   "tags.dialog.retag": "Re-tag all Documents",
   "tags.dialog.retag.hint":
-    "Suggests Tags for every Document again. They wait in Suggested Tags until you confirm them, and Tags you set stay.",
+    "Suggests Tags for every Document again; you confirm each, and Tags you set stay.",
   "tags.dialog.retag.started": "Re-tagging has started.",
   "tags.dialog.retag.none": "Nothing to re-tag: Tagging is off, or stopped where every Document is",
   "tags.dialog.done": "Done",
@@ -3327,7 +3322,7 @@ export const en = {
   "settings.about.citationLicences": "Citation style licenses",
   "outputLocation.title": "Output location",
   "outputLocation.body.tip":
-    "Where exports and files that Tasks save go. IncarnaMind writes nowhere else without asking.",
+    "Where exports and files Tasks save go; IncarnaMind writes nowhere else without asking.",
   "outputLocation.change": "Change…",
   "outputLocation.defaultName": "Documents › IncarnaMind",
   "outputLocation.defaultName.other": "Documents › IncarnaMind",
@@ -4184,11 +4179,11 @@ export const en = {
   "composer.plus.files": "Add files…",
   "composer.plus.note": "Add a note or Document…",
   "composer.files.outsideWall.one":
-    "“{name}” is already in IncarnaMind, outside “{folder}”, so this Question doesn’t search it.",
+    "“{name}” is already in IncarnaMind, outside “{folder}”: this Question skips it.",
   "composer.files.outsideWall":
-    "{names} are already in IncarnaMind, outside “{folder}”, so this Question doesn’t search them.",
+    "{names} are already in IncarnaMind, outside “{folder}”: this Question skips them.",
   "composer.files.outsideWall.many":
-    "{names} and {more} more are already in IncarnaMind, outside “{folder}”, so this Question doesn’t search them.",
+    "{names} and {more} more are already in IncarnaMind, outside “{folder}”: this Question skips them.",
   "composer.expand": "Expand the composer",
   "composer.collapse": "Shrink the composer (Esc)",
   "composer.paste.name": "Pasted text",
@@ -4298,7 +4293,7 @@ export const en = {
   "meetings.key.server": "Server",
   "meetings.key.serverPlaceholder": "Deepgram’s own",
   "meetings.key.serverTip":
-    "Leave it empty for Deepgram. For Cloudflare Workers AI, paste its Nova-3 address; or your own server’s.",
+    "Empty for Deepgram; paste Cloudflare Workers AI’s Nova-3 address, or your own server’s.",
   "settings.advanced": "Advanced",
   "models.removed": "Removed {provider}.",
   "models.removed.answers": "Removed {provider}. Answers now use {model}.",
@@ -4482,10 +4477,8 @@ export const en = {
     "“{name}”: searches this Folder’s {count} Documents. Remove it to search every Document.",
   "scope.chip.own.one":
     "“{name}”: searches this Folder’s 1 Document. Remove it to search every Document.",
-  "scope.chip.own.named":
-    "“{path}”: searches its {count} Documents, its sub-Folders too. Remove it to search every Document.",
-  "scope.chip.own.named.one":
-    "“{path}”: searches its 1 Document, its sub-Folders too. Remove it to search every Document.",
+  "scope.chip.own.named": "“{path}”: searches its {count} Documents, sub-Folders included.",
+  "scope.chip.own.named.one": "“{path}”: searches its 1 Document, sub-Folders included.",
   "scope.chip.remove": "Remove {name} from the Search scope",
   "scope.chip.more": "+{count} more",
   "scope.chip.moreLabel": "Show the other {count} Documents in the Search scope",
@@ -4513,10 +4506,8 @@ export const en = {
   "answer.figures.calculated.one": "Calculated 1 figure",
   "answer.figures.uncalculated": "{count} figures couldn’t be calculated",
   "answer.figures.uncalculated.one": "1 figure couldn’t be calculated",
-  "answer.figures.uncalculated.named.one":
-    "1 figure couldn’t be calculated: {figures}. It was written without a calculation IncarnaMind could check.",
-  "answer.figures.uncalculated.named":
-    "{count} figures couldn’t be calculated: {figures}. They were written without a calculation IncarnaMind could check.",
+  "answer.figures.uncalculated.named.one": "1 figure couldn’t be calculated: {figures}",
+  "answer.figures.uncalculated.named": "{count} figures couldn’t be calculated: {figures}",
   "answer.setAsideHidden": "(hidden in the file)",
   "answer.setAsideStruck": "(struck through in the file)",
   "answer.sourceNotKept": "(source couldn’t be kept)",
@@ -5022,16 +5013,15 @@ export const en = {
   "citation.reason.monthly-limit":
     "Not checked: your monthly limit was reached before this sentence.",
   "citation.reason.answer-limit-unfinished":
-    "Not checked: this Answer’s {limit} checking limit was reached before {model} finished checking this sentence.",
+    "Not checked: this Answer hit its {limit} checking limit before {model} finished.",
   "citation.reason.answer-limit-unfinished.unnamed":
-    "Not checked: this Answer’s {limit} checking limit was reached before this sentence’s check finished.",
+    "Not checked: this Answer hit its {limit} checking limit first.",
   "citation.reason.monthly-limit-unfinished":
-    "Not checked: your monthly limit was reached before {model} finished checking this sentence.",
+    "Not checked: your monthly limit was reached before {model} finished.",
   "citation.reason.monthly-limit-unfinished.unnamed":
     "Not checked: your monthly limit was reached before this sentence’s check finished.",
   "citation.reason.notChecked": "Whether the quote supports this sentence couldn’t be checked.",
-  "citation.reason.other-call":
-    "The quote is from another call. A call help reply is checked against its own call and your Documents.",
+  "citation.reason.other-call": "The quote is from another call, not this one.",
   "citation.reason.small-model":
     "This model on this computer is too small to judge whether the quote supports the sentence.",
   "citation.where": "{document}, {location}",
@@ -5053,7 +5043,7 @@ export const en = {
   "uncheckedFigure.heading": "Not checked",
   "uncheckedFigure.mark": "Not checked: a word a scan may have misread",
   "uncheckedFigure.why":
-    "It comes from “{word}”, which was read from a scan and may be misread. Check it on the page.",
+    "It comes from “{word}”, read from a scan and possibly misread: check it on the page.",
   "missingNumber.words": "[number missing]",
   "missingNumber.tip":
     "IncarnaMind couldn’t calculate the figure that belongs here, so no number was written.",
@@ -5097,7 +5087,7 @@ export const en = {
   "citation.regenerate": "Regenerate the Answer",
   "citation.changedAfterCited": "The Document changed after this was cited.",
   "citation.changedAfterCited.web":
-    "This page was fetched again on {date}, after you cited it. What’s shown is the new copy; the one you cited is kept.",
+    "Fetched again on {date}, after you cited it: this is the new copy; the cited one is kept.",
   "citation.changed.on": "This Document changed on {date}.",
   "citation.changed.still": "The quote is still here.",
   "citation.changed.gone": "Its quote is no longer in the new version.",
@@ -5264,7 +5254,7 @@ export const en = {
   "skills.make.drafting": "Drafting a Skill from this note…",
   "skills.make.stop": "Stop",
   "skills.make.empty":
-    "There is nothing in this note to make a Skill from yet. Write your text or ask a Question first.",
+    "Nothing in this note to make a Skill from yet: write your text or ask a Question first.",
   "skills.make.failed": "Couldn’t draft a Skill: {message}",
   "skills.make.retry": "Try again",
   "skills.make.close": "Close",
@@ -5320,9 +5310,9 @@ export const en = {
   "scripts.settings.bodySandboxed.details":
     "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet. Unless you chose “Always run” for a Skill, each run asks first.",
   "scripts.settings.problem.sandboxMissing":
-    "The sandbox for analyses and scripts can’t start on this computer: install {packages}, then restart IncarnaMind. Until then, analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
+    "No sandbox, so whole-file analyses are off: install {packages}, then restart IncarnaMind.",
   "scripts.settings.problem.sandboxStart":
-    "This computer doesn’t let IncarnaMind start a sandbox for analyses and scripts, so analyses of whole files are off, and scripts run with no sandbox: unless you chose “Always run” for a Skill, each run asks first.",
+    "This computer doesn’t let IncarnaMind start a sandbox, so whole-file analyses are off.",
   "scripts.settings.timeout": "Stop a script that runs longer than",
   "scripts.settings.seconds": "seconds",
 
@@ -5361,9 +5351,9 @@ export const en = {
   "scripts.card.deny": "Deny",
   "scripts.alwaysRun.title": "Always run the scripts of {skill}?",
   "scripts.alwaysRun.body":
-    "From now on, {skill}’s scripts run without asking. With no sandbox, they can delete your files and send your data online.",
+    "With no sandbox, they can delete your files and send your data online.",
   "scripts.alwaysRun.bodySandboxed":
-    "From now on, {skill}’s scripts run without asking. They run in a sandbox, but can still read some files on this computer.",
+    "They run in a sandbox, but can still read some files on this computer.",
   "scripts.alwaysRun.bodySandboxed.details":
     "They can’t open your home folder, IncarnaMind’s data, other apps’ temporary files or plugged-in drives, can only write in their own working folder, and have no internet.",
   "scripts.alwaysRun.trust": "Only for a Skill you trust. Reset in Settings › Approvals.",
@@ -5458,7 +5448,7 @@ export const en = {
   "export.pageNumbers": "Page numbers",
   "export.pageNumbers.hint": "At the foot of every Word and PDF page.",
   "export.pageNumbers.wordHint":
-    "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add page numbers if the file has no footer of its own.",
+    "Adds page numbers only where the file has no footer; its own stay as they are.",
   "export.watermark": "Watermark",
   "export.watermark.hint": "Written as Word’s own watermark, so Word can change or remove it.",
   "export.watermark.none": "None",
@@ -5479,7 +5469,7 @@ export const en = {
   "export.citationPlace.footnotes": "Footnotes",
   "export.citationPlace.list": "List at the end",
   "export.citationPlace.hint":
-    "Footnotes sit at the foot of the page. The list sits at the end of the document, with [1] in the text.",
+    "Footnotes go at the foot of each page; a list goes at the end, with [1] in the text.",
   "export.citationPlace.byStyle": "Set by the citation style",
   "export.citationPlace.count": "{citations} from {documents}",
   "export.citedCitations.one": "1 Citation",
@@ -5680,9 +5670,9 @@ export const en = {
   "export.rewritten.added": "Added {count} check comments to “{name}”",
   "export.rewritten.removed": "Removed the check comments from “{name}”",
   "export.rewritten.copy.one":
-    "Added 1 check comment to a copy, “{name}”, because “{changed}” changed after it was saved",
+    "Added 1 check comment to a copy, “{name}”: “{changed}” changed after saving",
   "export.rewritten.copy":
-    "Added {count} check comments to a copy, “{name}”, because “{changed}” changed after it was saved",
+    "Added {count} check comments to a copy, “{name}”: “{changed}” changed after saving",
   "export.record.doneIn": "Saved “{name}” and its CSV in {folder}",
   "export.changeFolder": "Change folder…",
   "export.parts.separator": ", ",
@@ -5985,12 +5975,10 @@ export const en = {
   "error.system.dataFolder": "IncarnaMind couldn’t open its data folder.",
   "error.system.corrupt": "IncarnaMind’s data is damaged.",
   "error.startup.title": "IncarnaMind couldn’t start",
-  "error.startup.body":
-    "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n{message}",
+  "error.startup.body": "Your data folder couldn’t be opened. Open IncarnaMind again.\n\n{message}",
   "error.startup.held":
-    "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
-  "error.startup.busy":
-    "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+    "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
+  "error.startup.busy": "Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":
     "Another copy hasn’t finished starting. Wait a moment, then open IncarnaMind again.",
   "error.startup.quitting":
@@ -5999,15 +5987,15 @@ export const en = {
     "An update is being installed. Wait for it to finish, then open IncarnaMind again.",
   "error.startup.update.title": "IncarnaMind needs the latest version",
   "error.startup.update.body":
-    "The update to {new} may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update to {new} may not have finished, so this copy ({old}) won’t open your data.",
   "error.startup.update.withCurrent":
-    "The update may not have finished. This copy is {old}, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update may not have finished, so this copy ({old}) won’t open your data.",
   "error.startup.update.withTarget":
-    "The update to {new} may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update to {new} may not have finished, so this copy won’t open your data.",
   "error.startup.update.unknown":
-    "The update may not have finished. This copy won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+    "The update may not have finished, so this copy won’t open your data.",
   "error.startup.stalled":
-    "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
+    "Another copy was quitting. Open IncarnaMind again; your data is unchanged.",
   "error.startup.newer.title": "Update IncarnaMind to open your data",
   "error.startup.newer.body":
     "A newer IncarnaMind saved this data. Update to open it; nothing changed.",
@@ -6017,9 +6005,9 @@ export const en = {
   "error.connector.notInDirectory": "That Connector isn’t in the directory.",
   "error.examples.reading": "The example’s Documents are still being read. Try again in a moment.",
   "error.examples.unreadable":
-    "The example’s Document “{document}” couldn’t be read. Add a file of your own, or remove the examples.",
+    "Couldn’t read the example’s “{document}”. Add a file of your own, or remove the examples.",
   "error.examples.gone":
-    "The example’s Document “{document}” was deleted. Add a file of your own, or remove the examples.",
+    "The example’s “{document}” was deleted. Add a file of your own, or remove the examples.",
   "error.examples.absent":
     "The example isn’t there any more. Add a file of your own to ask about it.",
   "error.selection.none": "No text is selected.",
@@ -6056,7 +6044,7 @@ export const en = {
   "error.export.wordImporting":
     "This note is still being imported from its Word file. Try again when the import finishes.",
   "error.export.wordPackageMissing":
-    "The Word file this note was imported from is missing from IncarnaMind’s data folder. Export in another format instead.",
+    "The Word file this note came from is missing from IncarnaMind’s data. Export another format.",
   "error.document.gone": "That Document no longer exists.",
   "error.document.nameEmpty": "A Document’s name can’t be empty.",
   "error.document.nameTooLong": "A Document’s name can’t be longer than {max} characters.",
@@ -6068,12 +6056,10 @@ export const en = {
   "error.export.checkComments": "That isn’t a choice of check comments IncarnaMind can read.",
   "error.export.rewrite.notThisNote":
     "That file wasn’t exported from this note, so this note can’t write it again.",
-  "error.export.rewrite.notSaved":
-    "“{name}” wasn’t saved by IncarnaMind since it opened, so it can’t be written again. Export the note again.",
-  "error.export.rewrite.gone":
-    "“{name}” is no longer where it was saved: it may have been moved or deleted. Export the note again to make a new file.",
+  "error.export.rewrite.notSaved": "“{name}” can’t be rewritten: export the note again.",
+  "error.export.rewrite.gone": "“{name}” isn’t where it was saved. Export the note again.",
   "error.export.rewrite.locked":
-    "“{name}” can’t be changed: it may be read-only or open in another app. Close it there, or export the note again.",
+    "Can’t change “{name}”: it may be read-only or open elsewhere. Close it, or export again.",
   "error.export.restore.copyGone": "The copy was deleted, so there’s nothing to put back.",
   "error.export.restore.nothing": "There is nothing to put back in “{name}”.",
   "error.export.restore.changed":
@@ -6168,16 +6154,11 @@ export const en = {
   "unsaved.tryAgain": "Try again",
   "unsaved.saveCopy": "Save a copy…",
   "unsaved.saveCopy.title": "Save a copy of the note",
-  "unsaved.details.full":
-    "IncarnaMind tried to save your recent changes to its data folder, but the disk is full. Free up some space, then press Try again.",
-  "unsaved.details.io":
-    "IncarnaMind tried to save your recent changes to its data folder, but the disk couldn’t be written to. Check that it is connected and working, then press Try again.",
-  "unsaved.details.readOnly":
-    "IncarnaMind tried to save your recent changes to its data folder, but it isn’t allowed to write there. Check the data folder’s permissions, then press Try again.",
-  "unsaved.details.busy":
-    "IncarnaMind tried to save your recent changes to its data folder, but another program is using the data. Close it, then press Try again.",
-  "unsaved.details.other":
-    "IncarnaMind tried to save your recent changes to its data folder, but the data couldn’t be written. Press Try again, or save a copy of the note.",
+  "unsaved.details.full": "Free up space on the disk.",
+  "unsaved.details.io": "Check that the disk is connected and working.",
+  "unsaved.details.readOnly": "Check that IncarnaMind may write to its data folder.",
+  "unsaved.details.busy": "Close the other program.",
+  "unsaved.details.other": "If Try again fails, save a copy of the note.",
   "unsaved.lost": "{count} changes made before IncarnaMind closed couldn’t be saved",
   "unsaved.lost.one": "1 change made before IncarnaMind closed couldn’t be saved",
   "unexpectedEnd.app":
@@ -6186,13 +6167,13 @@ export const en = {
     "This window stopped unexpectedly and reopened. Your last changes may not have been saved.",
   "unexpectedEnd.window.short": "This window stopped unexpectedly and reopened.",
   "unexpectedEnd.session":
-    "When Windows shut down or signed out, {count} changes hadn’t been saved yet. Everything else was kept.",
+    "Windows ended the session before {count} changes were saved. Everything else was kept.",
   "unexpectedEnd.session.one":
-    "When Windows shut down or signed out, 1 change hadn’t been saved yet. Everything else was kept.",
+    "Windows ended the session before 1 change was saved. Everything else was kept.",
   "unexpectedEnd.session.note":
-    "When Windows shut down or signed out, {count} changes to “{name}” hadn’t been saved yet. Everything else was kept.",
+    "Windows ended the session before {count} changes to “{name}” were saved. The rest was kept.",
   "unexpectedEnd.session.note.one":
-    "When Windows shut down or signed out, 1 change to “{name}” hadn’t been saved yet. Everything else was kept.",
+    "Windows ended the session before 1 change to “{name}” was saved. The rest was kept.",
   "quit.unsaved.title": "{count} changes aren’t saved",
   "quit.unsaved.title.one": "1 change isn’t saved",
   "quit.unsaved.decks": "{count} changes to decks aren’t saved",
@@ -6218,11 +6199,11 @@ export const en = {
   "error.figure.checking":
     "The figures are still being checked. Export the schedule when Check finishes.",
   "error.figure.evidenceMissing":
-    "The saved inputs for this figure aren’t available. Check the figure again or choose its source.",
+    "This figure’s saved inputs aren’t available: check it again or choose its source.",
   "error.figure.paste":
-    "The calculation’s evidence couldn’t be pasted. Copy the figure again, or paste as plain text.",
+    "Couldn’t paste the figure’s evidence: copy it again, or paste as plain text.",
   "error.figure.copyIncomplete":
-    "Copied as plain text: this figure’s saved inputs are incomplete, so its check didn’t come with it. Check the figure again, then copy it.",
+    "Copied as plain text, without its check: check the figure again, then copy it.",
   "error.conversation.notFound": "That conversation doesn’t exist or has been deleted.",
   "error.question.empty": "Write the Question before asking it.",
   "error.question.folderInFront": "The Folder in front must be a Folder’s id, or null for none.",
@@ -6353,14 +6334,14 @@ export const en = {
   "commands.setting.meetingSystemAudio": "Record the computer’s sound too",
   "commands.setting.model": "Model for Answers",
   "commands.yours.wall":
-    "Whether a Folder keeps its work inside it is yours to change, not mine. It’s in each Folder’s ⋯ menu.",
+    "Whether a Folder keeps its work inside it is yours to change, not mine: see its ⋯ menu.",
   "commands.yours.wall.named":
-    "Whether “{folder}” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+    "Whether “{folder}” keeps its work inside it is yours to change, not mine: see its ⋯ menu.",
   "commands.yours.openFolderMenu": "Open the Folder’s menu",
   "commands.yours.keys":
     "Keys and sign-ins are yours to change, not mine. They’re in Settings › AI.",
   "commands.yours.privacy":
-    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › AI and Settings › Privacy.",
+    "What leaves this computer is yours to set, not mine. It’s in Settings › AI and Settings › Privacy.",
   "commands.yours.approvals":
     "What I may do without asking is yours to change, not mine. It’s in Settings › Privacy.",
   "commands.yours.spending":
@@ -6464,7 +6445,7 @@ export const en = {
   "commands.ask.add.title": "Read {count} files in “{folder}”?",
   "commands.ask.add.title.one": "Read 1 file in “{folder}”?",
   "commands.ask.add.text":
-    "They’re read on this computer and added to the Library. Nothing else in the folder is read.",
+    "Read on this computer and added to the Library; nothing else in the folder is read.",
   "commands.ask.change.document.rename": "Rename {count} Documents?",
   "commands.ask.change.document.rename.one": "Rename “{name}”?",
   "commands.ask.change.mind.rename": "Rename {count} notes?",
@@ -6486,18 +6467,16 @@ export const en = {
   "commands.ask.change.mind.delete.one": "Delete “{name}”?",
   "commands.ask.why.many": "The assistant asks before one answer changes more than {max} things.",
   "commands.ask.why.many.changed":
-    "The assistant asks before one answer changes more than {max} things. This one has changed {changed} already.",
-  "commands.ask.why.delete":
-    "They go to Recently deleted, where you can restore them for {days} days. The assistant always asks before it deletes.",
-  "commands.ask.why.delete.one":
-    "It goes to Recently deleted, where you can restore it for {days} days. The assistant always asks before it deletes.",
+    "This answer has already changed {changed} things; past {max}, it asks first.",
+  "commands.ask.why.delete": "They go to Recently deleted for {days} days.",
+  "commands.ask.why.delete.one": "It goes to Recently deleted for {days} days.",
   "commands.ask.why.organize":
-    "Organize reads what each Document says and suggests the Folder that fits. Nothing moves until you confirm them.",
+    "Suggests a Folder for each Document; nothing moves until you confirm.",
   "commands.ask.organize.declined": "You said no to this before. Allow sends them this time only.",
   "commands.ask.why.merge":
-    "Their Documents get “{tag}”, and the other Tags go to Recently deleted. Undo brings them back.",
+    "Their Documents get “{tag}”, and the other Tags go to Recently deleted.",
   "commands.ask.why.merge.groups":
-    "Each Tag’s Documents get the Tag beside it, and the Tags merged away go to Recently deleted. Undo brings them back.",
+    "Each Tag’s Documents get the Tag beside it; the others go to Recently deleted.",
   "commands.ask.read": "The assistant read text you didn’t write.",
   "commands.ask.item.renamed": "{name} (renamed to “{renamed}” in this conversation)",
   "commands.kept.folder": "Kept the Folder “{name}”: you’ve filed things in it since.",
@@ -6626,7 +6605,7 @@ export const en = {
   "error.restore.notDeleted": "“{name}” isn’t deleted, so it can’t be deleted permanently.",
   "error.history.gone": "That version is no longer kept.",
   "error.linkedFolder.inData":
-    "That folder is IncarnaMind’s own data folder, or inside it, so it can’t be linked. Choose a folder of your own.",
+    "That’s IncarnaMind’s own data folder, or inside it. Choose a folder of your own.",
   "error.linkedFolder.keep": "IncarnaMind couldn’t tell which Documents to keep.",
   "error.linkedFolder.notThis":
     "That folder doesn’t hold “{name}”’s files. Choose the folder that does.",
@@ -6637,7 +6616,7 @@ export const en = {
   "error.agent.notConnected": "That agent isn’t connected.",
   "error.agent.cantAsk": "That agent can’t read this note now.",
   "error.agent.cantOrganize":
-    "This agent can’t organize these Documents with its current access. Check its shared Folders in Settings › AI.",
+    "This agent can’t reach these Documents: check its shared Folders in Settings › AI.",
   "error.agent.cantAskCanvas": "That agent can’t read this Canvas now.",
   "error.agent.cantAskDocument": "That agent can’t read this Document now.",
   "error.agent.askRequest": "That isn’t a request IncarnaMind can hand to your AI.",
@@ -6655,11 +6634,11 @@ export const en = {
   "error.agent.keyUnreadable":
     "This agent’s key can’t be read here. Disconnect it and connect it again.",
   "error.agent.socketTooLong":
-    "Agents can’t reach IncarnaMind from this folder: the path is too long for a local connection. Use a shorter data or temporary folder.",
+    "This folder’s path is too long for agents to reach IncarnaMind: use a shorter one.",
   "error.agent.socketUntrusted":
-    "Agents can’t reach IncarnaMind: {path} isn’t private to your account. Fix its permissions or remove it, or use a different data folder.",
+    "Agents can’t reach IncarnaMind: {path} isn’t private to you. Fix its permissions or remove it.",
   "error.agent.socketUnavailable":
-    "Agents can’t reach IncarnaMind: couldn’t open its local connection at {path}. Close another copy of IncarnaMind, or check permissions there, and try again.",
+    "Agents can’t reach IncarnaMind at {path}: close another copy, or check that place’s permissions.",
   "error.agent.undoChanged": "{path} has changed since, so IncarnaMind left it as it is.",
   "error.library.noClassifier": "Choose a classification model first.",
   "error.library.flow": "That isn’t a Tagging, Organize or page-image flow.",
@@ -6674,10 +6653,10 @@ export const en = {
   "error.library.localModelMissing": "Enter the local server and decision model.",
   "error.library.ollamaNotLocal": "The Ollama decision model must run on this computer.",
   "error.library.projectUndo":
-    "Couldn’t undo it: the Folders its Documents were in before aren’t known. File them again by hand.",
+    "Couldn’t undo: their earlier Folders aren’t known. Move them back yourself.",
   "error.meeting.notFound": "That Meeting doesn’t exist or has been discarded.",
   "error.meeting.purgeFailed":
-    "Deleted permanently, but a meeting’s recording couldn’t be removed from this computer yet. IncarnaMind tries again the next time it starts.",
+    "Deleted, but a meeting’s recording is still on this computer. IncarnaMind tries again next start.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
   "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
   "error.meeting.noSharedScreen": "This copy of IncarnaMind can’t read a shared screen.",
@@ -6693,7 +6672,7 @@ export const en = {
   "error.meeting.questionEmpty": "Type a question to ask about the call.",
   "error.meetingOffer.gone": "This offer has expired.",
   "error.meetingOffer.link":
-    "Recording has started, but the meeting link couldn’t be opened. You can open it from your calendar.",
+    "Recording, but the meeting link didn’t open: open it from your calendar.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
@@ -6709,7 +6688,7 @@ export const en = {
   "error.meeting.reviewCancelled": "The speaker review was canceled.",
   "error.meeting.reviewConsent": "Confirm the upload and estimated cost to check the speakers.",
   "error.meeting.reviewCleanup":
-    "Soniox has not confirmed deletion of the review audio. IncarnaMind will retry when Soniox is available.",
+    "Soniox hasn’t confirmed it deleted the review audio; IncarnaMind will ask again.",
   "error.meeting.reviewFailed":
     "Soniox could not finish the speaker review. Check your connection and Soniox account.",
   "error.meeting.fillUndo": "The fill-in can only be taken back or put back.",
@@ -6722,7 +6701,7 @@ export const en = {
   "error.transcript.speakersUnheld":
     "Who speaks couldn’t be kept: a name is 1 to 60 characters, and “Me” is always you.",
   "error.transcript.speakerNameIsLabel":
-    "“{name}” is how the Transcript marks a speaker. Type the person’s name, or choose them above.",
+    "“{name}” is the Transcript’s label: type the person’s name, or choose them above.",
   "error.transcript.speakersOfTranscript": "Only a Transcript’s speakers can be named.",
   "error.meeting.audioGone": "The Meeting’s audio is no longer on this computer.",
   "error.meeting.audioStretch": "A stretch of audio runs from one time to a later one.",
@@ -6733,7 +6712,7 @@ export const en = {
   "error.meeting.audioNotDeleted":
     "Some of this meeting’s audio couldn’t be deleted. IncarnaMind tries again in a minute.",
   "error.meeting.resumeAudioNotDeleted":
-    "This meeting’s earlier audio couldn’t be deleted yet, so recording can’t resume. Try again in a minute.",
+    "Recording can’t resume until the earlier audio is deleted. Try again in a minute.",
   "error.meeting.saveWhileRecording": "Stop the recording to save it.",
   "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
@@ -6872,7 +6851,7 @@ export const en = {
   // On Windows and Linux; macOS Chinese says 拷贝 and 显示 where they say 复制 and 查看.
   "menu.copy.other": "Copy",
   "menu.clipboardFailed":
-    "IncarnaMind couldn’t put the selection on the clipboard. Your text is unchanged; try again.",
+    "Couldn’t copy the selection to the clipboard; your text is unchanged. Try again.",
   "menu.paste": "Paste",
   "menu.selectAll": "Select All",
   "menu.view": "View",
@@ -6945,7 +6924,7 @@ export const en = {
 
   "update.available.message": "IncarnaMind {version} is available",
   "update.available.detail":
-    "This copy of IncarnaMind can’t update itself. Download the new version and use it to replace this one.",
+    "This copy can’t update itself. Replace it with the version you download.",
   "update.available.confirm": "Download",
   "update.ready.message": "IncarnaMind {version} is ready to install",
   "update.ready.detail":
@@ -7078,7 +7057,7 @@ export const en = {
   "connectors.import.sends":
     "What Answers ask these Connectors’ Tools goes to them; they may send that online.",
   "connectors.import.placeholder":
-    "This header takes {name} from an environment variable, which IncarnaMind doesn’t read. Enter the key instead.",
+    "Enter the key: IncarnaMind doesn’t read {name} from the environment.",
   "connectors.import.nothing": "Nothing here can be added.",
   "connectors.import.adding": "Adding…",
   "connectors.consent.note":
@@ -7105,8 +7084,7 @@ export const en = {
   "remoteConnectors.connection.sse": "Older connection (SSE)",
   "remoteConnectors.import.headers": "Stored here; sent only to this server: {names}",
   "connectors.error.key-refused": "The server refused this key",
-  "error.connector.headersInvalid":
-    "Check the header names and values. Each name must be unique, and values must stay on one line.",
+  "error.connector.headersInvalid": "Each header name must be unique, and its value on one line.",
   "error.connector.authChoice": "Choose an API key or an OAuth app.",
   "error.connector.changeKeyInstead": "Change this Connector’s key instead.",
   "error.connector.keyChangeCancelled":
@@ -7137,9 +7115,9 @@ export const en = {
   "remoteConnectors.signIn.error.cancelled": "The sign-in was canceled.",
   "remoteConnectors.signIn.error.denied": "The service didn’t complete the sign-in. Try again.",
   "remoteConnectors.signIn.error.client-id-required":
-    "This service can’t register IncarnaMind itself. Enter the client ID of an OAuth app you registered.",
+    "This service can’t register IncarnaMind itself: enter your OAuth app’s client ID.",
   "remoteConnectors.signIn.error.secret-storage":
-    "IncarnaMind can’t store your sign-in securely on this system, because no keyring is available.",
+    "No keyring is available, so your sign-in can’t be stored securely.",
   "remoteConnectors.signIn.error.held-back":
     "Its sign-in is with a server on another computer, so nothing was sent.",
   "remoteConnectors.signIn.error.failed": "The sign-in didn’t work.",
@@ -7236,7 +7214,7 @@ export const en = {
   "firstOpen.step.citation.title": "Check a Citation",
   "firstOpen.step.citation.done": "Opened a checked Citation",
   "firstOpen.step.citation.body":
-    "Click a Citation: its card says whether its quote was checked, and its “Open the page” button shows it in the file.",
+    "Click a Citation to see if its quote was found; “Open the page” shows it in the file.",
   "firstOpen.step.citation.example": "or see it on the example",
   "firstOpen.step.question.title": "Ask",
   "firstOpen.step.question.done": "Asked a question",
@@ -7365,8 +7343,7 @@ export const en = {
   "startGuide.documents.linkFolder.tip":
     "A Google Drive or OneDrive folder synced to this computer works too.",
   "startGuide.ask.title": "Ask a Question",
-  "startGuide.ask.body":
-    "Press {shortcut} and ask. The Answer appears on the right; add it to your note with one click.",
+  "startGuide.ask.body": "Press {shortcut} and ask; add the Answer to your note with one click.",
   "startGuide.ask.example": "e.g. What do these reports say about Q3 revenue?",
   "startGuide.check.title": "Check where each claim comes from",
   "startGuide.check.body": "{mark}: quote found in your Document. Click it to open the page.",
@@ -7402,9 +7379,9 @@ export const en = {
   "meetings.start.downloadAndStart": "Download and start",
   "meetings.notice.cancel": "Cancel",
   "meetings.notice.background.mac":
-    "IncarnaMind also stays in the menu bar and opens at login, to offer to take notes when a call starts. Turn this off in Settings › General.",
+    "It also opens at login in the menu bar to offer notes on calls; turn it off in Settings › General.",
   "meetings.notice.background.other":
-    "IncarnaMind also stays in the tray and opens at login, to offer to take notes when a call starts. Turn this off in Settings › General.",
+    "It also opens at login in the tray to offer notes on calls; turn it off in Settings › General.",
   "offers.call.title": "Are you in a call right now?",
   "offers.call.body": "{app} is using the microphone",
   "offers.calendar.title": "{title} starts in 1 minute",
@@ -7435,9 +7412,9 @@ export const en = {
   "settings.keepRunning.mac": "Keep running in the menu bar",
   "settings.keepRunning.other": "Keep running in the tray",
   "settings.keepRunning.detail.mac":
-    "With the window closed, IncarnaMind stays in the menu bar to offer to take notes when a call starts.",
+    "Stays in the menu bar with the window closed, to offer to take notes when a call starts.",
   "settings.keepRunning.detail.other":
-    "With the window closed, IncarnaMind stays in the tray to offer to take notes when a call starts.",
+    "Stays in the tray with the window closed, to offer to take notes when a call starts.",
   "settings.calendarOffers": "Meetings on your calendar",
   "settings.calendarOffers.detail":
     "One minute before an event with two or more people: “Take notes”.",
@@ -7450,9 +7427,9 @@ export const en = {
   "settings.callOffers.noPactl": "Needs PulseAudio’s pactl, which isn’t on this computer.",
   "settings.callOffers.notOnWindows": "Call detection is unavailable in this Windows build.",
   "offers.turnOn.line":
-    "IncarnaMind can now stay in the menu bar, open at login and offer to take notes when a call starts.",
+    "Open at login in the menu bar, and offer to take notes when a call starts.",
   "offers.turnOn.line.other":
-    "IncarnaMind can now stay in the tray, open at login and offer to take notes when a call starts.",
+    "Open at login in the tray, and offer to take notes when a call starts.",
   "offers.turnOn": "Turn on",
   "settings.callOffers.unavailable":
     "This computer doesn’t say which app is using the microphone, so calls can’t be noticed.",
@@ -7489,9 +7466,9 @@ export const en = {
   "meetings.line.cloudCredit":
     "{provider} says this account is out of credit. Transcribing on this computer.",
   "meetings.line.cloudRefusedRegion":
-    "{provider} refused the key (wrong, expired or for another region). Check the key and its region in Settings › AI. Transcribing on this computer.",
+    "{provider} refused the key (wrong, expired or another region). Transcribing on this computer.",
   "meetings.line.cloudMoved":
-    "Transcribing on this computer: your {provider} key is for another region now. Choose {provider} again to send the audio there.",
+    "Transcribing on this computer: your {provider} key is for another region now.",
   "meetings.line.chooseAgain": "Choose again",
   "meetings.line.cloudLocalMode":
     "Transcribing on this computer: “Keep everything on this computer” is on.",
@@ -7521,9 +7498,9 @@ export const en = {
   "meetings.joined.undo": "Undo",
   "meetings.joined.undone": "“{meeting}” and its Transcript are back where they were",
   "meetings.leftApart.one":
-    "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+    "1 meeting apart from its Transcript: each Folder keeps its work inside it",
   "meetings.leftApart.other":
-    "{count} meetings left apart from their Transcripts, since each Folder keeps its work inside it",
+    "{count} meetings apart from their Transcripts: each Folder keeps its work inside it",
   "meetings.leftApart.show": "Show",
   "meetings.bar.transcriptSoon": "The transcript appears with its first line",
   "meetings.transcript.downloading":
@@ -7566,7 +7543,7 @@ export const en = {
     "Used the screen text. Sending a picture would exceed the spending cap.",
   "meetings.screen.look": "Look at the screen",
   "citation.screen.fromPicture":
-    "Read from the picture of the shared screen at {time}. This value cannot be checked against text.",
+    "Read from the shared screen at {time}; it can’t be checked against text.",
   "meetings.screen.ask": "Will someone share their screen?",
   "meetings.screen.askProvider":
     "When you ask, {provider} can receive its text and a picture if needed.",
@@ -7576,7 +7553,7 @@ export const en = {
   "meetings.screen.choose": "Choose window…",
   "meetings.screen.decline": "Not this time",
   "meetings.screen.explain":
-    "To read the shared screen, macOS asks to let IncarnaMind record the screen. Only the window you choose is read, and nothing is kept.",
+    "macOS asks for screen recording. Only the window you choose is read, and nothing is kept.",
   "meetings.screen.continue": "Continue",
   "meetings.screen.offer": "Read the shared screen…",
   "meetings.screen.choosing": "Starting to read the window…",
@@ -7588,7 +7565,7 @@ export const en = {
     "Reading the shared window · getting text recognition ready, {percent}% of {size}",
   "meetings.screen.stop": "Stop",
   "meetings.screen.wholeScreen":
-    "Only one window is read, never a whole screen. Choose the meeting app’s window or the call’s browser window.",
+    "Only a window can be read, not a whole screen: choose the meeting’s window.",
   "meetings.screen.denied":
     "IncarnaMind isn’t allowed to record the screen, so the shared screen isn’t read.",
   "meetings.screen.closed": "The shared window was closed.",
@@ -7664,7 +7641,7 @@ export const en = {
   "meetings.fill.problem.localMode":
     "“Keep everything on this computer” is on, and this note’s model isn’t on this computer",
   "meetings.fill.problem.notAllowed":
-    "you haven’t allowed sending to {service} yet. Ask a Question in the assistant to allow it, then Try again",
+    "sending to {service} isn’t allowed yet: allow it by asking a Question, then Try again",
   "meetings.fill.problem.noModel": "choose an AI model first",
   "meetings.fill.problem.modelRemoved":
     "this note’s model was removed. Choose another in the assistant, then Try again",
@@ -7772,7 +7749,7 @@ export const en = {
   "meetings.audio.expiredAlone":
     "Restored “{name}”. Its audio was deleted 24 hours after the call.",
   "memos.audio.expired":
-    "Restored “{name}” with its transcript. Its audio was deleted 24 hours after it was recorded.",
+    "Restored “{name}” with its transcript; its audio was deleted 24 hours after recording.",
   "memos.audio.expiredAlone":
     "Restored “{name}”. Its audio was deleted 24 hours after it was recorded.",
   "meetings.audio.someExpired":
@@ -7911,15 +7888,15 @@ export const en = {
     "Biomedical and life-science papers, with open full text from PubMed Central.",
   "sources.provider.crossref.about": "Looks up a DOI you type.",
   "sources.provider.openfda.about":
-    "FDA drug labels, by section. Search by drug name or set id. CC0 records; not for medical decisions. Asked only when you choose it.",
+    "FDA drug labels, by section; not for medical decisions. Asked only when you choose it.",
   "sources.provider.dailymed.about":
-    "Full FDA drug labels, with section numbers. Search by drug name or set id. Asked only when you choose it.",
+    "Full FDA drug labels, with section numbers. Asked only when you choose it.",
   "sources.provider.clinicaltrials.about":
-    "Clinical trial records: arms, outcomes, eligibility and results. Search by condition, drug or NCT number. Asked only when you choose it.",
+    "Clinical trial records and results, by condition, drug or NCT number. Asked only when you choose it.",
   "sources.provider.ecfr.about":
-    "US federal regulations (CFR), by paragraph; an unofficial compilation. Search by words or a citation like 17 CFR 240.10b-5. Asked only when you choose it.",
+    "US federal regulations (CFR), unofficial, by paragraph. Asked only when you choose it.",
   "sources.provider.govinfo.about":
-    "The United States Code and the CFR’s official annual edition. Type a citation like 42 U.S.C. § 1983. Needs your own free api.data.gov key.",
+    "The US Code and the CFR’s official edition. Needs your own free api.data.gov key.",
   "sources.notice": "The source says: {notice}",
   "sources.key.open": "{provider} key…",
   "sources.key.title": "Your own {provider} key",
@@ -7979,14 +7956,14 @@ export const en = {
   "meetings.review.close": "Close speaker review",
   "meetings.review.quoting": "Checking availability and cost…",
   "meetings.review.roomDisclosure":
-    "Check up to four people on this device using NVIDIA Sortformer. Your recording stays on this computer. Listen to each suggestion and choose which to apply.",
+    "Tells up to four people apart on this computer with NVIDIA Sortformer; the recording stays here.",
   "meetings.review.roomDownload": "Download about {mb} MB",
   "meetings.review.roomInstall": "Download and check speakers",
   "meetings.review.namedLabel": "{name} ({label})",
   "meetings.review.selfLabel": "Which speaker are you?",
   "meetings.review.chooseSelfLabel": "Choose your other label",
   "meetings.review.selfHelp":
-    "This choice applies only to this review. If you are a fifth speaker, this check is unavailable.",
+    "Applies to this review only. If you’re a fifth speaker, it can’t be checked.",
   "meetings.review.roomCheck": "Check speakers on this device",
   "meetings.review.unavailable.platform":
     "On-device room speaker review is unavailable on this computer.",
@@ -8012,7 +7989,7 @@ export const en = {
   "meetings.review.tryAgain": "Try again",
   "meetings.review.again": "Review again…",
   "meetings.review.uncertain":
-    "The recording could not reliably distinguish the speakers in this transcript. No changes suggested.",
+    "The recording couldn’t tell these speakers apart reliably. No changes suggested.",
   "meetings.review.empty": "No speaker changes suggested.",
   "meetings.review.suggestions": "Review each suggested speaker change.",
   "meetings.review.change": "{from} → {to}",
@@ -8279,7 +8256,7 @@ export const en = {
   "meetings.help.failed": "No help this time: {message}",
   "meetings.help.nothing": "the Answer had nothing to suggest",
   "meetings.help.textBehind":
-    "The live text is behind, so none of the call is written yet. It is transcribed after the meeting stops.",
+    "The live text is behind; the call is written out after the meeting stops.",
   "meetings.help.textBehind.some": "The live text is behind, so this rests on the lines so far.",
   "meetings.help.retry": "Try again",
   "meetings.help.theySaid": "They said: “{text}”",
@@ -8342,7 +8319,7 @@ export const en = {
   "meetings.settings.keys": "Shortcuts",
   "meetings.settings.keysBody.mac": "They work over the meeting app, only while recording.",
   "meetings.settings.keysBody.other":
-    "No keys are set to start with. A key you set works over the meeting app, only while recording.",
+    "Keys you set work over the meeting app, only while recording.",
   "meetings.settings.keysChange": "Change the shortcut for “{name}”",
   "meetings.settings.keysPress": "Press the new keys…",
   "meetings.settings.keysNone": "No key set",
@@ -8600,13 +8577,13 @@ export const en = {
   "mindCall.failed.stopped": "Stopped before “{mind}” changed",
   "mindCall.failed.noTable": "Couldn’t make the table, so nothing was added to “{mind}”",
   "mindCall.failed.unplaced":
-    "The text marked to remove doesn’t match “{mind}” word for word in one place, so nothing changed",
+    "Nothing changed: the text marked to remove isn’t in exactly one place in “{mind}”, word for word",
   "mindCall.failed.typedTag":
     "The rewrite left out a <removed> tag you typed in “{mind}”, so nothing changed",
   "mindCall.failed.notPlaced":
-    "The rewrite would have added or edited a Citation, footnote or figure in “{mind}”, so nothing changed",
+    "Nothing changed: the rewrite would have changed a Citation, footnote or figure in “{mind}”",
   "mindCall.failed.misnamed":
-    "The rewrite didn’t say clearly which paragraph of “{mind}” each change replaces, so nothing changed",
+    "Nothing changed: the rewrite didn’t say which paragraph of “{mind}” each change replaces",
   "mindCall.failed.uncited": "Didn’t add to “{mind}”: its sources weren’t cited",
   "mindCall.failed.length": "Didn’t change “{mind}”: the new text wasn’t the length asked for",
   "mindCall.failed.callMarkup": "Didn’t write in “{mind}”: the AI’s call came in malformed",
@@ -8653,33 +8630,31 @@ export const en = {
   "answer.notWritten.noCall": "the assistant didn’t run the write",
   "answer.notWritten.retry": "Try again",
   "answer.notAllDone": "The assistant didn’t do everything this reply says",
-  "answer.notCalculated":
-    "No calculation ran: IncarnaMind didn’t calculate the figures worked out in this reply, so they’re unchecked",
+  "answer.notCalculated": "No calculation ran, so the figures this reply works out are unchecked",
   "answer.notCalculated.unavailable":
     "No calculation ran: this model can’t use IncarnaMind’s calculation Tool, so the figures worked out in this reply are unchecked",
   "answer.notSearched": "No search ran: this reply wasn’t drawn from a search",
   "answer.notDone.command":
     "The assistant didn’t do everything in the app that this reply says it did",
   "answer.notDone.privacy":
-    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › AI and Settings › Privacy",
+    "Not changed: only you can change what leaves this computer, in Settings › AI and Settings › Privacy",
   "answer.notDone.keys":
     "Keys and sign-ins weren’t changed. Only you can change them, in Settings › AI",
   "answer.notDone.spending":
     "The monthly spending cap wasn’t changed. Only you can change it, in Settings › AI",
   "answer.notDone.approvals":
-    "What the assistant may do without asking wasn’t changed. Only you can change it, in Settings › Privacy",
+    "Not changed: only you can change what the assistant may do unasked, in Settings › Privacy",
   "answer.notDone.permanent":
     "Nothing was deleted for good. Only you can do that, in Recently deleted",
   "answer.notDone.wall":
-    "Whether a Folder keeps its work inside it wasn’t changed. Only you can change it, in the Folder’s ⋯ menu",
+    "Not changed: only you can set whether a Folder keeps its work inside it, in its ⋯ menu",
   "answer.notDone.signOff":
     "Nothing was marked “Checked by me”. Only you can do that, on each Citation’s card",
   "answer.notDone.authorship":
     "No text was marked as yours. Only you can do that: select it and choose “Mark as mine”",
   "answer.uncitedReply":
     "This reply has no Citations, so none of it was checked against your Documents",
-  "answer.uncitedWrite":
-    "What was written in “{mind}” has no Citations, so none of it was checked against your Documents",
+  "answer.uncitedWrite": "What was written in “{mind}” has no Citations, so it wasn’t checked",
   "answer.added": "Added to {mind}",
   "answer.added.outOfWall": "Added to {mind} · copied out of “{folder}”",
   "answer.wrote": "Wrote {mind}",
@@ -8741,10 +8716,10 @@ export const en = {
     "Downloads and installs Claude Code from Anthropic into your user folder.",
   "agents.install.firstRun.title": "Claude Code",
   "agents.install.firstRun.detail":
-    "Runs checks in the background and keeps one conversation per note. Downloads and installs Claude Code from Anthropic into your user folder.",
+    "Checks notes in the background. Downloads from Anthropic into your user folder.",
   "agents.install.settings.title": "Install Claude Code for background work",
   "agents.install.settings.detail":
-    "Check notes in the background and keep one conversation per note. Downloads and installs Claude Code from Anthropic into your user folder.",
+    "Checks notes in the background. Downloads from Anthropic into your user folder.",
   "agents.install.jobs.title": "Background note checks",
   "agents.install.jobs.detail": "Needs a command-line AI or a model in IncarnaMind.",
   "agents.install.progress.title": "Installing Claude Code…",
@@ -8753,26 +8728,24 @@ export const en = {
   "agents.install.progress.cancel": "Cancel",
   "agents.install.signIn.title": "Sign in to Claude Code in your browser",
   "agents.install.signIn.detail":
-    "Claude Code is installed. Finish signing in with Anthropic in the browser window that opened. IncarnaMind never sees or handles your sign-in.",
+    "Claude Code is installed. Finish signing in with Anthropic in your browser.",
   "agents.install.signIn.notYet":
     "Sign-in hasn’t finished yet. Finish signing in in your browser, then try again.",
   "agents.install.signIn.done": "I’ve signed in",
   "agents.install.signIn.reopen": "Open sign-in again",
   "agents.install.failed.title": "Couldn’t install Claude Code",
   "agents.install.failed.network":
-    "Couldn’t reach Anthropic’s installer. Check your internet connection and try again, or follow Anthropic’s own instructions.",
-  "agents.install.failed.checksum":
-    "The installer’s verification check didn’t match. Try again, or follow Anthropic’s own instructions.",
+    "Couldn’t reach Anthropic’s installer. Check your internet connection.",
+  "agents.install.failed.checksum": "The installer’s verification check didn’t match.",
   "agents.install.failed.unsupported":
     "Anthropic’s installer doesn’t support this computer. Follow Anthropic’s own instructions.",
   "agents.install.failed.localMode":
-    "“Keep everything on this computer” is on, so nothing was downloaded. Turn it off to install Claude Code.",
+    "“Keep everything on this computer” is on, so nothing was downloaded.",
   "agents.install.failed.localModeAction": "Turn it off and install",
   "agents.install.failed.root":
     "Run IncarnaMind as your normal user account to install Claude Code.",
   "agents.install.failed.signInTitle": "Couldn’t finish signing in to Claude Code",
-  "agents.install.failed.signIn":
-    "Couldn’t complete Anthropic’s sign-in in your browser. Try again, or follow Anthropic’s own instructions.",
+  "agents.install.failed.signIn": "The browser sign-in with Anthropic didn’t finish.",
   "agents.install.failed.generic":
     "Anthropic’s installer didn’t finish. Try again, or follow Anthropic’s own instructions.",
   "agents.install.failed.retry": "Try again",
@@ -9272,29 +9245,29 @@ export const en = {
   "agents.done.wrote":
     "Added to the settings of {agent}. Start a new session in {agent} to use it.",
   "agents.done.wrote.codex":
-    "Start a new chat in {agent}. When Codex asks to hand a file to IncarnaMind, “Allow for this session” lets it hand over more files in the same chat.",
+    "Start a new chat in {agent}; when it asks to hand over a file, choose “Allow for this session”.",
   "agents.done.command": "Copied. Paste it into a terminal and run it.",
   "agents.done.settings": "Copied. In {agent}, add it as a new server, then restart it.",
   "agents.done.settings.other":
-    "Copied. Paste it where your agent adds a server, then restart the agent. Details shows each part, if it asks for them separately.",
+    "Copied. Paste it where your agent adds a server, then restart it. Each part is under Details.",
   "agents.done.paste.devin":
-    "Copied. In Devin Desktop, open Customize › MCPs, choose This computer, open its config file and add it under mcpServers.",
+    "Copied. In Devin Desktop: Customize › MCPs › This computer; add it under mcpServers.",
   "agents.done.paste.zed":
-    "Copied. In Zed, open Settings › AI › MCP Servers, choose Add Server › Add Local Server, put it in place of the example and confirm.",
+    "Copied. In Zed: Settings › AI › MCP Servers › Add Server › Add Local Server; replace the example.",
   "agents.done.paste.trae":
     "Copied. In Trae, open Settings › MCP, choose Add › Add Manually, paste it and confirm.",
   "agents.done.paste.qoder":
-    "Copied. In Qoder, open Qoder IDE Settings › MCP › My Servers, click + Add, add it to the file that opens, then save.",
+    "Copied. In Qoder: Qoder IDE Settings › MCP › My Servers › + Add; add it and save.",
   "agents.done.paste.codebuddy":
     "Copied. In CodeBuddy, open CodeBuddy Settings › MCP, click Add MCP, paste it and save.",
   "agents.done.paste.minimax-code":
-    "Copied. In MiniMax Code, open plugin management › MCP Servers, switch to JSON, paste it and save.",
+    "Copied. In MiniMax Code: plugin management › MCP Servers › JSON; paste it and save.",
   "agents.done.paste.kilo-code":
-    "In Kilo Code, open Settings › MCP, choose Add Server › Local (stdio), and fill in each part from Details.",
+    "In Kilo Code: Settings › MCP › Add Server › Local (stdio); fill in each part from Details.",
   "agents.done.unreadable.command":
-    "The settings file of {agent} couldn’t be changed, so it was left alone. The command is copied: paste it into a terminal and run it.",
+    "Couldn’t change the settings file of {agent}. The command is copied: run it in a terminal.",
   "agents.done.unreadable":
-    "The settings file of {agent} couldn’t be read, so it was left alone. The settings are copied: paste them into {path}.",
+    "Couldn’t read the settings file of {agent}. The settings are copied: paste them into {path}.",
   "agents.done.undo": "Undo",
   "agents.ask.action": "Ask {agent}",
   "agents.ask.pill": "Ask {agent}",
@@ -9329,17 +9302,17 @@ export const en = {
   "agents.asked.checkAgain": "Check again",
   "agents.asked.short.failed": "{agent} stopped",
   "agents.ownCheck.problem.signed-out":
-    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
+    "{agent} isn’t signed in: sign in to it in a terminal, then Check again.",
   "agents.ownCheck.problem.too-old":
-    "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then press Check again.",
+    "{agent} {found} is too old: update to {lowest} or later, then Check again.",
   "agents.ownCheck.problem.no-answer":
     "{agent} didn’t answer on this computer, so the check didn’t start. Try again.",
   "agents.ownCheck.problem.plan-limit":
     "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
   "agents.ownCheck.problem.billing":
-    "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
+    "{agent} stopped: its account can’t be billed. Check its billing, then try again.",
   "agents.ownCheck.problem.compaction":
-    "{agent} spent ten minutes condensing its conversation without finishing, so the check stopped. Try again.",
+    "The check stopped: {agent} spent ten minutes condensing its conversation. Try again.",
   "agents.ownCheck.problem.stalled":
     "{agent} stopped answering for six minutes, so the check stopped. Try again.",
   "agents.ownCheck.problem.timeout":
@@ -9347,7 +9320,7 @@ export const en = {
   "agents.ownCheck.problem.no-marks":
     "{agent} finished without marking this note. Try again, or ask it in {agent}.",
   "agents.ownCheck.problem.isolation":
-    "{agent} can’t run here beside a hook or plugin your organization set. Ask it in {agent} instead.",
+    "A hook or plugin your organization set stops {agent} here. Ask in {agent} instead.",
   "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
   "agents.ownCheck.problem.local-mode":
     "{agent} stopped: “Keep everything on this computer” is on.",
@@ -9356,7 +9329,7 @@ export const en = {
   "agents.ownCheck.problem.failed": "{agent} stopped before it finished. Try again.",
   // A check run on Codex stopped by its watch, or ended by its service with no category (#3639).
   "agents.ownCheck.problem.outside":
-    "{agent} stopped because it requested an action outside this check. Open the check in {agent}.",
+    "{agent} asked to act outside this check and was stopped. Open the check in {agent}.",
   "agents.ownCheck.problem.unreadable":
     "{agent} stopped before finishing. Open the check in {agent}.",
   "agents.ownCheck.problem.service":
@@ -9673,7 +9646,7 @@ export const en = {
   "error.meeting.summaryCandidateReviewUnavailable":
     "The transcript or AI access has changed. Check the meeting’s AI settings and try again.",
   "error.meeting.summaryCandidateUnavailable":
-    "This quote has changed or is no longer available. Open the transcript to check the original words.",
+    "This quote has changed or is gone. Open the transcript to check the words.",
   "meetings.summary.item.original": "Original speech",
   "meetings.summary.item.loading": "Looking up the original speech…",
   "meetings.summary.item.unavailable": "Couldn’t locate a unique source in the transcript.",
@@ -9704,7 +9677,7 @@ export const en = {
   "meetings.summary.empty": "No summary was generated.",
   "error.meeting.summaryIncomplete": "The AI did not return a complete meeting summary.",
   "error.meeting.codexSummaryTooLong":
-    "This update exceeds your installed Codex client’s 4,000-byte limit. Retry with a Codex version that supports longer meeting updates.",
+    "This update is over your Codex’s 4,000-byte limit: update Codex, then try again.",
   "error.meeting.summaryUnavailable":
     "Check the selected summary AI and its access to this meeting in Settings.",
   "meetings.summary.needsTranscript": "A saved transcript is needed to prepare the summary.",
@@ -9950,7 +9923,7 @@ export const en = {
   "wordAtom.kind.footer": "Footer",
   "wordAtom.kind.other": "Word content",
   "analysis.unavailable.missing":
-    "Analysis can’t run on this computer: some of its files are missing. Installing IncarnaMind again puts them back.",
+    "Analysis can’t run: some of its files are missing. Reinstall IncarnaMind.",
   "analysis.unavailable.start": "Analysis can’t run on this computer: its sandbox couldn’t start.",
   "analysis.unavailable.noSandbox": "Analyses need the app’s sandbox, which is off",
   "analysis.unavailable.noSandbox.fix": "How to fix",

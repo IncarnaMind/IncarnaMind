@@ -299,14 +299,14 @@ const REFUSAL = {
     folder: "Client A",
     note: "Client A note",
     ask: "Stop keeping this folder's work inside it",
-    said: "Whether “Client A” keeps its work inside it is yours to change, not mine. It’s in the Folder’s ⋯ menu.",
+    said: "Whether “Client A” keeps its work inside it is yours to change, not mine: see its ⋯ menu.",
     open: "Open the Folder’s menu",
   },
   "zh-CN": {
     folder: "客户甲",
     note: "客户甲笔记",
     ask: "让本文件夹不再只在本文件夹内工作",
-    said: "“客户甲”是否只在本文件夹内工作，由你来改，我不能改。在文件夹的 ⋯ 菜单里。",
+    said: "“客户甲”是否只在本文件夹内工作，由你来改，我不能改：在它的 ⋯ 菜单里。",
     open: "打开文件夹菜单",
   },
 } as const;

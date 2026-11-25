@@ -9,7 +9,8 @@ import { usePopoverMenu } from "./usePopoverMenu";
 
 /**
  * The User's own AI where IncarnaMind has no model (#3373): "Ask {agent}…", for the agent
- * connected or used last, with the others behind its ⌄, and setting up a model after it.
+ * connected or used last, with the others behind its ⌄, and, where asked for, setting up a model
+ * after it.
  */
 export function AskAgentLine({
   agents,
@@ -27,7 +28,8 @@ export function AskAgentLine({
   onAsk(agent: AgentPairing): void;
   /** The same ask, for the chat the User has open in the first agent's app (#3588). */
   onContinue?(agent: AgentPairing): void;
-  setUp: ProblemAction;
+  /** Setting up a model after it; none where the User's own AI is already the way. */
+  setUp?: ProblemAction;
   testId: string;
   className?: string;
   /** Its Ask takes the focus as it shows: the line Enter brought, in place of the setup card. */
@@ -67,7 +69,7 @@ export function AskAgentLine({
               />
             )}
           </span>,
-          <LineAction key="set-up" action={setUp} />,
+          setUp && <LineAction key="set-up" action={setUp} />,
         ]}
       />
     </div>

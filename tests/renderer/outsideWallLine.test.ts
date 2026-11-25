@@ -13,20 +13,20 @@ describe("The line for picked files a walled Question can't search (#2924)", () 
   // protects=the line says why these files were treated differently from the new ones picked with them: they are Documents already; fails_when=it goes back to saying only where they are not; no_claim=the layout.
   test("names one, two or three files, in English", () => {
     expect(line("en", ["Lease"])).toBe(
-      "“Lease” is already in IncarnaMind, outside “Matter A”, so this Question doesn’t search it.",
+      "“Lease” is already in IncarnaMind, outside “Matter A”: this Question skips it.",
     );
     expect(line("en", ["Lease", "Charter"])).toBe(
-      "“Lease” and “Charter” are already in IncarnaMind, outside “Matter A”, so this Question doesn’t search them.",
+      "“Lease” and “Charter” are already in IncarnaMind, outside “Matter A”: this Question skips them.",
     );
     expect(line("en", ["Lease", "Charter", "Tariff"])).toBe(
-      "“Lease”, “Charter”, and “Tariff” are already in IncarnaMind, outside “Matter A”, so this Question doesn’t search them.",
+      "“Lease”, “Charter”, and “Tariff” are already in IncarnaMind, outside “Matter A”: this Question skips them.",
     );
   });
 
   // protects=past three files the line names two and counts the rest; fails_when=it lists every name or drops the count; no_claim=which two.
   test("names two and counts the rest past three files, in English", () => {
     expect(line("en", ["Lease", "Charter", "Tariff", "Survey", "Handbook", "Memo"])).toBe(
-      "“Lease”, “Charter” and 4 more are already in IncarnaMind, outside “Matter A”, so this Question doesn’t search them.",
+      "“Lease”, “Charter” and 4 more are already in IncarnaMind, outside “Matter A”: this Question skips them.",
     );
   });
 

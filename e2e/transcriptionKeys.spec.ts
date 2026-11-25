@@ -222,7 +222,7 @@ test("Deepgram set up from Meeting transcription's picker takes Cloudflare's add
   await expect(form.getByTestId("transcription-key-input")).toBeFocused();
   const server = form.getByRole("textbox", { name: "Server" });
   await expect(server).toHaveAttribute("placeholder", "Deepgram’s own");
-  await expect(form).toContainText("Leave it empty for Deepgram.");
+  await expect(form).toContainText("Empty for Deepgram;");
   const consent = form.getByTestId("transcription-set-up-consent");
   await expect(consent).toContainText(
     "Audio goes to Deepgram while you record, with your name, your Words to know, the meeting’s folder name, and the names and other capitalised words in its note, calendar event and folder’s documents.",

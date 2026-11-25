@@ -156,8 +156,8 @@ test("a Note made from a Word file starts without page numbers in Word, with the
     "zh-CN": "Word 和 PDF 的每页页脚都会显示页码。",
   };
   const wordHint = {
-    en: "Your file’s own headers, footers and page numbers stay as they are. Turn this on to add page numbers if the file has no footer of its own.",
-    "zh-CN": "文件自带的页眉、页脚和页码保持不变。开启后，仅当文件没有自带页脚时才添加页码。",
+    en: "Adds page numbers only where the file has no footer; its own stay as they are.",
+    "zh-CN": "只在文件没有自带页脚时添加页码；自带的页眉页脚保持不变。",
   };
   const title = { en: "Export options", "zh-CN": "导出选项" };
   for (const language of ["en", "zh-CN"] as const) {

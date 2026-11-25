@@ -126,7 +126,7 @@ export const zhCN = {
   "organizeReview.leftOut.noTag": "没有合适的标签",
   "organizeReview.leftOut.tooFew": "相近的文档太少，还不能建文件夹",
   "organizeReview.apart":
-    "这 {count} 个文档差别太大，还不能分组。一个文件夹至少需要 3 个相近的文档。",
+    "这 {count} 个文档差别太大，无法分组：一个文件夹至少需要 3 个相近的文档。",
   "organizeReview.apart.one": "只有 1 个文档，还不能分组。一个文件夹至少需要 3 个相近的文档。",
   "organizeReview.noTagFits": "这 {count} 个文档没有合适的标签。没有做任何更改。",
   "organizeReview.noTagFits.one": "这个文档没有合适的标签。没有做任何更改。",
@@ -237,7 +237,7 @@ export const zhCN = {
   "library.fix.picture": "图片无法读取",
   "library.fix.pictureNoText": "图片中没有找到文字",
   "library.fix.pages": "有些扫描页未能读取",
-  "library.fix.forms": "有些表单字段未能读取。请在创建此文档的应用中打印为 PDF，再添加该副本",
+  "library.fix.forms": "有些表单字段未能读取：请在原应用中打印为 PDF，再添加该副本",
   "library.fix.empty": "这个文件是空的",
   "library.fix.open": "用默认应用打开",
   "library.fix.retry": "重试",
@@ -412,8 +412,7 @@ export const zhCN = {
   "calendars.problem.offlineSince": "无法连接“{service}” · 上次读取于 {time}",
   "calendars.problem.signIn": "“{service}”已退出登录",
   "calendars.problem.notAllowed": "已在“设置 › 隐私”中关闭",
-  "calendars.problem.denied":
-    "IncarnaMind 没有读取日历的权限。可在“系统设置 › 隐私与安全性 › 日历”中允许。",
+  "calendars.problem.denied": "IncarnaMind 没有读取日历的权限：请在“隐私与安全性 › 日历”中允许。",
   "calendars.problem.failed": "无法读取“{service}”",
   "calendars.tryAgain": "重试",
   "calendars.signInAgain": "重新登录",
@@ -422,7 +421,7 @@ export const zhCN = {
   "calendars.fromInvite": "邀请中的人",
   "meetings.brief.questions": "对方可能会问",
   "meetings.brief.noAnswer": "这次会议的资料中没有找到答案。",
-  "error.meeting.briefChanged": "会议或资料已更新，请重新打开会前简报以使用最新信息。",
+  "error.meeting.briefChanged": "会议或资料已更新，请重新打开会前简报。",
   "error.meeting.briefTooLong":
     "本次会议的资料超过了模型的上下文长度。请为这篇笔记选择支持更长上下文的模型。",
   "error.meeting.briefIncomplete": "模型未能准备好三个问题，请重新生成会前简报。",
@@ -577,14 +576,12 @@ export const zhCN = {
   "folder.wall.title": "只在本文件夹内工作",
   "folder.bound.mark": "关联文件夹：{path}",
   "folder.bound.promise":
-    "IncarnaMind 不会移动或删除这个文件夹中已有的文件，只有你亲手编辑演示文稿时才会修改它。",
+    "这个文件夹中的文件不会被移动或删除；只有你亲手编辑的演示文稿才会被修改。",
   "folder.fileAsFolder": "归为一个文件夹",
-  "folder.wall.notFiled":
-    "未新建任何内容：这项工作只在所在文件夹内进行，但现在找不到该文件夹。笔记没有变化。",
+  "folder.wall.notFiled": "未新建任何内容：找不到这项工作所在的文件夹。笔记没有变化。",
   "folder.wall.pageNotFiled":
-    "此回答读过的一个网页没有归入文件夹：在生成回答期间，“只在本文件夹内工作”发生了变化。",
-  "folder.wall.pageNotFiledGone":
-    "此回答读过的一个网页没有归入文件夹：在生成回答期间，它要归入的文件夹被删除了。",
+    "此回答读过的一个网页没有归入文件夹：期间“只在本文件夹内工作”有变化。",
+  "folder.wall.pageNotFiledGone": "此回答读过的一个网页没有归入文件夹：期间所在文件夹被删除了。",
   "status.savedOutside.one": "1 个网页未存入所选文件夹",
   "status.savedOutside.other": "{count} 个网页未存入所选文件夹",
   "documents.savedOutside": "这些网页已保存，但没有存入你选择的文件夹：{names}",
@@ -1105,11 +1102,10 @@ export const zhCN = {
   "figures.inline.pending": "计算所得",
   "figures.inline.recalculated": "已找到所用数据 · 已重新计算",
   "figures.inline.retained": "保留的分析记录 · 未重新运行",
-  "figures.inline.savedNote": "此数字保留了公式和原计算输入。使用计算结果前，请先核对这些输入。",
-  "figures.inline.note":
-    "各项输入均引用自其文档，运算由 IncarnaMind 完成。这并不说明所用数字就是适合此次计算的数字。",
-  "figures.inline.analysisNote": "这里显示的是随此数字保留的输入和步骤。保留记录不会重新运行分析。",
-  "figures.inline.analysisUnavailable": "此数字保存的输入和步骤已不可用，IncarnaMind 按数值写出。",
+  "figures.inline.savedNote": "依赖这个结果前，请先核对公式和输入。",
+  "figures.inline.note": "每项输入都引自其文档；是否选对了数字没有核对。",
+  "figures.inline.analysisNote": "这是随此数字保存的输入和步骤。",
+  "figures.inline.analysisUnavailable": "保存的输入和步骤已不可用，按数值保留。",
   "figures.inline.analysis": "保留的分析记录：{title}",
   "figures.analysisRows.worked.one": "“{input}”{rows}中{label}的{how}（共 {count} 行）",
   "figures.analysisRows.worked.other": "“{input}”{rows}中{label}的{how}（共 {count} 行）",
@@ -1118,8 +1114,7 @@ export const zhCN = {
   "figures.analysisRows.how.min": "最小值",
   "figures.analysisRows.how.max": "最大值",
   "figures.analysisRows.how.count": "计数",
-  "figures.analysisRows.recalculated":
-    "数据分析运行时，IncarnaMind 已按这些单元格重新计算，结果相同。",
+  "figures.analysisRows.recalculated": "IncarnaMind 已按这些单元格重新计算，结果相同。",
   "figures.analysisRows.used.one": "根据“{input}”{rows}（共 {count} 行）计算，用到{names}",
   "figures.analysisRows.used.other": "根据“{input}”{rows}（共 {count} 行）计算，用到{names}",
   "figures.analysisRows.list.one": "第 {runs} 行",
@@ -1173,16 +1168,13 @@ export const zhCN = {
   "figures.workbook.whatIfLabel": "{label}（假设情形：{changes}）",
   "figures.workbook.whatIfAt": "“{input}”取 {value}",
   "figures.workbook.moreInputs": "另有 {count} 项所用数据未列出",
-  "figures.workbook.keptNote":
-    "这是工作簿保存的值：IncarnaMind 无法重新计算，原因见上。每项所用数据都引用到所在单元格。",
-  "figures.workbook.note":
-    "IncarnaMind 已在内存中按工作簿自己的公式重新计算，文件本身没有改动。每项所用数据都引用到所在单元格。这并不说明工作簿的假设是对的。",
+  "figures.workbook.keptNote": "每项所用数据都引用到所在单元格。",
+  "figures.workbook.note": "每项所用数据都引用到所在单元格；工作簿的假设没有核对。",
   "figures.workbook.kept.volatile":
     "{cell} 使用了易失性函数 {name}，每次计算结果都会变，因此使用其保存的值",
   "figures.workbook.kept.finds-cells":
     "{cell} 用 {name} 在计算时才确定引用的单元格，因此使用其保存的值",
-  "figures.workbook.kept.function":
-    "IncarnaMind 无法计算 {cell} 中的函数 {name}（可能来自宏），因此使用其保存的值",
+  "figures.workbook.kept.function": "IncarnaMind 无法计算 {cell} 中的 {name}，因此使用其保存的值",
   "figures.workbook.kept.add-in": "{cell} 使用了加载项函数 {name}，因此使用其保存的值",
   "figures.workbook.kept.data-table": "{cell} 属于模拟运算表，因此使用其保存的值",
   "figures.workbook.kept.external": "{cell} 链接到其他工作簿，因此使用其保存的值",
@@ -1190,27 +1182,20 @@ export const zhCN = {
   "figures.workbook.kept.three-d": "{cell} 跨多个工作表引用同一区域，因此使用其保存的值",
   "figures.workbook.kept.unreadable": "IncarnaMind 无法读取 {cell} 中的公式，因此使用其保存的值",
   "figures.workbook.kept.circular": "{cell} 存在循环引用，因此使用其保存的值",
-  "figures.workbook.kept.iterative":
-    "{cell} 存在循环引用，Excel 用迭代计算求解，因此使用其保存的值",
-  "figures.workbook.kept.not-read":
-    "{cell} 引用的“{name}”未读取（已隐藏或超出读取上限），因此使用其保存的值",
+  "figures.workbook.kept.iterative": "{cell} 存在需要迭代计算的循环引用，因此使用其保存的值",
+  "figures.workbook.kept.not-read": "{cell} 引用的“{name}”已隐藏或超出读取上限，因此使用其保存的值",
   "figures.workbook.kept.array": "{cell} 是跨多个单元格的数组公式，因此使用其保存的值",
-  "figures.workbook.kept.no-saved-value":
-    "工作簿没有保存 {cell} 的计算结果：文件可能由程序生成，之后未在 Excel 中打开",
+  "figures.workbook.kept.no-saved-value": "工作簿没有保存 {cell} 的结果：请在 Excel 中打开并保存",
   "figures.workbook.kept.differs":
-    "IncarnaMind 对 {cell} 的计算结果与工作簿保存的值不同，因此使用保存的值。输入改动后工作簿可能未重新计算：在 Excel 中打开并保存",
-  "figures.workbook.kept.too-many":
-    "{cell} 依赖超过 {name} 个公式，超出 IncarnaMind 一次能计算的数量，因此使用其保存的值",
-  "figures.workbook.kept.unsorted":
-    "{cell} 在未排序的区域中近似查找，无法确定 Excel 的结果，因此使用其保存的值",
+    "IncarnaMind 对 {cell} 的计算结果不同，因此使用其保存的值：请在 Excel 中打开并保存",
+  "figures.workbook.kept.too-many": "{cell} 依赖超过 {name} 个公式，因此使用其保存的值",
+  "figures.workbook.kept.unsorted": "{cell} 在未排序的区域中近似查找，因此使用其保存的值",
   "figures.workbook.kept.early-date":
-    "{cell} 使用了 1900 年 3 月 1 日之前的日期，Excel 会计入并不存在的 1900 年 2 月 29 日，因此使用其保存的值",
-  "figures.workbook.kept.criterion":
-    "{cell} 使用的条件无法按 Excel 的方式读取（例如时间），因此使用其保存的值",
-  "figures.workbook.kept.date-text":
-    "{cell} 把以文本写的日期或时间当作数字读取，Excel 会按电脑的日期设置来读，因此使用其保存的值",
+    "{cell} 使用了 1900 年 3 月 1 日之前的日期，因此使用其保存的值",
+  "figures.workbook.kept.criterion": "{cell} 使用的条件 IncarnaMind 无法读取，因此使用其保存的值",
+  "figures.workbook.kept.date-text": "{cell} 读取以文本写的日期，因此使用其保存的值",
   "figures.workbook.kept.text-order":
-    "{cell} 对 Excel 规则不明确的文本排序（含标点、A 到 Z 以外的字母，或空格与数字相比），因此使用其保存的值",
+    "{cell} 的文本排序在 Excel 中没有明确规则，因此使用其保存的值",
   "figures.workbook.kept.too-large": "{cell} 引用的区域过大，无法在此计算，因此使用其保存的值",
   "figures.card.source": "{figure}：来源为 {value}（{source}）",
   "figures.card.statedUnit": "{figure}：以{unit}计，与文档一致",
@@ -1457,8 +1442,7 @@ export const zhCN = {
   "claim.acceptChange.command": "接受核对给出的修改",
   "claim.acceptChange": "接受修改",
   "claim.changeAccepted": "已接受修改",
-  "claim.change.inside":
-    "这处修改会删掉引用或算出的数字，不能在这里直接修改。请让你的 AI 修改这句。",
+  "claim.change.inside": "这会删掉引用或算出的数字。请让你的 AI 修改这句。",
   "claim.change.underReview": "这些文字上有一处待你处理的修改，请先接受或拒绝它。",
   "claim.change.title": "建议改为",
   "claim.askToFix": "交给 {agent} 修改",
@@ -1560,7 +1544,7 @@ export const zhCN = {
   "claim.reason.number-unquoted":
     "不显示结论：找到的引文都没有给出这个数字，当前模型也无法用文档里的数字算出它。请对照文档核实。",
   "claim.reason.number-not-worked-out":
-    "不显示结论：找到的引文都没有给出这个数字，也没能用文档里的数字算出它。请对照文档核实。",
+    "不显示结论：没有引文给出这个数字，也没能算出它。请对照文档核实。",
   "claim.reason.unread": "不显示结论：模型没有读取你的文档。",
   "claim.reason.other-cell": "不显示结论：模型给这个数字写的是文档表格中另一行或另一列的名称。",
   "claim.reason.analysis": "来自数据分析 · 未重新计算",
@@ -1587,33 +1571,28 @@ export const zhCN = {
   "claim.reason.absence-other-document":
     "不显示结论：模型给出的引文出自另一份文档，不是这句话所说的那份。",
   "claim.reason.found-elsewhere":
-    "不显示结论：支持这句话的引文不在它现有的引用里。请把它添加为引用，然后重新核对。",
+    "不显示结论：支持这句话的引文不在它的引用里。请引用它，然后重新核对。",
   "claim.reason.assistant-conclusion": "助手自己的结论未核对。句子的其余部分有依据。",
-  "claim.absenceBesideFact": "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
+  "claim.absenceBesideFact": "有依据；句中说没有的内容未核对。",
   "claim.reason.kept-inside": "仅在“{detail}”内使用",
   "claim.reason.outside-scope": "“{detail}”不在这篇笔记的搜索范围内。",
-  "claim.reason.rows-run-failed":
-    "未核对：根据“{detail}”重算这个数字的代码运行失败。重新核对可再试一次。",
+  "claim.reason.rows-run-failed": "未核对：根据“{detail}”重算失败。重新核对可再试一次。",
   "claim.reason.rows-run-timed-out": "未核对：根据“{detail}”重算这个数字超过了 1 分钟。",
-  "claim.reason.rows-unavailable":
-    "未核对：这台电脑上无法运行 Python，未能根据“{detail}”重算这个数字。",
-  "claim.reason.rows-cut":
-    "未核对：“{detail}”的行数超过一次核对读取的上限，不会只凭文件的一部分下结论。",
+  "claim.reason.rows-unavailable": "未核对：这台电脑无法运行 Python，未能根据“{detail}”重算。",
+  "claim.reason.rows-cut": "未核对：“{detail}”的行数超过一次核对读取的上限。",
   "claim.reason.read-budget": "已停止 · 已花费{spent}",
   "claim.reason.read-budget.unknown": "已停止：已达到这次读取最多可花的费用。",
   "claim.reason.workbook-differs":
-    "Excel 保存的值与工作簿公式算出的不同，因此无法核对这个数。请在 Excel 中打开工作簿并保存。",
-  "claim.reason.workbook-external":
-    "它用到了指向另一个文件的链接，IncarnaMind 无法读取，因此无法核对这个数。",
-  "claim.reason.workbook-volatile": "它用到了每次计算都会变化的值，因此无法核对这个数。",
+    "Excel 保存的值与公式算出的不同：请在 Excel 中打开工作簿并保存。",
+  "claim.reason.workbook-external": "无法核对：它链接到另一个文件，IncarnaMind 无法读取。",
+  "claim.reason.workbook-volatile": "无法核对：它用到了每次计算都会变化的值。",
   "claim.reason.workbook-circular": "它的公式相互引用，因此无法核对这个数。",
   "claim.reason.workbook-not-read": "它用到了未读取的隐藏工作表或行，因此无法核对这个数。",
   "claim.reason.workbook-no-saved-value":
     "它用到的某个公式没有 Excel 保存的值，因此无法核对这个数。",
   "claim.reason.workbook-unsupported": "它用到了 IncarnaMind 无法计算的公式，因此无法核对这个数。",
   "claim.reason.workbook-text": "这是“OK”或“Breach”这样的文本结果，不按数字核对。",
-  "claim.reason.workbook-changed":
-    "按工作簿现在的单元格，已得不出这个数。请重新提问，按工作簿现在的内容再算一次。",
+  "claim.reason.workbook-changed": "工作簿现在已得不出这个数：请重新提问，按现在的内容再算一次。",
   "claim.reason.figures-not-read": "无法读取“{document}”{location}中的数字。",
   "claim.reason.figures-not-read.whole": "无法读取“{document}”中的数字。",
   "claim.reason.figures-not-read.unknown": "无法读取某个文档中的数字。",
@@ -1753,9 +1732,9 @@ export const zhCN = {
   "checks.problem.scope.empty.more":
     "没有可核对的文档：这篇笔记的搜索范围“{scope}”等 {total} 项中没有文档。",
   "checks.problem.scope.ownFile":
-    "没有可核对的文档：这篇笔记的搜索范围“{scope}”中只有这篇笔记的来源文件，核对时不会计入。",
+    "没有可核对的文档：这篇笔记的搜索范围“{scope}”中只有这篇笔记的来源文件。",
   "checks.problem.scope.ownFile.more":
-    "没有可核对的文档：这篇笔记的搜索范围“{scope}”等 {total} 项中只有这篇笔记的来源文件，核对时不会计入。",
+    "没有可核对的文档：这篇笔记的搜索范围“{scope}”等 {total} 项中只有这篇笔记的来源文件。",
   "checks.problem.scope.gone.folder": "没有可核对的文档：这篇笔记的搜索范围中的文件夹已删除。",
   "checks.problem.scope.gone.tag": "没有可核对的文档：这篇笔记的搜索范围中的标签已删除。",
   "checks.problem.scope.gone.document": "没有可核对的文档：这篇笔记的搜索范围中的文档已删除。",
@@ -1824,8 +1803,7 @@ export const zhCN = {
   "verify.refused.tooMany":
     "这里有 {typed} 个手动输入的数字，一次最多核对 {most} 个。请选小一点的区域。",
   "verify.workbook.title": "核对工作簿",
-  "verify.workbook.note":
-    "选择要核对的工作表。每个手动输入的数字都会到你的文档里查找，每个公式都会重新计算。",
+  "verify.workbook.note": "手动输入的数字会到文档里查找，公式会重新计算。",
   "verify.workbook.sheet": "工作表",
   "verify.workbook.allSheets": "全部工作表",
   "verify.workbook.typed.one": "1 个手动输入的数字",
@@ -1970,12 +1948,12 @@ export const zhCN = {
   "edit.problem.cant-regenerate": "无法重新生成：请拒绝它，再选中文字用 AI 编辑。",
   "edit.problem.no-table": "AI 生成的表格不完整，没有改动。请重试。",
   "edit.problem.cut-short": "AI 的回复太长，没有改动。请少选一些文字再试。",
-  "edit.problem.unplaced": "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
+  "edit.problem.unplaced": "没有改动：AI 标出要删除的文字在选中内容里找不到唯一一处原文。请重试。",
   "edit.problem.unchanged.said": "没有改动。AI 说：“{said}”",
   "edit.problem.typed-tag": "AI 改写时漏掉了你输入的 <removed> 标记，没有改动。请重试。",
   "edit.problem.missing-number": "AI 改写时漏掉了[缺少数字]，没有改动。请重试。",
-  "edit.problem.not-placed": "AI 的改写会加入或修改引用、脚注或计算结果，没有改动。请重试。",
-  "edit.problem.misnamed": "AI 没有说清每处修改替换哪一段，没有改动。请重试。",
+  "edit.problem.not-placed": "没有改动：改写会改动引用、脚注或计算结果。请重试。",
+  "edit.problem.misnamed": "没有改动：AI 没有说清每处修改替换哪一段。请重试。",
   "edit.problem.late": "这次修改送达太慢，没有直接应用。请接受或拒绝这些修订。",
   "edit.problem.busy": "上一次修改还在进行。等它完成，或先停止。",
   "composer.edit.placeholder": "说说要怎么改…",
@@ -2002,7 +1980,7 @@ export const zhCN = {
   "assistant.question.quoteGone": "（已删除）",
   "assistant.quote.leftOut.deleted": "“{document}”中选中的文字没有发送：该文档已被删除。",
   "composer.quote.tooMany": "一个问题最多针对 {count} 处选中的文字：请先移除一处，再添加这一处。",
-  "assistant.quote.leftOut": "“{document}”中选中的文字没有发送：文档中你选中的位置已没有这些文字。",
+  "assistant.quote.leftOut": "“{document}”中选中的文字没有发送：那里已没有这些文字。",
   "composer.edit.translateInto": "翻译为",
   "proposal.region": "待处理的修订",
   "proposal.count": "{count} 处修订待处理",
@@ -2243,7 +2221,7 @@ export const zhCN = {
   "viewer.pictureTooLarge": "这张图片太大，无法打开。",
   "viewer.pictureSizeUnreadable": "无法读取这张图片的尺寸。",
   "viewer.removed.body": "这个文档已从 IncarnaMind 中删除，因此无法显示。",
-  "viewer.removed.unlinked": "这个文档所在的关联文件夹已移除。IncarnaMind 保留了引用中引述的原文。",
+  "viewer.removed.unlinked": "所在的关联文件夹已移除；引用中引述的原文仍保留。",
   "viewer.removed.quote": "引文：",
   "viewer.file.missing": "“{name}”的文件已不在原文件夹中。",
   "viewer.file.unavailable": "暂时无法访问“{name}”（磁盘未连接？）。",
@@ -2307,8 +2285,8 @@ export const zhCN = {
   "viewer.area.selectTip": "选择区域（或拖动时按住 {key}）",
   "viewer.area.highlightTip": "在页面上拖出一块区域即可高亮（Esc 取消）",
   "viewer.slide.ask": "就这张幻灯片提问",
-  "viewer.selection.notOpened": "未能添加引述：“{mind}”无法打开编辑。你可以改为复制（含引用）。",
-  "viewer.selection.notOpenedNew": "未能添加引述：新的笔记没有打开。你可以改为复制（含引用）。",
+  "viewer.selection.notOpened": "未能添加：“{mind}”没有打开。可以改为复制（含引用）。",
+  "viewer.selection.notOpenedNew": "未能添加：新的笔记没有打开。可以改为复制（含引用）。",
   "viewer.selection.copied": "已复制，含引用",
   "viewer.selection.refused.blocks": "一条引用最多涵盖工作表的两段行，请少选一些行。",
   "viewer.selection.emptyRange": "这些单元格是空的，没有可引用的内容。",
@@ -2384,8 +2362,7 @@ export const zhCN = {
   "annotations.area": "区域",
   "annotations.more": "“{quote}”的更多操作",
   "annotations.cantShow": "无法在此视图中滚动到它。",
-  "annotations.export.notAllowed":
-    "未能把高亮保存到“{folder}”：IncarnaMind 不能在该文件夹中添加文件。请在设置中选择其他输出位置。",
+  "annotations.export.notAllowed": "无法在“{folder}”中添加文件：请在设置中选择其他输出位置。",
   "annotations.search.title": "高亮和批注",
   "annotations.search.open": "打开这条高亮",
   "viewer.mark.found": "引用 {number}：已找到引文",
@@ -2453,8 +2430,7 @@ export const zhCN = {
   "viewer.web.look.failed.unreachable": "未能保存网页原貌：网页无法加载。",
   "viewer.web.look.failed.too-large": "未能保存网页原貌：生成的 PDF 会超过 50 MB。",
   "viewer.web.look.failed.stopped": "未能保存网页原貌：生成时 IncarnaMind 停止了运行。",
-  "viewer.web.look.failed.local-mode":
-    "未保存网页原貌：已开启“所有内容都留在这台电脑上”。保存会从网站加载网页。",
+  "viewer.web.look.failed.local-mode": "未保存网页原貌：已开启“所有内容都留在这台电脑上”。",
   "viewer.web.look.failed.failed": "未能保存网页原貌。",
   "viewer.web.pictureNotSaved": "未随网页保存",
   "viewer.docx.comment": "{author} 的批注",
@@ -2586,8 +2562,7 @@ export const zhCN = {
   "evidence.notCited.hint": "只用来理解问题，不会被引用，也不作为核对依据。",
   "evidence.notCited.label": "不引用",
   "library.citedBy.label": "{agent} 引用",
-  "library.citedBy.hint":
-    "{agent} 引用的资料库之外的文件。IncarnaMind 不搜索它，也不把它归入文件夹，它只作为引用它的句子的依据。",
+  "library.citedBy.hint": "{agent} 从资料库之外引用的文件，只作为引用它的句子的依据。",
   "evidence.notCited.done": "“{name}”不再作为引用来源",
   "evidence.notCited.doneMany": "{count} 个文档不再作为引用来源",
   "evidence.citeAgain.done": "“{name}”已恢复为引用来源",
@@ -2596,8 +2571,7 @@ export const zhCN = {
   "evidence.citeHandedMany": "将 {count} 个文档作为引用来源",
   "evidence.citeHanded.done": "“{name}”已作为引用来源",
   "evidence.citeHanded.doneMany": "{count} 个文档已作为引用来源",
-  "evidence.notCited.handedHint":
-    "{agent} 制作的文件，供你核对：在你将它作为引用来源之前，不会被读取或引用。",
+  "evidence.notCited.handedHint": "{agent} 制作的文件，供你核对；你引用它之前，它不作为来源。",
   "evidence.settings.title": "核对",
   "evidence.settings.switch": "不把 IncarnaMind 导出的文件计为依据",
   "evidence.settings.body": "导出的文件不计为依据。",
@@ -3067,8 +3041,7 @@ export const zhCN = {
   "tags.dialog.new": "新建标签",
   "tags.dialog.create": "添加标签",
   "tags.dialog.retag": "重新为所有文档打标签",
-  "tags.dialog.retag.hint":
-    "重新为每个文档建议标签。确认前，建议的标签不会添加；你自己设置的标签保持不变。",
+  "tags.dialog.retag.hint": "重新为每个文档建议标签；由你逐个确认，你设置的标签保持不变。",
   "tags.dialog.retag.started": "已开始重新打标签。",
   "tags.dialog.retag.none":
     "没有可重新打标签的文档：打标签已关闭，或所有文档所在的位置都已停止打标签",
@@ -4089,7 +4062,7 @@ export const zhCN = {
   "meetings.key.server": "服务器地址",
   "meetings.key.serverPlaceholder": "Deepgram 官方",
   "meetings.key.serverTip":
-    "使用 Deepgram 时留空。使用 Cloudflare Workers AI 时，粘贴它的 Nova-3 地址；也可以填你自己的服务器地址。",
+    "使用 Deepgram 时留空；也可粘贴 Cloudflare Workers AI 的 Nova-3 地址，或你自己服务器的地址。",
   "settings.advanced": "高级",
   "models.removed": "已移除{provider}。",
   "models.removed.answers": "已移除{provider}。回答现在使用 {model}。",
@@ -4266,10 +4239,8 @@ export const zhCN = {
   "scope.chip.deleted": "已删除，搜索时会跳过。",
   "scope.chip.own": "“{name}”：搜索此文件夹的 {count} 个文档。移除后搜索全部文档。",
   "scope.chip.own.one": "“{name}”：搜索此文件夹的 1 个文档。移除后搜索全部文档。",
-  "scope.chip.own.named":
-    "“{path}”：搜索此文件夹及其子文件夹中的 {count} 个文档。移除后搜索全部文档。",
-  "scope.chip.own.named.one":
-    "“{path}”：搜索此文件夹及其子文件夹中的 1 个文档。移除后搜索全部文档。",
+  "scope.chip.own.named": "“{path}”：搜索其中的 {count} 个文档，包括子文件夹。",
+  "scope.chip.own.named.one": "“{path}”：搜索其中的 1 个文档，包括子文件夹。",
   "scope.chip.remove": "从搜索范围中移除 {name}",
   "scope.chip.more": "还有 {count} 个",
   "scope.chip.moreLabel": "显示搜索范围中的另外 {count} 个文档",
@@ -4297,9 +4268,8 @@ export const zhCN = {
   "answer.figures.calculated.one": "计算了 1 个数字",
   "answer.figures.uncalculated": "{count} 个数字未能计算",
   "answer.figures.uncalculated.one": "1 个数字未能计算",
-  "answer.figures.uncalculated.named.one": "1 个数字未能计算：{figures}。写入时没有可核对的算式。",
-  "answer.figures.uncalculated.named":
-    "{count} 个数字未能计算：{figures}。写入时没有可核对的算式。",
+  "answer.figures.uncalculated.named.one": "1 个数字未能计算：{figures}",
+  "answer.figures.uncalculated.named": "{count} 个数字未能计算：{figures}",
   "answer.setAsideHidden": "（文件中已隐藏）",
   "answer.setAsideStruck": "（文件中已加删除线）",
   "answer.sourceNotKept": "（未能保留来源）",
@@ -4794,13 +4764,12 @@ export const zhCN = {
   "citation.reason.answer-limit": "未核对：核对到这句之前，已达本回答 {limit} 的核对上限。",
   "citation.reason.monthly-limit": "未核对：核对到这句之前，已达每月上限。",
   "citation.reason.answer-limit-unfinished":
-    "未核对：{model} 还没核对完这句，就已达本回答 {limit} 的核对上限。",
-  "citation.reason.answer-limit-unfinished.unnamed":
-    "未核对：这句还没核对完，就已达本回答 {limit} 的核对上限。",
-  "citation.reason.monthly-limit-unfinished": "未核对：{model} 还没核对完这句，就已达每月上限。",
+    "未核对：{model} 核对完之前，本回答已达 {limit} 的核对上限。",
+  "citation.reason.answer-limit-unfinished.unnamed": "未核对：本回答已先达到 {limit} 的核对上限。",
+  "citation.reason.monthly-limit-unfinished": "未核对：{model} 核对完之前，已达每月上限。",
   "citation.reason.monthly-limit-unfinished.unnamed": "未核对：这句还没核对完，就已达每月上限。",
   "citation.reason.notChecked": "未能核对引文是否支持这句话。",
-  "citation.reason.other-call": "引文出自另一场会议。通话助手的回复只对照这场会议和你的文档核对。",
+  "citation.reason.other-call": "引文出自另一场会议，不是这一场。",
   "citation.reason.small-model": "这台电脑上的模型太小，无法核对引文是否支持这句话。",
   "citation.where": "{document}，{location}",
   "citation.where.scan": "{document}（扫描件），{location}",
@@ -4819,7 +4788,7 @@ export const zhCN = {
   "uncitedCheck.why": "这句话没有引用，这条回答读过的段落中也没有依据。",
   "uncheckedFigure.heading": "未核对",
   "uncheckedFigure.mark": "未核对：扫描件中可能识别有误的字词",
-  "uncheckedFigure.why": "它来自“{word}”，该处文字是从扫描件识别的，可能识别有误。请对照原页核对。",
+  "uncheckedFigure.why": "它来自“{word}”，是从扫描件识别的，可能有误：请对照原页核对。",
   "missingNumber.words": "[缺少数字]",
   "missingNumber.tip": "IncarnaMind 未能算出这里的数字，所以没有写入。",
   "citation.quote": "引文：",
@@ -4856,8 +4825,7 @@ export const zhCN = {
   "card.useKey": "使用",
   "citation.regenerate": "重新生成回答",
   "citation.changedAfterCited": "此文档在被引用后有改动。",
-  "citation.changedAfterCited.web":
-    "此网页在你引用后于 {date} 重新抓取。这里显示的是新版本，你引用的版本仍保留。",
+  "citation.changedAfterCited.web": "你引用后于 {date} 重新抓取：这里是新版本，引用的版本仍保留。",
   "citation.changed.on": "此文档已于 {date} 更新。",
   "citation.changed.still": "引文仍在原处。",
   "citation.changed.gone": "新版本中已找不到这条引文。",
@@ -5013,7 +4981,7 @@ export const zhCN = {
   "skills.make.region": "根据这篇笔记生成技能",
   "skills.make.drafting": "正在根据这篇笔记生成技能…",
   "skills.make.stop": "停止",
-  "skills.make.empty": "这篇笔记里还没有你写的内容，无法生成技能。请先写点内容或提一个问题。",
+  "skills.make.empty": "这篇笔记里还没有你写的内容，无法生成技能：请先写点内容或提一个问题。",
   "skills.make.failed": "无法生成技能：{message}",
   "skills.make.retry": "重试",
   "skills.make.close": "关闭",
@@ -5067,9 +5035,9 @@ export const zhCN = {
   "scripts.settings.bodySandboxed.details":
     "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
   "scripts.settings.problem.sandboxMissing":
-    "这台电脑上无法启动用于数据分析和脚本的沙盒：请安装 {packages}，然后重启 IncarnaMind。在此之前，无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
+    "沙盒无法启动，整文件数据分析已关闭：请安装 {packages}，然后重启 IncarnaMind。",
   "scripts.settings.problem.sandboxStart":
-    "这台电脑不允许 IncarnaMind 启动用于数据分析和脚本的沙盒，因此无法对整个文件运行数据分析，脚本也不在沙盒中运行；除非你为某个技能选择了“始终运行”，每次运行前都会先问你。",
+    "这台电脑不允许 IncarnaMind 启动沙盒，整文件数据分析已关闭。",
   "scripts.settings.timeout": "脚本运行超过此时长即停止：",
   "scripts.settings.seconds": "秒",
 
@@ -5104,10 +5072,8 @@ export const zhCN = {
   "scripts.card.alwaysRunHint": "今后直接运行 {skill} 的脚本，不再询问",
   "scripts.card.deny": "拒绝",
   "scripts.alwaysRun.title": "始终运行 {skill} 的脚本？",
-  "scripts.alwaysRun.body":
-    "今后 {skill} 的脚本将直接运行，不再询问。没有沙盒时，脚本可以删除你的文件，并把数据发到网上。",
-  "scripts.alwaysRun.bodySandboxed":
-    "今后 {skill} 的脚本将直接运行，不再询问。脚本在沙盒中运行，但仍能读取这台电脑上的一些文件。",
+  "scripts.alwaysRun.body": "没有沙盒时，脚本可以删除你的文件，并把数据发到网上。",
+  "scripts.alwaysRun.bodySandboxed": "脚本在沙盒中运行，但仍能读取这台电脑上的一些文件。",
   "scripts.alwaysRun.bodySandboxed.details":
     "无法访问你的个人文件夹、IncarnaMind 的数据、其他应用的临时文件或其他磁盘，只能写入自己的工作文件夹，也不能访问互联网。",
   "scripts.alwaysRun.trust": "只对你信任的技能这样做。可在“设置 › 批准”中恢复默认。",
@@ -5198,8 +5164,7 @@ export const zhCN = {
   "export.includeQuestions": "包含问题",
   "export.pageNumbers": "页码",
   "export.pageNumbers.hint": "Word 和 PDF 的每页页脚都会显示页码。",
-  "export.pageNumbers.wordHint":
-    "文件自带的页眉、页脚和页码保持不变。开启后，仅当文件没有自带页脚时才添加页码。",
+  "export.pageNumbers.wordHint": "只在文件没有自带页脚时添加页码；自带的页眉页脚保持不变。",
   "export.watermark": "水印",
   "export.watermark.hint": "以 Word 自带的水印写入，可在 Word 中修改或删除。",
   "export.watermark.none": "无",
@@ -5704,25 +5669,18 @@ export const zhCN = {
   "error.system.dataFolder": "IncarnaMind 无法打开数据文件夹。",
   "error.system.corrupt": "IncarnaMind 的数据已损坏。",
   "error.startup.title": "IncarnaMind 无法启动",
-  "error.startup.body":
-    "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\n{message}",
-  "error.startup.held":
-    "另一个程序仍在使用 IncarnaMind 的数据。数据不会丢失，请稍候，再重新打开 IncarnaMind。",
-  "error.startup.busy": "IncarnaMind 无法打开数据文件夹。可能另一个副本仍在启动，请稍后再试。",
+  "error.startup.body": "无法打开你的数据文件夹。请重新打开 IncarnaMind。\n\n{message}",
+  "error.startup.held": "另一个程序正在使用 IncarnaMind 的数据。数据不会丢失，请稍后重新打开。",
+  "error.startup.busy": "可能另一个副本仍在启动，请稍后再试。",
   "error.startup.starting": "另一个副本尚未完成启动。请稍候，再重新打开 IncarnaMind。",
   "error.startup.quitting": "另一个副本尚未退出。请等待它退出，再重新打开 IncarnaMind。",
   "error.startup.installing": "正在安装更新。请等待安装完成，再重新打开 IncarnaMind。",
   "error.startup.update.title": "需要安装最新版本",
-  "error.startup.update.body":
-    "更新到 {new} 可能没有完成。当前版本是 {old}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
-  "error.startup.update.withCurrent":
-    "更新可能没有完成。当前版本是 {old}，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
-  "error.startup.update.withTarget":
-    "更新到 {new} 可能没有完成。当前版本不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
-  "error.startup.update.unknown":
-    "更新可能没有完成。当前版本不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
-  "error.startup.stalled":
-    "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
+  "error.startup.update.body": "更新到 {new} 可能没有完成，当前版本（{old}）不会打开你的数据。",
+  "error.startup.update.withCurrent": "更新可能没有完成，当前版本（{old}）不会打开你的数据。",
+  "error.startup.update.withTarget": "更新到 {new} 可能没有完成，当前版本不会打开你的数据。",
+  "error.startup.update.unknown": "更新可能没有完成，当前版本不会打开你的数据。",
+  "error.startup.stalled": "另一个副本正在退出。请重新打开 IncarnaMind，数据未改动。",
   "error.startup.newer.title": "更新 IncarnaMind 才能打开你的数据",
   "error.startup.newer.body": "较新版本的 IncarnaMind 保存了这些数据。更新后即可打开，数据未改动。",
   "error.startup.newer.download": "下载最新版本",
@@ -5730,7 +5688,7 @@ export const zhCN = {
 
   "error.connector.notInDirectory": "目录里没有这个连接器。",
   "error.examples.reading": "示例文档还在读取中，稍后再试一次。",
-  "error.examples.unreadable": "示例文档“{document}”无法读取。添加你自己的文件，或移除示例。",
+  "error.examples.unreadable": "无法读取示例文档“{document}”。添加你自己的文件，或移除示例。",
   "error.examples.gone": "示例文档“{document}”已被删除。添加你自己的文件，或移除示例。",
   "error.examples.absent": "示例已不存在。添加你自己的文件来提问。",
   "sheet.noSavedValue": "无保存的值",
@@ -5773,12 +5731,10 @@ export const zhCN = {
   "error.verify.noPath": "请选择要核对的文档。",
   "error.export.checkComments": "无法读取这个核对批注的选择。",
   "error.export.rewrite.notThisNote": "这个文件不是从这篇笔记导出的，这篇笔记无法重写它。",
-  "error.export.rewrite.notSaved":
-    "“{name}”不是 IncarnaMind 这次打开后保存的，无法重写。请重新导出这篇笔记。",
-  "error.export.rewrite.gone":
-    "“{name}”已不在保存的位置，可能已被移动或删除。请重新导出这篇笔记，生成新文件。",
+  "error.export.rewrite.notSaved": "无法重写“{name}”：请重新导出这篇笔记。",
+  "error.export.rewrite.gone": "“{name}”已不在保存的位置。请重新导出这篇笔记。",
   "error.export.rewrite.locked":
-    "无法修改“{name}”：它可能是只读的，或正在其他应用中打开。请先在那里关闭，或重新导出这篇笔记。",
+    "无法修改“{name}”：可能是只读的，或在其他应用中打开。请关闭它，或重新导出。",
   "error.export.restore.copyGone": "副本已被删除，没有可恢复的内容。",
   "error.export.restore.nothing": "“{name}”没有可以恢复的内容。",
   "error.export.restore.changed": "“{name}”写入后又被修改过，因此没有恢复。",
@@ -5861,16 +5817,11 @@ export const zhCN = {
   "unsaved.tryAgain": "重试",
   "unsaved.saveCopy": "另存一份…",
   "unsaved.saveCopy.title": "另存一份这篇笔记",
-  "unsaved.details.full":
-    "IncarnaMind 尝试把你最近的改动保存到数据文件夹，但磁盘已满。请先腾出一些空间，然后点“重试”。",
-  "unsaved.details.io":
-    "IncarnaMind 尝试把你最近的改动保存到数据文件夹，但磁盘无法写入。请检查磁盘是否已连接且工作正常，然后点“重试”。",
-  "unsaved.details.readOnly":
-    "IncarnaMind 尝试把你最近的改动保存到数据文件夹，但没有权限写入。请检查数据文件夹的权限，然后点“重试”。",
-  "unsaved.details.busy":
-    "IncarnaMind 尝试把你最近的改动保存到数据文件夹，但另一个程序正在使用这些数据。请先关闭它，然后点“重试”。",
-  "unsaved.details.other":
-    "IncarnaMind 尝试把你最近的改动保存到数据文件夹，但数据无法写入。请点“重试”，或另存一份这篇笔记。",
+  "unsaved.details.full": "请腾出磁盘空间。",
+  "unsaved.details.io": "请检查磁盘是否已连接且工作正常。",
+  "unsaved.details.readOnly": "请检查 IncarnaMind 是否有权写入数据文件夹。",
+  "unsaved.details.busy": "请关闭另一个程序。",
+  "unsaved.details.other": "如果重试仍不行，请另存一份这篇笔记。",
   "unsaved.lost": "IncarnaMind 关闭前有 {count} 处改动没能保存",
   "unsaved.lost.one": "IncarnaMind 关闭前有 1 处改动没能保存",
   "unexpectedEnd.app": "IncarnaMind 意外关闭，你最后的改动可能未保存。",
@@ -5905,10 +5856,9 @@ export const zhCN = {
   "error.mind.missedChange": "这次改动依赖一处笔记没有收到的改动，所以没有保存。",
   "error.mind.newerVersionEdit": "较新版本的 IncarnaMind 修改过这篇笔记。更新后即可编辑。",
   "error.figure.checking": "数字仍在核对。核对完成后，请导出核对表。",
-  "error.figure.evidenceMissing": "此数字保留的输入暂不可用。请重新核对数字或选择其来源。",
-  "error.figure.paste": "未能粘贴计算依据。请重新复制这个数字，或粘贴为纯文本。",
-  "error.figure.copyIncomplete":
-    "已按纯文本复制：这个数字保存的输入不完整，核对结果没有一起复制。请重新核对这个数字后再复制。",
+  "error.figure.evidenceMissing": "此数字保存的输入不可用：请重新核对或选择其来源。",
+  "error.figure.paste": "未能粘贴计算依据：请重新复制这个数字，或粘贴为纯文本。",
+  "error.figure.copyIncomplete": "已按纯文本复制，未带核对结果：请重新核对这个数字后再复制。",
   "error.conversation.notFound": "这个对话不存在或已删除。",
   "error.question.empty": "先输入问题，再提问。",
   "error.question.folderInFront": "前置文件夹必须是文件夹的 id，或为 null。",
@@ -6035,14 +5985,13 @@ export const zhCN = {
   "commands.setting.exportFormat": "导出格式",
   "commands.setting.meetingSystemAudio": "同时录制电脑的声音",
   "commands.setting.model": "回答使用的 AI 模型",
-  "commands.yours.wall":
-    "文件夹是否只在本文件夹内工作，由你来改，我不能改。在每个文件夹的 ⋯ 菜单里。",
+  "commands.yours.wall": "文件夹是否只在本文件夹内工作，由你来改，我不能改：在它的 ⋯ 菜单里。",
   "commands.yours.wall.named":
-    "“{folder}”是否只在本文件夹内工作，由你来改，我不能改。在文件夹的 ⋯ 菜单里。",
+    "“{folder}”是否只在本文件夹内工作，由你来改，我不能改：在它的 ⋯ 菜单里。",
   "commands.yours.openFolderMenu": "打开文件夹菜单",
   "commands.yours.keys": "密钥和登录由你来改，我不能改。在“设置 › AI”里。",
   "commands.yours.privacy":
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › AI”和“设置 › 隐私”里。",
+    "哪些内容离开这台电脑，由你来改，我不能改。在“设置 › AI”和“设置 › 隐私”里。",
   "commands.yours.approvals": "我不经询问能做什么，由你来改，我不能改。在“设置 › 隐私”里。",
   "commands.yours.spending": "每月花费上限由你来改，我不能改。在“设置 › AI”里。",
   "commands.yours.permanent": "彻底删除只能由你来做，我不能做。在“回收站”里。",
@@ -6159,18 +6108,13 @@ export const zhCN = {
   "commands.ask.change.mind.delete": "删除 {count} 篇笔记？",
   "commands.ask.change.mind.delete.one": "删除“{name}”？",
   "commands.ask.why.many": "一个回答要改动超过 {max} 项时，助手会先问你。",
-  "commands.ask.why.many.changed":
-    "一个回答要改动超过 {max} 项时，助手会先问你。这个回答已经改动了 {changed} 项。",
-  "commands.ask.why.delete":
-    "它们会移到回收站，{days} 天内可以恢复。助手删除任何内容前都会先问你。",
-  "commands.ask.why.delete.one":
-    "它会移到回收站，{days} 天内可以恢复。助手删除任何内容前都会先问你。",
-  "commands.ask.why.organize":
-    "整理会读取每个文档的内容，建议合适的文件夹。你确认前不会移动任何文档。",
+  "commands.ask.why.many.changed": "这个回答已改动 {changed} 项；超过 {max} 项时会先问你。",
+  "commands.ask.why.delete": "它们会移到回收站，保留 {days} 天。",
+  "commands.ask.why.delete.one": "它会移到回收站，保留 {days} 天。",
+  "commands.ask.why.organize": "为每个文档建议合适的文件夹；你确认前不会移动。",
   "commands.ask.organize.declined": "你之前选择了不发送。点“允许”只在这一次发送。",
-  "commands.ask.why.merge": "这些文档会打上“{tag}”标签，其他标签会移到回收站。可以用撤销恢复。",
-  "commands.ask.why.merge.groups":
-    "每个标签下的文档会打上对应的标签，被合并掉的标签会移到回收站。可以用撤销恢复。",
+  "commands.ask.why.merge": "这些文档会打上“{tag}”标签，其他标签移到回收站。",
+  "commands.ask.why.merge.groups": "每个标签下的文档会打上旁边的标签，其余标签移到回收站。",
   "commands.ask.read": "助手读过不是你写的文字。",
   "commands.ask.item.renamed": "{name}（这个对话中已重命名为“{renamed}”）",
   "commands.kept.folder": "保留了文件夹“{name}”：之后你在里面放了其他内容。",
@@ -6282,15 +6226,14 @@ export const zhCN = {
   "error.restore.notDeleted": "“{name}”尚未删除，无法彻底删除。",
   "error.history.gone": "该版本已不再保留。",
   "error.linkedFolder.inData":
-    "这个文件夹是 IncarnaMind 自己的数据文件夹，或在其中，无法关联。请选择你自己的文件夹。",
+    "这是 IncarnaMind 自己的数据文件夹或其子文件夹，请选择你自己的文件夹。",
   "error.linkedFolder.keep": "IncarnaMind 无法确定要保留哪些文档。",
   "error.linkedFolder.notThis": "这个文件夹中没有“{name}”的文件。请选择存放这些文件的文件夹。",
   "error.linkedFolder.overlaps": "这个文件夹与某个关联文件夹重叠。请选择“{name}”现在所在的文件夹。",
   "error.linkedFolder.taken": "“{file}”已在 IncarnaMind 中。先删除它，再定位文件夹。",
   "error.agent.notConnected": "这个智能体尚未连接。",
   "error.agent.cantAsk": "这个智能体现在无法读取这篇笔记。",
-  "error.agent.cantOrganize":
-    "这个智能体目前没有权限整理这些文档。请在“设置 › AI”里查看共享的文件夹。",
+  "error.agent.cantOrganize": "这个智能体无法访问这些文档：请在“设置 › AI”中查看共享的文件夹。",
   "error.agent.cantAskCanvas": "这个智能体现在无法读取这个页面。",
   "error.agent.cantAskDocument": "这个智能体现在无法读取这个文档。",
   "error.agent.askRequest": "无法读取这个交给智能体的请求。",
@@ -6305,11 +6248,11 @@ export const zhCN = {
   "error.agent.noFolders": "至少选择一个文件夹，供智能体读取。",
   "error.agent.keyUnreadable": "无法读取这个智能体的密钥。先断开连接，再重新连接。",
   "error.agent.socketTooLong":
-    "智能体无法从这个文件夹连接到 IncarnaMind：路径太长，无法建立本地连接。请改用更短的数据文件夹或临时文件夹。",
+    "路径太长，智能体无法连接到 IncarnaMind：请改用更短的数据文件夹或临时文件夹。",
   "error.agent.socketUntrusted":
-    "智能体无法连接到 IncarnaMind：{path} 并非仅限当前账号使用。请修正它的权限或移除它，或改用其他数据文件夹。",
+    "智能体无法连接到 IncarnaMind：{path} 并非仅限当前账号使用。请修正它的权限或移除它。",
   "error.agent.socketUnavailable":
-    "智能体无法连接到 IncarnaMind：无法在 {path} 建立本地连接。请关闭另一个正在运行的 IncarnaMind 窗口，或检查该位置的权限后再试。",
+    "智能体无法在 {path} 连接到 IncarnaMind：请关闭另一个 IncarnaMind，或检查该位置的权限。",
   "error.agent.undoChanged": "{path} 之后已有改动，IncarnaMind 未作更改。",
   "error.library.noClassifier": "先选择分类模型。",
   "error.library.flow": "这不是打标签、整理或页面图片的数据流。",
@@ -6323,10 +6266,10 @@ export const zhCN = {
   "error.library.autoNotLocal": "自动分类必须在这台电脑上运行。",
   "error.library.localModelMissing": "输入本地服务器和分类模型。",
   "error.library.ollamaNotLocal": "Ollama 分类模型必须在这台电脑上运行。",
-  "error.library.projectUndo": "无法撤销：不知道这些文档原先所在的文件夹。请手动重新归入。",
+  "error.library.projectUndo": "无法撤销：不知道这些文档原先所在的文件夹。请手动移回。",
   "error.meeting.notFound": "这个会议不存在或已删除。",
   "error.meeting.purgeFailed":
-    "已彻底删除，但会议录音暂时无法从这台电脑上移除。IncarnaMind 会在下次启动时重试。",
+    "已彻底删除，但会议录音暂时还在这台电脑上，IncarnaMind 会在下次启动时重试。",
   "error.meeting.otherRecording": "正在录制另一个会议。先停止它。",
   "error.meeting.noticeUnread": "录制会议前，先阅读录制提示。",
   "error.meeting.noSharedScreen": "这个版本的 IncarnaMind 无法读取共享屏幕。",
@@ -6341,7 +6284,7 @@ export const zhCN = {
   "error.meeting.quickNoteTime": "这不是会议中的时间。",
   "error.meeting.questionEmpty": "写下要问的问题再提问。",
   "error.meetingOffer.gone": "这条会议提醒已失效。",
-  "error.meetingOffer.link": "录音已开始，但会议链接未能打开。你可以从日历打开链接。",
+  "error.meetingOffer.link": "已开始录音，但会议链接未能打开：请从日历打开。",
   "error.openAtLogin.unsupported": "这个版本的 IncarnaMind 无法在登录时打开。",
   "error.meeting.helpButton": "这场会议没有这项帮助。",
   "error.meeting.memoHelp": "语音备忘没有通话助手。",
@@ -6355,8 +6298,7 @@ export const zhCN = {
   "error.meeting.reviewDuration": "每次最多可复核 5 小时录音。",
   "error.meeting.reviewCancelled": "已取消发言人复核。",
   "error.meeting.reviewConsent": "请先确认要上传的录音和预计费用。",
-  "error.meeting.reviewCleanup":
-    "Soniox 尚未确认删除复核用的录音。服务可用时，IncarnaMind 会再次尝试删除。",
+  "error.meeting.reviewCleanup": "Soniox 尚未确认删除复核录音，IncarnaMind 会再次请求删除。",
   "error.meeting.reviewFailed": "Soniox 未能完成发言人复核。请检查网络连接和 Soniox 账户。",
   "error.meeting.fillUndo": "补全只能撤销或恢复。",
   "error.transcription.localMode": "会议音频无法发送给云服务：已开启“所有内容都留在这台电脑上”。",
@@ -6567,7 +6509,7 @@ export const zhCN = {
   "command.suggestions.off": "关闭写作建议",
 
   "update.available.message": "IncarnaMind {version} 已发布",
-  "update.available.detail": "当前安装的 IncarnaMind 无法自动更新。请下载新版本，替换当前版本。",
+  "update.available.detail": "当前安装的 IncarnaMind 无法自动更新，请用下载的新版本替换它。",
   "update.available.confirm": "下载",
   "update.ready.message": "IncarnaMind {version} 已准备好安装",
   "update.ready.detail": "将在下次退出 IncarnaMind 时自动安装。也可以立即重启，马上完成安装。",
@@ -6689,8 +6631,7 @@ export const zhCN = {
   "connectors.import.confirm.one": "添加 1 个连接器",
   "connectors.import.sends":
     "回答向这些连接器的工具提出的请求会发送给它们，它们可能再通过互联网发送。",
-  "connectors.import.placeholder":
-    "此请求头从环境变量 {name} 取值，IncarnaMind 不读取环境变量。请改为填写密钥。",
+  "connectors.import.placeholder": "请填写密钥：IncarnaMind 不读取环境变量 {name}。",
   "connectors.import.nothing": "没有可以添加的内容。",
   "connectors.import.adding": "正在添加…",
   "connectors.consent.note": "这个连接器在你的电脑上运行，但它可能会把收到的内容通过网络发送出去。",
@@ -6716,7 +6657,7 @@ export const zhCN = {
   "remoteConnectors.connection.sse": "旧版连接（SSE）",
   "remoteConnectors.import.headers": "仅保存在这台设备上，只发送给对应服务器：{names}",
   "connectors.error.key-refused": "服务器拒绝了这个密钥",
-  "error.connector.headersInvalid": "请检查请求头名称和值。名称不能重复，值不能包含换行。",
+  "error.connector.headersInvalid": "请求头名称不能重复，值不能换行。",
   "error.connector.authChoice": "请选择用 API 密钥或 OAuth 应用连接。",
   "error.connector.changeKeyInstead": "请更换这个连接器的密钥。",
   "error.connector.keyChangeCancelled": "连接器在保存密钥前已停止。请重试。",
@@ -6745,9 +6686,8 @@ export const zhCN = {
   "remoteConnectors.signIn.error.cancelled": "登录已取消。",
   "remoteConnectors.signIn.error.denied": "该服务未完成登录，请重试。",
   "remoteConnectors.signIn.error.client-id-required":
-    "这个服务无法自动注册 IncarnaMind。请填写你注册的 OAuth 应用的客户端 ID。",
-  "remoteConnectors.signIn.error.secret-storage":
-    "此系统没有可用的密钥环，IncarnaMind 无法安全地保存你的登录信息。",
+    "这个服务无法自动注册 IncarnaMind：请填写你的 OAuth 应用的客户端 ID。",
+  "remoteConnectors.signIn.error.secret-storage": "没有可用的密钥环，无法安全保存登录信息。",
   "remoteConnectors.signIn.error.held-back": "它的登录服务在另一台电脑上，所以没有发送任何内容。",
   "remoteConnectors.signIn.error.failed": "未能登录。",
   "remoteConnectors.storage.tryAgain": "重试",
@@ -6831,8 +6771,7 @@ export const zhCN = {
   "firstOpen.title": "开始使用",
   "firstOpen.step.citation.title": "核对一条引用",
   "firstOpen.step.citation.done": "打开了一条已核对的引用",
-  "firstOpen.step.citation.body":
-    "点一条引用：卡片会说明引文是否核对过，点“打开该页”就能在文件里看到。",
+  "firstOpen.step.citation.body": "点一条引用，查看引文是否找到；点“打开该页”就能在文件里看到。",
   "firstOpen.step.citation.example": "或在示例里看看",
   "firstOpen.step.question.title": "提问",
   "firstOpen.step.question.done": "已提过问题",
@@ -6955,7 +6894,7 @@ export const zhCN = {
   "startGuide.documents.apps": "回答也能在 Notion、Google Drive 等应用中查找，但不附可核对的引用。",
   "startGuide.documents.linkFolder.tip": "同步到这台电脑的 Google Drive 或 OneDrive 文件夹也可以。",
   "startGuide.ask.title": "提一个问题",
-  "startGuide.ask.body": "按 {shortcut} 提问。回答会出现在右侧，一键加入笔记。",
+  "startGuide.ask.body": "按 {shortcut} 提问，一键把回答加入笔记。",
   "startGuide.ask.example": "例如：这些报告对第三季度营收是怎么说的？",
   "startGuide.check.title": "核对每个说法的出处",
   "startGuide.check.body": "{mark} 表示在文档中找到了引文。点击即可打开那一页。",
@@ -6991,9 +6930,9 @@ export const zhCN = {
   "meetings.start.downloadAndStart": "下载并开始",
   "meetings.notice.cancel": "取消",
   "meetings.notice.background.mac":
-    "IncarnaMind 还会保留在菜单栏中，并在登录时打开，以便通话开始时提示你记录会议。可在“设置”›“通用”中关闭。",
+    "IncarnaMind 还会在登录时打开并留在菜单栏，通话开始时提示你记录；可在“设置 › 通用”中关闭。",
   "meetings.notice.background.other":
-    "IncarnaMind 还会保留在系统托盘中，并在登录时打开，以便通话开始时提示你记录会议。可在“设置”›“通用”中关闭。",
+    "IncarnaMind 还会在登录时打开并留在系统托盘，通话开始时提示你记录；可在“设置 › 通用”中关闭。",
   "offers.call.title": "你正在通话吗？",
   "offers.call.body": "{app} 正在使用麦克风",
   "offers.calendar.title": "“{title}”将在 1 分钟后开始",
@@ -7022,10 +6961,8 @@ export const zhCN = {
   "settings.openAtLogin.openSettings": "打开系统设置",
   "settings.keepRunning.mac": "保留在菜单栏中运行",
   "settings.keepRunning.other": "保留在系统托盘中运行",
-  "settings.keepRunning.detail.mac":
-    "关闭窗口后，IncarnaMind 仍留在菜单栏中，通话开始时提示你记录会议。",
-  "settings.keepRunning.detail.other":
-    "关闭窗口后，IncarnaMind 仍留在系统托盘中，通话开始时提示你记录会议。",
+  "settings.keepRunning.detail.mac": "关闭窗口后仍留在菜单栏，通话开始时提示你记录会议。",
+  "settings.keepRunning.detail.other": "关闭窗口后仍留在系统托盘，通话开始时提示你记录会议。",
   "settings.calendarOffers": "日历上的会议",
   "settings.calendarOffers.detail": "两人或以上的日程开始前 1 分钟，提示“记录会议”。",
   "settings.callOffers": "不在日历上的通话",
@@ -7035,10 +6972,8 @@ export const zhCN = {
   "settings.callOffers.apps": "这些应用使用麦克风时询问",
   "settings.callOffers.noPactl": "需要 PulseAudio 的 pactl，这台电脑上没有。",
   "settings.callOffers.notOnWindows": "此 Windows 版本无法发现通话。",
-  "offers.turnOn.line":
-    "IncarnaMind 现在可以保留在菜单栏中、登录时打开，并在通话开始时提示你记录会议。",
-  "offers.turnOn.line.other":
-    "IncarnaMind 现在可以保留在系统托盘中、登录时打开，并在通话开始时提示你记录会议。",
+  "offers.turnOn.line": "登录时在菜单栏打开，通话开始时提示你记录会议。",
+  "offers.turnOn.line.other": "登录时在系统托盘打开，通话开始时提示你记录会议。",
   "offers.turnOn": "开启",
   "settings.callOffers.unavailable": "这台电脑无法告知哪个应用在使用麦克风，因此无法发现通话。",
   "command.settings.background.keywords":
@@ -7072,9 +7007,8 @@ export const zhCN = {
   "meetings.line.cloudRefused": "{provider}不接受这个密钥，正在这台电脑上转写。",
   "meetings.line.cloudCredit": "{provider}提示此账户余额不足，正在这台电脑上转写。",
   "meetings.line.cloudRefusedRegion":
-    "{provider}拒绝了这个密钥（密钥有误、已过期或属于其他区域）。请在“设置 › AI”中检查密钥和区域。正在这台电脑上转写。",
-  "meetings.line.cloudMoved":
-    "正在这台电脑上转写：{provider}密钥现在属于其他区域。重新选择{provider}后，音频会发送到该区域。",
+    "{provider}拒绝了这个密钥（有误、已过期或属于其他区域）。正在这台电脑上转写。",
+  "meetings.line.cloudMoved": "正在这台电脑上转写：{provider}密钥现在属于其他区域。",
   "meetings.line.chooseAgain": "重新选择",
   "meetings.line.cloudLocalMode": "正在这台电脑上转写：已开启“所有内容都留在这台电脑上”。",
   "meetings.line.openSettings.mac": "打开系统设置",
@@ -7133,7 +7067,7 @@ export const zhCN = {
   "meetings.screen.use.limit": "这次用了屏幕文字。已达到本次会议的图片上限。",
   "meetings.screen.use.budget": "这次用了屏幕文字。发送图片会超出费用上限。",
   "meetings.screen.look": "看一下屏幕",
-  "citation.screen.fromPicture": "从 {time} 共享屏幕的画面中读取，无法对照文字核实。",
+  "citation.screen.fromPicture": "从 {time} 的共享屏幕画面中读取，无法对照文字核实。",
   "meetings.screen.ask": "会上有人共享屏幕吗？",
   "meetings.screen.askProvider": "你提问时，{provider} 可以收到屏幕文字，需要时也会收到一张画面。",
   "meetings.screen.askModel": "你提问时，所选模型可以收到屏幕文字，需要时也会收到一张画面。",
@@ -7151,8 +7085,7 @@ export const zhCN = {
   "meetings.screen.downloadingShared":
     "正在读取共享的窗口 · 正在准备文字识别（{percent}%，共 {size}）",
   "meetings.screen.stop": "停止",
-  "meetings.screen.wholeScreen":
-    "只能读取一个窗口，不能读取整个屏幕。选择会议应用的窗口，或通话所在的浏览器窗口。",
+  "meetings.screen.wholeScreen": "只能读取一个窗口，不能读取整个屏幕：请选择会议所在的窗口。",
   "meetings.screen.denied": "IncarnaMind 没有“屏幕录制”权限，所以不读取共享屏幕。",
   "meetings.screen.closed": "共享的窗口已关闭。",
   "meetings.screen.failed": "无法读取共享屏幕。",
@@ -7224,8 +7157,7 @@ export const zhCN = {
   "meetings.fill.problem.stopped": "补全完成前 IncarnaMind 已关闭",
   "meetings.fill.problem.localMode":
     "已开启“所有内容都留在这台电脑上”，而这篇笔记用的模型不在这台电脑上",
-  "meetings.fill.problem.notAllowed":
-    "你还没有允许发送给 {service}。在助手里提一个问题即可允许，然后重试",
+  "meetings.fill.problem.notAllowed": "尚未允许发送给 {service}：先在助手中提问以允许，然后重试",
   "meetings.fill.problem.noModel": "请先选择一个 AI 模型",
   "meetings.fill.problem.modelRemoved": "这篇笔记的模型已移除。在助手里选择其他模型，然后重试",
   "meetings.fill.problem.alone": "{reason}。",
@@ -7457,15 +7389,14 @@ export const zhCN = {
   "sources.provider.pubmed.about": "生物医学和生命科学论文，开放全文来自 PubMed Central。",
   "sources.provider.crossref.about": "查询你输入的 DOI。",
   "sources.provider.openfda.about":
-    "FDA 药品说明书，按章节拆分。可按药品名称或说明书 ID 搜索。记录采用 CC0，不应用于医疗决定。仅在你选用时才会搜索。",
-  "sources.provider.dailymed.about":
-    "完整的 FDA 药品说明书，保留章节编号。可按药品名称或说明书 ID 搜索。仅在你选用时才会搜索。",
+    "FDA 药品说明书，按章节拆分，不应用于医疗决定。仅在你选用时才会搜索。",
+  "sources.provider.dailymed.about": "完整的 FDA 药品说明书，保留章节编号。仅在你选用时才会搜索。",
   "sources.provider.clinicaltrials.about":
-    "临床试验记录：试验组、结局指标、入选标准和结果。可按疾病、药品或 NCT 编号搜索。仅在你选用时才会搜索。",
+    "临床试验记录和结果，可按疾病、药品或 NCT 编号搜索。仅在你选用时才会搜索。",
   "sources.provider.ecfr.about":
-    "美国联邦法规（CFR），按段落拆分，为非官方汇编。可按关键词搜索，或输入法规引用，如 17 CFR 240.10b-5。仅在你选用时才会搜索。",
+    "美国联邦法规（CFR），非官方汇编，按段落拆分。仅在你选用时才会搜索。",
   "sources.provider.govinfo.about":
-    "《美国法典》和 CFR 官方年度版。输入法规引用即可查找，如 42 U.S.C. § 1983。需要你自己的免费 api.data.gov 密钥。",
+    "《美国法典》和 CFR 官方年度版。需要你自己的免费 api.data.gov 密钥。",
   "sources.notice": "来源声明：{notice}",
   "sources.key.open": "{provider} 密钥…",
   "sources.key.title": "你自己的 {provider} 密钥",
@@ -7524,7 +7455,7 @@ export const zhCN = {
   "meetings.review.close": "关闭发言人复核",
   "meetings.review.quoting": "正在查询可用性和费用…",
   "meetings.review.roomDisclosure":
-    "使用 NVIDIA Sortformer 在本机区分最多四位说话人。录音保存在这台电脑上。你可以逐条试听，再决定采用哪些修改。",
+    "使用 NVIDIA Sortformer 在本机区分最多四位说话人，录音保留在这台电脑上。",
   "meetings.review.roomDownload": "需下载约 {mb} MB",
   "meetings.review.roomInstall": "下载并检查说话人",
   "meetings.review.namedLabel": "{name}（{label}）",
@@ -7817,7 +7748,7 @@ export const zhCN = {
   "meetings.help.openInAssistant": "在助手中打开",
   "meetings.help.openCommand": "在助手中打开这场通话的帮助",
   "meetings.help.setUp": "选择 AI 模型后，就能在通话中获得帮助",
-  "meetings.help.textBehind": "实时转写跟不上，通话内容还没有转写出来，会议结束后才会转写。",
+  "meetings.help.textBehind": "实时转写跟不上，会议结束后才会转写出来。",
   "meetings.help.textBehind.some": "实时转写跟不上，以下只依据已转写的内容。",
   "meetings.help.failed": "这次没能给出建议：{message}",
   "meetings.help.nothing": "回答里没有可用的内容",
@@ -7878,8 +7809,7 @@ export const zhCN = {
   "meetings.settings.helpModel.notOffered": "{model} 没有“最快”选项，通话助手会用它回复。",
   "meetings.settings.keys": "快捷键",
   "meetings.settings.keysBody.mac": "会议应用在前台时也能使用，仅在录制时有效。",
-  "meetings.settings.keysBody.other":
-    "默认没有快捷键。设置后，可在会议应用中使用，仅在录制时有效。",
+  "meetings.settings.keysBody.other": "设置的快捷键可在会议应用中使用，仅在录制时有效。",
   "meetings.settings.keysChange": "更改“{name}”的快捷键",
   "meetings.settings.keysPress": "按下新的快捷键…",
   "meetings.settings.keysNone": "未设置快捷键",
@@ -8125,10 +8055,10 @@ export const zhCN = {
   "mindCall.failed.contentNotOwn": "无法修改“{mind}”：只能重写助手写的文字",
   "mindCall.failed.stopped": "已停止，“{mind}”没有改动",
   "mindCall.failed.noTable": "未能生成表格，因此没有向“{mind}”添加内容",
-  "mindCall.failed.unplaced": "标出要删除的文字在“{mind}”里找不到唯一一处原文，因此没有改动",
+  "mindCall.failed.unplaced": "没有改动：标出要删除的文字在“{mind}”里找不到唯一一处原文",
   "mindCall.failed.typedTag": "改写漏掉了你在“{mind}”里输入的 <removed> 标记，因此没有改动",
-  "mindCall.failed.notPlaced": "改写会在“{mind}”里加入或修改引用、脚注或计算结果，因此没有改动",
-  "mindCall.failed.misnamed": "改写没有说清每处修改替换“{mind}”里的哪一段，因此没有改动",
+  "mindCall.failed.notPlaced": "没有改动：改写会改动“{mind}”里的引用、脚注或计算结果",
+  "mindCall.failed.misnamed": "没有改动：改写没有说清每处修改替换“{mind}”里的哪一段",
   "mindCall.failed.uncited": "未添加到“{mind}”：出处没有引用",
   "mindCall.failed.length": "未修改“{mind}”：新内容的长度不符合要求",
   "mindCall.failed.callMarkup": "未写入“{mind}”：AI 的调用格式有误",
@@ -8167,22 +8097,22 @@ export const zhCN = {
   "answer.notWritten.noCall": "助手没有执行写入",
   "answer.notWritten.retry": "重试",
   "answer.notAllDone": "这条回答说的事，助手没有全部完成",
-  "answer.notCalculated": "未运行计算：这条回答中算出的数字不是 IncarnaMind 计算得出的，尚未核对",
+  "answer.notCalculated": "未运行计算，这条回答中算出的数字尚未核对",
   "answer.notCalculated.unavailable":
     "未运行计算：这个模型无法调用 IncarnaMind 的计算工具，这条回答中算出的数字尚未核对",
   "answer.notSearched": "未运行搜索：这条回答不是根据搜索结果生成的",
   "answer.notDone.command": "助手没有在应用中完成这条回答说的全部操作",
   "answer.notDone.privacy":
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › AI”和“设置 › 隐私”里更改",
+    "没有更改：哪些内容离开这台电脑，只有你能在“设置 › AI”和“设置 › 隐私”里更改",
   "answer.notDone.keys": "密钥和登录没有更改。只有你能在“设置 › AI”里更改",
   "answer.notDone.spending": "每月花费上限没有更改。只有你能在“设置 › AI”里更改",
-  "answer.notDone.approvals": "助手不经询问能做什么，没有更改。只有你能在“设置 › 隐私”里更改",
+  "answer.notDone.approvals": "没有更改：助手不经询问能做什么，只有你能在“设置 › 隐私”里更改",
   "answer.notDone.permanent": "没有彻底删除任何内容。只有你能在“回收站”里彻底删除",
-  "answer.notDone.wall": "文件夹是否只在本文件夹内工作，没有更改。只有你能在文件夹的 ⋯ 菜单里更改",
+  "answer.notDone.wall": "没有更改：文件夹是否只在本文件夹内工作，只有你能在它的 ⋯ 菜单里更改",
   "answer.notDone.signOff": "没有标记“我已核对”。只有你能在每个引用的卡片上标记",
   "answer.notDone.authorship": "没有把任何文字标为你写的。只有你能选中文字后选择“标为我写的”",
   "answer.uncitedReply": "这条回答没有引用，未与文档核对",
-  "answer.uncitedWrite": "“{mind}”中写入的内容没有引用，未与文档核对",
+  "answer.uncitedWrite": "“{mind}”中写入的内容没有引用，未核对",
   "answer.added": "已添加到{mind}",
   "answer.added.outOfWall": "已添加到{mind} · 从“{folder}”中复制",
   "answer.wrote": "已写入{mind}",
@@ -8238,11 +8168,9 @@ export const zhCN = {
   "agents.install.connectYourAi": "连接你的 AI",
   "agents.install.disclosure": "从 Anthropic 下载并安装 Claude Code 到你的用户文件夹。",
   "agents.install.firstRun.title": "Claude Code",
-  "agents.install.firstRun.detail":
-    "可在后台核对，并为每篇笔记保持独立对话。从 Anthropic 下载并安装 Claude Code 到你的用户文件夹。",
+  "agents.install.firstRun.detail": "在后台核对笔记。从 Anthropic 下载到你的用户文件夹。",
   "agents.install.settings.title": "安装 Claude Code 以在后台运行",
-  "agents.install.settings.detail":
-    "可在后台核对笔记，并为每篇笔记保持独立对话。从 Anthropic 下载并安装 Claude Code 到你的用户文件夹。",
+  "agents.install.settings.detail": "在后台核对笔记。从 Anthropic 下载到你的用户文件夹。",
   "agents.install.jobs.title": "后台核对笔记",
   "agents.install.jobs.detail": "需要命令行 AI，或在 IncarnaMind 里设置 AI 模型。",
   "agents.install.progress.title": "正在安装 Claude Code…",
@@ -8250,24 +8178,20 @@ export const zhCN = {
     "正在运行 Anthropic 安装程序并安装到 {directory}，通常不到一分钟。",
   "agents.install.progress.cancel": "取消",
   "agents.install.signIn.title": "请在浏览器中登录 Claude Code",
-  "agents.install.signIn.detail":
-    "Claude Code 已安装。请在刚打开的浏览器页面完成 Anthropic 登录。IncarnaMind 不会接触或保存你的登录信息。",
+  "agents.install.signIn.detail": "Claude Code 已安装。请在浏览器中完成 Anthropic 登录。",
   "agents.install.signIn.notYet": "尚未检测到登录完成。请在浏览器中完成登录后重试。",
   "agents.install.signIn.done": "我已登录",
   "agents.install.signIn.reopen": "重新打开登录页",
   "agents.install.failed.title": "无法安装 Claude Code",
-  "agents.install.failed.network":
-    "无法连接 Anthropic 安装服务。请检查网络后重试，或按 Anthropic 官方说明安装。",
-  "agents.install.failed.checksum": "安装程序校验未通过。请重试，或按 Anthropic 官方说明安装。",
+  "agents.install.failed.network": "无法连接 Anthropic 安装服务。请检查网络。",
+  "agents.install.failed.checksum": "安装程序校验未通过。",
   "agents.install.failed.unsupported":
     "Anthropic 安装程序不支持此电脑。请按 Anthropic 官方说明安装。",
-  "agents.install.failed.localMode":
-    "已开启“所有内容都留在这台电脑上”，未进行下载。关闭后即可安装 Claude Code。",
+  "agents.install.failed.localMode": "已开启“所有内容都留在这台电脑上”，未进行下载。",
   "agents.install.failed.localModeAction": "关闭并安装",
   "agents.install.failed.root": "请使用普通用户账号运行 IncarnaMind 后再安装 Claude Code。",
   "agents.install.failed.signInTitle": "无法完成 Claude Code 登录",
-  "agents.install.failed.signIn":
-    "无法在浏览器中完成 Anthropic 登录。请重试，或按 Anthropic 官方说明安装。",
+  "agents.install.failed.signIn": "浏览器中的 Anthropic 登录没有完成。",
   "agents.install.failed.generic":
     "Anthropic 安装程序未能完成。请重试，或按 Anthropic 官方说明安装。",
   "agents.install.failed.retry": "重试",
@@ -8712,28 +8636,27 @@ export const zhCN = {
   "agents.done.link": "已打开{agent}：在其中点击“安装”完成连接。",
   "agents.done.wrote": "已添加到{agent}的设置中。在{agent}中开始一个新会话即可使用。",
   "agents.done.wrote.codex":
-    "在{agent}中开始新对话。Codex 询问是否把文件交给 IncarnaMind 时，选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
+    "在{agent}中开始新对话；它询问是否交付文件时，选“Allow for this session”。",
   "agents.done.command": "已复制。粘贴到终端中运行。",
   "agents.done.settings": "已复制。在{agent}中把它添加为新的服务器，然后重新启动它。",
   "agents.done.settings.other":
-    "已复制。在智能体添加服务器的地方粘贴，然后重新启动它。如果它要求分项填写，可在“技术细节”里逐项复制。",
+    "已复制。在智能体添加服务器的地方粘贴，然后重新启动它。各项见“技术细节”。",
   "agents.done.paste.devin":
-    "已复制。在 Devin Desktop 中打开 Customize › MCPs，选择 This computer，打开它的配置文件，把它加到 mcpServers 下。",
+    "已复制。在 Devin Desktop 中：Customize › MCPs › This computer，把它加到 mcpServers 下。",
   "agents.done.paste.zed":
-    "已复制。在 Zed 中打开 Settings › AI › MCP Servers，选择 Add Server › Add Local Server，用它替换示例内容，然后确认。",
+    "已复制。在 Zed 中：Settings › AI › MCP Servers › Add Server › Add Local Server，替换示例内容。",
   "agents.done.paste.trae":
     "已复制。在 Trae 中打开“设置 › MCP”，选择“添加 › 手动添加”，粘贴后点击“确认”。",
   "agents.done.paste.qoder":
-    "已复制。在 Qoder 中打开 Qoder IDE Settings › MCP › My Servers，点击“+ Add”，把它加到打开的文件里，然后保存。",
+    "已复制。在 Qoder 中：Qoder IDE Settings › MCP › My Servers › + Add，加到打开的文件里并保存。",
   "agents.done.paste.codebuddy":
     "已复制。在 CodeBuddy 中点击设置按钮，进入 MCP 标签页，添加 MCP，粘贴后保存。",
   "agents.done.paste.minimax-code":
-    "已复制。在 MiniMax Code 中打开插件管理 › MCP Servers，切换到 JSON，粘贴后保存。",
+    "已复制。在 MiniMax Code 中：插件管理 › MCP Servers › JSON，粘贴后保存。",
   "agents.done.paste.kilo-code":
-    "在 Kilo Code 中打开 Settings › MCP，选择 Add Server › Local (stdio)，按“技术细节”逐项填写。",
-  "agents.done.unreadable.command":
-    "无法修改{agent}的设置文件，未作改动。命令已复制：粘贴到终端中运行。",
-  "agents.done.unreadable": "无法读取{agent}的设置文件，未作改动。设置已复制：粘贴到 {path} 中。",
+    "在 Kilo Code 中：Settings › MCP › Add Server › Local (stdio)，按“技术细节”逐项填写。",
+  "agents.done.unreadable.command": "无法修改{agent}的设置文件。命令已复制：请在终端中运行。",
+  "agents.done.unreadable": "无法读取{agent}的设置文件。设置已复制：请粘贴到 {path} 中。",
   "agents.done.undo": "撤销",
   "agents.ask.action": "交给{agent}",
   "agents.ask.pill": "问{agent}",
@@ -8766,21 +8689,20 @@ export const zhCN = {
   "agents.asked.stop": "停止",
   "agents.asked.checkAgain": "再次核对",
   "agents.asked.short.failed": "{agent}已停止",
-  "agents.ownCheck.problem.signed-out":
-    "{agent} 尚未在这台电脑上登录。在终端中登录后，再点“核对”。",
+  "agents.ownCheck.problem.signed-out": "{agent} 尚未登录：在终端中登录后，再点“核对”。",
   "agents.ownCheck.problem.too-old":
-    "{agent} {found} 版本过旧，需要 {lowest} 或更高版本。更新后再点“核对”。",
+    "{agent} {found} 版本过旧：请更新到 {lowest} 或更高版本，再点“核对”。",
   "agents.ownCheck.problem.no-answer": "{agent} 在这台电脑上没有响应，核对没有开始。再试一次。",
   "agents.ownCheck.problem.plan-limit":
     "{agent} 已停止：你的 Claude 订阅或 API 密钥已达用量上限。稍后再试。",
   "agents.ownCheck.problem.billing": "{agent} 已停止：它登录的账号无法计费。检查账单后再试。",
   "agents.ownCheck.problem.stalled": "{agent} 六分钟没有回应，核对已停止。再试一次。",
-  "agents.ownCheck.problem.compaction": "{agent} 压缩对话十分钟仍未完成，核对已停止。再试一次。",
+  "agents.ownCheck.problem.compaction": "核对已停止：{agent} 压缩对话十分钟仍未完成。再试一次。",
   "agents.ownCheck.problem.timeout": "{agent} 超过 15 分钟仍未完成，核对已停止。再试一次。",
   "agents.ownCheck.problem.no-marks":
     "{agent} 已结束，但没有标记这篇笔记。再试一次，或在 {agent} 中提问。",
   "agents.ownCheck.problem.isolation":
-    "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。改为在 {agent} 中提问。",
+    "你所在组织设置的钩子或插件让 {agent} 无法在这里运行。改为在 {agent} 中提问。",
   "agents.ownCheck.problem.access": "{agent} 已无法读取这篇笔记，核对已停止。",
   "agents.ownCheck.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
   "agents.ownCheck.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
@@ -9101,7 +9023,7 @@ export const zhCN = {
   "meetings.summary.empty": "未生成摘要。",
   "error.meeting.summaryIncomplete": "AI 未能生成完整的会议摘要。",
   "error.meeting.codexSummaryTooLong":
-    "本次更新超出了当前 Codex 客户端的 4,000 字节上限。请使用支持较长会议更新的 Codex 版本后重试。",
+    "本次更新超出了 Codex 4,000 字节的上限：请更新 Codex 后重试。",
   "error.meeting.summaryUnavailable": "请在设置中查看所选的摘要 AI，以及它是否有权读取这场会议。",
   "meetings.summary.needsTranscript": "请先保存转写稿，再生成摘要。",
   "meetings.summary.retryTranscript": "重试转写",
@@ -9325,8 +9247,7 @@ export const zhCN = {
   "wordAtom.kind.header": "页眉",
   "wordAtom.kind.footer": "页脚",
   "wordAtom.kind.other": "Word 内容",
-  "analysis.unavailable.missing":
-    "这台电脑上无法运行数据分析：缺少部分文件。重新安装 IncarnaMind 即可恢复。",
+  "analysis.unavailable.missing": "无法运行数据分析：缺少部分文件。请重新安装 IncarnaMind。",
   "analysis.unavailable.start": "这台电脑上无法运行数据分析：沙盒未能启动。",
   "analysis.unavailable.noSandbox": "沙盒已关闭，无法运行数据分析",
   "analysis.unavailable.noSandbox.fix": "如何解决",

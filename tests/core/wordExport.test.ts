@@ -236,7 +236,7 @@ describe("an export that can't be saved", () => {
     }
     await expect(core.saveMindExport(mindId, { format: "docx" })).rejects.toMatchObject({
       message:
-        "The Word file this note was imported from is missing from IncarnaMind’s data folder. Export in another format instead.",
+        "The Word file this note came from is missing from IncarnaMind’s data. Export another format.",
       wording: { key: "error.export.wordPackageMissing" },
     });
 

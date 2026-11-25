@@ -3415,10 +3415,10 @@ describe("An edit the User asked for (#880)", () => {
     });
     expect(shownWithChanges(client)).toEqual([FIRST, SECOND, THIRD]);
     expect(translate("en", "edit.problem.unplaced")).toBe(
-      "The AI marked text to remove that doesn’t match the selection word for word in one place, so nothing changed. Try again.",
+      "Nothing changed: the AI’s text to remove isn’t in exactly one place, word for word. Try again.",
     );
     expect(translate("zh-CN", "edit.problem.unplaced")).toBe(
-      "AI 标出要删除的文字在选中内容里找不到唯一一处原文，没有改动。请重试。",
+      "没有改动：AI 标出要删除的文字在选中内容里找不到唯一一处原文。请重试。",
     );
   });
 

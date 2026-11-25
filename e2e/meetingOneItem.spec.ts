@@ -580,7 +580,7 @@ test("a meeting two walls keep apart from its Transcript stays where it is, and 
   await setWindowSize(app, window, 1440, 900);
   await setLanguage(window, "en");
   await expect(line.getByTestId("status-label")).toHaveText(
-    "1 meeting left apart from its Transcript, since each Folder keeps its work inside it",
+    "1 meeting apart from its Transcript: each Folder keeps its work inside it",
   );
   await expect(show).toHaveText("Show");
 

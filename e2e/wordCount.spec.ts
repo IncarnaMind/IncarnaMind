@@ -55,7 +55,7 @@ test("the count follows the writing, in words and in characters, and the selecti
   await window.getByTestId("mind-editor").click();
   await window.keyboard.type("The tide turns at noon");
   await expect(button).toHaveText("5 words");
-  await expect(button).toHaveAttribute("title", /Citation markers and Questions don’t count/);
+  await expect(button).toHaveAttribute("title", /not Citation markers or Questions/);
 
   // Select the last two words with the keyboard.
   await window.keyboard.press(`Shift+${WORD_KEY}+ArrowLeft`);

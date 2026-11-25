@@ -1291,12 +1291,12 @@ describe("the agents' socket", () => {
     });
     const folder2 = await core2.createLibraryGroup({ name: "Harbour", description: "Tides" });
     await expect(core2.setAgentsEnabled(true)).rejects.toThrow(
-      /couldn’t open its local connection/i,
+      /can’t reach IncarnaMind at .+: close another copy/i,
     );
     expect((await core2.getAgents()).enabled).toBe(false);
     await expect(
       core2.connectAgent({ name: "Claude Code", folderIds: [folder2.id] }),
-    ).rejects.toThrow(/couldn’t open its local connection/i);
+    ).rejects.toThrow(/can’t reach IncarnaMind at .+: close another copy/i);
     expect((await core2.getAgents()).pairings).toEqual([]);
     core2.close();
 

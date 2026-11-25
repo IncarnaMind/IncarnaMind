@@ -357,9 +357,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await tieOut(asked);
       await expect(asked).toHaveText(t("agents.asked.opened", { agent: "Claude Code" }));
       await expect(window.getByTestId("checks-asked-line-ask")).toHaveText(t("agents.asked.again"));
-      await expect(window.getByTestId("checks-asked-set-up")).toHaveText(
-        t("agents.ask.setUpModel"),
-      );
+      await expect(window.getByTestId("checks-asked-set-up")).toHaveCount(0);
       await screenshot(window, `tie-out-own-ai-${language}`);
 
       // The schedule is a click away in a narrow window.

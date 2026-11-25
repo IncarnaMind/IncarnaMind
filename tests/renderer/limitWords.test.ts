@@ -15,10 +15,10 @@ describe("a limit's words on a sentence's card and under its Answer (#2311, #296
       "未核对：核对到这句之前，已达每月上限。",
     );
     expect(limitReason(en, "monthly-limit-unfinished", "$0.25", "Claude Fable 5")).toBe(
-      "Not checked: your monthly limit was reached before Claude Fable 5 finished checking this sentence.",
+      "Not checked: your monthly limit was reached before Claude Fable 5 finished.",
     );
     expect(limitReason(zh, "monthly-limit-unfinished", "$0.25", "Claude Fable 5")).toBe(
-      "未核对：Claude Fable 5 还没核对完这句，就已达每月上限。",
+      "未核对：Claude Fable 5 核对完之前，已达每月上限。",
     );
     expect(limitReason(en, "monthly-limit-unfinished", "$0.25", null)).toBe(
       "Not checked: your monthly limit was reached before this sentence’s check finished.",
@@ -33,10 +33,10 @@ describe("a limit's words on a sentence's card and under its Answer (#2311, #296
       "Not checked: this Answer’s $0.25 checking limit was reached before this sentence.",
     );
     expect(limitReason(en, "answer-limit-unfinished", "$0.25", "Claude Fable 5")).toBe(
-      "Not checked: this Answer’s $0.25 checking limit was reached before Claude Fable 5 finished checking this sentence.",
+      "Not checked: this Answer hit its $0.25 checking limit before Claude Fable 5 finished.",
     );
     expect(limitReason(zh, "answer-limit-unfinished", "$0.25", null)).toBe(
-      "未核对：这句还没核对完，就已达本回答 $0.25 的核对上限。",
+      "未核对：本回答已先达到 $0.25 的核对上限。",
     );
   });
 

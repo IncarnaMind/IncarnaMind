@@ -798,11 +798,11 @@ test("a summary written with no Citation after a search is refused once, and wri
   const answer = await askInAssistant(window, "Summarise my leases without citing");
   const line = answer.getByTestId("answer-uncited-write");
   await expect(line).toHaveText(
-    "What was written in “Lease summary” has no Citations, so none of it was checked against your Documents · Try again",
+    "What was written in “Lease summary” has no Citations, so it wasn’t checked · Try again",
   );
   await screenshot(window, "uncited-write-en");
   await setLanguage(window, "zh-CN");
-  await expect(line).toHaveText("“Lease summary”中写入的内容没有引用，未与文档核对 · 重试");
+  await expect(line).toHaveText("“Lease summary”中写入的内容没有引用，未核对 · 重试");
   await screenshot(window, "uncited-write-zh");
   await setLanguage(window, "en");
   await setWindowSize(app, window, 900, 760);

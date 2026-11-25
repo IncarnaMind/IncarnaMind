@@ -188,9 +188,7 @@ test("a delete the assistant starts asks first, naming what goes, and Don't dele
   const card = await askAndWait(window, "Delete this Mind");
   await expect(card).toHaveAttribute("data-reason", "delete");
   await expect(card).toContainText("Delete “Deal notes”?");
-  await expect(card).toContainText(
-    "It goes to Recently deleted, where you can restore it for 30 days. The assistant always asks before it deletes.",
-  );
+  await expect(card).toContainText("It goes to Recently deleted for 30 days.");
   await expect(card.getByTestId("approval-allow-once")).toContainText("Delete");
   await expect(card.getByTestId("approval-deny")).toHaveText("Don’t delete");
   await expect(card.getByTestId("approval-always-allow")).toHaveCount(0);
@@ -612,7 +610,7 @@ test("Local mode is the User's: nothing changes, and one button opens Settings �
   const answer = await askInAssistant(window, "Turn on Local mode");
 
   const said =
-    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine. They’re in Settings › AI and Settings › Privacy.";
+    "What leaves this computer is yours to set, not mine. It’s in Settings › AI and Settings › Privacy.";
   // Said once, in the reply: the card under it keeps only its button, and nothing to keep in a note.
   await expect(answer.getByTestId("assistant-answer-text")).toHaveText(said);
   await expect(answer.getByText(said)).toHaveCount(1);
@@ -641,8 +639,7 @@ test("in Chinese, Local mode's line and its button are in Chinese, and fit a nar
 
   const answer = await askInAssistant(window, "打开本地模式");
 
-  const said =
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，由你来改，我不能改。在“设置 › AI”和“设置 › 隐私”里。";
+  const said = "哪些内容离开这台电脑，由你来改，我不能改。在“设置 › AI”和“设置 › 隐私”里。";
   await expect(answer.getByTestId("assistant-answer-text")).toHaveText(said);
   await expect(answer.getByText(said)).toHaveCount(1);
   const line = answer.getByTestId("command-yours");
@@ -668,19 +665,17 @@ test("a reply that says Local mode is on, though it was refused, keeps a line un
 
   const text = answer.getByTestId("assistant-answer-text");
   await expect(text).toContainText("I've turned on Local mode.");
-  await expect(text).toContainText(
-    "“Keep everything on this computer” and what goes to cloud services are yours to change, not mine.",
-  );
+  await expect(text).toContainText("What leaves this computer is yours to set, not mine.");
   const line = answer.getByTestId("answer-unbacked-command-privacy");
   await expect(line).toHaveText(
-    "“Keep everything on this computer” and what goes to cloud services weren’t changed. Only you can change them, in Settings › AI and Settings › Privacy",
+    "Not changed: only you can change what leaves this computer, in Settings › AI and Settings › Privacy",
   );
   await expect(answer.getByTestId("answer-unbacked-claim")).toHaveCount(0);
   await screenshot(window, "claimed-local-mode-en");
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 700);
   await expect(line).toHaveText(
-    "“所有内容都留在这台电脑上”和哪些内容发送到云服务，都没有更改。只有你能在“设置 › AI”和“设置 › 隐私”里更改",
+    "没有更改：哪些内容离开这台电脑，只有你能在“设置 › AI”和“设置 › 隐私”里更改",
   );
   const [box, width] = await Promise.all([
     line.boundingBox(),
@@ -829,7 +824,7 @@ test("中文：第一次用云端整理时，卡片写明会发送什么，允�
   await expect(card).toContainText("整理 6 个文档，放进文件夹？");
   // The card's Chinese sentences meet with full-width punctuation, never an ASCII space.
   await expect(card).toContainText(
-    "你确认前不会移动任何文档。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。",
+    "你确认前不会移动。允许后，每次整理都会把文档的名称、类型和页数、开头部分的文字及幻灯片标题或工作表名称，连同你的文件夹名称和描述、相符标签的名称和描述以及你的界面语言，发送给 OpenAI。",
   );
   await screenshot(window, "commands-organize-cloud-asks-zh");
   await setWindowSize(app, window, 900, 900);
@@ -930,7 +925,7 @@ test("Reduce the number of tags merges them after one Apply, and one Undo brings
     "Harbours → Harbour",
   ]);
   await expect(card).toContainText(
-    "Each Tag’s Documents get the Tag beside it, and the Tags merged away go to Recently deleted. Undo brings them back.",
+    "Each Tag’s Documents get the Tag beside it; the others go to Recently deleted.",
   );
   await expect(card.getByTestId("approval-allow-once")).toContainText("Apply");
   await screenshot(window, "commands-tags-merge-asks-en");
@@ -965,9 +960,7 @@ test("减少标签数量：确认一次就合并，撤销一次全部恢复", as
   const card = await askAndWait(window, "减少标签的数量");
   await expect(card).toHaveAttribute("data-reason", "merge");
   await expect(card).toContainText("将“港口区”合并到“港口”？");
-  await expect(card).toContainText(
-    "这些文档会打上“港口”标签，其他标签会移到回收站。可以用撤销恢复。",
-  );
+  await expect(card).toContainText("这些文档会打上“港口”标签，其他标签移到回收站。");
   await expect(card.getByTestId("approval-allow-once")).toContainText("应用");
   await screenshot(window, "commands-tags-merge-asks-zh");
   await setWindowSize(app, window, 900, 900);

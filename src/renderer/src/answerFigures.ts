@@ -28,9 +28,8 @@ export function figuresOf(calls: readonly AnswerToolCall[]): AnswerFigures {
 
 /**
  * What the Answer's end says for its figures: "1 figure couldn't be calculated:
- * 6.55. It was written without a calculation IncarnaMind could check.", with a
- * list in the language's pattern for more. A figure the Answer wrote no number
- * before keeps only the count, never the marker's syntax (#2313).
+ * 6.55", with a list in the language's pattern for more. A figure the Answer
+ * wrote no number before keeps only the count, never the marker's syntax (#2313).
  */
 export function uncalculatedWords(
   figures: AnswerFigures,

@@ -605,7 +605,7 @@ test("after unlinking, a Citation of a Document in the folder still says its quo
   const removed = window.getByTestId("viewer-removed");
   await expect(removed).toContainText("Spring tides happen at new moon and at full moon.");
   await expect(removed).toContainText(
-    "This Document’s Linked folder was unlinked. IncarnaMind kept the text your Citation quotes.",
+    "Its Linked folder was unlinked; the text your Citation quotes is kept.",
   );
   await expect(removed).not.toContainText("deleted");
   await screenshot(window, "unlinked-citation");

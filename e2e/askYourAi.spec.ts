@@ -517,7 +517,8 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     };
 
     // One press asks Claude Code, the one the Ask pill asks: its app opens with the line typed, and
-    // the badge and the card say so, offering VS Code and a model behind; no second button to press.
+    // the badge and the card say so, offering VS Code behind; no second button to press, and no
+    // model to set up, since the User's own AI is the way this card checks (#3756).
     await press();
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(
@@ -532,7 +533,8 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
     await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
-    await expect(window.getByTestId("checks-asked-set-up")).toHaveText("Set up a model");
+    await expect(window.getByTestId("checks-asked-set-up")).toHaveCount(0);
+    await expect(window.getByTestId("check-card")).not.toContainText("Set up a model");
     await expect(window.getByTestId("badge-check-mind")).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Asking needs your AI");
     await shot(window, "check-no-model-asked-en");

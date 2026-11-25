@@ -577,7 +577,7 @@ describe("check comments in someone else's file", () => {
       try {
         const refused = core.restoreMindExport(path, off.step);
         await expect(refused).rejects.toThrow(
-          "“Harbour report.docx” can’t be changed: it may be read-only or open in another app.",
+          "Can’t change “Harbour report.docx”: it may be read-only or open elsewhere.",
         );
         await expect(refused).rejects.not.toThrow(out);
       } finally {
@@ -610,7 +610,7 @@ describe("check comments in someone else's file", () => {
       await chmod(path, 0o444);
 
       await expect(core.restoreMindExport(path, on.step)).rejects.toThrow(
-        "“Harbour report.docx” can’t be changed: it may be read-only or open in another app.",
+        "Can’t change “Harbour report.docx”: it may be read-only or open elsewhere.",
       );
       expect(Buffer.compare(await bytes(), commented)).toBe(0);
 
@@ -625,7 +625,7 @@ describe("check comments in someone else's file", () => {
       try {
         const refused = core.rewriteMindExport(mind.id, word, path, true);
         await expect(refused).rejects.toThrow(
-          "“Harbour report.docx” can’t be changed: it may be read-only or open in another app.",
+          "Can’t change “Harbour report.docx”: it may be read-only or open elsewhere.",
         );
         await expect(refused).rejects.not.toThrow(out);
       } finally {
@@ -671,7 +671,7 @@ describe("check comments in someone else's file", () => {
 
     const failed = core.rewriteMindExport(mind.id, word, first.file.path, true);
     await expect(failed).rejects.toThrow(
-      "“Harbour report.docx” is no longer where it was saved: it may have been moved or deleted. Export the note again to make a new file.",
+      "“Harbour report.docx” isn’t where it was saved. Export the note again.",
     );
     await expect(failed).rejects.not.toThrow(out);
     expect((await core.previewMindExport(mind.id, word)).othersComments).toBe(false);

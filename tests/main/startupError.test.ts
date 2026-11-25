@@ -33,8 +33,8 @@ describe("startupDialog", () => {
     );
     expect(dialog.detail).toBe(
       language === "en"
-        ? "Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\ndisk I/O error"
-        : "无法打开你的数据文件夹。请关闭此提示，然后重新打开 IncarnaMind。\n\ndisk I/O error",
+        ? "Your data folder couldn’t be opened. Open IncarnaMind again.\n\ndisk I/O error"
+        : "无法打开你的数据文件夹。请重新打开 IncarnaMind。\n\ndisk I/O error",
     );
     expect(dialog.buttons).toEqual([]);
   });
@@ -42,7 +42,7 @@ describe("startupDialog", () => {
   const sqliteError = (errcode: number, message: string) =>
     Object.assign(new Error(message), { code: "ERR_SQLITE_ERROR", errcode });
   const native = (message: string) =>
-    `Your data folder couldn’t be opened. Close this message, then open IncarnaMind again.\n\n${message}`;
+    `Your data folder couldn’t be opened. Open IncarnaMind again.\n\n${message}`;
   const onPlatform = (value: NodeJS.Platform, run: () => void) => {
     const platform = Object.getOwnPropertyDescriptor(process, "platform");
     if (!platform) throw new Error("The test could not read the native platform.");
@@ -61,10 +61,10 @@ describe("startupDialog", () => {
   ])("says another program holds the data, and that it is safe, for %s", (_name, error) => {
     onPlatform("win32", () => {
       expect(startupDialog(error, "en").detail).toBe(
-        "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
+        "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
       );
       expect(startupDialog(error, "zh-CN").detail).toBe(
-        "另一个程序仍在使用 IncarnaMind 的数据。数据不会丢失，请稍候，再重新打开 IncarnaMind。",
+        "另一个程序正在使用 IncarnaMind 的数据。数据不会丢失，请稍后重新打开。",
       );
     });
   });
@@ -80,29 +80,26 @@ describe("startupDialog", () => {
         native("disk I/O error"),
       );
       expect(startupDialog(sqliteError(5, "database is locked"), "en").detail).toBe(
-        "Another program is still using IncarnaMind’s data. Nothing is lost. Wait a moment, then open IncarnaMind again.",
+        "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
       );
     });
   });
 
   it("says in plain words that another copy may still be starting, in both languages", () => {
     expect(startupProblem("en", "busy").detail).toBe(
-      "IncarnaMind couldn’t open its data folder. Another copy may still be starting. Try again in a moment.",
+      "Another copy may still be starting. Try again in a moment.",
     );
-    expect(startupProblem("zh-CN", "busy").detail).toBe(
-      "IncarnaMind 无法打开数据文件夹。可能另一个副本仍在启动，请稍后再试。",
-    );
+    expect(startupProblem("zh-CN", "busy").detail).toBe("可能另一个副本仍在启动，请稍后再试。");
   });
 
   it("says in plain words that another copy was quitting and the data is safe, in both languages", () => {
     expect(startupProblem("en", "stalled")).toEqual({
       title: "IncarnaMind couldn’t start",
-      detail:
-        "IncarnaMind couldn’t open its window while another copy was quitting. Your data is unchanged. Open IncarnaMind again.",
+      detail: "Another copy was quitting. Open IncarnaMind again; your data is unchanged.",
     });
     expect(startupProblem("zh-CN", "stalled")).toEqual({
       title: "IncarnaMind 无法启动",
-      detail: "另一个副本正在退出，IncarnaMind 无法打开窗口。数据未改动，请重新打开 IncarnaMind。",
+      detail: "另一个副本正在退出。请重新打开 IncarnaMind，数据未改动。",
     });
   });
 });
@@ -112,7 +109,7 @@ describe("an update that has not produced the expected version", () => {
     const dialog = updateStartupDialog("en", "1.9.0", "1.10.0");
     expect(dialog.title).toBe("IncarnaMind needs the latest version");
     expect(dialog.detail).toBe(
-      "The update to 1.10.0 may not have finished. This copy is 1.9.0, so it won’t open your data folder. Download and install the latest version, then open IncarnaMind again.",
+      "The update to 1.10.0 may not have finished, so this copy (1.9.0) won’t open your data.",
     );
     expect(dialog.buttons).toEqual(["Download the latest version", "Quit"]);
   });
@@ -120,9 +117,7 @@ describe("an update that has not produced the expected version", () => {
   it("gives the same next step in Chinese", () => {
     const dialog = updateStartupDialog("zh-CN", "1.9.0", "1.10.0");
     expect(dialog.title).toBe("需要安装最新版本");
-    expect(dialog.detail).toBe(
-      "更新到 1.10.0 可能没有完成。当前版本是 1.9.0，所以不会打开你的数据文件夹。下载并安装最新版本后，再打开 IncarnaMind。",
-    );
+    expect(dialog.detail).toBe("更新到 1.10.0 可能没有完成，当前版本（1.9.0）不会打开你的数据。");
     expect(dialog.buttons).toEqual(["下载最新版本", "退出"]);
   });
 

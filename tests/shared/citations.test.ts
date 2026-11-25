@@ -824,12 +824,11 @@ describe("A Citation whose Document changed after it was cited", () => {
   test("a saved web page says on what day it was fetched again, and that the copy cited is kept", () => {
     expect(changedSourceNote(true, found, "failed", in_("en"), "21 October 2026")).toEqual({
       notice:
-        "This page was fetched again on 21 October 2026, after you cited it. What’s shown is the new copy; the one you cited is kept.",
+        "Fetched again on 21 October 2026, after you cited it: this is the new copy; the cited one is kept.",
       quote: null,
     });
     expect(changedSourceNote(true, found, "failed", in_("zh-CN"), "2026年10月21日")).toEqual({
-      notice:
-        "此网页在你引用后于 2026年10月21日 重新抓取。这里显示的是新版本，你引用的版本仍保留。",
+      notice: "你引用后于 2026年10月21日 重新抓取：这里是新版本，引用的版本仍保留。",
       quote: null,
     });
     // The words about how the quote stands in the new version are the same as for a file.

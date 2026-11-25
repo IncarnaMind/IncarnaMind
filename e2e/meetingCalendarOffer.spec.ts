@@ -288,7 +288,7 @@ test("Take notes from a calendar notification keeps recording if the browser can
 
     await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
     await expect(window.getByTestId("error-notice-message")).toContainText(
-      "Recording has started, but the meeting link couldn’t be opened. You can open it from your calendar.",
+      "Recording, but the meeting link didn’t open: open it from your calendar.",
     );
     expect(await meetings(window)).toMatchObject([{ status: "recording" }]);
   } finally {

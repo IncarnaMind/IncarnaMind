@@ -43,8 +43,7 @@ const CASES = {
     join: ", and ",
     stop: ".",
     quote: LINE,
-    reason:
-      "What the sentence says is missing wasn’t checked: that needs its Documents read whole. The rest of it is supported.",
+    reason: "Supported, except what it says is missing, which wasn’t checked.",
   },
   "zh-CN": {
     fact: "大潮每月出现两次",
@@ -52,7 +51,7 @@ const CASES = {
     join: "，",
     stop: "。",
     quote: LINE_ZH,
-    reason: "句中说没有的内容未核对：这需要通读文档。其余部分有依据。",
+    reason: "有依据；句中说没有的内容未核对。",
   },
 } as const;
 

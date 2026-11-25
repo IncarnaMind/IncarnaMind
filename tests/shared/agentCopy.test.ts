@@ -50,7 +50,7 @@ describe("the agent strings in a sentence", () => {
     expect(say("你的智能体", "agents.connect.title")).toBe("允许你的智能体读取你的文档？");
     expect(say("Cursor", "agents.connect.title")).toBe("允许 Cursor 读取你的文档？");
     expect(say("ChatGPT 应用或 Codex", "agents.done.wrote.codex")).toBe(
-      "在 ChatGPT 应用或 Codex 中开始新对话。Codex 询问是否把文件交给 IncarnaMind 时，选“Allow for this session”（允许本次会话），这次对话里再交付文件就不用逐次确认。",
+      "在 ChatGPT 应用或 Codex 中开始新对话；它询问是否交付文件时，选“Allow for this session”。",
     );
     expect(say("你的智能体", "agents.pairing.skill")).toBe(
       "已安装技能：你的智能体知道何时使用 IncarnaMind",
@@ -65,7 +65,7 @@ describe("the agent strings in a sentence", () => {
       "Let your agent read your Documents?",
     );
     expect(translate("en", "agents.done.wrote.codex", { agent: "the ChatGPT app or Codex" })).toBe(
-      "Start a new chat in the ChatGPT app or Codex. When Codex asks to hand a file to IncarnaMind, “Allow for this session” lets it hand over more files in the same chat.",
+      "Start a new chat in the ChatGPT app or Codex; when it asks to hand over a file, choose “Allow for this session”.",
     );
   });
 });

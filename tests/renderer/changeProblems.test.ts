@@ -114,10 +114,10 @@ describe("The line under an Answer that wrote uncited text into a Mind (#1415)",
     ).toEqual([]);
     expect(uncitedWritesOf({ toolCalls: [wrote({ mindId: "b", cited: 2 })] })).toEqual([]);
     expect(en("answer.uncitedWrite", { mind: "Summary" })).toBe(
-      "What was written in “Summary” has no Citations, so none of it was checked against your Documents",
+      "What was written in “Summary” has no Citations, so it wasn’t checked",
     );
     expect(zh("answer.uncitedWrite", { mind: "主要文档总结" })).toBe(
-      "“主要文档总结”中写入的内容没有引用，未与文档核对",
+      "“主要文档总结”中写入的内容没有引用，未核对",
     );
   });
 });
@@ -246,10 +246,10 @@ describe("Why a call changed nothing, on its row", () => {
   test("text marked to remove that isn't there says nothing changed", () => {
     const problem: MindProblem = { kind: "unplaced", mindId: "a" };
     expect(problemText(en, problem, "Q3 review")).toBe(
-      "The text marked to remove doesn’t match “Q3 review” word for word in one place, so nothing changed",
+      "Nothing changed: the text marked to remove isn’t in exactly one place in “Q3 review”, word for word",
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
-      "标出要删除的文字在“Q3 review”里找不到唯一一处原文，因此没有改动",
+      "没有改动：标出要删除的文字在“Q3 review”里找不到唯一一处原文",
     );
   });
 
@@ -257,10 +257,10 @@ describe("Why a call changed nothing, on its row", () => {
   test("a rewrite that names a paragraph wrongly says nothing changed", () => {
     const problem: MindProblem = { kind: "misnamed", mindId: "a" };
     expect(problemText(en, problem, "Q3 review")).toBe(
-      "The rewrite didn’t say clearly which paragraph of “Q3 review” each change replaces, so nothing changed",
+      "Nothing changed: the rewrite didn’t say which paragraph of “Q3 review” each change replaces",
     );
     expect(problemText(zh, problem, "Q3 review")).toBe(
-      "改写没有说清每处修改替换“Q3 review”里的哪一段，因此没有改动",
+      "没有改动：改写没有说清每处修改替换“Q3 review”里的哪一段",
     );
   });
 

@@ -516,7 +516,7 @@ test("a saved room meeting with silent computer audio offers local review and pl
 
     await expect(start).toBeEnabled();
     await panel.getByRole("button", { name: "Download and check speakers" }).click();
-    await expect(panel).toContainText("could not reliably distinguish the speakers");
+    await expect(panel).toContainText("couldn’t tell these speakers apart reliably");
     expect(await readFile(savedPath)).toEqual(original);
   } finally {
     await app.close();
