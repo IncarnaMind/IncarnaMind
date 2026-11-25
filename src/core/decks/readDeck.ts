@@ -29,9 +29,13 @@ export interface DeckChartSeriesSummary {
   name: string | null;
   categories: string[];
   formatCode: string | null;
+  /** Workbook cell-range binding, kept for stale-target checks (#149). */
+  formula?: string | null;
   /** Indexed by `c:pt/@idx` (length `ptCount`, null for blank/missing points). */
   values: (number | null)[];
 }
+
+const MAX_SUMMARY_POINTS = 2_000;
 
 export interface DeckShapeSummary {
   shapeId: string;
@@ -175,7 +179,8 @@ export async function readDeckStructure(
   options?: { slides?: readonly number[] },
 ): Promise<{ structure: ReadDeckResult; drawing: DeckDrawing | null }> {
   const version = hashBytes(bytes);
-  const refusal = await protectionOf(openPackage(bytes));
+  const pkg = openPackage(bytes);
+  const refusal = !pkg.rewritable ? "unrewritable" : await protectionOf(pkg);
   const deck = Deck.open(bytes);
   const deckSlides = await deck.slides();
   const extracted = await extractPptx(bytes);
@@ -252,19 +257,29 @@ export async function readDeckStructure(
           const title = chartPart ? await chartTitleOf(deck, chartPart) : null;
           const series = chartPart
             ? (await chartSeries(deck, chartPart)).map((each) => {
-                let maxIdx = each.count - 1;
+                let maxIdx = Math.min(each.count, MAX_SUMMARY_POINTS) - 1;
                 for (const pt of each.points) {
-                  if (Number.isInteger(pt.idx) && pt.idx > maxIdx) maxIdx = pt.idx;
+                  if (
+                    Number.isInteger(pt.idx) &&
+                    pt.idx >= 0 &&
+                    pt.idx < MAX_SUMMARY_POINTS &&
+                    pt.idx > maxIdx
+                  ) {
+                    maxIdx = pt.idx;
+                  }
                 }
                 const values = maxIdx >= 0 ? Array<number | null>(maxIdx + 1).fill(null) : [];
                 for (const pt of each.points) {
-                  if (Number.isInteger(pt.idx) && pt.idx >= 0) values[pt.idx] = pt.value;
+                  if (Number.isInteger(pt.idx) && pt.idx >= 0 && pt.idx <= maxIdx) {
+                    values[pt.idx] = pt.value;
+                  }
                 }
                 return {
                   index: each.index,
                   name: each.name,
                   categories: each.categories,
                   formatCode: each.formatCode,
+                  formula: each.formula,
                   values,
                 };
               })

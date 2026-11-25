@@ -33,20 +33,57 @@ export function formatCellCitationNote(citations: readonly DeckCitationRecord[])
     .join("\n");
 }
 
-/** Parses Citations stored in a shape's `INCARNAMIND_CITES` tag; returns [] if absent or invalid. */
+/** Ids-only Citation stored on a shape's `INCARNAMIND_CITES` tag so no Document name or quote enters the `.pptx`. */
+interface StoredShapeCitation {
+  documentId: string;
+  passageId?: string;
+  row?: number;
+  column?: number;
+}
+
+function toStoredShapeCitation(cite: DeckCitationRecord): StoredShapeCitation[] {
+  if (!cite.documentId) return [];
+  return [
+    {
+      documentId: cite.documentId,
+      ...(cite.passageId ? { passageId: cite.passageId } : {}),
+      ...(cite.row !== undefined ? { row: cite.row } : {}),
+      ...(cite.column !== undefined ? { column: cite.column } : {}),
+    },
+  ];
+}
+
+/** Parses Citations stored in a shape's `INCARNAMIND_CITES` tag (ids-only or legacy); returns [] if absent or invalid. */
 export function parseShapeCitations(tags: Readonly<Record<string, string>>): DeckCitationRecord[] {
   const raw = tags[CITATION_TAG_NAME];
   if (!raw) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is DeckCitationRecord =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof (item as Record<string, unknown>).document === "string" &&
-        typeof (item as Record<string, unknown>).quote === "string",
-    );
+    const out: DeckCitationRecord[] = [];
+    for (const item of parsed) {
+      if (typeof item !== "object" || item === null) continue;
+      const rec = item as Record<string, unknown>;
+      const documentId = typeof rec.documentId === "string" ? rec.documentId : undefined;
+      const passageId = typeof rec.passageId === "string" ? rec.passageId : undefined;
+      const document = typeof rec.document === "string" ? rec.document : "";
+      const quote = typeof rec.quote === "string" ? rec.quote : "";
+      if (!documentId && (document === "" || quote === "")) continue;
+      const location = typeof rec.location === "string" ? rec.location : null;
+      const row = typeof rec.row === "number" && Number.isInteger(rec.row) ? rec.row : undefined;
+      const column =
+        typeof rec.column === "number" && Number.isInteger(rec.column) ? rec.column : undefined;
+      out.push({
+        document,
+        location,
+        quote,
+        ...(documentId ? { documentId } : {}),
+        ...(passageId ? { passageId } : {}),
+        ...(row !== undefined ? { row } : {}),
+        ...(column !== undefined ? { column } : {}),
+      });
+    }
+    return out;
   } catch {
     return [];
   }
@@ -351,7 +388,7 @@ export async function applyDeckChanges(
         editedParagraphsFor(existing, change.paragraphs),
         change.fit,
       );
-      const nextCitations = change.citations ?? [];
+      const nextCitations = (change.citations ?? []).flatMap(toStoredShapeCitation);
       const currentTags = await readShapeTags(deck, slide.part, change.shape);
       const hadCitations = parseShapeCitations(currentTags).length > 0;
       if (nextCitations.length > 0 || hadCitations) {
@@ -386,7 +423,7 @@ export async function applyDeckChanges(
         row: change.row,
         column: change.column,
       }));
-      const merged = [...otherCells, ...stamped];
+      const merged = [...otherCells, ...stamped].flatMap(toStoredShapeCitation);
       if (merged.length > 0 || existingCitations.length > 0) {
         await setShapeTags(deck, slide.part, change.shape, {
           [CITATION_TAG_NAME]: JSON.stringify(merged),

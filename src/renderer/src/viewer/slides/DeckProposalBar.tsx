@@ -4,29 +4,24 @@
  * target places, offers honest overflow actions (Grow / Shrink / Keep as is / Ask AI to shorten),
  * and confirms in one press with Undo and one-step Put back.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import type {
   DeckProposal,
   DeckProposalAccepted,
   DeckProposalFitChoice,
-  DeckProposalItem,
   Document,
 } from "../../../../core/api";
 import { useViewerHandle } from "../../commands/handles";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
-import { useT } from "../../i18n";
+import { languageNow, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { pageUndoPlace, UndoRefused, useUndo } from "../../undo";
 import { refreshKept } from "./deckEditing";
+import { type DeckReceipt, formatDeckPlace, formatDeckReceipt } from "./deckProposalFormat";
 
-export interface DeckReceipt {
-  undoId: string;
-  unchanged: number;
-  changed: number;
-  total: number;
-}
+export { type DeckReceipt, formatDeckPlace, formatDeckReceipt };
 
 /** Keeps the unchanged-slides receipt while the deck's tab stays open (#149 part 2). */
 const useDeckReceipts = create<{ byDocument: Readonly<Record<string, DeckReceipt>> }>(() => ({
@@ -57,43 +52,6 @@ function isDocumentOpenInLayout(documentId: string): boolean {
   );
 }
 
-type Translate = ReturnType<typeof useT>;
-
-/** Plain, human-readable label for a proposed change's place on a slide (never raw "Text 0"). */
-export function formatDeckPlace(item: DeckProposalItem, t: Translate): string {
-  const base = t(`viewer.deck.place.${item.placeKind}`);
-  if (item.change.kind === "notes") return base;
-  if (item.change.kind === "chartSeries") {
-    const series = item.seriesName
-      ? t("viewer.deck.proposal.series", { name: item.seriesName })
-      : null;
-    const head = item.shapeLabel || base;
-    return series ? `${head} · ${series}` : head;
-  }
-  if (item.change.kind === "cell" && item.cell) {
-    const where = t("viewer.deck.proposal.cell", {
-      row: item.cell.row + 1,
-      col: item.cell.column + 1,
-    });
-    return `${base} · ${where}`;
-  }
-  if (item.placeKind === "title" || item.placeKind === "subtitle" || item.placeKind === "footer") {
-    return base;
-  }
-  return item.shapeLabel ? `${base} “${item.shapeLabel}”` : base;
-}
-
-export function formatDeckReceipt(receipt: DeckReceipt, t: Translate): string {
-  return receipt.unchanged === 0
-    ? t("viewer.deck.proposal.receipt.all", { changed: receipt.changed })
-    : receipt.unchanged === 1
-      ? t("viewer.deck.proposal.receipt.one", { changed: receipt.changed })
-      : t("viewer.deck.proposal.receipt", {
-          unchanged: receipt.unchanged,
-          changed: receipt.changed,
-        });
-}
-
 export interface DeckProposalsState {
   proposals: DeckProposal[];
   activeProposal: DeckProposal | null;
@@ -113,10 +71,13 @@ export interface DeckProposalsState {
 
 export function useDeckProposals({
   document,
+  revision,
   onAccepted,
   onUndone,
 }: {
   document: Document;
+  /** Changes when a hand edit lands locally so the live preview re-fetches over the latest bytes. */
+  revision?: Uint8Array | null;
   onAccepted(accepted: DeckProposalAccepted): void;
   onUndone(bytes: Uint8Array | null): void;
 }): DeckProposalsState {
@@ -125,7 +86,10 @@ export function useDeckProposals({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<"after" | "before">("after");
-  const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null);
+  const [previewState, setPreviewState] = useState<{
+    proposalId: string;
+    bytes: Uint8Array;
+  } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const receipt = useDeckReceipts((state) => state.byDocument[document.id] ?? null);
 
@@ -161,29 +125,39 @@ export function useDeckProposals({
 
   const activeProposal = proposals[0] ?? null;
   const activeProposalId = activeProposal?.id ?? null;
+  const lastPreviewedId = useRef<string | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-fetch live preview whenever the deck changes on disk or by hand
   useEffect(() => {
-    if (!activeProposalId) {
-      setPreviewBytes(null);
+    if (lastPreviewedId.current !== activeProposalId) {
+      lastPreviewedId.current = activeProposalId;
+      setPreviewMode("after");
       setDetailsOpen(false);
+      setPreviewState(null);
+    }
+    if (!activeProposalId) {
+      setPreviewState(null);
       return;
     }
-    setPreviewMode("after");
-    setDetailsOpen(false);
     let live = true;
     void core
       .deckProposalPreview(activeProposalId, { fit: "default" })
       .then((bytes) => {
-        if (live) setPreviewBytes(bytes);
+        if (live) setPreviewState({ proposalId: activeProposalId, bytes });
       })
       .catch((err: unknown) => {
         console.error("Couldn't preview deck proposal.", err);
-        if (live) setPreviewBytes(null);
+        if (live) setPreviewState(null);
       });
     return () => {
       live = false;
     };
-  }, [activeProposalId]);
+  }, [activeProposalId, document.contentHash, revision]);
+
+  const previewBytes =
+    activeProposalId !== null && previewState?.proposalId === activeProposalId
+      ? previewState.bytes
+      : null;
 
   const performUndo = useCallback(
     async (undoId: string, currentDocId: string) => {
@@ -211,10 +185,13 @@ export function useDeckProposals({
           unchanged: accepted.unchangedSlides,
           changed: accepted.changedSlides,
           total: accepted.totalSlides,
+          ...(accepted.saved.kind === "file" && accepted.saved.letGo.length > 0
+            ? { letGo: accepted.saved.letGo }
+            : {}),
         };
         setDeckReceipt(accepted.documentId, nextReceipt);
         useUndo.getState().push({
-          said: (translate) => formatDeckReceipt(nextReceipt, translate),
+          said: (translate) => formatDeckReceipt(nextReceipt, translate, languageNow()),
           shownAt: pageUndoPlace,
           undo: async () => {
             try {

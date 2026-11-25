@@ -6574,6 +6574,46 @@ export function createCore(adapters: CoreAdapters): Core {
     }),
     ...adapters.deckFiles,
   };
+  const appDeckWrites = new Map<string, Map<string, Set<string>>>();
+  const recordAppDeckWrite = (documentId: string, fromHash: string, toHash: string) => {
+    if (fromHash === toHash) return;
+    let edges = appDeckWrites.get(documentId);
+    if (!edges) {
+      edges = new Map();
+      appDeckWrites.set(documentId, edges);
+    }
+    let next = edges.get(fromHash);
+    if (!next) {
+      next = new Set();
+      edges.set(fromHash, next);
+    }
+    next.add(toHash);
+    if (edges.size > 64) {
+      const oldest = edges.keys().next().value;
+      if (oldest !== undefined) edges.delete(oldest);
+    }
+  };
+  const isAppOwnDeckChange = (documentId: string, fromHash: string, toHash: string): boolean => {
+    if (fromHash === toHash) return true;
+    const edges = appDeckWrites.get(documentId);
+    if (!edges) return false;
+    const seen = new Set<string>([fromHash]);
+    const queue = [fromHash];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current === undefined) break;
+      const targets = edges.get(current);
+      if (!targets) continue;
+      if (targets.has(toHash)) return true;
+      for (const next of targets) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return false;
+  };
   const deckPlaces: DeckPlaceDeps = {
     dataDir,
     document: (documentId) => documents.get(documentId),
@@ -6592,6 +6632,7 @@ export function createCore(adapters: CoreAdapters): Core {
     handed: handedFiles,
     kept: keptDecks,
     inHandOverTurn: (run) => handOver.inTurn(run),
+    onWritten: recordAppDeckWrite,
     files: deckFiles,
     platform,
     now,
@@ -6658,9 +6699,11 @@ export function createCore(adapters: CoreAdapters): Core {
     });
   };
   // Proposal Undo snapshots don't survive restart; clear any leftover directory from an earlier run.
-  rm(deckUndoDir, { recursive: true, force: true }).catch((error: unknown) => {
-    logDeckUndoError("deck.proposalUndo.clearFailed", error);
-  });
+  const deckUndoCleared = rm(deckUndoDir, { recursive: true, force: true }).catch(
+    (error: unknown) => {
+      logDeckUndoError("deck.proposalUndo.clearFailed", error);
+    },
+  );
   const deckUndoPath = (undoId: string): string => {
     if (!/^[0-9a-f-]+$/i.test(undoId)) {
       throw new InvalidInputError({ key: "error.deck.proposalUndoMissing" });
@@ -6689,6 +6732,8 @@ export function createCore(adapters: CoreAdapters): Core {
   const deckProposals = createDeckProposals({
     read: (documentId) => readDeck(documentId),
     inDocumentTurn: (documentId, run) => deckSittings.inDocumentTurn(documentId, run),
+    isAppOwnChange: isAppOwnDeckChange,
+    hasWaitingEdit: (documentId) => deckSittings.hasWaiting(documentId),
     writeDeck: (documentId, baseBytes, nextBytes, { keepOriginal }) =>
       writeDeckTarget(
         keepOriginal
@@ -6701,13 +6746,15 @@ export function createCore(adapters: CoreAdapters): Core {
       ),
     undoStore: {
       put: async (undoId, bytes) => {
+        await deckUndoCleared;
         mkdirSync(deckUndoDir, { recursive: true });
         await writeFile(deckUndoPath(undoId), bytes);
       },
       get: async (undoId) => {
         try {
           return new Uint8Array(await readFile(deckUndoPath(undoId)));
-        } catch {
+        } catch (error: unknown) {
+          logDeckUndoError("deck.proposalUndo.readFailed", error);
           return null;
         }
       },
@@ -7073,7 +7120,14 @@ export function createCore(adapters: CoreAdapters): Core {
             currentFolderIds: folder ? [folder] : [],
             handed: handed ? { pairingId: handed.pairingId } : null,
           };
-        } catch {
+        } catch (error: unknown) {
+          if (!(error instanceof NotFoundError)) {
+            deckUndoLog.error("deck.agentLookup.failed", {
+              documentId: docId,
+              error: error instanceof Error ? error.name : "unknown",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
           return null;
         }
       },

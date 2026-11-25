@@ -8,10 +8,11 @@
  *   atomically after keeping the original on disk (surviving restart), and refusing cleanly when locked or changed.
  */
 import { createHash } from "node:crypto";
-import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createNodeDeckFiles } from "../../src/core/decks/places";
+import { createDeckProposals } from "../../src/core/decks/proposals";
 import { readDeckStructure } from "../../src/core/decks/readDeck";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { chartAgreement, chartSeries } from "../../src/core/exports/pptxPatch/charts";
@@ -21,7 +22,7 @@ import { Workbook } from "../../src/core/exports/pptxPatch/workbook";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { addAndProcess } from "../helpers/documents";
 import { handOver, started, structured } from "../helpers/handedFiles";
-import { para, pptxOf, rel, sp, txBody } from "../helpers/pptx";
+import { para, pptxOf, rel, sp, txBody, xfrm } from "../helpers/pptx";
 import { buildZip } from "../helpers/zip";
 
 const HEAD = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`;
@@ -64,6 +65,7 @@ function multiSlideDeck(options?: {
           shapes: sp({
             id: 2,
             name: "Slide 2 Body",
+            spPr: xfrm(457_200, 914_400, 6_000_000, 914_400),
             body: txBody(para("Untouched slide two.")),
           }),
         },
@@ -498,11 +500,14 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(slide1Xml).toContain("normAutofit");
     expect(slide1Xml).toContain("fontScale=");
 
-    // Citation tag read back by tag name, even after renaming tag part and rId.
+    // Citation tag stores ids only (no Document name or quote enters the .pptx) and survives tag part/rId renames.
     const pkg = openPackage(shrunkBytes);
     const tagPart = pkg.names().find((n) => n.startsWith("ppt/tags/"));
     expect(tagPart).toBeDefined();
-    expect(await pkg.readText(tagPart as string)).toContain(CITATION_TAG_NAME);
+    const rawTagXml = (await pkg.readText(tagPart as string)) ?? "";
+    expect(rawTagXml).toContain(CITATION_TAG_NAME);
+    expect(rawTagXml).not.toContain("Harbour survey");
+    expect(rawTagXml).not.toContain("south quay holds 19 boats");
     const renamedDeckEntries: Array<{ name: string; data: Buffer }> = [];
     for (const name of pkg.names()) {
       const data = Buffer.from((await pkg.read(name)) as Uint8Array);
@@ -526,7 +531,22 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     const renamedStructure = (await readDeckStructure(new Uint8Array(buildZip(renamedDeckEntries))))
       .structure;
     const citedShape = renamedStructure.slides[0]?.shapes.find((s) => s.shapeId === "3");
-    expect(citedShape?.citations?.[0]?.quote).toContain("south quay holds 19 boats");
+    expect(citedShape?.citations?.[0]?.documentId).toBeTruthy();
+    expect(citedShape?.citations?.[0]?.passageId).toBe(searched.passages[0]?.passageId);
+    // Agent read_deck hydrates Document name and passage text from the index when in reach.
+    const rereadAfterShrink = structured<{
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          citations?: Array<{ document: string; quote: string }>;
+        }>;
+      }>;
+    }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: shrinkRead.documentId } }),
+    );
+    const hydratedShape = rereadAfterShrink.slides[0]?.shapes.find((s) => s.shapeId === "3");
+    expect(hydratedShape?.citations?.[0]?.document).toContain("Harbour survey");
+    expect(hydratedShape?.citations?.[0]?.quote).toContain("south quay holds 19 boats");
 
     // 2. Grow-to-fit on a spAutoFit box expands box height.
     const growPath = join(files, "OverflowGrow.pptx");
@@ -1252,5 +1272,547 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(sha256(new Uint8Array(await readFile(racePath)))).toBe(sha256(externalBytes));
     expect((await readdir(raceStarted.files)).filter((n) => n !== "RaceDeck.pptx")).toEqual([]);
     await raceAgent.close();
+  });
+
+  // protects=duplicate-name zip decks (unrewritable) and signed/final/password/read-only decks are refused on the AI path with nothing written (#149); fails_when=unrewritable or protected decks appear editable or succeed on propose/confirm
+  it("refuses unrewritable duplicate-name zips, signed/final/password decks, and read-only files on the AI path", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+
+    // 1. Duplicate-name zip entry makes pkg.rewritable === false.
+    const basePkg = openPackage(multiSlideDeck());
+    const dupEntries: Array<{ name: string; data: Buffer }> = [];
+    for (const name of basePkg.names()) {
+      const data = Buffer.from((await basePkg.read(name)) as Uint8Array);
+      dupEntries.push({ name, data });
+      if (name === "ppt/slides/slide1.xml") dupEntries.push({ name, data });
+    }
+    const dupBytes = new Uint8Array(buildZip(dupEntries));
+    expect(openPackage(dupBytes).rewritable).toBe(false);
+    const dupPath = join(files, "DuplicateEntries.pptx");
+    await writeFile(dupPath, dupBytes);
+    const [dupDoc] = await addAndProcess(core, [dupPath]);
+    if (!dupDoc) throw new Error("Duplicate-entry deck not added.");
+    await core.assignDocumentGroup(dupDoc.id, coast.id);
+
+    const dupRead = structured<{ editable: boolean; refusal: string | null; version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: dupDoc.id } }),
+    );
+    expect(dupRead.editable).toBe(false);
+    expect(dupRead.refusal).toBe("unrewritable");
+    const dupProp = await agent.callTool({
+      name: "propose_deck_changes",
+      arguments: {
+        documentId: dupDoc.id,
+        version: dupRead.version,
+        changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Blocked"] }],
+      },
+    });
+    expect(dupProp.isError).toBe(true);
+
+    // 2. Signed, marked-as-final, and password-to-modify decks are refused on read_deck + propose.
+    const protectedCases: Array<{
+      file: string;
+      expected: "signed" | "final" | "protected";
+      mutate(entries: Array<{ name: string; data: Buffer }>): void;
+    }> = [
+      {
+        file: "Signed.pptx",
+        expected: "signed",
+        mutate(entries) {
+          entries.push({ name: "_xmlsignatures/sig1.xml", data: Buffer.from("<Signature/>") });
+        },
+      },
+      {
+        file: "Final.pptx",
+        expected: "final",
+        mutate(entries) {
+          entries.push({
+            name: "docProps/custom.xml",
+            data: Buffer.from(
+              `${HEAD}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="_MarkAsFinal"><vt:bool>true</vt:bool></property></Properties>`,
+            ),
+          });
+        },
+      },
+      {
+        file: "Password.pptx",
+        expected: "protected",
+        mutate(entries) {
+          for (const entry of entries) {
+            if (entry.name === "ppt/presentation.xml") {
+              entry.data = Buffer.from(
+                entry.data
+                  .toString("utf8")
+                  .replace(
+                    "</p:presentation>",
+                    '<p:modifyVerifier saltData="abc"/></p:presentation>',
+                  ),
+              );
+            }
+          }
+        },
+      },
+    ];
+    for (const tc of protectedCases) {
+      const entries: Array<{ name: string; data: Buffer }> = [];
+      for (const name of basePkg.names()) {
+        entries.push({ name, data: Buffer.from((await basePkg.read(name)) as Uint8Array) });
+      }
+      tc.mutate(entries);
+      const path = join(files, tc.file);
+      await writeFile(path, new Uint8Array(buildZip(entries)));
+      const [doc] = await addAndProcess(core, [path]);
+      if (!doc) throw new Error(`${tc.file} not added.`);
+      await core.assignDocumentGroup(doc.id, coast.id);
+
+      const readRes = structured<{ editable: boolean; refusal: string | null; version: string }>(
+        await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+      );
+      expect(readRes.editable).toBe(false);
+      expect(readRes.refusal).toBe(tc.expected);
+      const propRes = await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: readRes.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Blocked"] }],
+        },
+      });
+      expect(propRes.isError).toBe(true);
+    }
+
+    // 3. Read-only file on disk refuses Confirm with error.deck.unwritable.read-only and writes nothing.
+    const roPath = join(files, "ReadOnly.pptx");
+    const roInitial = multiSlideDeck();
+    await writeFile(roPath, roInitial);
+    const [roDoc] = await addAndProcess(core, [roPath]);
+    if (!roDoc) throw new Error("ReadOnly deck not added.");
+    await core.assignDocumentGroup(roDoc.id, coast.id);
+
+    const roRead = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: roDoc.id } }),
+    );
+    const roProp = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: roDoc.id,
+          version: roRead.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Read only"] }],
+        },
+      }),
+    );
+    await chmod(roPath, 0o444);
+    try {
+      await expect(core.acceptDeckProposal(roProp.proposalId)).rejects.toMatchObject({
+        wording: { key: "error.deck.unwritable.read-only", values: { name: "ReadOnly.pptx" } },
+      });
+      expect(sha256(new Uint8Array(await readFile(roPath)))).toBe(sha256(roInitial));
+    } finally {
+      await chmod(roPath, 0o644);
+    }
+    await agent.close();
+  });
+
+  // protects=external edits on another slide refuse Confirm so outside bytes are never silently overwritten, while app-own hand edits on another slide still confirm cleanly (#149 Condition 3); fails_when=external edit on an untouched slide is clobbered or app-own hand edit on another slide is refused
+  it("refuses Confirm after an external edit on another slide, but allows Confirm after an app-own hand edit on another slide", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "ExternalOtherSlide.pptx");
+    const initial = multiSlideDeck();
+    await writeFile(deckPath, initial);
+    const [doc] = await addAndProcess(core, [deckPath]);
+    if (!doc) throw new Error("Deck not added.");
+    await core.assignDocumentGroup(doc.id, coast.id);
+
+    const read1 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const prop = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: read1.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["AI edit on slide 1"] }],
+        },
+      }),
+    );
+
+    // Simulate PowerPoint editing Slide 2 directly on disk (Slide 1 shape 3 fingerprint still matches!).
+    const basePkg = openPackage(initial);
+    const extEntries: Array<{ name: string; data: Buffer }> = [];
+    for (const name of basePkg.names()) {
+      const raw = Buffer.from((await basePkg.read(name)) as Uint8Array);
+      if (name === "ppt/slides/slide2.xml") {
+        extEntries.push({
+          name,
+          data: Buffer.from(
+            raw.toString("utf8").replace("Untouched slide two.", "Edited in PowerPoint."),
+          ),
+        });
+      } else {
+        extEntries.push({ name, data: raw });
+      }
+    }
+    const externalBytes = new Uint8Array(buildZip(extEntries));
+    await writeFile(deckPath, externalBytes);
+
+    await expect(core.acceptDeckProposal(prop.proposalId)).rejects.toMatchObject({
+      wording: { key: "error.deck.proposalStale" },
+    });
+    expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(sha256(externalBytes));
+
+    // Re-read after the external save, propose on Slide 1, then make an app-own hand edit on Slide 2 -> Confirm succeeds!
+    const read2 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const prop2 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: read2.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["AI edit after re-read"] }],
+        },
+      }),
+    );
+    const handSlide2 = await core.editDeck({
+      documentId: doc.id,
+      sittingId: null,
+      shown: read2.version,
+      viewer: "test-viewer",
+      edits: [
+        {
+          kind: "text",
+          slide: 2,
+          shape: "2",
+          paragraphs: [
+            {
+              source: 0,
+              runs: [{ source: { paragraph: 0, run: 0 }, text: "App hand edit on slide 2" }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(handSlide2.kind).toBe("saved");
+
+    const accepted = await core.acceptDeckProposal(prop2.proposalId);
+    const afterStruct = (await readDeckStructure(accepted.bytes)).structure;
+    expect(afterStruct.slides[0]?.shapes.find((s) => s.shapeId === "3")?.paragraphs).toEqual([
+      "AI edit after re-read",
+    ]);
+    expect(afterStruct.slides[1]?.shapes.find((s) => s.shapeId === "2")?.paragraphs).toEqual([
+      "App hand edit on slide 2",
+    ]);
+    await agent.close();
+  });
+
+  // protects=a deck inside a Linked folder is written in place on Confirm with original kept and Put back working (#149); fails_when=Linked-folder deck fails to write in place or Put back fails
+  it("writes a Linked-folder deck in place on Confirm and restores it with Put back", async () => {
+    const { core, files } = await started();
+    const linkedDir = join(files, "linked-decks");
+    await mkdir(linkedDir, { recursive: true });
+    const deckPath = join(linkedDir, "Board.pptx");
+    const initial = multiSlideDeck();
+    const initialHash = sha256(initial);
+    await writeFile(deckPath, initial);
+
+    const linked = await core.addLinkedFolder(linkedDir);
+    const linkedFolderId = linked.bound?.folder.id;
+    if (!linkedFolderId) throw new Error("Linked folder has no bound Folder.");
+    await core.reconcileDocuments();
+    const deckDoc = await vi.waitFor(
+      async () => {
+        const read = (await core.listDocuments()).find(
+          (each) => each.kind === "pptx" && each.path === deckPath,
+        );
+        expect(read?.status).toBe("ready");
+        return read;
+      },
+      { timeout: 30_000 },
+    );
+    if (!deckDoc) throw new Error("Linked-folder deck not indexed.");
+
+    const linkedWriter = await core.connectAgent({
+      name: "LinkedWriter",
+      folderIds: [linkedFolderId],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(linkedWriter.launch);
+    const readRes = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: deckDoc.id } }),
+    );
+    const prop = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: deckDoc.id,
+          version: readRes.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Linked deck updated."] }],
+        },
+      }),
+    );
+
+    const accepted = await core.acceptDeckProposal(prop.proposalId);
+    expect(accepted.saved.kind).toBe("file");
+    expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(accepted.contentHash);
+    expect((await readdir(linkedDir)).filter((n) => n.endsWith(".pptx"))).toEqual(["Board.pptx"]);
+
+    const kept = await core.keptDeckStates(deckDoc.id);
+    expect(kept.sitting?.contentHash).toBe(initialHash);
+    if (!kept.sitting) throw new Error("Expected kept state for Linked-folder deck.");
+    await core.restoreKeptDeck({
+      documentId: deckDoc.id,
+      keptId: kept.sitting.id,
+      shown: accepted.contentHash,
+    });
+    expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(initialHash);
+    await agent.close();
+  });
+
+  // protects=table cell edits report exact 1-based row/column without double-incrementing, speaker notes strip [cite:...] tokens, shape tags stay ids-only, and receipt displays letGo when a kept state is dropped (#149); fails_when=cell label is off by 1, raw [cite:...] lands in speaker notes, Document names/quotes leak into .pptx tags, or letGo is omitted
+  it("applies cell and notes changes with 1-based cell labels, stripped notes [cite:...], ids-only cell tags, and letGo receipt formatting", async () => {
+    const tableShape = `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="Metrics Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="457200" y="914400"/><a:ext cx="6000000" cy="1800000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblGrid><a:gridCol w="3000000"/><a:gridCol w="3000000"/></a:tblGrid><a:tr h="900000"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/>${para("Metric")}</a:txBody></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/>${para("17")}</a:txBody></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+    const notesXml = `${HEAD}<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/><p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes Placeholder"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>${para("Original speaker note.")}</p:txBody></p:sp></p:spTree></p:cSld></p:notes>`;
+    const tableDeck = new Uint8Array(
+      pptxOf({
+        slides: [
+          {
+            shapes: tableShape,
+            rels: rel("rNotes", "notesSlide", "../notesSlides/notesSlide1.xml"),
+          },
+        ],
+        parts: [ROOT_RELS, { name: "ppt/notesSlides/notesSlide1.xml", data: notesXml }],
+      }),
+    );
+
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "TableAndNotes.pptx");
+    await writeFile(deckPath, tableDeck);
+    const [doc] = await addAndProcess(core, [deckPath]);
+    if (!doc) throw new Error("Table deck not added.");
+    await core.assignDocumentGroup(doc.id, coast.id);
+
+    const searched = structured<{ passages: Array<{ passageId: string }> }>(
+      await agent.callTool({ name: "search", arguments: { query: "south quay 19 boats" } }),
+    );
+    const cited = structured<{ citations: Array<{ cite: string }> }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            { passageId: searched.passages[0]?.passageId, quote: "south quay holds 19 boats" },
+          ],
+        },
+      }),
+    );
+    const citeToken = cited.citations[0]?.cite ?? "";
+
+    const readRes = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const prop = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: readRes.version,
+          changes: [
+            {
+              kind: "cell",
+              slide: 1,
+              shape: "5",
+              row: 0,
+              column: 1,
+              paragraphs: [`19 ${citeToken}`],
+            },
+            {
+              kind: "notes",
+              slide: 1,
+              paragraphs: [`Updated speaker note ${citeToken}.`],
+            },
+          ],
+        },
+      }),
+    );
+
+    const waiting = (await core.deckProposals(doc.id))[0];
+    const cellItem = waiting?.items[0];
+    const notesItem = waiting?.items[1];
+    expect(cellItem?.cell).toEqual({ row: 1, column: 2 });
+    expect(notesItem?.after).toBe("Updated speaker note.");
+    expect(notesItem?.after).not.toContain("[cite:");
+
+    const accepted = await core.acceptDeckProposal(prop.proposalId);
+    const pkg = openPackage(accepted.bytes);
+    const tagPart = pkg.names().find((n) => n.startsWith("ppt/tags/"));
+    expect(tagPart).toBeDefined();
+    const rawTagXml = (await pkg.readText(tagPart as string)) ?? "";
+    expect(rawTagXml).not.toContain("Harbour survey");
+    expect(rawTagXml).not.toContain("south quay holds 19 boats");
+
+    const notesAfter = (await pkg.readText("ppt/notesSlides/notesSlide1.xml")) ?? "";
+    expect(notesAfter).toContain("Updated speaker note.");
+    expect(notesAfter).not.toContain("[cite:");
+    await agent.close();
+  });
+
+  // protects=a failed undo-snapshot write leaves the deck untouched, and a tampered undo snapshot hash is refused cleanly on Undo (#149); fails_when=deck writes even though undo snapshot failed, or corrupted undo bytes overwrite the deck
+  it("leaves the deck untouched if storing the Undo snapshot fails, and refuses Undo if the snapshot is tampered", async () => {
+    const initial = multiSlideDeck();
+    let writeDeckCalled = false;
+    const proposals = createDeckProposals({
+      read: async () => initial,
+      writeDeck: async (documentId) => {
+        writeDeckCalled = true;
+        return { documentId, saved: { kind: "file", name: "Deck.pptx", keptId: null, letGo: [] } };
+      },
+      undoStore: {
+        put: async () => {
+          throw new Error("ENOSPC: disk full");
+        },
+        get: async () => null,
+        del: async () => undefined,
+      },
+      newId: () => "11111111-1111-1111-1111-111111111111",
+      now: () => "2026-11-25T12:00:00.000Z",
+    });
+    const proposed = await proposals.propose({
+      documentId: "doc-1",
+      agentName: "Agent",
+      pairingId: "pair-1",
+      version: sha256(initial),
+      summary: "Test",
+      changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Will not write"] }],
+    });
+    await expect(proposals.accept(proposed.id)).rejects.toThrow(/disk full/i);
+    expect(writeDeckCalled).toBe(false);
+
+    // Tampered undo file on disk is refused by hash verification.
+    const { core, dataDir, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "TamperUndo.pptx");
+    await writeFile(deckPath, initial);
+    const [doc] = await addAndProcess(core, [deckPath]);
+    if (!doc) throw new Error("Tamper deck not added.");
+    await core.assignDocumentGroup(doc.id, coast.id);
+
+    const readRes = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const prop = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: readRes.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Confirmed text"] }],
+        },
+      }),
+    );
+    const accepted = await core.acceptDeckProposal(prop.proposalId);
+    const undoFile = join(dataDir, "deck-proposal-undos", `${accepted.undoId}.pptx`);
+    await writeFile(undoFile, Buffer.from("tampered-bytes"));
+
+    await expect(core.undoDeckProposal(accepted.undoId)).rejects.toMatchObject({
+      wording: { key: "error.deck.undoRefused" },
+    });
+    expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(accepted.contentHash);
+    await agent.close();
+  });
+
+  // protects=Confirm is refused while a hand-edit sitting has a waiting change, and two waiting proposals on different shapes of one deck can both be confirmed sequentially (#149); fails_when=Confirm overwrites a waiting hand edit or the second proposal fails after confirming the first
+  it("refuses Confirm while a hand-edit sitting is waiting, and confirms two proposals on different shapes sequentially", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "WaitingAndTwo.pptx");
+    const initial = multiSlideDeck();
+    await writeFile(deckPath, initial);
+    const [doc] = await addAndProcess(core, [deckPath]);
+    if (!doc) throw new Error("Deck not added.");
+    await core.assignDocumentGroup(doc.id, coast.id);
+
+    const readRes = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const propA = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: readRes.version,
+          changes: [{ kind: "text", slide: 1, shape: "2", paragraphs: ["Title from proposal A"] }],
+        },
+      }),
+    );
+    const propB = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: readRes.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Body from proposal B"] }],
+        },
+      }),
+    );
+
+    // Put a hand-edit sitting into waiting state by making the file temporarily read-only.
+    await chmod(deckPath, 0o444);
+    let waitingSittingId: string | null = null;
+    try {
+      const handWaiting = await core.editDeck({
+        documentId: doc.id,
+        sittingId: null,
+        shown: readRes.version,
+        viewer: "test-viewer",
+        edits: [
+          {
+            kind: "text",
+            slide: 2,
+            shape: "2",
+            paragraphs: [
+              {
+                source: 0,
+                runs: [{ source: { paragraph: 0, run: 0 }, text: "Waiting hand edit" }],
+              },
+            ],
+          },
+        ],
+      });
+      expect(handWaiting.kind).toBe("unwritable");
+      if (handWaiting.kind === "unwritable") waitingSittingId = handWaiting.sittingId;
+    } finally {
+      await chmod(deckPath, 0o644);
+    }
+
+    // Even after chmod 0644, Confirm must be refused while the sitting still has a waiting edit.
+    await expect(core.acceptDeckProposal(propA.proposalId)).rejects.toMatchObject({
+      wording: { key: "error.deck.waiting" },
+    });
+
+    // Retry the waiting hand edit so it lands cleanly, then confirm BOTH Proposal A and Proposal B!
+    if (!waitingSittingId) throw new Error("Expected waiting sitting id.");
+    const retried = await core.retryDeckEdit(waitingSittingId);
+    expect(retried.kind).toBe("saved");
+
+    const accA = await core.acceptDeckProposal(propA.proposalId);
+    const accB = await core.acceptDeckProposal(propB.proposalId);
+    const finalStruct = (await readDeckStructure(accB.bytes)).structure;
+    expect(finalStruct.slides[0]?.shapes.find((s) => s.shapeId === "2")?.paragraphs).toEqual([
+      "Title from proposal A",
+    ]);
+    expect(finalStruct.slides[0]?.shapes.find((s) => s.shapeId === "3")?.paragraphs).toEqual([
+      "Body from proposal B",
+    ]);
+    expect(finalStruct.slides[1]?.shapes.find((s) => s.shapeId === "2")?.paragraphs).toEqual([
+      "Waiting hand edit",
+    ]);
+    expect(accA.unchangedSlides).toBe(2);
+    expect(accB.unchangedSlides).toBe(2);
+    await agent.close();
   });
 });

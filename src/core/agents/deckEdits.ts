@@ -63,6 +63,11 @@ export interface DeckEditToolContext {
   documentInScope(pairing: AdmittedPairing, documentId: string): DeckDocumentInfo;
   /** Whether the pairing currently reaches a cited Document's Folder (#149 M3). */
   reachesDocument(pairing: AdmittedPairing, documentId: string): boolean;
+  /** Hydrates an ids-only shape Citation tag from IncarnaMind's index when in reach. */
+  lookupCitation?(
+    documentId: string,
+    passageId?: string,
+  ): { document: string; location: string | null; quote: string } | null;
   readDeckBytes(documentId: string): Promise<Uint8Array>;
   resolveCitation(pairing: AdmittedPairing, token: string): AgentCitation | null;
   propose: (input: {
@@ -167,7 +172,7 @@ function toDeckCitation(cited: AgentCitation, t: DeckEditToolContext["t"]): Deck
   };
 }
 
-/** Masks any Citation tag whose cited Document lies outside this pairing's reach (#149 M3). */
+/** Hydrates in-reach ids-only Citation tags from the index and masks any outside this pairing's reach (#149 M3). */
 function maskSlideCitations(
   slides: readonly DeckSlideSummary[],
   context: DeckEditToolContext,
@@ -177,10 +182,19 @@ function maskSlideCitations(
   return slides.map((slide) => ({
     ...slide,
     shapes: slide.shapes.map((shape) => {
-      if (!shape.citations || shape.citations.length === 0) return shape;
-      const citations: DeckCitationRecord[] = shape.citations.map((cite) => {
+      const cleanedSeries = shape.series?.map(({ formula: _, ...rest }) => rest);
+      const baseShape = cleanedSeries ? { ...shape, series: cleanedSeries } : shape;
+      if (!baseShape.citations || baseShape.citations.length === 0) return baseShape;
+      const citations: DeckCitationRecord[] = baseShape.citations.map((cite) => {
         if (cite.documentId && context.reachesDocument(pairing, cite.documentId)) {
-          return cite;
+          if (cite.document !== "") return cite;
+          const hydrated = context.lookupCitation?.(cite.documentId, cite.passageId);
+          return {
+            ...cite,
+            document: hydrated?.document ?? "",
+            location: hydrated?.location ?? null,
+            quote: hydrated?.quote ?? "",
+          };
         }
         return {
           document: restrictedLabel,
@@ -191,7 +205,7 @@ function maskSlideCitations(
           restricted: true,
         };
       });
-      return { ...shape, citations };
+      return { ...baseShape, citations };
     }),
   }));
 }
@@ -446,10 +460,18 @@ export function createDeckEditTools(context: DeckEditToolContext) {
               };
             }
             if (raw.kind === "notes") {
+              const rawParagraphs = asParagraphs(raw.paragraphs ?? raw.text, "paragraphs");
+              const { cleaned } = resolveChangeCitations(
+                context,
+                pairing,
+                rawParagraphs,
+                undefined,
+                unfoundCitations,
+              );
               return {
                 kind: "notes",
                 slide,
-                paragraphs: asParagraphs(raw.paragraphs ?? raw.text, "paragraphs"),
+                paragraphs: cleaned,
               };
             }
             if (raw.kind === "chartSeries") {

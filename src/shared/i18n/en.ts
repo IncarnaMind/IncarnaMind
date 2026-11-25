@@ -3381,7 +3381,7 @@ export const en = {
   "outputLocation.pick.title": "Choose where new files go",
   "outputLocation.pick.button": "Choose",
   "outputLocation.linked.title": "New files in Linked folders",
-  "outputLocation.linked.body": "Only reads a Linked folder unless you allow new files.",
+  "outputLocation.linked.body": "No new files go into a Linked folder unless you allow it.",
   "outputLocation.linked.allow": "Allow new files in {name}",
   "fileWrite.location.title": "Where should new files go?",
   "fileWrite.location.missing":
@@ -3393,9 +3393,9 @@ export const en = {
   "fileWrite.location.failed": "Couldn’t use that folder: {reason}",
   "fileWrite.linked.title": "Add files to “{folder}”?",
   "fileWrite.linked.body":
-    "IncarnaMind only reads “{folder}”. Save “{name}” there, and allow new files from now on?",
+    "“{folder}” doesn’t take new files yet. Save “{name}” there, and allow new files from now on?",
   "fileWrite.linked.safe":
-    "Never deletes your files; changes one only when you edit or confirm it, and you can put it back.",
+    "Never deletes files; changes one only when you edit or confirm an AI edit, and you can put it back.",
   "fileWrite.linked.note": "You can change this in Settings › General.",
   "fileWrite.linked.allow": "Allow",
   "fileWrite.linked.deny": "Don’t allow",
@@ -6149,7 +6149,7 @@ export const en = {
   "error.deck.proposalStale":
     "This deck changed since those changes were suggested. Ask your AI again.",
   "error.deck.proposalGone": "That suggested change is no longer waiting.",
-  "error.deck.proposalInvalid": "That suggested change can’t be applied ({detail}).",
+  "error.deck.proposalInvalid": "That suggested change can’t be applied.",
   "error.deck.proposalTooManyChanges": "A single suggestion can change at most {max} places.",
   "error.deck.proposalTextTooLong": "The suggested text is too long to apply.",
   "error.deck.proposalTooManyWaiting":
@@ -7407,7 +7407,7 @@ export const en = {
   "startGuide.title": "Start in three steps",
   "startGuide.documents.title": "Add your Documents, or connect your apps",
   "startGuide.documents.body":
-    "PDF, Word, PowerPoint, Excel, Markdown or text. IncarnaMind only reads them.",
+    "PDF, Word, PowerPoint, Excel, Markdown or text. Unchanged unless you edit or confirm a deck change.",
   "startGuide.documents.linkFolder": "Link a folder…",
   "startGuide.documents.addFiles": "Add files…",
   "startGuide.documents.connectApp": "Connect an app…",
@@ -9131,7 +9131,8 @@ export const en = {
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
   "agents.pairing.readsAll": "Reads all your Documents and notes, and what you add later",
-  "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
+  "agents.pairing.proposes":
+    "Writes notes, Canvases and files there; proposes changes to your notes and decks",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
@@ -9311,7 +9312,7 @@ export const en = {
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
-    "Its notes appear at once; its changes to your notes wait for you. IncarnaMind reads only the files it names or hands over.",
+    "Its notes appear at once; its changes to your notes and decks wait for you. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
     "It can read all your Documents and notes. What it reads goes to its AI model.",

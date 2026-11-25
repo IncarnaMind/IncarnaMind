@@ -895,7 +895,7 @@ export function createAgentServer(
     {
       title: "Propose deck changes",
       description:
-        "Edit an existing deck (never rebuild or hand_over_file); pass version from read_deck. Change fields by kind: text (shape,paragraphs), cell (shape,row,column,paragraphs), notes (paragraphs), box (shape,box:{x,y,w,h}), chartSeries (shape,series,values); optional citations/pointCitations.",
+        "Propose deck edits (waits for Confirm; never rebuild or hand_over_file); pass version from read_deck. Kinds: text(shape,paragraphs), cell(shape,row,column,paragraphs), notes(paragraphs), box(shape,box:{x,y,w,h}), chartSeries(shape,series,values); optional citations/pointCitations.",
       inputSchema: z.object({
         documentId: z.string(),
         version: z.string(),

@@ -42,6 +42,8 @@ function seriesNameOf(series: XmlElement): string | null {
   return v ? textOf(v).trim() || null : null;
 }
 
+const MAX_CHART_POINTS = 2_000;
+
 function categoriesOf(series: XmlElement): string[] {
   const cat = child(series, "c:cat") ?? child(series, "c:xVal");
   if (!cat) return [];
@@ -54,17 +56,17 @@ function categoriesOf(series: XmlElement): string[] {
     child(cat, "c:numLit");
   if (!cache) return [];
   const pts = elements(cache).filter((each) => local(each.name) === "pt");
-  const ptCount = Number(child(cache, "c:ptCount")?.attrs.val) || 0;
+  const ptCount = Math.min(Number(child(cache, "c:ptCount")?.attrs.val) || 0, MAX_CHART_POINTS);
   let maxIdx = ptCount - 1;
   for (const pt of pts) {
     const idx = Number(pt.attrs.idx);
-    if (Number.isInteger(idx) && idx > maxIdx) maxIdx = idx;
+    if (Number.isInteger(idx) && idx >= 0 && idx < MAX_CHART_POINTS && idx > maxIdx) maxIdx = idx;
   }
   if (maxIdx < 0) return [];
   const out = Array<string>(maxIdx + 1).fill("");
   for (const pt of pts) {
     const idx = Number(pt.attrs.idx);
-    if (!Number.isInteger(idx) || idx < 0) continue;
+    if (!Number.isInteger(idx) || idx < 0 || idx > maxIdx) continue;
     const v = child(pt, "c:v");
     out[idx] = v ? textOf(v) : "";
   }
@@ -283,18 +285,28 @@ export async function setChartSeriesValues(
   }
   const { sheet, cells: refs } = formulaCells(textOf(formula).trim());
   const otherSeriesRefs = new Set<string>();
-  for (let i = 0; i < list.length; i++) {
-    if (i === chosenIndex) continue;
-    const otherNumRef = child(list[i]?.values ?? chosen.values, "c:numRef");
-    const otherFormula = otherNumRef && child(otherNumRef, "c:f");
-    if (!otherFormula) continue;
+  const recordFormulaRefs = (refNode: XmlElement | undefined) => {
+    const f = refNode && child(refNode, "c:f");
+    if (!f) return;
     try {
-      const parsed = formulaCells(textOf(otherFormula).trim());
+      const parsed = formulaCells(textOf(f).trim());
       for (const cellRef of parsed.cells) {
         otherSeriesRefs.add(`${parsed.sheet}!${cellRef}`.toUpperCase());
       }
     } catch {
-      // Unparseable formula on an unrelated series doesn't block this series unless it shares cells.
+      // Unparseable formula on another reference doesn't block unless it shares cells.
+    }
+  };
+  for (let i = 0; i < list.length; i++) {
+    const entry = list[i];
+    if (!entry) continue;
+    if (i !== chosenIndex) {
+      recordFormulaRefs(child(entry.values, "c:numRef"));
+    }
+    const xOrCat = child(entry.series, "c:xVal") ?? child(entry.series, "c:cat");
+    if (xOrCat) {
+      recordFormulaRefs(child(xOrCat, "c:numRef"));
+      recordFormulaRefs(child(xOrCat, "c:strRef"));
     }
   }
 

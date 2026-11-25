@@ -11,10 +11,12 @@
  * reaches every Folder outside a wall at the time of each call, and every Mind
  * in no Folder but the examples (#3544). Where a result can read as "nothing is
  * there", it says in one line, naming nothing, when the User has more than the
- * pairing reaches (`holdsMore`). Nothing here changes the
- * User's Documents, and a Mind only through `propose_changes`, which the User
- * allows per pairing and whose changes wait for them as Proposals (#352,
- * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
+ * pairing reaches (`holdsMore`). Nothing here writes the User's Documents
+ * directly: `propose_deck_changes` queues a waiting deck Proposal that writes
+ * only when the User confirms it (ADR-0010, 2026-11-25), and a Mind changes
+ * only through `propose_changes`, which the User allows per pairing and whose
+ * changes wait for them as Proposals (#352, ./proposals). With the same leave
+ * `create_mind` writes a new Mind (#3306):
  * it changes none there is, so it doesn't wait. In a Mind the pairing wrote
  * itself, its changes apply at once, each a step the User can undo after a
  * Checkpoint (#3371, ./ownChanges).
@@ -1504,15 +1506,18 @@ export function deckReachedByPairing(
 ): { id: string; name: string; kind: string } | null {
   const doc = deps.deckDocument?.(documentId) ?? null;
   if (!doc) return null;
+  if (doc.handed) {
+    if (doc.handed.pairingId !== pairing.id) return null;
+    const placementReached =
+      doc.currentFolderIds.length > 0
+        ? doc.currentFolderIds.every((folderId) => reached.has(folderId))
+        : reached.has(NOT_IN_A_FOLDER_ID);
+    return placementReached ? { id: doc.id, name: doc.name, kind: doc.kind } : null;
+  }
   if (documentsForPairing(deps, pairing, [...reached], reached).includes(doc.id)) {
     return { id: doc.id, name: doc.name, kind: doc.kind };
   }
-  if (!doc.handed || doc.handed.pairingId !== pairing.id) return null;
-  const placementReached =
-    doc.currentFolderIds.length > 0
-      ? doc.currentFolderIds.every((folderId) => reached.has(folderId))
-      : reached.has(NOT_IN_A_FOLDER_ID);
-  return placementReached ? { id: doc.id, name: doc.name, kind: doc.kind } : null;
+  return null;
 }
 
 /**
@@ -2499,7 +2504,19 @@ export function createAgentAccess(
     },
     reachesDocument: (pairing, documentId) => {
       const inScope = new Set(scopeOf(pairing, undefined));
-      return usable(inScope, documentId);
+      return inScope.has(documentId);
+    },
+    lookupCitation: (documentId, passageId) => {
+      const passage = passageId ? deps.passage(passageId) : null;
+      if (passage && passage.documentId === documentId) {
+        return {
+          document: passage.documentName,
+          location: passage.pageFrom !== null ? `p. ${passage.pageFrom}` : null,
+          quote: passage.text,
+        };
+      }
+      const doc = deps.deckDocument?.(documentId) ?? null;
+      return doc ? { document: doc.name, location: null, quote: "" } : null;
     },
     resolveCitation: (pairing, token) => {
       const inScope = new Set(scopeOf(pairing, undefined));

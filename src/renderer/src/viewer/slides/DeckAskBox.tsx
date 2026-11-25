@@ -13,7 +13,7 @@ import { TypingTextarea } from "../../components/TypingTextarea";
 import { core } from "../../core";
 import { AskArrowIcon, RemoveIcon } from "../../editor/icons";
 import { errorMessage } from "../../errors";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import {
   DeckProposalDetails,
   type DeckProposalsState,
@@ -69,6 +69,7 @@ export function DeckAskBox({
   }): void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const [agents, setAgents] = useState<AgentPairing[]>([]);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -276,7 +277,9 @@ export function DeckAskBox({
     if (receipt) {
       return (
         <div className="viewer-deck-receipt" data-testid="viewer-deck-receipt" role="status">
-          <span className="viewer-deck-receipt-text">{formatDeckReceipt(receipt, t)}</span>
+          <span className="viewer-deck-receipt-text">
+            {formatDeckReceipt(receipt, t, language)}
+          </span>
           <button
             type="button"
             className="viewer-deck-proposal-btn"

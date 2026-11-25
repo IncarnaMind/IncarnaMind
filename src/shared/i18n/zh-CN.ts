@@ -3197,7 +3197,7 @@ export const zhCN = {
   "outputLocation.pick.title": "选择新文件的保存位置",
   "outputLocation.pick.button": "选择",
   "outputLocation.linked.title": "在关联文件夹中添加文件",
-  "outputLocation.linked.body": "除非你允许添加新文件，否则只读取关联文件夹。",
+  "outputLocation.linked.body": "除非你允许，否则不会在关联文件夹中添加新文件。",
   "outputLocation.linked.allow": "允许在“{name}”中添加新文件",
   "fileWrite.location.title": "新文件保存到哪里？",
   "fileWrite.location.missing": "无法把“{name}”保存到“{folder}”：IncarnaMind 无法创建这个文件夹。",
@@ -3207,7 +3207,7 @@ export const zhCN = {
   "fileWrite.location.failed": "无法使用这个文件夹：{reason}",
   "fileWrite.linked.title": "在“{folder}”中添加文件？",
   "fileWrite.linked.body":
-    "IncarnaMind 只读取“{folder}”。要把“{name}”保存到这里，并允许今后添加新文件吗？",
+    "IncarnaMind 目前不会向“{folder}”添加文件。要把“{name}”保存到这里，并允许今后添加新文件吗？",
   "fileWrite.linked.safe":
     "不会删除你的文件；只有你亲手编辑或确认 AI 修改时才改动，可一步恢复原样。",
   "fileWrite.linked.note": "你可以在设置 › 通用中更改。",
@@ -5809,7 +5809,7 @@ export const zhCN = {
   "error.deck.copySlow": "它所在的文件夹 10 秒内没有响应。",
   "error.deck.proposalStale": "提出修改后演示文稿已有变动，请再问一次你的 AI。",
   "error.deck.proposalGone": "这条修改建议已不在等待确认。",
-  "error.deck.proposalInvalid": "无法应用这条修改建议（{detail}）。",
+  "error.deck.proposalInvalid": "无法应用这条修改建议。",
   "error.deck.proposalTooManyChanges": "单次建议最多修改 {max} 处。",
   "error.deck.proposalTextTooLong": "建议的文字过长，无法应用。",
   "error.deck.proposalTooManyWaiting": "这份演示文稿待确认的建议过多，请先确认或放弃其中一条。",
@@ -6956,7 +6956,7 @@ export const zhCN = {
   "startGuide.title": "三步开始",
   "startGuide.documents.title": "添加文档，或连接应用",
   "startGuide.documents.body":
-    "PDF、Word、PowerPoint、Excel、Markdown 或文本。IncarnaMind 只读取，不改动。",
+    "PDF、Word、PowerPoint、Excel、Markdown 或文本。除非你编辑演示文稿或确认修改，否则不会改动你的文件。",
   "startGuide.documents.linkFolder": "添加关联文件夹…",
   "startGuide.documents.addFiles": "添加文件…",
   "startGuide.documents.connectApp": "连接应用…",
@@ -8530,7 +8530,7 @@ export const zhCN = {
   "agents.pairing.reads": "可读取：{folders}",
   "agents.pairing.readsNothing": "还没有可读取的文件夹",
   "agents.pairing.readsAll": "可读取你的全部文档和笔记，包括以后添加的",
-  "agents.pairing.proposes": "可在其中新建笔记和页面、提交文件，对你的笔记提出修改",
+  "agents.pairing.proposes": "可在其中新建笔记和页面、提交文件，对你的笔记和演示文稿提出修改",
   "agents.pairing.inside": "也读取其中的文件夹：{folders}",
   "agents.folders.sharedWith": "已随“{folder}”共享",
   "agents.pairing.lastUsed": "上次使用：{when}",
@@ -8707,7 +8707,7 @@ export const zhCN = {
   "agents.propose.label": "允许它在这些文件夹中新建笔记、提出修改",
   "agents.propose.label.all": "允许它新建笔记、提出修改",
   "agents.propose.hint":
-    "它写的笔记立即出现；它对你笔记的修改等你处理。IncarnaMind 只读取它指明或提交的文件。",
+    "它写的笔记立即出现；它对你笔记和演示文稿的修改等你处理。IncarnaMind 只读取它指明或提交的文件。",
   "agents.connect.reads.all": "它可以读取你的全部文档和笔记，读到的内容会发给它的 AI 模型。",
   "agents.connect.reads.later": "也包括你以后添加的文档和笔记。",
   "agents.connect.reads": "读到的内容会发给它的 AI 模型。",

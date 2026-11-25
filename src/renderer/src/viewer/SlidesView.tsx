@@ -260,22 +260,28 @@ function Slides({
   const settingUp = useSettingUp();
   const [selectedShape, setSelectedShape] = useState<SelectedDeckShape | null>(null);
   const [shortenTrigger, setShortenTrigger] = useState<DeckAskTrigger | null>(null);
-  const [previewLoaded, setPreviewLoaded] = useState<Loaded | null>(null);
+  const [previewLoaded, setPreviewLoaded] = useState<{
+    proposalId: string;
+    loaded: Loaded;
+  } | null>(null);
   const proposalsState = useDeckProposals({
     document,
+    revision: editing?.written ?? null,
     onAccepted: (accepted) => onProposedBytes(accepted.bytes),
     onUndone: (bytes) => onProposedBytes(bytes),
   });
+  const activeProposal = proposalsState.activeProposal;
+  const activeProposalId = activeProposal?.id ?? null;
   useEffect(() => {
     const bytes = proposalsState.previewBytes;
-    if (!bytes) {
+    if (!bytes || !activeProposalId) {
       setPreviewLoaded(null);
       return;
     }
     let live = true;
     void read(bytes)
       .then((value) => {
-        if (live) setPreviewLoaded(value);
+        if (live) setPreviewLoaded({ proposalId: activeProposalId, loaded: value });
       })
       .catch((err: unknown) => {
         console.error("Couldn't draw deck proposal preview.", err);
@@ -284,12 +290,15 @@ function Slides({
     return () => {
       live = false;
     };
-  }, [proposalsState.previewBytes]);
+  }, [activeProposalId, proposalsState.previewBytes]);
 
-  const activeProposal = proposalsState.activeProposal;
+  const matchedPreview =
+    activeProposalId !== null && previewLoaded?.proposalId === activeProposalId
+      ? previewLoaded.loaded
+      : null;
   const showingProposed =
-    activeProposal !== null && proposalsState.previewMode === "after" && previewLoaded !== null;
-  const shownLoaded = showingProposed ? previewLoaded : loaded;
+    activeProposal !== null && proposalsState.previewMode === "after" && matchedPreview !== null;
+  const shownLoaded = showingProposed ? matchedPreview : loaded;
   const { slides } = shownLoaded.deck;
   const { drawing } = shownLoaded;
 
@@ -737,6 +746,9 @@ function Slides({
                       setElement={setElement(slide.number)}
                       editing={showingProposed ? null : editing}
                       proposedShapeIds={proposedBySlide.get(slide.number) ?? null}
+                      selectedElsewhere={
+                        selectedShape !== null && selectedShape.slide !== slide.number
+                      }
                       onSelectShape={(sel) => {
                         if (sel) setSelectedShape(sel);
                         else
@@ -798,6 +810,7 @@ function SlideFrame({
   setElement,
   editing,
   proposedShapeIds,
+  selectedElsewhere,
   onSelectShape,
 }: {
   outline: SlideOutline;
@@ -816,6 +829,7 @@ function SlideFrame({
   setElement(element: HTMLElement | null): void;
   editing: DeckEditing | null;
   proposedShapeIds: ReadonlySet<string> | null;
+  selectedElsewhere?: boolean;
   onSelectShape?: (selection: SelectedDeckShape | null) => void;
 }) {
   const t = useT();
@@ -882,6 +896,7 @@ function SlideFrame({
               onOverflow={editing.setOverflow}
               onOpenPicture={openDocumentPicture}
               onSelectShape={onSelectShape}
+              selectedElsewhere={selectedElsewhere}
               proposedShapeIds={proposedShapeIds}
             />
           ) : (

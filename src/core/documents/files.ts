@@ -1,7 +1,7 @@
 /**
- * The User's files, read where they are (ADR-0010). IncarnaMind only ever
- * reads them: nothing here writes, renames or deletes anything outside the
- * data folder.
+ * The User's files, read where they are (ADR-0010). This module only ever
+ * reads them; writing a deck the User edits by hand or confirms an AI change on
+ * goes through `src/core/decks/places.ts`.
  */
 import { createHash } from "node:crypto";
 import { once } from "node:events";

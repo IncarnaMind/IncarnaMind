@@ -109,6 +109,8 @@ export interface DeckPlaceDeps {
   kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId" | "beganFrom">;
   /** Writes of a deck IncarnaMind keeps take turns with agents' hand-overs of it. */
   inHandOverTurn<T>(run: () => Promise<T>): Promise<T>;
+  /** Records an app-own write transition (`fromHash` -> `toHash`) on `documentId`. */
+  onWritten?(documentId: string, fromHash: string, toHash: string): void;
   files?: DeckFiles;
   platform?: NodeJS.Platform;
   now(): string;
@@ -240,7 +242,9 @@ export function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8
           if (why) return { kind: "unwritable", why, name };
           throw error;
         }
+        const previous = wrote;
         wrote = contentHash;
+        deps.onWritten?.(documentId, previous, contentHash);
         await afterWriting("reading the file again", () => deps.readAgain(path));
         return {
           kind: "written",
@@ -421,7 +425,9 @@ export function ownFile(
         throw error;
       }
       verifiedLocal = true;
+      const previous = wrote;
       wrote = hashBytes(bytes);
+      deps.onWritten?.(documentId, previous, wrote);
       if (!began && keptId) deps.kept.beganFrom(keptId);
       began = true;
       let letGo: string[] = [];

@@ -252,6 +252,7 @@ export function SlideEditor({
   onOverflow,
   onOpenPicture,
   onSelectShape,
+  selectedElsewhere = false,
   proposedShapeIds = null,
 }: {
   slide: SlideDrawing;
@@ -269,11 +270,16 @@ export function SlideEditor({
   onOpenPicture?: (picture: HTMLImageElement) => void;
   /** Tells the viewer which shape is selected, for AI change requests (#149 part 2). */
   onSelectShape?: (selection: SelectedDeckShape | null) => void;
+  /** True when another slide currently holds the deck's selected shape (#149 part 2). */
+  selectedElsewhere?: boolean;
   /** Shape ids touched by a waiting AI Proposal, outlined live on the slide (#149 part 2). */
   proposedShapeIds?: ReadonlySet<string> | null;
 }) {
   const t = useT();
   const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedElsewhere) setSelected(null);
+  }, [selectedElsewhere]);
   const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
   const [typed, setTyped] = useState<readonly TypedWords[]>([]);
   const [typing, setTyping] = useState<{

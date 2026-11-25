@@ -63,6 +63,10 @@ export interface DeckProposalDeps {
   ): Promise<{ documentId: string; saved: DeckSaved }>;
   /** Serializes writes to the same deck alongside hand edits and restores. */
   inDocumentTurn?<T>(documentId: string, run: () => Promise<T>): Promise<T>;
+  /** True only when every write on `documentId` between `fromHash` and `toHash` was IncarnaMind's own. */
+  isAppOwnChange?(documentId: string, fromHash: string, toHash: string): boolean;
+  /** True when a hand-edit sitting on `documentId` has an unsaved edit waiting. */
+  hasWaitingEdit?(documentId: string): boolean;
   /** Bounded on-disk store for Undo rollback bytes (#149 S11). */
   undoStore?: DeckProposalUndoStore;
   onChanged?(documentId: string, proposals: DeckProposal[]): void;
@@ -97,10 +101,7 @@ interface TargetInfo {
 function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInfo {
   const slide = structure.slides.find((each) => each.slide === change.slide);
   if (!slide) {
-    throw new InvalidInputError({
-      key: "error.deck.proposalInvalid",
-      values: { detail: `slide ${change.slide}` },
-    });
+    throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
   }
   if (change.kind === "notes") {
     const text = slide.notes.join("\n");
@@ -113,17 +114,11 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
   }
   const shape = slide.shapes.find((each) => each.shapeId === change.shape);
   if (!shape) {
-    throw new InvalidInputError({
-      key: "error.deck.proposalInvalid",
-      values: { detail: `shape ${change.shape}` },
-    });
+    throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
   }
   if (change.kind === "text") {
     if (shape.kind !== "text") {
-      throw new InvalidInputError({
-        key: "error.deck.proposalInvalid",
-        values: { detail: `shape ${change.shape}` },
-      });
+      throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
     }
     const paragraphs = shape.paragraphs ?? [];
     return {
@@ -144,17 +139,11 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
   }
   if (change.kind === "cell") {
     if (shape.kind !== "table") {
-      throw new InvalidInputError({
-        key: "error.deck.proposalInvalid",
-        values: { detail: `table ${change.shape}` },
-      });
+      throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
     }
     const row = shape.rows?.[change.row];
     if (!row || change.column < 0 || change.column >= row.length) {
-      throw new InvalidInputError({
-        key: "error.deck.proposalInvalid",
-        values: { detail: `cell (${change.row + 1}, ${change.column + 1})` },
-      });
+      throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
     }
     const value = row[change.column] ?? "";
     return {
@@ -187,10 +176,7 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
     };
   }
   if (shape.kind !== "chart") {
-    throw new InvalidInputError({
-      key: "error.deck.proposalInvalid",
-      values: { detail: `chart ${change.shape}` },
-    });
+    throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
   }
   const seriesList = shape.series ?? [];
   const chosen =
@@ -201,10 +187,7 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
           (each) => each.name?.toLowerCase() === String(change.series).toLowerCase(),
         ));
   if (!chosen) {
-    throw new InvalidInputError({
-      key: "error.deck.proposalInvalid",
-      values: { detail: `series ${String(change.series)}` },
-    });
+    throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
   }
   return {
     placeKind: "chart",
@@ -217,6 +200,8 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
       slide: change.slide,
       shape: change.shape,
       series: chosen.index,
+      categories: chosen.categories,
+      formula: chosen.formula ?? null,
       values: chosen.values,
     }),
   };
@@ -246,15 +231,12 @@ function resolvedChanges(
 
 function validateChangeBounds(changes: readonly DeckChange[], summary: string): void {
   if (changes.length === 0) {
-    throw new InvalidInputError({
-      key: "error.deck.proposalInvalid",
-      values: { detail: "0 changes" },
-    });
+    throw new InvalidInputError({ key: "error.deck.proposalInvalid" });
   }
   if (changes.length > MAX_CHANGES_PER_PROPOSAL) {
     throw new InvalidInputError({
       key: "error.deck.proposalTooManyChanges",
-      values: { limit: MAX_CHANGES_PER_PROPOSAL },
+      values: { max: MAX_CHANGES_PER_PROPOSAL },
     });
   }
   if (summary.length > MAX_SUMMARY_CHARS) {
@@ -322,6 +304,13 @@ export function createDeckProposals(deps: DeckProposalDeps) {
         await deps.undoStore?.del(oldest).catch(() => undefined);
       }
     }
+  };
+
+  const removeUndo = async (undoId: string) => {
+    undos.delete(undoId);
+    const idx = undoOrder.indexOf(undoId);
+    if (idx !== -1) undoOrder.splice(idx, 1);
+    await deps.undoStore?.del(undoId).catch(() => undefined);
   };
 
   const loadUndoBytes = async (record: StoredUndo): Promise<Uint8Array | null> => {
@@ -431,10 +420,7 @@ export function createDeckProposals(deps: DeckProposalDeps) {
         preview = await applyDeckChanges(bytes, resolvedChanges(draftItems, "default"));
       } catch (error) {
         if (error instanceof PackagePartError) {
-          throw new InvalidInputError({
-            key: "error.deck.proposalInvalid",
-            values: { detail: error.message },
-          });
+          throw new InvalidInputError({ key: "error.deck.proposalInvalid" }, { cause: error });
         }
         throw error;
       }
@@ -481,11 +467,18 @@ export function createDeckProposals(deps: DeckProposalDeps) {
         if (!proposal) {
           throw new NotFoundError({ key: "error.deck.proposalGone" });
         }
+        if (deps.hasWaitingEdit?.(proposal.documentId)) {
+          throw new InvalidInputError({ key: "error.deck.waiting" });
+        }
         const currentBytes = await deps.read(proposal.documentId);
         const currentHash = hashBytes(currentBytes);
 
-        // Preserve concurrent hand edits on other shapes as long as targeted shapes' fingerprints match.
+        // Only allow a deck that changed since propose when every write since was IncarnaMind's own
+        // (e.g. a hand edit or another confirmed proposal on a different shape) and targeted shapes match.
         if (currentHash !== proposal.baseVersion) {
+          if (!deps.isAppOwnChange?.(proposal.documentId, proposal.baseVersion, currentHash)) {
+            throw new TranslatableError({ key: "error.deck.proposalStale" });
+          }
           const { structure } = await readDeckStructure(currentBytes);
           if (!structure.editable) {
             const key =
@@ -511,29 +504,31 @@ export function createDeckProposals(deps: DeckProposalDeps) {
           );
         } catch (error) {
           if (error instanceof PackagePartError) {
-            throw new InvalidInputError({
-              key: "error.deck.proposalInvalid",
-              values: { detail: error.message },
-            });
+            throw new InvalidInputError({ key: "error.deck.proposalInvalid" }, { cause: error });
           }
           throw error;
         }
 
-        const result = await deps.writeDeck(proposal.documentId, currentBytes, applied.bytes, {
-          keepOriginal: true,
-        });
-
         const afterHash = hashBytes(applied.bytes);
         const undoId = deps.newId();
-        await storeUndo(
-          {
-            id: undoId,
-            documentId: result.documentId,
-            beforeHash: currentHash,
-            afterHash,
-          },
-          currentBytes,
-        );
+        const undoRecord: StoredUndo = {
+          id: undoId,
+          documentId: proposal.documentId,
+          beforeHash: currentHash,
+          afterHash,
+        };
+        await storeUndo(undoRecord, currentBytes);
+
+        let result: { documentId: string; saved: DeckSaved };
+        try {
+          result = await deps.writeDeck(proposal.documentId, currentBytes, applied.bytes, {
+            keepOriginal: true,
+          });
+        } catch (error) {
+          await removeUndo(undoId);
+          throw error;
+        }
+        undoRecord.documentId = result.documentId;
 
         waiting.delete(proposal.id);
         notify(proposal.documentId);
@@ -576,12 +571,11 @@ export function createDeckProposals(deps: DeckProposalDeps) {
           throw new TranslatableError({ key: "error.deck.undoRefused" });
         }
         const beforeBytes = await loadUndoBytes(record);
-        if (!beforeBytes) {
+        if (!beforeBytes || hashBytes(beforeBytes) !== record.beforeHash) {
           throw new TranslatableError({ key: "error.deck.undoRefused" });
         }
         await deps.writeDeck(record.documentId, nowBytes, beforeBytes, { keepOriginal: false });
-        undos.delete(undoId);
-        await deps.undoStore?.del(undoId).catch(() => undefined);
+        await removeUndo(undoId);
         return {
           undoId,
           documentId: record.documentId,
