@@ -103,11 +103,12 @@ export function clientNote(client: Pick<AgentClient, "id">, t: Translate): strin
   return null;
 }
 
-/** What came of setting an agent up, as one line. */
+/** What came of setting an agent up, as one line. Pass `copied: false` when the text wasn't put on the clipboard. */
 export function doneWords(
   result: AgentSetupResult,
   pairing: Pick<AgentPairing, "name" | "client">,
   t: Translate,
+  { copied = true }: { copied?: boolean } = {},
 ): string {
   const agent = pairingInSentence(pairing, t);
   switch (result.kind) {
@@ -117,15 +118,29 @@ export function doneWords(
       return t(pairing.client === "codex" ? "agents.done.wrote.codex" : "agents.done.wrote", {
         agent,
       });
-    case "copy":
+    case "copy": {
       if (result.path) {
-        return result.how === "command"
-          ? t("agents.done.unreadable.command", { agent })
-          : t("agents.done.unreadable", { agent, path: result.path });
+        if (result.how === "command") {
+          return t(
+            copied ? "agents.done.unreadable.command" : "agents.done.unreadable.command.manual",
+            { agent },
+          );
+        }
+        return t(copied ? "agents.done.unreadable" : "agents.done.unreadable.manual", {
+          agent,
+          path: result.path,
+        });
       }
-      if (result.how === "command") return t("agents.done.command");
-      if (pairing.client === "other") return t("agents.done.settings.other");
-      return t(pasteWords(pairing.client) ?? "agents.done.settings", { agent });
+      const instruction =
+        result.how === "command"
+          ? t("agents.done.command")
+          : pairing.client === "other"
+            ? t("agents.done.settings.other")
+            : t(pasteWords(pairing.client) ?? "agents.done.settings", { agent });
+      return copied && pairing.client !== "kilo-code"
+        ? t("agents.done.copied", { instruction })
+        : instruction;
+    }
   }
 }
 

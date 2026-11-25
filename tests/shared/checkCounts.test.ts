@@ -6,6 +6,8 @@ import {
   keptOn,
   toCheckCount,
 } from "../../src/shared/claimChecks";
+import { en } from "../../src/shared/i18n/en";
+import { zhCN } from "../../src/shared/i18n/zh-CN";
 
 /*
  * The one count every check surface reads (#1909): a claim no check covers
@@ -108,5 +110,33 @@ describe("The one count of sentences to check (#1909)", () => {
         state(SHORT, null),
       ]),
     ).toBe(3);
+  });
+
+  test("waiting check labels use 'not checked yet' in English and keep 'can’t be checked' separate (#3270)", () => {
+    for (const key of [
+      "checks.row.notChecked.one",
+      "checks.row.notChecked",
+      "health.toCheck.one",
+      "health.toCheck",
+      "health.state.notChecked",
+      "health.state.needsCheck.one",
+      "health.state.needsCheck",
+      "health.state.needsCheck.short.one",
+      "health.state.needsCheck.short",
+      "badge.toCheck",
+      "mindCheck.changed.one",
+      "mindCheck.changed",
+      "selfCheck.stopped.one",
+      "selfCheck.stopped",
+      "selfCheck.leftPart.one",
+      "selfCheck.leftPart",
+    ] as const) {
+      expect(en[key].toLowerCase(), key).toContain("not checked yet");
+      expect(en[key].toLowerCase(), key).not.toMatch(/\b(?:to check|needs a check)\b/);
+    }
+    for (const key of ["checks.row.cantCheck.one", "checks.row.cantCheck"] as const) {
+      expect(en[key], key).toContain("can’t be checked");
+      expect(zhCN[key], key).toContain("无法核对");
+    }
   });
 });

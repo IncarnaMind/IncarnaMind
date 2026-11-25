@@ -11,23 +11,48 @@ import type { AgentClient, AgentPairing, ChatReadiness } from "../../src/core/ap
 const page = new DOMParser().parseFromString("<html><body></body></html>", "text/html");
 Object.defineProperty(page, "styleSheets", { value: [] });
 const view = page.defaultView;
+if (!("scrollIntoView" in view.HTMLElement.prototype)) {
+  Object.assign(view.HTMLElement.prototype, {
+    scrollIntoView: () => undefined,
+    showModal() {
+      (this as unknown as { open: boolean }).open = true;
+    },
+    close() {
+      (this as unknown as { open: boolean }).open = false;
+    },
+  });
+}
 
-const client = (id: string, name: string): AgentClient =>
+const client = (
+  id: AgentClient["id"],
+  name: string,
+  { installed = id === "claude-code", setup = "file" }: Partial<AgentClient> = {},
+): AgentClient =>
   ({
     id,
     name,
     otherNames: [],
     chat: false,
-    installed: id === "claude-code",
-    setup: "settings-file",
+    installed,
+    setup,
     skillPath: null,
   }) as unknown as AgentClient;
 const bridge = {
   clients: [client("claude-code", "Claude Code"), client("other", "")],
   pairings: [] as AgentPairing[],
+  enabled: false,
   on: () => () => undefined,
   listAgentClients: async () => bridge.clients,
-  getAgents: async () => ({ pairings: bridge.pairings }),
+  listLibraryGroups: async () => [],
+  getSecretStorageStatus: async () => ({ status: "ok" }),
+  previewAgentSetup: async () => null,
+  getAgents: async () => ({ enabled: bridge.enabled, pairings: bridge.pairings }),
+  setAgentsEnabled: async (enabled: boolean) => {
+    bridge.enabled = enabled;
+  },
+  setUpAgent: async () => {
+    throw new Error("Unexpected setUpAgent");
+  },
   listChatProviders: async () => [],
   listApprovalRequests: async () => [],
   listUserQuestions: async () => [],
@@ -65,6 +90,10 @@ const { createRoot } = await import("react-dom/client");
 const { useAppStore } = await import("../../src/renderer/src/store");
 const stepPath = "../../src/renderer/src/components/firstRun/AiStep.tsx";
 const { AiStep }: { AiStep: ComponentType<{ place: unknown }> } = await import(stepPath);
+const dialogPath = "../../src/renderer/src/components/agents/ConnectManyDialog.tsx";
+const { ConnectManyDialog }: { ConnectManyDialog: ComponentType<Record<string, unknown>> } =
+  await import(dialogPath);
+const { translate } = await import("../../src/shared/i18n");
 
 const NO_MODEL: ChatReadiness = { ready: false, reason: "no-provider" };
 const MODEL = {
@@ -98,7 +127,15 @@ const has = (container: HTMLElement, testId: string) =>
   container.querySelector(`[data-testid="${testId}"]`) !== null;
 
 beforeEach(() => {
+  bridge.clients = [client("claude-code", "Claude Code"), client("other", "")];
   bridge.pairings = [];
+  bridge.enabled = false;
+  bridge.setAgentsEnabled = async (enabled: boolean) => {
+    bridge.enabled = enabled;
+  };
+  bridge.setUpAgent = async () => {
+    throw new Error("Unexpected setUpAgent");
+  };
 });
 afterEach(async () => {
   await unmount?.();
@@ -167,5 +204,107 @@ describe("the setup's Your AI step", () => {
     expect(container.querySelector('[data-testid="setup-in-app-open"]')?.textContent).toBe(
       "在 IncarnaMind 里用一个模型",
     );
+  });
+
+  test("with two found apps: Details holds the consent text, and failing every app keeps the tiles open (#3644)", async () => {
+    bridge.clients = [
+      client("claude-code", "Claude Code", { installed: true, setup: "file" }),
+      client("codex", "ChatGPT app and Codex", { installed: true, setup: "file" }),
+      client("other", "", { installed: false, setup: "manual" }),
+    ];
+    bridge.setUpAgent = async () => {
+      throw new Error("Permission denied.");
+    };
+
+    const container = await step(NO_MODEL);
+    const consent = container.querySelector('[data-testid="connect-many-consent-body"]');
+    expect(consent?.textContent).toBe(translate("en", "agents.connectAll.body"));
+
+    const allow = container.querySelector(
+      '[data-testid="setup-agent-allow-all"]',
+    ) as HTMLButtonElement;
+    expect(allow).not.toBeNull();
+    await act(async () => {
+      allow.click();
+    });
+    await act(async () => undefined);
+
+    expect(has(container, "connect-many-result")).toBe(true);
+    expect(container.querySelectorAll('[data-testid="connect-many-retry"]').length).toBe(2);
+    // No dead-end: the tiles stay visible when nothing connected.
+    expect(container.querySelectorAll('[data-testid="setup-agent"]').length).toBeGreaterThan(0);
+    expect(bridge.enabled).toBe(false);
+  });
+
+  test("when turning connecting agents on fails, the many-app sheet stays open with the error (#3644)", async () => {
+    bridge.clients = [
+      client("claude-code", "Claude Code", { installed: true, setup: "file" }),
+      client("codex", "ChatGPT app and Codex", { installed: true, setup: "file" }),
+      client("other", "", { installed: false, setup: "manual" }),
+    ];
+    bridge.setAgentsEnabled = async () => {
+      throw new Error("Settings are read-only.");
+    };
+
+    const container = await step(NO_MODEL);
+    const allow = container.querySelector(
+      '[data-testid="setup-agent-allow-all"]',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      allow.click();
+    });
+    await act(async () => undefined);
+
+    expect(has(container, "setup-agent-allow-all")).toBe(true);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Settings are read-only.",
+    );
+  });
+
+  test("ConnectManyDialog blocks Cancel, Esc and close while setup is running (#3644)", async () => {
+    const onClose = vi.fn();
+    const found = [
+      client("claude-code", "Claude Code", { installed: true, setup: "file" }),
+      client("codex", "ChatGPT app and Codex", { installed: true, setup: "file" }),
+    ];
+    const container = page.createElement("div", {});
+    page.body.append(container);
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(ConnectManyDialog, {
+          open: true,
+          clients: found,
+          busy: true,
+          problem: null,
+          outcomes: null,
+          undone: new Set(),
+          onAllow: () => undefined,
+          onUndo: async () => undefined,
+          onRetry: async () => undefined,
+          onClose,
+        }),
+      ),
+    );
+    unmount = async () => {
+      await act(() => root.unmount());
+      container.remove();
+    };
+    const cancelButton = container.querySelector(
+      '[data-testid="connect-many-cancel"]',
+    ) as HTMLButtonElement;
+    const allowButton = container.querySelector(
+      '[data-testid="connect-many-allow"]',
+    ) as HTMLButtonElement;
+    expect(cancelButton.disabled).toBe(true);
+    expect(allowButton.disabled).toBe(true);
+    const dialog = container.querySelector('[data-testid="connect-many-dialog"]') as HTMLElement;
+    const cancelEvent = new view.Event("cancel", { cancelable: true });
+    await act(async () => {
+      dialog.dispatchEvent(cancelEvent);
+      dialog.dispatchEvent(new view.Event("close"));
+    });
+    expect(cancelEvent.defaultPrevented).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

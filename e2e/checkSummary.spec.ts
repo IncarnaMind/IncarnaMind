@@ -39,7 +39,8 @@ const WORDS = {
     lookOnly: "2 supported",
     twoLook: "2 need a look",
     needLookRow: "1 needs a look",
-    toCheck: "1 not checked",
+    toCheck: "1 not checked yet",
+    cantCheck: "1 can’t be checked",
     sentences: {
       cited: "Harbours publish the times of high water every 12 months.",
       uncited: [
@@ -50,6 +51,7 @@ const WORDS = {
       contradicted: "The agreement says the facilities end in 2027.",
       notFound: "Ferries run twice a day.",
       notChecked: "The model was not able to check this one.",
+      cantCheck: "The lease is held inside a separate folder.",
       unsupported: "Staff may work from home two days a week.",
       allChecked: "The lighthouse lights every night.",
     },
@@ -63,12 +65,14 @@ const WORDS = {
     twoLook: "2 句需要留意",
     needLookRow: "1 句需要留意",
     toCheck: "1 句未核对",
+    cantCheck: "1 句无法核对",
     sentences: {
       cited: "港口每 12 个月公布一次高潮时间。",
       uncited: ["春潮每天涨两次。", "海鸥天亮时飞往内陆。", "码头六点开门。"],
       contradicted: "协议规定这些贷款在 2027 年到期。",
       notFound: "渡轮每天开两班。",
       notChecked: "模型这次没能核对这一句。",
+      cantCheck: "这份租约存放在单独的文件夹里。",
       unsupported: "员工每周可以在家办公两天。",
       allChecked: "岸边的灯塔每晚亮起。",
     },
@@ -187,14 +191,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
     await expect(card.getByTestId("health-all-checked")).toHaveCount(0);
 
-    // A claim no check covers yet is named too.
+    // A claim no check covers yet is named in "not checked yet", apart from one a check can't settle (#3270).
     await insert([
       paragraph(checked("check-7", "not-checked", sentences.notChecked, { reason: "refused" })),
+      paragraph(checked("check-8", "not-checked", sentences.cantCheck, { reason: "kept-inside" })),
     ]);
     await expect(card.getByTestId("health-supported")).toContainText(words.supported);
-    // Each count shows once in the card: the row names the one not checked yet (#2313).
+    // Each count shows once in the card: waiting and uncheckable sit in their own rows (#2313, #3270).
     await expect(card.getByTestId("health-toCheck")).toContainText(words.toCheck);
     await expect(card.getByText(words.toCheck, { exact: true })).toHaveCount(1);
+    await expect(card.getByTestId("health-cantCheck")).toContainText(words.cantCheck);
+    await expect(card.getByText(words.cantCheck, { exact: true })).toHaveCount(1);
     // On the page it keeps the quiet grey ring, so it never looks like a Supported one (#3358).
     const ring = window.locator('[data-testid="claim-mark"][data-claim="check-7"]');
     await expect(ring).toBeVisible();

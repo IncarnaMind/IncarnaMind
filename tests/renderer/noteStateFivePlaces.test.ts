@@ -139,7 +139,7 @@ describe.each(["en", "zh-CN"] as const)(
         0,
       );
       expect(seen.badge).toEqual([seen.t("health.state.notRecalculated", { count: "2" })]);
-      expect(seen.rows).toEqual([["toCheck", 2]]);
+      expect(seen.rows).toEqual([["cantCheck", 2]]);
     });
   },
 );

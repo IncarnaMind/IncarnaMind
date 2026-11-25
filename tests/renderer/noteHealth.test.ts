@@ -33,6 +33,7 @@ const ROW_KEY = {
   ownViews: "ownViews",
   checking: "checking",
   toCheck: "notChecked",
+  cantCheck: "cantCheck",
 } as const;
 
 const schema = getSchema(noteExtensions());
@@ -582,6 +583,7 @@ describe("The check card's rows (#2831)", () => {
       paragraph(checked("The harbour floods every winter here.", "checking")),
       paragraph(checked("The ferry runs twice a day.", "not-checked", "failed")),
       paragraph(text("The harbour office posts the times each week.")),
+      paragraph(checked("The lease is held in the locked folder.", "not-checked", "kept-inside")),
     );
     const health = healthOf(doc);
     const rows = checkRows(health);
@@ -591,6 +593,7 @@ describe("The check card's rows (#2831)", () => {
       ["supported", 2],
       ["checking", 1],
       ["toCheck", 2],
+      ["cantCheck", 1],
     ]);
     const counted = rows.filter(({ row }) => row !== "ownNotes");
     expect(counted.reduce((sum, { places }) => sum + places.length, 0)).toBe(health.checkable);
@@ -600,19 +603,24 @@ describe("The check card's rows (#2831)", () => {
       "3 need a look",
       "2 supported",
       "1 being checked",
-      "2 not checked",
+      "2 not checked yet",
+      "1 can’t be checked",
     ]);
     expect(rows.map(({ row, places }) => say("zh-CN", row, places.length))).toEqual([
       "3 句需要留意",
       "2 句有依据",
       "1 句正在核对",
       "2 句未核对",
+      "1 句无法核对",
     ]);
     for (const language of ["en", "zh-CN"] as const) {
       const words = rows.map(({ row, places }) => say(language, row, places.length)).join(" ");
       expect(words).not.toMatch(/claim|Citation|说法|引用/);
     }
     expect(say("en", "look", 1)).toBe("1 needs a look");
+    expect(say("en", "toCheck", 1)).toBe("1 not checked yet");
+    expect(say("en", "cantCheck", 2)).toBe("2 can’t be checked");
+    expect(say("zh-CN", "cantCheck", 2)).toBe("2 句无法核对");
     expect(say("zh-CN", "ownNotes", 1)).toBe("1 句仅以你的笔记为依据");
   });
 
