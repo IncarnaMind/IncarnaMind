@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { CoreAdapters, OwnAiRunner } from "../../src/core/adapters";
 import type { NoteTurnEvent } from "../../src/core/api";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
+import { answerEnded } from "../helpers/citations";
 import { startLiveAgentMeeting } from "../helpers/liveAgentMeeting";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
 import { until } from "../helpers/transcription";
@@ -157,6 +158,49 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
         first?.prompt.indexOf("<live-transcript>\n") ?? -1,
       );
       expect(first?.system).toContain("not final and with no id, so never cite them");
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=asked before any line of the call is confirmed, the words being transcribed that go to the app's model count as what the others said, as a confirmed line does: the Answer is third-party text, and a command it would run asks first (#3762, #78); fails_when=the words go to the model while the Run counts as having read nothing of the call
+  test("words not yet final count as what the others said, with no confirmed line yet", async () => {
+    const calls: ModelCall[] = [];
+    const models = scriptedModels(
+      scriptedModel(
+        (call) => {
+          calls.push(call);
+          return { text: "They're saying it moved." };
+        },
+        { judgesItsAnswers: true },
+      ),
+    );
+    const { core, meeting, push } = await startLiveAgentMeeting(
+      vi.fn<Summarize>(),
+      false,
+      [friday],
+      "claude-code",
+      { createChatModel: models.createChatModel },
+    );
+    try {
+      await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+      push(1000);
+      await until(
+        core,
+        meeting.id,
+        (state) => state.lines === 0 && state.partials.some((each) => each.text !== ""),
+      );
+      const result = await core.askInConversation({
+        mindId: meeting.mindId,
+        text: "What are they saying right now?",
+      });
+      if (!result.asked) throw new Error(`Not asked: ${JSON.stringify(result)}`);
+      expect((await answerEnded(core, result.answerId)).event).toBe("finished");
+      expect(calls[0]?.prompt).toContain('<live-transcript final="no">');
+      const { messages } = await core.getConversation(result.conversation.id);
+      const answer = messages.find((message) => message.id === result.answerId);
+      if (answer?.kind !== "answer") throw new Error("No Answer.");
+      expect(answer.textOrigin).toBe("transcript");
     } finally {
       core.close();
     }
