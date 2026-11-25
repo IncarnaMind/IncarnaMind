@@ -61,7 +61,8 @@ const EXCEPTIONS: readonly Exception[] = [
   },
   {
     why: "Says what leaves the computer, to whom and when: ADR-0022 keeps every fact, and only repetition goes",
-    pattern: /^(consent\.data|privacy\.traffic|providers\.sends|status\.sends|agents\.connect)\b/,
+    pattern:
+      /^(consent\.data|privacy\.traffic|providers\.sends|status\.sends|agents\.connect\b|agents\.connectAll\.(body|reads))/,
   },
   {
     why: "Says what leaves the computer, to whom and when: ADR-0022 keeps every fact, and only repetition goes",

@@ -1744,8 +1744,10 @@ export const en = {
   "checks.row.ownViews": "{count} writer’s own views",
   "checks.row.checking.one": "1 being checked",
   "checks.row.checking": "{count} being checked",
-  "checks.row.notChecked.one": "1 not checked",
-  "checks.row.notChecked": "{count} not checked",
+  "checks.row.notChecked.one": "1 not checked yet",
+  "checks.row.notChecked": "{count} not checked yet",
+  "checks.row.cantCheck.one": "1 can’t be checked",
+  "checks.row.cantCheck": "{count} can’t be checked",
   "health.label": "Checks",
   "health.notFound.one": "1 Citation not found",
   "health.notFound": "{count} Citations not found",
@@ -9288,6 +9290,37 @@ export const en = {
   "agents.connect.showChange": "Show the lines",
   "agents.connect.allow": "Allow and connect",
   "agents.connect.cancel": "Cancel",
+  "agents.connectAll.tile": "All {count} on this computer",
+  "agents.connectAll.row": "All {count} AI apps on this computer",
+  "agents.connectAll.rowDetail": "{apps}. One access choice, one connection each.",
+  "agents.connectAll.button": "Connect all {count}",
+  "agents.connectAll.title": "Let your AI apps read your Documents?",
+  "agents.connectAll.body":
+    "They can read the Folders you share, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases they write there. All your Documents and notes means every Folder, those you make later too, and what is in no Folder, your notes there included, but never the examples. A Folder that keeps its work inside it is never part of that, and is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for them on this computer: over a sheet or CSV file in those Folders, sending them what the code gives, and over the names, kinds, Folders and Tags of what they may read, sending them only the numbers. Everything each app lists or reads goes to the AI model it uses, under that service’s terms; some plans may train on it. When you ask one to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
+  "agents.connectAll.reads.all":
+    "Each may read all your Documents and notes. What each reads goes to its AI model.",
+  "agents.connectAll.reads": "What each reads goes to the AI model it uses.",
+  "agents.connectAll.reads.walled":
+    "What each reads goes to its AI model. A Folder that keeps its work inside it is shared only on its own.",
+  "agents.connectAll.folders": "What they may read",
+  "agents.connectAll.propose": "Let them write notes and propose changes",
+  "agents.connectAll.proposeFolders": "Let them write notes and propose changes in these Folders",
+  "agents.connectAll.apps": "Apps to connect",
+  "agents.connectAll.pickApp": "Choose at least one app.",
+  "agents.connectAll.eachOwn": "Each gets its own connection to pause or disconnect anytime.",
+  "agents.connectAll.detail.link":
+    "Opens {agent}; its settings change only after you click Install.",
+  "agents.connectAll.detail.bundle":
+    "Opens Claude; its settings change only after you click Install.",
+  "agents.connectAll.allow": "Allow and connect {count}",
+  "agents.connectAll.done": "Done",
+  "agents.connectAll.waitingPress": "{agent}: waiting for your press",
+  "agents.connectAll.waitingPaste": "{agent}: paste to finish",
+  "agents.connectAll.openAgain": "Open {agent} again",
+  "agents.connectAll.failed": "{agent} wasn’t connected: {reason}",
+  "agents.connectAll.undone": "Disconnected {agent}.",
+  "agents.connectAll.retry": "Try again",
+  "agents.connectAll.resultTitle": "AI app connections",
   "agents.done.bundle": "Claude opened: click Install there to finish.",
   "agents.done.bundleRotated": "Install the file just opened; the old install stops now.",
   "agents.done.link": "Opened {agent}: click Install there to finish.",
@@ -9295,28 +9328,33 @@ export const en = {
     "Added to the settings of {agent}. Start a new session in {agent} to use it.",
   "agents.done.wrote.codex":
     "Start a new chat in {agent}; when it asks to hand over a file, choose “Allow for this session”.",
-  "agents.done.command": "Copied. Paste it into a terminal and run it.",
-  "agents.done.settings": "Copied. In {agent}, add it as a new server, then restart it.",
+  "agents.done.copied": "Copied. {instruction}",
+  "agents.done.command": "Paste it into a terminal and run it.",
+  "agents.done.settings": "In {agent}, add it as a new server, then restart it.",
   "agents.done.settings.other":
-    "Copied. Paste it where your agent adds a server, then restart it. Each part is under Details.",
+    "Paste it where your agent adds a server, then restart it. Each part is under Details.",
   "agents.done.paste.devin":
-    "Copied. In Devin Desktop: Customize › MCPs › This computer; add it under mcpServers.",
+    "In Devin Desktop: Customize › MCPs › This computer; add it under mcpServers.",
   "agents.done.paste.zed":
-    "Copied. In Zed: Settings › AI › MCP Servers › Add Server › Add Local Server; replace the example.",
+    "In Zed: Settings › AI › MCP Servers › Add Server › Add Local Server; replace the example.",
   "agents.done.paste.trae":
-    "Copied. In Trae, open Settings › MCP, choose Add › Add Manually, paste it and confirm.",
+    "In Trae, open Settings › MCP, choose Add › Add Manually, paste it and confirm.",
   "agents.done.paste.qoder":
-    "Copied. In Qoder: Qoder IDE Settings › MCP › My Servers › + Add; add it and save.",
+    "In Qoder: Qoder IDE Settings › MCP › My Servers › + Add; add it and save.",
   "agents.done.paste.codebuddy":
-    "Copied. In CodeBuddy, open CodeBuddy Settings › MCP, click Add MCP, paste it and save.",
+    "In CodeBuddy, open CodeBuddy Settings › MCP, click Add MCP, paste it and save.",
   "agents.done.paste.minimax-code":
-    "Copied. In MiniMax Code: plugin management › MCP Servers › JSON; paste it and save.",
+    "In MiniMax Code: plugin management › MCP Servers › JSON; paste it and save.",
   "agents.done.paste.kilo-code":
     "In Kilo Code: Settings › MCP › Add Server › Local (stdio); fill in each part from Details.",
   "agents.done.unreadable.command":
     "Couldn’t change the settings file of {agent}. The command is copied: run it in a terminal.",
+  "agents.done.unreadable.command.manual":
+    "Couldn’t change the settings file of {agent}. Copy and run the command below.",
   "agents.done.unreadable":
     "Couldn’t read the settings file of {agent}. The settings are copied: paste them into {path}.",
+  "agents.done.unreadable.manual":
+    "Couldn’t read the settings file of {agent}. Copy and paste the settings into {path}.",
   "agents.done.undo": "Undo",
   "agents.ask.action": "Ask {agent}",
   "agents.ask.pill": "Ask {agent}",

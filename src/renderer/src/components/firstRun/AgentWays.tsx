@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { AgentClient, AgentClientId, AgentPairing } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
+import { unitsOf } from "../../../../shared/i18n/join";
 import { resetClaudeCodeInstall } from "../../claudeCodeInstall";
 import { core } from "../../core";
 import { useLanguage, useT } from "../../i18n";
@@ -11,6 +12,8 @@ import type { JustSetUp } from "../agents/AgentPairingRow";
 import { clientName, doneWords, helpUrl, takesParts } from "../agents/agentWords";
 import { ClaudeCodeInstallRow } from "../agents/ClaudeCodeInstallRow";
 import { ConnectAgentFields, useAgentConnection } from "../agents/ConnectAgentFields";
+import { ConnectManyFields, useManyAgentConnection } from "../agents/ConnectManyFields";
+import { ConnectManyResult } from "../agents/ConnectManyResult";
 import { LaunchDetails } from "../agents/LaunchDetails";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle } from "../ui";
@@ -44,16 +47,39 @@ export function AgentWays({
   const language = useLanguage();
   const id = useId();
   const reportError = useAppStore((state) => state.reportError);
-  const [chosen, setChosen] = useState<AgentClient | null>(null);
+  const [chosen, setChosen] = useState<AgentClient | "all" | null>(null);
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
   const connection = useAgentConnection();
+  const many = useManyAgentConnection();
   const list = useRef<HTMLFieldSetElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const chosenId = chosen?.id ?? null;
+  const inUse = new Set(pairings.map((pairing) => pairing.client));
+  const foundToConnect =
+    clients.state === "ready"
+      ? clients.data.filter(
+          (client) => client.installed && client.id !== "other" && !inUse.has(client.id),
+        )
+      : [];
+  const offerAll = foundToConnect.length >= 2;
+  // When two or more apps are found and none is connected yet, "All N" starts chosen (#3644).
+  const autoAll = useRef(false);
+  useEffect(() => {
+    if (
+      !autoAll.current &&
+      offerAll &&
+      pairings.length === 0 &&
+      chosen === null &&
+      !many.outcomes
+    ) {
+      autoAll.current = true;
+      setChosen("all");
+    }
+  }, [offerAll, pairings.length, chosen, many.outcomes]);
+  const chosenKey = chosen === "all" ? "all" : (chosen?.id ?? null);
   // The card opens under the tiles, out of view at the usual window size: its Allow must show.
   useEffect(() => {
-    if (chosenId) card.current?.scrollIntoView({ block: "nearest" });
-  }, [chosenId]);
+    if (chosenKey) card.current?.scrollIntoView({ block: "nearest" });
+  }, [chosenKey]);
   // Try again goes once the agents are listed: the focus moves on to the first of them.
   const failed = useRef(clients.state === "failed");
   useEffect(() => {
@@ -70,6 +96,11 @@ export function AgentWays({
     setJustSetUp(done);
     setChosen(null);
     if (client.id === "claude-code") void resetClaudeCodeInstall();
+  };
+
+  const allowAll = async (choice: Parameters<typeof many.connectAll>[0]) => {
+    const results = await many.connectAll(choice, { enable: true });
+    if (results) setChosen(null);
   };
 
   const openClaudeCodeConnect = useCallback(() => {
@@ -90,6 +121,11 @@ export function AgentWays({
     }
   }, [clients, connection]);
 
+  const outcomePairingIds = new Set(
+    (many.outcomes ?? []).flatMap((each) => (each.kind === "connected" ? [each.pairing.id] : [])),
+  );
+  const singlePairings = pairings.filter((pairing) => !outcomePairingIds.has(pairing.id));
+
   return (
     <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
       <h2 id={`${id}-title`} className="text-ui font-semibold text-ink">
@@ -104,7 +140,7 @@ export function AgentWays({
           onKeepDesktop={selectClaudeDesktop}
         />
       )}
-      {pairings.map((pairing) => {
+      {singlePairings.map((pairing) => {
         const done = justSetUp?.pairingId === pairing.id ? justSetUp.result : null;
         return (
           <div key={pairing.id} className="flex flex-col gap-1">
@@ -157,6 +193,14 @@ export function AgentWays({
           </div>
         );
       })}
+      {many.outcomes && (
+        <ConnectManyResult
+          outcomes={many.outcomes}
+          undone={many.undone}
+          onUndo={many.undoOne}
+          onRetry={many.retryOne}
+        />
+      )}
       {clients.state === "failed" && (
         <ReadProblem
           words={t("setupPage.agents.failed")}
@@ -164,7 +208,7 @@ export function AgentWays({
           testId="setup-agents-problem"
         />
       )}
-      {clients.state === "ready" && !justSetUp && (
+      {clients.state === "ready" && !justSetUp && !many.hasActiveOutcome && (
         <AgentFinder clients={clients.data} testId="setup-agents">
           {(shown) => (
             <fieldset
@@ -172,6 +216,36 @@ export function AgentWays({
               className="m-0 grid grid-cols-2 gap-2 border-0 p-0 max-[520px]:grid-cols-1"
             >
               <legend className="sr-only">{t("setupPage.ai.agents")}</legend>
+              {offerAll && (
+                <label
+                  data-testid="setup-agent-all"
+                  className="col-span-full flex min-h-9 min-w-0 cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2 shadow-[inset_0_0_0_1px_var(--color-rule-strong)] hover:bg-hover has-[input:checked]:shadow-[inset_0_0_0_2px_var(--color-ink)]"
+                >
+                  <input
+                    type="radio"
+                    name={`${id}-agent`}
+                    value="all"
+                    checked={chosen === "all"}
+                    onChange={() => {
+                      connection.clearProblem();
+                      many.clear();
+                      setChosen("all");
+                    }}
+                    className="mt-0.5 size-4 shrink-0 accent-ink"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-ui font-semibold text-ink">
+                      {t("agents.connectAll.tile", { count: foundToConnect.length })}
+                    </span>
+                    <span className="block text-[12px] leading-4 text-ink-meta">
+                      {unitsOf(
+                        foundToConnect.map((client) => clientName(client, t)),
+                        language,
+                      )}
+                    </span>
+                  </span>
+                </label>
+              )}
               {shown.map((client) => (
                 <label
                   key={client.id}
@@ -183,9 +257,10 @@ export function AgentWays({
                     type="radio"
                     name={`${id}-agent`}
                     value={client.id}
-                    checked={chosen?.id === client.id}
+                    checked={chosen !== "all" && chosen?.id === client.id}
                     onChange={() => {
                       connection.clearProblem();
+                      many.clear();
                       setChosen(client);
                     }}
                     className="size-4 shrink-0 accent-ink"
@@ -204,7 +279,33 @@ export function AgentWays({
           )}
         </AgentFinder>
       )}
-      {chosen && (
+      {chosen === "all" && offerAll && (
+        <div
+          ref={card}
+          data-testid="setup-agent-connect-all"
+          className="flex scroll-mb-28 flex-col gap-3 rounded-lg px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--color-rule)]"
+        >
+          <h3 className="text-ui font-semibold text-ink">{t("agents.connectAll.title")}</h3>
+          <ConnectManyFields
+            clients={foundToConnect}
+            problem={many.problem}
+            actions={({ choice, disabled }) => (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  data-testid="setup-agent-allow-all"
+                  disabled={disabled || many.busy}
+                  onClick={() => void allowAll(choice)}
+                  className={buttonStyle("primary", "md")}
+                >
+                  {t("agents.connectAll.allow", { count: choice.clients.length })}
+                </button>
+              </div>
+            )}
+          />
+        </div>
+      )}
+      {chosen && chosen !== "all" && (
         <div
           ref={card}
           data-testid="setup-agent-connect"
