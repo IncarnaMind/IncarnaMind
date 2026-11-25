@@ -636,30 +636,23 @@ const firstLine = (window: Page, past: number) =>
       }
     }
     const first = texts[0];
-    const last = texts.at(-1);
     const after = texts.find(
       (each) => wrapper.compareDocumentPosition(each) & Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    if (!first || !last || !after)
-      throw new Error("The paragraph has no words around the Citation.");
+    if (!first || !after) throw new Error("The paragraph has no words around the Citation.");
     const rectOf = (node: Text, from: number, to: number) => {
       const range = document.createRange();
       range.setStart(node, from);
       range.setEnd(node, to);
       return range.getBoundingClientRect();
     };
-    let end = last.data.length;
-    while (end > 0 && /\s/.test(last.data[end - 1] ?? "")) end--;
     const start = rectOf(first, 0, 1);
     const reach = rectOf(after, count - 1, count);
-    const finish = rectOf(last, end - 1, end);
     return {
       lineTop: paragraph.getBoundingClientRect().top,
       top: start.top,
       from: { x: start.left + 0.5, y: start.top + start.height / 2 },
       to: { x: reach.right + 0.5, y: reach.top + reach.height / 2 },
-      // Well past the last letter: a browser can round a drag's end back to the boundary before the pointer (Linux does).
-      end: { x: finish.right + 12, y: finish.top + finish.height / 2 },
     };
   }, past);
 
@@ -774,7 +767,7 @@ for (const language of ["en", "zh-CN"] as const) {
           });
         const line = await firstLine(window, words.past);
         const plain = editor(window).locator("p").filter({ hasText: words.plain[0] });
-        // A click in the last paragraph's empty end, so the next drag starts from a caret.
+        // A click in the last paragraph's empty end, so the next press starts from a caret.
         const clear = async () => {
           const at = await plain.boundingBox();
           if (!at) throw new Error("The last paragraph isn't on screen.");
@@ -824,8 +817,11 @@ for (const language of ["en", "zh-CN"] as const) {
         expect(await washBehind(outside)).toBe("rgba(0, 0, 0, 0)");
         expect(await background(outside)).toBe(await tokenColor(window, "--color-chip"));
 
-        // The whole sentence: its mark is washed with it, and the other sentence's is not.
-        await drag(line.end);
+        // The whole sentence, taken by a triple-click: its mark is washed with it, and the other sentence's is not.
+        await clear();
+        await window.mouse.move(line.from.x + 20, line.from.y, { steps: 3 });
+        await window.mouse.click(line.from.x + 20, line.from.y, { clickCount: 3 });
+        await expect(window.getByTestId("selection-menu")).toBeVisible();
         await expect
           .poll(() => pageBehind(marks.first()), {
             message: "The sentence's mark is bare in its selection.",
