@@ -13,9 +13,10 @@ import type {
 import {
   type AgentBridge,
   agentConnector,
+  createAgentConnectors,
   manyAgentsConnector,
 } from "../../src/renderer/src/agentConnection";
-import { doneWords } from "../../src/renderer/src/components/agents/agentWords";
+import { doneWords, setupProblem } from "../../src/renderer/src/components/agents/agentWords";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /** A core whose setups wait until the test settles them, one by one. */
@@ -284,5 +285,49 @@ describe("connecting several AI apps in one press (#3644)", () => {
         (key, params) => translate("en", key, params),
       ),
     ).not.toContain("Copied.");
+  });
+
+  // protects=one-app and many-app connectors share one in-flight counter so a failed one-app attempt never turns connecting off under a many-app batch (#3644); fails_when=agents.enabled flips false while the many-app batch is still running
+  test("a failed one-app attempt never turns connecting off while a many-app batch is still under way", async () => {
+    const { state, bridge, started } = bridgeOf();
+    const { connectOne, connectMany } = createAgentConnectors(bridge, () => {});
+    const batch = connectMany(
+      [clientOf("cursor"), clientOf("codex")],
+      { folderIds: ["not-in-a-folder"], propose: true },
+      { enable: true },
+    );
+    const cursor = await started("cursor");
+    expect(state.enabled).toBe(true);
+
+    const single = connectOne(input("windsurf"), { enable: true });
+    (await started("windsurf")).fail();
+    await expect(single).rejects.toThrow();
+    // The many-app batch is still in flight, so connecting must stay on.
+    expect(state.enabled).toBe(true);
+
+    cursor.connect();
+    (await started("codex")).connect();
+    await batch;
+    expect(state.enabled).toBe(true);
+    expect(state.pairings).toHaveLength(2);
+  });
+
+  // protects=setup failures outside the paste fallback show plain translated words in both EN and ZH rather than raw English OS messages (#3644); fails_when=EACCES/ENOSPC or raw English strings leak into the Chinese interface
+  test("setupProblem gives plain words in both EN and ZH for system errors and unexpected failures", () => {
+    const en = (key: MessageKey, params?: MessageParams) => translate("en", key, params);
+    const zh = (key: MessageKey, params?: MessageParams) => translate("zh-CN", key, params);
+
+    const eacces = new Error("EACCES: permission denied, open '/etc/readonly.json'");
+    expect(setupProblem(eacces, en)).toBe(en("error.system.notAllowed"));
+    expect(setupProblem(eacces, zh)).toBe(zh("error.system.notAllowed"));
+
+    const enospc = new Error("ENOSPC: no space left on device");
+    expect(setupProblem(enospc, en)).toBe(en("error.system.full"));
+    expect(setupProblem(enospc, zh)).toBe(zh("error.system.full"));
+
+    const raw = new Error("spawn claude ENOENT raw unexpected");
+    expect(setupProblem(raw, en)).toBe(en("agents.setup.failed"));
+    expect(setupProblem(raw, zh)).toBe(zh("agents.setup.failed"));
+    expect(setupProblem(raw, zh)).not.toMatch(/[A-Za-z]/);
   });
 });

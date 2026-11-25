@@ -65,34 +65,22 @@ function enableGuard(bridge: AgentBridge, rollbackFailed: (error: unknown) => vo
 }
 
 /**
- * `enable` turns connecting agents on first, for a place with no switch of its own. It goes back
- * off only when the last attempt under way has settled with no agent connected, so a failed
- * attempt never turns agents off under one that connected or is still connecting.
+ * One-app and many-app connectors sharing a single in-flight enable/rollback guard (#3644), so a
+ * failed one-app attempt can never turn connecting agents off while a many-app batch is still under
+ * way, or vice versa.
  */
-export function agentConnector(
+export function createAgentConnectors(
   bridge: AgentBridge,
   rollbackFailed: (error: unknown) => void,
-): ConnectAgent {
+): { connectOne: ConnectAgent; connectMany: ConnectManyAgents } {
   const guarded = enableGuard(bridge, rollbackFailed);
-  return (input, { enable = false } = {}) =>
+  const connectOne: ConnectAgent = (input, { enable = false } = {}) =>
     guarded(enable, async (markConnected) => {
       const setUp = await bridge.setUpAgent(input);
       markConnected();
       return setUp;
     });
-}
-
-/**
- * Connects several apps one after another under one choice of folders and write grant (#3644).
- * Sequential because two apps can share a Skill folder; one failure never stops the others, and
- * shares the `going` rollback guard across batches and concurrent retries.
- */
-export function manyAgentsConnector(
-  bridge: AgentBridge,
-  rollbackFailed: (error: unknown) => void,
-): ConnectManyAgents {
-  const guarded = enableGuard(bridge, rollbackFailed);
-  return (clients, choice, { enable = false } = {}) =>
+  const connectMany: ConnectManyAgents = (clients, choice, { enable = false } = {}) =>
     guarded(enable, async (markConnected) => {
       const outcomes: AgentConnectOutcome[] = [];
       for (const client of clients) {
@@ -110,4 +98,29 @@ export function manyAgentsConnector(
       }
       return outcomes;
     });
+  return { connectOne, connectMany };
+}
+
+/**
+ * `enable` turns connecting agents on first, for a place with no switch of its own. It goes back
+ * off only when the last attempt under way has settled with no agent connected, so a failed
+ * attempt never turns agents off under one that connected or is still connecting.
+ */
+export function agentConnector(
+  bridge: AgentBridge,
+  rollbackFailed: (error: unknown) => void,
+): ConnectAgent {
+  return createAgentConnectors(bridge, rollbackFailed).connectOne;
+}
+
+/**
+ * Connects several apps one after another under one choice of folders and write grant (#3644).
+ * Sequential because two apps can share a Skill folder; one failure never stops the others, and
+ * shares the `going` rollback guard across batches and concurrent retries.
+ */
+export function manyAgentsConnector(
+  bridge: AgentBridge,
+  rollbackFailed: (error: unknown) => void,
+): ConnectManyAgents {
+  return createAgentConnectors(bridge, rollbackFailed).connectMany;
 }
