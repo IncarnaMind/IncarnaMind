@@ -9384,7 +9384,8 @@
   /*
    * A Citation the selection covers is washed as the words around it are, its marker and the gaps
    * beside it: the browser draws the selection behind text, and the marker is none. In focus the
-   * wash is as tall as the line, as the browser's is; out of focus `.held-selection` holds it.
+   * wash is as tall as the line, as the browser's is, whatever the font's own height; out of focus
+   * `.held-selection` holds it.
    */
   .held-selection.citation-in-selection {
     --citation-wash: var(--color-selection-inactive);
@@ -9392,9 +9393,18 @@
   .ProseMirror:focus .citation-in-selection {
     --citation-wash: var(--color-selection);
   }
-  .ProseMirror:focus .node-citation.citation-in-selection {
+  .ProseMirror:focus .citation-in-selection > .citation {
+    isolation: isolate;
+  }
+  .ProseMirror:focus .citation-in-selection > .citation::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 50%;
+    height: 1lh;
+    translate: 0 -50%;
+    z-index: -1;
     background: var(--citation-wash);
-    padding-block: calc((1lh - 1.2em) / 2);
   }
   :is(.ProseMirror:focus .citation-in-selection, .held-selection.citation-in-selection)
     .citation-marker {

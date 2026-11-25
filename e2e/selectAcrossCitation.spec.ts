@@ -613,7 +613,10 @@ function citedParagraphs(
   ];
 }
 
-/** The first paragraph's first line, as points to press and a row to read, in window pixels. */
+/**
+ * The first paragraph's first line, as points to press and rows to read, in window pixels: the
+ * line's top edge, and the top of its letters' own box, which a font may keep inside it.
+ */
 const firstLine = (window: Page, past: number) =>
   window.evaluate((count) => {
     const paragraph = document.querySelector(
@@ -651,6 +654,7 @@ const firstLine = (window: Page, past: number) =>
     const reach = rectOf(after, count - 1, count);
     const finish = rectOf(last, end - 1, end);
     return {
+      lineTop: paragraph.getBoundingClientRect().top,
       top: start.top,
       from: { x: start.left + 0.5, y: start.top + start.height / 2 },
       to: { x: reach.right + 0.5, y: reach.top + reach.height / 2 },
@@ -761,6 +765,12 @@ for (const language of ["en", "zh-CN"] as const) {
         const wrapperOf = (chip: Locator) =>
           chip.locator("xpath=ancestor::*[contains(@class,'node-citation')][1]");
         const background = async (target: Locator) => (await paintOf(target)).background;
+        /** The wash a Citation's marker and the gaps beside it stand on while the Note has the focus. */
+        const washBehind = (chip: Locator) =>
+          chip.evaluate((marker) => {
+            const citation = marker.closest('[data-testid="citation"]');
+            return citation ? getComputedStyle(citation, "::after").backgroundColor : "";
+          });
         const line = await firstLine(window, words.past);
         const plain = editor(window).locator("p").filter({ hasText: words.plain[0] });
         // A click in the last paragraph's empty end, so the next drag starts from a caret.
@@ -795,12 +805,12 @@ for (const language of ["en", "zh-CN"] as const) {
         // Words from the first letter to just past the first Citation.
         await drag(line.to);
         expect((await selection(window)).covers, "The selection covers the Citation.").toBe(true);
-        // The wash stands as tall as the line, so a row at the top of the line crosses no gap.
+        // The wash stands as tall as the line, so a row just inside its top edge crosses no gap.
         await expect
-          .poll(() => gaps(line.top - 2), { message: "The page shows through the selection." })
+          .poll(() => gaps(line.lineTop + 1), { message: "The page shows through the selection." })
           .toBe(0);
         const chip = chips.first();
-        await expect.poll(() => background(wrapperOf(chip))).toBe(wash);
+        await expect.poll(() => washBehind(chip)).toBe(wash);
         const marker = await paintOf(chip);
         expect(marker.background).toBe(wash);
         expect(
@@ -810,7 +820,7 @@ for (const language of ["en", "zh-CN"] as const) {
         // A sentence the selection covers in part keeps its mark as it was; a Citation outside it keeps its own.
         expect(await pageBehind(marks.first())).toBe(true);
         const outside = chips.last();
-        expect(await background(wrapperOf(outside))).toBe("rgba(0, 0, 0, 0)");
+        expect(await washBehind(outside)).toBe("rgba(0, 0, 0, 0)");
         expect(await background(outside)).toBe(await tokenColor(window, "--color-chip"));
 
         // The whole sentence: its mark is washed with it, and the other sentence's is not.
