@@ -1202,8 +1202,12 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const output = await createSourceFolder();
     await core.setOutputLocation(output);
     const words = { title: "Quay counts", markdown: OFFICE, folderId: coast.id };
-    const before = structured<Saved>(await save(await connectLegacyAgent(writer.launch), words));
+    const first = await connectLegacyAgent(writer.launch);
+    const before = structured<Saved>(await save(first, words));
+    await first.close();
     const reopened = await restart();
+    // The reopened app listens for agents a moment after it starts: this waits until it does.
+    await reopened.setAgentsEnabled(true);
     const after = structured<Saved>(await save(await connectLegacyAgent(writer.launch), words));
     expect(after).toMatchObject({
       fileId: before.fileId,
