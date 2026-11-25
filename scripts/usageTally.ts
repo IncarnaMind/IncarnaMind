@@ -45,6 +45,7 @@ const file = process.env.NIGHTLY_USAGE_FILE;
 if (file) {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
+    const at = new Date().toISOString();
     const response = await original(input, init);
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (HOSTS.has(url.host) && response.ok) {
@@ -54,7 +55,9 @@ if (file) {
       response
         .clone()
         .text()
-        .then((text) => appendFileSync(file, `${JSON.stringify({ model, ...usageOf(text) })}\n`))
+        .then((text) =>
+          appendFileSync(file, `${JSON.stringify({ model, at, ...usageOf(text) })}\n`),
+        )
         // A request the caller cancels half way ends its copy of the stream too; it counted what it read.
         .catch(() => {});
     }

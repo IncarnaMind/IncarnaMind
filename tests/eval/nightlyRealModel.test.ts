@@ -458,6 +458,20 @@ describe("the spend", () => {
     expect(spendOf([deepseek], "deepseek").dollars).toBeCloseTo(
       (8 / 7.1) * rateAt(deepseekPrice, new Date()),
     );
+    // Request-time timestamp pins peak vs off-peak pricing even if the summary runs later across a boundary.
+    const peakRecord = { ...deepseek, at: "2026-11-25T02:00:00.000Z" }; // Wed 10:00 Beijing (peak)
+    const offPeakRecord = { ...deepseek, at: "2026-11-25T05:00:00.000Z" }; // Wed 13:00 Beijing (off-peak)
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-25T05:30:00.000Z"));
+      expect(spendOf([peakRecord], "deepseek").dollars).toBeCloseTo(8 / 7.1);
+      expect(spendOf([offPeakRecord], "deepseek").dollars).toBeCloseTo(4 / 7.1);
+      vi.setSystemTime(new Date("2026-11-25T07:00:00.000Z"));
+      expect(spendOf([peakRecord], "deepseek").dollars).toBeCloseTo(8 / 7.1);
+      expect(spendOf([offPeakRecord], "deepseek").dollars).toBeCloseTo(4 / 7.1);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(spendOf([{ ...haiku, model: "claude-unknown-9" }], "anthropic")).toEqual({
       dollars: 0,
       unpricedTokens: 2_000_000,

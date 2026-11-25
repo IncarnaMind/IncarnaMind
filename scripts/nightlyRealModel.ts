@@ -574,7 +574,13 @@ export async function runSteps(
   return attempts;
 }
 
-type Counted = Usage & { model?: string };
+type Counted = Usage & { model?: string; at?: string };
+
+const requestTime = (at: string | undefined): Date => {
+  if (!at) return new Date();
+  const parsed = new Date(at);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
 
 /** What the requests cost in dollars at the catalog's prices, and the tokens of models it has none for. */
 export function spendOf(
@@ -589,7 +595,9 @@ export function spendOf(
       unpricedTokens += each.inputTokens + each.outputTokens;
       continue;
     }
-    const cost = costOf(each, price, new Date(), { cacheWrites: provider === "anthropic" });
+    const cost = costOf(each, price, requestTime(each.at), {
+      cacheWrites: provider === "anthropic",
+    });
     dollars += inCurrency(cost, price.currency, "USD");
   }
   return { dollars, unpricedTokens };
