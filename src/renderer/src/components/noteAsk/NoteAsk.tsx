@@ -16,6 +16,7 @@ import {
   askInNote,
   caretOf,
   clearNoteAsk,
+  focusNoteAsk,
   listen,
   moveConversation,
   openColumnAt,
@@ -201,9 +202,17 @@ function NoteAskBox({
       ask={ask}
       mindId={mindId}
       editor={editor}
-      onOpen={() => (upward ? toggle() : openColumnAt(mindId, ask.turnId))}
+      onOpen={() => {
+        // The pressed line goes as the conversation opens: the keyboard goes to the input.
+        focusNoteAsk(mindId);
+        if (upward) toggle();
+        else openColumnAt(mindId, ask.turnId);
+      }}
     />
   ) : null;
+  // Open, the conversation shows the line's reply and a failure of its request; a request that
+  // failed before it began has no turn there, so its line stays above the input.
+  const shownLine = open && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
   const agent = ask?.agent || "Claude Code";
   const input = (
     <NoteAskInput
@@ -223,10 +232,10 @@ function NoteAskBox({
       line={
         upward ? (
           kept || ask ? (
-            <ConversationHandle line={line} open={open} onToggle={toggle} />
+            <ConversationHandle line={shownLine} open={open} onToggle={toggle} />
           ) : null
-        ) : open ? null : (
-          line
+        ) : (
+          shownLine
         )
       }
       panel={
@@ -277,8 +286,8 @@ function NoteAskBox({
 
 /**
  * The box's top row with the conversation upward: the AI's line, or "Show conversation" when there
- * is none, and the chevron that opens and folds it. Open, it holds only the move to the right and
- * the fold: a run's words, the reply and its one action are in the conversation above it then.
+ * is none, and the chevron that opens and folds it. Open, it holds the move to the right and the
+ * fold, and a line only where the conversation above it can't show it.
  */
 function ConversationHandle({
   line,
@@ -290,10 +299,9 @@ function ConversationHandle({
   onToggle(): void;
 }) {
   const t = useT();
-  const shownLine = open ? null : line;
   return (
     <div data-testid="note-ask-handle" className="note-ask-handle">
-      {shownLine ??
+      {line ??
         (open ? (
           <span className="flex-1" />
         ) : (

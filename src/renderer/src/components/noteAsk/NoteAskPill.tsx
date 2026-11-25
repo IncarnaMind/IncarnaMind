@@ -248,32 +248,9 @@ export function NoteAskPill({
     );
   }
   if (ask.state === "failed") {
-    const readOnly = ask.problem === "read-only";
     return (
       <div data-testid="note-ask-pill" data-state="failed" className="note-ask-pill note-ask-end">
-        <ProblemLine
-          testId="note-ask-problem"
-          role={readOnly ? "status" : "alert"}
-          className="note-ask-pill-text"
-          action={
-            readOnly
-              ? {
-                  label: t("noteAsk.allow"),
-                  testId: "note-ask-allow",
-                  onClick: () =>
-                    void allowAndAskAgain(mindId).catch(useAppStore.getState().reportError),
-                }
-              : undefined
-          }
-        >
-          {readOnly
-            ? t("noteAsk.readOnly", { agent: ask.agent })
-            : t(`noteAsk.problem.${ask.problem ?? "failed"}`, {
-                agent: ask.agent,
-                found: ask.versions?.found ?? "",
-                lowest: ask.versions?.lowest ?? "",
-              })}
-        </ProblemLine>
+        <FailureLine ask={ask} mindId={mindId} className="note-ask-problem-line" />
       </div>
     );
   }
@@ -286,6 +263,8 @@ export function NoteAskPill({
         <button
           type="button"
           data-testid="note-ask-pill-open"
+          // It goes as the conversation opens: a press never leaves the focus on it.
+          onMouseDown={(event) => event.preventDefault()}
           onClick={onOpen}
           className="note-ask-pill-text note-ask-pill-reply"
         >
@@ -294,6 +273,51 @@ export function NoteAskPill({
       )}
       <EndAction ask={ask} mindId={mindId} editor={editor} named={words === ""} />
     </div>
+  );
+}
+
+/**
+ * Why a request failed, in one line that wraps, with the one thing to do when there is one. In a
+ * turn of the conversation, `turn` is that turn's record: the line is part of it, read out only as
+ * a status, and what Allow sends again comes from it where this window didn't send the request.
+ */
+export function FailureLine({
+  ask,
+  mindId,
+  className,
+  turn,
+}: {
+  ask: NoteAsk;
+  mindId: string;
+  className: string;
+  turn?: { request: string; quote: string };
+}) {
+  const t = useT();
+  const readOnly = ask.problem === "read-only";
+  return (
+    <ProblemLine
+      testId="note-ask-problem"
+      role={readOnly || turn ? "status" : "alert"}
+      className={className}
+      action={
+        readOnly
+          ? {
+              label: t("noteAsk.allow"),
+              testId: "note-ask-allow",
+              onClick: () =>
+                void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
+            }
+          : undefined
+      }
+    >
+      {readOnly
+        ? t("noteAsk.readOnly", { agent: ask.agent })
+        : t(`noteAsk.problem.${ask.problem ?? "failed"}`, {
+            agent: ask.agent,
+            found: ask.versions?.found ?? "",
+            lowest: ask.versions?.lowest ?? "",
+          })}
+    </ProblemLine>
   );
 }
 
