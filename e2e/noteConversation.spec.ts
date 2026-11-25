@@ -204,9 +204,9 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     );
 
     // Upward: the same box grows over the Note's foot, as tall as the conversation needs and no
-    // taller than 40% of the window, the reply never again in a row of its own. The move to the
-    // left and the fold stand at its top right, level with the first request, taking no row; the
-    // conversation ends 12px above the input.
+    // taller than 40% of the window, the reply never again in a row of its own. Its top row is the
+    // conversation's name with the move to the left and the fold at its end, and the turns start
+    // under it, never behind them (#3765); the conversation ends 12px above the input.
     await pointAndClick(window, handle);
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("note-column-turn")).toHaveCount(1);
@@ -1040,55 +1040,69 @@ async function expectUpward(window: Page, index: number, asked: string) {
 }
 
 /**
- * The conversation open upward in `group`'s box keeps 12px above its first request and under its
- * last reply; its controls stand level with the first request at the box's right end, and they
- * and the request stay inside the box's rounded corner.
+ * The conversation open upward in `group`'s box has a top row of its own: its name at the words'
+ * start, its controls level with it at Send's end, inside the box's rounded corner. The turns start
+ * 8px under that row, never behind it, and end 12px above the input; the newest one sent here
+ * starts under the row at their end (#3765).
  */
 async function expectPanelEdges(group: Locator) {
   const edges = await group.evaluate((element) => {
     const panel = element.querySelector('[data-testid="note-ask-panel"]');
+    const head = panel?.querySelector('[data-testid="note-ask-panel-head"]');
     const body = panel?.querySelector<HTMLElement>('[data-testid="note-conversation-body"]');
     const box = element.querySelector('[data-testid="note-ask-box"]');
     const row = element.querySelector('[data-testid="note-ask-row"]');
-    if (!panel || !body || !box || !row) return null;
+    const name = head?.querySelector("h2")?.getBoundingClientRect();
+    if (!panel || !head || !body || !box || !row || !name) return null;
+    const top = head.getBoundingClientRect();
+    const tools = Array.from(head.querySelectorAll("button")).map((button) =>
+      button.getBoundingClientRect(),
+    );
     body.scrollTop = 0;
     const bubble = panel.querySelector(".note-column-bubble")?.getBoundingClientRect();
-    const tools = Array.from(panel.querySelectorAll(".note-ask-panel-tools > button")).map(
-      (button) => button.getBoundingClientRect(),
-    );
-    const above = bubble ? bubble.top - body.getBoundingClientRect().top : null;
+    const above = bubble ? bubble.top - top.bottom : null;
     body.scrollTop = body.scrollHeight;
-    // What the last reply shows last: its copy-and-model line, or its one action.
     const turn = Array.from(body.querySelectorAll('[data-testid="note-column-turn"]')).at(-1);
-    const last = Array.from(turn?.children ?? [])
-      .map((child) => child.getBoundingClientRect())
-      .filter((rect) => rect.height > 0)
-      .at(-1);
+    // What the last reply shows last: its copy-and-model line, or its one action; the newest turn
+    // sent here, given the turns' height, ends at their end.
+    const last = turn?.hasAttribute("data-newest")
+      ? turn.getBoundingClientRect()
+      : Array.from(turn?.children ?? [])
+          .map((child) => child.getBoundingClientRect())
+          .filter((rect) => rect.height > 0)
+          .at(-1);
+    const newest =
+      turn?.hasAttribute("data-newest") && body.scrollHeight > body.clientHeight
+        ? turn.getBoundingClientRect().top - top.bottom
+        : 8;
     const frame = box.getBoundingClientRect();
     const radius = Number.parseFloat(getComputedStyle(box).borderTopRightRadius);
     const inside = (rect: DOMRect) => {
       const [dx, dy] = [frame.right - rect.right, rect.top - frame.top];
       return dx >= radius || dy >= radius || Math.hypot(radius - dx, radius - dy) <= radius - 1;
     };
+    const rowBox = row.getBoundingClientRect();
     if (!bubble || !last || above === null) return null;
     return {
       above,
+      newest,
       under: body.getBoundingClientRect().bottom - last.bottom,
       level: Math.max(
-        ...tools.map((rect) =>
-          Math.abs(rect.top + rect.height / 2 - (bubble.top + bubble.height / 2)),
-        ),
+        ...tools.map((rect) => Math.abs(rect.top + rect.height / 2 - (name.top + name.height / 2))),
       ),
-      beside: tools.every((rect) => rect.left >= bubble.right),
-      end: Math.abs(row.getBoundingClientRect().right - 10 - (tools.at(-1)?.right ?? 0)),
-      inside: [bubble, ...tools].every(inside),
+      apart: top.bottom <= body.getBoundingClientRect().top + 0.5,
+      start: Math.abs(name.left - (rowBox.left + 18)),
+      end: Math.abs(rowBox.right - 10 - (tools.at(-1)?.right ?? 0)),
+      inside: tools.every(inside),
     };
   });
   expect(edges).not.toBeNull();
-  expect(Math.abs((edges?.above ?? 0) - 12)).toBeLessThanOrEqual(1);
+  expect(Math.abs((edges?.above ?? 0) - 8)).toBeLessThanOrEqual(1);
+  expect(Math.abs((edges?.newest ?? 0) - 8)).toBeLessThanOrEqual(1);
   expect(Math.abs((edges?.under ?? 0) - 12)).toBeLessThanOrEqual(1);
   expect(edges?.level).toBeLessThanOrEqual(1);
-  expect(edges?.beside).toBe(true);
+  expect(edges?.apart).toBe(true);
+  expect(edges?.start).toBeLessThanOrEqual(1);
   expect(edges?.end).toBeLessThanOrEqual(1);
   expect(edges?.inside).toBe(true);
 }

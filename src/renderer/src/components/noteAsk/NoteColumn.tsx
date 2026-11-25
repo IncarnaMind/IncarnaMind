@@ -219,9 +219,26 @@ export function NoteColumn({
   );
 }
 
-/** Marks the turns scrolled past their start, where the upward box fades its top (styles.css). */
+/** Marks the turns scrolled past their start, where their top fades out (styles.css). */
 const markScrolled = (element: HTMLElement) =>
   element.toggleAttribute("data-scrolled", element.scrollTop > 0);
+
+/**
+ * Gives the newest request sent here the turns' whole height, once they overflow, so at their end
+ * it starts under the top row, as a chat moves a request up when it is sent, rather than below the
+ * tail of the turn before it (#3765). When every turn fits, they start there already.
+ */
+const roomForNewest = (element: HTMLElement) => {
+  element.style.removeProperty("--newest-room");
+  if (!element.querySelector(":scope > [data-newest]")) return;
+  if (element.scrollHeight <= element.clientHeight) return;
+  const style = getComputedStyle(element);
+  const room =
+    element.clientHeight -
+    Number.parseFloat(style.paddingTop) -
+    Number.parseFloat(style.paddingBottom);
+  element.style.setProperty("--newest-room", `${room}px`);
+};
 
 /**
  * The conversation's turns, `turns` as read while it is open (null until then), newest in view,
@@ -272,6 +289,7 @@ export function NoteConversationBody({
       ? element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(at)}"]`)
       : null;
     atEnd.current = !turn;
+    roomForNewest(element);
     if (turn) element.scrollTop = turn.offsetTop - 8;
     else element.scrollTop = element.scrollHeight;
     markScrolled(element);
@@ -295,6 +313,7 @@ export function NoteConversationBody({
       markScrolled(element);
     };
     const observer = new ResizeObserver(() => {
+      roomForNewest(element);
       if (atEnd.current) element.scrollTop = element.scrollHeight;
     });
     observer.observe(element);
@@ -331,6 +350,7 @@ export function NoteConversationBody({
           }
           first={turn.id === firstOwn}
           modeLine={turn.id === modeTurn}
+          newest={index === turns.length - 1 && ask?.turnId === turn.id}
           // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
           accept={
             index === turns.length - 1 && !working && ask && ask.turnId === turn.id ? (
@@ -356,6 +376,7 @@ function Turn({
   questions,
   first,
   modeLine,
+  newest,
   accept,
   failed,
 }: {
@@ -366,6 +387,8 @@ function Turn({
   questions: readonly NoteQuestion[];
   first: boolean;
   modeLine: boolean;
+  /** The last turn, and the request sent from this window: it starts under the top row. */
+  newest: boolean;
   accept: ReactNode;
   /** The request, while this turn is its newest and failed: its line has the one thing to do. */
   failed: NoteAsk | null;
@@ -383,7 +406,12 @@ function Turn({
   const stopSaid =
     steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
   return (
-    <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
+    <div
+      data-testid="note-column-turn"
+      data-turn-id={turn.id}
+      data-newest={newest || undefined}
+      className="note-column-turn"
+    >
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
       {trail?.renewed && (
         <p data-testid="note-column-renewed" className="note-column-notice">

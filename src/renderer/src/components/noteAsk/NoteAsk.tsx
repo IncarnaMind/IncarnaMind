@@ -287,6 +287,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
           </div>
         ) : upward && shownOpen && turns ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">
+            <PanelHead column={slot !== null} onFold={toggle} />
             <NoteConversationBody
               mindId={mindId}
               editor={editor}
@@ -294,7 +295,6 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
               turns={turns}
               className="note-ask-panel-body"
             />
-            <PanelTools column={slot !== null} onFold={toggle} />
           </div>
         ) : null
       }
@@ -355,14 +355,15 @@ function ConversationHandle({ line, onOpen }: { line: ReactNode; onOpen(): void 
 }
 
 /**
- * The conversation's two controls while it is open upward, at its top right in line with the first
- * request, as the column has them in its top row: the move into the column, while the column fits
- * (`column`), and the fold. They take no row of their own.
+ * The conversation's top row while it is open upward, as the column has one: its name, then the
+ * move into the column while the column fits (`column`), and the fold. The turns scroll under the
+ * row, never behind its controls (#3765).
  */
-function PanelTools({ column, onFold }: { column: boolean; onFold(): void }) {
+function PanelHead({ column, onFold }: { column: boolean; onFold(): void }) {
   const t = useT();
   return (
-    <div className="note-ask-panel-tools">
+    <div data-testid="note-ask-panel-head" className="note-ask-panel-head">
+      <h2 className="note-column-title">{t("noteColumn.title")}</h2>
       {column && <MoveConversation to="column" className="note-column-icon" />}
       <button
         type="button"

@@ -3219,7 +3219,6 @@
       0 -8px 16px 24px var(--color-sheet);
   }
   .note-ask-panel {
-    --note-ask-tools: 32px;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -3227,16 +3226,22 @@
     /* About half the Note's visible height at the window sizes the app opens at. */
     max-height: 40vh;
     border-bottom: 1px solid var(--color-rule);
-    &:has(> .note-ask-panel-tools > :nth-child(2)) {
-      --note-ask-tools: 62px;
-    }
+  }
+  /* The column's top row, inside the box: its name at the words' start, its controls at Send's end. */
+  .note-ask-panel-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 44px;
+    padding: 8px var(--note-ask-end) 0 var(--note-ask-start);
   }
   .note-ask-panel-body {
     /*
-     * 12px above the first request and under the last reply's copy-and-model line, which keeps its
-     * 16px while Copy's 28px pressable square reaches past it.
+     * 8px under the top row, as in the column; 12px under the last reply's copy-and-model line,
+     * which keeps its 16px while Copy's 28px pressable square reaches past it.
      */
-    --scroll-head: 12px;
+    --scroll-head: 8px;
     --scroll-foot: 12px;
     display: flex;
     flex: 1;
@@ -3251,29 +3256,20 @@
     .note-column-reply-foot .note-column-icon {
       margin-block: -6px;
     }
-    /* The first request stops short of the controls beside it. */
-    > .note-column-notice:first-child,
-    > .note-column-turn:first-child > :first-child {
-      max-width: min(85%, calc(100% - var(--note-ask-tools)));
-      margin-right: var(--note-ask-tools);
-    }
-    /*
-     * Scrolled, the lines going up fade out under the controls and before the box's rounded top,
-     * never cut by its edge.
-     */
+    /* Scrolled, the lines going up fade out at the top row's edge, never cut by it. */
     &[data-scrolled] {
-      mask-image: linear-gradient(to bottom, transparent 8px, #000 48px);
+      mask-image: linear-gradient(to bottom, transparent, #000 20px);
     }
   }
-  /* Level with the first request's one line: its 12px from the top and its 36px height. */
-  .note-ask-panel-tools {
-    position: absolute;
-    top: 16px;
-    right: var(--note-ask-end);
-    display: flex;
-    gap: 2px;
-    border-radius: 6px;
-    background: var(--color-sheet);
+  /*
+   * The newest request sent here starts under the top row, with room under it for its steps and
+   * reply, once the turns overflow: the turns above scroll away (NoteConversationBody).
+   */
+  :is(.note-ask-panel-body, .note-column-body) > [data-newest] {
+    min-height: var(--newest-room, auto);
+  }
+  .note-column-body[data-scrolled] {
+    mask-image: linear-gradient(to bottom, transparent, #000 20px);
   }
   .own-ask-panel .note-ask-panel-body {
     --scroll-head: 10px;
