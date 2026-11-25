@@ -2,12 +2,28 @@ import { focusComposer } from "../../commands/assistant";
 import { shortcutLabel } from "../../commands/keymap";
 import { useComparisons } from "../../comparisons";
 import { useT } from "../../i18n";
+import { isShown } from "../../layoutSlice";
+import { useMeetings } from "../../meetings";
+import { hasMeetingViews } from "../../meetingViews";
+import { useAppStore } from "../../store";
+import { useGroupsMerged } from "../../useWindowWidth";
 
 export function AskPill() {
   const t = useT();
   // The Compare Documents sheet's Make button sits where the pill floats (#1839).
   const comparing = useComparisons((state) => Object.keys(state.sheets).length > 0);
-  if (comparing) return null;
+  // So does a recorded call's control, at its Note's foot (#3762): in a narrow window the pill
+  // would lie over it and take its press.
+  const merged = useGroupsMerged();
+  const meetings = useMeetings((state) => state.meetings);
+  const callAtFoot = useAppStore((state) =>
+    meetings.some(
+      (meeting) =>
+        hasMeetingViews(meeting) &&
+        isShown(state.layout, { kind: "mind", mindId: meeting.mindId }, merged),
+    ),
+  );
+  if (comparing || callAtFoot) return null;
   return (
     <button
       type="button"

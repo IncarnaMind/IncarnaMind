@@ -65,14 +65,15 @@ export function MindTab({ mindId }: { mindId: string }) {
   const quiet = useQuietAssistant();
   const ownAiOnly = useOwnAiOnly();
   const hiddenForOwnAi = useHiddenForOwnAi();
+  const meetingFoot = useMeetingFootShown(mindId);
   // The page fades out above the Ask pill a quiet assistant floats over it. Above the way to ask at
-  // the Note's own foot, the foot fades it, and only while something stands there (styles.css).
-  const floatingPill = quiet && !hiddenForOwnAi;
+  // the Note's own foot, the foot fades it, and only while something stands there (styles.css). A
+  // call's control at the foot puts the pill away (AskPill).
+  const floatingPill = quiet && !hiddenForOwnAi && !meetingFoot;
   // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
   );
-  const meetingFoot = useMeetingFootShown(mindId);
   const review = useReviewShown(mindId);
   // The finished change is said once (#3762): where the Note's conversation shows its Undo, the
   // page draws no line of its own.
