@@ -176,7 +176,13 @@ export function MindTab({ mindId }: { mindId: string }) {
           {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
           <div
             className={`note-ask-foot ${meetingFoot ? "note-ask-foot--meeting" : ""}`}
-            style={transcriptShown ? { display: "none" } : { paddingRight: scrollbar }}
+            style={
+              transcriptShown
+                ? { display: "none" }
+                : meetingFoot
+                  ? undefined
+                  : { paddingRight: scrollbar }
+            }
           >
             {meetingFoot && <MeetingFoot mindId={mind.id} />}
             <div ref={setAsk} className="mind-measure" />

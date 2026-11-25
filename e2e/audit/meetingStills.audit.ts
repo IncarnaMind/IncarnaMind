@@ -505,26 +505,28 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
       await editor.evaluate((el) => (el as HTMLElement).blur());
       await window.getByTestId("note-ask-input").blur();
       await still("d1-asked");
-      await window.getByTestId("note-ask-handle-toggle").click();
-      await expect(window.getByTestId("note-ask-panel")).toBeVisible();
-      await still("d2-reply");
+      // Opened from its line: upward in the input's box (the column at the left is drawn apart).
+      const panel = window.getByTestId("note-ask-panel");
+      const openUpward = async () => {
+        if (await panel.isVisible()) return;
+        const handle = window.getByTestId("note-ask-handle-toggle");
+        if (await handle.isVisible()) await handle.click();
+        else await window.getByTestId("note-ask-pill-open").click();
+        if (await window.getByTestId("note-column").isVisible().catch(() => false))
+          await window.getByTestId("conversation-move-down").click();
+        await expect(panel).toBeVisible();
+      };
+      await still("d2-reply", [1440, 900], openUpward);
       if (proposed) {
         await still("d3-citation", [1440, 900], async () => {
-          if (!(await window.getByTestId("note-ask-panel").isVisible()))
-            await window.getByTestId("note-ask-handle-toggle").click();
-          await window.getByTestId("note-ask-panel").locator(".citation-marker").first().click();
+          await openUpward();
+          await panel.locator(".citation-marker").first().click();
           await expect(window.getByTestId("meeting-sheet")).toBeVisible();
         });
         await window.getByTestId("meeting-sheet-hide").click();
       }
-      if (proposed) {
-        await still("d4-narrow-conversation", [900], async () => {
-          if (!(await window.getByTestId("note-ask-panel").isVisible()))
-            await window.getByTestId("note-ask-handle-toggle").click();
-        });
-      }
-      if (await window.getByTestId("note-ask-panel").isVisible())
-        await window.getByTestId("note-ask-handle-toggle").click();
+      if (proposed) await still("d4-narrow-conversation", [900], openUpward);
+      if (await panel.isVisible()) await window.keyboard.press("Escape");
     });
 
     if (proposed) {
