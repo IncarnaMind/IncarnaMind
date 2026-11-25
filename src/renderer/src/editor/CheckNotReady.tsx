@@ -4,6 +4,7 @@ import { askAgent, useAgentsToAskRead, useReadAgentsToAsk } from "../askYourAi";
 import { dismissCheckProblem } from "../checks";
 import { installClaudeCodeFromEntry, useClaudeCodeInstallAvailability } from "../claudeCodeInstall";
 import { AskAgentLine } from "../components/AskAgentLine";
+import { NoteCantReadLine } from "../components/assistant/NoteCantReadLine";
 import { ProblemLine } from "../components/ProblemLine";
 import {
   ReadinessExplanation,
@@ -31,14 +32,18 @@ export function CheckNotReady({
   const t = useT();
   const openSettings = useAppStore((state) => state.openSettings);
   useReadAgentsToAsk(mindId);
+  useReadAgentsToAsk(null);
   const agents = useAgentsToAskRead(mindId);
+  const connected = useAgentsToAskRead(null);
   const installAvailability = useClaudeCodeInstallAvailability();
   const dismiss = () => dismissCheckProblem(mindId);
   const setUp = readinessAction(readiness, t, openSettings, t("question.setUp"), dismiss);
   const noModel = readiness.reason === "no-provider";
   // Until the agents are read the line holds its place, empty, so the card's height is right when
   // it comes.
-  if (noModel && agents === null) return <p className="mind-health-line">{"\u00A0"}</p>;
+  if (noModel && (agents === null || connected === null)) {
+    return <p className="mind-health-line">{"\u00A0"}</p>;
+  }
   if (noModel && agents !== null && agents.length > 0) {
     const ask = async (agent: AgentPairing, openChat = false) => {
       if (await askAgent(agent, mindId, { kind: "check" }, undefined, { openChat })) dismiss();
@@ -51,6 +56,18 @@ export function CheckNotReady({
         onContinue={(agent) => void ask(agent, true)}
         testId="checks-ask-agent"
         className="mind-health-line"
+      />
+    );
+  }
+  if (noModel && connected !== null && connected.length > 0) {
+    return (
+      <NoteCantReadLine
+        mindId={mindId}
+        connected={connected}
+        testId="checks-problem"
+        className="mind-health-line"
+        onMoved={dismiss}
+        onOpenedSettings={dismiss}
       />
     );
   }

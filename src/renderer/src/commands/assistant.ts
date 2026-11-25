@@ -143,10 +143,10 @@ function ownAiAsk(): (() => void) | null {
 /** Chromium's option, not yet in the DOM types. */
 const RING: FocusOptions & { focusVisible: boolean } = { focusVisible: true };
 
-/** Connect your AI at the foot of a Note none of the User's AIs reads, where it shows. */
+/** The first action at the foot of a Note none of the User's AIs reads (Move to…, Settings or Connect). */
 const noteConnectOf = (mindId: string): HTMLElement | null =>
   document.querySelector<HTMLElement>(
-    `[data-testid="note-foot-ask"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="note-ask-connect"]`,
+    `[data-testid="note-foot-ask"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="note-ask-no-ai"] button`,
   );
 
 /** New chat: the assistant shows a new, empty conversation (an empty one is reused), ready to ask. */

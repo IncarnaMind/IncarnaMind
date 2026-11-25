@@ -1,4 +1,5 @@
 import type * as Y from "yjs";
+import { askToCheck, useAgentsToAsk, useNoModel, useReadAgentsToAsk } from "../askYourAi";
 import { MetaLine } from "../components/MetaLine";
 import { buttonStyle } from "../components/ui";
 import { showVersion, useHandedFile } from "../handedFiles";
@@ -24,6 +25,9 @@ export function HandedFileLine({
   const t = useT();
   const language = useLanguage();
   const handed = useHandedFile(mindId, doc);
+  const noModel = useNoModel();
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAsk(mindId);
 
   if (!handed) return null;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
@@ -40,6 +44,7 @@ export function HandedFileLine({
           from: format(from),
         })
       : null;
+  const canCheckAll = keptLine !== null && (!noModel || agents.length > 0);
   return (
     <div data-testid="verify-handed" className="check-rows">
       <MetaLine
@@ -59,15 +64,15 @@ export function HandedFileLine({
           parts={[keptLine]}
         />
       )}
-      {(others.length > 0 || keptLine !== null) && (
+      {(others.length > 0 || canCheckAll) && (
         <div className="flex flex-wrap gap-1.5 px-2 pb-1.5">
-          {keptLine !== null && (
+          {canCheckAll && (
             <button
               type="button"
               data-testid="verify-handed-check-all"
               className={buttonStyle("secondary", "sm")}
               disabled={running}
-              onClick={() => void checkClaims(mindId, doc)}
+              onClick={() => void (noModel ? askToCheck(mindId) : checkClaims(mindId, doc))}
             >
               {t("verify.handed.checkAll")}
             </button>
