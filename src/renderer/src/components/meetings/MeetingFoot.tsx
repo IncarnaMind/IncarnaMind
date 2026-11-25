@@ -64,7 +64,8 @@ export function showQuoteInTranscript(quote: string): boolean {
   const { meetings } = useMeetings.getState();
   const meeting = meetings.find((each) => isLive(each)) ?? meetings.find((each) => each.transcript);
   if (!meeting) return false;
-  setColumnOpen(meeting.mindId, false);
+  // Opened upward the conversation would lie over the sheet; in the window's column it stays beside.
+  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(meeting.mindId, false);
   useSheets.setState((state) => ({
     open: { ...state.open, [meeting.mindId]: true },
     tipSeen: true,

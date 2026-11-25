@@ -523,20 +523,6 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
             await window.getByTestId("note-ask-handle-toggle").click();
         });
       }
-      if (proposed) {
-        await still("d5-narrow-column", [900], async () => {
-          if (!(await window.getByTestId("note-ask-panel").isVisible()))
-            await window.getByTestId("note-ask-handle-toggle").click();
-          await window.getByTestId("conversation-move-right").click();
-          await expect(window.getByTestId("note-column")).toBeVisible();
-        });
-        await setWindowSize(app, window, 900, HEIGHT);
-        await window
-          .getByTestId("conversation-move-down")
-          .click({ timeout: 5000 })
-          .catch(() => log.push("no way back under the note"));
-        await setWindowSize(app, window, 1440, HEIGHT);
-      }
       if (await window.getByTestId("note-ask-panel").isVisible())
         await window.getByTestId("note-ask-handle-toggle").click();
     });
@@ -795,3 +781,176 @@ for (const microphone of ["allowed", "denied"] as const)
       await removeDataFolder(bin);
     }
   });
+
+// The meeting with the Note's conversation in the window's column at the left (#3759): the control
+// stays at the Note's foot, the input goes with the conversation, the sheet rises over the Note.
+test(`meeting with the conversation at the left, ${VARIANT}, ${LANG}`, async () => {
+  test.skip(!proposed, "the control is the proposal's");
+  test.setTimeout(15 * 60_000);
+  await mkdir(OUT, { recursive: true });
+  const dataDir = await createDataFolder();
+  const home = await realpath(await createDataFolder());
+  const bin = await realpath(await createDataFolder());
+  await writeFile(
+    join(bin, "claude"),
+    `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "meetingClaudeCode.mjs")}" "$@"\n`,
+  );
+  await chmod(join(bin, "claude"), 0o755);
+  const mode = (value: string) => writeFile(join(bin, "mode"), value);
+  const log: string[] = [];
+  const tag = LANG === "en" ? "en" : "zh";
+  const { app, window } = await launchApp(dataDir, {
+    home,
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+    transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
+  });
+  const still = async (name: string, widths: readonly number[], before?: () => Promise<void>) => {
+    for (const width of widths) {
+      try {
+        await setWindowSize(app, window, width, HEIGHT);
+        await before?.();
+        await rest(window);
+        await motionSettled(window);
+        await window.waitForTimeout(800);
+        const file = `${name}-${tag}-${width}`;
+        await window.screenshot({ path: join(OUT, `${file}.png`) });
+        await writeFile(
+          join(OUT, `${file}.json`),
+          JSON.stringify(await measure(window, REGIONS), null, 2),
+        );
+        log.push(`ok ${file}`);
+      } catch (error) {
+        log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
+      }
+    }
+    await setWindowSize(app, window, 1440, HEIGHT);
+  };
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setLanguage(window, LANG);
+    await setWindowSize(app, window, 1440, HEIGHT);
+    const folderId = await window.evaluate(async () => {
+      const core = (globalThis as unknown as Core).incarnamind;
+      await core.updateSettings({
+        device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
+      });
+      const folder = await core.createLibraryGroup({ name: "Kestrel Bay", description: "" });
+      await core.setAgentsEnabled(true);
+      await core.connectAgent({
+        name: "Claude Code",
+        client: "claude-code",
+        folderIds: [folder.id, "not-in-a-folder"],
+        propose: true,
+      });
+      return folder.id;
+    });
+    await window.getByTestId("plus-menu").click();
+    await window.getByTestId("plus-record-meeting").click();
+    await expect
+      .poll(async () => (await meetings(window)).some((each) => each.status === "recording"), {
+        timeout: 30_000,
+      })
+      .toBe(true);
+    const meeting = (await meetings(window)).find((each) => each.status === "recording");
+    if (!meeting) throw new Error("No meeting recording.");
+    await window.evaluate(
+      async ({ mindId, folderId }) =>
+        (globalThis as unknown as Core).incarnamind.moveToFolder({ mindIds: [mindId], folderId }),
+      { mindId: meeting.mindId, folderId },
+    );
+    await window
+      .getByTestId("meeting-foot-tip-close")
+      .click({ timeout: 5000 })
+      .catch(() => undefined);
+    const editor = window.getByTestId("mind-editor");
+    await editor.locator("p").first().click();
+    await window.keyboard.type(WORDS.typed[0] ?? "");
+    await window.keyboard.press("Enter");
+    await window.keyboard.type(WORDS.typed[1] ?? "");
+    await editor.evaluate((el) => (el as HTMLElement).blur());
+    await expect
+      .poll(
+        async () =>
+          (await meetings(window)).find((each) => each.id === meeting.id)?.transcript?.lines ?? 0,
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThanOrEqual(5);
+    const documentId = (await meetings(window)).find((each) => each.id === meeting.id)?.transcript
+      ?.documentId;
+    await writeFile(join(bin, "mode.doc"), documentId ?? "");
+
+    // Asked, then the conversation moved to the window's column at the left.
+    await mode("ask");
+    await window.getByTestId("note-ask-input").click();
+    await window.keyboard.type(WORDS.question);
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("note-ask-pill-open")).toBeVisible({ timeout: 60_000 });
+    await window.getByTestId("note-ask-handle-toggle").click();
+    await window.getByTestId("conversation-move-left").click();
+    await expect(window.getByTestId("note-column")).toBeVisible();
+    await still("h1-column-recording", [1440, 900]);
+
+    // The sheet over the Note, the column beside it.
+    await still("h2-column-sheet", [1440, 900], async () => {
+      if (!(await window.getByTestId("meeting-sheet").isVisible()))
+        await window.getByTestId("meeting-foot-transcript").click();
+      await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+    });
+    await window.getByTestId("meeting-sheet-hide").click();
+
+    // A Citation pressed in the column's reply: the sheet at its line, the reply beside it.
+    await still("h3-column-citation", [1440, 900], async () => {
+      if (await window.getByTestId("meeting-sheet").isVisible())
+        await window.getByTestId("meeting-sheet-hide").click();
+      const reply = window.getByTestId("note-column").or(window.getByTestId("note-ask-panel"));
+      if (!(await reply.first().isVisible()))
+        await window.getByTestId("note-ask-handle-toggle").click();
+      await reply.first().locator(".citation-marker").first().click();
+      await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+    });
+    if (await window.getByTestId("meeting-sheet").isVisible())
+      await window.getByTestId("meeting-sheet-hide").click();
+
+    // After Stop: Write notes above the control; then the finished change on the column's input line.
+    await window.getByTestId("meeting-foot-stop").click();
+    await expect
+      .poll(async () => (await meetings(window)).find((each) => each.id === meeting.id)?.status, {
+        timeout: 60_000,
+      })
+      .toBe("stopped");
+    await expect
+      .poll(
+        async () =>
+          (await meetings(window)).find((each) => each.id === meeting.id)?.transcript?.state,
+        { timeout: 60_000 },
+      )
+      .toBe("saved");
+    if (
+      !(await window
+        .getByTestId("note-column")
+        .isVisible()
+        .catch(() => false))
+    )
+      await window
+        .getByTestId("note-ask-handle-toggle")
+        .click()
+        .catch(() => undefined);
+    await still("h4-column-stopped", [1440, 900]);
+    await mode(LANG === "en" ? "notes" : "notes-zh");
+    await window.getByTestId("meeting-write-notes").click();
+    await expect
+      .poll(async () => (await editor.innerText()).includes(LANG === "en" ? "slipway" : "滑道"), {
+        timeout: 60_000,
+      })
+      .toBe(true);
+    await still("h5-column-notes", [1440, 900]);
+  } finally {
+    await writeFile(join(OUT, `log-column-${tag}.txt`), log.join("\n"));
+    await app.close().catch(() => undefined);
+    await removeDataFolder(dataDir);
+    await removeDataFolder(home);
+    await removeDataFolder(bin);
+  }
+});
