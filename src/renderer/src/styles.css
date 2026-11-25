@@ -1170,6 +1170,18 @@
   .tab-strip:where([data-fit="split"], [data-fit="cut"]) .tab-split {
     display: none;
   }
+  /* Tight: the shown tab keeps its least width and the ⋯ stays (#3765). */
+  .tab-strip[data-tight] :is(.tab-export, .note-conversation-button) {
+    display: none;
+  }
+  .tab-strip[data-tight] .tab-list {
+    flex-shrink: 0;
+  }
+  .tab-strip[data-tight] .tab-strip-note {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
   /* A narrow group keeps Split in its ⋯ menu. */
   @container group (width < 420px) {
     .tab-split {

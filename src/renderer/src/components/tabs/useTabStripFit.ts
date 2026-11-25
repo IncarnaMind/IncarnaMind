@@ -17,6 +17,9 @@ const WHEEL_QUIET_MS = 140;
 // the fit takes its room as soon as it hides one.
 export const SHOW_ALL_PX = 32;
 
+// The shown tab's least width, `.tab-list[data-squeezed]` in styles.css.
+const SHOWN_LEAST_PX = 132;
+
 /**
  * The box a tab's name's letters fill: the title's own text, cut to the part its span shows. A
  * short name leaves its span empty to the right, and a long one is cut by it; measuring the span
@@ -44,10 +47,14 @@ function nameBoxOf(tab: HTMLElement): { left: number; right: number } | null {
  * becomes active is brought whole into view, and again when a tab or the strip changes size,
  * until the User scrolls away on purpose.
  *
- * A strip too full for its tabs makes room in three steps, each only while the one before isn't
+ * A strip too full for its tabs makes room in steps, each only while the one before isn't
  * enough, and takes them back in reverse when the room returns (`data-fit` in styles.css):
- * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends.
- * Returns how many tabs it hides, so the strip can offer them in a list (#2244).
+ * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends and
+ * the shown tab narrowed to its least width. Short even of that, the strip is tight
+ * (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
+ * Note's input holds, leave it, and the Note's other controls give up what the tab still needs.
+ * The shown tab and the ⋯ never leave (#3765). Returns how many tabs it hides, so the strip can
+ * offer them in a list (#2244).
  */
 export function useTabStripFit(
   strip: RefObject<HTMLElement | null>,
@@ -111,13 +118,20 @@ export function useTabStripFit(
         // Each step is taken only while the tabs' own extent, never the strip's `scrollWidth` (the
         // shown tab's feet reach past it, and always read as overflow), still doesn't fit.
         band.removeAttribute("data-fit");
+        delete band.dataset.tight;
         // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
         const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
         if (!fits()) {
           band.dataset.fit = "label";
           if (!fits()) band.dataset.fit = "split";
         }
-        const room = roomNow() - taken;
+        const lead = shown === 0 ? START_GAP : 0;
+        const least = SHOWN_LEAST_PX + END_GAP + lead;
+        // Short of the shown tab's least width, the strip is tight: Export and the conversation's
+        // button leave it, and the Note's other controls give up the rest (styles.css).
+        if (shown >= 0 && roomNow() - taken < least) band.dataset.tight = "";
+        const room =
+          band.dataset.tight === undefined ? roomNow() - taken : Math.max(roomNow() - taken, least);
         // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
         // scroll or on who asked, so every place agrees and the strip comes to rest.
         if (shown >= 0) {
@@ -126,7 +140,6 @@ export function useTabStripFit(
             // Narrowed to its least width (`data-squeezed` in styles.css), it makes the room. The
             // room is taken before, free of the cut and the narrowing, so the width holds wherever
             // the strip rests. The first tab has the start padding before it as well.
-            const lead = shown === 0 ? START_GAP : 0;
             element.style.setProperty("--tab-room", `${room - END_GAP - lead}px`);
             element.dataset.squeezed = "";
           }

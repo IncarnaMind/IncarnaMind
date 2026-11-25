@@ -707,6 +707,22 @@ function BadgeFrame({
       card?.removeEventListener("focusin", touched);
     };
   }, [open, heldHeight, anchor, fromTop]);
+  // Opening down from its badge, what lands after the card took its height moves nothing above
+  // it: the foot goes down to show it, as far as the window lets it. A row can land after the
+  // wait for it ended, on a slower computer (#3765).
+  useLayoutEffect(() => {
+    if (!open || heldHeight === null || !fromTop || !anchor) return;
+    const element = body.current;
+    const content = element?.firstElementChild;
+    if (!element || !content) return;
+    const watching = new ResizeObserver(() => {
+      if (element.scrollHeight <= element.clientHeight + 1) return;
+      const grown = firstHeightOf(element, anchor, heldHeight, true, element.scrollHeight);
+      if (grown > heldHeight + 0.5) setHeldHeight(grown);
+    });
+    watching.observe(content);
+    return () => watching.disconnect();
+  }, [open, heldHeight, anchor, fromTop]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -729,7 +745,22 @@ function BadgeFrame({
     setCheckCardOpen(place, false);
   };
   // The card is placed from this box's right edge, which the badge growing left never moves, so
-  // the run's wider badge leaves the card where it was (#1312, #2313).
+  // the run's wider badge leaves the card where it was (#1312, #2313). From the badge in the tab
+  // strip (#3765) it hangs under the strip's end instead, over the page's margin as it hung from
+  // the page's top right before, not over the top of the text and what stands there.
+  const placedFrom = useMemo(() => {
+    if (!anchor || !fromTop) return anchor;
+    const group = anchor.closest('[data-testid="tab-group"]');
+    if (!group) return anchor;
+    return {
+      contextElement: anchor,
+      getBoundingClientRect: () => {
+        const badge = anchor.getBoundingClientRect();
+        const right = Math.max(badge.right, group.getBoundingClientRect().right - CARD_MARGIN);
+        return { ...badge.toJSON(), right, width: right - badge.left };
+      },
+    };
+  }, [anchor, fromTop]);
   return (
     <div ref={setAnchor} className="check-badge-place">
       {badge ? (
@@ -749,9 +780,9 @@ function BadgeFrame({
       ) : (
         <span className="check-badge-anchor" />
       )}
-      {open && anchor && (
+      {open && placedFrom && (
         <Popover
-          anchor={anchor}
+          anchor={placedFrom}
           placement={fromTop ? "bottom-end" : "top-end"}
           fromBottom={!fromTop}
           middleware={placing}

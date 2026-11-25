@@ -69,11 +69,12 @@ export function firstHeightOf(
   badge: Element,
   rest: number,
   down = false,
+  natural = body.offsetHeight,
 ): number {
   const element = body.closest<HTMLElement>(".check-card");
   if (!element) return body.offsetHeight;
   return firstHeight({
-    natural: body.offsetHeight,
+    natural,
     rest,
     card: element.getBoundingClientRect(),
     // Its scroll height, not its box: a body taller than the room has already clamped the card.
