@@ -75,7 +75,7 @@ import { recordOpinions } from "./opinions";
 import type { CheckRuns } from "./runCheck";
 import { runChecks } from "./runChecks";
 import { everySentence, markedSentences, markSentence, type SelectedSentence } from "./sentences";
-import { fileCheckLines, judgedWithOf, readingOf, saidOf, slideOf } from "./standing";
+import { fileCheckLines, judgedWithOf, readingOf, saidOf, sheetOf, slideOf } from "./standing";
 import { askBrief } from "./verifyBrief";
 import { slideBlocks, slideText } from "./verifySlides";
 import { documentBlocks } from "./verifyTables";
@@ -90,6 +90,7 @@ import {
   sheetChoices,
   sheetCounts,
   sheetTable,
+  sheetText,
   type TableRow,
   workbookOf,
 } from "./verifyWorkbook";
@@ -341,7 +342,12 @@ export function createVerify(options: VerifyOptions) {
     const sentences = content.read(mindId, (blocks) =>
       fileCheckLines(blocks, verification).map((line) => {
         const slide = slideOf(line, verification);
-        return { ...line, ...(slide !== null && { slide }) };
+        const sheet = sheetOf(line, verification);
+        return {
+          ...line,
+          ...(slide !== null && { slide }),
+          ...(sheet !== null && { sheet }),
+        };
       }),
     );
     return {
@@ -375,10 +381,14 @@ export function createVerify(options: VerifyOptions) {
       sentences.map((each) => ({
         text: each.said,
         ...(each.slide !== undefined && { slide: each.slide }),
+        ...(each.sheet !== undefined && { sheet: each.sheet }),
       })),
       "someone-else",
       signal,
-      { ...(verification.slides && { slides: verification.slides }) },
+      {
+        ...(verification.slides && { slides: verification.slides }),
+        ...(verification.sheets && { sheets: verification.sheets }),
+      },
     );
     if (found.kind !== "found") return found;
     const sorted = (sentence: (typeof sentences)[number], index: number) => {
@@ -742,11 +752,13 @@ export function createVerify(options: VerifyOptions) {
       const doc = blocks.doc;
       if (!doc) return;
       const pages: Record<string, number> = {};
+      const sheetTexts: Record<string, string> = {};
       const formulaBlocks: string[] = [];
       const typedBlocks: string[] = [];
       const differs: FormulaDifference[] = [];
       for (const { sheet, formulas, table } of checked) {
         const page = units.find((unit) => unit.label?.sheet === sheet.name)?.page ?? 1;
+        sheetTexts[String(page)] = sheetText(sheet, range, formulas.worked);
         const elements = [
           {
             type: "heading",
@@ -813,6 +825,7 @@ export function createVerify(options: VerifyOptions) {
           unchecked: sum((formulas) => formulas.unchecked),
           differs,
         },
+        ...(Object.keys(sheetTexts).length > 0 && { sheets: sheetTexts }),
       });
     });
     return { ok: true, mind, documentId: document.id };

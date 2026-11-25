@@ -49,6 +49,8 @@ export interface SortAlong {
   slots?: Slots;
   /** A deck's slides as the file holds them, by number, which its sentences name (#3455). */
   slides?: Readonly<Record<string, string>>;
+  /** A workbook's sheets as the file holds them, by page number, which its rows name (#3506). */
+  sheets?: Readonly<Record<string, string>>;
   /**
    * Hears each sentence's parts, by its index in `texts`, as soon as the reply names them, for its
    * check to start before the reply ends; the result, read from the whole reply, still decides.
@@ -85,7 +87,7 @@ export async function claimsAmong(
       const judged = await judge({
         model: prepared.model,
         question: { id: "find-claims", instructions },
-        parts: [{ text: findClaimsPrompt(batch, along.slides) }],
+        parts: [{ text: findClaimsPrompt(batch, along.slides, along.sheets) }],
         data: [],
         reply: json((value) => sortWordsOf(value, numbers)),
         retries: 1,

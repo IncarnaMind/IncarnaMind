@@ -46,17 +46,29 @@ async function setUp(
     [RENT]: { verdict: "supported" },
     [SALARIES]: { verdict: "supported" },
   },
+  options?: { sort?: (prompt: string) => string | undefined },
 ) {
   const sorted: string[][] = [];
+  const sortPrompts: string[] = [];
+  const checkPrompts: string[] = [];
   const answer = checkGenerate(plans);
-  const model = scriptedModel((call: ModelCall) => checkReply(call, plans), {
-    generate: (call) => {
-      if (call.question === "find-claims") {
-        sorted.push(listedSentences(call.prompt).map(({ text }) => text));
-      }
-      return answer(call);
+  const model = scriptedModel(
+    (call: ModelCall) => {
+      checkPrompts.push(call.prompt);
+      return checkReply(call, plans);
     },
-  });
+    {
+      generate: (call) => {
+        if (call.question === "find-claims") {
+          sortPrompts.push(call.prompt);
+          sorted.push(listedSentences(call.prompt).map(({ text }) => text));
+          const custom = options?.sort?.(call.prompt);
+          if (custom !== undefined) return { text: custom };
+        }
+        return answer(call);
+      },
+    },
+  );
   const core = startCore(await createTempDataFolder(), {
     createChatModel: scriptedModels(model).createChatModel,
   });
@@ -66,7 +78,7 @@ async function setUp(
     await writeSourceFile(sources, "Costs.md", "# Costs\n\nRent is 14,000 a year.\n"),
   ]);
   const path = await writeSourceFile(sources, "Budget.xlsx", planWorkbook().xlsx());
-  return { core, path, sorted, sources };
+  return { core, path, sorted, sortPrompts, checkPrompts, sources };
 }
 
 async function tableOf(core: Core, mindId: string) {
@@ -506,5 +518,46 @@ describe("Verify a workbook", () => {
         ["tableCell", "GBP 500,000"],
       ],
     ]);
+  });
+
+  // protects=a workbook's check hands the whole sheet (section headings, units and notes) to both the sort and the row judge, and a row the sort labels "note" is skipped rather than checked as a claim (#3506); fails_when=the sheet is omitted from verification, sort or claim prompts, or a "note" row is still sent to check
+  test("whole-sheet context reaches both sort and claim checks, and rows sorted as 'note' are skipped (#3506)", async () => {
+    const { core, path, sortPrompts, checkPrompts } = await setUp(
+      { [RENT]: { verdict: "supported" } },
+      {
+        sort: (prompt) => {
+          const replies: Record<string, string> = {};
+          for (const { number, text } of listedSentences(prompt)) {
+            replies[String(number)] = text === RENT ? "claim" : text === SALARIES ? "note" : "no";
+          }
+          return JSON.stringify(replies);
+        },
+      },
+    );
+
+    const verified = await core.verifyDocument({ path, sheet: "Plan" });
+    if (!verified.ok) throw new Error(`Not verified: ${verified.reason}`);
+    const { client } = await tableOf(core, verified.mind.id);
+    expect(verificationOf(client.doc)?.sheets).toMatchObject({
+      1: expect.stringContaining("Row 2: Rent | 14000 | 14000"),
+    });
+
+    const found = await core.findClaims({
+      requestId: crypto.randomUUID(),
+      mindId: verified.mind.id,
+    });
+    expect(found).toMatchObject({ kind: "found" });
+    expect(sortPrompts.join("\n")).toContain('"sheets"');
+    expect(sortPrompts.join("\n")).toContain("Row 2: Rent | 14000 | 14000");
+
+    const checked = await core.verifyClaims({
+      requestId: crypto.randomUUID(),
+      mindId: verified.mind.id,
+    });
+    expect(checked).toMatchObject({ kind: "checked" });
+    const joined = checkPrompts.join("\n");
+    expect(joined).toContain("<sheet>");
+    expect(joined).toContain(RENT);
+    expect(joined).not.toContain(`<sentence>\n${SALARIES}`);
   });
 });

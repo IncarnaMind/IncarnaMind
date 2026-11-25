@@ -51,6 +51,8 @@ export interface QueuedClaim {
   context: string;
   /** Its context is the deck's slide by this number that it is a line of, as the file holds it (#3455). */
   onSlide?: number;
+  /** Its context is the workbook's sheet by this page number that it is a row of, as the file holds it (#3506). */
+  onSheet?: number;
   cited?: ClaimCheckRequest["cited"];
   figures?: ClaimCheckRequest["figures"];
   /** The sentence as the Note has it, and where it starts there, for its record cites. */
@@ -138,6 +140,7 @@ export function checkRequestOf(
     claim: claim.claim,
     context: claim.context,
     ...(claim.onSlide !== undefined && { onSlide: claim.onSlide }),
+    ...(claim.onSheet !== undefined && { onSheet: claim.onSheet }),
     ...(claim.cited && { cited: claim.cited }),
     ...(claim.figures && { figures: claim.figures }),
     scope: claim.scope ?? run.scope,

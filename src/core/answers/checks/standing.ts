@@ -69,42 +69,77 @@ export function deckSaidOf(
   return { ...said, context: held, onSlide: slide };
 }
 
+/** The sheet a workbook's row is on, as the file holds it (#3506); null for a line of no sheet. */
+export function sheetOf(
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): number | null {
+  const page = verification?.pages[sentence.blockId];
+  return page !== undefined && verification?.sheets?.[String(page)] !== undefined ? page : null;
+}
+
+/**
+ * What a workbook's row is checked with, by the file's check and the Note's own alike (#3506):
+ * its table-row claim read with its sheet as the file holds it, so its section headings, notes
+ * and units go with it; undefined for a line of no sheet or a formula-only row.
+ */
+export function sheetSaidOf(
+  sentence: SelectedSentence,
+  verification: Verification | null,
+): (ReturnType<typeof checkText> & { onSheet: number }) | undefined {
+  const sheet = sheetOf(sentence, verification);
+  const held = sheet === null ? undefined : verification?.sheets?.[String(sheet)];
+  if (sheet === null || held === undefined) return undefined;
+  const row = tableClaim(sentence, workbookCellsOf(verification));
+  if (row === "not-a-claim") return undefined;
+  const said = row ?? checkText(sentence);
+  return { ...said, context: held, onSheet: sheet };
+}
+
 /** A line as a file's check reads it: a table row whole with its headings, else the sentence. */
 export function claimOf(
   sentence: SelectedSentence,
   verification: Verification | null,
-): (ReturnType<typeof checkText> & { onSlide?: number }) | undefined {
+): (ReturnType<typeof checkText> & { onSlide?: number; onSheet?: number }) | undefined {
   const row = tableClaim(sentence, workbookCellsOf(verification));
   if (row === "not-a-claim") return undefined;
-  return deckSaidOf(sentence, verification) ?? row ?? checkText(sentence);
+  return (
+    deckSaidOf(sentence, verification) ??
+    sheetSaidOf(sentence, verification) ??
+    row ??
+    checkText(sentence)
+  );
 }
 
 /**
  * What a line's check is given: its claim, and what it is read with: a deck's line its slide
- * (`deckSaidOf`), a table row whole, else the sentence with what stands above it.
+ * (`deckSaidOf`), a workbook's row its sheet (`sheetSaidOf`), a table row whole, else the
+ * sentence with what stands above it.
  */
 export const saidOf = (
   sentence: SelectedSentence,
   verification: Verification | null,
-): ReturnType<typeof checkText> & { onSlide?: number } =>
+): ReturnType<typeof checkText> & { onSlide?: number; onSheet?: number } =>
   deckSaidOf(sentence, verification) ??
+  sheetSaidOf(sentence, verification) ??
   claimOf(sentence, verification) ?? { claim: sentence.text, context: sentence.context };
 
 /**
  * What a line's result stands on, of what its check is given (`saidOf`): the claim and what frames
- * its line by the Note's own structure (#3455). A deck's line: its slide. Else: what its paragraph
- * says before it, where "it" and "this" point; for a table row, its table's caption and section
- * label; and what the Note's structure puts above it (`framesAbove`). A line of its own section,
- * or of a sibling section, is sent only for what the claim's words refer to: were it in, editing
- * one claim would put every finding after it behind Needs re-check. A frame only its meaning
- * shows ("The figures below are in thousands." among a section's lines) is left out with them.
+ * its line by the Note's own structure (#3455). A deck's line: its slide. A workbook's row: its
+ * sheet. Else: what its paragraph says before it, where "it" and "this" point; for a table row,
+ * its table's caption and section label; and what the Note's structure puts above it (`framesAbove`).
+ * A line of its own section, or of a sibling section, is sent only for what the claim's words refer
+ * to: were it in, editing one claim would put every finding after it behind Needs re-check. A frame
+ * only its meaning shows ("The figures below are in thousands." among a section's lines) is left out
+ * with them.
  */
 export function standsOn(
   sentence: SelectedSentence,
   verification: Verification | null,
 ): { claim: string; context: string } {
   const said = saidOf(sentence, verification);
-  if (said.onSlide !== undefined) return said;
+  if (said.onSlide !== undefined || said.onSheet !== undefined) return said;
   const row = tableClaim(sentence, workbookCellsOf(verification));
   const table =
     row !== null && row !== "not-a-claim" && row.context !== row.claim ? [row.context] : [];
