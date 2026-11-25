@@ -216,20 +216,18 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await pointAndClick(window, stop);
     await expect(pill).toHaveCount(0);
 
-    // A failure says why in one line.
+    // A failure says why in one line, with what to do; the words wait in the input.
     await nextRun("signed-out");
     await send("Make it shorter");
-    await expect(problem).toHaveText(
-      "Claude Code isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
-    );
+    await expect(problem).toHaveText("Claude Code isn’t signed in on this computer. · Sign in");
+    await expect(input).toHaveValue("Make it shorter");
     await both(app, window, "note-ask-failure", async () => {
-      await expect(problem).toHaveText(
-        "Claude Code 尚未在这台电脑上登录。在终端中登录后，再发送一次。",
-      );
+      await expect(problem).toHaveText("Claude Code 尚未在这台电脑上登录。· 登录");
     });
 
     // An explanation answers where the User asked, and changes nothing.
     await nextRun("explain");
+    await input.fill("");
     await send("What does this count?");
     await expect(pill).toHaveText("It counts the ship calls the harbour handled in 2025.");
     // Pressed, the line opens the conversation upward in the box, at that reply: the reply is in

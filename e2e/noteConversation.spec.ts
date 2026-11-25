@@ -649,13 +649,9 @@ test("a sent quote leaves the input, a request that can't start keeps the words 
       await window.keyboard.type(words);
       await window.keyboard.press("Enter");
     };
-    // Words selected by the keyboard: the last word of the first paragraph.
-    const selectLastWord = async () => {
-      await frontMind(window).locator("p").first().click();
-      await expect(frontMind(window).getByTestId("mind-editor")).toBeFocused();
-      await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
-      for (let n = 0; n < "weekdays.".length; n++) await window.keyboard.press("Shift+ArrowLeft");
-    };
+    // The last word of the first paragraph, selected with the mouse.
+    const selectLastWord = () =>
+      slideSelect(window, frontMind(window).locator("p").first(), "weekdays.");
 
     // The quote goes with the words; the same words selected anew bring it back.
     await selectLastWord();

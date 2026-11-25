@@ -1146,8 +1146,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     };
     const here = await written(run.adapter);
     const turn = await cited(here);
+    // With the Citation a Note holds, whose card and Document's place the reply shows (#3765).
     expect(turn?.citations).toEqual([
-      { token: expect.any(String), documentName: "Report", quote: FERRY },
+      {
+        token: expect.any(String),
+        documentName: "Report",
+        quote: FERRY,
+        citation: expect.objectContaining({ quote: FERRY, check: "found" }),
+      },
     ]);
     expect(turn?.reply).toContain(`[cite:${turn?.citations[0]?.token}]`);
     expect(turn?.citations.map((each) => each.token)).not.toContain("k3x9a2b7");

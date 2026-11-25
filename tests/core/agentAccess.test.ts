@@ -801,7 +801,8 @@ for (const language of ["en", "zh-CN"] as const) {
             throw new Error("A reply's Citation is looked at without admitting a call.");
           },
         });
-        expect(access.citationsNow([cite.slice("[cite:".length, -1)])[0]).toEqual({
+        const [now] = access.citationsNow([cite.slice("[cite:".length, -1)]);
+        expect(now?.report).toEqual({
           cite,
           check,
           document: "Review",
@@ -809,6 +810,8 @@ for (const language of ["en", "zh-CN"] as const) {
           quote,
           changed: true,
         });
+        // Found, it is the Citation a Note would hold, with the Document's place (#3765).
+        expect(now?.citation?.quote ?? null).toBe(check === "found" ? quote : null);
       },
     );
 
