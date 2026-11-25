@@ -80,6 +80,7 @@ import {
   withMcpServersEntry,
   withoutCodexTable,
   writtenCommand,
+  writtenEntry,
 } from "./clients";
 import type { ConnectedBefore, PairingEvents } from "./index";
 import { SKILL_MARKDOWN } from "./skill";
@@ -661,8 +662,8 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const takeOutUnread = async (file: SettingsFile, pairing: AgentPairing, madeForIt: boolean) => {
     const path = pathOf(file);
     const text = await readText(path);
-    const command = text === null ? null : writtenCommand(file.format, text, "");
-    if (text === null || command === null) return true;
+    const entry = text === null ? null : writtenEntry(file.format, text, "");
+    if (text === null || entry === null) return true;
     const others = options.agents
       .settings()
       .pairings.filter((each) => each.id !== pairing.id && each.client === pairing.client);
@@ -671,11 +672,10 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (key && text.includes(key)) return true;
     }
     const launch = options.agents.launchFor("");
-    const socket = launch.env[AGENT_SOCKET_ENV] ?? "";
     const ours =
-      command === launch.command &&
-      socket !== "" &&
-      (text.includes(socket) || text.includes(JSON.stringify(socket).slice(1, -1)));
+      entry.command === launch.command &&
+      entry.socket !== null &&
+      entry.socket === launch.env[AGENT_SOCKET_ENV];
     if (others.length > 0 || !ours) return false;
     const original = file.backup ? await readText(backupPathOf(path)) : null;
     const after = changed(file, text, null, original !== null && !holdsMcpServers(original));

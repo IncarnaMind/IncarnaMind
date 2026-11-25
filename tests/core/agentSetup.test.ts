@@ -18,11 +18,17 @@ import {
 } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { AgentLaunch, Core } from "../../src/core";
+import { type AgentLaunch, type Core, DATABASE_FILE } from "../../src/core";
 import { SERVER_INSTRUCTIONS } from "../../src/core/agents/mcp";
 import { SKILL_MARKDOWN } from "../../src/core/agents/skill";
-import { AGENT_CLIENT_IDS, ALL_SHARED_ID } from "../../src/core/api";
+import {
+  AGENT_CLIENT_IDS,
+  ALL_SHARED_ID,
+  type DataFlowStatus,
+  type DataKind,
+} from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
+import { openDatabase } from "../../src/core/storage";
 import { installAgent, installSigns } from "../helpers/agentInstalls";
 import {
   agentsAdapter,
@@ -74,7 +80,7 @@ async function started() {
   const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
   await core.assignDocumentGroup(tides.id, coast.id);
   await core.setAgentsEnabled(true);
-  return { core, home, applications, commands, links, opened, shim, coast };
+  return { core, home, applications, commands, links, opened, shim, coast, dataDir };
 }
 
 /** The settings an agent was given, as it would start the server. */
@@ -1525,7 +1531,7 @@ describe("one connection per app on this computer", () => {
     expect((await core.getAgents()).pairings).toHaveLength(1);
   });
 
-  it("a second press allows the check Claude Code runs again, and its Undo leaves that as the press allowed it", async () => {
+  it("a second press allows the check Claude Code runs again, and its Undo leaves it taken back, as the User had it", async () => {
     const { core, coast } = await started();
     const { pairing } = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
     const consent = async (flow: "agents" | "hosted-agents") =>
@@ -1539,10 +1545,87 @@ describe("one connection per app on this computer", () => {
     const again = await core.setUpAgent({ client: "claude-code", folderIds: [coast.id] });
     expect(again.pairing.id).toBe(pairing.id);
     expect(await consent("hosted-agents")).toBe("accepted");
-    // The press on the connect sheet is the consent; Settings › Privacy is where it is taken back.
     await core.undoAgentSetup(pairing.id);
-    expect(await consent("hosted-agents")).toBe("accepted");
+    expect(await consent("hosted-agents")).not.toBe("accepted");
     expect(await consent("agents")).toBe("accepted");
+  });
+
+  describe("a failed second press leaves each decision on the connection's data as it was", () => {
+    /** The agents flow's decision for the connection, set as a profile can hold it. */
+    const decide = (dataDir: string, pairingId: string, as: "declined" | "none" | DataKind[]) => {
+      const db = openDatabase(join(dataDir, DATABASE_FILE));
+      const service = `agent:${pairingId}`;
+      try {
+        const where = "flow = 'agents' AND service_id = ? AND deleted_at IS NULL";
+        if (as === "none") db.run(`DELETE FROM data_flow_consents WHERE ${where}`, [service]);
+        else if (as === "declined") {
+          db.run(
+            `UPDATE data_flow_consents SET decision = 'declined', data_kinds = '[]', chosen = 0 WHERE ${where}`,
+            [service],
+          );
+        } else {
+          db.run(`UPDATE data_flow_consents SET data_kinds = ? WHERE ${where}`, [
+            JSON.stringify(as),
+            service,
+          ]);
+        }
+      } finally {
+        db.close();
+      }
+    };
+    const agentsFlow = async (core: Core, pairingId: string) => {
+      const found = (await core.listDataFlows()).find(
+        (each) => each.flow.id === "agents" && each.flow.service.id === `agent:${pairingId}`,
+      );
+      return found && pick(found);
+    };
+    const pick = ({ consent, decidedAt, chosen, added }: DataFlowStatus) => ({
+      consent,
+      decidedAt,
+      chosen,
+      added,
+    });
+
+    it.each([
+      ["declined", "declined" as const],
+      ["never asked", "none" as const],
+      ["accepted for fewer kinds, before the flow sent more", ["scoped-passages"] as DataKind[]],
+    ])("%s before the press stays so after it fails", async (_case, as) => {
+      const { core, opened, coast, dataDir } = await started();
+      const { pairing } = await core.setUpAgent({
+        client: "claude-desktop",
+        folderIds: [coast.id],
+      });
+      decide(dataDir, pairing.id, as);
+      const before = await agentsFlow(core, pairing.id);
+      expect(before?.consent).not.toBe("accepted");
+      opened.push = () => {
+        throw new Error("No app opens it.");
+      };
+      await expect(
+        core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] }),
+      ).rejects.toThrow(/No app/);
+      expect(await agentsFlow(core, pairing.id)).toEqual(before);
+      expect(await searchWorks(await core.getAgentLaunch(pairing.id))).toBe(false);
+    });
+
+    it("accepted before the press stays accepted after it fails, and the connection works", async () => {
+      const { core, opened, coast } = await started();
+      const { pairing } = await core.setUpAgent({
+        client: "claude-desktop",
+        folderIds: [coast.id],
+      });
+      const before = await agentsFlow(core, pairing.id);
+      expect(before?.consent).toBe("accepted");
+      opened.push = () => {
+        throw new Error("No app opens it.");
+      };
+      await expect(
+        core.setUpAgent({ client: "claude-desktop", folderIds: [coast.id] }),
+      ).rejects.toThrow(/No app/);
+      expect(await agentsFlow(core, pairing.id)).toEqual(before);
+      expect(await searchWorks(await core.getAgentLaunch(pairing.id))).toBe(true);
+    });
   });
 
   it("an Undo pressed twice takes back the last set-up once: a second press's leaves the connection, a first one's leaves nothing", async () => {

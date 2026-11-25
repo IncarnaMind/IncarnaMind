@@ -8,9 +8,14 @@ import type { AgentLaunch } from "../../src/core";
 import {
   AGENT_CLIENT_DEFINITIONS,
   clientDefinition,
+  codexTable,
   isInexactNumber,
   promptLinkFor,
+  serverEntry,
+  withCodexTable,
   withMcpServersEntry,
+  writtenCommand,
+  writtenEntry,
 } from "../../src/core/agents/clients";
 import { AGENT_CLIENT_IDS } from "../../src/core/api";
 
@@ -214,4 +219,53 @@ describe("a state file's numbers are kept exactly or the file is left alone (#34
     expect(() => kept('{"count": 12345678901234567890.0}')).toThrow(/can't be kept exactly/);
     expect(JSON.parse(kept('{"count": 12}')).count).toBe(12);
   });
+});
+
+describe("IncarnaMind's entry read back from a settings file, in each format", () => {
+  const SOCKET = LAUNCH.env.INCARNAMIND_AGENT_SOCKET ?? "";
+  const elsewhere = {
+    ...LAUNCH,
+    env: { ...LAUNCH.env, INCARNAMIND_AGENT_SOCKET: "/other/agents.sock" },
+  };
+  // The User's own server names this profile's socket too, outside IncarnaMind's entry.
+  const FORMATS = [
+    {
+      format: "mcp-servers-json",
+      written: (launch: AgentLaunch) =>
+        withMcpServersEntry(
+          JSON.stringify({ mcpServers: { notes: { command: "n", args: [SOCKET] } } }),
+          { type: "stdio", ...serverEntry(launch) },
+        ),
+    },
+    {
+      format: "codex-toml",
+      written: (launch: AgentLaunch) =>
+        withCodexTable(
+          `[mcp_servers.notes]\ncommand = "n"\nenv = { WATCH = ${JSON.stringify(SOCKET)} }\n`,
+          codexTable(launch),
+        ),
+    },
+  ] as const;
+
+  it.each(FORMATS)(
+    "$format: an empty key matches the entry whatever key it holds, and only a wrong key misses it",
+    ({ format, written }) => {
+      const text = written(LAUNCH);
+      expect(writtenCommand(format, text, "")).toBe(LAUNCH.command);
+      expect(writtenCommand(format, text, "k3y")).toBe(LAUNCH.command);
+      expect(writtenCommand(format, text, "another-key")).toBeNull();
+      expect(writtenCommand(format, "", "")).toBeNull();
+    },
+  );
+
+  it.each(FORMATS)(
+    "$format: the socket is the one in IncarnaMind's own entry, not one named elsewhere in the file",
+    ({ format, written }) => {
+      expect(writtenEntry(format, written(LAUNCH), "")).toEqual({
+        command: LAUNCH.command,
+        socket: SOCKET,
+      });
+      expect(writtenEntry(format, written(elsewhere), "")?.socket).toBe("/other/agents.sock");
+    },
+  );
 });

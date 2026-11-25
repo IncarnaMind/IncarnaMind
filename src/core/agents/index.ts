@@ -45,7 +45,7 @@ import {
   NOT_IN_A_FOLDER_ID,
   type NoteCitation,
 } from "../api";
-import type { Consent } from "../consent";
+import type { Consent, ReplacedDecision } from "../consent";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { earliestRestorable } from "../recentlyDeleted";
 import type { Secrets } from "../secrets";
@@ -148,6 +148,8 @@ export interface ConnectedBefore {
   propose: boolean;
   /** Its token was renewed: the one before works nowhere now. */
   renewed: boolean;
+  /** The decisions on its data flows the press replaced. */
+  consents: readonly ReplacedDecision[];
 }
 
 /** How an agent starts the shim: the command and arguments for its MCP settings. */
@@ -165,7 +167,7 @@ export interface AgentsOptions {
   now(): string;
   clock(): number;
   secrets: Pick<Secrets, "set" | "tryGet" | "delete">;
-  consent: Pick<Consent, "status" | "choose" | "revoke" | "registry">;
+  consent: Pick<Consent, "status" | "choose" | "putBack" | "revoke" | "registry">;
   readValue(key: string): unknown;
   writeValue(key: string, value: unknown): void;
   /** Local mode is on: every pairing is paused. */
@@ -1072,25 +1074,23 @@ export function createAgents(options: AgentsOptions) {
       await ensureReachable();
       const stored = legacyShims.has(pairing.id) ? null : await tokenOf(pairing.id);
       const token = stored ?? (await renewToken(pairing.id));
-      const before: ConnectedBefore = {
-        folderIds: pairing.folderIds,
-        propose: pairing.propose,
-        renewed: stored === null,
-      };
+      const reach = { folderIds: pairing.folderIds, propose: pairing.propose };
       writeReach(pairing.id, folderIds, propose);
-      chooseFlows(pairing, pairing.client);
+      const consents = chooseFlows(pairing, pairing.client);
       changed();
+      const before: ConnectedBefore = { ...reach, renewed: stored === null, consents };
       return { pairing: requirePairing(pairing.id), launch: launchFor(token), before };
     },
 
     /**
-     * Takes back what `connectAgain` changed on a connection that stays: what it reads and writes.
-     * The consent the press recorded stands, as a press on the connect sheet gives it (ADR-0022);
-     * a renewed token stays too, since the one before it works nowhere.
+     * Takes back what `connectAgain` changed on a connection that stays: what it reads and writes,
+     * and each decision on its data flows as it stood before the press. A renewed token stays new:
+     * the one before it works nowhere.
      */
     putBack(pairingId: string, before: ConnectedBefore): AgentPairing {
       const pairing = requirePairing(pairingId);
       writeReach(pairing.id, before.folderIds, before.propose);
+      options.consent.putBack(before.consents);
       changed();
       return requirePairing(pairing.id);
     },

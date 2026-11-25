@@ -19,7 +19,7 @@
  * documentation each setup follows is cited beside it, as it stood on 2026-11-19.
  */
 import { join } from "node:path";
-import { HIDDEN_KEY } from "../../shared/agentSocket";
+import { AGENT_SOCKET_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
 import type { AgentClientId, AgentLaunch, AgentSetupKind } from "../api";
 import { isRecord } from "../errors";
 import { SKILL_NAME } from "./skill";
@@ -764,12 +764,19 @@ export function withoutCodexTable(text: string): string {
   return [...lines.slice(0, start), ...lines.slice(end)].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+/** A TOML basic string's value, as `tomlString` writes one. */
+const QUOTED = /("(?:[^"\\]|\\.)*")/.source;
+
 /**
- * The program IncarnaMind's entry in a settings file starts, as written there, where that entry
- * holds `token` (the pairing's key, or "" for any); null otherwise, or where the file can't be
- * read. Nothing else in the file is read.
+ * IncarnaMind's entry in a settings file, as written there: the program it starts, and the socket
+ * it reaches (null where it names none), where that entry holds `token` (the pairing's key, or ""
+ * for any); null otherwise, or where the file can't be read. Nothing else in the file is read.
  */
-export function writtenCommand(format: SettingsFormat, text: string, token: string): string | null {
+export function writtenEntry(
+  format: SettingsFormat,
+  text: string,
+  token: string,
+): { command: string; socket: string | null } | null {
   if (format === "codex-toml") {
     const lines = text.split("\n");
     const start = lines.findIndex((line) => line.trim() === `[mcp_servers.${SERVER_KEY}]`);
@@ -777,25 +784,36 @@ export function writtenCommand(format: SettingsFormat, text: string, token: stri
     const end = lines.findIndex((line, index) => index > start && /^\s*\[/.test(line));
     const table = lines.slice(start + 1, end === -1 ? undefined : end);
     if (!table.some((line) => line.includes(token))) return null;
-    for (const line of table) {
-      const command = /^\s*command\s*=\s*("(?:[^"\\]|\\.)*")\s*$/.exec(line)?.[1];
-      if (command) return JSON.parse(command) as string;
-    }
-    return null;
+    const value = (pattern: RegExp) => {
+      for (const line of table) {
+        const found = pattern.exec(line)?.[1];
+        if (found) return JSON.parse(found) as string;
+      }
+      return null;
+    };
+    const command = value(new RegExp(`^\\s*command\\s*=\\s*${QUOTED}\\s*$`));
+    if (command === null) return null;
+    const socket = value(
+      new RegExp(`^\\s*env\\s*=\\s*\\{.*\\b${AGENT_SOCKET_ENV}\\s*=\\s*${QUOTED}`),
+    );
+    return { command, socket };
   }
   try {
     const parsed: unknown = JSON.parse(text);
     const servers = isRecord(parsed) ? parsed.mcpServers : null;
     const entry = isRecord(servers) ? servers[SERVER_KEY] : null;
-    return isRecord(entry) &&
-      typeof entry.command === "string" &&
-      JSON.stringify(entry).includes(token)
-      ? entry.command
-      : null;
+    if (!isRecord(entry) || typeof entry.command !== "string") return null;
+    if (!JSON.stringify(entry).includes(token)) return null;
+    const socket = isRecord(entry.env) ? entry.env[AGENT_SOCKET_ENV] : null;
+    return { command: entry.command, socket: typeof socket === "string" ? socket : null };
   } catch {
     return null;
   }
 }
+
+/** The program IncarnaMind's entry starts, as `writtenEntry` reads it. */
+export const writtenCommand = (format: SettingsFormat, text: string, token: string) =>
+  writtenEntry(format, text, token)?.command ?? null;
 
 /** Whether a settings file holds nothing but the empty frame IncarnaMind's entry left. */
 export function isEmptySettings(format: SettingsFormat, text: string): boolean {

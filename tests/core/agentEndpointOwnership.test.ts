@@ -725,14 +725,18 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
   }, 60_000);
 
   it("an entry that starts IncarnaMind for another profile on this computer stays when a connection whose key can't be read leaves, and is said", async () => {
-    const { restarted, pairing, claudeJson } = await keyUnreadable("claude-code");
-    // The same program, on another data folder's socket.
+    const { restarted, pairing, claudeJson, oldLaunch } = await keyUnreadable("claude-code");
+    // The same program, on another data folder's socket; this profile's socket named elsewhere in the file.
+    const ours = oldLaunch.env[AGENT_SOCKET_ENV] ?? "";
     const settings = JSON.parse(await readFile(claudeJson, "utf8"));
     settings.mcpServers.incarnamind.env[AGENT_SOCKET_ENV] = "/elsewhere/agents.sock";
+    settings.mcpServers.notes.args = ["--watch", ours];
     await writeFile(claudeJson, `${JSON.stringify(settings, null, 2)}\n`);
     const left = await restarted.disconnectAgent(pairing.id);
     expect(left.settingsLeft?.map((each) => each.path)).toEqual([claudeJson]);
     expect(await serversIn(claudeJson)).toEqual(["notes", "incarnamind"]);
+    const entry = JSON.parse(await readFile(claudeJson, "utf8")).mcpServers.incarnamind;
+    expect(entry.env[AGENT_SOCKET_ENV]).toBe("/elsewhere/agents.sock");
     expect((await restarted.getAgents()).pairings).toEqual([]);
   }, 60_000);
 
@@ -764,15 +768,23 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect((await core.getAgents()).shimsOutOfDate).toEqual([]);
   }, 60_000);
 
-  it("Undo after a second press that gave Claude Code a new key keeps the connection and the entry just written", async () => {
+  it("Undo after a second press that gave Claude Code a new key keeps the connection, the new key and the entry just written, and puts its consent back", async () => {
     const { restarted, pairing, oldLaunch, folderIds, claudeJson } =
       await keyUnreadable("claude-code");
+    const hosted = async () =>
+      (await restarted.listDataFlows()).find(
+        (each) =>
+          each.flow.id === "hosted-agents" && each.flow.service.id === `agent:${pairing.id}`,
+      )?.consent;
+    await restarted.revokeConsent("hosted-agents", `agent:${pairing.id}`);
+    expect(await hosted()).not.toBe("accepted");
     const again = await restarted.setUpAgent({
       client: "claude-code",
       folderIds: [ALL_SHARED_ID],
       propose: true,
     });
     expect(again.pairing.id).toBe(pairing.id);
+    expect(await hosted()).toBe("accepted");
     const renewed = await restarted.getAgentLaunch(pairing.id);
     const written = await readFile(claudeJson, "utf8");
     expect(written.includes(renewed.env[AGENT_TOKEN_ENV] ?? "-")).toBe(true);
@@ -781,6 +793,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect((await restarted.getAgents()).pairings).toMatchObject([
       { id: pairing.id, folderIds, propose: false },
     ]);
+    expect(await hosted()).not.toBe("accepted");
     expect((await readFile(claudeJson, "utf8")) === written).toBe(true);
     await expect(legacyAgentClient(oldLaunch)).rejects.toThrow(/no longer connected/);
     const agent = await legacyAgentClient(renewed);
