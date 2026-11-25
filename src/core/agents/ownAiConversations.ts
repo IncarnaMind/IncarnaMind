@@ -142,6 +142,8 @@ interface ConversationRow {
   pairing_id: string;
   session_id: string;
   renewed: number;
+  /** A new conversation the User started that no request has begun with the AI yet (#3765). */
+  anew: number;
 }
 
 interface TurnRow {
@@ -249,7 +251,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
   const conversationOf = (mindId: string, pairingId: string) =>
     db.get<ConversationRow>(
-      `SELECT id, mind_id, pairing_id, session_id, renewed FROM own_ai_conversations
+      `SELECT id, mind_id, pairing_id, session_id, renewed, anew FROM own_ai_conversations
        WHERE mind_id = ? AND pairing_id = ? AND deleted_at IS NULL`,
       [mindId, pairingId],
     ) ?? null;
@@ -275,6 +277,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       pairing_id: pairingId,
       session_id: options.newId(),
       renewed: 0,
+      anew: 0,
     };
     db.run(
       `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at)
@@ -1105,22 +1108,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     let end: OwnAiEnd;
     let { session_id: sessionId } = conversation;
-    // The User started a new conversation that no request has begun since (#3765): its line is
-    // newer than the session the conversation last began, so a request stopped before it reached
-    // the AI leaves the new conversation to the next one.
-    const anew =
-      db.get<{ one: number }>(
-        `SELECT 1 AS one FROM own_ai_turns t
-         JOIN own_ai_conversations c ON c.id = t.conversation_id
-         WHERE t.conversation_id = ? AND t.id != ? AND t.deleted_at IS NULL
-           AND t.new_after = 1 AND t.updated_at > c.updated_at
-         LIMIT 1`,
-        [conversation.id, turnId],
-      ) !== undefined;
+    // The User started a new conversation that no request has begun with the AI (#3765): it stays
+    // so until a new session is kept, so a request stopped before it reached the AI leaves it to
+    // the next one.
+    const anew = conversation.anew === 1;
     const renewId = () => {
       sessionId = options.newId();
       db.run(
-        `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, updated_at = ?
+        `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, anew = 0, updated_at = ?
          WHERE id = ?`,
         [sessionId, options.now(), conversation.id],
       );
@@ -1302,18 +1297,22 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     startNew(mindId: string): void {
       if (running.has(mindId)) return;
       // After the last request that ran, not one never sent, whose Discard would take the line too.
-      const last = db.get<{ id: string }>(
-        `SELECT t.id FROM own_ai_turns t
+      const last = db.get<{ id: string; conversation_id: string }>(
+        `SELECT t.id, t.conversation_id FROM own_ai_turns t
          JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
          WHERE c.mind_id = ? AND t.deleted_at IS NULL AND t.outcome NOT IN ('waiting', 'unsent')
          ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1`,
         [mindId],
       );
       if (!last) return;
-      db.run("UPDATE own_ai_turns SET new_after = 1, updated_at = ? WHERE id = ?", [
-        options.now(),
-        last.id,
-      ]);
+      const at = options.now();
+      db.transaction(() => {
+        db.run("UPDATE own_ai_turns SET new_after = 1, updated_at = ? WHERE id = ?", [at, last.id]);
+        db.run("UPDATE own_ai_conversations SET anew = 1, updated_at = ? WHERE id = ?", [
+          at,
+          last.conversation_id,
+        ]);
+      });
     },
 
     /** Whether the Note has a conversation kept, reading none of its turns. */

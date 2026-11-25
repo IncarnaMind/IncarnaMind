@@ -3518,6 +3518,8 @@ export const migrations: readonly Migration[] = [
       -- The User started a new conversation after this turn: the turns stay, and the next request
       -- begins a new one with the AI, which carries none of the turns before it.
       ALTER TABLE own_ai_turns ADD COLUMN new_after INTEGER NOT NULL DEFAULT 0;
+      -- A new conversation the User started that no request has begun with the AI yet.
+      ALTER TABLE own_ai_conversations ADD COLUMN anew INTEGER NOT NULL DEFAULT 0;
     `,
   },
 ];
