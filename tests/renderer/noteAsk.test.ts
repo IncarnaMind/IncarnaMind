@@ -57,11 +57,13 @@ vi.mock("../../src/renderer/src/askedChanges", async (original) => ({
 
 const {
   allowAndAskAgain,
+  askedAgain,
   askFromSelection,
   askInNote,
   firstWordsOf,
   seedRunning,
   selectedForRequest,
+  sendUnsent,
   useNoteAsks,
 } = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
@@ -176,6 +178,30 @@ describe("the input at a Note's foot (#3627)", () => {
     expect(ask()).toMatchObject({ state: "working", turnId: "t2" });
   });
 
+  // protects=a request another window sent, taken after this window's, is sent again by its own record, never with this window's earlier words and selection (#3765); fails_when=Try again on the later request sends the earlier one's words, and its changes apply at once to the earlier selection
+  test("sends a request another window sent again by its own record", async () => {
+    const selection = [{ blockId: "a", before: "The ", after: "." }];
+    await askInNote("m1", { words: "bold", quote: "ferry", selection });
+    tell(event({ state: "landed" }));
+    tell(event({ turnId: "t9", state: "working" }));
+    tell(event({ turnId: "t9", state: "failed", problem: "timeout" }));
+    const failed = ask();
+    if (!failed) throw new Error("Expected the later request's line");
+    expect(failed.asked).toEqual({ words: "", quote: "", selection: null });
+    expect(askedAgain(failed, { request: "and the dates", quote: "" })).toEqual({
+      words: "and the dates",
+      quote: "",
+      selection: null,
+    });
+  });
+
+  // protects=Send on a request never sent, pressed twice quickly, sends it once (#3765); fails_when=the second press sends it again before the first came back
+  test("sends a request never sent once for two quick presses", async () => {
+    const turn = { id: "t5", request: "and add a title" };
+    await Promise.all([sendUnsent("m1", turn), sendUnsent("m1", turn)]);
+    expect(bridge.asked).toEqual([{ mindId: "m1", words: "and add a title" }]);
+  });
+
   // protects=with no agent to run it in the background, the caller asks by the link and the label stays out; fails_when=a request that went nowhere shows as working
   test("leaves the link to the caller when no agent runs it", async () => {
     bridge.start = { kind: "link" };
@@ -196,6 +222,25 @@ describe("the input at a Note's foot (#3627)", () => {
     const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 6) });
     expect(await askFromSelection(state, "m1", "Explain this")).toBe("busy");
     expect(bridge.asked).toHaveLength(1);
+    expect(useNotices.getState().confirmation).toMatchObject({
+      message: "noteAsk.busy",
+      params: { agent: "Claude Code" },
+    });
+  });
+
+  // protects=a selection action the core refuses, a run another window began meanwhile going, says so as one refused here does and isn't shown as on its way (#3765); fails_when=it reads as started while nothing about the words selected was sent
+  test("says so when a run begun elsewhere leaves a selection action unsent", async () => {
+    bridge.start = { kind: "busy", pairing: claude };
+    const schema = getSchema(noteExtensions());
+    const doc = schema.nodeFromJSON({
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { id: "a" }, content: [{ type: "text", text: "Fares rose." }] },
+      ],
+    });
+    const state = EditorState.create({ doc, selection: TextSelection.create(doc, 1, 6) });
+    expect(await askFromSelection(state, "m1", "Explain this")).toBe("busy");
+    expect(ask()).toBeUndefined();
     expect(useNotices.getState().confirmation).toMatchObject({
       message: "noteAsk.busy",
       params: { agent: "Claude Code" },

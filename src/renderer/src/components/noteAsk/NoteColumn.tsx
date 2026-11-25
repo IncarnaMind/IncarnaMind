@@ -385,7 +385,7 @@ export function NoteConversationBody({
           }
           failed={index === ranAt && ask?.state === "failed" && ask.turnId === turn.id ? ask : null}
         />,
-        // The AI remembers nothing above it (#3765).
+        // The AI carries none of the turns above it (#3765).
         turn.newAfter && (
           <p
             key={`${turn.id}-new`}

@@ -1243,7 +1243,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     });
   });
 
-  // protects=the mode chosen by the input starts the conversation's next request, a running one is told at once and the input reads the AI's answer, a mode the AI refuses is dropped with its reason, and none goes back to the User's own settings; nothing of it is written anywhere (#3765); fails_when=the choice is lost before the next request, a refusal reads as switched, or none still sends one
+  // protects=the mode chosen by the input starts the conversation's next request, a running one is told at once and the input reads the AI's answer, a mode the AI refuses leaves the choice before it with its reason, and none goes back to the User's own settings; nothing of it is written anywhere (#3765); fails_when=the choice is lost before the next request, a refusal reads as switched, or none still sends one
   it("starts the next request in the mode chosen by the input, and tells a running one", async () => {
     let heard: ((mode: string) => void) | undefined;
     let release = () => {};
@@ -1278,9 +1278,10 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await core.chooseNoteMode(mindId, "default");
     expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
     await core.chooseNoteMode(mindId, "auto");
+    // The choice before it holds again: the one the run is still in.
     expect(await core.noteModels(mindId)).toMatchObject({
       mode: "default",
-      chosen: false,
+      chosen: true,
       refused: "auto_mode_settings",
     });
     release();
@@ -1290,6 +1291,132 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await core.askInNote({ mindId, words: "fourth" });
     await ended(4);
     expect(run.runs[3]?.modes?.start).toBeUndefined();
+  });
+
+  // protects=what the input shows is what the next request starts in, for a User whose own setting acts without asking: a refused switch leaves the choice before it, New conversation keeps the choice, and a restart shows no mode until a run names one (#3765); fails_when=the pill says Asks first and the next request starts with no mode, on the User's own setting
+  it("starts the next request in the mode the input shows, after a refusal, New conversation and a restart", async () => {
+    const heard: string[] = [];
+    let hearing = false;
+    let release = () => {};
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: MODELS });
+      request.progress?.({ kind: "mode", mode: request.modes?.start ?? "acceptEdits" });
+      if (request.prompt.includes("long")) {
+        request.modes?.hear((mode) => {
+          heard.push(mode);
+          if (mode === "auto")
+            request.progress?.({ kind: "modeRefused", mode, reason: "auto_mode_model" });
+          else request.progress?.({ kind: "mode", mode });
+        });
+        hearing = true;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, otherId, ended, dataDir } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "a long one" });
+    await expect.poll(() => hearing).toBe(true);
+    await core.chooseNoteMode(mindId, "default");
+    await core.chooseNoteMode(mindId, "auto");
+    expect(heard).toEqual(["default", "auto"]);
+    release();
+    await ended(1);
+    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
+    await core.askInNote({ mindId, words: "after the refusal" });
+    await ended(2);
+    expect(run.runs[1]?.modes?.start).toBe("default");
+
+    await core.startNewNoteConversation(mindId);
+    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
+    await core.askInNote({ mindId, words: "after New conversation" });
+    await ended(3);
+    expect(run.runs[2]?.modes?.start).toBe("default");
+    expect(run.runs[2]?.conversation?.resume).toBe(false);
+
+    await core.close();
+    const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    try {
+      const turns: NoteTurnEvent[] = [];
+      again.on("agents.noteTurn", (turn) => turns.push(turn));
+      await again.askInNote({ mindId: otherId, words: "in another Note" });
+      await expect.poll(() => turns.filter((turn) => turn.state !== "working").length).toBe(1);
+      expect(await again.noteModels(mindId)).toMatchObject({ mode: null, chosen: false });
+      await again.askInNote({ mindId, words: "after a restart" });
+      await expect.poll(() => turns.filter((turn) => turn.state !== "working").length).toBe(2);
+      expect(run.runs.at(-1)?.modes?.start).toBeUndefined();
+      expect(await again.noteModels(mindId)).toMatchObject({ mode: "acceptEdits", chosen: false });
+    } finally {
+      await again.close();
+    }
+  });
+
+  // protects=a mode chosen in a request's first moments, before its run can hear one, is told to the run once it can, and a refusal of it gives back the mode the run started in (#3765); fails_when=the input ticks the mode chosen while the request acts in the one it started in
+  it("tells a run the mode chosen before it could hear one", async () => {
+    const heard: string[] = [];
+    const listening = gate();
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: MODELS });
+      request.progress?.({ kind: "mode", mode: request.modes?.start ?? "acceptEdits" });
+      listening.reached();
+      await listening.shut;
+      request.modes?.hear((mode) => {
+        heard.push(mode);
+        request.progress?.({ kind: "mode", mode });
+      });
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "first" });
+    await listening.at;
+    await core.chooseNoteMode(mindId, "default");
+    expect(heard).toEqual([]);
+    listening.open();
+    await ended(1);
+    expect(heard).toEqual(["default"]);
+    await core.askInNote({ mindId, words: "second" });
+    await ended(2);
+    expect(run.runs[1]?.modes?.start).toBe("default");
+  });
+
+  // protects=Your setting chosen while a request runs puts that request back in the User's own mode, as a run started with none named it, and every window hears each choice (#3765); fails_when=the running request stays in the mode chosen before, or another window's input still shows it
+  it("puts a running request back in the User's own mode, and tells every window of a choice", async () => {
+    const heard: string[] = [];
+    let hearing = false;
+    let release = () => {};
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: MODELS });
+      request.progress?.({ kind: "mode", mode: request.modes?.start ?? "acceptEdits" });
+      if (request.prompt.includes("long")) {
+        request.modes?.hear((mode) => {
+          heard.push(mode);
+          request.progress?.({ kind: "mode", mode });
+        });
+        hearing = true;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    const told: string[] = [];
+    core.on("agents.noteMode", (changed) => told.push(changed.mindId));
+    await core.askInNote({ mindId, words: "first" });
+    await ended(1);
+    await core.chooseNoteMode(mindId, "auto");
+    expect(told).toContain(mindId);
+    await core.askInNote({ mindId, words: "a long one" });
+    await expect.poll(() => hearing).toBe(true);
+    await core.chooseNoteMode(mindId, null);
+    expect(heard).toEqual(["acceptEdits"]);
+    expect(await core.noteModels(mindId)).toMatchObject({ mode: "acceptEdits", chosen: false });
+    release();
+    await ended(2);
+    await core.askInNote({ mindId, words: "third" });
+    await ended(3);
+    expect(run.runs[2]?.modes?.start).toBeUndefined();
   });
 
   // protects=a reply's Citation is shown as one only when IncarnaMind gave that token to this connection; a made-up token is not; fails_when=a token the agent made up, or one of another connection, reaches the conversation as a Citation
@@ -1919,7 +2046,7 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     }
   });
 
-  // protects=a request typed while one runs goes into that run at once, about the whole Note, as a turn of its own that waits until its AI takes it (#3765); taken at the AI's next step, the request before ends with its steps and no reply of its own, and what follows, the next step and the reply, is the later one's; fails_when=it is refused, held for later, starts a second run, keeps a selection the run can't hold, or its reply lands under the request before
+  // protects=a request typed while one runs goes into that run at once, about the whole Note, as a turn of its own that waits until its AI takes it (#3765), and one about words selected is not sent, as the run can't take a new selection; taken at the AI's next step, the request before ends with its steps and no reply of its own, and what follows, the next step and the reply, is the later one's; fails_when=it is refused, held for later, starts a second run, one about words selected goes in without them, or its reply lands under the request before
   it("sends a request typed meanwhile into the run, taken at its next step and answered there", async () => {
     const step = gate();
     let sent: { id: string; prompt: string }[] = [];
@@ -1936,14 +2063,20 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       });
       return { kind: "finished", reply: "Fares rose by ten percent." };
     });
-    const { core, mindId, turns, ended } = await written(run.adapter);
+    const { core, mindId, turns, ended, selectionOf } = await written(run.adapter);
     const first = idOf(await core.askInNote({ mindId, words: "what changed this year?" }));
     await step.at;
-    const start = await core.askInNote({
-      mindId,
-      words: "and the fares?",
-      quote: "212,000 passengers",
-    });
+    // About words selected, as from a window that hadn't heard of the run: not sent at all.
+    expect(
+      await core.askInNote({
+        mindId,
+        words: "shorten this",
+        quote: "212,000 passengers",
+        selection: selectionOf(0, "212,000 passengers"),
+      }),
+    ).toMatchObject({ kind: "busy" });
+    expect(sent).toEqual([]);
+    const start = await core.askInNote({ mindId, words: "and the fares?" });
     expect(start.kind).toBe("sent");
     const later = idOf(start);
     expect(run.runs).toHaveLength(1);
@@ -1975,6 +2108,36 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
       ["what changed this year?", "", "landed", ""],
       ["and the fares?", "", "landed", "Fares rose by ten percent."],
     ]);
+  });
+
+  // protects=once its AI takes a request sent meanwhile, a change it makes is that request's, about the whole Note, no longer held to the first request's selection (#3765); fails_when=a whole-Note follow-up's change waits as outside the first selection, or lands under the first request
+  it("holds a change after a request taken meanwhile to that request, not to the first one's selection", async () => {
+    const step = gate();
+    let status = "";
+    const run = runner(async (agent, request) => {
+      step.reached();
+      await step.shut;
+      const [next] = meanwhileOf(request);
+      if (next) request.progress?.({ kind: "taken", id: next.id });
+      status = (await rewrite(agent, mindIdOf(request), [[FARES, "Fares rose by a tenth."]]))
+        .status;
+      return { kind: "finished", reply: "Made the fares a tenth." };
+    });
+    const { core, mindId, ended, selectionOf } = await written(run.adapter);
+    await core.askInNote({
+      mindId,
+      words: "say people, not passengers",
+      quote: "212,000 passengers",
+      selection: selectionOf(0, "212,000 passengers"),
+    });
+    await step.at;
+    expect(await core.askInNote({ mindId, words: "and say a tenth for the fares" })).toMatchObject({
+      kind: "sent",
+    });
+    step.open();
+    const later = await ended(2);
+    expect(status).toBe("applied");
+    expect(later?.applied).toHaveLength(1);
   });
 
   // protects=a request typed while the AI writes a plain reply waits through that reply, which stays the earlier request's, and is then answered as the next turn of the same run (#3765); one sent before the run could take any reaches it once it can; fails_when=the run ends with it unanswered, its reply lands under the earlier request, or the earlier reply is lost
@@ -2043,6 +2206,47 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     await expect.poll(() => run.runs.length).toBe(2);
     await core.stopInNote(mindId);
     await ended(2);
+  });
+
+  // protects=New conversation marks the last request that ran, so discarding a request never sent after it keeps the line, and the next request begins anew (#3765); fails_when=the Discard takes the line with it and the next request resumes the conversation before
+  it("keeps New conversation when a request never sent after it is discarded", async () => {
+    const run = runner(async (agent, request) =>
+      request.prompt.includes("rewrite")
+        ? untilStopped(agent, request)
+        : { kind: "finished", reply: "Done." },
+    );
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "rewrite everything" });
+    await expect.poll(() => run.runs.length).toBe(1);
+    const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
+    await core.stopInNote(mindId);
+    await ended();
+    await core.startNewNoteConversation(mindId);
+    await core.discardInNote(mindId, later);
+    expect((await core.noteConversation(mindId)).map((turn) => turn.newAfter)).toEqual([true]);
+    await core.askInNote({ mindId, words: "what does the plan add" });
+    await ended(2);
+    expect(run.runs[1]?.conversation?.resume).toBe(false);
+    expect(run.runs[1]?.conversation?.sessionId).not.toBe(run.runs[0]?.conversation?.sessionId);
+  });
+
+  // protects=a request sent in a run's last moments, after its AI's last answer, isn't refused: the next run begins with it and answers it (#3765); fails_when=it ends Not sent although the User only sent it while the request finished
+  it("begins the next run with a request sent as the run before finished", async () => {
+    let asking: (() => Promise<unknown>) | null = null;
+    const run = runner(async (_agent, request) => {
+      if (request.prompt.includes("the plan")) await asking?.();
+      return { kind: "finished", reply: request.prompt.includes("dates") ? "In 2027." : "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    asking = () => core.askInNote({ mindId, words: "and the dates?" });
+    await core.askInNote({ mindId, words: "what does the plan add" });
+    await ended(2);
+    expect(run.runs).toHaveLength(2);
+    expect(run.runs[1]?.prompt).toContain("and the dates?");
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what does the plan add", "", "landed", "Done."],
+      ["and the dates?", "", "landed", "In 2027."],
+    ]);
   });
 
   // protects=a request sent meanwhile that its AI hadn't taken when IncarnaMind quit is never sent, after the next start, as one Stop left; fails_when=it stays waiting for a run that is gone, or reads as stopped

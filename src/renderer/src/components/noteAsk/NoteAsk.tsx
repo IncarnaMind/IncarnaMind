@@ -85,6 +85,9 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const [words, setWords] = useState("");
+  // What the input holds now, for a send that comes back after the User typed again.
+  const typedNow = useRef(words);
+  typedNow.current = words;
   const carry = useRef<InputCarry | null>(null);
   const [quote, setQuote] = useState(() => selectedForRequest(editor.state)?.quote ?? "");
   const [whole, setWhole] = useState(false);
@@ -158,13 +161,17 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const send = async () => {
     const typed = words.trim();
     if (typed === "") return;
-    // Sent into a run going, it is about the whole Note: the run holds its changes to the selection
-    // of the request it began with, so the input shows no quote meanwhile (#3765).
+    // Sent into a run going, it is about the whole Note: its AI takes no new selection mid-run, so
+    // the input shows no quote meanwhile (#3765).
     const selected = whole || going ? null : selectedForRequest(editor.state);
     // The quote goes with the words, as they leave the input.
     setWords("");
+    typedNow.current = "";
     setWhole(true);
+    // A request that didn't go keeps what the User typed for sending again, unless they have typed
+    // another meanwhile: a failed one's line still sends it again.
     const giveBack = () => {
+      if (typedNow.current.trim() !== "") return;
       setWords(typed);
       setWhole(whole);
     };
@@ -175,9 +182,12 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
         selection: selected?.selection ?? null,
         caret: selected || going ? "" : caretOf(editor.state),
       });
-      // A request that couldn't start keeps what the User typed for sending again.
-      if (went === "problem") giveBack();
-      if (went === "link") await askFirstAgent(mindId, { kind: "question", text: typed });
+      if (went === "problem" || went === "busy") giveBack();
+      if (
+        went === "link" &&
+        (await askFirstAgent(mindId, { kind: "question", text: typed })) !== "asked"
+      )
+        giveBack();
       // It shows in the conversation as sent, waiting for the AI to take it.
       if (went === "sent") setColumnOpen(mindId, true);
     } catch (error) {

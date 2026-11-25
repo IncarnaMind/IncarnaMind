@@ -1,6 +1,12 @@
 import { core } from "../../core";
 import { useT } from "../../i18n";
-import { focusNoteAsk, moveConversation, setColumnOpen, useNoteAsks } from "../../ownAiInNote";
+import {
+  focusNoteAsk,
+  isGoing,
+  moveConversation,
+  setColumnOpen,
+  useNoteAsks,
+} from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronDownLineIcon } from "../lineIcons";
 import { menuClass, menuItemClass, menuRuleClass } from "../ui";
@@ -28,8 +34,9 @@ export function ConversationMenu({
 }) {
   const t = useT();
   const menu = usePopoverMenu({ focus: "first" });
-  // As Send again: not while a request runs, nor while its AI waits on the User.
-  const working = useNoteAsks((state) => state.byMind[mindId]?.state === "working");
+  // Not while the core holds a run of the Note: a request working, its AI waiting on the User, or
+  // one sent meanwhile still to be answered.
+  const working = useNoteAsks((state) => isGoing(state.byMind[mindId]));
   const back = () => requestAnimationFrame(() => focusNoteAsk(mindId));
   const item = (testId: string, label: string, run: () => void, disabled = false) => (
     <button

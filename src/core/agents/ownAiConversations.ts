@@ -125,6 +125,8 @@ export interface OwnAiConversationsOptions {
   /** Calls `listener` at each change that can end what `heldBack` allows; returns its end. */
   onReachChange(listener: () => void): () => void;
   turned(event: NoteTurnEvent): void;
+  /** The mode the input shows for the Note may have changed: every window reads it again. */
+  moded(mindId: string): void;
   titleOf(mindId: string): string;
   newId(): string;
   now(): string;
@@ -207,10 +209,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   // list's first, which is the agent's general default.
   const ranOn = new Map<string, string>();
   /**
-   * The permission mode the User chose by the input, by the agent's own id for the conversation:
-   * it holds for that conversation only and is written nowhere, the agent's settings least (#3765).
+   * The permission mode the User chose by the input, by the Note's conversation, new conversations
+   * after a line included: it holds for that conversation only and is written nowhere, the agent's
+   * settings least (#3765). What the input shows is what the next request starts in.
    */
   const chosenModes = new Map<string, string>();
+  /**
+   * The mode a run started with none chosen named, by conversation: the User's own setting, as far
+   * as IncarnaMind has seen since it started. Unknown, the input names no mode.
+   */
+  const ownModes = new Map<string, string>();
+  /** The choice before the one a running request was last told, given back if it refuses that one. */
+  const modeBefore = new Map<string, string | undefined>();
   /** Tells the Note's running request of a mode chosen while it runs. */
   const modeHears = new Map<string, (mode: string) => void>();
   /** Why the AI refused the mode chosen for a conversation, by its own code, until another is chosen. */
@@ -345,6 +355,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const going = [...running.values()].filter((each) => ids.has(each.conversationId));
     for (const each of going) each.stop.abort();
     await Promise.all(going.map((each) => each.ended));
+    for (const { id } of rows) {
+      for (const kept of [chosenModes, ownModes, modeBefore, refusedModes]) kept.delete(id);
+    }
     const at = options.now();
     db.transaction(() => {
       for (const { id } of rows) {
@@ -400,9 +413,12 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
 
-    // A request typed while one runs goes into that run, about the whole Note: the run's grant holds
-    // its changes to the first request's selection (#3765).
+    // A request typed while one runs goes into that run, about the whole Note (#3765). One about
+    // words selected doesn't: its AI takes no new selection mid-run, so it waits for Stop.
     const into = (run: Running): NoteRequestStart => {
+      if (options.lifetime.aborted || options.heldBack(run.pairing, mindId))
+        return { kind: "link" };
+      if (quote !== "" || selection !== null) return { kind: "busy", pairing: run.pairing };
       const turnId = options.newId();
       const at = options.now();
       db.run(
@@ -448,28 +464,33 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
        VALUES (?, ?, ?, ?, 'working', ?, ?)`,
       [turnId, conversation.id, request, quote, at, at],
     );
+    begin({ mindId, pairing, turnId, conversation, request, quote, caret, selection, model });
+    return { kind: "started", pairing, turnId };
+  }
+
+  /** Runs the Note's conversation for a request recorded as working. */
+  function begin(first: {
+    mindId: string;
+    pairing: AgentPairing;
+    turnId: string;
+    conversation: ConversationRow;
+    request: string;
+    quote: string;
+    caret: string;
+    selection: SelectedInBlock[] | null;
+    model: string | undefined;
+  }): Running {
+    const { mindId, pairing, conversation } = first;
     const stop = new AbortController();
     const live: Live = {
-      turnId: () => turnId,
+      turnId: () => first.turnId,
       questions: () => [],
       answer: () => undefined,
       now: () => null,
       send: () => undefined,
       unsent: () => undefined,
     };
-    const ended = converse({
-      mindId,
-      pairing,
-      turnId,
-      conversation,
-      request,
-      quote,
-      caret,
-      selection,
-      model,
-      stop,
-      live,
-    }).catch((error: unknown) => {
+    const ended = converse({ ...first, stop, live }).catch((error: unknown) => {
       // Whatever went wrong, the request doesn't stay working: the User can send it again, and
       // each sent meanwhile too.
       options.log.warn("agents.ownAiConversation.broke", {
@@ -482,8 +503,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         { state: "failed", problem: "failed" },
       );
     });
-    running.set(mindId, { pairing, conversationId: conversation.id, stop, ended, live });
-    return { kind: "started", pairing, turnId };
+    const run = { pairing, conversationId: conversation.id, stop, ended, live };
+    running.set(mindId, run);
+    return run;
   }
 
   async function converse(turn: {
@@ -508,8 +530,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     let current = latest as Taken | null;
     // Sent meanwhile and not yet taken, oldest first, and how the run sends one to its AI; the end
     // of the last request ended, told again while those wait for the next to be taken.
-    const sent: { turnId: string; prompt: string }[] = [];
+    const sent: { turnId: string; prompt: string; words: string }[] = [];
     let send: ((id: string, prompt: string) => void) | null = null;
+    // What a change in the Note is held to and named by, as the grant reads it at each call: the
+    // request its AI works on, which `take` moves on to one sent meanwhile, about the whole Note.
+    const front: ConversationRun["front"] = {
+      mindId,
+      selection: turn.selection,
+      words: turn.request,
+      folder: null,
+    };
     let lastEnd = null as NoteTurnEvent | null;
     let lost: NoteTurnProblem | null = null;
     let answeredOn: string | null = null;
@@ -534,6 +564,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     });
     let mode: string | null = null;
     let modeNew = false;
+    // The mode the run was started in, none for the User's own, and whether it has named its mode.
+    let startedIn: string | undefined;
+    let firstMode = true;
     // Claude Code keeps the system prompt a conversation began with: one begun before its AI kept
     // its own abilities, told it had none, so it begins anew, once (#3653).
     const renewed = conversation.renewed === 1;
@@ -656,7 +689,11 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       const at = sent.findIndex((each) => each.turnId === id);
       if (at === -1) return;
       if (current) close(current, outcomeOf(current, { kind: "finished", reply: "" }), "");
-      sent.splice(at, 1);
+      const [taken] = sent.splice(at, 1);
+      if (taken) {
+        front.selection = null;
+        front.words = taken.words;
+      }
       latest = taking(id, options.now());
       current = latest;
       try {
@@ -720,14 +757,28 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         return;
       }
       if (step.kind === "modeRefused") {
-        // The pill goes back to the mode the run is in, and its menu says why (#3765).
-        if (chosenModes.get(sessionId) === step.mode) chosenModes.delete(sessionId);
-        refusedModes.set(sessionId, step.reason);
+        // The choice before it holds again, the one the run is still in, and the menu says why.
+        if ((chosenModes.get(conversation.id) ?? ownModes.get(conversation.id)) === step.mode) {
+          const before = modeBefore.get(conversation.id);
+          if (before === undefined) chosenModes.delete(conversation.id);
+          else chosenModes.set(conversation.id, before);
+        }
+        refusedModes.set(conversation.id, step.reason);
         modeAnswers.get(mindId)?.();
+        options.moded(mindId);
         tellWorking();
         return;
       }
       if (step.kind === "mode") {
+        if (firstMode) {
+          firstMode = false;
+          if (startedIn === undefined) ownModes.set(conversation.id, step.mode);
+          else if (step.mode !== startedIn && chosenModes.get(conversation.id) === startedIn) {
+            // Started in another mode than the one asked, the choice didn't hold.
+            chosenModes.delete(conversation.id);
+            refusedModes.set(conversation.id, "other");
+          }
+        }
         modeAnswers.get(mindId)?.();
         if (mode !== step.mode) {
           mode = step.mode;
@@ -737,6 +788,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
                WHERE conversation_id = ? AND id != ? AND mode = ? AND deleted_at IS NULL LIMIT 1`,
               [conversation.id, turnId, mode],
             ) === undefined;
+          options.moded(mindId);
           tellWorking();
         }
         return;
@@ -876,7 +928,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     turn.live.send = (id, words) => {
       // About the whole Note, as the record keeps it: the selection was the first request's.
       const prompt = promptOf(options.titleOf(mindId), mindId, words, "", "");
-      sent.push({ turnId: id, prompt });
+      sent.push({ turnId: id, prompt, words });
       send?.(id, prompt);
       if (over) return;
       // Every window hears of it at once, while the request before still runs or after it ended.
@@ -911,81 +963,76 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       );
       return;
     }
+    front.folder = folder;
     // Only this run's own calls and changes: another run of the connection, or the User's own
     // session of it, tells nothing here.
-    const grant = options.conversationGrant(
-      pairing.id,
-      { mindId, selection: turn.selection, words: turn.request, folder },
-      {
-        // Applied in the Note while a request works on it: never between one's end and the next.
-        asked: (change) => (current ?? latest).applied.push(change),
-        calling: () => {
-          calls += 1;
+    const grant = options.conversationGrant(pairing.id, front, {
+      // Applied in the Note while a request works on it: never between one's end and the next.
+      asked: (change) => (current ?? latest).applied.push(change),
+      calling: () => {
+        calls += 1;
+        heard();
+        return () => {
+          calls -= 1;
           heard();
-          return () => {
-            calls -= 1;
-            heard();
-          };
-        },
-        called: (call) => {
-          const of = current ?? latest;
-          if (signal.aborted || over) return;
-          if (call.outcome === "refused" && call.problem === "read-only") of.readOnly = true;
-          if (call.outcome === "done" && call.tool === "create_mind") {
-            const wrote = call.effects.find(
-              (each) => each.action === "write" && each.scope.kind === "mind",
-            );
-            const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
-            if (mindId !== "") of.made.push({ mindId, title: call.summary });
-          }
-          if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
-            for (const { scope } of call.effects) {
-              if (scope.kind !== "mind") continue;
-              const was = of.waiting.get(scope.mindId);
-              of.waiting.set(scope.mindId, {
-                mindId: scope.mindId,
-                title: call.summary,
-                count: (was?.count ?? 0) + call.count,
-              });
-            }
-          }
-          doingCall(of, call.tool, call.summary);
-          const ids = call.documentIds ?? [];
-          if (call.outcome === "done" && call.tool === "search")
-            for (const id of ids) of.found.add(id);
-          const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
-          const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
-          const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
-          if (read) {
-            of.found.add(read);
-            const sofar = (of.readOf.get(read) ?? 0) + (call.count ?? 0);
-            of.readOf.set(read, sofar);
-            const total = passagesIn(read);
-            const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
-            of.steps.push({
-              kind: "call",
-              tool: call.tool,
-              summary: call.summary,
-              documentId: read,
-              ...(part !== undefined && { part }),
-            });
-          } else {
-            of.steps.push({
-              kind: "call",
-              tool: call.tool,
-              summary: call.summary,
-              done: call.outcome === "done",
-              ...(other && call.outcome === "done" && { mindId: other }),
-              ...(other &&
-                call.tool === "propose_changes" &&
-                call.count && { waiting: call.count }),
-              ...(call.saved && call.outcome === "done" && { file: call.saved }),
-            });
-          }
-          tellWorking();
-        },
+        };
       },
-    );
+      called: (call) => {
+        const of = current ?? latest;
+        if (signal.aborted || over) return;
+        if (call.outcome === "refused" && call.problem === "read-only") of.readOnly = true;
+        if (call.outcome === "done" && call.tool === "create_mind") {
+          const wrote = call.effects.find(
+            (each) => each.action === "write" && each.scope.kind === "mind",
+          );
+          const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
+          if (mindId !== "") of.made.push({ mindId, title: call.summary });
+        }
+        if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
+          for (const { scope } of call.effects) {
+            if (scope.kind !== "mind") continue;
+            const was = of.waiting.get(scope.mindId);
+            of.waiting.set(scope.mindId, {
+              mindId: scope.mindId,
+              title: call.summary,
+              count: (was?.count ?? 0) + call.count,
+            });
+          }
+        }
+        doingCall(of, call.tool, call.summary);
+        const ids = call.documentIds ?? [];
+        if (call.outcome === "done" && call.tool === "search")
+          for (const id of ids) of.found.add(id);
+        const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
+        const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
+        const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
+        if (read) {
+          of.found.add(read);
+          const sofar = (of.readOf.get(read) ?? 0) + (call.count ?? 0);
+          of.readOf.set(read, sofar);
+          const total = passagesIn(read);
+          const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
+          of.steps.push({
+            kind: "call",
+            tool: call.tool,
+            summary: call.summary,
+            documentId: read,
+            ...(part !== undefined && { part }),
+          });
+        } else {
+          of.steps.push({
+            kind: "call",
+            tool: call.tool,
+            summary: call.summary,
+            done: call.outcome === "done",
+            ...(other && call.outcome === "done" && { mindId: other }),
+            ...(other && call.tool === "propose_changes" && call.count && { waiting: call.count }),
+            ...(call.saved && call.outcome === "done" && { file: call.saved }),
+          });
+        }
+        tellWorking();
+      },
+    });
     // Every window hears it started: one that sends another meanwhile sends it into this run.
     if (current) tell(event(current, { state: "working" }));
     const offReach = options.onReachChange(() => {
@@ -996,6 +1043,29 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const meanwhile = (write: (id: string, prompt: string) => void) => {
       send = write;
       for (const each of sent) write(each.turnId, each.prompt);
+    };
+    // The mode a run starts in, the one the input shows, and how it hears one chosen as it runs.
+    const modesFor = (start: string | undefined) => {
+      startedIn = start;
+      firstMode = true;
+      return {
+        ...(start !== undefined && { start }),
+        hear(listener: (mode: string) => void) {
+          modeHears.set(mindId, listener);
+          // One chosen in its first moments, before it could hear it, is told now: the User's own
+          // setting too, for a run started in a mode chosen before.
+          const chosen = chosenModes.get(conversation.id);
+          const wanted =
+            chosen ?? (start === undefined ? undefined : ownModes.get(conversation.id));
+          if (wanted !== undefined && wanted !== (mode ?? start)) {
+            modeBefore.set(conversation.id, start);
+            listener(wanted);
+          }
+          return () => {
+            if (modeHears.get(mindId) === listener) modeHears.delete(mindId);
+          };
+        },
+      };
     };
     const runOnce = (resume: boolean, sessionId: string) =>
       options.runner
@@ -1015,15 +1085,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               ),
               conversation: { key: conversation.id, sessionId, resume },
               ...(turn.model !== undefined && { model: turn.model }),
-              modes: {
-                ...(chosenModes.has(sessionId) && { start: chosenModes.get(sessionId) }),
-                hear(listener) {
-                  modeHears.set(turn.mindId, listener);
-                  return () => {
-                    if (modeHears.get(turn.mindId) === listener) modeHears.delete(turn.mindId);
-                  };
-                },
-              },
+              modes: modesFor(chosenModes.get(conversation.id)),
               listModels: true,
               progress,
               signal,
@@ -1043,21 +1105,24 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     let end: OwnAiEnd;
     let { session_id: sessionId } = conversation;
-    // The User started a new conversation after the turn before this one (#3765).
+    // The User started a new conversation after the last request that ran before this one (#3765).
     const anew =
       db.get<{ new_after: number }>(
-        `SELECT new_after FROM own_ai_turns WHERE conversation_id = ? AND id != ? AND deleted_at IS NULL
+        `SELECT new_after FROM own_ai_turns
+         WHERE conversation_id = ? AND id != ? AND deleted_at IS NULL
+           AND outcome NOT IN ('waiting', 'unsent')
          ORDER BY created_at DESC, rowid DESC LIMIT 1`,
         [conversation.id, turnId],
       )?.new_after === 1;
-    if (renewed || anew) {
+    const renewId = () => {
       sessionId = options.newId();
       db.run(
         `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, updated_at = ?
          WHERE id = ?`,
         [sessionId, options.now(), conversation.id],
       );
-    }
+    };
+    if (renewed || anew) renewId();
     let listening: ReturnType<typeof setInterval> | undefined;
     try {
       listening = listen();
@@ -1065,12 +1130,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
         // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
         fresh = true;
-        const sessionId = options.newId();
-        db.run("UPDATE own_ai_conversations SET session_id = ?, updated_at = ? WHERE id = ?", [
-          sessionId,
-          options.now(),
-          conversation.id,
-        ]);
+        renewId();
         end = await runOnce(false, sessionId);
       }
     } finally {
@@ -1082,23 +1142,56 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       await grant.end();
       running.delete(mindId);
     }
+    // Sent in the run's last moments, after its AI's last answer, a request isn't refused: the
+    // next run begins with it (#3765). Stopped, failed or held back, it stays never sent.
+    const next =
+      end.kind === "finished" &&
+      !signal.aborted &&
+      !lost &&
+      !options.lifetime.aborted &&
+      options.heldBack(pairing, mindId) === null
+        ? sent.splice(0)
+        : [];
     // What its AI never took is kept as such before the last end is told: every window reads the
     // conversation again on that.
     const neverTaken = unsent();
-    if (!current) {
-      if (neverTaken && lastEnd && !options.lifetime.aborted) tell({ ...lastEnd, queued: [] });
-      return;
+    if (current) {
+      // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
+      close(
+        current,
+        lost
+          ? { state: "failed", problem: lost }
+          : signal.aborted
+            ? { state: "stopped", problem: null }
+            : outcomeOf(current, end),
+        end.kind === "finished" ? end.reply.trim() : "",
+      );
+    } else if (neverTaken && lastEnd && !options.lifetime.aborted) {
+      tell({ ...lastEnd, queued: [] });
     }
-    // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
-    close(
-      current,
-      lost
-        ? { state: "failed", problem: lost }
-        : signal.aborted
-          ? { state: "stopped", problem: null }
-          : outcomeOf(current, end),
-      end.kind === "finished" ? end.reply.trim() : "",
-    );
+    const [first, ...rest] = next;
+    if (!first) return;
+    const going = running.get(mindId);
+    const carried =
+      going ??
+      (() => {
+        db.run(
+          "UPDATE own_ai_turns SET outcome = 'working', updated_at = ? WHERE id = ? AND outcome = 'waiting'",
+          [options.now(), first.turnId],
+        );
+        return begin({
+          mindId,
+          pairing,
+          turnId: first.turnId,
+          conversation: conversationOf(mindId, pairing.id) ?? conversation,
+          request: first.words,
+          quote: "",
+          caret: "",
+          selection: null,
+          model: turn.model,
+        });
+      })();
+    for (const each of going ? next : rest) carried.live.send(each.turnId, each.words);
   }
 
   return {
@@ -1198,16 +1291,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     },
 
     /**
-     * Starts a new conversation after the Note's last turn (#3765): every turn stays, and the next
-     * request begins a new one with the AI, which remembers nothing before it. Asked again before
-     * a request, it is the same new conversation; while a request runs, it does nothing.
+     * Starts a new conversation after the Note's last request that ran (#3765): every turn stays,
+     * and the next request begins a new one with the AI, which carries none of the turns before it.
+     * Asked again before a request, it is the same new conversation; while a run of the Note goes,
+     * it does nothing.
      */
     startNew(mindId: string): void {
       if (running.has(mindId)) return;
+      // After the last request that ran, not one never sent, whose Discard would take the line too.
       const last = db.get<{ id: string }>(
         `SELECT t.id FROM own_ai_turns t
          JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
-         WHERE c.mind_id = ? AND t.deleted_at IS NULL
+         WHERE c.mind_id = ? AND t.deleted_at IS NULL AND t.outcome NOT IN ('waiting', 'unsent')
          ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1`,
         [mindId],
       );
@@ -1243,47 +1338,46 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       chosen: boolean;
       refused: string | null;
     } {
-      const pairing = options.askable(mindId).find(canRun);
+      const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
       if (!listed || !pairing || options.heldBack(pairing, mindId))
         return { models: [], ran: null, mode: null, chosen: false, refused: null };
       const conversation = conversationOf(mindId, pairing.id);
-      const chosen = conversation ? chosenModes.get(conversation.session_id) : undefined;
-      // A request just started names none yet: the one before it still says what the AI is in.
-      const ranIn = conversation
-        ? (db.get<{ mode: string }>(
-            `SELECT mode FROM own_ai_turns
-             WHERE conversation_id = ? AND mode IS NOT NULL AND deleted_at IS NULL
-             ORDER BY created_at DESC, rowid DESC LIMIT 1`,
-            [conversation.id],
-          )?.mode ?? null)
-        : null;
+      const chosen = conversation ? chosenModes.get(conversation.id) : undefined;
+      // What the next request starts in, and the running one is in: the choice, else the User's
+      // own setting as the running request or one before named it, else nothing known.
+      const own =
+        running.get(mindId)?.live.now()?.mode ??
+        (conversation ? ownModes.get(conversation.id) : undefined);
       return {
         models: listed,
         ran: (conversation && ranOn.get(conversation.id)) ?? null,
-        mode: chosen ?? running.get(mindId)?.live.now()?.mode ?? ranIn,
+        mode: chosen ?? own ?? null,
         chosen: chosen !== undefined,
-        refused: (conversation && refusedModes.get(conversation.session_id)) ?? null,
+        refused: (conversation && refusedModes.get(conversation.id)) ?? null,
       };
     },
 
     /**
      * Chooses the AI's permission mode for the Note's conversation, by the input (#3765): its next
      * request starts in it, and a request running now is told at once, which the AI takes from its
-     * next step where it can. Null goes back to the User's own settings for the AI from the next
-     * request. Nothing is written to the AI's own settings.
+     * next step where it can. Null goes back to the User's own settings for the AI, the running
+     * request too where a run has named them. Nothing is written to the AI's own settings; every
+     * window hears of it.
      */
     async chooseMode(mindId: string, mode: string | null): Promise<void> {
-      const pairing = options.askable(mindId).find(canRun);
+      // The conversation running, else the one the next request would reach.
+      const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
       const conversation = pairing ? conversationOf(mindId, pairing.id) : null;
       if (!conversation) return;
-      refusedModes.delete(conversation.session_id);
-      if (mode === null) {
-        chosenModes.delete(conversation.session_id);
-        return;
-      }
-      chosenModes.set(conversation.session_id, mode);
+      const before = chosenModes.get(conversation.id);
+      refusedModes.delete(conversation.id);
+      if (mode === null) chosenModes.delete(conversation.id);
+      else chosenModes.set(conversation.id, mode);
+      options.moded(mindId);
+      const told = mode ?? ownModes.get(conversation.id);
       const hear = modeHears.get(mindId);
-      if (!hear) return;
+      if (!hear || told === undefined) return;
+      modeBefore.set(conversation.id, before);
       // A request running now answers at once, switched or not: what the input shows next is true.
       await new Promise<void>((resolve) => {
         const done = () => {
@@ -1293,7 +1387,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         };
         const timer = setTimeout(done, MODE_ANSWER_MS);
         modeAnswers.set(mindId, done);
-        hear(mode);
+        hear(told);
       });
     },
 

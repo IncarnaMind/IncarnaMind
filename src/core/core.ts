@@ -7341,6 +7341,7 @@ export function createCore(adapters: CoreAdapters): Core {
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
     turned: (turn) => events.emit("agents.noteTurn", turn),
+    moded: (mindId) => events.emit("agents.noteMode", { mindId }),
     titleOf: hostedTitleOf,
     newId: () => crypto.randomUUID(),
     now,

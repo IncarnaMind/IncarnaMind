@@ -1016,7 +1016,7 @@ test("Stop with a request its AI hasn't taken stops the whole run and leaves tha
   }
 });
 
-test("New conversation, from the conversation's name: one line marks it at the top, the turns above stay, the AI begins anew remembering nothing above it, greyed while a request runs, kept after a restart, in English and Chinese", async () => {
+test("New conversation, from the conversation's name: one line marks it at the top, the turns above stay, the AI begins anew with none of the turns above it, greyed while a request runs, kept after a restart, in English and Chinese", async () => {
   let { app, window } = await launched();
   let mindId = "";
   const sessions = () =>
@@ -1182,6 +1182,10 @@ test("the mode by the input names the User's own setting for the AI, offers Asks
     await window.keyboard.press("Escape");
     await stepTo(99);
     await ended(window, mindId, before);
+    // What the pill shows is what the next request starts in.
+    await expect(pill).toHaveText("Asks first");
+    await send("And the timetable?", "plan");
+    expect((await modes()).at(-1)).toBe("start default");
 
     await setLanguage(window, "zh-CN");
     await expect(pill).toHaveText("先询问");

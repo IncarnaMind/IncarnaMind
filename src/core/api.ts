@@ -13518,6 +13518,8 @@ export type NoteTurnProblem =
 export type NoteRequestStart =
   | { kind: "started"; pairing: AgentPairing; turnId: string }
   | { kind: "sent"; pairing: AgentPairing; turnId: string }
+  /** A request about words selected, while one of the Note's runs: it is not sent (#3765). */
+  | { kind: "busy"; pairing: AgentPairing }
   | { kind: "link" }
   | {
       kind: "problem";
@@ -13570,7 +13572,7 @@ export interface NoteTurn {
    * ask nothing. Null when it named none.
    */
   mode: string | null;
-  /** The User started a new conversation after this turn: the AI remembers nothing before (#3765). */
+  /** The User started a new conversation after this turn: the AI carries none of the turns before (#3765). */
   newAfter: boolean;
 }
 
@@ -16864,6 +16866,8 @@ export interface CoreEvents {
   "agents.ownCheck": OwnAiCheckEnd;
   /** A request at a Note's foot is working, or ended (see `askInNote`). */
   "agents.noteTurn": NoteTurnEvent;
+  /** The mode the input shows for a Note's conversation may have changed (see `noteModels`). */
+  "agents.noteMode": { mindId: string };
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */

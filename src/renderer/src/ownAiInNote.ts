@@ -18,7 +18,13 @@ import type {
   NoteTurnProblem,
 } from "../../core/api";
 import { NODE_CHARACTER } from "../../shared/proposals";
-import { agentsToAsk, ownAiRunsHereNow, useAgentsToAsk, useOwnAiRunsHere } from "./askYourAi";
+import {
+  agentsToAsk,
+  askFirstAgent,
+  ownAiRunsHereNow,
+  useAgentsToAsk,
+  useOwnAiRunsHere,
+} from "./askYourAi";
 import type { ChangedMind } from "./changedMinds";
 import { core } from "./core";
 import { currentTabOf } from "./layoutSlice";
@@ -262,8 +268,12 @@ function heard(event: NoteTurnEvent): void {
     questions: event.state === "working" ? event.questions : [],
     mode: event.state === "working" && event.modeNew ? event.mode : null,
     queued: event.queued,
-    asked: (was?.turnId === event.turnId ? was.asked : sentHere.get(event.turnId)) ??
-      was?.asked ?? { words: "", quote: "", selection: null },
+    // Another turn's words are never this one's: a request another window sent has none here, and
+    // its record gives it again.
+    asked:
+      was?.turnId === event.turnId
+        ? was.asked
+        : (sentHere.get(event.turnId) ?? { words: "", quote: "", selection: null }),
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
   sentHere.delete(event.turnId);
@@ -301,13 +311,14 @@ export function listen(): void {
 
 /**
  * Sends a request typed at the Note's foot. "sent": a request of the Note's runs, and this one
- * went into its run, about the whole Note (#3765). "link": no agent can run it in the background
- * now, and the caller asks by the link instead.
+ * went into its run, about the whole Note (#3765). "busy": one runs, and this one, about words
+ * selected, is not sent; a line says so. "link": no agent can run it in the background now, and
+ * the caller asks by the link instead.
  */
 export async function askInNote(
   mindId: string,
   asked: NoteAsked,
-): Promise<"started" | "sent" | "problem" | "link"> {
+): Promise<"started" | "sent" | "busy" | "problem" | "link"> {
   listen();
   const model = useNoteColumns.getState().model[mindId];
   // A new request brings the newest back into view in the column.
@@ -324,6 +335,10 @@ export async function askInNote(
     ...(asked.caret && !asked.selection && { caret: asked.caret }),
   });
   if (start.kind === "link") return "link";
+  if (start.kind === "busy") {
+    useNotices.getState().confirm("noteAsk.busy", { agent: start.pairing.name }, { look: true });
+    return "busy";
+  }
   if (start.kind === "sent") {
     askedHere.add(start.turnId);
     sentHere.set(start.turnId, asked);
@@ -374,10 +389,27 @@ export async function discardInNote(mindId: string, turnId: string): Promise<voi
   }));
 }
 
-/** Sends a request that was never sent as a new one; once it goes, the one not sent goes. */
+/** The requests never sent that are being sent again: a second press sends nothing more. */
+const resending = new Set<string>();
+
+/**
+ * Sends a request that was never sent as a new one, by the link where no agent runs it here;
+ * once it goes, the one not sent goes.
+ */
 export async function sendUnsent(mindId: string, turn: { id: string; request: string }) {
-  const went = await askInNote(mindId, { words: turn.request, quote: "", selection: null });
-  if (went === "started" || went === "sent") await discardInNote(mindId, turn.id);
+  if (resending.has(turn.id)) return;
+  resending.add(turn.id);
+  try {
+    const went = await askInNote(mindId, { words: turn.request, quote: "", selection: null });
+    const gone =
+      went === "started" ||
+      went === "sent" ||
+      (went === "link" &&
+        (await askFirstAgent(mindId, { kind: "question", text: turn.request })) === "asked");
+    if (gone) await discardInNote(mindId, turn.id);
+  } finally {
+    resending.delete(turn.id);
+  }
 }
 
 /** Answers what the User's own AI asks in the Note's conversation (#3653). */
@@ -439,8 +471,8 @@ export async function askFromSelection(
   words: string,
 ): Promise<"started" | "problem" | "link" | "none" | "busy"> {
   const running = useNoteAsks.getState().byMind[mindId];
-  // Words selected can't go into the run going, whose grant holds its changes to the selection of
-  // the request it began with (#3765): this one waits for Stop.
+  // Words selected can't go into the run going, whose AI takes no new selection mid-run (#3765):
+  // this one waits for Stop.
   if (running && isGoing(running)) {
     useNotices.getState().confirm("noteAsk.busy", { agent: running.agent }, { look: true });
     return "busy";
@@ -452,8 +484,9 @@ export async function askFromSelection(
     quote: selected.quote,
     selection: selected.selection,
   });
-  // A run another window began meanwhile took it: it is on its way, as one started is.
-  return went === "sent" ? "started" : went;
+  // The core sends no request about words selected into a run: a run another window began
+  // meanwhile makes it "busy", never "sent".
+  return went === "sent" ? "busy" : went;
 }
 
 /**

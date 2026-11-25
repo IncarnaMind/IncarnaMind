@@ -44,6 +44,14 @@ export function NoteModeChoice({ mindId }: { mindId: string }) {
     const ask = state.byMind[mindId];
     return ask?.state === "working" ? (ask.mode ?? "") : null;
   });
+  // A choice in another window, or the running request's answer to one, is read here too.
+  useEffect(
+    () =>
+      core.on("agents.noteMode", (changed) => {
+        if (changed.mindId === mindId) setReads((count) => count + 1);
+      }),
+    [mindId],
+  );
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again as a run names its mode, as it ends, and as one is chosen.
   useEffect(() => {
     let current = true;
