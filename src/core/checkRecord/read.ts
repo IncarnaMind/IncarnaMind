@@ -475,7 +475,9 @@ export function readRecord(sources: RecordSources): {
       );
     }
   }
-  const notChecked = checkRows(uncounted).find(({ row }) => row === "toCheck")?.places.length ?? 0;
+  const notChecked = checkRows(uncounted)
+    .filter(({ row }) => row === "toCheck" || row === "cantCheck")
+    .reduce((sum, { places }) => sum + places.length, 0);
 
   const attributesOf = new Map<Footnote, Partial<CitationAttributes>>();
   const idOf = new Map<Footnote, string>();

@@ -33,7 +33,7 @@ import { mindCheckOf } from "../../shared/mindCheck";
 import { mindScopeOf } from "../../shared/mindScope";
 import { checkUnreadOf } from "../../shared/unreadFiles";
 import { claimsOf, figurePlacesOf, type ShownClaim } from "./editor/claimChecks";
-import { checkRows, type NoteHealth, noteHealth } from "./editor/healthCounts";
+import { type CheckRow, checkRows, type NoteHealth, noteHealth } from "./editor/healthCounts";
 import { BLOCK_ID_ATTRIBUTE, noteExtensions } from "./editor/noteSchema";
 import { opinionSentenceRanges } from "./editor/opinionLocations";
 import { keptInsideName } from "./walls";
@@ -100,6 +100,8 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
   const unreadMatters = narrowUnread > 0;
   if (health.checkable === 0) return null;
   const look = health.lookClaims.length;
+  const rows = checkRows(health);
+  const rowCount = (name: CheckRow) => rows.find((each) => each.row === name)?.places.length ?? 0;
   const base = {
     checkedAt: health.checkedAt,
     unread: unreadMatters ? narrowUnread : unread,
@@ -111,7 +113,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
     notYetCited: health.notYetCited.length,
     canBeCited: health.notYetCited.length + health.citable.length,
     toCheck: health.toCheck.length,
-    notChecked: checkRows(health).find((each) => each.row === "toCheck")?.places.length ?? 0,
+    notChecked: rowCount("toCheck"),
   };
   // Never the green while a sentence is Supported, not yet cited: the state names them (#3019).
   const rested = (state: NoteState): NoteState =>
@@ -123,6 +125,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       ...base,
       kind: "needs-look",
       look,
+      cantCheck: rowCount("cantCheck"),
       tone: "error",
       mark: "contradicted",
     };
@@ -133,6 +136,7 @@ export function noteStateOf(health: NoteHealth, unread = 0, narrowUnread = 0): N
       ...base,
       kind: "needs-look",
       look,
+      cantCheck: rowCount("cantCheck"),
       tone: "warning",
       mark,
     };
@@ -287,6 +291,12 @@ export function noteStateParts(
         parts.push(
           t(state.notChecked === 1 ? "checks.row.notChecked.one" : "checks.row.notChecked", {
             count: count(state.notChecked),
+          }),
+        );
+      if (state.cantCheck > 0)
+        parts.push(
+          t(state.cantCheck === 1 ? "checks.row.cantCheck.one" : "checks.row.cantCheck", {
+            count: count(state.cantCheck),
           }),
         );
       parts.push(...citable);

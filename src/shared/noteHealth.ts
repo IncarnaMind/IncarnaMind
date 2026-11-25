@@ -300,6 +300,7 @@ export const CHECK_ROWS = [
   "ownViews",
   "checking",
   "toCheck",
+  "cantCheck",
 ] as const;
 export type CheckRow = (typeof CHECK_ROWS)[number];
 
@@ -311,9 +312,18 @@ export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly
   // (#3212): its place stands once for each.
   const columns = new Map<number, number>();
   for (const pos of health.notRecalculated) columns.set(pos, (columns.get(pos) ?? 0) + 1);
-  const toCheck = distinct.flatMap((pos) =>
-    Array.from({ length: Math.max(1, columns.get(pos) ?? 0) }, () => pos),
-  );
+  // Split what waits for Check ("not checked yet") from what a check read and can't settle (#3270).
+  const unsettled = new Set([...health.uncheckable, ...health.notRecalculated]);
+  const toCheck: number[] = [];
+  const cantCheck: number[] = [];
+  for (const pos of distinct) {
+    if (unsettled.has(pos)) {
+      const repeats = Math.max(1, columns.get(pos) ?? 0);
+      for (let at = 0; at < repeats; at++) cantCheck.push(pos);
+    } else {
+      toCheck.push(pos);
+    }
+  }
   const citable = new Set(health.citable);
   const supportedAt = health.supportedAt.filter(
     (pos) => !look.has(pos) && !notChecked.has(pos) && !citable.has(pos),
@@ -327,6 +337,7 @@ export function checkRows(health: NoteHealth): { row: CheckRow; places: readonly
     ownViews: health.ownViews,
     checking: health.checking,
     toCheck,
+    cantCheck,
   };
   return CHECK_ROWS.flatMap((row) =>
     places[row].length > 0 ? [{ row, places: places[row] }] : [],

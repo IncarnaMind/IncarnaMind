@@ -303,8 +303,39 @@ describe("A note's state (D266)", () => {
         }),
       ) ?? fail();
     expect(look).toMatchObject({ kind: "needs-look", look: 2, notChecked: 1, canBeCited: 3 });
-    expect(words(look, "en")).toEqual(["2 need a look", "1 not checked", "3 can be cited"]);
+    expect(words(look, "en")).toEqual(["2 need a look", "1 not checked yet", "3 can be cited"]);
     expect(words(look, "zh-CN")).toEqual(["需要留意 2 处", "1 句未核对", "3 句可添加引用"]);
+
+    const lookWithCantCheck =
+      noteStateOf(
+        health({
+          checkable: 4,
+          unsupported: [0],
+          lookClaims: [0],
+          toCheck: [6, 12],
+          failed: [12],
+          uncheckable: [12],
+          supported: 1,
+          supportedAt: [18],
+          checkedAt: CHECKED_AT,
+        }),
+      ) ?? fail();
+    expect(lookWithCantCheck).toMatchObject({
+      kind: "needs-look",
+      look: 1,
+      notChecked: 1,
+      cantCheck: 1,
+    });
+    expect(words(lookWithCantCheck, "en")).toEqual([
+      "1 needs a look",
+      "1 not checked yet",
+      "1 can’t be checked",
+    ]);
+    expect(words(lookWithCantCheck, "zh-CN")).toEqual([
+      "需要留意 1 处",
+      "1 句未核对",
+      "1 句无法核对",
+    ]);
     const citable =
       noteStateOf(
         health({

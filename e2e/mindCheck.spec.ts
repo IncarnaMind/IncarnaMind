@@ -239,7 +239,7 @@ for (const language of ["en", "zh-CN"] as const) {
       // the rows add up to the sentences (#2831): the card's own Check runs the check again.
       await expect(checked.getByRole("button")).toHaveCount(0);
       await expect(card.getByTestId("health-toCheck")).toContainText(
-        language === "en" ? "1 not checked" : "1 句未核对",
+        language === "en" ? "1 not checked yet" : "1 句未核对",
       );
       for (const width of [900, 1600]) {
         await setWindowSize(app, window, width, 800);

@@ -333,10 +333,16 @@ test("the cells and caption are never claims; a table needing a look counts once
   const twoUnearned = shown({ kind: "calculated" }, [null, null]);
   expect(twoUnearned.notRecalculated).toHaveLength(2);
   expect(twoUnearned.supported).toBe(0);
-  expect(rows(twoUnearned)).toEqual([["toCheck", 3]]);
+  expect(rows(twoUnearned)).toEqual([
+    ["toCheck", 1],
+    ["cantCheck", 2],
+  ]);
   const partly = shown({ kind: "calculated" }, ["sum", null]);
   expect(partly.notRecalculated).toHaveLength(1);
-  expect(rows(partly)).toEqual([["toCheck", 2]]);
+  expect(rows(partly)).toEqual([
+    ["toCheck", 1],
+    ["cantCheck", 1],
+  ]);
   expect(rows(calm)).toEqual([
     ["supported", 1],
     ["toCheck", 1],

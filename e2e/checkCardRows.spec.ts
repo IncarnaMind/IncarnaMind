@@ -39,7 +39,7 @@ const SENTENCES = [
 
 const WORDS = {
   en: {
-    notChecked: "4 not checked",
+    notChecked: "4 not checked yet",
     checking: "4 being checked",
     foot: (done: number) => `Checking ${done} of 4`,
     canBeCited: "3 can be cited",
@@ -82,7 +82,9 @@ const countOf = async (card: Locator, row: string): Promise<number> => {
 /** The rows' counts together: each sentence once, the own-notes line under supported aside. */
 const rowsTogether = async (card: Locator): Promise<number> => {
   const counts = await Promise.all(
-    ["look", "supported", "notYetCited", "checking", "toCheck"].map((row) => countOf(card, row)),
+    ["look", "supported", "notYetCited", "checking", "toCheck", "cantCheck"].map((row) =>
+      countOf(card, row),
+    ),
   );
   return counts.reduce((sum, count) => sum + count, 0);
 };

@@ -536,7 +536,8 @@ describe("an outside agent has its Note checked (#3317)", () => {
       supported: 1,
       notYetCited: 2,
       ownViews: 1,
-      toCheck: 4,
+      toCheck: 2,
+      cantCheck: 2,
     });
     expect({
       supported: withTable.supported,
@@ -547,7 +548,7 @@ describe("an outside agent has its Note checked (#3317)", () => {
     }).toEqual({
       supported: tableRows.supported,
       needLook: tableRows.look,
-      notChecked: tableRows.toCheck,
+      notChecked: (tableRows.toCheck ?? 0) + (tableRows.cantCheck ?? 0),
       canBeCited: tableRows.notYetCited,
       ownViews: tableRows.ownViews,
     });

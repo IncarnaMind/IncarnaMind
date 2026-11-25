@@ -974,6 +974,7 @@ const CLAIM_RESULTS = {
 const CLAIM_GROUPS = [
   ["look", "needLook"],
   ["toCheck", "notChecked"],
+  ["cantCheck", "notChecked"],
   ["notYetCited", "canBeCited"],
 ] as const satisfies readonly (readonly [CheckRow, AgentCheckedClaim["group"]])[];
 
@@ -2622,7 +2623,7 @@ export function createAgentAccess(
         models: record.models,
         supported: counted("supported"),
         needLook: counted("look"),
-        notChecked: counted("toCheck") + (record.notChecked ?? 0),
+        notChecked: counted("toCheck") + counted("cantCheck") + (record.notChecked ?? 0),
         canBeCited: counted("notYetCited"),
         ownViews: counted("ownViews"),
         claims,
