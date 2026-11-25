@@ -522,7 +522,7 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
         "Disconnected Claude Code. Its Skill stays at ~/skills/incarnamind: you changed it.",
       );
       expect(part("agent-settings-left")?.textContent).toBe(
-        "Disconnected Cursor. Its IncarnaMind settings stay in ~/.cursor/mcp.json: remove them there.",
+        "Disconnected Cursor. IncarnaMind is still in ~/.cursor/mcp.json: remove it there.",
       );
     });
 

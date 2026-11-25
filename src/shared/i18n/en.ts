@@ -9051,7 +9051,7 @@ export const en = {
   "agents.settings.help": "Step-by-step help",
   "agents.settings.skillLeft": "Disconnected {agent}. Its Skill stays at {path}: you changed it.",
   "agents.settings.settingsLeft":
-    "Disconnected {agent}. Its IncarnaMind settings stay in {path}: remove them there.",
+    "Disconnected {agent}. IncarnaMind is still in {path}: remove it there.",
   "agents.settings.repairAll": "Repair all ({count})",
   "agents.settings.disconnectAll": "Disconnect all…",
   "agents.settings.disconnectAll.ask":
