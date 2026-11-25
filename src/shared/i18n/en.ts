@@ -9061,6 +9061,7 @@ export const en = {
   "agents.setup.file": "IncarnaMind adds itself to the settings of {agent}",
   "agents.setup.command": "Copy one line to run in a terminal",
   "agents.setup.other": "Copy the settings to paste into your agent",
+  "agents.setup.failed": "Couldn’t finish connecting here. Try again, or connect it by hand.",
   "agents.note.codex": "Works in the ChatGPT desktop app, not on the web.",
   "agents.setup.paste": "Copy the settings to paste into {agent}",
   "agents.setup.parts": "Fill in the settings IncarnaMind shows in {agent}",
