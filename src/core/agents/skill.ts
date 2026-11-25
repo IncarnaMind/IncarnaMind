@@ -49,7 +49,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "9a9c9df72e13d0ee9dbe66959fa814800e5d738aeac7087cb1a19a3cf65c811e",
   "77c8932aa3045458d597e3707ad42524ada9cb0e01b1b971d30d6bf692d6ecc1",
   "065e724e5a37797c03c33440b84d19d7e530171e7bb020a250bfcf0f05d9683c",
-  "901b31e1d664b1cba93259502122da96bd97d7a0dd9d3f7bb72ea028af5aa285",
+  "6bf84518be1513df15887eec36413fe093114cfafd3ed21910709aee0e5f9141",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -109,11 +109,11 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 
 ## When the User asks for a Word file
 
-For a Word file (.docx) of a Note or of what you write from their Documents, call \`save_as_word\` with the Note's \`mindId\`, or with your Markdown, its \`[cite:…]\` tokens written as for \`create_mind\`, and a \`title\`. IncarnaMind writes the file as its own Export › Word does, each Citation a footnote, and keeps it in their Library as a file you hand over is kept, with its check. Never build a .docx yourself, with a library, a converter or a script.
+For a Word file (.docx) of a Note or of what you write from their Documents, call \`save_as_word\` with the Note's \`mindId\`, or with your Markdown, its \`[cite:…]\` tokens written as for \`create_mind\`, and a \`title\`. IncarnaMind writes the file as its own Export › Word does, each Citation a footnote, saves it in the User's folder for new files (its result's \`saved\` is the path, to tell them), and keeps it in their Library as a file you hand over is kept, with its check. Never build a .docx yourself, with a library, a converter or a script. A Word file already on disk goes to \`hand_over_file\`.
 
 ## When you made a file for the User: hand it over
 
-A deck, workbook, Word file or PDF you made from their Documents: \`hand_over_file\` with its full path, unasked. IncarnaMind reads that one file and keeps it with each version. Its check, against their Documents (each claim on a slide or page, each typed-in number of a sheet, each formula worked out again), waits for the User's Check unless they turned on checking as it lands; its result says which, and how a check starts. When it is checked, it tells you what needs a look and where; while its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version. Then tell the User what still needs a look, and where. So that it checks well:
+A deck, workbook or PDF you made from their Documents, or a Word file already on disk: \`hand_over_file\` with its full path, unasked. IncarnaMind reads that one file and keeps it with each version. Its check, against their Documents (each claim on a slide or page, each typed-in number of a sheet, each formula worked out again), waits for the User's Check unless they turned on checking as it lands; its result says which, and how a check starts. When it is checked, it tells you what needs a look and where; while its status is "running", call it again. Fix what it found in the file and hand it over again from the same path: that is its next version. Then tell the User what still needs a look, and where. So that it checks well:
 
 - Put each figure in a slide's text, a table, a chart or the speaker notes, not only in a picture or a slide title.
 - Write no \`[cite:…]\` token in the file: it shows there as typed. Name the Document a figure comes from in words, in a sources line or the speaker notes.

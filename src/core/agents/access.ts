@@ -78,6 +78,7 @@ import {
   type AgentCitationShown,
   type AgentNoteChange,
   type AgentOpened,
+  type AgentSavedFile,
   type AgentToolName,
   ALL_SHARED_ID,
   BLOCK_ID_ATTRIBUTE,
@@ -99,6 +100,7 @@ import { keywordTerms } from "../documents/keywords";
 import type { WindowedPassage } from "../documents/search";
 import type { SearchToolParameters } from "../documents/searchTool";
 import { isRecord } from "../errors";
+import type { WordMade, WordSaved, WordSource } from "../exports/agentWordFiles";
 import type { Language } from "../language";
 import type { LibraryLists } from "../library/lists";
 import type { NoteTranscript } from "../meetings/oneItem";
@@ -145,13 +147,7 @@ import type { AgentRequests, RequestNamed } from "./requests";
 import type { AgentSorting, SortingBatch, SortingProposal, SortingTaken } from "./sorting";
 import { openTabs, TAB_FENCE } from "./tabs";
 import { CHART_FENCE, type NoteVisuals, type VisualRefused } from "./visuals";
-import {
-  type AgentWordFile,
-  createWordFileTool,
-  type SaveAsWordInput,
-  type WordMade,
-  type WordSource,
-} from "./wordFiles";
+import { type AgentWordFile, createWordFileTool, type SaveAsWordInput } from "./wordFiles";
 import {
   type AgentAnalysed,
   type AgentReach,
@@ -910,8 +906,10 @@ export interface AgentAccessDeps {
   handedNote(fileId: string): string | null;
   handOver: HandedFileToolDeps["handOver"];
   handedCheck: HandedFileToolDeps["handedCheck"];
-  /** A Word file as Export › Word writes one, with the User's choices for it (#3751). */
-  wordFile(source: WordSource): Promise<WordMade>;
+  /** A Word file as Export › Word writes one, with the User's choices for it, dated `at` (#3751). */
+  wordFile(source: WordSource, at: string): Promise<WordMade>;
+  /** Saves that file in the Output location, as Export › Word saves its own. */
+  saveWordFile(source: WordSource, fileName: string, data: Uint8Array): Promise<WordSaved>;
 }
 
 /**
@@ -1328,6 +1326,8 @@ interface Done<T> {
   requestId?: string;
   /** What its activity line says, when only the call knows (`read_request`: the names it gave). */
   summary?: string;
+  /** The file it saved in the Output location, for the step a Note's conversation shows (#3751). */
+  saved?: AgentSavedFile;
 }
 
 type ReachDeps = Pick<
@@ -1567,6 +1567,7 @@ export function createAgentAccess(
       outcome: AgentActivity["outcome"],
       rest: Partial<AgentActivity>,
       requestId?: string,
+      saved?: AgentSavedFile,
     ) => {
       const activity = {
         pairingId,
@@ -1585,7 +1586,7 @@ export function createAgentAccess(
       } catch (error) {
         deps.reportError(error);
       }
-      if (grant?.kind === "conversation") grant.called?.(activity);
+      if (grant?.kind === "conversation") grant.called?.({ ...activity, ...(saved && { saved }) });
     };
     let pairing: AdmittedPairing;
     try {
@@ -1615,6 +1616,7 @@ export function createAgentAccess(
           ...(done.summary !== undefined && { summary: clip(done.summary, SUMMARY_CHARS) }),
         },
         done.requestId,
+        done.saved,
       );
       return done.result;
     } catch (error) {
@@ -2373,6 +2375,11 @@ export function createAgentAccess(
       return known ? mindName(known) : "";
     },
     noteInScope: mindInScope,
+    placeToWriteIn,
+    reaches: (pairing) => {
+      const reach = checkReach(pairing);
+      return (documentId) => reach.has(documentId);
+    },
     draftTitle,
     draftText,
     draftBlocks: async (title, written) => {
@@ -2389,7 +2396,8 @@ export function createAgentAccess(
         documentIds: cited.flatMap((each) => (each.cited ? [each.cited.minted.documentId] : [])),
       };
     },
-    wordFile: (source) => deps.wordFile(source),
+    wordFile: (source, at) => deps.wordFile(source, at),
+    saveWordFile: (source, fileName, data) => deps.saveWordFile(source, fileName, data),
   });
 
   const canvasTools = createCanvasTools({

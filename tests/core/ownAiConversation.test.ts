@@ -524,6 +524,33 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     });
   });
 
+  // protects=a Word file the AI saves with save_as_word is named on its step with where it was saved, so the conversation offers Open and Show in Finder as a file Export saved (#3751); fails_when=the step names no file, or a path that isn't the one saved
+  it("names the Word file it saved, to open or show", async () => {
+    let saved = "";
+    const run = runner(async (agent) => {
+      saved =
+        structured<{ saved: string | null }>(
+          await agent.callTool({
+            name: "save_as_word",
+            arguments: { title: "Ferry figures", markdown: FERRY },
+          }),
+        ).saved ?? "";
+      return { kind: "finished", reply: "I saved “Ferry figures” as a Word file." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "save the ferry figures as a Word file" });
+    await ended();
+    expect(saved).toMatch(/Ferry figures\.docx$/);
+    const steps = turns.flatMap((turn) => turn.steps ?? []);
+    expect(steps).toContainEqual({
+      kind: "call",
+      tool: "save_as_word",
+      summary: "Ferry figures",
+      done: true,
+      file: { path: saved, name: "Ferry figures.docx" },
+    });
+  });
+
   // protects=once a turn has ended, a call of its run that finishes later tells no window it is working again; fails_when=the input stays on Working for good, with nothing to stop
   it("tells nothing of a run after its turn ended", async () => {
     const held = gate();

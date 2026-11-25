@@ -9144,7 +9144,9 @@ export const en = {
   "agents.handOver.inLibrary":
     "The User’s Library holds this file already, and IncarnaMind keeps one copy of a file: change it before you hand it over.",
   "agents.handOver.untitled": "Untitled file",
-  "agents.handOver.word.which": "Give mindId for a note or markdown for your text, not both.",
+  "agents.handOver.word.which": "Give exactly one: mindId for a note, or markdown for your text.",
+  "agents.handOver.word.unshared":
+    "This note cites a Document in a Folder that isn’t shared with you, so IncarnaMind won’t write it into a Word file for you. Ask the User to share that Folder with you, or to export the note to Word themselves.",
   "agents.handOver.unread.unreadable":
     "IncarnaMind kept the file but couldn’t read it: it may be damaged.",
   "agents.handOver.unread.password-protected":
@@ -9737,6 +9739,18 @@ export const en = {
   "agents.ask.request.fixFile.where": "On {where}: ",
   "agents.ask.request.noteFile":
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
+  "agents.ask.request.fixWordNote":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId.",
+  "agents.ask.request.fixWordNoteAll":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId.",
+  "agents.ask.request.wordNote":
+    "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",
+  "agents.ask.request.fixWordText":
+    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nIts text is in the note mindId {mindId} (read_mind). Fix it from my Documents, change nothing else, and save it again with save_as_word, the title {title} and the corrected markdown.",
+  "agents.ask.request.fixWordTextAll":
+    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says these {count} need a look:\n\n{sentences}\n\nIts text is in the note mindId {mindId} (read_mind). Fix each of them from my Documents, change nothing else, and save it again with save_as_word, the title {title} and the corrected markdown.",
+  "agents.ask.request.wordText":
+    "My message is about the Word file you saved to IncarnaMind from your own text, {title} (version {version}); its text is in the note mindId {mindId}.",
   "agents.ask.request.note":
     "My message is about my note {title} in IncarnaMind (mindId: {mindId}).",
   "agents.ask.request.document":

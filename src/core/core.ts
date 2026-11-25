@@ -94,7 +94,7 @@ import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import { createAgentSorting } from "./agents/sorting";
 import { withTabFences } from "./agents/tabs";
-import type { WordMade, WordSource } from "./agents/wordFiles";
+import { wordItemOf } from "./agents/wordFiles";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -291,6 +291,7 @@ import { type AnyEventListener, createEventHub } from "./events";
 import { createExamples, type ExampleReadyState } from "./examples";
 import { createLocalExecutor } from "./execution";
 import { createExports, ExportChangedError, type ExportsDependencies } from "./exports";
+import { createAgentWordFiles, type NoteReader } from "./exports/agentWordFiles";
 import { createComparisonExport } from "./exports/comparisonExport";
 import { figureScheduleBook } from "./exports/figureScheduleBook";
 import { exportLabels } from "./exports/labels";
@@ -859,16 +860,6 @@ const STILL_PROCESSING: ReadonlySet<DocumentStatus> = new Set([
   "waiting-for-model",
   "embedding",
 ]);
-
-/**
- * A Note as an export and its citation style read it: one stored, or the Blocks of an agent's
- * text as a new Note of them would hold them, which nothing stores or lists (#3751).
- */
-interface NoteReader {
-  mind(mindId: unknown): Mind;
-  read<T>(mindId: string, look: (blocks: Y.XmlFragment) => T): T;
-  readSettings<T>(mindId: string, look: (settings: Y.Map<unknown>) => T): T;
-}
 
 export function createCore(adapters: CoreAdapters): Core {
   const { dataDir } = adapters.paths;
@@ -3662,49 +3653,6 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   const exportDependencies = exportDependenciesOf(storedNotes);
   const mindExports = createExports(exportDependencies);
-  /**
-   * A Word file as Export › Word writes one with the User's choices for it (#3751): of a Note, or
-   * of an agent's Blocks as a new Note of them in that Folder would be, in its Folder's citation
-   * style and the User's style for new Notes, a copy that nothing stores or lists.
-   */
-  const agentWordFile = async (source: WordSource): Promise<WordMade> => {
-    const options = optionsFor("docx", settings.get().user.exportOptions);
-    if (source.kind === "note") {
-      const exported = await mindExports.export(source.mindId, options);
-      return { data: exported.data, lost: exported.word?.notKept.length ?? 0 };
-    }
-    const doc = new Y.Doc();
-    try {
-      const blocks = doc.getXmlFragment(MIND_CONTENT_FIELD);
-      const mindSettings = doc.getMap<unknown>(MIND_SETTINGS_FIELD);
-      doc.transact(() => {
-        insertBlocks(blocks, source.nodes);
-        const style = source.folderId === null ? null : library.citationStyle(source.folderId);
-        if (style !== null) setCitationStyle(mindSettings, style);
-        const writing = newNoteStyle();
-        if (writing !== null) writeMindStyle(mindSettings, writing);
-      });
-      const at = now();
-      const mind: Mind = {
-        id: crypto.randomUUID(),
-        title: source.title,
-        autoTitle: "",
-        kind: DEFAULT_MIND_KIND,
-        createdAt: at,
-        updatedAt: at,
-        folderId: source.folderId,
-      };
-      const copy: NoteReader = {
-        mind: () => mind,
-        read: (_, look) => look(blocks),
-        readSettings: (_, look) => look(mindSettings),
-      };
-      const exported = await createExports(exportDependenciesOf(copy)).export(mind.id, options);
-      return { data: exported.data, lost: 0 };
-    } finally {
-      doc.destroy();
-    }
-  };
   const comparisonExport = createComparisonExport(exportDependencies);
   const checkRecord = createCheckRecord({
     mind: (mindId) => minds.get(mindId),
@@ -3847,6 +3795,28 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   const exportLedger = createExportLedger({ outputs, folderOf: folderOfNote });
+  // A Word file an outside agent asks for (#3751), as Export › Word writes and saves one.
+  const agentWordFiles = createAgentWordFiles({
+    mind: (mindId) => minds.get(mindId),
+    noteState: (mindId) =>
+      content.read(mindId, (blocks) => (blocks.doc ? Y.encodeStateAsUpdate(blocks.doc) : null)),
+    wordOf: (notes, mindId, options, at) =>
+      createExports({ ...exportDependenciesOf(notes), now: () => at }).export(
+        mindId,
+        options,
+        false,
+      ),
+    wordChoices: () => optionsFor("docx", settings.get().user.exportOptions),
+    startSettings: (mindSettings, folderId) => {
+      const style = folderId === null ? null : library.citationStyle(folderId);
+      if (style !== null) setCitationStyle(mindSettings, style);
+      const writing = newNoteStyle();
+      if (writing !== null) writeMindStyle(mindSettings, writing);
+    },
+    outputs,
+    say: (key, params) => translate(settings.get().language, key, params),
+    newId: () => crypto.randomUUID(),
+  });
   /**
    * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
    * export's pictures. The User let that folder take the export, so it takes these too.
@@ -6900,7 +6870,13 @@ export function createCore(adapters: CoreAdapters): Core {
       handedNote: newestHandedNote,
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
-      wordFile: agentWordFile,
+      wordFile: (source, at) => agentWordFiles.write(source, at),
+      saveWordFile: (source, fileName, data) =>
+        agentWordFiles.save(
+          fileName,
+          data,
+          source.kind === "note" ? folderOfNote(source.mindId) : source.folderId,
+        ),
       checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
@@ -7352,7 +7328,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return {
         title: found.file.title,
         version: found.version.number,
-        path: found.file.path,
+        from: wordItemOf(found.file.path) ?? { kind: "path", path: found.file.path },
         whereOf: (checkId) => (checkId === null ? null : (wheres.get(checkId) ?? null)),
       };
     },

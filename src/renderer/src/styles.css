@@ -3147,6 +3147,13 @@
     line-height: 16px;
     color: var(--color-ink-meta);
   }
+  /* A file the AI saved: its name, and Open and Show under it; the card itself presses nothing. */
+  .note-column-saved {
+    gap: 4px;
+    &:hover {
+      background: var(--color-sheet);
+    }
+  }
   /* The end line: the reply's first words, and its one action at the line's right end. */
   .note-ask-end {
     justify-content: space-between;

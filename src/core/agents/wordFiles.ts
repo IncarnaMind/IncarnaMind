@@ -1,33 +1,25 @@
 /**
  * `save_as_word` (#3751): a Word file of a Note, or of the agent's own Markdown with its Citation
- * tokens, written by IncarnaMind's Word export with the User's choices for it, and kept as a file
- * an agent hands over is (./handedFiles): a Document in the Library with its versions and its
- * check. The agent writes the words and IncarnaMind the file, so the agent builds no .docx itself.
- * Its Markdown becomes Blocks as `create_mind` makes them: a token that matches nothing reads as
- * not found where it was, and the result lists it with its check, as `create_mind`'s does.
+ * tokens, written by IncarnaMind's Word export (../exports/agentWordFiles), kept as a file an agent
+ * hands over is (./handedFiles), a Document in the Library with its versions and its check, and
+ * saved in the Output location as Export › Word saves its file.
+ * The agent writes the words and IncarnaMind the file, so the agent builds no .docx itself. Its
+ * Markdown becomes Blocks as `create_mind` makes them: a token that matches nothing reads as not
+ * found where it was, and the result lists it with its check, as `create_mind`'s does.
  */
 import type { NodeJSON } from "../../shared/blockJson";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
-import type { AgentToolName, Effect, Mind } from "../api";
+import type { AgentSavedFile, AgentToolName, Effect, Mind } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
+import { NotFoundError, TranslatableError } from "../errors";
+import type { WordMade, WordSaved, WordSource } from "../exports/agentWordFiles";
 import type { AdmittedPairing, AgentCheckedCitation, VisualLeftOut } from "./access";
 import { type AgentHandedFile, type PlannedHandOver, WRITES_LIBRARY } from "./handedFiles";
 import { AgentRefusedError, text } from "./refusals";
 
 const READS_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
-
-/** What a Word file is written from: a Note, or an agent's Blocks as a new Note of them. */
-export type WordSource =
-  | { kind: "note"; mindId: string }
-  | { kind: "text"; title: string; nodes: NodeJSON[]; folderId: string | null };
-
-/** A Word file IncarnaMind wrote, and how much of a Note's own Word file it couldn't keep. */
-export interface WordMade {
-  data: Uint8Array;
-  /** What a Note imported from a Word file has that its file couldn't keep (#105). */
-  lost: number;
-}
+const WRITES_OUTPUT: Effect = { action: "write", scope: { kind: "output" } };
 
 export interface SaveAsWordInput {
   mindId?: unknown;
@@ -41,6 +33,10 @@ export interface AgentWordFile extends AgentHandedFile {
   citations: AgentCheckedCitation[];
   /** Each picture or chart of the Markdown that isn't in the file, and why. */
   refused: VisualLeftOut[];
+  /** Where the file is on this computer, in the Output location; null when it couldn't be saved. */
+  saved: string | null;
+  /** Why it couldn't be saved there, in plain words; null when it was. */
+  notSaved: string | null;
 }
 
 /** An agent's Markdown as Blocks under its title, as `create_mind` writes a Note of it. */
@@ -64,23 +60,60 @@ export interface WordFileToolContext {
   noteName(mindId: string): string;
   /** A Note the pairing reaches, or a refusal that tells nothing of the others. */
   noteInScope(pairing: AdmittedPairing, mindId: string): Mind;
+  /** Where a new item goes: the Folder named, of those the pairing may write in. */
+  placeToWriteIn(pairing: AdmittedPairing, folderId: unknown): { id: string | null; name: string };
+  /** Whether the pairing may read a Document. */
+  reaches(pairing: AdmittedPairing): (documentId: string) => boolean;
   /** A name and Markdown as `create_mind` takes them, or a refusal saying why not. */
   draftTitle(value: unknown): string;
   draftText(value: unknown): string;
   draftBlocks(title: string, written: string): Promise<DraftBlocks>;
-  wordFile(source: WordSource): Promise<WordMade>;
+  wordFile(source: WordSource, at: string): Promise<WordMade>;
+  saveWordFile(source: WordSource, fileName: string, data: Uint8Array): Promise<WordSaved>;
 }
+
+const ITEM = "incarnamind:";
 
 /**
  * What the item of a Word file IncarnaMind wrote is known by, in place of a path: the Note it was
- * written from, or the name of the text. No file's path is like it, since `hand_over_file` takes
- * only a full one, so the same Note or name saved again is the item's next version.
+ * written from or the name of the text, and the Folder it is kept in. No file's path is like it,
+ * since `hand_over_file` takes only a full one; so the same Note or name saved again in a Folder is
+ * that item's next version, and saved in another Folder is an item there.
  */
-const itemOf = (source: { mindId: string } | { title: string }) =>
-  "mindId" in source ? `incarnamind:note:${source.mindId}` : `incarnamind:text:${source.title}`;
+const itemOf = (from: { mindId: string } | { title: string }, folderId: string | null) => {
+  const folder = folderId ?? NOT_IN_A_FOLDER_ID;
+  return "mindId" in from
+    ? `${ITEM}note:${from.mindId}:${folder}`
+    : `${ITEM}text:${folder}:${from.title}`;
+};
+
+/** What a Word file IncarnaMind wrote was written from, by its item's path; null for a file's own path. */
+export function wordItemOf(
+  path: string,
+): { kind: "note"; mindId: string } | { kind: "text" } | null {
+  if (!path.startsWith(ITEM)) return null;
+  const [kind, id] = path.slice(ITEM.length).split(":");
+  if (kind === "note" && id) return { kind: "note", mindId: id };
+  return kind === "text" ? { kind: "text" } : null;
+}
 
 export function createWordFileTool(context: WordFileToolContext) {
   const { t } = context;
+
+  /** What went wrong as IncarnaMind says it, for the agent to pass on (a Note deleted meanwhile). */
+  const inWords = async <T>(run: () => Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      if (!(error instanceof TranslatableError)) throw error;
+      const { wording } = error;
+      throw new AgentRefusedError(
+        error instanceof NotFoundError ? "not-found" : "failed",
+        wording ? t(wording.key, wording.values) : error.message,
+      );
+    }
+  };
+
   return {
     saveAsWord(input: SaveAsWordInput): Promise<AgentWordFile> {
       const mindId = typeof input?.mindId === "string" ? input.mindId : "";
@@ -88,6 +121,7 @@ export function createWordFileTool(context: WordFileToolContext) {
       const effects: Effect[] = [
         mindId === "" ? READS_DOCUMENTS : { action: "read", scope: { kind: "mind", mindId } },
         WRITES_LIBRARY,
+        WRITES_OUTPUT,
       ];
       const summary = named || (mindId === "" ? "" : context.noteName(mindId));
       return context.handOver<Omit<AgentWordFile, keyof AgentHandedFile>>(
@@ -98,48 +132,78 @@ export function createWordFileTool(context: WordFileToolContext) {
           if ((input?.mindId === undefined) === (input?.markdown === undefined)) {
             throw new AgentRefusedError("invalid", t("agents.handOver.word.which"));
           }
+          let made: { source: WordSource; fileName: string; data: Uint8Array } | null = null;
+          let draft: DraftBlocks | null = null;
+          const kept = async () => {
+            if (!made) throw new Error("A Word file is saved only once it is written.");
+            const { source, fileName, data } = made;
+            const saved = await inWords(() => context.saveWordFile(source, fileName, data));
+            const file: AgentSavedFile | undefined =
+              saved.kind === "saved" ? saved.file : undefined;
+            return {
+              also: {
+                citations: draft?.citations ?? [],
+                refused: draft?.refused ?? [],
+                saved: file?.path ?? null,
+                notSaved: saved.kind === "not-saved" ? saved.why : null,
+              },
+              ...(file && { saved: file }),
+            };
+          };
+          const write = async (source: WordSource, at: string) => {
+            const word = await inWords(() => context.wordFile(source, at));
+            if (word.kind === "unshared") {
+              throw new AgentRefusedError("outside-scope", t("agents.handOver.word.unshared"));
+            }
+            made = { source, fileName: word.fileName, data: word.data };
+            return word.data;
+          };
           if (input.mindId !== undefined) {
             const mind = context.noteInScope(pairing, text(input.mindId, "mindId", 200));
             const title =
               input.title === undefined
                 ? mindName(mind) || t("mind.untitled")
                 : context.draftTitle(input.title);
-            const path = itemOf({ mindId: mind.id });
+            const folderId = input.folderId ?? mind.folderId ?? NOT_IN_A_FOLDER_ID;
+            const path = itemOf({ mindId: mind.id }, context.placeToWriteIn(pairing, folderId).id);
             return {
               path,
-              folderId: input.folderId ?? mind.folderId ?? NOT_IN_A_FOLDER_ID,
-              give: async () => {
-                const made = await context.wordFile({ kind: "note", mindId: mind.id });
-                if (made.lost > 0)
-                  throw new AgentRefusedError("invalid", t("error.commands.wordLoses"));
-                return {
-                  file: { place: path, title, kind: "docx", bytes: made.data },
-                  also: { citations: [], refused: [] },
-                  documentIds: [],
+              folderId,
+              give: async (_, at) => {
+                const source: WordSource = {
+                  kind: "note",
+                  mindId: mind.id,
+                  title,
+                  reaches: context.reaches(pairing),
                 };
+                const bytes = await write(source, at);
+                return { file: { place: path, title, kind: "docx", bytes }, documentIds: [] };
               },
+              kept,
             };
           }
           const title = context.draftTitle(input.title);
           const written = context.draftText(input.markdown);
-          const path = itemOf({ title });
+          const path = itemOf({ title }, context.placeToWriteIn(pairing, input.folderId).id);
           return {
             path,
             folderId: input.folderId,
-            give: async (folder) => {
-              const draft = await context.draftBlocks(title, written);
-              const made = await context.wordFile({
+            give: async (folder, at) => {
+              const blocks = await context.draftBlocks(title, written);
+              draft = blocks;
+              const source: WordSource = {
                 kind: "text",
                 title,
-                nodes: draft.nodes,
+                nodes: blocks.nodes,
                 folderId: folder.id,
-              });
+              };
+              const bytes = await write(source, at);
               return {
-                file: { place: path, title, kind: "docx", bytes: made.data },
-                also: { citations: draft.citations, refused: draft.refused },
-                documentIds: draft.documentIds,
+                file: { place: path, title, kind: "docx", bytes },
+                documentIds: blocks.documentIds,
               };
             },
+            kept,
           };
         },
       );

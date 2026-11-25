@@ -11,7 +11,7 @@
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type { NamedFile } from "../adapters";
 import type { HandOverInput } from "../agentFiles/handOver";
-import type { AgentToolName, Effect, HandedFile } from "../api";
+import type { AgentSavedFile, AgentToolName, Effect, HandedFile } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
 import { isInside } from "../documents/files";
 import type { AdmittedPairing } from "./access";
@@ -90,17 +90,19 @@ export interface GivenFile {
 }
 
 /**
- * A hand-over as a call plans it: the path the item is known by, where a new one goes, and how
- * its bytes come, once the pairing has a place in its hour; `also` joins the call's result.
+ * A hand-over as a call plans it: the path the item is known by, and where a new one goes.
+ * `give` makes the bytes once the pairing has a place in its hour, `createdAt` being the item's
+ * date, a new one's too; `kept`, once they are kept, what joins the call's result, and the file
+ * it saved for the User, if any.
  */
 export interface PlannedHandOver<T> {
   path: string;
   folderId: unknown;
-  give(folder: { id: string | null; name: string }): Promise<{
-    file: GivenFile;
-    also: T;
-    documentIds: readonly string[];
-  }>;
+  give(
+    folder: { id: string | null; name: string },
+    createdAt: string,
+  ): Promise<{ file: GivenFile; documentIds: readonly string[] }>;
+  kept(): Promise<{ also: T; saved?: AgentSavedFile }>;
 }
 
 /** What handing a file over did: the item, its version, and the Note its check is in. */
@@ -132,9 +134,12 @@ export interface HandedFileToolContext {
     tool: AgentToolName,
     summary: string,
     effects: Effect[],
-    run: (
-      pairing: AdmittedPairing,
-    ) => Promise<{ result: T; count: number | null; documentIds: string[] }>,
+    run: (pairing: AdmittedPairing) => Promise<{
+      result: T;
+      count: number | null;
+      documentIds: string[];
+      saved?: AgentSavedFile;
+    }>,
   ): Promise<T>;
   reached(pairing: AdmittedPairing): ReadonlySet<string>;
   /** The pairing as it is admitted now: what the User grants it may change while a call waits. */
@@ -160,6 +165,18 @@ export function createHandedFileTool(context: HandedFileToolContext) {
   const { deps, t, call } = context;
   /** Hand-overs a pairing has under way, each holding its place in the hour's count until it ends. */
   const underWay = new Map<string, number>();
+  let lastDated = Number.NEGATIVE_INFINITY;
+  /**
+   * A new item's date, a second after the last one given if it would be the same second: a Word
+   * file IncarnaMind writes carries its item's date to the second, so the same words saved as two
+   * items at once would be one file, which the Library keeps once (#3751).
+   */
+  const newItemDate = (): string => {
+    const now = deps.now();
+    const own = Math.floor(Date.parse(now) / 1000);
+    lastDated = Math.max(own, lastDated + 1);
+    return lastDated === own ? now : new Date(lastDated * 1000).toISOString();
+  };
   const release = (pairingId: string) => {
     const left = (underWay.get(pairingId) ?? 1) - 1;
     if (left > 0) underWay.set(pairingId, left);
@@ -215,7 +232,8 @@ export function createHandedFileTool(context: HandedFileToolContext) {
       }
       underWay.set(pairing.id, going + 1);
       reserved = pairing.id;
-      const { file, also, documentIds } = await planned.give(folder);
+      const createdAt = known?.createdAt ?? (tool === "save_as_word" ? newItemDate() : deps.now());
+      const { file, documentIds } = await planned.give(folder, createdAt);
       const done = await deps.handOver({
         pairingId: pairing.id,
         agent: pairing.name,
@@ -223,6 +241,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         connectedAt: pairing.createdAt,
         ...file,
         folderId: folder.id,
+        ...(!known && { createdAt }),
         // The grant as it is when the hand-over's turn comes: the User may have taken it back.
         allowed: () => {
           const now = context.again();
@@ -266,7 +285,9 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           ({ documents, ...claim }): HandedClaim =>
             documents.every((id) => inScope.has(id)) ? claim : { ...claim, says: null },
         );
+      const { also, saved } = await planned.kept();
       return {
+        ...(saved && { saved }),
         result: {
           ...also,
           fileId: done.file.id,
@@ -326,10 +347,10 @@ export function createHandedFileTool(context: HandedFileToolContext) {
             const title = titleOf(path) || t("agents.handOver.untitled");
             return {
               file: { place: read.path, title, kind, bytes: read.bytes },
-              also: {},
               documentIds: [],
             };
           },
+          kept: async () => ({ also: {} }),
         };
       });
     },

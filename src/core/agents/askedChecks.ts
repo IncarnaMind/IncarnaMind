@@ -10,6 +10,7 @@
 import {
   AGENT_TOOLS,
   type AgentActivity,
+  type AgentSavedFile,
   type AgentToolName,
   type NoteChangeApplied,
   type NoteSelectionBlock,
@@ -82,11 +83,11 @@ export interface ConversationHears {
   called?(call: RunCall): void;
 }
 
-/** A call of a run, as its activity row records it. */
+/** A call of a run, as its activity row records it, and the file it saved for the User, if any. */
 export type RunCall = Pick<
   AgentActivity,
   "tool" | "summary" | "outcome" | "problem" | "count" | "effects" | "documentIds"
->;
+> & { saved?: AgentSavedFile };
 
 /** A request of changes in the front Note that applies at once, and what it changed, as its line counts. */
 export type AskedInFront = NoteChangeApplied;

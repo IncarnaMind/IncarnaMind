@@ -146,6 +146,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     handOver: () => Promise.reject(new Error("No file is handed over here.")),
     handedCheck: () => Promise.reject(new Error("No file is handed over here.")),
     wordFile: () => Promise.reject(new Error("No Word file is written here.")),
+    saveWordFile: () => Promise.reject(new Error("No Word file is saved here.")),
     checksWritten: () => false,
     ...overrides,
   };

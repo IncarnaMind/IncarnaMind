@@ -10,7 +10,7 @@ import type { AnalysisRuntime, NamedFile } from "../../src/core/adapters";
 import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { agentsAdapter, type connectLegacyAgent, startAgentsCore } from "./agents";
 import { checkingModel, type Plan } from "./checks";
-import { createMemoryKeychain, createTempDataFolder, startCore } from "./core";
+import { createMemoryKeychain, createTempDataFolder, startCore, type TestAdapters } from "./core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "./documents";
 import type { ModelCall } from "./models";
 import { plainDeck } from "./pptx";
@@ -114,6 +114,7 @@ export async function started(
     folders = [],
     analysisRuntime,
     asItLands = true,
+    adapters = {},
   }: {
     plans?: Record<string, Plan>;
     /** The checking model, in place of one that checks as `plans` say. */
@@ -126,6 +127,8 @@ export async function started(
     analysisRuntime?: AnalysisRuntime;
     /** Settings › AI's checking as it lands: on here, as these tests check what a hand-over checks (#3576). */
     asItLands?: boolean;
+    /** More of the core's adapters: a clock, a shell, a drawer of pictures. */
+    adapters?: TestAdapters;
   } = {},
 ) {
   const kept = await createTempDataFolder();
@@ -145,6 +148,7 @@ export async function started(
     canvasFiles,
     keychain,
     ...(analysisRuntime && { analysisRuntime }),
+    ...adapters,
   });
   const { core } = started;
   await core.updateSettings({ user: { checkAssistantWrites: asItLands } });

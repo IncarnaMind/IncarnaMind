@@ -16,7 +16,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
 import type { Logger } from "./adapters";
 import type {
@@ -38,7 +38,13 @@ import {
   TranslatableError,
 } from "./errors";
 import type { createEventHub } from "./events";
-import { removeStalePartials, replaceFile, safeFileName, writeNewFile } from "./fileNames";
+import {
+  nameCandidates,
+  removeStalePartials,
+  replaceFile,
+  safeFileName,
+  writeNewFile,
+} from "./fileNames";
 import type { SettingsStore } from "./settings";
 import type { Database } from "./storage";
 
@@ -468,6 +474,47 @@ export function createOutputFiles(options: OutputFilesOptions) {
       } catch {
         return false;
       }
+    },
+
+    /**
+     * The file a save of `name` with exactly these bytes made in the Output location already, among
+     * the names a save takes ("Tides.docx", "Tides 2.docx"…), up to the first name not taken; null
+     * when none holds them. So the same bytes saved again are written once (#3751).
+     */
+    async alreadySaved(name: string, bytes: Uint8Array): Promise<SavedFile | null> {
+      let folder: string;
+      try {
+        folder = await realFolder(location() ?? options.suggested);
+      } catch (error) {
+        if (isGone(error)) return null;
+        throw error;
+      }
+      const wanted = fingerprintOf(bytes);
+      for (const candidate of nameCandidates(fileNameOf(name))) {
+        const path = join(folder, candidate);
+        let held: Uint8Array;
+        try {
+          // A link under the name is a name taken, as a save takes it, never a file it saved.
+          if (!(await lstat(path)).isFile()) continue;
+          held = new Uint8Array(await readFile(path));
+        } catch (error) {
+          if (isGone(error)) return null;
+          // A file it may not read isn't the one it saved.
+          options.log.warn("output.alreadySaved", { code: codeOf(error) ?? String(error) });
+          continue;
+        }
+        if (fingerprintOf(held) !== wanted) continue;
+        const made = {
+          path,
+          name: candidate,
+          folder,
+          defaulted: false,
+          inDefaultFolder: await isDefaultFolder(folder),
+        };
+        saved.set(path, made);
+        return made;
+      }
+      return null;
     },
 
     /**

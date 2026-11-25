@@ -1,35 +1,69 @@
 /**
  * A Word file IncarnaMind writes for an outside agent (#3751), through the shim the app ships with
  * the MCP SDK's own client, as Claude Code calls it: one `save_as_word` call with a Note, or with
- * the agent's Markdown and its Citation tokens, gives a .docx in the Library, written by Export ›
- * Word with its Citations as footnotes, and kept as a file the agent hands over is.
+ * the agent's Markdown and its Citation tokens, gives a .docx written by Export › Word with its
+ * Citations as footnotes, saved in the Output location as Export › Word saves one, and kept in the
+ * Library as a file the agent hands over is. It holds nothing the agent couldn't read already.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
-import { convertToPdf, findLibreOffice } from "../../eval/word/libreoffice";
 import type { Core } from "../../src/core";
+import type { Pictures } from "../../src/core/adapters";
+import { MIND_COMMENTS_FIELD, MIND_WORD_FIELD } from "../../src/core/api";
+import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { optionsFor } from "../../src/shared/exportOptions";
-import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
+import { translate } from "../../src/shared/i18n";
+import { addSignOff } from "../../src/shared/signOffs";
+import {
+  buildAgentShim,
+  connectLegacyAgent,
+  type RecordedMeeting,
+  startMeetingAgentsCore,
+} from "../helpers/agents";
+import { tickingClock } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { footnotesOf, paragraphsOf, part, unzip } from "../helpers/docx";
 import {
   type Agent,
   type Handed,
   NORTH,
+  OFFICE,
   refusal,
+  SOUTH,
   started,
   structured,
 } from "../helpers/handedFiles";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind, writeMind } from "../helpers/minds";
 
 interface Saved extends Handed {
   citations: { cite: string; check: string; document: string | null }[];
   refused: { item: string; reason: string }[];
+  saved: string | null;
+  notSaved: string | null;
 }
 
 const SOUTH_TRUE = "The south quay holds 19 boats.";
+const UNSHARED = {
+  en: "This note cites a Document in a Folder that isn’t shared with you, so IncarnaMind won’t write it into a Word file for you. Ask the User to share that Folder with you, or to export the note to Word themselves.",
+  "zh-CN":
+    "这篇笔记引用了一个没有与你共享的文件夹中的文档，因此 IncarnaMind 不会替你把它写成 Word 文件。请用户把那个文件夹共享给你，或者自己把这篇笔记导出为 Word。",
+} as const;
+
+/** A PNG of one pixel. */
+const PNG = Uint8Array.from(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
+
+/** The app's drawer of SVG pictures as a fake: each chart drawn as `PNG`. */
+const drawer: Pictures = { png: async () => PNG };
 
 const save = (agent: Agent, args: Record<string, unknown>) =>
   agent.callTool({ name: "save_as_word", arguments: args });
@@ -50,47 +84,94 @@ async function token(agent: Agent, query: string, quote: string): Promise<string
   return cite;
 }
 
-/** The parts of the Library's Word file of the hand-over: its Document's own file, as kept. */
+/** A Word file's parts: its body's paragraphs, its footnotes, and all of its text. */
+function partsOf(bytes: Uint8Array) {
+  const files = unzip(bytes);
+  return {
+    files,
+    body: paragraphsOf(part(files, "word/document.xml")),
+    footnotes: Object.values(footnotesOf(part(files, "word/footnotes.xml"))),
+    all: [...files.values()].map((each) => each.toString("utf8")).join("\n"),
+  };
+}
+
+/** The Library's Word file of the hand-over: its Document's own file, as kept. */
 async function wordFileOf(core: Core, saved: Saved) {
   const handed = await core.handedFileOf(saved.mindId ?? "");
   const document = (await core.listDocuments()).find((each) => each.id === handed?.file.documentId);
   if (!handed || !document) throw new Error("The Word file isn't in the Library.");
   const bytes = new Uint8Array(readFileSync(document.path));
-  const files = unzip(bytes);
+  return { handed, document, bytes, ...partsOf(bytes) };
+}
+
+/** The file saved where Export › Word saves one, at the path the result gave. */
+function savedFile(saved: Saved) {
+  if (!saved.saved) throw new Error(`The Word file wasn't saved: ${saved.notSaved}`);
+  return new Uint8Array(readFileSync(saved.saved));
+}
+
+/** Every part but the file's dates: what the words, pictures and footnotes are written as. */
+const bodyParts = (files: Map<string, Buffer>) =>
+  Object.fromEntries(
+    [...files]
+      .filter(([name]) => !name.startsWith("docProps/"))
+      .map(([name, bytes]) => [name, bytes.toString("base64")]),
+  );
+
+/** Export › Word's choices of the User's, without what an agent's file never holds. */
+async function agentChoices(core: Core) {
   return {
-    handed,
-    document,
-    bytes,
-    body: paragraphsOf(part(files, "word/document.xml")),
-    footnotes: Object.values(footnotesOf(part(files, "word/footnotes.xml"))),
-    styles: part(files, "word/styles.xml"),
+    ...optionsFor("docx", (await core.getSettings()).user.exportOptions),
+    markAiText: false,
+    commentFailedChecks: false,
+    includeMyComments: false,
+    trackChanges: false,
   };
 }
 
-/** No part Word's repair prompt is about, and, where LibreOffice is installed (CI), it opens it. */
-async function opensWithoutRepair(bytes: Uint8Array, name: string) {
-  expect((await inspectPackage(bytes)).problems).toEqual([]);
-  const soffice = findLibreOffice();
-  if (!soffice) return;
-  const folder = mkdtempSync(join(tmpdir(), "incarnamind-word-file-"));
-  try {
-    const path = join(folder, name);
-    writeFileSync(path, bytes);
-    const opened = await convertToPdf(soffice, path);
-    expect(opened.opened, opened.problem).toBe(true);
-  } finally {
-    rmSync(folder, { recursive: true, force: true });
-  }
-}
+const text = (words: string) => ({ type: "text", text: words });
+
+/** A Citation of `document` as the editor keeps one, with an id of its own. */
+const citation = (
+  document: { id: string; name: string; contentHash?: string | null },
+  quote: string,
+  id: string = randomUUID(),
+) => ({
+  type: "citation",
+  attrs: {
+    id,
+    passageId: `passage-${id}`,
+    documentId: document.id,
+    documentName: document.name,
+    contentHash: document.contentHash ?? null,
+    pageFrom: null,
+    pageTo: null,
+    quote,
+    check: "found",
+  },
+});
 
 describe("a Word file IncarnaMind writes for an outside agent", () => {
   beforeAll(async () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=one call makes a Note a Word Document in the Library, kept and shown as a file the agent handed over, written by Export › Word with the Note's Citations as footnotes, and the same Note saved again is that file's next version (#3751); fails_when=the file isn't a handed-over Document of the Library, it differs from Export › Word's, a Citation is lost, Word would offer to repair it, or a second save makes a second file
-  it("saves a Note as a Word file in the Library, as Export › Word writes it, with its Citations", async () => {
-    const { core, coast, writer } = await started([], { asItLands: false });
+  // protects=one call makes a Note a Word file in the Output location, where Export › Word puts one and the User can open or show it, and keeps it in the Library as a file the agent handed over; it is what Export › Word writes, its Citations as footnotes, and the same Note changed is that file's next version, saved beside the first (#3751); fails_when=no file is in the Output location, the result doesn't give its path, it differs from Export › Word's, a Citation is lost, Word would offer to repair it, or a second version replaces the first file
+  it("saves a Note as a Word file where Export › Word saves one, and keeps it in the Library", async () => {
+    const shown: string[] = [];
+    const { core, coast, writer } = await started([], {
+      asItLands: false,
+      adapters: {
+        shell: {
+          openPath: async () => undefined,
+          showItemInFolder: (path) => {
+            shown.push(path);
+          },
+        },
+      },
+    });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
     const agent = await connectLegacyAgent(writer.launch);
     const north = await token(agent, "north quay boats", "The north quay holds 42 boats");
     const { mindId } = structured<{ mindId: string }>(
@@ -112,30 +193,28 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       status: "not-checked",
       citations: [],
       refused: [],
+      saved: join(output, "Harbour brief.docx"),
+      notSaved: null,
     });
     const file = await wordFileOf(core, saved);
     expect(file.handed.file).toMatchObject({ kind: "docx", agent: "Claude Code", version: 1 });
     expect(file.document).toMatchObject({ name: "Harbour brief", kind: "docx" });
+    expect(savedFile(saved)).toEqual(file.bytes);
     expect(file.body.map((each) => each.text)).toEqual([
       "Harbour brief",
       `${NORTH.slice(0, -1)}[1].`,
     ]);
     expect(file.footnotes).toEqual([expect.stringContaining("Harbour survey")]);
+    expect((await inspectPackage(file.bytes)).problems).toEqual([]);
+    // Open and Show in Finder take it, as they take a file Export saved.
+    await core.showSavedFile(saved.saved ?? "");
+    expect(shown).toEqual([saved.saved]);
 
     // Export › Word, with the User's choices, writes the same Word file of the same Note.
-    const exported = unzip(
-      (
-        await core.exportMind(
-          mindId,
-          optionsFor("docx", (await core.getSettings()).user.exportOptions),
-        )
-      ).data,
-    );
-    expect(file.body).toEqual(paragraphsOf(part(exported, "word/document.xml")));
-    expect(file.styles).toBe(part(exported, "word/styles.xml"));
-    await opensWithoutRepair(file.bytes, "Harbour brief.docx");
+    const exported = unzip((await core.exportMind(mindId, await agentChoices(core))).data);
+    expect(bodyParts(file.files)).toEqual(bodyParts(exported));
 
-    // The same Note, changed, is the same file's next version.
+    // The same Note, changed, is the same file's next version, saved beside the first.
     const { version } = structured<{ version: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
     );
@@ -150,14 +229,81 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       }),
     );
     const again = structured<Saved>(await save(agent, { mindId }));
-    expect(again).toMatchObject({ fileId: saved.fileId, version: 2 });
-    expect((await wordFileOf(core, again)).body.at(-1)?.text).toBe("Boats moor at dawn.");
+    expect(again).toMatchObject({
+      fileId: saved.fileId,
+      version: 2,
+      saved: join(output, "Harbour brief 2.docx"),
+    });
+    expect(partsOf(savedFile(again)).body.at(-1)?.text).toBe("Boats moor at dawn.");
+    expect(partsOf(savedFile(saved)).body.at(-1)?.text).toBe(`${NORTH.slice(0, -1)}[1].`);
     expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toHaveLength(1);
+  });
+
+  // protects=the same Note or text saved again, unchanged, is written with its item's date, so it is the same version with its first check and the file saved before, though the clock moved on; changed, it is the next version and a file beside the first (#3751); fails_when=each call makes a version, the second call doesn't read the first one's check, or the Output location gets a second copy of the same words
+  it("keeps the same Note or text saved again as its version, with its check and its one file", async () => {
+    const { core, coast, writer } = await started([], { adapters: { now: tickingClock() } });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    const agent = await connectLegacyAgent(writer.launch);
+    const north = await token(agent, "north quay boats", "The north quay holds 42 boats");
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Harbour brief",
+          markdown: `The north quay holds 42 boats ${north}.`,
+          folderId: coast.id,
+        },
+      }),
+    );
+
+    const first = structured<Saved>(await save(agent, { mindId }));
+    expect(first).toMatchObject({ version: 1, status: "checked" });
+    const again = structured<Saved>(await save(agent, { mindId }));
+    expect(again).toMatchObject({
+      fileId: first.fileId,
+      version: 1,
+      mindId: first.mindId,
+      status: "checked",
+      supported: first.supported,
+      needLook: first.needLook,
+      claims: first.claims,
+      saved: first.saved,
+    });
+
+    const written = {
+      title: "Quay counts",
+      markdown: `The north quay holds 42 boats ${north}.`,
+      folderId: coast.id,
+    };
+    const one = structured<Saved>(await save(agent, written));
+    const two = structured<Saved>(await save(agent, written));
+    expect(two).toMatchObject({
+      fileId: one.fileId,
+      version: 1,
+      mindId: one.mindId,
+      saved: join(output, "Quay counts.docx"),
+    });
+    expect(one.fileId).not.toBe(first.fileId);
+
+    const changed = structured<Saved>(await save(agent, { ...written, markdown: OFFICE }));
+    expect(changed).toMatchObject({
+      fileId: one.fileId,
+      version: 2,
+      saved: join(output, "Quay counts 2.docx"),
+    });
+    expect(readdirSync(output).sort()).toEqual([
+      "Harbour brief.docx",
+      "Quay counts 2.docx",
+      "Quay counts.docx",
+    ]);
   });
 
   // protects=the agent's own Markdown becomes a Word file in one call, its tokens Citations as footnotes, and no Note is made of it; a token that matches nothing is listed with its check and reads as not found where it stood, never dropped (#3751); fails_when=a Note appears beside the file, a Citation is lost, or a marker that matches nothing vanishes from the file or the result
   it("saves the agent's Markdown as a Word file, and reports a marker that matches nothing", async () => {
     const { core, coast, writer } = await started([], { asItLands: false });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
     const agent = await connectLegacyAgent(writer.launch);
     const north = await token(agent, "north quay boats", "The north quay holds 42 boats");
     const before = (await core.listMinds()).length;
@@ -173,12 +319,18 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         folderId: coast.id,
       }),
     );
-    expect(saved).toMatchObject({ title: "Quay counts", folder: "Coast", version: 1 });
+    expect(saved).toMatchObject({
+      title: "Quay counts",
+      folder: "Coast",
+      version: 1,
+      saved: join(output, "Quay counts.docx"),
+    });
     expect(saved.citations).toEqual([
       expect.objectContaining({ cite: north, check: "found", document: "Harbour survey" }),
       expect.objectContaining({ cite: "[cite:zz99zz99]", check: "unknown", document: null }),
     ]);
     const file = await wordFileOf(core, saved);
+    expect(savedFile(saved)).toEqual(file.bytes);
     expect(file.document).toMatchObject({ name: "Quay counts", kind: "docx" });
     expect(file.body.map((each) => each.text)).toEqual([
       "Quay counts",
@@ -186,15 +338,260 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       "The south quay holds 19 boats [quote not found].",
     ]);
     expect(file.footnotes).toEqual([expect.stringContaining("Harbour survey")]);
-    await opensWithoutRepair(file.bytes, "Quay counts.docx");
+    expect((await inspectPackage(file.bytes)).problems).toEqual([]);
     // Only the file's own check Note is new: the Markdown made no Note of its own.
     const notes = await core.listMinds();
     expect(notes).toHaveLength(before + 1);
     expect(notes.map((each) => each.id)).toContain(saved.mindId);
   });
 
-  // protects=Chinese content exports as Chinese Word text, its Citation a footnote naming the Chinese Document, and the interface's Chinese words reach the agent (#3751); fails_when=Chinese text or a Chinese Document's name is garbled or lost, or the file doesn't open
-  it("saves Chinese text as a Word file, with its Citation", async () => {
+  // protects=a Note with headings, a table, a picture, a chart and Citations, all of it the agent's to read, gives the body Export › Word writes, part for part (#3751); fails_when=a heading, a cell, the picture, the chart's drawing or a footnote differs from Export › Word's
+  it("writes a Note with a heading, a table, a picture and a chart as Export › Word does", async () => {
+    const { core, coast, writer, files } = await started([], {
+      asItLands: false,
+      adapters: { pictures: drawer },
+    });
+    await writeFile(join(files, "map.png"), PNG);
+    const agent = await connectLegacyAgent(writer.launch);
+    const north = await token(agent, "north quay boats", "The north quay holds 42 boats");
+    const south = await token(agent, "south quay boats", "the south quay holds 19 boats");
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: {
+          title: "Harbour brief",
+          markdown: [
+            "## Quays",
+            "",
+            `The north quay holds 42 boats ${north}.`,
+            "",
+            "| Quay | Boats |",
+            "|---|---|",
+            `| North | 42 ${north} |`,
+            `| South | 19 ${south} |`,
+            "",
+            "```chart",
+            '{"kind": "bar", "title": "Boats by quay"}',
+            "```",
+            "",
+            `![Harbour map](${join(files, "map.png")})`,
+          ].join("\n"),
+          folderId: coast.id,
+        },
+      }),
+    );
+
+    const saved = structured<Saved>(await save(agent, { mindId }));
+    const file = partsOf(savedFile(saved));
+    expect(file.body.map((each) => each.text)).toEqual(
+      expect.arrayContaining(["Quays", `${NORTH.slice(0, -1)}[1].`]),
+    );
+    const document = part(file.files, "word/document.xml");
+    expect(document).toContain("<w:tbl>");
+    expect(document).toContain('descr="Harbour map"');
+    expect(document).toContain('descr="Bar chart: Boats by quay"');
+    expect(file.footnotes).toEqual(
+      expect.arrayContaining([expect.stringContaining("Harbour survey")]),
+    );
+    const exported = unzip((await core.exportMind(mindId, await agentChoices(core))).data);
+    expect(bodyParts(file.files)).toEqual(bodyParts(exported));
+  });
+
+  // protects=a Note that cites a Document the agent doesn't reach is never written for it, in words that say why and what the User can do; once it doesn't, its file and its check Note hold none of anyone's waiting change, the User's comment, a failed check's comment or a person's Checked by line, which Export › Word by hand would write (#3751); fails_when=a file is written with a source the agent can't read, missing or not, or any of those parts reaches the file or the check Note's text
+  it("writes a Note's file with only what the agent may read", async () => {
+    const { core, coast, writer, added } = await started([], { asItLands: false });
+    const [survey] = added;
+    if (!survey) throw new Error("The survey wasn't added.");
+    const vault = await core.createLibraryGroup({ name: "Vault", description: "" });
+    const [ledger] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createSourceFolder(),
+        "Ledger.md",
+        "# Ledger\n\nThe ledger shows 9,931 crowns.\n",
+      ),
+    ]);
+    if (!ledger) throw new Error("The ledger wasn't added.");
+    await core.assignDocumentGroup(ledger.id, vault.id);
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    await core.updateSettings({ user: { personId: "person-1" } });
+    const mind = await core.createMind({ title: "Harbour memo", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [
+          text("The north quay holds 42 boats"),
+          citation(survey, "The north quay holds 42 boats"),
+          text("."),
+        ],
+      },
+      {
+        type: "paragraph",
+        content: [
+          text("The ledger shows 9,931 crowns"),
+          citation(ledger, "The ledger shows 9,931 crowns."),
+          text("."),
+        ],
+      },
+    ]);
+    await client.settled();
+    const agent = await connectLegacyAgent(writer.launch);
+
+    expect(refusal(await save(agent, { mindId: mind.id }))).toBe(UNSHARED.en);
+    expect(readdirSync(output)).toEqual([]);
+    expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toEqual([]);
+
+    // Without the ledger: the User's comment on the first sentence, a Checked by line on its
+    // Citation, a sentence the check finds contradicted, and another agent's change waiting.
+    const cited = citation(survey, "The north quay holds 42 boats", "cited-north");
+    writeMind(client, [
+      {
+        type: "paragraph",
+        attrs: { id: "p1" },
+        content: [
+          {
+            type: "text",
+            text: "The north quay holds 42 boats",
+            marks: [{ type: "comment", attrs: { id: "remark" } }],
+          },
+          cited,
+          text("."),
+        ],
+      },
+      { type: "paragraph", attrs: { id: "p2" }, content: [text(SOUTH)] },
+    ]);
+    client.doc.getMap(MIND_COMMENTS_FIELD).set("remark", {
+      id: "remark",
+      author: null,
+      createdAt: "2026-11-01T09:00:00Z",
+      text: "Private remark for me alone.",
+      resolvedAt: null,
+      replies: [],
+    });
+    addSignOff(client.doc, {
+      id: "mark-1",
+      target: { kind: "citation", id: "cited-north" },
+      at: "2026-11-01T09:00:00.000Z",
+      contentHash: "checked-before-it-changed",
+      deletedAt: null,
+      name: "Ada Quill",
+      personId: "person-1",
+    });
+    await client.settled();
+    await core.checkMind({ requestId: randomUUID(), mindId: mind.id, mode: "all" });
+    const pilot = await connectLegacyAgent(
+      (await core.connectAgent({ name: "Pilot", folderIds: [coast.id], propose: true })).launch,
+    );
+    const { version } = structured<{ version: string }>(
+      await pilot.callTool({ name: "read_mind", arguments: { mindId: mind.id, named: true } }),
+    );
+    structured(
+      await pilot.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId: mind.id,
+          version,
+          changes: [{ paragraph: "¶2+", text: "Rival words from another agent." }],
+        },
+      }),
+    );
+    // Export › Word by hand, with each of them asked for, writes every one of them.
+    const byHand = partsOf(
+      (
+        await core.exportMind(mind.id, {
+          format: "docx",
+          trackChanges: true,
+          includeMyComments: true,
+          commentFailedChecks: true,
+        })
+      ).data,
+    );
+    for (const words of [
+      "Rival words from another agent.",
+      "Private remark for me alone.",
+      "Ada Quill",
+      "not 17",
+    ]) {
+      expect(byHand.all).toContain(words);
+    }
+
+    const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
+    const file = partsOf(savedFile(saved));
+    expect(file.body.map((each) => each.text)).toEqual([`${NORTH.slice(0, -1)}[1].`, SOUTH]);
+    const { markdown } = structured<{ markdown: string }>(
+      await agent.callTool({ name: "read_mind", arguments: { mindId: saved.mindId } }),
+    );
+    for (const words of [
+      "Rival words",
+      "Private remark",
+      "Ada Quill",
+      "Checked by",
+      "not 17",
+      "9,931",
+      "Ledger",
+    ]) {
+      expect(file.all).not.toContain(words);
+      expect(markdown).not.toContain(words);
+    }
+    expect(file.all).not.toContain("<w:comment ");
+    expect(file.all).not.toContain("<w:ins ");
+  });
+
+  // protects=a Meeting's Transcript has the reach of its Note: a Note citing the Transcript of a Meeting the agent reaches is written, and one citing a Meeting's it doesn't is refused saying why, the Meeting's own Note with it (#3751); fails_when=a Transcript behind an unshared Note reaches a file, or a shared Meeting's can't be written
+  it("writes a Transcript's Citations only where the agent reaches its Meeting", async () => {
+    const harbourLine = "We'll move the first North crossing to ten past seven.";
+    const saleLine = "The board agreed to sell the Tern for a million pounds.";
+    const { core, recordMeeting } = await startMeetingAgentsCore({
+      mine: [harbourLine, saleLine],
+      theirs: ["The harbour can open the slipway earlier.", "Penhallow Shipping signs in April."],
+    });
+    const coast = await core.createLibraryGroup({ name: "Coast", description: "" });
+    const hidden = await core.createLibraryGroup({ name: "Private", description: "" });
+    const harbour: RecordedMeeting = await recordMeeting(coast.id, "Harbour meeting");
+    const sale: RecordedMeeting = await recordMeeting(hidden.id, "Sale meeting");
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    await core.setAgentsEnabled(true);
+    const agent = await connectLegacyAgent(
+      (await core.connectAgent({ name: "Claude Code", folderIds: [coast.id], propose: true }))
+        .launch,
+    );
+    const cites = async (mindId: string, meeting: RecordedMeeting, words: string) => {
+      const client = await connectToMind(core, mindId);
+      writeMind(client, [
+        {
+          type: "paragraph",
+          content: [
+            text(words.slice(0, -1)),
+            citation({ id: meeting.transcriptId, name: "Transcript" }, words),
+            text("."),
+          ],
+        },
+      ]);
+      await client.settled();
+    };
+
+    await cites(harbour.mindId, harbour, harbourLine);
+    const meetingFile = structured<Saved>(await save(agent, { mindId: harbour.mindId }));
+    expect(meetingFile).toMatchObject({
+      title: "Harbour meeting",
+      saved: join(output, "Harbour meeting.docx"),
+    });
+    expect(partsOf(savedFile(meetingFile)).all).toContain("first North crossing");
+
+    const memo = await core.createMind({ title: "Crossings memo", folderId: coast.id });
+    await cites(memo.id, harbour, harbourLine);
+    expect(structured<Saved>(await save(agent, { mindId: memo.id })).saved).toBe(
+      join(output, "Crossings memo.docx"),
+    );
+    await cites(memo.id, sale, saleLine);
+    expect(refusal(await save(agent, { mindId: memo.id }))).toBe(UNSHARED.en);
+    expect(readdirSync(output).sort()).toEqual(["Crossings memo.docx", "Harbour meeting.docx"]);
+  });
+
+  // protects=Chinese content exports as Chinese Word text, its Citation a footnote naming the Chinese Document, and the interface's Chinese words reach the agent, for either mistake in what it gives (#3751); fails_when=Chinese text or a Chinese Document's name is garbled or lost, the file doesn't open, or one mistake is refused in words that fit only the other
+  it("saves Chinese text as a Word file, with its Citation, and says in Chinese what to give", async () => {
     const { core, coast, writer } = await started([], { asItLands: false });
     await core.updateSettings({ user: { language: "zh-CN" } });
     const sources = await createSourceFolder();
@@ -203,6 +600,8 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     ]);
     if (!survey) throw new Error("The Chinese survey wasn't added.");
     await core.assignDocumentGroup(survey.id, coast.id);
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
     const agent = await connectLegacyAgent(writer.launch);
     const cite = await token(agent, "北码头 渔船", "北码头停泊着四十二艘渔船。");
 
@@ -213,6 +612,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         folderId: coast.id,
       }),
     );
+    expect(saved.saved).toBe(join(output, "港口简报.docx"));
     expect(saved.citations).toEqual([
       expect.objectContaining({ check: "found", document: "港口调查" }),
     ]);
@@ -223,11 +623,184 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       "北码头停泊着四十二艘渔船[1]。",
     ]);
     expect(file.footnotes).toEqual([expect.stringContaining("港口调查")]);
-    await opensWithoutRepair(file.bytes, "港口简报.docx");
+    expect((await inspectPackage(file.bytes)).problems).toEqual([]);
 
-    expect(refusal(await save(agent, { title: "港口简报" }))).toBe(
-      "给出笔记的 mindId 或你的文字 markdown，只给其中一个。",
+    const which = "只给其中一个：笔记的 mindId，或你的文字 markdown。";
+    expect(refusal(await save(agent, { title: "港口简报" }))).toBe(which);
+    expect(
+      refusal(await save(agent, { mindId: saved.mindId, title: "港口简报", markdown: "北码头。" })),
+    ).toBe(which);
+  });
+
+  // protects=when the Output location is gone or IncarnaMind may not write in it, the agent is told so in the words Export › Word's line says, in the User's language, and the file is still kept in the Library (#3751); fails_when=the call fails without saying why, claims a path, or loses the Library's copy
+  it.each(["en", "zh-CN"] as const)(
+    "says in plain words when the Output location can't take the file (%s)",
+    async (language) => {
+      const { core, coast, writer } = await started([], { asItLands: false });
+      await core.updateSettings({ user: { language } });
+      const agent = await connectLegacyAgent(writer.launch);
+      const say = (key: "export.failed.gone" | "export.failed.readOnly") =>
+        translate(language, "export.failed.save", { reason: translate(language, key) });
+
+      const parent = await createSourceFolder();
+      const gone = join(parent, "Exports");
+      await mkdir(gone);
+      await core.setOutputLocation(gone);
+      await rm(parent, { recursive: true });
+      const lost = structured<Saved>(
+        await save(agent, { title: "Quay counts", markdown: OFFICE, folderId: coast.id }),
+      );
+      expect(lost).toMatchObject({ version: 1, saved: null, notSaved: say("export.failed.gone") });
+      expect((await wordFileOf(core, lost)).document.name).toBe("Quay counts");
+
+      if (process.platform === "win32" || process.getuid?.() === 0) return;
+      const locked = await createSourceFolder();
+      await core.setOutputLocation(locked);
+      await chmod(locked, 0o500);
+      try {
+        const refused = structured<Saved>(
+          await save(agent, { title: "Harbour hours", markdown: OFFICE, folderId: coast.id }),
+        );
+        expect(refused).toMatchObject({ saved: null, notSaved: say("export.failed.readOnly") });
+      } finally {
+        await chmod(locked, 0o700);
+      }
+      expect(readdirSync(locked)).toEqual([]);
+    },
+  );
+
+  // protects=a Note that IncarnaMind can't write yet, or that is gone, is refused in IncarnaMind's own words the agent can pass on, never a bare failure (#3751); fails_when=the agent hears only that the call failed
+  it("says why a Note can't be written: still being imported", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    const mind = await core.createMind({ title: "Imported memo", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [{ type: "paragraph", content: [text("Half of it.")] }]);
+    client.doc.getMap(MIND_WORD_FIELD).set("import", { done: 1, total: 3 });
+    await client.settled();
+    const agent = await connectLegacyAgent(writer.launch);
+    expect(refusal(await save(agent, { mindId: mind.id }))).toBe(
+      translate("en", "error.export.wordImporting"),
     );
+  });
+
+  // protects=a folderId names where a Note's file is kept, so a Note saved into another Folder is an item there and never a dead end; the refusal for giving both mindId and markdown, or neither, fits both (#3751); fails_when=the folderId is ignored without a word, or a refusal names only one of the mistakes
+  it("keeps a Note's file in the Folder named, and says what to give for either mistake", async () => {
+    const { core, coast, writer, more } = await started([], {
+      asItLands: false,
+      folders: ["Archive"],
+    });
+    const [archive] = more;
+    if (!archive) throw new Error("No Archive Folder.");
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    const agent = await connectLegacyAgent(writer.launch);
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Harbour brief", markdown: OFFICE, folderId: coast.id },
+      }),
+    );
+    const own = structured<Saved>(await save(agent, { mindId }));
+    const filed = structured<Saved>(await save(agent, { mindId, folderId: archive.id }));
+    expect(own).toMatchObject({ folder: "Coast", version: 1 });
+    expect(filed).toMatchObject({ folder: "Archive", version: 1 });
+    expect(filed.fileId).not.toBe(own.fileId);
+    expect((await core.handedFileOf(filed.mindId ?? ""))?.file.folderId).toBe(archive.id);
+
+    const which = "Give exactly one: mindId for a note, or markdown for your text.";
+    expect(refusal(await save(agent, { title: "Brief" }))).toBe(which);
+    expect(refusal(await save(agent, { mindId, markdown: "Hi." }))).toBe(which);
+  });
+
+  // protects=Ask in your agent on the check of a Word file IncarnaMind wrote asks the agent to fix the Note with propose_changes and save it again by its mindId, or, for its own text, to read it from the check's Note and save the corrected Markdown under the same title, in English and Chinese, never naming a made-up path (#3751); fails_when=the request points at a file on disk, names an item's inner key, or tells the agent to hand a file over
+  it("asks the agent to fix a Word file's flagged sentence where it was written from", async () => {
+    const { core, coast, writer } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Harbour brief", markdown: SOUTH, folderId: coast.id },
+      }),
+    );
+    const fromNote = structured<Saved>(await save(agent, { mindId }));
+    const fromText = structured<Saved>(
+      await save(agent, { title: "Quay counts", markdown: SOUTH, folderId: coast.id }),
+    );
+
+    const ask = async (saved: Saved) => {
+      const checkNote = saved.mindId ?? "";
+      const client = await connectToMind(core, checkNote);
+      await client.settled();
+      const flagged = claimSpans(readMind(client)).find((span) => span.sentence.text === SOUTH);
+      if (!flagged) throw new Error("The flagged claim has no mark.");
+      await core.askAgent({
+        pairingId: writer.pairing.id,
+        mindId: checkNote,
+        ask: {
+          kind: "fix",
+          sentences: [
+            {
+              sentence: SOUTH,
+              verdict: "contradicted",
+              checkId: flagged.check.id,
+              quote: "the south quay holds 19 boats",
+            },
+          ],
+        },
+      });
+      return structured<{ request: string }>(
+        await agent.callTool({ name: "read_request", arguments: {} }),
+      ).request;
+    };
+
+    const noteRequest = await ask(fromNote);
+    expect(noteRequest).toMatch(
+      /^In IncarnaMind, the check of the Word file saved from my note “Harbour brief” \(version 1\) says this is contradicted by my Documents:/,
+    );
+    expect(noteRequest).toContain(`“${SOUTH}”`);
+    expect(noteRequest).toMatch(
+      new RegExp(
+        `Fix it in the note \\(mindId: ${mindId}\\) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId\\.$`,
+      ),
+    );
+    const textRequest = await ask(fromText);
+    expect(textRequest).toMatch(
+      /^In IncarnaMind, the check of the Word file you saved from your own text, “Quay counts” \(version 1\), says this is contradicted by my Documents:/,
+    );
+    expect(textRequest).toContain(
+      `Its text is in the note mindId ${fromText.mindId} (read_mind). Fix it from my Documents, change nothing else, and save it again with save_as_word, the title “Quay counts” and the corrected markdown.`,
+    );
+
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const noteZh = await ask(fromNote);
+    expect(noteZh).toContain("从我的笔记“Harbour brief”生成的 Word 文件（第 1 版）经核对");
+    expect(noteZh).toContain(
+      `请根据我的文档，用 propose_changes 在这篇笔记（mindId：${mindId}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件。`,
+    );
+    const textZh = await ask(fromText);
+    expect(textZh).toContain("你用自己写的文字生成的 Word 文件“Quay counts”（第 1 版）经核对");
+    expect(textZh).toContain(
+      `它的文字在笔记 mindId ${fromText.mindId} 中（用 read_mind 读取）。请根据我的文档改正，其他内容不要改动，然后用 save_as_word、标题“Quay counts”和改正后的 markdown 重新生成。`,
+    );
+    for (const request of [noteRequest, textRequest, noteZh, textZh]) {
+      expect(request).not.toContain("incarnamind:");
+      expect(request).not.toContain("hand_over_file");
+    }
+  });
+
+  // protects=the check Note of a Word file IncarnaMind wrote can itself be saved as Word, as a new file of its own, never refused as a file the Library holds already (#3751); fails_when=the agent is told to change a file it never wrote
+  it("saves a Word file's check Note as a Word file of its own", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    const agent = await connectLegacyAgent(writer.launch);
+    const saved = structured<Saved>(
+      await save(agent, { title: "Quay counts", markdown: OFFICE, folderId: coast.id }),
+    );
+    const ofCheck = structured<Saved>(
+      await save(agent, { mindId: saved.mindId, title: "Quay counts" }),
+    );
+    expect(ofCheck).toMatchObject({ version: 1 });
+    expect(ofCheck.fileId).not.toBe(saved.fileId);
+    expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toHaveLength(2);
   });
 
   // protects=an agent the User let only read is refused in the words create_mind's refusal uses, and nothing is written (#3751); fails_when=it writes a file without the write grant, or says so in other words

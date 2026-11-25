@@ -127,6 +127,8 @@ export interface HandOverInput {
   kind: HandedFile["kind"];
   bytes: Uint8Array;
   folderId: string | null;
+  /** When a new item is made: the date a file IncarnaMind wrote for it carries (#3751). */
+  createdAt?: string;
   /**
    * Throws unless the agent may still write where it is handed over: read when the hand-over's
    * turn comes, as the User may have taken the grant back while it waited.
@@ -498,6 +500,7 @@ export function createHandOver(deps: HandOverDeps) {
         folderId: input.folderId,
         pairingId: input.pairingId,
         agent: input.agent,
+        ...(input.createdAt !== undefined && { createdAt: input.createdAt }),
       });
     const name = fileNameOf(input.title, file.kind);
     const relative = join(HANDED_FOLDER, file.id, `v${(file.version ?? 0) + 1}`, name);

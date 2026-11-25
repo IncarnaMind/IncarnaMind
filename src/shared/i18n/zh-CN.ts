@@ -8545,7 +8545,9 @@ export const zhCN = {
   "agents.handOver.inLibrary":
     "用户的资料库里已经有这个文件，而 IncarnaMind 每个文件只保留一份：修改后再提交。",
   "agents.handOver.untitled": "未命名文件",
-  "agents.handOver.word.which": "给出笔记的 mindId 或你的文字 markdown，只给其中一个。",
+  "agents.handOver.word.which": "只给其中一个：笔记的 mindId，或你的文字 markdown。",
+  "agents.handOver.word.unshared":
+    "这篇笔记引用了一个没有与你共享的文件夹中的文档，因此 IncarnaMind 不会替你把它写成 Word 文件。请用户把那个文件夹共享给你，或者自己把这篇笔记导出为 Word。",
   "agents.handOver.unread.unreadable": "IncarnaMind 已保留文件，但无法读取：文件可能已损坏。",
   "agents.handOver.unread.password-protected": "IncarnaMind 已保留文件，但无法读取：文件需要密码。",
   "agents.handOver.unread.no-text": "IncarnaMind 已保留文件，但其中没有可核对的内容。",
@@ -9075,6 +9077,18 @@ export const zhCN = {
   "agents.ask.request.fixFile.where": "在{where}：",
   "agents.ask.request.noteFile":
     "我这条消息说的是你提交给 IncarnaMind 的文件{title}（第 {version} 版，来自 {path}）。",
+  "agents.ask.request.fixWordNote":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件。",
+  "agents.ask.request.fixWordNoteAll":
+    "在 IncarnaMind 中，从我的笔记{title}生成的 Word 文件（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n请根据我的文档，用 propose_changes 在这篇笔记（mindId：{mindId}）里逐一改正，其他内容不要改动，然后用 save_as_word 和这个 mindId 重新生成 Word 文件。",
+  "agents.ask.request.wordNote":
+    "我这条消息说的是在 IncarnaMind 中从我的笔记{title}生成的 Word 文件（第 {version} 版，mindId：{mindId}）。",
+  "agents.ask.request.fixWordText":
+    "在 IncarnaMind 中，你用自己写的文字生成的 Word 文件{title}（第 {version} 版）经核对，这一处{verdict}：\n\n{where}{sentence}{quote}\n\n它的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档改正，其他内容不要改动，然后用 save_as_word、标题{title}和改正后的 markdown 重新生成。",
+  "agents.ask.request.fixWordTextAll":
+    "在 IncarnaMind 中，你用自己写的文字生成的 Word 文件{title}（第 {version} 版）经核对，有 {count} 处需要留意：\n\n{sentences}\n\n它的文字在笔记 mindId {mindId} 中（用 read_mind 读取）。请根据我的文档逐一改正，其他内容不要改动，然后用 save_as_word、标题{title}和改正后的 markdown 重新生成。",
+  "agents.ask.request.wordText":
+    "我这条消息说的是你用自己写的文字生成、保存在 IncarnaMind 中的 Word 文件{title}（第 {version} 版）；它的文字在笔记 mindId {mindId} 中。",
   "agents.ask.request.note":
     "我这条消息说的是我在 IncarnaMind 中的笔记{title}（mindId：{mindId}）。",
   "agents.ask.request.document": "我这条消息说的是我在 IncarnaMind 中打开的文档：{documents}。",
