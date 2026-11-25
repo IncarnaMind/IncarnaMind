@@ -547,7 +547,12 @@ export function createDeckProposals(deps: DeckProposalDeps) {
         for (const item of proposal.items) {
           const now = inspectTarget(structure, item.change);
           if (now.fingerprint !== item.targetFingerprint) {
-            throw new TranslatableError({ key: "error.deck.proposalStale" });
+            throw new TranslatableError({
+              key:
+                target.mode === "existing-copy"
+                  ? "error.deck.proposalStaleCopy"
+                  : "error.deck.proposalStale",
+            });
           }
         }
       }

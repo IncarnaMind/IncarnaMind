@@ -1031,7 +1031,7 @@ describe("outside agents", () => {
     // said where, and hand_over_file named a Word file already on disk as its own (#3751); 3,779
     // before save_as_word said the file it keeps is not to be handed over too (#3751); 3,787
     // before read_deck and propose_deck_changes (#149 part 2).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(4_320);
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(4_098);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

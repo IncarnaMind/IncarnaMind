@@ -6648,8 +6648,18 @@ export function createCore(adapters: CoreAdapters): Core {
   });
 
   const deckUndoDir = join(dataDir, "deck-proposal-undos");
+  const deckUndoLog = adapters.log ?? silentLogger;
+  const logDeckUndoError = (event: string, error: unknown) => {
+    deckUndoLog.error(event, {
+      folder: basename(deckUndoDir),
+      error: error instanceof Error ? error.name : "unknown",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  };
   // Proposal Undo snapshots don't survive restart; clear any leftover directory from an earlier run.
-  rm(deckUndoDir, { recursive: true, force: true }).catch(() => undefined);
+  rm(deckUndoDir, { recursive: true, force: true }).catch((error: unknown) => {
+    logDeckUndoError("deck.proposalUndo.clearFailed", error);
+  });
   const deckUndoPath = (undoId: string): string => {
     if (!/^[0-9a-f-]+$/i.test(undoId)) {
       throw new InvalidInputError({ key: "error.deck.proposalUndoMissing" });
@@ -6719,7 +6729,9 @@ export function createCore(adapters: CoreAdapters): Core {
         }
       },
       del: async (undoId) => {
-        await rm(deckUndoPath(undoId), { force: true }).catch(() => undefined);
+        await rm(deckUndoPath(undoId), { force: true }).catch((error: unknown) => {
+          logDeckUndoError("deck.proposalUndo.deleteFailed", error);
+        });
       },
     },
     onChanged: (documentId, proposals) => {

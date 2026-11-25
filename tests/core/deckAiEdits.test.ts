@@ -1095,4 +1095,48 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     });
     expect(afterMove.isError).toBe(true);
   });
+
+  // protects=confirming a stale proposal drawn on the original deck after its working copy already changed that shape fails with plain, actionable wording pointing the User to the copy (#149); fails_when=Confirm overwrites the copy or surfaces a raw technical error
+  it("gives plain wording when confirming an original-tab proposal whose shape already changed in the working copy", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "OriginalCopyConflict.pptx");
+    await writeFile(deckPath, multiSlideDeck());
+    const [deck] = await addAndProcess(core, [deckPath]);
+    if (!deck) throw new Error("Deck not added.");
+    await core.assignDocumentGroup(deck.id, coast.id);
+
+    const read1 = structured<{ documentId: string; version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: deck.id } }),
+    );
+    const prop1 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: deck.id,
+          version: read1.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["First copy edit."] }],
+        },
+      }),
+    );
+    const accepted = await core.acceptDeckProposal(prop1.proposalId);
+    expect(accepted.documentId).not.toBe(deck.id);
+
+    // Ask again on the original deck targeting the same shape already edited on the working copy.
+    const prop2 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: deck.id,
+          version: read1.version,
+          changes: [
+            { kind: "text", slide: 1, shape: "3", paragraphs: ["Second edit on original."] },
+          ],
+        },
+      }),
+    );
+    await expect(core.acceptDeckProposal(prop2.proposalId)).rejects.toMatchObject({
+      wording: { key: "error.deck.proposalStaleCopy" },
+    });
+  });
 });

@@ -2581,7 +2581,7 @@ export const en = {
   "viewer.deck.ask.agentLabel": "Choose which AI to ask",
   "viewer.deck.ask.working": "Your AI ({agent}) is working…",
   "viewer.deck.ask.stopWaiting": "Stop waiting",
-  "viewer.deck.ask.copied": "Copied request for {agent}. Paste it there to run.",
+  "viewer.deck.ask.copied": "Request copied. Paste and send it in {agent}.",
   "viewer.deck.ask.copyFailed": "Couldn’t copy the request to the clipboard.",
   "viewer.deck.ask.opened": "Sent to {agent}.",
   "viewer.deck.ask.shortenPrompt": "Shorten this text so it fits its box without overflowing.",
@@ -6152,6 +6152,8 @@ export const en = {
   "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
   "error.deck.proposalStale":
     "This deck changed since those changes were suggested. Ask your AI again.",
+  "error.deck.proposalStaleCopy":
+    "The working copy already changed that part. Open the copy and ask your AI again.",
   "error.deck.proposalGone": "That suggested change is no longer waiting.",
   "error.deck.proposalInvalid": "That suggested change can’t be applied ({detail}).",
   "error.deck.proposalTooManyChanges": "A single suggestion can change at most {max} places.",
