@@ -10,6 +10,7 @@ import {
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
+  exampleRow,
   frontMind,
   frontMindName,
   launchApp,
@@ -357,7 +358,7 @@ for (const language of LANGUAGES) {
   const w = WORDS[language];
 
   for (const width of WIDTHS) {
-    test(`an empty note shows no start guide once the example has been seen, and keeps it on a device where it never was, at ${width} px (${language})`, async () => {
+    test(`an empty note keeps the start guide until the example has been seen, and loses it after, at ${width} px (${language})`, async () => {
       const { window } = await start(language, width, { examples: true });
       const example = await exampleTaken(window);
       // The example has been seen, so no second guide in the User's own empty note.
@@ -365,14 +366,22 @@ for (const language of LANGUAGES) {
       const guide = window.getByTestId("start-guide");
       await expect(guide).toHaveCount(0);
 
-      // A device where the example never showed keeps the guide.
+      // A device where the example never showed keeps the guide; showing it takes the guide away.
       await pointAndClick(window, example.tab.getByTestId("tab-close"));
       await markSteps(window, { seen: false });
       await newMind(window);
+      const emptyId = await frontMind(window).getAttribute("data-mind-id");
       await expect(guide).toBeVisible();
       await expect(guide).toContainText(w.startGuide);
       await expect(guide).toContainText(w.answerGuide);
       await expect(guide).toContainText(w.connectApp);
+      await pointAndClick(window, exampleRow(window));
+      await expect(window.getByTestId("example-line")).toBeVisible();
+      await pointAndClick(
+        window,
+        window.locator(`[data-testid="mind-tab"][data-mind-id="${emptyId}"]`),
+      );
+      await expect(guide).toHaveCount(0);
     });
   }
 }

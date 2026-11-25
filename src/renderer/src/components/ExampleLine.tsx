@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useGap, useT } from "../i18n";
 import { allExamples, useAppStore } from "../store";
 import { useAddYourDocuments } from "./AddYourDocuments";
@@ -13,6 +14,12 @@ export function ExampleLine({ mindId }: { mindId: string }) {
   const credit = useAppStore(
     (state) => allExamples(state).find((each) => each.mindId === mindId)?.group === "credit",
   );
+  const unseen = useAppStore((state) => state.settings?.device.gettingStarted.seen === false);
+  const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
+  // Shown, the example has been seen: an empty note of the User's own keeps no guide after that (#1940).
+  useEffect(() => {
+    if (unseen) updateGettingStarted({ seen: true });
+  }, [unseen, updateGettingStarted]);
   const said = t(credit ? "examples.line.credit" : "examples.line");
   return (
     <div className="mind-measure example-line">

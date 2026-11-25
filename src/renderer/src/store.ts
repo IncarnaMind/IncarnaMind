@@ -2389,15 +2389,12 @@ export const useAppStore = create<AppState>()((set, get) => {
   };
 });
 
-/**
- * The first open starts with the example Mind on a first run: the shell stays quiet while it is
- * the one open, and the example counts as seen, so an empty note of the User's own keeps no guide.
- */
+/** The first open starts with the example Mind on a first run: the shell stays quiet while it is the one open. */
 async function startGettingStarted(): Promise<void> {
   try {
     const { device } = await core.getSettings();
     await core.updateSettings({
-      device: { gettingStarted: { ...device.gettingStarted, started: true, seen: true } },
+      device: { gettingStarted: { ...device.gettingStarted, started: true } },
     });
   } catch (error) {
     console.error("Couldn't start the Get started checklist.", error);
