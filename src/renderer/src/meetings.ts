@@ -25,16 +25,9 @@ function folderInView(layout: AppState["layout"], minds: AppState["minds"]): str
   if (item?.kind === "mind" || item?.kind === "figures") {
     return minds.find((each) => each.id === item.mindId)?.folderId ?? null;
   }
-  if (item?.kind === "document") {
-    // A Document filed by hand is placed in the Library's assignments; a linked folder's file
-    // carries its Folder itself.
-    const { documents, library } = useAppStore.getState();
-    return (
-      placeOf(library, item.documentId) ??
-      documents.find((each) => each.id === item.documentId)?.folderId ??
-      null
-    );
-  }
+  // A Document's own folder id names its folder on disk, never a Folder of the Library: only the
+  // Library's placement does, a linked folder's files included, once a Folder is bound to it.
+  if (item?.kind === "document") return placeOf(useAppStore.getState().library, item.documentId);
   return null;
 }
 
