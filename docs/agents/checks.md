@@ -162,6 +162,15 @@ Try "Other agent" with any one agent that takes pasted settings. The agents' own
 
 **A check on Codex in the background** (ADR-0035) was measured on Codex 0.170.0, and any later Codex runs it once its preflight lists the check's Tools alone. Codex can keep accepting a setting it no longer honours, which nothing at run time catches, so before each release take the measurement again on the current Codex, with a test sign-in in a profile of its own and a temporary HOME and data folder: list the profile (names, sizes and times, never contents), then press Check on a Note in the background, once to the end, once stopped from the Note and once failing (a sign-out, or a 400 on a local test endpoint), listing the profile after each. Anything that differs beyond Codex's launcher folder (`tmp/arg0-…`) stops the release until the run holds it off, or ADR-0035 and the privacy page say what is kept.
 
+### Decks edited by hand, before a release (#149)
+
+A deck edited by hand is the User's own file, written itself. Before a release a person checks what CI can't (`eval/deck-editor/README.md` says more):
+
+1. Make the files: `DECK_EDITOR_PHASE=person npx vitest run -c eval/deck-editor/vitest.config.ts`, with `DECK_EDITOR_DIR` set to a folder of your own. They land in its `person-check` folder, each beside the deck as published, with `CHECK.md`.
+2. Open each saved deck in PowerPoint and in WPS, on macOS and on Windows: no repair prompt, and the changes `CHECK.md` lists are there.
+3. In IncarnaMind, type in a slide's text box with a Chinese input method, on macOS and on Windows: the words land once, at the caret, in the run's formatting.
+4. Send back the table in `CHECK.md`, and file each failure as an issue.
+
 ### The ChatGPT test profile
 
 The owner signs in with ChatGPT once, in a test profile. Agents then use that sign-in for checks by hand on the owner's ChatGPT plan, without signing in themselves and without ever seeing a token.
