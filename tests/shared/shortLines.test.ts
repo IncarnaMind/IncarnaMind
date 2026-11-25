@@ -134,10 +134,6 @@ const EXCEPTIONS: readonly Exception[] = [
     keys: ["cost.cap.tip"],
   },
   {
-    why: "The example's banner: the glossary's sentence for a Note, then the one thing to try",
-    keys: ["examples.banner.body", "examples.banner.body.tea"],
-  },
-  {
     why: "Read by a screen reader, never shown",
     keys: ["transcript.line.hintSplit"],
   },
