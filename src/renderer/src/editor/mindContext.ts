@@ -76,10 +76,6 @@ export const PageSlotsContext = createContext<{
   outlineButton: HTMLElement | null;
   outline: HTMLElement | null;
   ask: HTMLElement | null;
-  /** Where the Note's conversation opens as a column, at the Note's right (#3677). */
-  column?: HTMLElement | null;
-  /** Where it opens over the Note, in a narrow window. */
-  columnOver?: HTMLElement | null;
 }>({
   top: null,
   menu: null,

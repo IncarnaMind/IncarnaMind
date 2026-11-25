@@ -200,9 +200,11 @@ export function ReviewPane({
     };
     const dom = editor.view.dom;
     editor.on("selectionUpdate", onSelection);
+    editor.on("focus", onSelection);
     dom.addEventListener("click", onClick);
     return () => {
       editor.off("selectionUpdate", onSelection);
+      editor.off("focus", onSelection);
       dom.removeEventListener("click", onClick);
     };
   }, [editor, mindId]);

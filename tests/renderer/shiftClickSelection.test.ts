@@ -103,6 +103,20 @@ describe("shiftClickSelection (#3697)", () => {
     expect(view.state.selection.to).toBe(6);
   });
 
+  test("syncSelectionFromDOM never collapses an active dragged selection when DOM selection is collapsed", () => {
+    // During a drag, HeldSelection wraps the paragraph text while ProseMirror defers selectionToDOM,
+    // leaving getSelection() temporarily collapsed at (p, 0) on mouseup.
+    const { view, dispatched } = makeView(
+      { anchor: 1, head: 6 },
+      { anchorNode: null, anchorOffset: 1, focusNode: null, focusOffset: 1, isCollapsed: true },
+    );
+
+    expect(syncSelectionFromDOM(view)).toBe(false);
+    expect(dispatched).toEqual([]);
+    expect(view.state.selection.from).toBe(1);
+    expect(view.state.selection.to).toBe(6);
+  });
+
   test("extendSelectionTo forces a selection change when stale editor state already equals the target", () => {
     vi.stubGlobal("Element", class {});
     // Citation is at pos 7 (size 1, ends at 8). Prior selection was [5, 8], then a quick double-click
