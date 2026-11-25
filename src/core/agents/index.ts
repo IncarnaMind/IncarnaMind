@@ -1046,9 +1046,11 @@ export function createAgents(options: AgentsOptions) {
      * Its token stays, unless its agent last connected with an out-of-date shim (ADR-0036) or the
      * token can't be read here: then it gets a new one and the old one stops working.
      */
-    async connectAgain(pairingIdInput: unknown, input: unknown): Promise<ConnectedAgent> {
-      const pairing = requirePairing(pairingIdInput);
-      if (!isRecord(input)) throw new InvalidInputError("connectAgain expects an object.");
+    async connectAgain(
+      pairingId: string,
+      input: { folderIds: unknown; propose?: unknown },
+    ): Promise<ConnectedAgent> {
+      const pairing = requirePairing(pairingId);
       const folderIds = parseFolders(input.folderIds);
       const propose = parsePropose(input.propose, pairing.propose);
       await ensureReachable();

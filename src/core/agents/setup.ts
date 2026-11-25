@@ -94,8 +94,8 @@ export interface AgentSetupOptions {
     settings(): { pairings: AgentPairing[]; awaitingInstall: string[]; shimsOutOfDate: string[] };
     connect(input: unknown): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
     connectAgain(
-      pairingId: unknown,
-      input: unknown,
+      pairingId: string,
+      input: { folderIds: unknown; propose?: unknown },
     ): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
     disconnect(pairingId: unknown): Promise<void>;
     launch(pairingId: unknown): Promise<AgentLaunch>;
