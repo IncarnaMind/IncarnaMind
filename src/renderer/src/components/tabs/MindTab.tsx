@@ -161,7 +161,8 @@ export function MindTab({ mindId }: { mindId: string }) {
             {/* In a narrow window the Note's conversation opens over the Note, above its input (#3677). */}
             <div ref={setColumnOver} className="note-column-over-slot" />
             <div className="mind-menu-slot">
-              {hasViews && tabId && meeting.status === "stopped" && (
+              {/* A meeting's one place is its control at the foot and the sheet it raises (#3762). */}
+              {hasViews && tabId && meeting.status === "stopped" && meeting.kind !== "meeting" && (
                 <MeetingViewChip meeting={meeting} tabId={tabId} />
               )}
               <div ref={setMenu} className="flex items-center gap-1" />

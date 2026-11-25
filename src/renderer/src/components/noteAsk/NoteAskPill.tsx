@@ -6,6 +6,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
+import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
@@ -351,15 +352,28 @@ export function EndAction({
   }
   if (!undoable || ask.turnId === null) return null;
   const { turnId } = ask;
+  // The finished change is said once, here: the page draws no line of its own (#3762).
   return (
-    <button
-      type="button"
-      data-testid="note-ask-undo"
-      onClick={() => undoAsked(turnId, mindId)}
-      className="note-ask-pill-action"
-    >
-      {t("edit.applied.undo")}
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid="note-ask-undo"
+        onClick={() => undoAsked(turnId, mindId)}
+        className="note-ask-pill-action"
+      >
+        {t("edit.applied.undo")}
+      </button>
+      {canReviewApplied(editor) && (
+        <button
+          type="button"
+          data-testid="note-ask-review"
+          onClick={() => reviewApplied(editor, { focus: true })}
+          className="note-ask-pill-action"
+        >
+          {t("edit.applied.review")}
+        </button>
+      )}
+    </>
   );
 }
 

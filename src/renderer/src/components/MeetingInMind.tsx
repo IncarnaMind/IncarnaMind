@@ -230,7 +230,13 @@ function keepAudio(meetingId: string): void {
  * "Delete audio now", which is the "meeting.deleteAudio" command, as ⌘K's
  * "Delete audio" is: it asks first, on the same line, because it can't be undone.
  */
-function MeetingAudioLine({ meeting, className = "" }: { meeting: Meeting; className?: string }) {
+export function MeetingAudioLine({
+  meeting,
+  className = "",
+}: {
+  meeting: Meeting;
+  className?: string;
+}) {
   const t = useT();
   const language = useLanguage();
   const gap = useGap();

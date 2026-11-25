@@ -381,7 +381,7 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
           .click();
         await expect(window.getByTestId("meeting-note-transcript")).toBeVisible();
       }
-      await still("c1-transcript");
+      await still("c1-transcript", proposed ? [1440, 1280, 900] : [1440, 900]);
       if (proposed) {
         await window.getByTestId("meeting-foot-transcript").click();
         await expect(window.getByTestId("meeting-sheet")).toBeHidden();
@@ -475,6 +475,12 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
       if (await window.getByTestId("meeting-view-menu").isVisible())
         await window.keyboard.press("Escape");
       await still("e1-stopped");
+      if (proposed) {
+        await window.getByTestId("meeting-foot-transcript").click();
+        await expect(window.getByTestId("meeting-sheet")).toBeVisible();
+        await still("e2-stopped-sheet");
+        await window.getByTestId("meeting-sheet-hide").click();
+      }
     });
 
     // f. The notes the User's AI writes, then the check, then the words said for one sentence.
@@ -541,6 +547,144 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
     });
   } finally {
     await writeFile(join(OUT, `log-${tag}.txt`), log.join("\n"));
+    await app.close().catch(() => undefined);
+    await removeDataFolder(dataDir);
+    await removeDataFolder(home);
+    await removeDataFolder(bin);
+  }
+});
+
+// The control's states that change its words or width: the time past an hour, paused, and a
+// microphone the app may not use. The clock is the page's own, fixed; the core records on.
+test(`meeting control states, ${VARIANT}, ${LANG}`, async () => {
+  test.skip(!proposed, "the control is the proposal's");
+  test.setTimeout(10 * 60_000);
+  await mkdir(OUT, { recursive: true });
+  const dataDir = await createDataFolder();
+  const home = await realpath(await createDataFolder());
+  const bin = await realpath(await createDataFolder());
+  await writeFile(
+    join(bin, "claude"),
+    `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "meetingClaudeCode.mjs")}" "$@"\n`,
+  );
+  await chmod(join(bin, "claude"), 0o755);
+  const log: string[] = [];
+  const tag = LANG === "en" ? "en" : "zh";
+  const { app, window } = await launchApp(dataDir, {
+    home,
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+    transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
+  });
+  const still = async (name: string, widths: readonly number[]) => {
+    for (const width of widths) {
+      try {
+        await setWindowSize(app, window, width, HEIGHT);
+        await rest(window);
+        await motionSettled(window);
+        await window.waitForTimeout(1500);
+        const file = `${name}-${tag}-${width}`;
+        await window.screenshot({ path: join(OUT, `${file}.png`) });
+        await writeFile(
+          join(OUT, `${file}.json`),
+          JSON.stringify(await measure(window, REGIONS), null, 2),
+        );
+        log.push(`ok ${file}`);
+      } catch (error) {
+        log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
+      }
+    }
+    await setWindowSize(app, window, 1440, HEIGHT);
+  };
+  try {
+    await acceptPlainTextKeys(window);
+    await dismissChatSetup(window);
+    await setLanguage(window, LANG);
+    await window.evaluate(async () => {
+      const core = (globalThis as unknown as Core).incarnamind;
+      await core.updateSettings({
+        device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
+      });
+      await core.setAgentsEnabled(true);
+      await core.connectAgent({
+        name: "Claude Code",
+        client: "claude-code",
+        folderIds: ["not-in-a-folder"],
+        propose: true,
+      });
+    });
+    await setWindowSize(app, window, 1440, HEIGHT);
+    await window.getByTestId("plus-menu").click();
+    await window.getByTestId("plus-record-meeting").click();
+    await expect
+      .poll(async () => (await meetings(window)).some((each) => each.status === "recording"), {
+        timeout: 30_000,
+      })
+      .toBe(true);
+    await window
+      .getByTestId("meeting-foot-tip-close")
+      .click({ timeout: 5000 })
+      .catch(() => undefined);
+    const editor = window.getByTestId("mind-editor");
+    await editor.locator("p").first().click();
+    await window.keyboard.type(WORDS.typed[0] ?? "");
+    await editor.evaluate((el) => (el as HTMLElement).blur());
+    const meeting = async () => {
+      const found = (await meetings(window)).find((each) => each.status !== "stopped");
+      if (!found) throw new Error("No meeting.");
+      return found;
+    };
+
+    // The microphone the app may not use: its line above the control, the mark in the bars' place.
+    await app.evaluate(() =>
+      (
+        globalThis as { incarnamindFakeAudio?: { report(source: string, state: string): void } }
+      ).incarnamindFakeAudio?.report("microphone", "denied"),
+    );
+    await expect(window.getByTestId("meeting-foot-problem"))
+      .toBeVisible({ timeout: 15_000 })
+      .catch(() => log.push("no microphone line"));
+    await still("g3-mic-denied", [1440, 900]);
+    await app.evaluate(() =>
+      (
+        globalThis as { incarnamindFakeAudio?: { report(source: string, state: string): void } }
+      ).incarnamindFakeAudio?.report("microphone", "recording"),
+    );
+
+    // Paused: the ring, the time held, no bars, Resume beside Stop.
+    const { id } = await meeting();
+    await window.evaluate(
+      (meetingId) => (globalThis as unknown as Core).incarnamind.pauseMeeting(meetingId),
+      id,
+    );
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "paused");
+    await still("g4-paused", [1440, 900]);
+    await window.evaluate(
+      (meetingId) => (globalThis as unknown as Core).incarnamind.resumeMeeting(meetingId),
+      id,
+    );
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+
+    // 59:59, then 1:00:00: the input's left edge holds.
+    const at = async (ms: number) => {
+      const now = await meeting();
+      if (!now.recordingSince) throw new Error("Not recording.");
+      await window.clock.setFixedTime(
+        new Date(Date.parse(now.recordingSince) + ms - now.recordedMs),
+      );
+    };
+    await at(59 * 60_000 + 59_000);
+    await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("59:59", {
+      timeout: 5000,
+    });
+    await still("g1-time-5959", [1440]);
+    await at(60 * 60_000);
+    await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("1:00:00", {
+      timeout: 5000,
+    });
+    await still("g2-time-10000", [1440]);
+  } finally {
+    await writeFile(join(OUT, `log-states-${tag}.txt`), log.join("\n"));
     await app.close().catch(() => undefined);
     await removeDataFolder(dataDir);
     await removeDataFolder(home);

@@ -2693,19 +2693,80 @@
       color: var(--color-ink);
     }
   }
+  /*
+   * Fixed slots, so the input's left edge holds from 0:00 to 9:59:59 and the control is 248px
+   * wide in both languages while it records, 352px while paused (#3762).
+   */
+  .meeting-foot-main[data-live] {
+    width: 152px;
+  }
   .meeting-foot-time {
-    min-width: 2.25rem;
+    width: 56px;
     font-variant-numeric: tabular-nums;
     color: var(--color-ink);
   }
-  /* One size for the head's buttons: Recording details comes from the bar at 24px. */
+  .meeting-foot-level {
+    display: inline-flex;
+    flex: none;
+    justify-content: center;
+    width: 28px;
+  }
+  .meeting-foot-stop {
+    justify-content: center;
+    width: 80px;
+  }
+  .meeting-foot-resume {
+    justify-content: center;
+    width: 102px;
+  }
+  .meeting-foot-problem {
+    max-width: 480px;
+  }
+  /* While it records the sheet's one line is the consent; after Stop, the Transcript's own head line shows. */
+  .meeting-sheet[data-live] [data-testid="transcript-head"] {
+    display: none !important;
+  }
+  .meeting-sheet-meta {
+    margin-left: 8px;
+    font-size: 13px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-meta);
+  }
+  /* One size for every icon in the sheet's head and foot. */
   .meeting-sheet-head .meeting-button {
     width: 28px;
     height: 28px;
-    > svg {
-      width: 16px;
-      height: 16px;
+  }
+  .meeting-sheet-head svg,
+  .meeting-sheet-foot svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+  /* The foot is one row: Template and Language fold behind ⋯ where the row can't hold them. */
+  .meeting-sheet-foot {
+    container: sheet-foot / inline-size;
+    flex-wrap: nowrap !important;
+    [data-fold="template"] {
+      flex-shrink: 1;
+      min-width: 0;
     }
+    .meeting-sheet-more {
+      display: none;
+    }
+  }
+  @container sheet-foot (width < 680px) {
+    .meeting-sheet-foot [data-fold="template"],
+    .meeting-sheet-foot [data-sheet-fold] {
+      display: none;
+    }
+    .meeting-sheet-foot .meeting-sheet-more {
+      display: inline-flex;
+    }
+  }
+  /* The finished change is said once, in the line above the Note's input (#3762). */
+  .mind-tab-page:has([data-testid="note-ask-undo"]) [data-testid="applied-line"] {
+    display: none !important;
   }
   .meeting-foot-tip {
     position: absolute;
@@ -2798,8 +2859,7 @@
       background: var(--color-success-wash);
     }
     /* The sheet names it and says the one line: the view's own head and its line stay out. */
-    [data-testid="viewer-embedded-header"],
-    [data-testid="transcript-head"] {
+    [data-testid="viewer-embedded-header"] {
       display: none !important;
     }
     .viewer-backdrop {

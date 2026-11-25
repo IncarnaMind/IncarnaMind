@@ -1,6 +1,8 @@
+import { isMacOS } from "@tiptap/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import type { Meeting } from "../../../../core/api";
+import type { MessageKey } from "../../../../shared/i18n";
 import { shortcutLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
 import { useT } from "../../i18n";
@@ -18,6 +20,7 @@ import {
   CloseLineIcon,
   MicLineIcon,
   MicOffLineIcon,
+  MoreLineIcon,
   OpenBesideLineIcon,
   PauseLineIcon,
   ResumeLineIcon,
@@ -25,10 +28,17 @@ import {
   StopLineIcon,
 } from "../lineIcons";
 import { CallHelpToggle, MeetingLines } from "../MeetingBar";
+import { MeetingAudioLine } from "../MeetingInMind";
+import { ProblemLine } from "../ProblemLine";
 import { useTabPlace } from "../tabs/tabItems";
-import { buttonStyle } from "../ui";
+import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
+import { usePopoverMenu } from "../usePopoverMenu";
 import { LevelBars } from "./LevelBars";
-import { MeetingTemplatePicker } from "./MeetingTemplatePicker";
+import {
+  applyMeetingWriteupTemplate,
+  MeetingTemplatePicker,
+  MeetingTemplateRows,
+} from "./MeetingTemplatePicker";
 
 /** Whether a meeting Note's Transcript sheet is up, per Note, and the words a Citation asked it to show. */
 const useSheets = create<{ open: Record<string, boolean>; tipSeen: boolean; quote: string }>(
@@ -59,12 +69,18 @@ export function showQuoteInTranscript(quote: string): boolean {
   return true;
 }
 
-/** Whether the meeting's control stands at the Note's foot: while it records, and after Stop until notes are asked for. */
+/** Whether the meeting's control stands at the Note's foot: from the first second on, as the meeting's one place. */
 export function useMeetingFootShown(mindId: string): boolean {
   const meeting = useMeetingOf(mindId);
-  if (!meeting || meeting.kind !== "meeting" || meeting.status === "ready") return false;
-  return isLive(meeting) || meeting.fill?.state === "own-ai";
+  return !!meeting && meeting.kind === "meeting" && meeting.status !== "ready";
 }
+
+const MICROPHONE_PROBLEMS: Partial<Record<Meeting["sources"]["microphone"], MessageKey>> = {
+  denied: "meetings.foot.micDenied",
+  silent: "meetings.foot.micSilent",
+  unavailable: "meetings.foot.micMissing",
+  ended: "meetings.foot.micEnded",
+};
 
 /**
  * The meeting's one control at the Note's foot, left of the Note's input (#3762): the live dot,
@@ -83,8 +99,10 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   const time = clockTime(useMeetingTime(meeting));
   const [asked, setAsked] = useState(false);
   const live = isLive(meeting);
-  const { stop, resume } = useMeetings.getState();
+  const paused = meeting.status === "paused";
+  const { stop, resume, openSettings } = useMeetings.getState();
   const keys = shortcutLabel("meeting.nextView");
+  const micProblem = live ? MICROPHONE_PROBLEMS[meeting.sources.microphone] : undefined;
   const writeNotes = async () => {
     setAsked(true);
     setSheet(mindId, false);
@@ -102,7 +120,24 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   };
   return (
     <div className="meeting-foot-stack">
-      {live && !tipSeen && (
+      {micProblem && (
+        <div data-testid="meeting-foot-problem" className="meeting-foot-tip meeting-foot-problem">
+          <ProblemLine
+            role="alert"
+            testId="meeting-foot-problem-line"
+            action={{
+              label: t(
+                isMacOS() ? "meetings.line.openSettings.mac" : "meetings.line.openSettings.other",
+              ),
+              testId: "meeting-foot-problem-settings",
+              onClick: () => void openSettings(meeting.id, "microphone"),
+            }}
+          >
+            {t(micProblem)}
+          </ProblemLine>
+        </div>
+      )}
+      {live && !tipSeen && !micProblem && (
         <div role="status" data-testid="meeting-foot-tip" className="meeting-foot-tip">
           <span>{t("meetings.foot.tip")}</span>
           <button
@@ -117,7 +152,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
           </button>
         </div>
       )}
-      {!live && !asked && (
+      {!live && !asked && meeting.fill?.state === "own-ai" && (
         <button
           type="button"
           data-testid="meeting-write-notes"
@@ -141,6 +176,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
           aria-label={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
           title={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
           onClick={() => setSheet(mindId, !open)}
+          data-live={live || undefined}
           className="meeting-foot-button meeting-foot-main"
         >
           {live ? (
@@ -149,13 +185,30 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               <span role="timer" className="meeting-foot-time">
                 {time}
               </span>
-              <LevelBars meeting={meeting} />
+              <span className="meeting-foot-level">
+                {!paused && <LevelBars meeting={meeting} />}
+              </span>
             </>
           ) : (
             <span>{t("meetings.views.transcript")}</span>
           )}
           <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
         </button>
+        {paused && (
+          <button
+            type="button"
+            data-testid="meeting-foot-resume-recording"
+            aria-label={t("meetings.bar.resume", {
+              shortcut: shortcutLabel("meeting.pauseResume"),
+            })}
+            title={t("meetings.bar.resume", { shortcut: shortcutLabel("meeting.pauseResume") })}
+            onClick={() => void resume(meeting.id)}
+            className="meeting-foot-button meeting-foot-resume"
+          >
+            <ResumeLineIcon className="size-4" />
+            <span className="meeting-foot-word">{t("meetings.foot.resume")}</span>
+          </button>
+        )}
         {live ? (
           <button
             type="button"
@@ -163,7 +216,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             aria-label={t("meetings.bar.stopLabel")}
             title={t("meetings.bar.stopLabel")}
             onClick={() => void stop(meeting.id)}
-            className="meeting-foot-button"
+            className="meeting-foot-button meeting-foot-stop"
           >
             <StopLineIcon className="size-4" />
             <span className="meeting-foot-word">{t("meetings.bar.stop")}</span>
@@ -235,13 +288,19 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   return (
     <section
       data-testid="meeting-sheet"
+      data-live={live || undefined}
       aria-label={t("meetings.views.transcript")}
       className="meeting-sheet viewer-pane [container:viewer/inline-size]"
     >
       <header className="meeting-sheet-head">
         <h2 className="meeting-sheet-title">{t("meetings.views.transcript")}</h2>
+        {!live && (
+          <span data-testid="meeting-sheet-recorded" className="meeting-sheet-meta">
+            {t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) })}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
-          {live && <CaptureDetailsToggle meeting={meeting} />}
+          <CaptureDetailsToggle meeting={meeting} />
           <button
             type="button"
             data-testid="meeting-sheet-beside"
@@ -268,9 +327,13 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           </button>
         </div>
       </header>
-      {live && <p className="meeting-sheet-consent">{t("meetings.foot.tell")}</p>}
+      {live ? (
+        <p className="meeting-sheet-consent">{t("meetings.foot.tell")}</p>
+      ) : (
+        <MeetingAudioLine meeting={meeting} className="meeting-sheet-consent" />
+      )}
       {live && <MeetingLines meeting={meeting} />}
-      {live && <CaptureDetails meeting={meeting} />}
+      <CaptureDetails meeting={meeting} />
       <div ref={body} className="meeting-sheet-body">
         <ViewerFrameContext.Provider value={frame}>
           <MeetingTranscriptView
@@ -353,6 +416,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
       <button
         type="button"
         data-testid="meeting-sheet-language"
+        data-sheet-fold="language"
         aria-label={t("meetings.foot.languageTip")}
         title={t("meetings.foot.languageTip")}
         onClick={() => useAppStore.getState().openSettings("meetings")}
@@ -361,6 +425,61 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         <span>{t("meetings.foot.language")}</span>
         <ChevronDownLineIcon className="size-3 shrink-0" />
       </button>
+      <SheetMore meeting={meeting} />
     </footer>
+  );
+}
+
+/**
+ * Where the sheet's foot is too narrow for its row, Template and Language behind one ⋯, so the
+ * row never wraps (styles.css, the foot's container query).
+ */
+function SheetMore({ meeting }: { meeting: Meeting }) {
+  const t = useT();
+  const menu = usePopoverMenu({ align: "end", focus: "first" });
+  return (
+    <>
+      <button
+        {...menu.buttonProps}
+        type="button"
+        data-testid="meeting-sheet-more"
+        aria-label={t("meetings.bar.more")}
+        title={t("meetings.bar.more")}
+        className="meeting-button meeting-button--icon meeting-sheet-more"
+      >
+        <MoreLineIcon className="size-4" />
+      </button>
+      <div
+        {...menu.menuProps}
+        role="menu"
+        aria-label={t("meetings.bar.more")}
+        className={`${menuFrameClass} w-64 max-w-[calc(100vw-16px)]`}
+      >
+        {menu.open && (
+          <>
+            <p className={menuTitleClass}>{t("meetings.template.chip")}</p>
+            <MeetingTemplateRows
+              meeting={meeting}
+              onChoose={(id) => {
+                menu.close();
+                void applyMeetingWriteupTemplate(meeting.id, id);
+              }}
+            />
+            <hr className={menuRuleClass} />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                menu.close();
+                useAppStore.getState().openSettings("meetings");
+              }}
+              className={menuItemClass}
+            >
+              {t("meetings.foot.languageTip")}…
+            </button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
