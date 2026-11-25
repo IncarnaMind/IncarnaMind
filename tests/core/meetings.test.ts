@@ -1123,6 +1123,34 @@ describe("What a Meeting needs", () => {
     expect(told).toHaveLength(1);
   });
 
+  // protects=a capture that can't start leaves the Meeting ready to start again, and records nothing in the way of another (#3762); fails_when=the Meeting stays recording with nothing captured, or a later start is refused as if one were going on
+  test("a capture that can't start leaves the Meeting ready, and it starts once the capture does", async () => {
+    const dataDir = await createTempDataFolder();
+    const working = createFakeCapture();
+    let refusals = 1;
+    const core = startCore(dataDir, {
+      audioCapture: {
+        systemAudio: working.systemAudio,
+        openSettings: (source) => working.openSettings(source),
+        start: (request, sink) => {
+          if (refusals-- > 0) throw new Error("The audio device went away.");
+          return working.start(request, sink);
+        },
+      },
+    });
+    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+    const { id } = await core.createMeeting();
+    await expect(core.startMeeting({ meetingId: id })).rejects.toThrow(
+      "The audio device went away.",
+    );
+    expect((await core.listMeetings()).find((each) => each.id === id)).toMatchObject({
+      status: "ready",
+      recordedMs: 0,
+    });
+    expect((await core.startMeeting({ meetingId: id })).status).toBe("recording");
+    core.close();
+  });
+
   test("one Meeting records at a time", async () => {
     const dataDir = await createTempDataFolder();
     const { core } = await meetingCore(dataDir);

@@ -7,6 +7,8 @@ import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { Meeting } from "../../src/core";
+import type { CoreAdapters } from "../../src/core/adapters";
+import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { translate } from "../../src/shared/i18n";
 import { createTempDataFolder } from "../helpers/core";
 import {
@@ -370,6 +372,54 @@ describe("Resume after Stop (#3762)", { timeout: 60_000 }, () => {
     });
     expect(second.capture.running).toBe(false);
     expect(readFileSync(outside, "utf8")).toBe(file);
+    second.core.close();
+  });
+
+  // protects=a capture that can't start on Resume after Stop leaves the Meeting stopped as Stop left it, its time, audio and saved Transcript kept, and lets another Meeting record (#3762); fails_when=the Meeting stays recording with nothing captured, or every other recording is refused as if one were going on
+  test("a capture that can't start on Resume leaves the call stopped as it was, and others can record", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = await stoppedCall(dataDir);
+    const { meeting, document } = first;
+    first.core.close();
+    const file = readFileSync(transcriptFile(dataDir, meeting.id), "utf8");
+    const parts = partsOf(dataDir, meeting.id);
+
+    const working = createFakeCapture();
+    let refusals = 1;
+    const capture: CoreAdapters["audioCapture"] = {
+      systemAudio: working.systemAudio,
+      openSettings: (source) => working.openSettings(source),
+      start: (request, sink) => {
+        if (refusals-- > 0) throw new Error("The audio device went away.");
+        return working.start(request, sink);
+      },
+    };
+    const second = await transcribingCore(dataDir, { audioCapture: capture });
+    const before = await meetingOf(second.core, meeting.id);
+    await expect(second.core.resumeMeeting(meeting.id)).rejects.toThrow(
+      "The audio device went away.",
+    );
+    const after = await until(
+      second.core,
+      meeting.id,
+      (transcript) => transcript.state === "saved",
+    );
+    expect(await meetingOf(second.core, meeting.id)).toMatchObject({
+      status: "stopped",
+      recordedMs: before.recordedMs,
+      stoppedAt: before.stoppedAt,
+      audio: before.audio,
+    });
+    expect(after).toMatchObject({
+      documentId: document.id,
+      savedPath: before.transcript?.savedPath,
+    });
+    expect(readFileSync(transcriptFile(dataDir, meeting.id), "utf8")).toBe(file);
+    expect(partsOf(dataDir, meeting.id)).toEqual(parts);
+
+    // Nothing records: another Meeting may.
+    const next = await second.core.createMeeting();
+    expect((await second.core.startMeeting({ meetingId: next.id })).status).toBe("recording");
     second.core.close();
   });
 

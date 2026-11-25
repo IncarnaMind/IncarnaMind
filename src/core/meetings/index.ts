@@ -850,13 +850,19 @@ export function createMeetings(options: MeetingsOptions) {
     current.watching = setInterval(() => watchForNothing(current), NOTHING_HEARD_EVERY_MS);
     current.watching.unref?.();
     if (row.kind === "meeting") screens?.begin(row.id);
-    current.session = capture.start(
-      { systemAudio: systemAudio && capture.systemAudio },
-      {
-        audio: (source, samples, capturedAt) => hear(current, source, samples, capturedAt),
-        state: (source, state) => heardState(current, source, state),
-      },
-    );
+    try {
+      current.session = capture.start(
+        { systemAudio: systemAudio && capture.systemAudio },
+        {
+          audio: (source, samples, capturedAt) => hear(current, source, samples, capturedAt),
+          state: (source, state) => heardState(current, source, state),
+        },
+      );
+    } catch (error) {
+      // Nothing records: what began for it ends, so another Meeting may record.
+      end(current);
+      throw error;
+    }
     if (silenced) current.session.setMicrophone(false);
   }
 
@@ -1011,9 +1017,10 @@ export function createMeetings(options: MeetingsOptions) {
     );
     const failed: string[] = [];
     for (const { id, mind_id, audio_deleted_at } of purged) {
-      // Audio recorded after a deletion is on disk again, under the earlier date.
-      const audioLeft = audio_deleted_at === null || hasAudio(id);
+      let audioLeft = true;
       try {
+        // Audio recorded after a deletion is on disk again, under the earlier date.
+        audioLeft = audio_deleted_at === null || hasAudio(id);
         transcripts?.forget(id);
         screens?.forget(id);
         health.forget(id);
@@ -1194,7 +1201,20 @@ export function createMeetings(options: MeetingsOptions) {
       // As the setting is when it starts: Settings › Meetings said so before it started.
       ...(options.keepAudioByDefault() && { audio_kept_at: at }),
     });
-    begin(rowOf(row.id), period);
+    try {
+      begin(rowOf(row.id), period);
+    } catch (error) {
+      // Not started: it waits to start again, as it was.
+      save(row.id, {
+        status: row.status,
+        system_audio: row.system_audio,
+        periods: row.periods,
+        started_at: row.started_at,
+        audio_kept_at: row.audio_kept_at,
+      });
+      changed();
+      throw error;
+    }
     options.recorded();
     log.info("meeting.started", { meetingId: row.id, kind: row.kind, systemAudio: system });
     changed();
@@ -1336,6 +1356,7 @@ export function createMeetings(options: MeetingsOptions) {
         durationMs: null,
         endedBy: null,
       };
+      const before = rowOf(row.id);
       save(row.id, {
         status: "recording",
         paused_by: null,
@@ -1343,7 +1364,25 @@ export function createMeetings(options: MeetingsOptions) {
         audio_expires_at: null,
         ...(stopped && { stopped_at: null, ...summaryGoingOn(row) }),
       });
-      begin(rowOf(row.id), period);
+      try {
+        begin(rowOf(row.id), period);
+      } catch (error) {
+        // The capture couldn't start: the Meeting is as it was, its audio and lines kept, and a
+        // stopped one's Transcript, opened again for the lines that didn't come, is saved as Stop
+        // saves it.
+        save(row.id, {
+          status: before.status,
+          paused_by: before.paused_by,
+          periods: before.periods,
+          audio_expires_at: before.audio_expires_at,
+          stopped_at: before.stopped_at,
+          summary: before.summary,
+        });
+        if (stopped) transcripts?.stop(row.id);
+        log.error("meeting.resumeFailed", { meetingId: row.id, code: codeOf(error) });
+        changed();
+        throw error;
+      }
       log.info("meeting.resumed", { meetingId: row.id, afterStop: stopped });
       changed();
       return toMeeting(rowOf(row.id));
