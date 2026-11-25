@@ -3213,8 +3213,10 @@
     padding: 0;
     box-shadow: none;
   }
+  /* A name with nowhere to break (a tool's, a site's) wraps inside the card, never past its edge. */
   .own-ask-card .approval-title {
     align-items: flex-start;
+    overflow-wrap: anywhere;
   }
   .own-ask-card .approval-dot {
     margin-top: 7px;
@@ -3233,9 +3235,6 @@
   .own-ask-details[data-all] .own-clamp {
     display: block;
     overflow: visible;
-  }
-  .own-ask-card .own-ask-details[data-all] .approval-args {
-    max-height: none;
   }
   .own-ask-value {
     width: 100%;
@@ -3303,8 +3302,17 @@
       text-underline-offset: 3px;
     }
   }
+  /* Nothing a card asks about scrolls in a box of its own: the card's one view, and the line at its
+     edge that says what is past it, cover all of it. */
   .own-ask-card .own-ask-args {
+    /* An input's name takes at most 40% of the row, so a long one leaves its value room. */
+    grid-template-columns: fit-content(40%) minmax(0, 1fr);
     gap: 2px 12px;
+    max-height: none;
+    overflow: visible;
+    dt {
+      overflow-wrap: anywhere;
+    }
     dd {
       white-space: normal;
       overflow-wrap: anywhere;
@@ -3315,10 +3323,8 @@
     font-size: 12px;
   }
   .own-ask-change {
-    max-height: 160px;
     margin: 0;
     padding: 6px 8px;
-    overflow: auto;
     border-radius: 4px;
     background: var(--color-frame);
     font-family: var(--font-mono);

@@ -350,12 +350,27 @@ export async function seedRunning(mindId: string): Promise<void> {
   if (now && !useNoteAsks.getState().byMind[mindId]) heard(now);
 }
 
-/** Lets the agent propose changes, the switch Settings shows, and sends the request again. */
-export async function allowAndAskAgain(mindId: string): Promise<void> {
+/**
+ * Lets the agent propose changes, the switch Settings shows, and sends the request again: as this
+ * window sent it, else from `turn`, the record of it a window that didn't send it has.
+ */
+export async function allowAndAskAgain(
+  mindId: string,
+  turn?: { request: string; quote: string },
+): Promise<void> {
   const ask = useNoteAsks.getState().byMind[mindId];
   if (!ask) return;
+  // The record keeps the words a request was about, not where they are: sent again without them,
+  // its changes would no longer be held to them, so such a request is left for the User to ask.
+  const asked =
+    ask.asked.words !== ""
+      ? ask.asked
+      : turn && turn.request !== "" && turn.quote === ""
+        ? { words: turn.request, quote: "", selection: null }
+        : null;
   await core.updateAgent(ask.pairingId, { propose: true });
-  await askInNote(mindId, ask.asked);
+  if (asked) await askInNote(mindId, asked);
+  else clearNoteAsk(mindId);
 }
 
 /**

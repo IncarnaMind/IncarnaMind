@@ -276,22 +276,28 @@ export function NoteAskPill({
   );
 }
 
-/** Why a request failed, in one line that wraps, with the one thing to do when there is one. */
+/**
+ * Why a request failed, in one line that wraps, with the one thing to do when there is one. In a
+ * turn of the conversation, `turn` is that turn's record: the line is part of it, read out only as
+ * a status, and what Allow sends again comes from it where this window didn't send the request.
+ */
 export function FailureLine({
   ask,
   mindId,
   className,
+  turn,
 }: {
   ask: NoteAsk;
   mindId: string;
   className: string;
+  turn?: { request: string; quote: string };
 }) {
   const t = useT();
   const readOnly = ask.problem === "read-only";
   return (
     <ProblemLine
       testId="note-ask-problem"
-      role={readOnly ? "status" : "alert"}
+      role={readOnly || turn ? "status" : "alert"}
       className={className}
       action={
         readOnly
@@ -299,7 +305,7 @@ export function FailureLine({
               label: t("noteAsk.allow"),
               testId: "note-ask-allow",
               onClick: () =>
-                void allowAndAskAgain(mindId).catch(useAppStore.getState().reportError),
+                void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
             }
           : undefined
       }

@@ -3,8 +3,7 @@
 // stream, reaching IncarnaMind's server only through the settings file it was given. What it does
 // is read from the file INCARNAMIND_TEST_OWN_AI_MODE_FILE names at each start: "check" (the
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
-// "signed-out" is not signed in; "too-old" is a version older than IncarnaMind needs; "limit" ends
-// as a plan's limit does. A request typed at a Note's
+// "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
 // "explain" answers and changes nothing ("plan" too, about the harbour plan); "write" writes a new
 // Note, "Ferry summary"; "long" reads the ferry interviews step by step, each step
@@ -19,8 +18,7 @@
 // and "ask-tool" ask one question of that kind, act on the answer and say how it went, as do
 // "ask-steers" (it writes its own CLAUDE.md), "ask-long" (a command of fifteen lines whose last
 // holds a right-to-left mark), "ask-described" (a command whose own words for it run long) and
-// "ask-background" (a command in the background and out of its sandbox) and "ask-tool-many" (a
-// tool with twenty inputs); "ask-twice" asks for a
+// "ask-background" (a command in the background and out of its sandbox); "ask-twice" asks for a
 // command, then runs it again, asking again only without a rule it was given. Asked in Chinese, it
 // says its own words in Chinese;
 // "ask-two" asks two questions at once; "ask-child" starts a process that leads its own group, writes its own id and that
@@ -31,6 +29,10 @@
 // its own mode named in the mode file's ".permission" ("auto" when it names none), and ends once
 // the mode file's ".hold" file is gone. Each answer is
 // appended to the mode file's ".answers".
+// "too-old" is a version older than IncarnaMind needs. "ask-tool-many" asks for a tool with twenty
+// inputs, "ask-tool-long" for a tool and an input whose names have no place to break,
+// "ask-change-long" for a change of twenty lines, and "ask-after-read" reads the Note first, then
+// asks as "ask-command" does.
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -200,6 +202,17 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     mcp_servers: [{ name: "incarnamind", status: "connected" }],
   });
   if (own && (mode.startsWith("ask-") || mode === "auto")) {
+    if (mode === "ask-after-read") {
+      const note = String(message.message.content).match(/mindId: ([^)]+)\)/)?.[1];
+      const input = { mindId: note, named: true };
+      say({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", id: "read", name: "mcp__incarnamind__read_mind", input }],
+        },
+      });
+      await agent.callTool({ name: "read_mind", arguments: input });
+    }
     await agent.close();
     await askingModes();
     return;
@@ -566,7 +579,6 @@ const QUESTIONS = {
       },
     ],
   },
-  // More inputs than the card's list of them shows at once: the list scrolls on its own.
   "tool-many": {
     tool_name: "mcp__ferry-data__search_tickets",
     mcp_server: { name: "ferry-data", source: "user" },
@@ -576,6 +588,26 @@ const QUESTIONS = {
         `07:${String(at).padStart(2, "0")}`,
       ]),
     ),
+    permission_suggestions: [],
+  },
+  "tool-long": {
+    tool_name:
+      "mcp__ferry-data__search_every_ticket_sold_for_each_crossing_of_the_autumn_timetable",
+    mcp_server: { name: "ferry-data", source: "user" },
+    input: { the_crossing_times_of_every_ferry_that_left_kestrel_bay_late_this_autumn: "07:40" },
+    permission_suggestions: [],
+  },
+  "change-long": {
+    tool_name: "Edit",
+    input: {
+      file_path: `${process.env.HOME ?? ""}/Documents/Kestrel Bay/board/ferry-review.md`,
+      old_string: Array.from({ length: 20 }, (_, at) => `Crossing ${at + 1} leaves on time.`).join(
+        "\n",
+      ),
+      new_string: Array.from({ length: 20 }, (_, at) => `Crossing ${at + 1} leaves late.`).join(
+        "\n",
+      ),
+    },
     permission_suggestions: [],
   },
 };
@@ -695,7 +727,7 @@ async function askingModes() {
     end(`${first ? "Ran" : "Didn't run"} it, then ${second ? "ran" : "didn't run"} it again.`);
     return;
   }
-  const kind = mode.slice("ask-".length);
+  const kind = mode === "ask-after-read" ? "command" : mode.slice("ask-".length);
   sayText(
     readOr(`${modeFile}.said`, chinese ? "正在查看晚点的航班。" : "Looking at the late crossings."),
   );

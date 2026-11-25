@@ -131,6 +131,12 @@ export const unasked = (step: NoteStep) => step.kind === "own" && step.by === un
 
 /** What a stopped run had done: what it read, as one line. */
 function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
+  const what = readOf(steps, t);
+  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+}
+
+/** What a run read, in words: the Note and the Documents; null when it read none. */
+function readOf(steps: readonly NoteStep[], t: Translate): string | null {
   const mind = steps.find((step) => step.kind === "call" && step.tool === "read_mind");
   const documents = [
     ...new Set(
@@ -139,19 +145,17 @@ function stoppedOf(steps: readonly NoteStep[], t: Translate): string {
   ];
   const [only] = documents;
   const named = mind?.kind === "call" ? mind.summary : null;
-  const what =
-    named && documents.length > 1
-      ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
-      : named && only
-        ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
-        : named
-          ? t("noteColumn.what.mind", { mind: named })
-          : documents.length > 1
-            ? t("noteColumn.what.docs", { count: documents.length })
-            : only
-              ? t("noteColumn.what.doc", { document: only })
-              : null;
-  return what ? t("noteColumn.stopped", { what }) : t("noteColumn.stopped.nothing");
+  return named && documents.length > 1
+    ? t("noteColumn.what.mindAnd", { mind: named, count: documents.length })
+    : named && only
+      ? t("noteColumn.what.mindAndOne", { mind: named, document: only })
+      : named
+        ? t("noteColumn.what.mind", { mind: named })
+        : documents.length > 1
+          ? t("noteColumn.what.docs", { count: documents.length })
+          : only
+            ? t("noteColumn.what.doc", { document: only })
+            : null;
 }
 
 /**
@@ -376,8 +380,10 @@ function Turn({
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
-  // A step that didn't run for the stop already says it stopped.
-  const stopSaid = steps.some((step) => step.kind === "own" && step.by === "stopped");
+  // A step that didn't run for the stop already says it stopped: the line goes, unless it says
+  // what the run had read.
+  const stopSaid =
+    steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
   return (
     <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
@@ -460,7 +466,12 @@ function Turn({
       {state === "failed" &&
         turn.problem &&
         (failed ? (
-          <FailureLine ask={failed} mindId={mindId} className="note-column-interrupted" />
+          <FailureLine
+            ask={failed}
+            mindId={mindId}
+            className="note-column-interrupted"
+            turn={{ request: turn.request, quote: turn.quote }}
+          />
         ) : (
           <p className="note-column-interrupted">
             {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}

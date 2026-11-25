@@ -12,6 +12,7 @@ import {
   launchApp,
   pointAndClick,
   removeDataFolder,
+  secondWindow,
   setLanguage,
   setWindowSize,
   sidebarFolder,
@@ -565,31 +566,45 @@ test("a request that can't start says why where the User typed, whole, with the 
     await setWindowSize(app, window, 1440, 900);
     await shownWhole(tooOld);
 
-    // A connection that may only read, asked with the conversation open: Allow is in the turn's
-    // line, and the request goes again.
+    // A connection that may only read, asked here while a second window has the conversation
+    // open: Allow is in that window's turn, and sends the request again as it was typed, though
+    // that window didn't send it.
     await window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
       const [pairing] = (await bridge.getAgents()).pairings;
       if (pairing) await bridge.updateAgent(pairing.id, { propose: false });
     });
-    await pointAndClick(window, group.getByTestId("note-ask-conversation-toggle"));
-    await expect(column).toBeVisible();
+    const second = await secondWindow(app);
+    await setWindowSize(app, second, 1440, 900);
+    await open(second, mindId);
+    await pointAndClick(
+      second,
+      second
+        .locator('[data-testid="tab-group"][data-focused]')
+        .getByTestId("note-ask-conversation-toggle"),
+    );
+    const secondColumn = second.getByTestId("note-column");
+    await expect(secondColumn).toBeVisible();
     await nextRun("change");
     before = (await outcomesOf(window, mindId)).length;
     await send("Put it in capitals");
     await ended(window, mindId, before);
-    const last = column.getByTestId("note-column-turn").last();
+    const last = secondColumn.getByTestId("note-column-turn").last();
     await expect(last.getByTestId("note-ask-problem")).toContainText(
       "Claude Code may only read. Let it propose changes?",
     );
     await expect(last.getByTestId("note-ask-allow")).toHaveText("Allow");
     before = (await outcomesOf(window, mindId)).length;
-    await pointAndClick(window, last.getByTestId("note-ask-allow"));
+    await pointAndClick(second, last.getByTestId("note-ask-allow"));
     await ended(window, mindId, before);
-    await expect(column.getByTestId("note-column-turn").last()).toContainText(
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
+      "Put it in capitals",
+    );
+    await expect(secondColumn.getByTestId("note-column-turn").last()).toContainText(
       "Put the selected words in capitals.",
     );
-    await expect(frontMind(window)).toContainText(P2.toUpperCase());
+    await expect(frontMind(second)).toContainText(P2.toUpperCase());
+    await second.close();
   } finally {
     await app.close();
   }

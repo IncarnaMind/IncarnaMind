@@ -192,7 +192,8 @@ function useStacked(toolbar: RefObject<HTMLDivElement | null>, key: string) {
       // A copy is laid out as one row, out of the card's flow: the answers themselves, put in a
       // row even for a moment, make the card shorter, and the box it scrolls in keeps the place
       // that shorter card left it at, short of its end.
-      const row = element.cloneNode(true) as HTMLElement;
+      const row = element.cloneNode(true);
+      if (!(row instanceof HTMLElement)) return;
       delete row.dataset.stacked;
       row.style.cssText = "position: absolute; inset: 0 0 auto; visibility: hidden";
       element.parentElement.append(row);
@@ -209,7 +210,11 @@ function useStacked(toolbar: RefObject<HTMLDivElement | null>, key: string) {
   return stacked;
 }
 
-/** The thing itself on a card: what runs, the path or address, what a file will hold or change. */
+/**
+ * The thing itself on a card: what runs, the path or address, what a file will hold or change,
+ * a tool's inputs. None of it scrolls in a box of its own (what a fold holds back says so itself),
+ * so what is out of sight is out of the box the card scrolls in.
+ */
 const THING =
   '[data-testid="own-ask-value"], [data-testid="own-ask-content"], [data-testid="own-ask-change"], .own-ask-input';
 
@@ -255,17 +260,8 @@ function useOutOfView(
       const style = getComputedStyle(thing);
       const line = Number.parseFloat(style.lineHeight) || 18;
       const at = thing.getBoundingClientRect();
-      let start = at.top + Number.parseFloat(style.paddingTop);
-      let end = at.bottom - Number.parseFloat(style.paddingBottom);
-      // What a box inside the card hides, its tool inputs' own scroll among them, the outer box's
-      // scroll can't bring into view: only what that box shows counts.
-      for (let box = thing.parentElement; box && box !== scroller; box = box.parentElement) {
-        if (getComputedStyle(box).overflowY === "visible") continue;
-        const shown = box.getBoundingClientRect();
-        start = Math.max(start, shown.top);
-        end = Math.min(end, shown.bottom);
-      }
-      if (end <= start) continue;
+      const start = at.top + Number.parseFloat(style.paddingTop);
+      const end = at.bottom - Number.parseFloat(style.paddingBottom);
       above += linesIn(Math.min(end, shownTop) - start, line);
       below += linesIn(end - Math.max(start, shownFoot), line);
       abovePx = Math.max(abovePx, top - start);
