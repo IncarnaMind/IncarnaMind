@@ -1226,6 +1226,18 @@ const SLIDE_READ = {
 
 const screenOf = async (window: Page) => (await bridge(window))[0]?.screen ?? null;
 
+/**
+ * Until the Transcript has started, the line saying it is starting stands under the shared
+ * screen's line over the control; when it goes, the screen's line drops into its place, and a
+ * press aimed before then lands above it.
+ */
+async function transcriptStarted(window: Page): Promise<void> {
+  await firstTranscriptLine(window);
+  await expect(
+    window.locator(".meeting-foot-over").getByTestId("meeting-transcript-line"),
+  ).toHaveCount(0);
+}
+
 test("the shared screen: one line over the control asks at the start, one chosen window is read, an Answer cites it, and after Stop the Citation says it was deleted; Not this time reads nothing, and the sheet offers it later", async () => {
   const slide = join(sources, "slide.html");
   await writeFile(slide, SLIDE);
@@ -1251,6 +1263,7 @@ test("the shared screen: one line over the control asks at the start, one chosen
   await shot(window, "screen-ask-en");
 
   // Choose window…: IncarnaMind's picker lists the one window there is to read.
+  await transcriptStarted(window);
   await pointAndClick(window, line.getByTestId("meeting-screen-choose"));
   const picker = window.getByTestId("screen-picker");
   await expect(picker).toBeVisible();
@@ -1309,6 +1322,7 @@ test("the shared screen: one line over the control asks at the start, one chosen
   );
   await motionSettled(window);
   await shot(window, "screen-ask-zh");
+  await transcriptStarted(window);
   await pointAndClick(window, asked.getByTestId("meeting-screen-decline"));
   await expect(asked).toHaveCount(0);
   const later = (await openMeetingSheet(window)).getByTestId("meeting-sheet-screen");
