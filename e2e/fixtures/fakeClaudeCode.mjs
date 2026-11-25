@@ -337,6 +337,20 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
   if (prompt.startsWith("In their note")) {
+    if (mode === "word") {
+      sayText("Saving your note as a Word file.");
+      const saved = await use("save_as_word", { mindId });
+      await agent.close();
+      say({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result:
+          readOr(`${modeFile}.reply`, "") ||
+          `I saved your note as a Word file, with its sources as footnotes: ${saved?.saved}`,
+      });
+      return;
+    }
     if (mode === "plan") {
       await agent.close();
       say({

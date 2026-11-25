@@ -5,7 +5,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { core, files } from "../../core";
 import { showFileLabelKey } from "../../fileInfo";
 import { useT } from "../../i18n";
-import { savedFileFailure } from "../../outputFiles";
+import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
 import {
   askInNote,
   firstWordsOf,
@@ -581,12 +581,12 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
       <span className="note-column-made-title" title={file.name}>
         {file.name}
       </span>
-      <span className="flex gap-1">
+      <span className="flex shrink-0 gap-1">
         <button
           type="button"
           data-testid="note-column-saved-open"
           onClick={() => run(files.openSavedFile, "export.failed.open")}
-          className="note-ask-pill-action"
+          className={SAVED_OPEN_BUTTON}
         >
           {t("export.open")}
         </button>
@@ -594,7 +594,7 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
           type="button"
           data-testid="note-column-saved-show"
           onClick={() => run(files.showSavedFile, "export.failed.show")}
-          className="note-ask-pill-action"
+          className={SAVED_SHOW_BUTTON}
         >
           {t(showFileLabelKey(navigator.platform))}
         </button>
