@@ -1131,7 +1131,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (ſ is s) or a character an older Mac disk leaves out of names, as Windows opens it (dots or spaces at a part's end, a stream after a colon), where a symbolic link by another name really leads, a link to a folder not there yet too, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, CLAUDE<U+200B>.md, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
+  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (the long s, U+017F, is s) or a character an older Mac disk leaves out of names, as Windows opens it (dots or spaces at a part's end, a stream after a colon), where a symbolic link by another name really leads, a link to a folder not there yet too, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, CLAUDE<U+200B>.md, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
   it("knows a steering file in any case, as a disk or Windows spells it, through a link, in a command spelt another way, and the User's own servers", async () => {
     const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
     await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
@@ -1159,13 +1159,13 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "CLAUDE.md with a zero-width space inside",
         {
           tool_name: "Write",
-          tool_input: { file_path: join(work, "CLAUDE​.md"), content: "x" },
+          tool_input: { file_path: join(work, "CLAUDE\u{200B}.md"), content: "x" },
         },
         "ask",
       ],
       [
         "a right-to-left mark inside .claude, in a command",
-        { tool_name: "Bash", tool_input: { command: "echo {} > .cla‮ude/settings.json" } },
+        { tool_name: "Bash", tool_input: { command: "echo {} > .cla\u{202E}ude/settings.json" } },
         "ask",
       ],
       [
@@ -1191,7 +1191,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       ],
       [
         ".claude.json with a long s",
-        { tool_name: "Write", tool_input: { file_path: "/h/.claude.jſon", content: "{}" } },
+        { tool_name: "Write", tool_input: { file_path: "/h/.claude.j\u{17F}on", content: "{}" } },
         "ask",
       ],
       [
@@ -1201,7 +1201,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       ],
       [
         ".mcp.json with a long s, in a command",
-        { tool_name: "Bash", tool_input: { command: "cp servers.json .mcp.jſon" } },
+        { tool_name: "Bash", tool_input: { command: "cp servers.json .mcp.j\u{17F}on" } },
         "ask",
       ],
       [
@@ -1324,6 +1324,20 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           tool_name: "Write",
           tool_input: { file_path: join(work, "CLAUDE~1", "settings.local.json"), content: "{}" },
         },
+      ]).finally(() => rm(work, { recursive: true, force: true }));
+      expect(answers).toEqual(["ask"]);
+    },
+  );
+
+  // protects=on macOS and Linux a backslash is a letter of a name, so a symbolic link named with one is followed as one link to where it leads; fails_when=a write to a link named a\b that leads to CLAUDE.md goes on unasked, the name split into two parts that aren't there; no_claim=Windows, where such a name can't exist
+  it.skipIf(process.platform === "win32")(
+    "follows a link named with a backslash to a steering file",
+    async () => {
+      const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+      await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
+      await symlink(join(work, "CLAUDE.md"), join(work, "a\\b"));
+      const { answers } = await useHookAnswers([
+        { tool_name: "Write", tool_input: { file_path: join(work, "a\\b"), content: "x" } },
       ]).finally(() => rm(work, { recursive: true, force: true }));
       expect(answers).toEqual(["ask"]);
     },

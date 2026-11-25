@@ -38,7 +38,9 @@ function realOf(path: string): string | null {
   }
 }
 
-const partsOf = (path: string) => path.split(/[\\/]/).filter((part) => part !== "");
+// A path's parts as the system splits it: on macOS and Linux a backslash is a letter of a name.
+const SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
+const partsOf = (path: string) => path.split(SEPARATORS).filter((part) => part !== "");
 
 /**
  * Where `path` leads: each part of it in turn, a link replaced by where it leads, even a link to a
@@ -242,11 +244,11 @@ const STEERING_FILES: ReadonlySet<string> = new Set([
  * Characters that draw nothing which an older Mac disk (HFS+) leaves out when it compares names, so
  * that CLAUDE.md with one inside is CLAUDE.md there.
  */
-const UNSEEN_IN_NAMES = /[​-‏‪-‮⁪-⁯﻿]/g;
+const UNSEEN_IN_NAMES = /[\u{200B}-\u{200F}\u{202A}-\u{202E}\u{206A}-\u{206F}\u{FEFF}]/gu;
 
 /**
- * A part of a path as the disk finds it: letters a disk takes as others folded (the long s, ſ, is
- * an s) and characters it leaves out taken out, and, as Windows opens a file, without the dots and
+ * A part of a path as the disk finds it: letters a disk takes as others folded (the long s, U+017F,
+ * is an s) and characters it leaves out taken out, and, as Windows opens a file, without the dots and
  * spaces that end it or a stream named after a colon (CLAUDE.md::$DATA is CLAUDE.md).
  */
 const asFound = (part: string) =>

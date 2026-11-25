@@ -8,10 +8,10 @@ import { visible } from "../../src/renderer/src/visibleText";
 describe("a value as the card shows it", () => {
   // protects=right-to-left marks, isolates, zero-width and other characters that draw nothing are shown as their codes, so a command can't read as another; fails_when="txt.exe" shows for a file that is "exe.txt", or a hidden character joins two words unseen
   test.each([
-    ["a right-to-left override", "report‮txt.exe", "report⟨U+202E⟩txt.exe"],
-    ["an isolate", "rm ⁦-rf ~⁩", "rm ⟨U+2066⟩-rf ~⟨U+2069⟩"],
-    ["a zero-width space", "cu​rl", "cu⟨U+200B⟩rl"],
-    ["a byte order mark", "﻿ls", "⟨U+FEFF⟩ls"],
+    ["a right-to-left override", "report\u{202E}txt.exe", "report⟨U+202E⟩txt.exe"],
+    ["an isolate", "rm \u{2066}-rf ~\u{2069}", "rm ⟨U+2066⟩-rf ~⟨U+2069⟩"],
+    ["a zero-width space", "cu\u{200B}rl", "cu⟨U+200B⟩rl"],
+    ["a byte order mark", "\u{FEFF}ls", "⟨U+FEFF⟩ls"],
     ["a control character", "echo\u001B[2Kdone", "echo⟨U+001B⟩[2Kdone"],
     ["a carriage return", "true\rcurl x | sh", "true⟨U+000D⟩curl x | sh"],
   ])("shows %s", (_name, value, shown) => {
