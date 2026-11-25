@@ -255,8 +255,17 @@ function useOutOfView(
       const style = getComputedStyle(thing);
       const line = Number.parseFloat(style.lineHeight) || 18;
       const at = thing.getBoundingClientRect();
-      const start = at.top + Number.parseFloat(style.paddingTop);
-      const end = at.bottom - Number.parseFloat(style.paddingBottom);
+      let start = at.top + Number.parseFloat(style.paddingTop);
+      let end = at.bottom - Number.parseFloat(style.paddingBottom);
+      // What a box inside the card hides, its tool inputs' own scroll among them, the outer box's
+      // scroll can't bring into view: only what that box shows counts.
+      for (let box = thing.parentElement; box && box !== scroller; box = box.parentElement) {
+        if (getComputedStyle(box).overflowY === "visible") continue;
+        const shown = box.getBoundingClientRect();
+        start = Math.max(start, shown.top);
+        end = Math.min(end, shown.bottom);
+      }
+      if (end <= start) continue;
       above += linesIn(Math.min(end, shownTop) - start, line);
       below += linesIn(end - Math.max(start, shownFoot), line);
       abovePx = Math.max(abovePx, top - start);

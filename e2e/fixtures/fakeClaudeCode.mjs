@@ -19,7 +19,8 @@
 // and "ask-tool" ask one question of that kind, act on the answer and say how it went, as do
 // "ask-steers" (it writes its own CLAUDE.md), "ask-long" (a command of fifteen lines whose last
 // holds a right-to-left mark), "ask-described" (a command whose own words for it run long) and
-// "ask-background" (a command in the background and out of its sandbox); "ask-twice" asks for a
+// "ask-background" (a command in the background and out of its sandbox) and "ask-tool-many" (a
+// tool with twenty inputs); "ask-twice" asks for a
 // command, then runs it again, asking again only without a rule it was given. Asked in Chinese, it
 // says its own words in Chinese;
 // "ask-two" asks two questions at once; "ask-child" starts a process that leads its own group, writes its own id and that
@@ -564,6 +565,18 @@ const QUESTIONS = {
         destination: "localSettings",
       },
     ],
+  },
+  // More inputs than the card's list of them shows at once: the list scrolls on its own.
+  "tool-many": {
+    tool_name: "mcp__ferry-data__search_tickets",
+    mcp_server: { name: "ferry-data", source: "user" },
+    input: Object.fromEntries(
+      Array.from({ length: 20 }, (_, at) => [
+        `crossing_${at + 1}`,
+        `07:${String(at).padStart(2, "0")}`,
+      ]),
+    ),
+    permission_suggestions: [],
   },
 };
 

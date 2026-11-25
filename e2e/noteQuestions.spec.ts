@@ -636,6 +636,17 @@ test("each kind of question shows as a card in the conversation's column, what i
         column.getByTestId("note-column-turn").last().getByTestId("own-step"),
       ).toContainText(answer === "once" ? "· allowed once" : "· denied");
     }
+
+    // A tool with more inputs than its list shows at once: the list scrolls on its own, and with
+    // the whole card in the column's view no line says lines are out of sight.
+    before = (await outcomesOf(window, mindId)).length;
+    card = await ask(window, "ask-tool-many", "Look up every crossing");
+    await expect(card.locator(".own-ask-input")).toHaveCount(20);
+    await expect.poll(async () => (await shownOf(card)).whole).toBe(true);
+    await expect(card.getByTestId("own-ask-more-below")).toHaveCount(0);
+    await expect(card.getByTestId("own-ask-more-above")).toHaveCount(0);
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, before);
   } finally {
     await app.close();
   }
