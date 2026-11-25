@@ -22,16 +22,23 @@ export const HeldSelection = Extension.create({
           apply: (tr, held) => (tr.getMeta(KEY) as boolean | undefined) ?? held,
         },
         props: {
-          // A press that brings the focus back puts the editor's old selection back into the page
-          // before the browser places the caret, so a click or a drag starts nowhere. The press
-          // moves the selection to where it landed first.
+          // A press that brings the focus back lets ProseMirror's focus timer restore the old
+          // selection or caret before `selectionchange` arrives (#3697), so a click, double-click
+          // or drag starts from the wrong place. Move the selection to where it landed first.
           handleDOMEvents: {
             mousedown(view, event) {
-              if (view.hasFocus() || view.state.selection.empty) return false;
-              if (event.button !== 0 || event.shiftKey) return false;
+              if (view.hasFocus()) return false;
+              if (event.button !== 0 || event.shiftKey || event.defaultPrevented) return false;
+              if (
+                event.target instanceof Element &&
+                event.target.closest('[contenteditable="false"], button, a, input, textarea')
+              ) {
+                return false;
+              }
               const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
               if (!at) return false;
               const selection = TextSelection.near(view.state.doc.resolve(at.pos));
+              if (view.state.selection.eq(selection)) return false;
               view.dispatch(view.state.tr.setSelection(selection).setMeta("addToHistory", false));
               return false;
             },
