@@ -275,8 +275,15 @@ for (const language of ["en", "zh-CN"] as const) {
       )
       .toBeGreaterThan(files.length - 6);
 
-    // 3. The User opens one file from ⌘K and asks their AI about it with ⌘J, as its viewer's Ask
-    // names: no pill floats over the file (#3764).
+    // 3. The User closes the example, opens one file from ⌘K and asks their AI about it with ⌘J,
+    // as its viewer's Ask names: no pill floats over the file (#3764). With the example still open,
+    // ⌘J asks in the example, as its foot says (#3791).
+    await expect(window.getByTestId("note-foot-ask").locator("[data-ask-pill]")).toBeVisible();
+    await pointAndClick(
+      window,
+      window.locator('[role="tab"][aria-selected="true"]').getByTestId("tab-close"),
+    );
+    await expect(window.getByTestId("example-line")).toHaveCount(0);
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type(walk.find);
     await pointAndClick(

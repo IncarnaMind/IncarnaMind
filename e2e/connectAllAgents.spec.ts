@@ -72,7 +72,7 @@ async function shot(window: Page, name: string, width: number, height: number) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`first run: connects all four found apps in one press (${language})`, async () => {
+  test(`first run: the User ticks all four found apps, and one press connects them (${language})`, async () => {
     const folders = { applications: apps, commands: apps, home };
     await installAgent("codex", folders, "command");
     await installAgent("claude-code", folders, "command");
