@@ -5,12 +5,12 @@ import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import {
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   interceptSaveDialog,
   launchApp,
   motionSettled,
+  openMeetingDetails,
   openPageMenu,
   pointAndClick,
   recordMeeting,
@@ -18,16 +18,17 @@ import {
   runCommand,
   setLanguage,
   setWindowSize,
-  transcribeHere,
+  showSettingsPage,
+  stopMeeting,
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
 
 /**
- * A meeting's audio after the call (#687): kept a day, its line in the meeting's popover saying
- * until when, Keep audio keeping it until the User deletes it with one Undo, Delete now asking
- * first, and Save recording… writing it where the User chooses. Set INCARNAMIND_SCREENSHOTS to
- * keep stills and a film.
+ * A meeting's audio after the call (#687): kept a day, its line in the Transcript sheet's
+ * recording details saying until when (#3762), Keep audio keeping it until the User deletes it
+ * with one Undo, Delete now asking first, and Save recording… writing it where the User chooses.
+ * Set INCARNAMIND_SCREENSHOTS to keep stills and a film.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function shot(window: Page, name: string): Promise<void> {
@@ -59,11 +60,13 @@ async function recordOnClose(app: ElectronApplication, window: Page, name: strin
 const WORDS = {
   en: {
     notice: "Audio stays on this computer; deleted within a day.",
+    settings: "Settings",
+    recorded: /^Recorded \d+:\d\d$/,
     until: /^Audio kept until \d{1,2}:\d{2}( ?[ap]\.?m\.?)? tomorrow$/i,
     keep: "Keep audio",
     kept: "Audio kept",
     keptLine: "Keeping this meeting’s audio",
-    deleteNow: "Delete now",
+    deleteNow: "Delete audio now",
     deleteAudio: "Delete audio",
     deleted: /^Audio deleted on \d{1,2} [A-Z][a-z]{2}$/,
     save: "Save recording…",
@@ -72,11 +75,13 @@ const WORDS = {
   },
   "zh-CN": {
     notice: "音频只存在这台电脑上，一天内删除。",
+    settings: "设置",
+    recorded: /^已录制 \d+:\d\d$/,
     until: /^音频保留到明天 (上午|下午)?\d{1,2}:\d{2}$/,
     keep: "保留音频",
     kept: "音频已保留",
     keptLine: "已保留这场会议的音频",
-    deleteNow: "立即删除",
+    deleteNow: "立即删除音频",
     deleteAudio: "删除音频",
     deleted: /^音频已于\d{1,2}月\d{1,2}日删除$/,
     save: "另存录音…",
@@ -90,16 +95,30 @@ const meetingsOf = (window: Page): Promise<Meeting[]> =>
     (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMeetings(),
   );
 
-/** The meeting's popover, opened from its chip, with its audio row. */
+/** The audio's line in the Transcript sheet's recording details, raised from the control. */
 async function audioRow(window: Page): Promise<Locator> {
-  const menu = window.getByTestId("meeting-view-menu");
-  if (!(await menu.isVisible()))
-    await pointAndClick(window, window.getByTestId("meeting-view-chip"));
-  await expect(menu).toBeVisible();
-  return menu.getByTestId("meeting-audio");
+  return (await openMeetingDetails(window)).getByTestId("meeting-audio");
 }
 
-/** The popover holds in the window: nothing of it cut off at an edge. */
+/** What the audio's line says of the audio: its part after "Recorded 0:12", without its actions. */
+const audioState = (row: Locator) =>
+  row.evaluate((line) => {
+    const part = line.querySelectorAll(":scope > .meta-part")[1];
+    return [...(part?.childNodes ?? [])]
+      .filter((node) => !(node instanceof Element && node.classList.contains("meta-dot")))
+      .map((node) => node.textContent ?? "")
+      .join("")
+      .trim();
+  });
+
+/** The sheet's Hide folds it back to the control. */
+async function foldSheet(window: Page): Promise<void> {
+  const sheet = window.getByTestId("meeting-sheet");
+  await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+  await expect(sheet).toBeHidden();
+}
+
+/** The sheet holds in the window: nothing of it cut off at an edge. */
 async function expectInWindow(window: Page, element: Locator): Promise<void> {
   const box = await element.boundingBox();
   const size = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
@@ -119,7 +138,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await removeDataFolder(dataDir);
     });
 
-    // protects=the first recording's notice says the audio is deleted within a day; after Stop the meeting's popover says until when tomorrow, with Keep audio and Delete now, at 1,440 and 900 px; Keep audio makes it "Audio kept" with one Undo, and ⌘K reaches it; Save recording… from the Note's menu writes a playable WAV where the save dialog says; Delete now asks first and leaves "Audio deleted on" a date with no action, Save recording… then disabled with its reason; in English and Chinese; fails_when=a state reads otherwise, an action is offered where it can't act, Keep audio takes two Undos, the file isn't written, or the popover is cut off; no_claim=the day's end itself, which the core tests cover with a fake clock.
+    // protects=Settings › Meetings says the audio is deleted within a day, and the first recording starts at once; after Stop the Transcript sheet's recording details say what was recorded and until when tomorrow the audio is kept, with Keep audio and Delete now, at 1,440 and 900 px, and nothing opens by itself; Keep audio makes it "Audio kept" with one Undo, and ⌘K reaches it; Save recording… from the Note's menu writes a playable WAV where the save dialog says; Delete now asks first and leaves "Audio deleted on" a date with no action, Save recording… then disabled with its reason; in English and Chinese; fails_when=a state reads otherwise, an action is offered where it can't act, Keep audio takes two Undos, the file isn't written, or the sheet is cut off; no_claim=the day's end itself, which the core tests cover with a fake clock.
     test("the audio line's three states, Keep audio, Save recording and Delete now", async () => {
       const words = WORDS[language];
       const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -129,64 +148,69 @@ for (const language of ["en", "zh-CN"] as const) {
       await useLocalChatModel(window);
       await setLanguage(window, language);
 
-      // The first recording's notice says how long the audio stays.
-      const start = await recordMeeting(window);
-      await pointAndClick(window, start.getByTestId("meeting-start-record"));
-      const notice = window.getByTestId("meeting-notice");
-      await transcribeHere(notice);
-      await expect(notice).toContainText(words.notice);
-      await shot(window, `meeting-audio-notice-${language}`);
-      await notice.getByTestId("meeting-notice-start").click();
-      const bar = window.getByTestId("meeting-bar");
-      await expect(bar).toHaveAttribute("data-status", "recording");
+      // Settings › Meetings says how long the audio stays; the first recording starts at once.
+      await pointAndClick(
+        window,
+        window
+          .getByTestId("sidebar-footer")
+          .getByRole("button", { name: words.settings, exact: true }),
+      );
+      const settings = await showSettingsPage(window, "meetings");
+      await expect(settings.getByTestId("meetings-settings")).toContainText(words.notice);
+      await shot(window, `meeting-audio-settings-${language}`);
+      await window.keyboard.press("Escape");
+      await expect(settings).toBeHidden();
+      await recordMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.transcript?.lines ?? 0, {
           timeout: 30_000,
         })
         .toBeGreaterThanOrEqual(4);
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.fill?.state, { timeout: 30_000 })
         .toBe("filled");
-      await closeFirstFillPopover(window);
+      // The first fill opens nothing over the Note by itself (#3762).
+      await expect(window.getByTestId("meeting-sheet")).toBeHidden();
 
-      // Kept until tomorrow, with Keep audio and Delete now.
+      // What was recorded, kept until tomorrow, with Keep audio and Delete now.
       let row = await audioRow(window);
-      await expect(row.locator("p")).toHaveText(words.until);
+      await expect(row.locator(":scope > .meta-part").first()).toHaveText(words.recorded);
+      await expect.poll(() => audioState(row)).toMatch(words.until);
       await expect(row.getByTestId("meeting-audio-keep-for-good")).toHaveText(words.keep);
       await expect(row.getByTestId("meeting-audio-delete")).toHaveText(words.deleteNow);
-      await expectInWindow(window, window.getByTestId("meeting-view-menu"));
+      await expectInWindow(window, window.getByTestId("meeting-sheet"));
       await shot(window, `meeting-audio-until-1440-${language}`);
-      // Opened again at the new width, where the window now puts it.
-      await window.keyboard.press("Escape");
+      // Raised again at the new width, where the window now puts it.
+      await foldSheet(window);
       await setWindowSize(app, window, 900, 720);
       row = await audioRow(window);
-      await expectInWindow(window, window.getByTestId("meeting-view-menu"));
+      await expectInWindow(window, window.getByTestId("meeting-sheet"));
       await shot(window, `meeting-audio-until-900-${language}`);
 
       // Keep audio: kept until deleted, one Undo; ⌘K reaches it too.
       await pointAndClick(window, row.getByTestId("meeting-audio-keep-for-good"));
       row = await audioRow(window);
-      await expect(row.locator("p")).toHaveText(words.kept);
+      await expect.poll(() => audioState(row)).toBe(words.kept);
       await expect(row.getByTestId("meeting-audio-keep-for-good")).toHaveCount(0);
       await expect(row.getByTestId("meeting-audio-delete")).toHaveText(words.deleteNow);
       await expect(window.getByTestId("undo-line")).toContainText(words.keptLine);
-      await expectInWindow(window, window.getByTestId("meeting-view-menu"));
+      await expectInWindow(window, window.getByTestId("meeting-sheet"));
       await shot(window, `meeting-audio-kept-900-${language}`);
       await window.getByTestId("undo-action").click();
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.audio.keptUntilDeleted)
         .toBe(false);
-      await window.keyboard.press("Escape");
+      await foldSheet(window);
       await runCommand(window, "meeting.keepAudio", words.keep);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.audio.keptUntilDeleted)
         .toBe(true);
       await setWindowSize(app, window, 1440, 900);
       row = await audioRow(window);
-      await expect(row.locator("p")).toHaveText(words.kept);
+      await expect.poll(() => audioState(row)).toBe(words.kept);
       await shot(window, `meeting-audio-kept-1440-${language}`);
-      await window.keyboard.press("Escape");
+      await foldSheet(window);
 
       // Save recording… from the Note's menu: one WAV where the save dialog says.
       const folder = await mkdtemp(join(tmpdir(), "incarnamind-recording-"));
@@ -210,15 +234,15 @@ for (const language of ["en", "zh-CN"] as const) {
       );
       await pointAndClick(window, confirm.getByTestId("meeting-audio-delete-confirm"));
       row = await audioRow(window);
-      await expect(row.locator("p")).toHaveText(words.deleted);
-      await expect(row.getByRole("menuitem")).toHaveCount(0);
+      await expect.poll(() => audioState(row)).toMatch(words.deleted);
+      await expect(row.getByRole("button")).toHaveCount(0);
       await shot(window, `meeting-audio-deleted-1440-${language}`);
-      await window.keyboard.press("Escape");
+      await foldSheet(window);
       await setWindowSize(app, window, 900, 720);
       row = await audioRow(window);
-      await expectInWindow(window, window.getByTestId("meeting-view-menu"));
+      await expectInWindow(window, window.getByTestId("meeting-sheet"));
       await shot(window, `meeting-audio-deleted-900-${language}`);
-      await window.keyboard.press("Escape");
+      await foldSheet(window);
       const after = await openPageMenu(window);
       const save = after.getByTestId("meeting.saveRecording");
       await expect(save).toHaveAttribute("aria-disabled", "true");

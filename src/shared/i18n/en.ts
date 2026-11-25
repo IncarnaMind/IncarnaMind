@@ -3889,7 +3889,7 @@ export const en = {
   "consent.data.worked-figures":
     "For a figure an Answer worked out, in a sentence you check: its label, formula, inputs and result, each input with its quote, Document name and location (for a workbook’s figure, the cells and formulas it was worked out through), or, for an Analysis’s figure, its label and unit, the heading above it, the columns and rows it was worked out from and up to 3,000 characters of its code",
   "consent.data.live-transcript":
-    "A Meeting’s Transcript: the live lines while it records, and all of it to fill in the note after Stop",
+    "A Meeting’s Transcript: the live lines while it records, with the words still being transcribed, and all of it to fill in the note after Stop",
   "consent.data.passages":
     "passages from your Documents that match the Question, with their Documents’ names and pages",
   "consent.data.tool-results": "Results of Connectors and Skill scripts an Answer uses",
@@ -3955,7 +3955,7 @@ export const en = {
   "consent.flow.edits.purpose": "change the text you select as you ask",
   "consent.data.selection": "The selected text and its paragraphs, each time you ask",
   "consent.data.note-requests":
-    "What you type in the box at the bottom of a note, each time you send it. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
+    "What you type in the box at the bottom of a note, each time you send it, and, while the note’s call records, its Transcript’s name and the words still being transcribed; and what you ask call help. Claude Code keeps each note’s conversation on this computer until you delete the note for good, disconnect it or take this back, and deletes one left unused for 30 days",
   "consent.data.own-ai-context":
     "In a note’s conversation, what Claude Code adds by its own settings: your CLAUDE.md files, its memory, your skills, and what your own servers, connectors, commands, files and web pages give it, as its settings allow",
   "consent.data.source-quotes":
@@ -6729,7 +6729,6 @@ export const en = {
   "error.meeting.purgeFailed":
     "Deleted, but a meeting’s recording is still on this computer. IncarnaMind tries again next start.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
-  "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
   "error.meeting.noSharedScreen": "This copy of IncarnaMind can’t read a shared screen.",
   "error.meeting.noWindow": "Choose the window to read.",
   "error.meeting.screenNotKept": "That screen from the meeting isn’t kept any more.",
@@ -6777,6 +6776,7 @@ export const en = {
     "“{name}” is the Transcript’s label: type the person’s name, or choose them above.",
   "error.transcript.speakersOfTranscript": "Only a Transcript’s speakers can be named.",
   "error.meeting.audioGone": "The Meeting’s audio is no longer on this computer.",
+  "error.meeting.audioGoneBefore": "This part of the Meeting’s audio was deleted.",
   "error.meeting.audioStretch": "A stretch of audio runs from one time to a later one.",
   "error.meeting.noAudioToKeep": "This meeting has no audio to keep.",
   "error.meeting.keepAudioChoice": "Say whether to keep this meeting’s audio.",
@@ -6786,6 +6786,12 @@ export const en = {
     "Some of this meeting’s audio couldn’t be deleted. IncarnaMind tries again in a minute.",
   "error.meeting.resumeAudioNotDeleted":
     "Recording can’t resume until the earlier audio is deleted. Try again in a minute.",
+  "error.meeting.resumeMemo":
+    "A voice memo can’t record more once it has stopped. Record a new one.",
+  "error.meeting.resumeTranscriptUnreadable":
+    "Recording can’t resume: it would lose lines already in this meeting’s Transcript.",
+  "error.meeting.resumeTranscriptElsewhere":
+    "Recording can’t resume: this Transcript is saved outside the data folder. Record a new meeting.",
   "error.meeting.saveWhileRecording": "Stop the recording to save it.",
   "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
@@ -7443,18 +7449,7 @@ export const en = {
   "meetings.start.noticeTextKept":
     "I’m recording this meeting with IncarnaMind to take notes. The recording stays on my computer until I delete it.",
   "meetings.start.dismiss": "Don’t record; keep this as a note (Esc)",
-  "meetings.notice.title": "Before you record",
-  "meetings.notice.both": "Records your microphone and the computer’s sound: everyone in the call.",
-  "meetings.notice.microphone": "IncarnaMind records your microphone.",
-  "meetings.notice.tell": "Tell everyone you’re recording: in many places it’s the law.",
-  "meetings.notice.model": "Transcribed on this computer.",
-  "meetings.notice.modelSize": "The speech models are about 1.2 GB.",
-  "meetings.start.downloadAndStart": "Download and start",
   "meetings.notice.cancel": "Cancel",
-  "meetings.notice.background.mac":
-    "It also opens at login in the menu bar to offer notes on calls; turn it off in Settings › General.",
-  "meetings.notice.background.other":
-    "It also opens at login in the tray to offer notes on calls; turn it off in Settings › General.",
   "offers.call.title": "Are you in a call right now?",
   "offers.call.body": "{app} is using the microphone",
   "offers.calendar.title": "{title} starts in 1 minute",
@@ -7518,12 +7513,36 @@ export const en = {
   "meetings.bar.stop": "Stop",
   "meetings.bar.stopLabel": "Stop recording",
   "meetings.bar.more": "More for the recording",
+  "meetings.foot.writeNotes": "Write notes",
+  "meetings.foot.writeNotesRequest": "Write the notes from the call",
+  "meetings.foot.tip":
+    "Transcribing on this computer. The Transcript opens here. Tell everyone you’re recording.",
+  "meetings.foot.tipCloud":
+    "Transcribing with {provider}. The Transcript opens here. Tell everyone you’re recording.",
+  "meetings.foot.tipClose": "Close",
+  "meetings.foot.show": "Show the Transcript ({keys})",
+  "meetings.foot.hide": "Hide the Transcript ({keys})",
+  "meetings.foot.resume": "Resume",
+  "meetings.foot.resumeTip": "Record more of this meeting",
+  "meetings.foot.pause": "Pause",
+  "meetings.foot.screen": "Shared screen…",
+  "meetings.foot.languageTip": "Languages in the Transcript",
+  "meetings.foot.tell": "Tell everyone you’re recording.",
+  "meetings.foot.micDenied": "IncarnaMind can’t use your mic",
+  "meetings.foot.micSilent": "Your mic isn’t heard",
+  "meetings.foot.micMissing": "No mic found",
+  "meetings.foot.micEnded": "Your mic stopped",
   "meetings.line.interrupted":
     "IncarnaMind closed while recording. Everything up to {time} is saved.",
   "meetings.line.resume": "Resume",
   "meetings.line.gapClosed": "{missed} not recorded at {time}: IncarnaMind was closed.",
   "meetings.line.gapSleep": "{missed} not recorded at {time}: the computer was asleep.",
-  "meetings.line.saveFailed": "Audio couldn’t be saved: {message}",
+  "meetings.line.saveFailed.full":
+    "The disk is full: audio isn’t saved until you free up space, but the Transcript goes on.",
+  "meetings.line.saveFailed.denied":
+    "IncarnaMind can’t write to its data folder: audio isn’t saved, but the Transcript goes on.",
+  "meetings.line.saveFailed.error":
+    "Audio isn’t saved right now, but the Transcript goes on and IncarnaMind keeps trying.",
   "meetings.line.microphoneDenied": "IncarnaMind isn’t allowed to use the microphone.",
   "meetings.line.microphoneSilent":
     "No sound from the microphone for 15 seconds: it may be muted, or the wrong one chosen.",
@@ -7617,11 +7636,10 @@ export const en = {
   "meetings.screen.look": "Look at the screen",
   "citation.screen.fromPicture":
     "Read from the shared screen at {time}; it can’t be checked against text.",
-  "meetings.screen.ask": "Will someone share their screen?",
   "meetings.screen.askProvider":
-    "When you ask, {provider} can receive its text and a picture if needed.",
+    "Read a shared screen? When you ask, {provider} gets its text, or a picture if needed.",
   "meetings.screen.askModel":
-    "When you ask, your selected model can receive its text and a picture if needed.",
+    "Read a shared screen? When you ask, your AI model gets its text, or a picture if needed.",
   "meetings.screen.askExternal": "Your connected AI uses the transcript in Call Help.",
   "meetings.screen.choose": "Choose window…",
   "meetings.screen.decline": "Not this time",
@@ -7681,7 +7699,6 @@ export const en = {
   "meetings.views.label": "Meeting views",
   "meetings.views.notes": "Notes",
   "meetings.views.transcript": "Transcript",
-  "meetings.views.switch": "Switch views (outside a table: {keys})",
   "meetings.views.mine": "My notes",
   "meetings.views.showNotes": "Show notes",
   "meetings.views.showMine": "Show my notes",
@@ -7716,6 +7733,8 @@ export const en = {
   "meetings.fill.problem.notAllowed":
     "sending to {service} isn’t allowed yet: allow it by asking a Question, then Try again",
   "meetings.fill.problem.noModel": "choose an AI model first",
+  "meetings.fill.problem.agentUnreached":
+    "{agent} wasn’t given this note. Change what it reads in Settings › AI, or choose an AI model",
   "meetings.fill.problem.modelRemoved":
     "this note’s model was removed. Choose another in the assistant, then Try again",
   "meetings.fill.problem.alone": "{reason}.",
@@ -7807,7 +7826,6 @@ export const en = {
   "meetings.audio.keepAudio": "Keep audio",
   "meetings.audio.keptLine": "Keeping this meeting’s audio",
   "meetings.audio.deletedOn": "Audio deleted on {date}",
-  "meetings.audio.deleteNow": "Delete now",
   "meetings.audio.confirm": "Delete this meeting’s audio for good? The note stays.",
   "meetings.audio.deleteConfirm": "Delete audio",
   "meetings.audio.keep": "Keep it",
@@ -8023,6 +8041,7 @@ export const en = {
   "meetings.command.resumePlayback": "Play the meeting audio",
   "meetings.command.noPlayback": "Click a word in the transcript to play its audio",
   "meetings.command.noAudio": "This meeting’s audio was deleted",
+  "meetings.command.lineAudioDeleted": "This line’s audio was deleted",
   "meetings.command.playAfterStop": "The audio plays once the transcript is saved",
   "meetings.review.open": "Review speakers…",
   "meetings.review.title": "Review speakers",
@@ -8777,7 +8796,7 @@ export const en = {
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.flow.hosted-agents": "Your AI, run in the background",
   "consent.flow.hosted-agents.purpose":
-    "start your own AI on this computer when you press Check or ask at the bottom of a note",
+    "start your own AI on this computer when you press Check, ask in a note, or ask call help",
   "consent.flow.agent-install": "Install Claude Code",
   "consent.flow.agent-install.purpose":
     "download and install Claude Code from Anthropic into your user folder",
@@ -9044,10 +9063,12 @@ export const en = {
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
-  "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.firstAdd":
+    "¶+ adds after the change before it: name a paragraph first, or write at the top of the note, as into an empty one, with ¶0+.",
   "agents.propose.firstWaiting":
     "The first paragraphs are already waiting for review. Let the user review them before proposing more.",
-  "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
+  "agents.propose.noParagraphs":
+    "{name} isn’t in the note: it has no paragraphs to name. Write into it with ¶0+.",
   "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
   "agents.propose.outOfRange.titled":
     "{name} isn’t in the note: ¶0 is its title, and its paragraphs are ¶1 to ¶{count}.",
@@ -9507,6 +9528,15 @@ export const en = {
   "noteAsk.doing.search.any": "Searching your Documents",
   "noteAsk.doing.propose_changes.any": "Writing the change",
   "noteAsk.doing.create_mind.any": "Writing a new note",
+  "noteAsk.doing.own.command": "Running a command",
+  "noteAsk.doing.own.write": "Writing a file",
+  "noteAsk.doing.own.change": "Changing a file",
+  "noteAsk.doing.own.read": "Reading a file",
+  "noteAsk.doing.own.web": "Opening a web page",
+  "noteAsk.doing.own.search": "Searching the web",
+  "noteAsk.doing.own.tool": "Using a tool",
+  "noteAsk.doing.own.skill": "Using a skill",
+  "noteAsk.showInNotes": "Show in notes",
   "noteAsk.doing.save_as_word.any": "Making a Word file",
   "noteAsk.doing.read_passages.counted": "Reading “{summary}” · {count} read",
   "noteAsk.done.held.one": "1 change waits for you in this note.",
@@ -9737,7 +9767,7 @@ export const en = {
   "meetings.help.agent.used": "{agent} · Recent meeting transcript",
   "meetings.help.agent.setting": "AI for Call Help",
   "meetings.help.agent.disclosure":
-    "Choosing Claude Code or Codex lets it receive your question and relevant confirmed speech from the last ten minutes of this transcript when you ask. Share the meeting folder with it first.",
+    "Choosing Claude Code or Codex lets it receive your question, relevant confirmed speech from the last ten minutes of this transcript and the words still being transcribed when you ask. Share the meeting folder with it first.",
   "meetings.help.agent.builtin": "Use the app’s answer model",
   "meetings.help.agent.missing": "Selected AI unavailable",
   "error.meeting.callHelpAgentDenied":

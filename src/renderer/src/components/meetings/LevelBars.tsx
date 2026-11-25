@@ -19,6 +19,10 @@ const MICROPHONE_PROBLEMS: Partial<Record<MeetingSourceState, MessageKey>> = {
   ended: "meetings.line.microphoneEnded",
 };
 
+/** The level's name: what the microphone's problem is, or the sound level. */
+export const levelName = (meeting: Meeting): MessageKey =>
+  MICROPHONE_PROBLEMS[meeting.sources.microphone] ?? "meetings.level.label";
+
 /**
  * Small level bars that move with the voices while a Meeting records: the one thing that
  * moves, so the User knows they're heard, as voice input's meter does. With reduced motion they

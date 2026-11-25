@@ -1,20 +1,21 @@
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import {
-  closeFirstFillPopover,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   firstTranscriptLine,
   focusSettled,
   launchApp,
+  openMeetingSheet,
   panelOf,
   pointAndClick,
   pressHeldKeys,
   recordMeeting,
   removeDataFolder,
+  runCommand,
   setMeetingKeys,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 
 /**
@@ -62,7 +63,7 @@ async function recording() {
   await dismissChatSetup(window);
   await setMeetingKeys(window);
   await connectLocalChatModel(window);
-  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+  const control = await recordMeeting(window);
   await firstTranscriptLine(window);
   const panel = await panelOf(app);
   // The field starts in Ask: these tests are of a note.
@@ -71,7 +72,7 @@ async function recording() {
   await expect(panel.getByTestId("field-mode-note")).toBeChecked();
   const meetingApp = await openMeetingApp(app);
   await expect.poll(() => meetingAppFocused(app, meetingApp)).toBe(true);
-  return { app, window, bar, panel, meetingApp };
+  return { app, window, control, panel, meetingApp };
 }
 
 /** Where the keyboard is, as the system tells the windows: the panel's, and whether it may take it. */
@@ -277,9 +278,10 @@ test('quick note: "/su" lists Sum up so far first and Enter asks it; Esc closes 
 
 test("quick note: while the meeting is paused, the line goes in with no time and the field says only that it went in", async () => {
   test.setTimeout(90_000);
-  const { app, window, bar, panel } = await recording();
-  await pointAndClick(window, bar.getByTestId("meeting-pause"));
-  await expect(bar).toHaveAttribute("data-status", "paused");
+  const { app, window, control, panel } = await recording();
+  const sheet = await openMeetingSheet(window);
+  await pointAndClick(window, sheet.getByTestId("meeting-sheet-pause"));
+  await expect(control).toHaveAttribute("data-status", "paused");
   const field = fieldOf(panel);
   await pointAndClick(panel, field);
   await panel.keyboard.type("Side chat about the venue");
@@ -291,7 +293,7 @@ test("quick note: while the meeting is paused, the line goes in with no time and
 
 test("quick note: with the Note open and typed in, a quick note lands at the end, neither is lost, ⌘Z in the Note takes back only what was typed there, and after Stop My notes lists the quick note", async () => {
   test.setTimeout(120_000);
-  const { app, window, bar, panel } = await recording();
+  const { app, window, panel } = await recording();
   const editor = window.getByTestId("mind-editor");
   await window.bringToFront();
   await pointAndClick(window, editor);
@@ -319,12 +321,9 @@ test("quick note: with the Note open and typed in, a quick note lands at the end
     .poll(async () => (await noteLines(window)).map(([text]) => text))
     .toEqual(["Quick from the panel"]);
 
-  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+  await stopMeeting(window);
   await expect(window.getByTestId("meeting-fill-line")).toBeVisible({ timeout: 30_000 });
-  await closeFirstFillPopover(window);
-  const chip = window.getByTestId("meeting-view-chip");
-  await pointAndClick(window, chip);
-  await pointAndClick(window, window.getByTestId("meeting-view-mine"));
+  await runCommand(window, "meeting.showMyNotes", "Show my notes");
   // The empty line the cursor stays in shows too, as My notes keeps the cursor's line.
   await expect(editor.locator(":is(p, h1, h2, h3):visible").filter({ hasText: /\S/ })).toHaveText([
     "Quick from the panel",
@@ -334,7 +333,7 @@ test("quick note: with the Note open and typed in, a quick note lands at the end
 
 test("quick note: a line left in the field stays across a collapse, and Stop puts it in the Note with the time typing began", async () => {
   test.setTimeout(90_000);
-  const { app, window, bar, panel } = await recording();
+  const { app, window, panel } = await recording();
   const field = fieldOf(panel);
   await pointAndClick(panel, field);
   await panel.keyboard.type("Send the contract Friday");
@@ -342,7 +341,7 @@ test("quick note: a line left in the field stays across a collapse, and Stop put
   await pointAndClick(panel, panel.getByTestId("panel-expand"));
   await expect(field).toHaveValue("Send the contract Friday");
 
-  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+  await stopMeeting(window);
 
   await expect
     .poll(() => noteLines(window))
@@ -352,7 +351,7 @@ test("quick note: a line left in the field stays across a collapse, and Stop put
 
 test('quick note: closing the panel with a line in the field puts it in the Note, in Chinese too; a "/" search left there adds nothing', async () => {
   test.setTimeout(90_000);
-  const { app, window, bar, panel } = await recording();
+  const { app, window, panel } = await recording();
   await pointAndClick(panel, fieldOf(panel));
   await panel.keyboard.insertText("问一下上线时间");
   await pointAndClick(panel, panel.getByTestId("panel-close"));
@@ -368,7 +367,7 @@ test('quick note: closing the panel with a line in the field puts it in the Note
   await expect(again.getByTestId("field-mode-note")).toBeChecked();
   await pointAndClick(again, fieldOf(again));
   await again.keyboard.type("/su");
-  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+  await stopMeeting(window);
   await expect.poll(() => again.isClosed()).toBe(true);
   expect((await noteLines(window)).map(([text]) => text)).not.toContain("/su");
   await app.close();

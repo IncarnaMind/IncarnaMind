@@ -10,7 +10,7 @@ import {
   useMeetingNoteViews,
 } from "../../src/renderer/src/meetingViews";
 
-beforeEach(() => useMeetingNoteViews.setState({ views: {}, focus: null, details: null }));
+beforeEach(() => useMeetingNoteViews.setState({ views: {}, focus: null }));
 
 test("each Note tab starts with its notes", () => {
   expect(meetingNoteViewFor("tab", "note")).toBe("notes");

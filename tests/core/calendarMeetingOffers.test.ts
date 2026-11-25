@@ -5,6 +5,7 @@ import { createFakeSystemCalendar } from "../../src/core/calendars/fakeSystem";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { createMeetingOffers } from "../../src/core/meetings/offers";
 import { createFakeCallWatcher } from "../../src/main/calls/fakeWatcher";
+import { createFileLoginItem } from "../../src/main/loginItem";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 
 const now = Date.parse("2026-10-06T09:00:00Z");
@@ -35,7 +36,15 @@ function event(id: string, extra: Partial<SystemCalendarEvent> = {}): SystemCale
   };
 }
 
-async function setup(events: SystemCalendarEvent[], enabled = true) {
+/**
+ * `first`: the device's first recording, set as made (`made`), made by hand (`by-hand`), or not
+ * made yet (`none`).
+ */
+async function setup(
+  events: SystemCalendarEvent[],
+  enabled = true,
+  first: "made" | "by-hand" | "none" = "made",
+) {
   const clock = manualClock(iso(0));
   const system = createFakeSystemCalendar({
     access: "allowed",
@@ -52,12 +61,21 @@ async function setup(events: SystemCalendarEvent[], enabled = true) {
       systemCalendar: system,
       callWatcher: calls,
       browser: { open },
+      loginItem: createFileLoginItem(dataDir),
     });
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const core = reopen();
   await vi.advanceTimersByTimeAsync(0);
+  if (first === "by-hand") {
+    const byHand = await core.createMeeting();
+    await core.startMeeting({ meetingId: byHand.id });
+    await core.stopMeeting(byHand.id);
+  }
   await core.updateSettings({
-    device: { meetingNoticeAccepted: true, callOffers: true, calendarOffers: enabled },
+    device: {
+      calendarOffers: enabled,
+      ...(first === "made" && { meetingNoticeAccepted: true, callOffers: true }),
+    },
   });
   const account = await core.connectCalendar("mac");
   const advance = (ms: number) => {
@@ -145,6 +163,39 @@ describe("Scheduled offers to take notes", () => {
     advance(start - lead);
     expect((await core.getMeetingOffers()).offer).toBeNull();
     expect(open).not.toHaveBeenCalled();
+  });
+
+  // protects=with no recording notice to read, a calendar reminder taken after a first recording records at once in the invite's Note and opens its link, refusing nothing and turning nothing else on: no setting changes and the login item stays as it was (#3762); fails_when=the reminder's Take notes is refused for a notice, or turns on keeping running, calls or opening at login
+  test("after a first recording, a reminder taken records at once and turns nothing else on", async () => {
+    const group = event("Planning");
+    const { core, advance, open } = await setup([group], true, "by-hand");
+    const before = await core.getSettings();
+    expect(before.device).toMatchObject({ meetingNoticeAccepted: true, calendarOffers: true });
+    const loginBefore = await core.getOpenAtLogin();
+    expect(loginBefore.supported).toBe(true);
+    advance(start - lead);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (offer?.kind !== "calendar") throw new Error("Missing reminder.");
+    const meeting = await core.takeMeetingOffer(offer.id);
+    expect(meeting).toMatchObject({ status: "recording", kind: "meeting" });
+    expect(open).toHaveBeenCalledExactlyOnceWith(group.url);
+    expect(await core.getSettings()).toEqual(before);
+    expect(await core.getOpenAtLogin()).toEqual(loginBefore);
+  });
+
+  // protects=a calendar reminder shows before the device's first recording and Take notes records it at once in the invite's Note, with no notice to wait for (#3758, #3762); fails_when=a reminder waits for a first recording, or its Take notes is refused before one
+  test("before a first recording, a reminder still shows, and taken it records at once", async () => {
+    const group = event("Planning");
+    const { core, advance, open } = await setup([group], true, "none");
+    expect((await core.getSettings()).device.meetingNoticeAccepted).toBe(false);
+    advance(start - lead);
+    const offer = (await core.getMeetingOffers()).offer;
+    if (offer?.kind !== "calendar") throw new Error("Missing reminder.");
+    const meeting = await core.takeMeetingOffer(offer.id);
+    expect(meeting).toMatchObject({ status: "recording", kind: "meeting" });
+    expect(await core.getNoteEvent(meeting.mindId)).toMatchObject({ title: group.title });
+    expect(open).toHaveBeenCalledExactlyOnceWith(group.url);
+    expect((await core.getSettings()).device.meetingNoticeAccepted).toBe(true);
   });
 
   test("an in-person invitation opens and records without opening a browser", async () => {

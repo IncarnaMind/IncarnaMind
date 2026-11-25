@@ -3,17 +3,19 @@ import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import {
-  closeFirstFillPopover,
+  closeSettings,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
+  openMeetingSheet,
+  openSettings,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  startRecording,
+  stopMeeting,
   turnOf,
   useLocalChatModel,
 } from "./app";
@@ -134,14 +136,28 @@ for (const language of ["en", "zh-CN"] as const) {
       await recordOnClose(app, window, `transcript-turns-${language}`);
       await dismissChatSetup(window);
       await useLocalChatModel(window);
-      await setLanguage(window, language);
 
-      // In a room, one microphone: whoever speaks is "Speaker ?" until the User says who.
-      const start = await recordMeeting(window);
-      await start.getByTestId("meeting-start-audio").selectOption("me");
-      const bar = await startRecording(window, start, { notice: true });
-      await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-      const transcript = window.getByTestId("meeting-note-transcript");
+      // In a room, one microphone, as Settings › Meetings records: whoever speaks is "Speaker ?"
+      // until the User says who.
+      const settings = await openSettings(window, "meetings");
+      await settings.getByTestId("meetings-what").selectOption("me");
+      await expect
+        .poll(() =>
+          window.evaluate(
+            async () =>
+              (
+                await (
+                  globalThis as unknown as { incarnamind: CoreBridge }
+                ).incarnamind.getSettings()
+              ).device.meetingSystemAudio,
+          ),
+        )
+        .toBe(false);
+      await closeSettings(window);
+      await setLanguage(window, language);
+      await recordMeeting(window);
+      expect((await meetingsOf(window))[0]?.systemAudio).toBe(false);
+      const transcript = await openMeetingSheet(window);
       const turns = transcript.getByTestId("transcript-turn");
       const lines = transcript.getByTestId("transcript-line");
       await expect(lines.nth(2)).toBeVisible({ timeout: 30_000 });
@@ -159,12 +175,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(turns.first().getByTestId("transcript-speaker")).toHaveText(words.speaker);
       await shot(window, `turns-live-${language}-1440`);
 
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
+      await stopMeeting(window);
       await expect
         .poll(async () => (await meetingsOf(window))[0]?.fill?.state, { timeout: 60_000 })
         .toBe("filled");
-      await closeFirstFillPopover(window);
-      // The page stays on the Transcript the User was reading.
+      // The sheet stays on the Transcript the User was reading.
+      await expect(transcript).toBeVisible();
       await expect(lines.first()).toBeVisible();
 
       // Stop can land inside a sentence. Only a break between paragraphs needs a sentence end.

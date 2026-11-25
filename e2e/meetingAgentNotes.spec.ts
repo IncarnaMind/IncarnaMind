@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { AgentLaunch, CoreBridge } from "../src/core/api";
 import {
   acceptPlainTextKeys,
@@ -13,13 +13,15 @@ import {
   dismissChatSetup,
   firstTranscriptLine,
   launchApp,
+  openMeetingSheet,
+  openPageMenu,
   openSettings,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 import { callTool, connectCanvasAgent } from "./canvases";
 
@@ -35,7 +37,16 @@ async function requestRead(launch: AgentLaunch): Promise<string> {
   }
 }
 
-// protects=a saved meeting hands a request to the chosen AI only after the User shares its folder and presses the action; fails_when=Stop sends the request, moving the Note leaves the action unavailable, or the request names the wrong transcript
+/** The Note in view moves into `folder`, from its page's ⋯ › Move to…, as a person shares it. */
+async function moveNoteInto(window: Page, folder: string): Promise<void> {
+  const menu = await openPageMenu(window);
+  await pointAndClick(window, menu.getByTestId("mind.moveTo"));
+  const picker = window.getByTestId("move-to-picker");
+  await pointAndClick(window, picker.getByRole("option", { name: folder }));
+  await expect(picker).toBeHidden();
+}
+
+// protects=a saved meeting hands a request to the chosen AI only after the User shares its folder and presses Write notes (#3762); fails_when=Stop sends the request, Write notes sends to an AI that can't read the Note, moving the Note leaves Write notes unable to send, or the request names the wrong transcript
 for (const language of ["en", "zh-CN"] as const) {
   test(`after Stop, move the meeting into a shared folder and prepare notes in the chosen AI (${language})`, async () => {
     const dir = await createDataFolder();
@@ -62,7 +73,7 @@ for (const language of ["en", "zh-CN"] as const) {
       const settings = await openSettings(window, "meetings");
       await settings.getByLabel("AI for meeting notes").selectOption(ids.agent);
       await closeSettings(window);
-      const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+      await recordMeeting(window);
       await (await coreOf(window)).evaluate(async (core) => {
         const meeting = (await core.listMeetings()).find((item) => item.status === "recording");
         const template = (await core.listSkills()).find((skill) => skill.name === "meeting-sales");
@@ -74,47 +85,48 @@ for (const language of ["en", "zh-CN"] as const) {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         await bridge.updateSettings({ user: { language: lang } });
       }, language);
-      const transcript = window.getByTestId("meeting-note-transcript");
-      if (language === "en")
-        await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-      await pointAndClick(
-        window,
-        (language === "en" ? transcript : bar).getByTestId("meeting-stop"),
-      );
-      const unavailable = window.getByTestId("meeting-agent-unavailable");
-      await expect(unavailable).toContainText("VS Code", { timeout: 30000 });
+      // Stopped with the Transcript sheet up, or from the notes: Stop is the control's either way.
+      const sheet = window.getByTestId("meeting-sheet");
+      if (language === "en") await openMeetingSheet(window);
+      await stopMeeting(window);
+      const write = window.getByTestId("meeting-write-notes");
+      await expect(write).toHaveText(language === "en" ? "Write notes" : "整理笔记", {
+        timeout: 30000,
+      });
       expect(await copied(window)).toBe("");
+      if (language === "en") await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+      await expect(sheet).toHaveCount(0);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           animations: "disabled",
           path: join(process.env.INCARNAMIND_SCREENSHOTS, `meeting-before-sharing-${language}.png`),
         });
-      await unavailable.getByRole("button").click();
-      await window.getByTestId("move-to-picker").getByRole("option", { name: "Shipping" }).click();
-      await expect(window.getByTestId("move-to-picker")).toBeHidden();
-      const action = window.getByTestId("meeting-agent-notes").getByRole("button");
-      await expect(action).toHaveText(
-        language === "en" ? "Prepare notes with VS Code" : "用 VS Code 整理会议笔记",
-      );
+      // VS Code can't read the Note yet: nothing goes to it, and the window says why.
+      await pointAndClick(window, write);
+      await expect(write).toBeVisible();
+      await expect(window.getByRole("alert").filter({ hasText: "VS Code" })).toBeVisible();
+      expect(await copied(window)).toBe("");
+      await moveNoteInto(window, "Shipping");
       expect(await copied(window)).toBe("");
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           animations: "disabled",
           path: join(process.env.INCARNAMIND_SCREENSHOTS, `meeting-agent-${language}.png`),
         });
-      await action.focus();
+      await write.focus();
       await window.keyboard.press("Enter");
       const line =
         language === "en"
           ? "First read the request I left in IncarnaMind"
           : "先读取我留在 IncarnaMind 里的请求";
       await expect.poll(() => copied(window)).toContain(line);
+      await expect(write).toHaveCount(0);
       const meeting = await window.evaluate(async () => {
         const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         return (await bridge.listMeetings())[0];
       });
       expect(meeting?.fill).toMatchObject({ state: "own-ai", agentId: ids.agent });
-      await expect(transcript).toBeHidden();
+      await expect(sheet).toHaveCount(0);
       const firstRequest = await copied(window);
       expect(firstRequest).not.toContain(meeting?.mindId);
       const request = await requestRead(ids.launch);
@@ -122,30 +134,13 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(request).toContain(meeting?.transcript?.documentId);
       expect(request).toContain("Pricing and terms discussed");
       expect(request).toContain("谈到的价格和条款");
-      const workAi = await window.evaluate(async ({ agent, group }) => {
-        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-        await bridge.disconnectAgent(agent);
-        const { launch } = await bridge.connectAgent({
-          name: "Work AI",
-          client: "vscode",
-          folderIds: [group],
-          propose: true,
-        });
-        return launch;
-      }, ids);
-      const reconnected = window
-        .getByTestId("meeting-agent-unavailable")
-        .getByRole("button", { name: /Work AI/ });
-      await expect(reconnected).toBeVisible();
-      expect(await copied(window)).toBe(firstRequest);
-      await reconnected.click();
-      await expect.poll(() => requestRead(workAi)).toContain("¶0+");
     } finally {
       await removeDataFolder(dir);
       await removeDataFolder(home);
     }
   });
-  test(`accepting cited notes clears the handoff in Notes and keeps it in the Transcript (${language})`, async () => {
+  // protects=Write notes hands the saved meeting to the User's own AI, and once its cited notes are accepted the Note offers no Write notes again, open or opened later (#3762); fails_when=the request isn't handed over, the accepted notes lose their Citation, or Write notes comes back on the Note
+  test(`accepting cited notes from Write notes leaves no Write notes on the Note (${language})`, async () => {
     const dir = await createDataFolder();
     const home = await createDataFolder();
     const { app, window } = await launchApp(dir, { home });
@@ -156,7 +151,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await catchCopies(window);
       agent = await connectCanvasAgent(window);
       const bridge = await coreOf(window);
-      const start = await recordMeeting(window);
+      await bridge.evaluate(async (core) => {
+        const [pairing] = await core.listAgentsToAsk(null);
+        if (!pairing) throw new Error("The meeting needs a connected AI");
+        await core.updateSettings({ device: { meetingNotesAgentId: pairing.id } });
+      });
+      await recordMeeting(window);
       await bridge.evaluate(async (core) => {
         const [pairing] = await core.listAgentsToAsk(null);
         const [meeting] = await core.listMeetings();
@@ -164,15 +164,14 @@ for (const language of ["en", "zh-CN"] as const) {
         const folder = await core.createLibraryGroup({ name: "Shared meetings", description: "" });
         await core.updateAgent(pairing.id, { folderIds: [folder.id] });
         await core.moveToFolder({ mindIds: [meeting.mindId], folderId: folder.id });
-        await core.updateSettings({ device: { meetingNotesAgentId: pairing.id } });
       });
-      const bar = await startRecording(window, start, { notice: true });
       await firstTranscriptLine(window);
       await setLanguage(window, language);
-      await pointAndClick(window, bar.getByTestId("meeting-stop"));
-      const action = window.getByTestId("meeting-agent-notes").getByRole("button");
-      await expect(action).toBeVisible();
-      await action.click();
+      await stopMeeting(window);
+      const action = window.getByTestId("meeting-write-notes");
+      await expect(action).toBeVisible({ timeout: 30000 });
+      await pointAndClick(window, action);
+      await expect(action).toHaveCount(0);
       await callTool(agent, "read_request", {});
       const [meeting] = await bridge.evaluate((core) => core.listMeetings());
       if (!meeting?.transcript?.documentId) throw new Error("The meeting needs a saved Transcript");
@@ -198,22 +197,26 @@ for (const language of ["en", "zh-CN"] as const) {
         version,
         changes: [{ paragraph: "¶0+", text: `${quote} ${cite}` }],
       });
-      await expect(action).toBeVisible();
       await pointAndClick(window, window.getByTestId("proposals-accept-all"));
       await expect(window.getByTestId("mind-editor").getByTestId("citation")).toBeVisible();
-      await expect(action).toBeHidden();
+      await expect(action).toHaveCount(0);
       if (process.env.INCARNAMIND_SCREENSHOTS)
         await window.screenshot({
           animations: "disabled",
           path: join(process.env.INCARNAMIND_SCREENSHOTS, `meeting-accepted-${language}.png`),
         });
-      await pointAndClick(window, window.getByTestId("meeting-view-chip"));
+      // Opened again later, the Note with its accepted notes doesn't offer Write notes again.
+      const tab = window.getByTestId("mind-tab").first();
+      await tab.hover();
+      await pointAndClick(window, tab.getByTestId("tab-close"));
+      await expect(window.getByTestId("mind-editor")).toHaveCount(0);
       await pointAndClick(
         window,
-        window.getByTestId("meeting-view-menu").getByTestId("meeting-view-transcript"),
+        window.locator(`[data-testid="mind-row"][data-mind-id="${meeting.mindId}"]`).first(),
       );
-      const transcript = window.getByTestId("meeting-note-transcript");
-      await expect(transcript.getByRole("button", { name: /Claude Code/ })).toBeVisible();
+      await expect(window.getByTestId("mind-editor").getByTestId("citation")).toBeVisible();
+      await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "stopped");
+      await expect(action).toHaveCount(0);
     } finally {
       await agent?.close();
       await removeDataFolder(dir);
@@ -254,14 +257,14 @@ for (const transcriptFails of [false, true]) {
         await settings.getByLabel("AI for meeting notes").selectOption(agent);
         await settings.getByTestId("meeting-summary-route").selectOption(agent);
         await closeSettings(window);
-        const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+        await recordMeeting(window);
         if (transcriptFails)
           await expect(window.getByTestId("meeting-transcript-line")).toContainText(
             "Transcription stopped",
             { timeout: 30_000 },
           );
         else await firstTranscriptLine(window);
-        await pointAndClick(window, bar.getByTestId("meeting-stop"));
+        await stopMeeting(window);
         const problem = window.getByTestId("meeting-summary-problem");
         if (transcriptFails) {
           await expect(problem).toContainText("A saved transcript is needed");
@@ -275,11 +278,7 @@ for (const transcriptFails of [false, true]) {
         await expect(settings).toHaveAttribute("data-page", "ai");
         await expect(settings.getByTestId("agents-settings")).toBeInViewport();
         await closeSettings(window);
-        await window.getByTestId("meeting-agent-unavailable").getByRole("button").click();
-        await window
-          .getByTestId("move-to-picker")
-          .getByRole("option", { name: "Shared meetings" })
-          .click();
+        await moveNoteInto(window, "Shared meetings");
         await expect(problem.getByTestId("meeting-summary-retry")).toBeEnabled();
         await bridge.evaluate((core) =>
           core.updateSettings({ device: { meetingSummaryRoute: null } }),

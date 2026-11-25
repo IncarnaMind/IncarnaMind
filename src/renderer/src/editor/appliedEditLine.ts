@@ -113,6 +113,8 @@ export type AppliedLine = (
       kept: KeptLine | null;
       /** The parts a selection too long for the model was edited in (#2348). Absent: one. */
       parts?: number;
+      /** The turn whose changes these are, an Answer or a request at the Note's foot. */
+      turn?: string;
     }
   | {
       kind: "review";
@@ -124,6 +126,8 @@ export type AppliedLine = (
       shown?: readonly string[];
       /** Still shown: not restored since, and the edit not undone. */
       shows?(change: AppliedChange): boolean;
+      /** The turn whose changes it reviews, as its applied line had it. */
+      turn?: string;
     }
   | {
       kind: "held";
@@ -720,6 +724,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       parts,
     );
     if (line.reason) element.title = t("proposal.why", { reason: line.reason });
+    if (line.turn) element.dataset.turn = line.turn;
     return element;
   }
   if (line.kind === "review") {
@@ -728,7 +733,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       undo.setAttribute("aria-disabled", "true");
       undo.title = t("mindChanges.undo.changedSince.noReview", { mind: line.undo.mind });
     }
-    return lineElement("applied-line", "applied-line", [
+    const element = lineElement("applied-line", "applied-line", [
       sparkle(),
       text(
         "applied-count min-w-0 font-semibold",
@@ -740,6 +745,8 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
       dot(),
       button("done", t("edit.review.done")),
     ]);
+    if (line.turn) element.dataset.turn = line.turn;
+    return element;
   }
   return lineElement("applied-line", "applied-line", [
     sparkle(),

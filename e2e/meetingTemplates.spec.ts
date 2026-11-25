@@ -2,7 +2,6 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import {
-  closeFirstFillPopover,
   coreOf,
   createDataFolder,
   dismissChatSetup,
@@ -10,22 +9,23 @@ import {
   firstTranscriptLine,
   launchApp,
   motionSettled,
+  openMeetingSheet,
+  pointAndClick,
   recordMeeting,
   removeDataFolder,
   useLocalChatModel as selectLocalChatModel,
   setLanguage,
   setWindowSize,
-  startRecording,
+  stopMeeting,
 } from "./app";
 
 const COPY = {
   en: {
     first: "Customer priorities",
     second: "Open commitments",
-    again: "Fill in again",
     width: 1440,
   },
-  "zh-CN": { first: "客户重点", second: "未完承诺", again: "重新补全", width: 900 },
+  "zh-CN": { first: "客户重点", second: "未完承诺", width: 900 },
 } as const;
 
 async function shot(window: Page, name: string): Promise<void> {
@@ -64,32 +64,35 @@ for (const language of ["en", "zh-CN"] as const) {
         return [first.skill.id, second.skill.id];
       }, words);
       await film(window, async () => {
-        const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-        const template = bar.getByTestId("meeting-writeup-template");
-        if (await template.isVisible()) await template.click();
-        else await bar.getByTestId("meeting-more").click();
-        await expect(window.getByTestId("meeting-writeup-fixture-first")).toBeVisible();
+        await recordMeeting(window);
+        // While it records, the template is one of the Transcript sheet's ⋯ rows (#3762).
+        const sheet = await openMeetingSheet(window);
+        await pointAndClick(window, sheet.getByTestId("meeting-sheet-more"));
+        const first = window.getByTestId("meeting-writeup-fixture-first");
+        await expect(first).toBeVisible();
+        await expect(window.getByTestId("meeting-writeup-default")).toHaveAttribute(
+          "aria-checked",
+          "true",
+        );
+        // Fill in again is for a saved Note only.
+        await expect(window.getByTestId("meeting-writeup-again")).toHaveCount(0);
         await shot(window, `meeting-template-live-${language}`);
-        await window.getByTestId("meeting-writeup-fixture-first").click();
+        await pointAndClick(window, first);
+        await expect(first).toBeHidden();
+        const selected = () =>
+          bridge.evaluate(async (core) => (await core.listMeetings())[0]?.writeupTemplateId);
+        await expect.poll(selected).toBe(ids[0]);
+        await pointAndClick(window, sheet.getByTestId("meeting-sheet-hide"));
+        await expect(sheet).toBeHidden();
 
         const editor = window.getByTestId("mind-editor");
         await expect(editor.locator("h2")).toHaveCount(0);
         await firstTranscriptLine(window);
-        await bar.getByTestId("meeting-stop").click();
+        await stopMeeting(window);
         await expect(editor.locator("h2")).toHaveText([words.first], { timeout: 30_000 });
         await expect(editor.getByTestId("citation")).toHaveCount(1);
-        await closeFirstFillPopover(window);
-
-        await window.getByTestId("meeting-view-chip").click();
-        await window.getByTestId("meeting-writeup-saved").click();
-        await expect(window.getByTestId("meeting-writeup-fixture-first")).toHaveAttribute(
-          "aria-checked",
-          "true",
-        );
-        await expect(window.getByTestId("meeting-writeup-again")).toHaveText(words.again);
+        await expect.poll(selected).toBe(ids[0]);
         await shot(window, `meeting-template-saved-${language}`);
-        await window.keyboard.press("Escape");
-        await expect(window.getByTestId("meeting-view-menu")).toBeHidden();
 
         await editor.locator(":scope > p[data-id]").last().click();
         await window.keyboard.type("/fixture-second");
@@ -98,9 +101,6 @@ for (const language of ["en", "zh-CN"] as const) {
         await option.click();
         await expect(editor.locator("h2")).toHaveText([words.second], { timeout: 30_000 });
         await expect(editor.getByTestId("citation")).toHaveCount(1);
-
-        const selected = () =>
-          bridge.evaluate(async (core) => (await core.listMeetings())[0]?.writeupTemplateId);
         await expect.poll(selected).toBe(ids[1]);
         await editor.focus();
         await window.keyboard.press("ControlOrMeta+z");

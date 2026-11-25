@@ -426,7 +426,8 @@ export function meetingInstructions(listening: boolean, unmarked = false, screen
       : [
           '- A Transcript Passage marked call="this" is this call\'s: say they or you said something only from call="this" lines. A Transcript Passage marked call="earlier" is another call, named by its note and started: nothing in it was said in this call. Give its line only as said in that call, saying in the sentence itself who said it and when (the day that call started, or its time when it started the same day as this one), as in "When we spoke on Monday, you said …", and cite it; a sentence that can\'t say so leaves the line out.',
         ]),
-    '- "Just now", "the last few minutes" and "what was just said" mean its newest Passages.',
+    '- After it, a <live-transcript final="no"> may hold the words still being transcribed as they asked, each with its time and mark: on their screen, but not final and with no id, so never cite them. Answer a Question about what was just said from them too, saying they may still change, and cite only the Passages.',
+    '- "Just now", "the last few minutes" and "what was just said" mean its newest Passages, and the words still being transcribed after them.',
     "- Search the User's Documents too when the Question needs them, for instance to check what was said against them.",
   ]
     .filter(Boolean)
@@ -441,6 +442,7 @@ export function meetingInstructions(listening: boolean, unmarked = false, screen
 export const CALL_SCOPE_NOTE = [
   "<call>",
   "The live transcript above is what was said in this call. An earlier reply is not part of the call: it is there for follow-ups about it.",
+  "The call has gone on since that reply, so the transcript above may hold more than it did: answer from the transcript as it is now, not by repeating the earlier reply.",
   "When a recap or summary of the call is asked and <live-transcript> is empty, say there is no call content yet rather than summarizing Library Documents or the earlier reply.",
   "A recap or summary of the call is what was said in it: a short list, each line citing the live-transcript passage it rests on, plus the written notes when the Question asks for them.",
   "A recap has no heading or closing line, and adds no unrequested suggestion, question to ask, or topic still to cover.",

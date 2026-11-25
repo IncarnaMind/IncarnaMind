@@ -14,7 +14,7 @@ const meetingWith = (
   {
     transcribed = true,
     saveError = null,
-  }: { transcribed?: boolean; saveError?: string | null } = {},
+  }: { transcribed?: boolean; saveError?: Meeting["saveError"] } = {},
 ): Meeting =>
   ({
     id: "m1",
@@ -104,7 +104,7 @@ describe("A Meeting's recording details", () => {
     const meeting = meetingWith({ events: EVENTS });
     // The microphone's 20 s and the computer's sound's 10 s at the same time; a crash and a stall don't count.
     expect(unsavedAudioMs(meeting)).toBe(20_000);
-    expect(unsavedAudioMs(meetingWith({ events: EVENTS }, { saveError: "No space left" }))).toBe(0);
+    expect(unsavedAudioMs(meetingWith({ events: EVENTS }, { saveError: "full" }))).toBe(0);
     expect(en("meetings.health.unsaved", { duration: "20 s" })).toBe(
       "20 s of audio couldn’t be saved, so it’s not transcribed.",
     );

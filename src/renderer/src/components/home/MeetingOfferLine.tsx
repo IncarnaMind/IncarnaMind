@@ -2,7 +2,6 @@ import { meetingAppName } from "../../../../shared/meetingApps";
 import { core } from "../../core";
 import { useGap, useLanguage, useT } from "../../i18n";
 import { useMeetingOffers } from "../../meetingOffers";
-import { useMeetings } from "../../meetings";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
 
@@ -27,7 +26,7 @@ export function MeetingOfferLine() {
         action={{
           label: t("offers.take"),
           testId: calendar ? "calendar-offer-take" : "call-offer-take",
-          onClick: () => void useMeetings.getState().takeOffer(offer.id),
+          onClick: () => void core.takeMeetingOffer(offer.id).catch(report),
         }}
         also={{
           label: app === null ? t("offers.notNow") : t("offers.dontAsk", { app }),

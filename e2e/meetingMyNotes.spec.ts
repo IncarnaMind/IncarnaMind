@@ -3,26 +3,26 @@ import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import {
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   focusSettled,
   launchApp,
   motionSettled,
   pointAndClick,
-  recordMeetingNow,
+  recordMeeting,
   removeDataFolder,
   runCommand,
   setLanguage,
   setWindowSize,
+  stopMeeting,
   useLocalChatModel,
 } from "./app";
 import { encode, film } from "./feel";
 
 /**
  * My notes (#138): after the call, the meeting's page shows only what the User typed, edited in
- * place in the same Note; the fill's lines stay in Notes. Set INCARNAMIND_SCREENSHOTS to keep
- * stills and a film.
+ * place in the same Note; the fill's lines stay in Notes. ⌘K's Show my notes and ⌥⌘←/⌥⌘→ reach
+ * it; no button does (#3762). Set INCARNAMIND_SCREENSHOTS to keep stills and a film.
  */
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 async function shot(window: Page, name: string): Promise<void> {
@@ -55,16 +55,12 @@ const WORDS = {
     lines: ["Launch date", "UK fee"],
     heading: "Action items",
     added: " for Dana",
-    notes: "Notes",
-    mine: "My notes",
     transcript: "Transcript",
     showMine: "Show my notes",
     filled: "Note filled in from the call",
     undo: "Undo",
     empty: "You didn’t type notes in this meeting.",
     fillUndo: "Undo the fill-in from notes",
-    showNotes: "Show notes",
-    recorded: /^Recorded \d+:\d{2}$/,
     find: "launch",
     found: 1,
   },
@@ -72,16 +68,12 @@ const WORDS = {
     lines: ["上线日期", "英国费用"],
     heading: "待办",
     added: "（小王）",
-    notes: "笔记",
-    mine: "我的笔记",
     transcript: "转写稿",
     showMine: "显示我的笔记",
     filled: "已补全笔记",
     undo: "撤销",
     empty: "这次会议你没有记笔记。",
     fillUndo: "请在笔记视图中撤销补全",
-    showNotes: "显示笔记",
-    recorded: /^已录制 \d+:\d{2}$/,
     find: "launch",
     found: 0,
   },
@@ -106,7 +98,7 @@ const meetingsOf = (window: Page): Promise<Meeting[]> =>
 const starts = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=after the call My notes shows exactly the lines the User typed, from the chip, ⌥⌘←/⌥⌘→ and ⌘K; an edit there is the same line in Notes; Select all then Delete leaves the fill in Notes and says nothing was typed, a copy holds only what shows, Find counts only what shows, and ⌘Z doesn't take back the fill from there (#138); fails_when=a fill line shows in My notes, an edit lands elsewhere, a deletion or copy takes the fill's lines, or ⌘Z takes back the fill unseen; no_claim=a real model's fill.
+  // protects=after the call My notes shows exactly the lines the User typed, from ⌘K and ⌥⌘←/⌥⌘→, with no button of its own (#3762); an edit there is the same line in Notes; Select all then Delete leaves the fill in Notes and says nothing was typed, a copy holds only what shows, Find counts only what shows, and ⌘Z doesn't take back the fill from there (#138); fails_when=a fill line shows in My notes, an edit lands elsewhere, a deletion or copy takes the fill's lines, or ⌘Z takes back the fill unseen; no_claim=a real model's fill.
   test(`after the call My notes shows what the User typed and edits it in place (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
@@ -115,12 +107,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await dismissChatSetup(window);
     await useLocalChatModel(window);
     await setLanguage(window, language);
-    await window.evaluate(async () => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-    });
 
-    const bar = await recordMeetingNow(window);
+    await recordMeeting(window);
     const editor = window.getByTestId("mind-editor");
     await pointAndClick(window, editor);
     await focusSettled(window, editor);
@@ -133,31 +121,26 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect
       .poll(async () => (await meetingsOf(window))[0]?.transcript?.lines ?? 0, { timeout: 20_000 })
       .toBeGreaterThanOrEqual(2);
-    await pointAndClick(window, bar.getByTestId("meeting-stop"));
+    await stopMeeting(window);
     const line = window.getByTestId("meeting-fill-line");
     await expect(line).toHaveText(`${words.filled} · ${words.undo}`, {
       timeout: 30_000,
       useInnerText: false,
     });
-    await closeFirstFillPopover(window);
     const overview = editor.locator("p").filter({ hasText: OVERVIEW });
     await expect(overview).toHaveCount(1);
+    const sheet = window.getByTestId("meeting-sheet");
+    const control = window.getByTestId("meeting-foot");
+    // After the call the control is one button, Transcript: My notes has none of its own.
+    await expect(control.getByRole("button")).toHaveText([words.transcript]);
 
-    // From the chip: the views after the call, and My notes shows only what was typed.
-    const chip = window.getByTestId("meeting-view-chip");
-    await pointAndClick(window, chip);
-    const menu = window.getByTestId("meeting-view-menu");
-    await expect(menu.locator('[role="menuitemradio"]')).toHaveText([
-      words.notes,
-      words.mine,
-      words.transcript,
-    ]);
-    await shot(window, `my-notes-chip-${language}-1440`);
-    await pointAndClick(window, menu.getByTestId("meeting-view-mine"));
-    await expect(chip).toHaveText(words.mine);
+    // ⌘K's Show my notes: My notes shows only what was typed.
+    await runCommand(window, "meeting.showMyNotes", words.showMine);
     const shown = editor.locator(":is(p, h1, h2, h3):visible");
     const typed = [...words.lines, words.heading].map(starts);
     await expect(shown).toHaveText(typed);
+    await expect(overview).toBeHidden();
+    await expect(sheet).toBeHidden();
     await expect(line).toHaveCount(0);
     await expect(editor).toBeFocused();
     await shot(window, `my-notes-${language}-1440`);
@@ -168,17 +151,22 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.insertText(words.added);
     await expect(shown.first()).toHaveText(starts(`${words.lines[0]}${words.added}`));
     await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
-    await expect(chip).toHaveText(words.recorded);
-    await expect(editor.locator("p").first()).toHaveText(starts(`${words.lines[0]}${words.added}`));
     await expect(overview).toBeVisible();
+    await expect(editor.locator("p").first()).toHaveText(starts(`${words.lines[0]}${words.added}`));
 
-    // ⌘K reaches My notes, and the keys go Notes, My notes, Transcript.
+    // ⌘K reaches My notes again, and the keys go Notes, My notes, Transcript.
     await runCommand(window, "meeting.showMyNotes", words.showMine);
-    await expect(chip).toHaveText(words.mine);
+    await expect(overview).toBeHidden();
     await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
-    await expect(chip).toHaveText(words.transcript);
+    await expect(sheet).toBeVisible();
+    await expect(control.getByTestId("meeting-foot-transcript")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     await window.keyboard.press("ControlOrMeta+Alt+ArrowLeft");
-    await expect(chip).toHaveText(words.mine);
+    await expect(sheet).toBeHidden();
+    await expect(overview).toBeHidden();
+    await expect(shown).toHaveText([starts(`${words.lines[0]}${words.added}`), ...typed.slice(1)]);
     await expect(editor).toBeFocused();
 
     // Find counts only what shows.
@@ -192,7 +180,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(editor.locator(".find-match")).toHaveCount(words.found + 1);
     await window.keyboard.press("Escape");
     await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
-    await expect(chip).toHaveText(words.mine);
+    await expect(overview).toBeHidden();
+    await expect(sheet).toBeHidden();
 
     // Select all: a copy holds only what shows, and a cut takes out only that.
     await window.evaluate(() => {
@@ -242,12 +231,13 @@ for (const language of ["en", "zh-CN"] as const) {
     await setWindowSize(app, window, 900, 760);
     await shot(window, `my-notes-${language}-900`);
     await pointAndClick(window, window.getByTestId("my-notes-show-notes"));
-    await expect(chip).toHaveText(words.recorded);
     await expect(overview).toBeVisible();
+    await expect(sheet).toBeHidden();
 
     // An input method over a selection across hidden lines writes in the lines that show.
     await window.keyboard.press("ControlOrMeta+Alt+ArrowRight");
-    await expect(chip).toHaveText(words.mine);
+    await expect(overview).toBeHidden();
+    await expect(sheet).toBeHidden();
     await pointAndClick(window, shown.first());
     await window.keyboard.press("ControlOrMeta+a");
     const cdp = await window.context().newCDPSession(window);
