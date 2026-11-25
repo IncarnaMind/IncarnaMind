@@ -72,11 +72,22 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
     stopRecording: (meetingId) => void core.stopMeeting(meetingId).catch(failed("stop")),
     takeOffer: (offerId) => {
       options.showWindow();
-      void core.takeMeetingOffer(offerId).catch((error: unknown) => {
-        if (error instanceof TranslatableError && error.wording?.key === "error.meetingOffer.link")
+      // A window made for the offer opens on Home: the call's Note is shown in front of it.
+      void core.takeMeetingOffer(offerId).then(
+        (meeting) => options.showMeeting(meeting.mindId),
+        (error: unknown) => {
+          failed("takeOffer")(error);
+          const linkFailed =
+            error instanceof TranslatableError && error.wording?.key === "error.meetingOffer.link";
+          if (!linkFailed) return;
           options.showOfferLinkFailure();
-        failed("takeOffer")(error);
-      });
+          // Only the link failed: the call records all the same.
+          void core.listMeetings().then((meetings) => {
+            const live = meetings.find(isLive);
+            if (live) options.showMeeting(live.mindId);
+          }, failed("takeOffer"));
+        },
+      );
     },
     declineOffer: (offerId, always) =>
       void core.declineMeetingOffer({ offerId, always }).catch(failed("declineOffer")),

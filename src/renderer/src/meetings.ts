@@ -461,7 +461,24 @@ function offerUndoOfFill(before: readonly Meeting[], after: readonly Meeting[]):
   }
 }
 
-core.on("meetings.notesShown", ({ mindId }) => useAppStore.getState().openMind(mindId));
+/**
+ * A Meeting's Note the host shows, from the tray or an offer taken there. A window made for it opens
+ * on Home as its load ends, so the Note goes in front once that is done.
+ */
+function showNotes(mindId: string): void {
+  const loading = (state: AppState) => state.status.kind === "loading";
+  if (!loading(useAppStore.getState())) {
+    useAppStore.getState().openMind(mindId);
+    return;
+  }
+  const stop = useAppStore.subscribe((state) => {
+    if (loading(state)) return;
+    stop();
+    if (state.status.kind === "ready") state.openMind(mindId);
+  });
+}
+
+core.on("meetings.notesShown", ({ mindId }) => showNotes(mindId));
 
 core.on("meetings.changed", (meetings) => {
   offerUndoOfFill(useMeetings.getState().meetings, meetings);
