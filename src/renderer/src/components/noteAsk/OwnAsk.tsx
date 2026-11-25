@@ -163,13 +163,18 @@ function Value({ action }: { action: NoteAction }) {
   );
 }
 
+const SIZE_WORDS = {
+  new: "ownAsk.newFile",
+  whole: "ownAsk.wholeFile",
+  changes: "ownAsk.changes",
+  cellNew: "ownAsk.cellNew",
+  cellWhole: "ownAsk.cellWhole",
+} as const;
+
 function sizeWords(t: Translate, size: NonNullable<NoteAction["size"]>) {
-  const key =
-    size.kind === "new"
-      ? "ownAsk.newFile"
-      : size.kind === "whole"
-        ? "ownAsk.wholeFile"
-        : "ownAsk.changes";
+  if (size.kind === "everywhere") return t("ownAsk.everywhere");
+  if (size.kind === "cellGone") return t("ownAsk.cellGone");
+  const key = SIZE_WORDS[size.kind];
   return t(`${key}.${size.count === 1 ? "one" : "other"}` as MessageKey, { count: size.count });
 }
 

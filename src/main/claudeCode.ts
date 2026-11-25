@@ -70,8 +70,8 @@ export interface ClaudeCodeTurn {
    */
   stallMs?: number;
   /**
-   * Whether it waits on a Tool of IncarnaMind's own, without a word meanwhile: that time doesn't
-   * count towards `stallMs`.
+   * Whether it waits, without a word meanwhile, on a Tool of IncarnaMind's own, on the User, or on
+   * a tool of its own at work: that time doesn't count towards `stallMs`.
    */
   busy?(): boolean;
 }
@@ -236,11 +236,20 @@ const write = (stdin: Writable, message: Record<string, unknown>) => {
   if (stdin.writable) stdin.write(`${JSON.stringify(message)}\n`);
 };
 
+/** Claude Code didn't take the `initialize` that registers IncarnaMind's hook: nothing was sent. */
+export class ClaudeCodeHookError extends Error {
+  constructor() {
+    super("Claude Code didn't take IncarnaMind's hook, so the request wasn't sent.");
+    this.name = "ClaudeCodeHookError";
+  }
+}
+
 /**
- * A turn with Claude Code's own abilities (#3653): its `initialize` answer is asked first and the
- * prompt goes at once after it, and the input stays open until the result, since each permission
- * question is answered there. A question of another kind than a tool's gets an error, so it never
- * waits on a host that can't answer it. It ends with everything it started.
+ * A turn with Claude Code's own abilities (#3653): its `initialize`, which registers IncarnaMind's
+ * hook, goes first, and the prompt only once Claude Code has taken it; the input stays open until
+ * the result, since each permission question is answered there. A question of another kind than a
+ * tool's gets an error, so it never waits on a host that can't answer it. It ends with everything
+ * it started.
  */
 function readOwnTurn(
   child: ChildProcess,
@@ -249,6 +258,7 @@ function readOwnTurn(
 ) {
   const closed = new Promise((resolve) => child.once("close", resolve));
   const tree = wholeTree(child, closed, own.processes);
+  let prompted = false;
   return readJsonLines(child, {
     agent: "Claude Code",
     signal: turn.signal,
@@ -264,18 +274,22 @@ function readOwnTurn(
         request_id: "models",
         request: { subtype: "initialize", hooks: STEERING_HOOKS },
       });
-      write(stdin, {
-        type: "user",
-        message: { role: "user", content: turn.prompt },
-        parent_tool_use_id: null,
-        session_id: "",
-      });
     },
     onMessage(msg, stdin) {
       if (msg.type === "control_response") {
         const control = object(msg.response);
-        if (control.request_id === "models") {
-          turn.onModels?.(control.subtype === "success" ? object(control.response) : {});
+        if (control.request_id === "models" && !prompted) {
+          // Without its hook a steering file would be written unasked: the prompt never goes.
+          if (control.subtype !== "success") throw new ClaudeCodeHookError();
+          turn.onModels?.(object(control.response));
+          turn.signal.throwIfAborted();
+          prompted = true;
+          write(stdin, {
+            type: "user",
+            message: { role: "user", content: turn.prompt },
+            parent_tool_use_id: null,
+            session_id: "",
+          });
         }
         return undefined;
       }

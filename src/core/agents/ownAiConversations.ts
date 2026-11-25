@@ -710,12 +710,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         }
         const gone = () => {
           if (!waitingOn.delete(id)) return;
-          // Closing IncarnaMind leaves it open, for its next start to say it didn't run.
-          if (options.lifetime.aborted) return;
-          step.by = "stopped";
-          delete step.going;
-          settle(id, "stopped");
-          tellWorking();
+          // Closing IncarnaMind leaves it open, for its next start to say it didn't run; the run
+          // that waits on it still ends.
+          if (!options.lifetime.aborted) {
+            step.by = "stopped";
+            delete step.going;
+            settle(id, "stopped");
+            tellWorking();
+          }
           reject(new Error("The question was taken back."));
         };
         withdrawn.addEventListener("abort", gone, { once: true });
@@ -754,6 +756,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       options.log.warn("agents.ownAiConversation.folderUnknown", {
         error: error instanceof Error ? error.name : "unknown",
       });
+    }
+    // Local mode, a Stop or access taken back can come while the folder is looked up: then no
+    // grant is made and nothing starts. From the grant to the run nothing waits.
+    lost ??= options.heldBack(pairing, mindId);
+    if (lost || signal.aborted) {
+      over = true;
+      running.delete(mindId);
+      endTurn(
+        { mindId, pairingId: pairing.id, turnId },
+        lost ? { state: "failed", problem: lost } : { state: "stopped", problem: null },
+      );
+      return;
     }
     // Only this run's own calls and changes: another run of the connection, or the User's own
     // session of it, tells nothing here.

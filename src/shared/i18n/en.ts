@@ -9430,6 +9430,12 @@ export const en = {
   "ownAsk.wholeFile.other": "Writes the whole file again · {count} lines",
   "ownAsk.changes.one": "Changes {count} line",
   "ownAsk.changes.other": "Changes {count} lines",
+  "ownAsk.everywhere": "Changes it everywhere it appears",
+  "ownAsk.cellNew.one": "New cell · {count} line",
+  "ownAsk.cellNew.other": "New cell · {count} lines",
+  "ownAsk.cellWhole.one": "Writes a cell again · {count} line",
+  "ownAsk.cellWhole.other": "Writes a cell again · {count} lines",
+  "ownAsk.cellGone": "Deletes a cell",
   "ownAsk.serverOf": "{server} · set up in {agent}",
   "ownAsk.showAll": "Show all",
   "ownAsk.showLess": "Show less",
@@ -9503,10 +9509,9 @@ export const en = {
   "ownAsk.askAgain": "Ask again",
   "ownAsk.first":
     "{agent} also uses its own tools here, on its own settings. IncarnaMind can’t see or undo them.",
-  "ownAsk.mode.auto":
-    "{agent} is set to decide for itself (its auto mode), so here it acts without asking you. IncarnaMind doesn’t change that; {agent}’s own settings do.",
+  "ownAsk.mode.auto": "{agent} is set to decide for itself, so here it acts without asking you.",
   "ownAsk.mode.bypassPermissions":
-    "{agent} is set to skip every question, so here it acts without asking you. IncarnaMind doesn’t change that; {agent}’s own settings do.",
+    "{agent} is set to skip every question, so here it acts without asking you.",
   "noteAsk.did.read_mind": "Read “{summary}”",
   "noteAsk.did.list_minds": "Looked through your notes",
   "noteAsk.did.search": "Searched your Documents for “{summary}”",
@@ -9539,7 +9544,7 @@ export const en = {
   "noteAsk.problem.stalled":
     "{agent} stopped answering for six minutes, so it stopped. Send it again.",
   "noteAsk.problem.compaction":
-    "{agent} spent ten minutes condensing this note’s conversation without finishing, so it stopped. Send it again.",
+    "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped. Send it again.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",

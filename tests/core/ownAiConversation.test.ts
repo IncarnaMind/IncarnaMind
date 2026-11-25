@@ -1218,6 +1218,24 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await expect.poll(() => back.purged).toEqual([back.runs[0]?.conversation?.key]);
   });
 
+  // protects=consent taken back, Local mode or a Stop while the conversation's folder is looked up ends the request before anything starts; fails_when=Claude Code starts with the access the User just took back
+  it("starts nothing when access ends while the folder is looked up", async () => {
+    const held = gate();
+    const run = runner(untilStopped);
+    run.adapter.folder = async (key) => {
+      held.reached();
+      await held.shut;
+      return join(tmpdir(), key);
+    };
+    const { core, mindId, claude, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "shorter" });
+    await held.at;
+    await core.revokeConsent("hosted-agents", `agent:${claude.pairing.id}`);
+    held.open();
+    expect(await ended()).toMatchObject({ state: "failed", problem: "taken-back" });
+    expect(run.runs).toHaveLength(0);
+  });
+
   // protects=a connection that may only read ends a request that would change something with the line that offers to let it propose, and a request that only reads still answers, its Markdown kept for the conversation to show; fails_when=the read-only refusal shows as a generic failure, an explanation is refused, or its answer loses its structure
   it("says a read-only connection may only read, and still answers what only reads", async () => {
     let explain = false;
@@ -1566,19 +1584,22 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     }
   });
 
-  // protects=every question open when IncarnaMind closes reads, after the next start, as asked and not run, so it never hangs the conversation; fails_when=the turn says only that it stopped, reads as still asking, or keeps one of two
+  // protects=every question open when IncarnaMind closes reads, after the next start, as asked and not run, so it never hangs the conversation; the run that waited on them still ends; fails_when=the turn says only that it stopped, reads as still asking, or keeps one of two, or the run waits on its question for ever and never gives back its grant
   it("says after a restart what was asked and that it didn't run", async () => {
     const page: NoteAction = { kind: "web", value: "https://a.example/x", host: "a.example" };
+    let returned = false;
     const run = runner(async (_agent, request) => {
       const ask = (step: string, action: NoteAction) =>
         request.own?.ask(asked(step, action), request.signal) ?? Promise.resolve("deny" as const);
       await Promise.all([ask("toolu_1", COMMAND), ask("toolu_2", page)]).catch(() => undefined);
+      returned = true;
       return { kind: "finished", reply: "" };
     });
     const { core, mindId, turns, dataDir } = await written(run.adapter);
     await core.askInNote({ mindId, words: "count the late crossings" });
     await expect.poll(() => turns.at(-1)?.questions.length ?? 0, { timeout: 5_000 }).toBe(2);
     await core.close();
+    await expect.poll(() => returned).toBe(true);
     const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
     try {
       expect((await again.noteConversation(mindId)).at(-1)).toMatchObject({
@@ -1611,8 +1632,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect((await core.noteConversation(mindId)).at(-1)?.mode).toBe("auto");
   });
 
-  // protects=a deck the AI made in the conversation's own folder reaches the Library by hand_over_file; a file anywhere else, a link out of the folder included, is refused, since the AI's own tools would have asked before reading it; fails_when=a file in the User's home reaches the Library, and the model, with no card
+  // protects=a deck the AI made in the conversation's own folder reaches the Library by hand_over_file; a file anywhere else, a link out of the folder included, and on macOS and Linux a file beside the folder whose name starts with the folder's and a backslash, is refused, since the AI's own tools would have asked before reading it; fails_when=a file in the User's home, or beside the conversation's folder, reaches the Library, and the model, with no card
   it("hands over a file it made in the conversation's folder, and no other", async () => {
+    const windows = process.platform === "win32";
     const folders = await realpath(await mkdtemp(join(tmpdir(), "own-ai-folders-")));
     const elsewhere = await mkdtemp(join(tmpdir(), "own-ai-elsewhere-"));
     const outside = join(elsewhere, "Harbour dues.pptx");
@@ -1625,7 +1647,15 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         const deck = join(folder, "Ferry delays.pptx");
         await writeFile(deck, plainDeck([{ title: "Ferry delays" }, { lines: [FERRY] }]));
         await symlink(outside, join(folder, "Linked.pptx"));
-        for (const path of [deck, outside, join(folder, "Linked.pptx")]) {
+        // On macOS and Linux a backslash is a letter of a name: this file is beside the folder.
+        const beside = `${folder}\\Beside.pptx`;
+        if (!windows) await writeFile(beside, plainDeck([{ title: "Beside" }, { lines: [FERRY] }]));
+        for (const path of [
+          deck,
+          outside,
+          join(folder, "Linked.pptx"),
+          ...(windows ? [] : [beside]),
+        ]) {
           const result = (await agent.callTool({
             name: "hand_over_file",
             arguments: { path },
@@ -1651,11 +1681,13 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(handed.slice(1)).toEqual([
       { error: expect.stringContaining("conversation’s own folder") },
       { error: expect.stringMatching(/conversation’s own folder|a link/) },
+      ...(windows ? [] : [{ error: expect.stringContaining("conversation’s own folder") }]),
     ]);
     const names = (await core.listDocuments()).map((each) => each.name);
     expect(names).toContain("Ferry delays");
     expect(names).not.toContain("Harbour dues");
     expect(names).not.toContain("Linked");
+    expect(names).not.toContain("Beside");
   });
 
   // protects=a conversation begun before its AI kept its own abilities, whose kept system prompt said it had none, begins anew once, under a new id, and says so; IncarnaMind's record of it stays; later requests continue the new one; fails_when=it resumes the old one and the AI refuses every tool of its own, or every request starts anew

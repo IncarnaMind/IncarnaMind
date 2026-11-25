@@ -5,7 +5,7 @@
  * of its call, and the answers it suggests, each a change to its permissions with where it would
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
-import { existsSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
@@ -39,21 +39,46 @@ function realOf(path: string): string | null {
   }
 }
 
+// Paths compared as the disk compares them: macOS's and Windows's in any case.
+const asCompared = (path: string) => (process.platform === "linux" ? path : path.toLowerCase());
+
 // A path's parts as the system splits it: on macOS and Linux a backslash is a letter of a name.
 const SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
 const partsOf = (path: string) => path.split(SEPARATORS).filter((part) => part !== "");
+
+/**
+ * Whether `at` is in /proc or /dev/fd, which show each process its own view: where a path through
+ * them leads for Claude Code can't be told from IncarnaMind's own process.
+ */
+function inProcessView(at: string): boolean {
+  const [first, second] = partsOf(asCompared(at.slice(parse(at).root.length)));
+  return first === "proc" || (first === "dev" && second === "fd");
+}
+
+/**
+ * Whether `path` is on another computer or names a device by other than its drive letter
+ * (`\\server\share`, `\\?\UNC\…`), on Windows: touching it could reach that computer, and send it
+ * the User's Windows sign-in, before the User answers. `\\?\C:\…`, as Windows writes a link to a
+ * folder on a drive, is that drive.
+ */
+export const elsewhereOnWindows = (path: string) =>
+  process.platform === "win32" &&
+  /^[\\/]{2}/.test(path) &&
+  !/^[\\/]{2}[?.][\\/][a-z]:([\\/]|$)/i.test(path);
 
 /**
  * Where `path` leads, walked as the system walks it: each part in turn, a link replaced by the
  * parts of its target and ".." the folder above the one reached, so it goes where a link took it,
  * even to a folder or file that isn't there yet, since a write through it can make that. With
  * `asText`, a link's target is read as text from the link's own folder instead, as Windows may read
- * it. Null when the walk gives up: more links than a system follows, or a loop.
+ * it. Null when the walk gives up: more links than a system follows, a loop, a step into /proc or
+ * /dev/fd, or a link to another computer.
  */
 function leadsTo(path: string, asText = false): string | null {
   let at = parse(path).root;
   const parts = partsOf(path.slice(at.length));
   for (let hops = 0; parts.length > 0; ) {
+    if (inProcessView(at)) return null;
     const part = parts.shift() ?? "";
     if (part === ".") continue;
     if (part === "..") {
@@ -75,10 +100,13 @@ function leadsTo(path: string, asText = false): string | null {
       parts.unshift(...partsOf(target));
       continue;
     }
+    if (elsewhereOnWindows(led)) return null;
     at = parse(led).root;
     parts.unshift(...partsOf(led.slice(at.length)));
   }
-  return realOf(at);
+  if (inProcessView(at)) return null;
+  // A drive with nothing on it resolves nowhere: the place reached is where it leads.
+  return realOf(at) ?? at;
 }
 
 /** `path` from `folder`, when it is inside it; null when it isn't. */
@@ -155,36 +183,62 @@ export function actionOf(
   if (name === "Write") {
     const path = text(input.file_path);
     if (path === "") return null;
-    const there = existsSync(resolve(places.folders[0] ?? "", path));
+    const whole = resolve(places.folders[0] ?? "", path);
     const content = text(input.content);
+    const marked = steers(path, places.folders[0] ?? "") ? { steers: true as const } : {};
+    // Whether a file on another computer, or one a link takes there, is there can't be asked
+    // without reaching it.
+    const real = elsewhereOnWindows(whole) ? null : leadsTo(whole);
+    if (real === null) return { kind: "write", ...placeOf(path, places), content, ...marked };
+    const found = existsSync(real);
     return {
-      kind: there ? "change" : "write",
+      kind: found ? "change" : "write",
       ...placeOf(path, places),
-      size: { kind: there ? "whole" : "new", count: lines(content) },
+      size: { kind: found ? "whole" : "new", count: lines(content) },
       content,
-      ...(steers(path, places.folders[0] ?? "") && { steers: true }),
+      ...marked,
     };
   }
   if (name === "Edit" || name === "MultiEdit") {
     const path = text(input.file_path);
     if (path === "") return null;
-    const edits = (name === "Edit" ? [input] : Array.isArray(input.edits) ? input.edits : []).map(
-      (each) => ({ from: text(object(each).old_string), to: text(object(each).new_string) }),
-    );
+    const given = name === "Edit" ? [input] : Array.isArray(input.edits) ? input.edits : [];
+    const edits = given.map((each) => ({
+      from: text(object(each).old_string),
+      to: text(object(each).new_string),
+    }));
+    // A change to every place a text appears changes as many lines as it appears, which can't be
+    // told from the call.
+    const everywhere = given.some((each) => object(each).replace_all === true);
     return {
       kind: "change",
       ...placeOf(path, places),
       ...(steers(path, places.folders[0] ?? "") && { steers: true }),
-      size: {
-        kind: "changes",
-        count: edits.reduce((sum, { from, to }) => sum + Math.max(lines(from), lines(to)), 0),
-      },
+      size: everywhere
+        ? { kind: "everywhere", count: 0 }
+        : {
+            kind: "changes",
+            count: edits.reduce((sum, { from, to }) => sum + Math.max(lines(from), lines(to)), 0),
+          },
       change: changeOf(edits),
     };
   }
   if (name === "NotebookEdit") {
     const path = text(input.notebook_path);
-    return path === "" ? null : { kind: "change", ...placeOf(path, places) };
+    if (path === "") return null;
+    const source = text(input.new_source);
+    const mode = text(input.edit_mode);
+    return {
+      kind: "change",
+      ...placeOf(path, places),
+      ...(steers(path, places.folders[0] ?? "") && { steers: true }),
+      ...(mode === "delete"
+        ? { size: { kind: "cellGone", count: 0 } }
+        : {
+            size: { kind: mode === "insert" ? "cellNew" : "cellWhole", count: lines(source) },
+            content: source,
+          }),
+    };
   }
   if (name === "Skill") {
     const skill = text(input.skill);
@@ -289,14 +343,28 @@ function linkedHard(path: string): boolean {
   }
 }
 
-// Paths compared as the disk compares them: macOS's and Windows's in any case.
-const asCompared = (path: string) => (process.platform === "linux" ? path : path.toLowerCase());
+/**
+ * Every place `path` may lead: walked as the system walks it and with a link's target read as
+ * text, on Windows, which may read it either way. Null in it where a walk gave up.
+ */
+const readingsOf = (path: string) =>
+  process.platform === "win32" ? [leadsTo(path), leadsTo(path, true)] : [leadsTo(path)];
+
+/** Whether something is at `path` itself, a link to nothing there yet too. */
+function there(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Where the steering files Claude Code reads for `cwd` really are: CLAUDE.md, CLAUDE.local.md,
  * .mcp.json and .claude in it and in each folder above it, and the User's own ~/.claude and
- * ~/.claude.json, each followed where it is a link, as CLAUDE.md to an AGENTS.md or ~/.claude to a
- * folder of dotfiles is.
+ * ~/.claude.json, each walked where it is a link, as CLAUDE.md to an AGENTS.md, or to one not
+ * written yet, or ~/.claude to a folder of dotfiles is.
  */
 function steeringPlaces(cwd: string): string[] {
   const named: string[] = [];
@@ -307,18 +375,17 @@ function steeringPlaces(cwd: string): string[] {
     if (dirname(at) === at) break;
   }
   named.push(join(homedir(), ".claude"), join(homedir(), ".claude.json"));
-  return named.flatMap((each) => {
-    if (!existsSync(each)) return [];
-    const real = realOf(each);
-    return real === null ? [] : [asCompared(real)];
-  });
+  return named
+    .filter(there)
+    .flatMap(readingsOf)
+    .flatMap((real) => (real === null ? [] : [asCompared(real)]));
 }
 
 // A path the hook can't walk at once: the walk runs in the main process, a step at a time.
 const LONGEST_PATH = 4096;
 
-// A path that names another place for Claude Code than for the hook: its home, a process's own view.
-const ELSEWHERE = /^(?:~|\/proc\/|\/dev\/fd\/)/;
+// Claude Code's own home, which may not be the one IncarnaMind's process has.
+const FROM_HOME = /^~/;
 
 /**
  * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
@@ -326,22 +393,31 @@ const ELSEWHERE = /^(?:~|\/proc\/|\/dev\/fd\/)/;
  * the conversation's folder, or in its memory, it steers every later request there. Checked as
  * named, where it really is from `cwd` (a symbolic link by another name can lead to one), against
  * where the steering files for `cwd` really are, and, for a file with other names (a hard link), as
- * one, since which of them it is can't be told cheaply. Where the walk can't tell, it asks; on
- * Windows it asks when either reading of a link's ".." would reach one.
+ * one, since which of them it is can't be told cheaply. The path is walked as given, its own ".."
+ * taken by the walk, and folded as text, since Claude Code may hand it on either way. "known" when
+ * a reading reaches one; "unknown" where that can't be told: a walk gave up, a hard link, a path
+ * from Claude Code's own home, one too long to walk, or one on another computer.
  */
-function steers(path: string, cwd: string): boolean {
-  if (steersAsNamed(path) || ELSEWHERE.test(path) || path.length > LONGEST_PATH) return true;
-  const whole = resolve(cwd, path);
-  const readings =
-    process.platform === "win32" ? [leadsTo(whole), leadsTo(whole, true)] : [leadsTo(whole)];
-  if (readings.some((real) => real === null)) return true;
+function steering(path: string, cwd: string): "known" | "unknown" | null {
+  if (steersAsNamed(path)) return "known";
+  if (FROM_HOME.test(path) || path.length > LONGEST_PATH) return "unknown";
+  const given = isAbsolute(path) ? path : `${resolve(cwd)}${sep}${path}`;
+  const folded = resolve(cwd, path);
+  if (elsewhereOnWindows(given) || elsewhereOnWindows(folded)) return "unknown";
+  const readings = [...new Set([given, folded])].flatMap(readingsOf);
+  if (readings.some((real) => real === null)) return "unknown";
   const places = steeringPlaces(cwd);
-  return readings.some((real) => {
-    if (real === null || steersAsNamed(real) || linkedHard(real)) return true;
+  const reached = readings.some((real) => {
+    if (real === null || steersAsNamed(real)) return true;
     const found = asCompared(real);
     return places.some((place) => found === place || found.startsWith(`${place}${sep}`));
   });
+  if (reached) return "known";
+  return readings.some((real) => real !== null && linkedHard(real)) ? "unknown" : null;
 }
+
+// A card says a file steers only where that is known; the hook asks where it can't be told too.
+const steers = (path: string, cwd: string) => steering(path, cwd) === "known";
 
 // .claude may follow a short option's letter with nothing between, as in -C.claude.
 const STEERING_NAMES = /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])/i;
@@ -383,11 +459,11 @@ export function steeringAnswer(input: Record<string, unknown>): Record<string, u
   const name = text(input.tool_name);
   const given = object(input.tool_input);
   const path = text(given.file_path) || text(given.notebook_path);
-  const steering =
+  const asks =
     name === "Bash" || name === "PowerShell"
       ? namesSteering(text(given.command))
-      : path !== "" && steers(path, text(input.cwd));
-  if (!steering) return {};
+      : path !== "" && steering(path, text(input.cwd)) !== null;
+  if (!asks) return {};
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

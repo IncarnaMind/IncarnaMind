@@ -353,18 +353,21 @@ function Turn({
       {state === "working" && questions[0] && (
         <QuestionCard question={questions[0]} agent={agent} mindId={mindId} />
       )}
-      {state === "stopped" && trail && steps.some((step) => step.kind === "own") && (
-        <ol className="note-column-list">
-          {steps
-            .filter((step) => step.kind === "own")
-            .map((step, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
-              <li key={index} className="note-column-step-item">
-                <StepLine step={step} going={false} />
-              </li>
-            ))}
-        </ol>
-      )}
+      {/* What it did with its own tools before it stopped or failed, a file it wrote among them. */}
+      {(state === "stopped" || state === "failed") &&
+        trail &&
+        steps.some((step) => step.kind === "own") && (
+          <ol data-testid="note-column-own-steps" className="note-column-list">
+            {steps
+              .filter((step) => step.kind === "own")
+              .map((step, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+                <li key={index} className="note-column-step-item">
+                  <StepLine step={step} going={false} />
+                </li>
+              ))}
+          </ol>
+        )}
       {state === "stopped" &&
         (turn.closed.length > 0 && !trail ? (
           <ol data-testid="note-column-interrupted" className="note-column-list own-closed">

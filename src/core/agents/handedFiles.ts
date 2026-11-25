@@ -12,6 +12,7 @@ import type { NamedFile } from "../adapters";
 import type { HandOverInput } from "../agentFiles/handOver";
 import type { AgentToolName, Effect, HandedFile } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
+import { isInside } from "../documents/files";
 import type { AdmittedPairing } from "./access";
 import { AgentRefusedError, MAX_PATH_CHARS, text } from "./refusals";
 
@@ -199,10 +200,10 @@ export function createHandedFileTool(context: HandedFileToolContext) {
           throw new AgentRefusedError("invalid", t("agents.handOver.unreadable"));
         }
         const { within } = context;
+        // By this computer's own separator: on macOS and Linux a backslash is a letter of a name.
         if (
           within !== null &&
-          (within === "" ||
-            !(read.path.startsWith(`${within}/`) || read.path.startsWith(`${within}\\`)))
+          (within === "" || read.path === within || !isInside(within, read.path))
         ) {
           throw new AgentRefusedError("invalid", t("agents.handOver.outsideConversation"));
         }

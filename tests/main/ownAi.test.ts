@@ -604,11 +604,11 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     });
   `;
   /** A request asking for the models, on Haiku: how it ended, and the models it heard. */
-  const listen = async () => {
+  const listen = async ({ stallMs }: { stallMs?: number } = {}) => {
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
     const steps: unknown[] = [];
     try {
-      const end = await createOwnAi({ conversations }).run({
+      const end = await createOwnAi({ conversations, ...(stallMs && { stallMs }) }).run({
         client: "claude-code",
         server: SERVER,
         tools: "all",
@@ -647,19 +647,25 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     expect(managed.models).toHaveLength(1);
   });
 
-  // protects=a models question Claude Code answers with an error, or not at all, leaves the request as it was; fails_when=the request waits on it or fails
-  it("goes on unchanged when the models question gets an error or no answer", async () => {
+  // protects=the prompt goes only once Claude Code has taken the initialize that registers IncarnaMind's hook (#3653): answered with an error, nothing is sent and the request fails; fails_when=a request runs without the hook that makes a write to CLAUDE.md ask
+  it("sends nothing when Claude Code refuses its initialize", async () => {
     useClaude({ run: listing(false, "error") });
-    const refused = await listen();
-    expect(refused.end).toEqual({ kind: "finished", reply: "Checked." });
-    expect(refused.models).toEqual([{ kind: "models", models: [] }]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const refused = await listen();
+      expect(refused.end).toEqual({ kind: "failed", reason: "other" });
+      expect(refused.models).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), expect.stringContaining("hook"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
-  // protects=a models question Claude Code never answers leaves the request as it was; fails_when=the request waits on it
-  it("goes on unchanged when the models question gets no answer", async () => {
+  // protects=an initialize Claude Code never answers sends nothing, and the request ends as stalled rather than waiting for ever; fails_when=the request runs without IncarnaMind's hook, or waits on the answer past the stall limit
+  it("sends nothing when Claude Code never answers its initialize", async () => {
     useClaude({ run: listing(false, "never") });
-    const silent = await listen();
-    expect(silent.end).toEqual({ kind: "finished", reply: "Checked." });
+    const silent = await listen({ stallMs: 500 });
+    expect(silent.end).toEqual({ kind: "failed", reason: "stalled" });
     expect(silent.models).toEqual([]);
   });
 
@@ -826,7 +832,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     expect(answersIn(end)).toEqual([{ id: "q0", answer: sent }]);
   });
 
-  // protects=a file it would write in the conversation's folder reads from there, one elsewhere from home as "~", with how many lines; a page reads by its site; a tool of the User's own server by its server and its input; fails_when=the card shows a path that hides where the file goes
+  // protects=a file it would write in the conversation's folder reads from there, one elsewhere from home as "~", with how many lines; a change to every place a text appears says so rather than a count of one pair's lines; a notebook's cell shows what it adds or writes, or that it deletes one; a page reads by its site; a tool of the User's own server by its server and its input; fails_when=the card shows a path that hides where the file goes, says "1 line" for a change made everywhere, or allows a notebook change it doesn't show
   it("reads each kind of question as the card shows it", async () => {
     const home = process.env.HOME ?? "";
     useClaude({
@@ -861,6 +867,32 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           tool_name: "mcp__ferry-data__search_tickets",
           mcp_server: { name: "ferry-data" },
           input: { route: "Kestrel Bay", days: 30 },
+        },
+        {
+          tool_name: "Edit",
+          input: {
+            file_path: "drafts/late.md",
+            old_string: "07:40",
+            new_string: "07:55",
+            replace_all: true,
+          },
+        },
+        {
+          tool_name: "NotebookEdit",
+          input: {
+            notebook_path: "crossings.ipynb",
+            cell_id: "c7",
+            new_source: "late = df[df.delay > 5]\nlate.count()",
+            edit_mode: "insert",
+          },
+        },
+        {
+          tool_name: "NotebookEdit",
+          input: { notebook_path: "crossings.ipynb", cell_id: "c7", new_source: "x = 1" },
+        },
+        {
+          tool_name: "NotebookEdit",
+          input: { notebook_path: "crossings.ipynb", cell_id: "c7", edit_mode: "delete" },
         },
       ]),
     });
@@ -917,6 +949,35 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           { name: "route", value: "Kestrel Bay" },
           { name: "days", value: "30" },
         ],
+      },
+      // Everywhere the text appears: as many lines as it appears, which the call doesn't say.
+      {
+        kind: "change",
+        value: join("drafts", "late.md"),
+        inFolder: true,
+        size: { kind: "everywhere", count: 0 },
+        change: "- 07:40\n+ 07:55",
+      },
+      // A notebook's cell: what it adds or writes, whole, or that it deletes one.
+      {
+        kind: "change",
+        value: "crossings.ipynb",
+        inFolder: true,
+        size: { kind: "cellNew", count: 2 },
+        content: "late = df[df.delay > 5]\nlate.count()",
+      },
+      {
+        kind: "change",
+        value: "crossings.ipynb",
+        inFolder: true,
+        size: { kind: "cellWhole", count: 1 },
+        content: "x = 1",
+      },
+      {
+        kind: "change",
+        value: "crossings.ipynb",
+        inFolder: true,
+        size: { kind: "cellGone", count: 0 },
       },
     ]);
   });
@@ -1114,10 +1175,16 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       { tool_name: "Write", tool_input: { file_path: "/w/notes.md", content: "x" } },
       { tool_name: "Bash", tool_input: { command: "echo ok > notes.txt" } },
     ]);
-    expect(hooks.PreToolUse[0]).toMatchObject({
-      matcher: expect.stringContaining("Write"),
-      onFailure: "block",
-    });
+    expect(hooks.PreToolUse[0]).toMatchObject({ onFailure: "block" });
+    // Every tool of Claude Code's own that writes a file or runs a command, and nothing else.
+    expect(hooks.PreToolUse[0]?.matcher.split("|").sort()).toEqual([
+      "Bash",
+      "Edit",
+      "MultiEdit",
+      "NotebookEdit",
+      "PowerShell",
+      "Write",
+    ]);
     expect(answers).toEqual([
       "ask",
       "ask",
@@ -1131,7 +1198,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (the long s, U+017F, is s) or a character an older Mac disk leaves out of names, as Windows opens it (dots or spaces at a part's end, a stream after a colon), where a symbolic link by another name really leads, a link to a folder not there yet too, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, CLAUDE<U+200B>.md, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
+  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (the long s, U+017F, is s) or a character an older Mac disk leaves out of names, as Windows opens it (dots or spaces at a part's end, a stream after a colon), where a symbolic link by another name really leads, a link to a folder not there yet too, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; the path walked as given and folded; where a steering name of the folder or a folder above it, or ~/.claude, really is, a link to a file not written yet too; it asks where the walk can't tell (a loop, past its limit, through /proc or /dev/fd, on another computer) and every tool it asks for is one the hook's matcher names; a file or command that only looks alike, and one on a drive with nothing on it, goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, CLAUDE<U+200B>.md, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
   it("knows a steering file in any case, as a disk or Windows spells it, through a link, in a command spelt another way, and the User's own servers", async () => {
     // As the system's temporary folder names it: on Windows that can be a short 8.3 path, which
     // the test home guard allows only as it is spelt.
@@ -1149,11 +1216,22 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     // relative target in the middle of a path; ".." after another link.
     await symlink("loopB", join(work, "loopA"), "file");
     await symlink("loopA", join(work, "loopB"), "file");
+    // 42 links to a plain file: only the walk's limit makes it ask.
     await mkdir(join(work, "chain"));
+    await writeFile(join(work, "plain.md"), "x\n");
     for (let n = 0; n < 41; n += 1) {
-      await symlink(`c${n + 1}`, join(work, "chain", `c${n}`), "dir");
+      await symlink(`c${n + 1}`, join(work, "chain", `c${n}`), "file");
     }
-    await symlink(join(work, ".claude"), join(work, "chain", "c41"), "junction");
+    await symlink(join(work, "plain.md"), join(work, "chain", "c41"), "file");
+    // Places that show each process its own view, reached through a link.
+    await symlink("/proc/self", join(work, "selfview"), "dir");
+    // A steering name that is a link to a file nobody has written yet; and one in a folder above
+    // the conversation's.
+    await mkdir(join(work, "unwritten"));
+    await symlink(join("rules", "house.md"), join(work, "unwritten", "CLAUDE.md"), "file");
+    await mkdir(join(work, "upper", "inner"), { recursive: true });
+    await writeFile(join(work, "upper", "AGENTS.md"), "Crossing times are HH.MM.\n");
+    await symlink("AGENTS.md", join(work, "upper", "CLAUDE.md"), "file");
     await symlink("hop2", join(work, "hop1"), "file");
     await symlink("CLAUDE.md", join(work, "hop2"), "file");
     await symlink(".claude", join(work, "mid"), "dir");
@@ -1176,10 +1254,115 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "ask",
       ],
       [
-        "42 links in a row to .claude, more than the walk follows",
+        "42 links in a row to a plain file, more than the walk follows",
         {
           tool_name: "Write",
-          tool_input: { file_path: join(work, "chain", "c0", "settings.json"), content: "{}" },
+          tool_input: { file_path: join(work, "chain", "c0"), content: "x" },
+          cwd: work,
+        },
+        "ask",
+      ],
+      [
+        "sub/../settings.json as given, sub a link into .claude: the system takes .. from where sub leads",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: [work, "sub", "..", "settings.json"].join(sep), content: "{}" },
+          cwd: work,
+        },
+        "ask",
+      ],
+      [
+        "a path through //proc/",
+        { tool_name: "Write", tool_input: { file_path: "//proc/self/cwd/notes.md", content: "x" } },
+        "ask",
+      ],
+      [
+        "a path through /./proc/",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: "/./proc/self/cwd/notes.md", content: "x" },
+        },
+        "ask",
+      ],
+      [
+        "a path through /tmp/../proc/",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: "/tmp/../proc/self/cwd/notes.md", content: "x" },
+        },
+        "ask",
+      ],
+      [
+        "a path through /dev//fd/",
+        { tool_name: "Write", tool_input: { file_path: "/dev//fd/3", content: "x" } },
+        "ask",
+      ],
+      [
+        "a relative path that climbs to /proc",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: `${"../".repeat(40)}proc/self/cwd/notes.md`, content: "x" },
+          cwd: work,
+        },
+        "ask",
+      ],
+      [
+        "selfview/cwd/notes.md, selfview a link to /proc/self",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "selfview", "cwd", "notes.md"), content: "x" },
+          cwd: work,
+        },
+        "ask",
+      ],
+      [
+        "rules/house.md, which CLAUDE.md is a link to though nobody has written it",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "unwritten", "rules", "house.md"), content: "x" },
+          cwd: join(work, "unwritten"),
+        },
+        "ask",
+      ],
+      [
+        "AGENTS.md, which the CLAUDE.md of a folder above the conversation's is a link to",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "upper", "AGENTS.md"), content: "x" },
+          cwd: join(work, "upper", "inner"),
+        },
+        "ask",
+      ],
+      [
+        "a file on a drive with nothing on it",
+        { tool_name: "Write", tool_input: { file_path: "B:\\late.md", content: "x" }, cwd: work },
+        "goes on",
+      ],
+      [
+        "a file on another computer, on Windows",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: "\\\\kestrel-nas\\notes\\late.md", content: "x" },
+          cwd: work,
+        },
+        process.platform === "win32" ? "ask" : "goes on",
+      ],
+      [
+        "MultiEdit of CLAUDE.md",
+        {
+          tool_name: "MultiEdit",
+          tool_input: {
+            file_path: join(work, "CLAUDE.md"),
+            edits: [{ old_string: "HH.MM", new_string: "HH:MM" }],
+          },
+        },
+        "ask",
+      ],
+      [
+        "NotebookEdit of a notebook under .claude",
+        {
+          tool_name: "NotebookEdit",
+          tool_input: { notebook_path: join(work, ".claude", "x.ipynb"), new_source: "1" },
         },
         "ask",
       ],
@@ -1452,13 +1635,20 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "goes on",
       ],
     ];
-    const { answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(async () => {
-      await rm(ownClaude, { force: true });
-      await rm(work, { recursive: true, force: true });
-    });
+    const { hooks, answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(
+      async () => {
+        await rm(ownClaude, { force: true });
+        await rm(work, { recursive: true, force: true });
+      },
+    );
     expect(cases.map(([name], index) => [name, answers[index]])).toEqual(
       cases.map(([name, , said]) => [name, said]),
     );
+    // Claude Code calls the hook only for a tool its matcher names: every tool here must be one.
+    const matched = new RegExp(`^(?:${hooks.PreToolUse[0]?.matcher ?? ""})$`);
+    expect(
+      cases.flatMap(([, call]) => (matched.test(String(call.tool_name)) ? [] : [call.tool_name])),
+    ).toEqual([]);
   });
 
   // protects=on Windows a steering folder is known by its 8.3 short name too (CLAUDE~1 is .claude), which only the system's own resolver gives its long name; runs on the nightly's Windows job; fails_when=a write to CLAUDE~1\settings.local.json goes on unasked, or the disk keeps no short names and the case quietly isn't tried
@@ -1792,6 +1982,56 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       `,
     });
     await expect(ask(undefined, 1_000)).resolves.toEqual({ kind: "failed", reason: "stalled" });
+  }, 15_000);
+
+  // protects=a command of the AI's own that runs without a word, as a long build does, doesn't count towards the stall limit: Claude Code bounds its own commands; fails_when=a build the User allowed is cut off as a stall
+  it("doesn't count a command of the AI's own as a stall", async () => {
+    const command = {
+      type: "assistant",
+      message: {
+        content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "npm test" } }],
+      },
+    };
+    const answered = {
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "Passed." }] },
+    };
+    const thinking = JSON.stringify({ type: "system", subtype: "thinking_tokens" });
+    useClaude({
+      run: `
+        const ticks = setInterval(() => console.log(${JSON.stringify(thinking)}), 100);
+        ${session(
+          [init(), command],
+          false,
+          `clearInterval(ticks);
+          setTimeout(() => {
+            console.log(JSON.stringify(${JSON.stringify(answered)}));
+            console.log(JSON.stringify(${JSON.stringify(done)}));
+          }, 2500);`,
+        )}
+      `,
+    });
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    try {
+      await expect(
+        createOwnAi({ conversations, stallMs: 1_000 }).run({
+          client: "claude-code",
+          server: SERVER,
+          tools: "all",
+          own: { ask: async () => "deny" },
+          instructions: INSTRUCTIONS,
+          prompt: "In their note “Tides” (mindId: m1), the User asks: run the tests",
+          conversation: {
+            key: "7b2d4f6a-8c1e-4a3b-9d5f-2e4a6c8b0d1f",
+            sessionId: "1e3a5c7b-9d2f-4b6a-8c0e-3f5a7b9d1c2e",
+            resume: false,
+          },
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({ kind: "finished", reply: "Checked." });
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
+    }
   }, 15_000);
 
   describe("a compaction (#3677)", () => {

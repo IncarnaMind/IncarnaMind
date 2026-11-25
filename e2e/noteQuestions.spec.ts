@@ -552,6 +552,17 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await pointAndClick(window, column.getByTestId("own-ask-deny"));
     await ended(window, mindId, before);
 
+    // A request that fails after it wrote a file still says what it wrote, with why it failed.
+    before = (await outcomesOf(window, mindId)).length;
+    card = await ask(window, "ask-write-fails", "Write the table");
+    await pointAndClick(window, card.getByTestId("own-ask-once"));
+    await ended(window, mindId, before);
+    const failed = column.getByTestId("note-column-turn").last();
+    expect(await stepsIn(failed)).toEqual([
+      `Wrote ${join("drafts", "late-crossings.md")} · allowed once`,
+    ]);
+    await expect(failed.locator(".note-column-interrupted")).toBeVisible();
+
     // A question IncarnaMind can't show is denied, and the step says so; no card.
     before = (await outcomesOf(window, mindId)).length;
     await nextRun("ask-other");
@@ -607,7 +618,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     await window.keyboard.type("Count them");
     await window.keyboard.press("Enter");
     await expect(group(window).getByTestId("note-ask-mode")).toHaveText(
-      "Claude Code is set to decide for itself (its auto mode), so here it acts without asking you. IncarnaMind doesn’t change that; Claude Code’s own settings do.",
+      "Claude Code is set to decide for itself, so here it acts without asking you.",
       { timeout: 20_000 },
     );
     await shot(window, "box-auto-en");
@@ -627,7 +638,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     await pointAndClick(window, group(window).getByTestId("note-ask-handle-toggle"));
     const panel = group(window).getByTestId("note-ask-panel");
     await expect(panel.getByTestId("own-mode")).toHaveText(
-      "Claude Code is set to decide for itself (its auto mode), so here it acts without asking you. IncarnaMind doesn’t change that; Claude Code’s own settings do.",
+      "Claude Code is set to decide for itself, so here it acts without asking you.",
     );
     await pointAndClick(window, panel.getByTestId("note-column-steps-toggle").last());
     await expect(panel.getByTestId("own-first")).toHaveText(

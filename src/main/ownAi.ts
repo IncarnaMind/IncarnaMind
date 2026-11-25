@@ -383,8 +383,10 @@ export function createOwnAi({
           }),
           partial: true,
           stallMs,
-          // A question waits on the User for as long as they take.
-          busy: () => running.size > 0 || compacting !== null || asking.size > 0,
+          // A question waits on the User for as long as they take; a command of its own, as a
+          // long build, runs as long as Claude Code's own limit for it lets it.
+          busy: () =>
+            running.size > 0 || compacting !== null || asking.size > 0 || ownCalls.size > 0,
           onMessage(message) {
             // A retry's notice says the AI isn't answering, rather than that it is.
             const retry = message.type === "system" && message.subtype === "api_retry";

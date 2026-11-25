@@ -23,7 +23,8 @@
 // says its own words in Chinese;
 // "ask-two" asks two questions at once; "ask-child" starts a process that leads its own group, writes its own id and that
 // process's to the mode file's ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
-// with no input; "ask-other" asks for a tool the host can't show; "auto" runs a command unasked,
+// with no input; "ask-other" asks for a tool the host can't show; "ask-write-fails" asks to write
+// a file, writes it if let, then fails; "auto" runs a command unasked,
 // its own mode named in the mode file's ".permission" ("auto" when it names none), and ends once
 // the mode file's ".hold" file is gone. Each answer is
 // appended to the mode file's ".answers".
@@ -637,6 +638,11 @@ async function askingModes() {
     child.unref();
     await ownCall(QUESTIONS.command);
     end("Ran it.");
+    return;
+  }
+  if (mode === "ask-write-fails") {
+    await ownCall(QUESTIONS.write);
+    say({ type: "result", subtype: "success", is_error: true, result: "Limit reached." });
     return;
   }
   if (mode === "ask-two") {

@@ -13560,8 +13560,15 @@ export interface NoteAction {
   /** For a tool: the server it is on, and the input it would send, one row per field. */
   server?: string;
   input?: { name: string; value: string }[];
-  /** For a file it writes or changes: a new file, a whole file written again, or lines changed. */
-  size?: { kind: "new" | "whole" | "changes"; count: number };
+  /**
+   * For a file it writes or changes: a new file, a whole file written again, or lines changed, in
+   * `count` lines; a text changed everywhere it appears; a notebook's cell added, written again, or
+   * deleted. `count` is 0 where it says nothing.
+   */
+  size?: {
+    kind: "new" | "whole" | "changes" | "everywhere" | "cellNew" | "cellWhole" | "cellGone";
+    count: number;
+  };
   /** For a change: the lines taken out ("- ") and put in ("+ "). */
   change?: string;
   /** For a file it writes: what it writes, whole. */

@@ -416,7 +416,7 @@ export interface JsonLines<T> {
   counted?(message: Record<string, unknown>): boolean;
   /** How long it may send nothing before it is stopped as stalled. */
   stallMs?: number;
-  /** Whether it waits on a Tool of IncarnaMind's own, which doesn't count towards `stallMs`. */
+  /** Whether it waits on something that may take long without a word, which doesn't count towards `stallMs`. */
   busy?(): boolean;
   /** Written to its input before the first line is read. */
   begin?(stdin: Writable): void;
