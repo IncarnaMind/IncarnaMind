@@ -214,6 +214,28 @@ for (const language of ["en", "zh-CN"] as const) {
     await app.close();
   });
 
+  test(`Open at login that can't be changed lets IncarnaMind start, and says which file under its switch (${language})`, async () => {
+    // A folder where the login item's file should be fails every write to it, on every system.
+    const file = join(dataDir, "login-item.json");
+    await mkdir(file);
+    const { app, window } = await launch();
+    await dismissChatSetup(window);
+    await setWindowSize(app, window, 1100, 760);
+    const settings = await openSettings(window, "general");
+    await setLanguage(window, language);
+    const openAtLogin = settings.getByTestId("open-at-login-switch");
+    await expect(openAtLogin).not.toBeChecked();
+    await openAtLogin.click();
+    await expect(settings.getByTestId("open-at-login-problem")).toHaveText(
+      language === "en"
+        ? `Couldn’t change ${file}, which opens IncarnaMind at login. Check its permissions, or remove it and try again.`
+        : `无法修改 ${file}，登录时由它打开 IncarnaMind。请检查它的权限，或移除它后再试。`,
+    );
+    await expect(openAtLogin).not.toBeChecked();
+    await shot(window, `settings-open-at-login-problem-${language}`);
+    await app.close();
+  });
+
   test(`a call app taking the microphone is offered; Take notes records and Stop saves it (${language})`, async () => {
     const words = WORDS[language];
     const { app, window } = await launch();

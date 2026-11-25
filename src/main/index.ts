@@ -677,6 +677,7 @@ app.whenReady().then(async () => {
             program: process.env.APPIMAGE ?? process.execPath,
             configHome: process.env.XDG_CONFIG_HOME || join(homeFolder(), ".config"),
             openUrl: (url) => systemBrowser.open(url),
+            log: logger,
           })
         : createFileLoginItem(app.getPath("userData")),
       ...(executor && { executor }),

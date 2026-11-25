@@ -12,6 +12,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import type { LoginItem } from "../core";
 import type { OpenAtLogin } from "../core/api";
+import { TranslatableError } from "../core/errors";
+import type { FileLogger } from "./log";
 
 export const OPENED_AT_LOGIN = "--opened-at-login";
 
@@ -38,7 +40,12 @@ export interface SystemLoginItemOptions {
   /** The folder of the User's own configuration on Linux ($XDG_CONFIG_HOME, else ~/.config). */
   configHome: string;
   openUrl(url: string): Promise<void>;
+  log: Pick<FileLogger, "exception">;
 }
+
+/** Why Open at login couldn't be changed, for the line under its switch. */
+const notChanged = (path: string, cause: unknown) =>
+  new TranslatableError({ key: "error.openAtLogin.notWritten", values: { path } }, { cause });
 
 const LOGIN_ITEMS_SETTINGS = "x-apple.systempreferences:com.apple.LoginItems-Settings.extension";
 
@@ -86,20 +93,46 @@ function pointedAt(entry: string, program: string): string {
 }
 
 export function createSystemLoginItem(options: SystemLoginItemOptions): LoginItem {
-  const { platform, app } = options;
+  const { platform, app, log } = options;
   const autostart = join(options.configHome, "autostart", AUTOSTART_FILE);
   const args = platform === "win32" ? [OPENED_AT_LOGIN] : undefined;
+  // The log keeps no absolute path, so it names the entry inside the configuration folder.
+  const failed = (step: "read" | "refresh" | "turnOn" | "turnOff", error: unknown) =>
+    log.exception(
+      "loginItem.autostartFailed",
+      error,
+      { step, file: `autostart/${AUTOSTART_FILE}` },
+      step === "turnOn" || step === "turnOff" ? "error" : "warn",
+    );
+  /** The entry's text; null when there is none, or none this account can read. */
+  const entry = (): string | null => {
+    if (!existsSync(autostart)) return null;
+    try {
+      return readFileSync(autostart, "utf8");
+    } catch (error) {
+      failed("read", error);
+      return null;
+    }
+  };
   // An update can move the program (a new AppImage's name has its version): the entry names the
-  // program running now, and stays off if the desktop turned it off.
-  if (platform === "linux" && existsSync(autostart)) {
-    const entry = readFileSync(autostart, "utf8");
-    const updated = pointedAt(entry, options.program);
-    if (updated !== entry) writeFileSync(autostart, updated);
+  // program running now, and stays off if the desktop turned it off. One this account can't
+  // change stays as it is: a login item is never a reason not to start.
+  if (platform === "linux") {
+    const found = entry();
+    const updated = found === null ? null : pointedAt(found, options.program);
+    if (updated !== null && updated !== found) {
+      try {
+        writeFileSync(autostart, updated);
+      } catch (error) {
+        failed("refresh", error);
+      }
+    }
   }
   const get = (): OpenAtLogin => {
     if (platform === "linux") {
-      const on = existsSync(autostart) && !turnedOff(readFileSync(autostart, "utf8"));
-      return { supported: true, on, needsApproval: false };
+      // The desktop reads the entry as this account does: one it can't read opens nothing.
+      const found = entry();
+      return { supported: true, on: found !== null && !turnedOff(found), needsApproval: false };
     }
     const settings = app.getLoginItemSettings(args ? { args } : undefined);
     // Electron sends executableWillLaunchAtLogin on every system, always false outside Windows.
@@ -114,11 +147,16 @@ export function createSystemLoginItem(options: SystemLoginItemOptions): LoginIte
     get,
     set(on) {
       if (platform === "linux") {
-        if (on) {
-          mkdirSync(dirname(autostart), { recursive: true });
-          writeFileSync(autostart, autostartEntry(options.program));
-        } else {
-          rmSync(autostart, { force: true });
+        try {
+          if (on) {
+            mkdirSync(dirname(autostart), { recursive: true });
+            writeFileSync(autostart, autostartEntry(options.program));
+          } else {
+            rmSync(autostart, { force: true });
+          }
+        } catch (error) {
+          failed(on ? "turnOn" : "turnOff", error);
+          throw notChanged(autostart, error);
         }
       } else {
         app.setLoginItemSettings({ openAtLogin: on, ...(args && { args }) });
@@ -156,7 +194,11 @@ export function createFileLoginItem(dataDir: string): LoginItem {
   return {
     get,
     set(on) {
-      writeFileSync(file, JSON.stringify({ on }));
+      try {
+        writeFileSync(file, JSON.stringify({ on }));
+      } catch (error) {
+        throw notChanged(file, error);
+      }
       return get();
     },
     openSettings: async () => undefined,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { OpenAtLogin } from "../../../core/api";
 import { core } from "../core";
+import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import { onMac } from "../platformOffers";
 import { useSettingsTarget } from "../settingsTarget";
@@ -23,6 +24,7 @@ export function BackgroundSettings() {
   const keepRunning = useAppStore((state) => state.settings?.device.keepRunning);
   const updateSettings = useAppStore((state) => state.updateSettings);
   const [login, setLogin] = useState<OpenAtLogin | null>(null);
+  const [failed, setFailed] = useState<{ error: unknown } | null>(null);
   useEffect(() => {
     let live = true;
     core.getOpenAtLogin().then(
@@ -44,9 +46,10 @@ export function BackgroundSettings() {
     closeTip("call-offers");
     const before = login;
     setLogin({ ...login, on });
+    setFailed(null);
     core.setOpenAtLogin(on).then(setLogin, (error: unknown) => {
       setLogin(before);
-      useAppStore.getState().reportError(error);
+      setFailed({ error });
     });
   };
 
@@ -61,6 +64,11 @@ export function BackgroundSettings() {
             onChange={setOpenAtLogin}
             switchTestId="open-at-login-switch"
           >
+            {failed && (
+              <ProblemLine testId="open-at-login-problem">
+                {errorMessage(failed.error, t)}
+              </ProblemLine>
+            )}
             {login.on && login.needsApproval && (
               <ProblemLine
                 role="status"
