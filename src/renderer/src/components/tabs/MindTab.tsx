@@ -76,7 +76,7 @@ export function MindTab({ mindId }: { mindId: string }) {
   );
   const review = useReviewShown(mindId);
   // The finished change is said once (#3762): where the Note's conversation shows its Undo, the
-  // page draws no line of its own.
+  // page draws no line of that change's own.
   const askTurn = useNoteAsks((state) => state.byMind[mindId]?.turnId ?? "");
   const askUndo = useAskedState(askTurn, mindId) === "can-undo";
   const reviewShown = review.shown;
@@ -92,9 +92,10 @@ export function MindTab({ mindId }: { mindId: string }) {
         <div ref={setOutlineButton} className="note-outline-button-slot" />
         <div ref={setOutline} className="contents" />
         <div
-          data-ask-undo={askUndo || undefined}
+          data-ask-undo={askUndo ? askTurn : undefined}
           className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col"
         >
+          {askUndo && <style>{`${saidInConversation(askTurn)}{display:none}`}</style>}
           {/* The page's own corners and foot stand above the input at its foot (#3627). */}
           <div className="relative flex min-h-0 flex-grow flex-col">
             {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}
@@ -186,6 +187,15 @@ export function MindTab({ mindId }: { mindId: string }) {
       <ExportResultLine mindId={mind.id} />
     </div>
   );
+}
+
+/**
+ * The page's line of the change a Note's conversation can undo, which the conversation says with
+ * its Undo: only that change's, so another change's line keeps its own controls.
+ */
+export function saidInConversation(turnId: string): string {
+  const turn = CSS.escape(turnId);
+  return `.mind-tab-page[data-ask-undo="${turn}"] .mind-editor [data-testid="applied-line"][data-turn="${turn}"]`;
 }
 
 /**

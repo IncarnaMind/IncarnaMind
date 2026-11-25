@@ -766,6 +766,7 @@ export function onAskedApplied(listener: AskedApplied): () => void {
  * a core `application` already accepted them and follows the core's Undo
  * and Redo instead. `facts` counts what the line says. A rewrite that would
  * take out most of the User's own text stays waiting with its held line.
+ * `turn`: the Answer or request at the Note's foot the changes came from.
  */
 export function applyArrived(
   editor: Editor,
@@ -776,7 +777,13 @@ export function applyArrived(
     holds = true,
     application,
     retainHeadless = false,
-  }: { holds?: boolean; application?: AskedChangeApplication; retainHeadless?: boolean } = {},
+    turn,
+  }: {
+    holds?: boolean;
+    application?: AskedChangeApplication;
+    retainHeadless?: boolean;
+    turn?: string;
+  } = {},
 ): "applied" | "held" | null {
   const first = proposalsIn(editor.state.doc).find((each) => requests.has(each.request));
   if ((!first && !application) || editor.isDestroyed) return null;
@@ -869,6 +876,7 @@ export function applyArrived(
     reason: null,
     changes,
     kept: null,
+    ...(turn && { turn }),
   });
   if (application) {
     if (followed?.onTop()) {
@@ -980,11 +988,15 @@ export function reviewApplied(editor: Editor, { focus = false } = {}): void {
   const restored = restoredIn(edit);
   const shows = (change: AppliedChange) => followed?.state() === "done" && !restored(change);
   const left = changes.filter(shows);
+  const reviewed = appliedLineIn(editor.state);
+  const turn =
+    reviewed?.kind === "applied" || reviewed?.kind === "review" ? reviewed.turn : undefined;
   setAppliedLine(editor, {
     kind: "review",
     blockId: firstBlockOf(editor.state, left),
     changes,
     shows,
+    ...(turn && { turn }),
     ...(edit.byAssistant && { byAssistant: true }),
     ...(followed && {
       undo: { available: () => followed.onTop(), mind: mind ? mindName(mind) : t("mind.untitled") },

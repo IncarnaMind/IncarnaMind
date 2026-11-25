@@ -2827,10 +2827,6 @@
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-meta);
   }
-  /* The finished change is said once, where the Note's conversation shows it: line or column (#3762). */
-  .mind-tab-page[data-ask-undo] .mind-editor [data-testid="applied-line"] {
-    display: none;
-  }
   /*
    * What the meeting says over its control, each a card of its own: the microphone's problem, what
    * failed or isn't recorded, the first tip, the shared screen's question or state. Over the page,

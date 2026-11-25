@@ -1255,6 +1255,35 @@ describe("the meeting's control and sheet after #3762's review", () => {
     expect(sheet.querySelector(".transcript-review-row")).toBeNull();
   });
 
+  // protects=while a Note's conversation can undo its change, the page hides that change's line alone: a line of another change, an earlier turn's or one with no turn, keeps its controls (#3762); fails_when=every applied line in the Note hides while the conversation's Undo stands
+  test("while the conversation can undo its change, only that change's line hides on the page", async () => {
+    const path = "../../src/renderer/src/components/tabs/MindTab.tsx";
+    const { saidInConversation } = (await import(path)) as {
+      saidInConversation(turnId: string): string;
+    };
+    const page = document.createElement("div", {});
+    page.className = "mind-tab-page";
+    page.dataset.askUndo = "turn-2";
+    const editor = document.createElement("div", {});
+    editor.className = "mind-editor";
+    for (const [turn, said] of [
+      ["turn-2", "Wrote 2 paragraphs · Undo"],
+      [null, "Change waiting · Apply · Discard"],
+      ["turn-1", "Changed 1 paragraph · Undo"],
+    ] as const) {
+      const line = document.createElement("div", {});
+      line.dataset.testid = "applied-line";
+      if (turn) line.dataset.turn = turn;
+      line.textContent = said;
+      editor.append(line);
+    }
+    page.append(editor);
+    container.append(page);
+    expect(
+      [...container.querySelectorAll(saidInConversation("turn-2"))].map((each) => each.textContent),
+    ).toEqual(["Wrote 2 paragraphs · Undo"]);
+  });
+
   // protects=audio that can't be saved while a call records is said in plain words, over the folded control and in the sheet alike, with what still works and the one thing to do where there is one, never the system's message or a path (#3762); fails_when=the line shows a raw error, or the folded card and the sheet say it differently
   test.each([
     [
