@@ -42,7 +42,8 @@ const COMPACT_MS = 10 * 60_000;
 
 /**
  * How long Claude Code may take to answer the `initialize` of a Note's conversation, before which
- * nothing is sent: it answered in 0.2 s, new and resumed (Claude Code 2.1.331, #3653).
+ * nothing is sent: it answered in 0.2 s, new and resumed, and without waiting for the User's own
+ * servers (0.4 s with one that took 20 s to start; Claude Code 2.1.331, #3653).
  */
 const INITIALIZE_MS = 60_000;
 

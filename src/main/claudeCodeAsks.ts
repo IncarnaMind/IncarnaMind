@@ -42,21 +42,29 @@ function realOf(path: string): string | null {
 // Paths compared as the disk compares them: macOS's and Windows's in any case.
 const asCompared = (path: string) => (process.platform === "linux" ? path : path.toLowerCase());
 
-// The longest path the system takes: past it the hook can't walk one, and it asks.
-const LONGEST_PATH = process.platform === "win32" ? 32_767 : 4096;
+// A path, or a place a walk reaches, longer than this asks: the hook walks in the main process.
+const LONGEST_PATH = 4096;
+
+// Steps past this ask: links whose targets fold back on themselves can make a walk long.
+const LONGEST_WALK = 8192;
 
 // A path's parts as the system splits it: on macOS and Linux a backslash is a letter of a name.
 const SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
 const partsOf = (path: string) => path.split(SEPARATORS).filter((part) => part !== "");
 
 /**
- * Whether `at` is in /proc or /dev/fd, which show each process its own view: where a path through
- * them leads for Claude Code can't be told from IncarnaMind's own process.
+ * /proc or /dev/fd at the start of a place, after its root (a drive, or Windows's `\\?\` form of
+ * one), which show each process its own view: where a path through them leads for Claude Code
+ * can't be told from IncarnaMind's own process.
  */
-function inProcessView(at: string): boolean {
-  const [first, second] = partsOf(asCompared(at.slice(parse(at).root.length)));
-  return first === "proc" || (first === "dev" && second === "fd");
-}
+const PROCESS_VIEW =
+  process.platform === "win32"
+    ? /^(?:[\\/]{2}[?.][\\/])?(?:[a-z]:)?[\\/]+(?:proc|dev[\\/]+fd)(?:[\\/]|$)/i
+    : new RegExp(
+        String.raw`^\/+(?:proc|dev\/+fd)(?:\/|$)`,
+        process.platform === "linux" ? "" : "i",
+      );
+const inProcessView = (at: string) => PROCESS_VIEW.test(at);
 
 /**
  * Whether `path` is on another computer or names a device by other than its drive letter
@@ -74,15 +82,17 @@ export const elsewhereOnWindows = (path: string) =>
  * parts of its target and ".." the folder above the one reached, so it goes where a link took it,
  * even to a folder or file that isn't there yet, since a write through it can make that. With
  * `asText`, a link's target is read as text from the link's own folder instead, as Windows may read
- * it. Null when the walk gives up: more links than a system follows, a loop, a place or a rest of
- * parts longer than a path can be, a step into /proc or /dev/fd, or a link to another computer.
+ * it. Null when the walk gives up: more links than a system follows, a loop, more steps than a
+ * path needs, a place or a rest of parts longer than a path can be, a step into /proc or /dev/fd,
+ * or a link to another computer.
  */
 function leadsTo(path: string, asText = false): string | null {
   let at = parse(path).root;
   const parts = partsOf(path.slice(at.length));
-  for (let hops = 0; parts.length > 0; ) {
-    // Links whose targets add parts can make the walk run long in the main process.
-    if (at.length > LONGEST_PATH || parts.length > LONGEST_PATH) return null;
+  for (let hops = 0, steps = 0; parts.length > 0; steps += 1) {
+    if (steps > LONGEST_WALK || at.length > LONGEST_PATH || parts.length > LONGEST_PATH) {
+      return null;
+    }
     if (inProcessView(at)) return null;
     const part = parts.shift() ?? "";
     if (part === ".") continue;

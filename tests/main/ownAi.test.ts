@@ -581,13 +581,15 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
   /**
    * Claude Code answering the settings request (with a managed plugin when `plugin`), then
    * `initialize`: with OFFERED after the settings ("after"), before them ("first"), with an error
-   * ("error"), never ("never"), or with OFFERED but not saying it took the hooks, as one too old to
-   * know them would ("ignored"); then the prompt, noted in the file `heard` when one is named.
+   * ("error"), never ("never"), or with OFFERED but not saying it registered the hooks
+   * ("unapplied") or that a failed answer blocks ("unsupported"), as one too old to know them would;
+   * then the prompt, noted in the file `heard` when one is named, and its answer `slowMs` later.
    */
   const listing = (
     plugin: boolean,
-    models: "after" | "first" | "error" | "never" | "ignored" = "after",
+    models: "after" | "first" | "error" | "never" | "unapplied" | "unsupported" = "after",
     heard = "",
+    slowMs = 0,
   ) => `
     const lines = require("node:readline").createInterface({ input: process.stdin });
     const say = (value) => console.log(JSON.stringify(value));
@@ -604,15 +606,19 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
           ? { type: "control_response", response: { subtype: "error", request_id: v.request_id, error: "no" } }
           : { type: "control_response", response: { subtype: "success",
               request_id: v.request_id, response: { models: ${JSON.stringify(OFFERED)},
-                ...(how === "ignored" ? {} : ${HOOKS_TAKEN}) } } });
+                ...${HOOKS_TAKEN},
+                ...(how === "unapplied" && { hooks_applied: undefined }),
+                ...(how === "unsupported" && { hook_on_failure_supported: undefined }) } } });
         if (held) settings(held);
       } else if (v.type === "control_request") {
         if (${JSON.stringify(models)} === "first") held = v.request_id;
         else settings(v.request_id);
       } else if (v.type === "user") {
         if (${JSON.stringify(heard)} !== "") require("node:fs").appendFileSync(${JSON.stringify(heard)}, "prompt\\n");
-        say(${JSON.stringify(init(["mcp__incarnamind__read_mind"]))});
-        say(${JSON.stringify(done)});
+        setTimeout(() => {
+          say(${JSON.stringify(init(["mcp__incarnamind__read_mind"]))});
+          say(${JSON.stringify(done)});
+        }, ${slowMs});
       }
     });
   `;
@@ -661,7 +667,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
   });
 
   // protects=the prompt goes only once Claude Code says it registered the hook that makes a write to CLAUDE.md ask, and that a failed answer to it blocks (#3653): answered with an error, or by one too old to say so, nothing is sent and the request fails with the line that says to update it; fails_when=a request runs without the hook, or the User is told only to try again
-  it.each(["error", "ignored"] as const)(
+  it.each(["error", "unapplied", "unsupported"] as const)(
     "sends nothing when Claude Code doesn't take its hook (%s)",
     async (how) => {
       const heard = join(await mkdtemp(join(tmpdir(), "own-ai-heard-")), "prompts.txt");
@@ -674,6 +680,13 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       await rm(dirname(heard), { recursive: true, force: true });
     },
   );
+
+  // protects=the wait for initialize ends once Claude Code has taken the hook: a request that takes longer than that wait still finishes; fails_when=every conversation is cut at a minute and the User is told to update a Claude Code that works
+  it("lets a request run past the initialize wait once the hook is taken", async () => {
+    useClaude({ run: listing(false, "after", "", 800) });
+    const slow = await listen({ initializeMs: 200 });
+    expect(slow.end).toEqual({ kind: "finished", reply: "Checked." });
+  });
 
   // protects=an initialize Claude Code never answers sends nothing, and the request ends after its own short wait, well before the stall limit, with the line that says to update it; fails_when=the request runs without IncarnaMind's hook, or the User waits six minutes under "working" with nothing sent
   it("sends nothing when Claude Code never answers its initialize", async () => {
@@ -1170,31 +1183,31 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=a walk whose links each add hundreds of parts gives up, and asks, once the place it reached or the parts left are longer than a path can be, at once rather than after a long walk in the main process; fails_when=the hook can be made to walk for seconds, or let such a write go on; no_claim=Windows, where a link's target can't be made long enough to pass its 32,767 characters within the link limit (a 5,000-character target is refused)
+  // protects=a walk of more steps than a path needs gives up, and asks, however short each step is: links whose targets fold back on themselves (a/../a/../…) and lead on to the next, under the link limit, to a plain file; fails_when=the hook can be made to take tens of thousands of steps per call in the main process; no_claim=Windows, where a link's target of 1,000 characters isn't made
   it.skipIf(process.platform === "win32")(
-    "gives up a steering walk that grows past a path's length, at once",
+    "gives up a steering walk of more steps than a path needs",
     async () => {
       const work = await mkdtemp(join(tmpdir(), "im-steer-"));
-      await mkdir(join(work, "grow"));
-      // Each link leads to the next and 200 parts that aren't there: well under the link limit, past
-      // a path's length. A link's target is at most 1,023 characters on macOS.
-      for (let n = 0; n < 30; n += 1) {
+      await mkdir(join(work, "fold"));
+      await writeFile(join(work, "fold", "plain.md"), "x\n");
+      // 39 links of 401 steps each, 200 of them there and back: a link's target is at most 1,023
+      // characters on macOS, where the temporary folder is itself reached through one more link.
+      const back = Array(200).fill(["a", ".."]).flat();
+      for (let n = 0; n < 39; n += 1) {
         await symlink(
-          [`g${n + 1}`, ...Array(200).fill("xxxx")].join(sep),
-          join(work, "grow", `g${n}`),
+          [...back, n === 38 ? "plain.md" : `f${n + 1}`].join(sep),
+          join(work, "fold", `f${n}`),
           "file",
         );
       }
-      const started = performance.now();
       const { answers } = await useHookAnswers([
         {
           tool_name: "Write",
-          tool_input: { file_path: join(work, "grow", "g0"), content: "x" },
+          tool_input: { file_path: join(work, "fold", "f0"), content: "x" },
           cwd: work,
         },
       ]).finally(() => rm(work, { recursive: true, force: true }));
       expect(answers).toEqual(["ask"]);
-      expect(performance.now() - started).toBeLessThan(10_000);
     },
   );
 
@@ -1544,13 +1557,10 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "ask",
       ],
       [
-        "a path longer than the system's longest",
+        "a path of 5,000 characters",
         {
           tool_name: "Write",
-          tool_input: {
-            file_path: join(work, "a".repeat(process.platform === "win32" ? 33_000 : 5000)),
-            content: "x",
-          },
+          tool_input: { file_path: join(work, "a".repeat(5000)), content: "x" },
         },
         "ask",
       ],

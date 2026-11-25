@@ -118,16 +118,64 @@ const outcomesOf = (window: Page, mindId: string) =>
     return (await bridge.noteConversation(id)).map((turn) => turn.outcome);
   }, mindId);
 
+/**
+ * Notes, in the window, each press and what it landed on, so a request that doesn't end can say
+ * whether the press reached an answer.
+ */
+const notePresses = (window: Page) =>
+  window.evaluate(() => {
+    const seen: unknown[] = [];
+    (globalThis as unknown as { presses: unknown[] }).presses = seen;
+    for (const type of ["pointerdown", "click"]) {
+      document.addEventListener(
+        type,
+        (event) => {
+          const on = event.target instanceof Element ? event.target.closest("[data-testid]") : null;
+          const { clientX: x, clientY: y } = event as MouseEvent;
+          seen.push({ type, x, y, on: on?.getAttribute("data-testid") ?? null });
+          if (seen.length > 12) seen.shift();
+        },
+        true,
+      );
+    }
+  });
+
 async function ended(window: Page, mindId: string, before: number) {
-  await expect
-    .poll(
-      async () => {
-        const outcomes = await outcomesOf(window, mindId);
-        return outcomes.length > before && outcomes.at(-1) !== "working";
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true);
+  try {
+    await expect
+      .poll(
+        async () => {
+          const outcomes = await outcomesOf(window, mindId);
+          return outcomes.length > before && outcomes.at(-1) !== "working";
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+  } catch (error) {
+    // What the window, the core and the stand-in last knew: the press, the question still
+    // waiting or not, and the answers the stand-in heard.
+    const state = await window
+      .evaluate(async (id) => {
+        const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const now = await bridge.noteTurnNow(id);
+        return {
+          presses: (globalThis as unknown as { presses?: unknown[] }).presses ?? null,
+          waiting: now?.questions.map((question) => question.action.kind) ?? null,
+          state: now?.state ?? null,
+        };
+      }, mindId)
+      .catch((reason: unknown) => ({ unread: String(reason) }));
+    const heard = await readFile(join(bin, "mode.answers"), "utf8").catch(() => "");
+    await test.info().attach("state", {
+      body: JSON.stringify({ ...state, heard: heard.split("\n").filter(Boolean) }, null, 2),
+      contentType: "application/json",
+    });
+    await test
+      .info()
+      .attach("window", { body: await window.screenshot(), contentType: "image/png" })
+      .catch(() => undefined);
+    throw error;
+  }
 }
 
 const group = (window: Page) => window.locator('[data-testid="tab-group"][data-focused]');
@@ -214,10 +262,11 @@ async function stepsIn(scope: Locator): Promise<string[]> {
   return scope.getByTestId("own-step").allTextContents();
 }
 
-test("what the User's own AI asks shows as a card, each kind as it will happen, with Claude Code's own three choices, its lasting one whole, on one row or one under another as it lists them; Deny, Allow once and its don't-ask-again each go as said, and become a step; the keyboard and the folded box", async () => {
+test("what the User's own AI asks shows as a card in the folded box, with Claude Code's own three choices, its lasting one whole, on one row or one under another as it lists them; Deny goes as said and becomes a step; the keyboard; a card taller than the box keeps its answers in view", async () => {
   const { app, window } = await launched();
   try {
     await setWindowSize(app, window, 1440, 900);
+    await notePresses(window);
     const { mindId } = await harbourNotes(window);
     const box = group(window).getByTestId("note-ask-box");
     const input = group(window).getByTestId("note-ask-input");
@@ -344,7 +393,22 @@ test("what the User's own AI asks shows as a card, each kind as it will happen, 
     await shot(window, "card-folded-long-en");
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, before);
+  } finally {
+    await app.close();
+  }
+});
+
+test("each kind of question shows as a card in the conversation's column, its answers Claude Code's own and whole; a request that fails after a write says what it wrote; a lasting answer goes back as given; two at once; one it can't show; Chinese, at 900 px too", async () => {
+  const { app, window } = await launched();
+  try {
     await setWindowSize(app, window, 1440, 900);
+    await notePresses(window);
+    const { mindId } = await harbourNotes(window);
+    // A conversation to open: a first request, its question denied.
+    let before = (await outcomesOf(window, mindId)).length;
+    let card = await ask(window, "ask-command", "Check the late crossings and save a table");
+    await pointAndClick(window, card.getByTestId("own-ask-deny"));
+    await ended(window, mindId, before);
 
     // Each kind, in the column: what it will do, whole, and its answers.
     await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
