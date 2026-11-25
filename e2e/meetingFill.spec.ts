@@ -213,7 +213,10 @@ async function chooseMeetingView(
   words: (typeof LINES)[keyof typeof LINES],
   view: "notes" | "transcript",
 ): Promise<void> {
-  const chip = panel.getByTestId("meeting-view-chip");
+  const chip = window
+    .getByTestId("tab-group")
+    .filter({ has: panel })
+    .getByTestId("meeting-view-chip");
   await expect(chip).toBeInViewport({ ratio: 1 });
   await chip.focus();
   await chip.press("Enter");
@@ -260,6 +263,10 @@ async function ownTranscriptRoundTrip(
   if (!tabId || !groupId || !panelId || !meeting.transcript?.documentId)
     throw new Error("Expected the recorded Note's tab, panel and Transcript identities");
   const panel = window.locator(`[id="${panelId}"]`);
+  const chip = window
+    .getByTestId("tab-group")
+    .filter({ has: panel })
+    .getByTestId("meeting-view-chip");
   const tabIds = () =>
     window
       .locator("[data-tab-id]")
@@ -281,13 +288,13 @@ async function ownTranscriptRoundTrip(
     for (const status of [words.filled, words.partial, words.notFilled]) {
       expect(serialized).not.toContain(status);
     }
-    await expect(panel.getByTestId("meeting-view-chip")).toHaveText(words.recordedChip);
+    await expect(chip).toHaveText(words.recordedChip);
     await open(panel);
     const transcript = panel.getByTestId("meeting-note-transcript");
     await expect(transcript).toHaveAttribute("data-document-id", meeting.transcript.documentId);
     const viewer = transcript.getByTestId("viewer-transcript");
     await expect(viewer).toBeVisible();
-    await expect(panel.getByTestId("meeting-view-chip")).toContainText(words.viewTranscript);
+    await expect(chip).toContainText(words.viewTranscript);
     const cue = viewer.getByTestId("transcript-line").first();
     await expect(cue).toBeVisible();
     await expect(cue).toHaveAttribute("data-start", /^\d+$/);
@@ -328,7 +335,6 @@ async function ownTranscriptRoundTrip(
     await expect(noteTab).toHaveAttribute("aria-selected", "true");
     expect(await tabIds()).toEqual(originalTabs);
     await expect(documentBlocks(notes)).toHaveText(originalBlocks);
-    const chip = panel.getByTestId("meeting-view-chip");
     await expect(chip).toBeInViewport({ ratio: 1 });
     await chip.focus();
     await chip.press("Enter");

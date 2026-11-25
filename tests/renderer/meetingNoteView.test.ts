@@ -167,6 +167,10 @@ vi.mock("../../src/renderer/src/transcripts", () => ({
 }));
 vi.mock("../../src/renderer/src/motion", () => ({ enterFrom: vi.fn(), exitToward: vi.fn() }));
 
+import {
+  placeNoteControls,
+  useNoteControls,
+} from "../../src/renderer/src/components/tabs/noteControls";
 import { useMeetings } from "../../src/renderer/src/meetings";
 import { useAppStore } from "../../src/renderer/src/store";
 
@@ -297,6 +301,7 @@ beforeEach(() => {
   }))
     vi.stubGlobal(name, value);
   views.useMeetingNoteViews.setState({ views: {} });
+  useNoteControls.setState({ byTab: {} });
   useAppStore.setState({
     minds: [{ id: "note" }, { id: "other" }] as Mind[],
     documents: [documentOf()],
@@ -325,7 +330,16 @@ async function show(tabs = [{ tabId: "tab", mindId: "note" }]) {
           createElement(
             TabPlace,
             { key: `${tabId}:${mindId}`, value: { tabId, groupId: "group" } },
-            createElement("div", { "data-tab-id": tabId }, createElement(MindTab, { mindId })),
+            // The Note's controls, its view chip among them, stand in the strip that shows its tab.
+            createElement(
+              "div",
+              { "data-tab-id": tabId },
+              createElement("span", {
+                "data-testid": "note-controls",
+                ref: (element: HTMLElement | null) => placeNoteControls(tabId, "controls", element),
+              }),
+              createElement(MindTab, { mindId }),
+            ),
           ),
         ),
       ),

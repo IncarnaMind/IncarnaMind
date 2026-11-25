@@ -70,7 +70,10 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
   if (!tabId || !panelId || !mindId) throw new Error("Expected the Meeting's Note tab and panel.");
   const panel = window.locator(`[id="${panelId}"]`);
   const transcript = panel.getByTestId("meeting-note-transcript");
-  const chip = panel.getByTestId("meeting-view-chip");
+  const chip = window
+    .getByTestId("tab-group")
+    .filter({ has: panel })
+    .getByTestId("meeting-view-chip");
   const caretPrefix = "The tides here are very strong";
   await slideSelect(window, paragraph, "strong");
   await window.keyboard.press("ArrowRight");

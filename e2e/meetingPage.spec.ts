@@ -139,16 +139,23 @@ const noteJson = (editor: Locator) =>
     JSON.stringify((element as unknown as { editor: Editor }).editor.getJSON()),
   );
 
-/** The Note's tab and its panel, which every view of the meeting is drawn in. */
-async function notePanel(window: Page): Promise<{ mindId: string; panel: Locator; tabs: number }> {
+/**
+ * The Note's tab and its panel, which every view of the meeting is drawn in, and its group, whose
+ * strip holds the view chip.
+ */
+async function notePanel(
+  window: Page,
+): Promise<{ mindId: string; panel: Locator; group: Locator; tabs: number }> {
   const tab = window.locator('[data-testid="mind-tab"][aria-selected="true"]');
   await expect(tab).toHaveCount(1);
   const panelId = await tab.getAttribute("aria-controls");
   const mindId = await tab.getAttribute("data-mind-id");
   if (!panelId || !mindId) throw new Error("Expected the meeting Note's panel.");
+  const panel = window.locator(`[id="${panelId}"]`);
   return {
     mindId,
-    panel: window.locator(`[id="${panelId}"]`),
+    panel,
+    group: window.getByTestId("tab-group").filter({ has: panel }),
     tabs: await window.locator("[data-tab-id]").count(),
   };
 }
@@ -182,7 +189,7 @@ test("a first fill keeps the New menu open while choosing the next meeting", asy
   await first.getByTestId("meeting-stop").click();
   await expect.poll(() => modelHeld(app), { timeout: 30_000 }).toBe(true);
   await setLanguage(window, "zh-CN");
-  const { panel } = await notePanel(window);
+  const { panel, group } = await notePanel(window);
   await window.getByTestId("plus-menu").click();
   const record = window.getByTestId("plus-record-meeting");
   await record.hover();
@@ -191,12 +198,12 @@ test("a first fill keeps the New menu open while choosing the next meeting", asy
     timeout: 30_000,
   });
   await expect(record).toBeVisible();
-  await expect(panel.getByTestId("meeting-view-menu")).toBeHidden();
+  await expect(group.getByTestId("meeting-view-menu")).toBeHidden();
   await record.click();
   await firstTranscriptLine(window);
   const next = await notePanel(window);
   await next.panel.getByTestId("meeting-stop").click();
-  const details = next.panel.getByTestId("meeting-view-menu");
+  const details = next.group.getByTestId("meeting-view-menu");
   await expect(details).toBeVisible({ timeout: 30_000 });
   await window.keyboard.press("Escape");
   await expect(details).toBeHidden();
@@ -561,7 +568,7 @@ for (const language of ["en", "zh-CN"] as const) {
     for (const round of [1, 2]) {
       await motionSettled(window);
       const bar = await recordMeetingNow(window);
-      const { panel, mindId } = await notePanel(window);
+      const { panel, group, mindId } = await notePanel(window);
       const editor = panel.getByTestId("mind-editor");
       await pointAndClick(window, editor);
       await focusSettled(window, editor);
@@ -625,9 +632,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(page.getByTestId("meeting-details-toggle")).toHaveCount(0);
       await expect(line.locator("xpath=ancestor::*[@data-testid='mind-editor']")).toHaveCount(1);
 
-      const chip = panel.getByTestId("meeting-view-chip");
+      const chip = group.getByTestId("meeting-view-chip");
       await expect(chip).toHaveText(words.recorded);
-      const menu = panel.getByTestId("meeting-view-menu");
+      const menu = group.getByTestId("meeting-view-menu");
       if (round === 1) {
         // The first fill on this computer opens it, once, and the User keeps their place.
         await expect(menu).toBeVisible();
