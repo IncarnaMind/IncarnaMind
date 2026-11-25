@@ -8,10 +8,28 @@ import { mindName } from "../../shared/naming";
 import { core, files } from "./core";
 import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
-import { currentMindIdOf } from "./layoutSlice";
+import { currentMindIdOf, currentTabOf } from "./layoutSlice";
 import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
 import { useAppStore } from "./store";
 import { useUndo } from "./undo";
+
+type AppState = ReturnType<typeof useAppStore.getState>;
+
+/**
+ * Where the User is, for a meeting made with no Note in front (#3762): the Folder of the Note, its
+ * figures or the Document in front; else none.
+ */
+function folderInView(layout: AppState["layout"], minds: AppState["minds"]): string | null {
+  const item = currentTabOf(layout)?.item;
+  if (item?.kind === "mind" || item?.kind === "figures") {
+    return minds.find((each) => each.id === item.mindId)?.folderId ?? null;
+  }
+  if (item?.kind === "document") {
+    const { documents } = useAppStore.getState();
+    return documents.find((each) => each.id === item.documentId)?.folderId ?? null;
+  }
+  return null;
+}
 
 interface MeetingsState {
   meetings: Meeting[];
@@ -209,8 +227,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
       }
       let created: string | null = null;
       try {
-        const inView = currentMindIdOf(layout);
-        const folderId = minds.find((each) => each.id === inView)?.folderId ?? null;
+        const folderId = folderInView(layout, minds);
         const meeting = await core.createMeeting(folderId ? { folderId } : undefined);
         created = meeting.id;
         await startMade(meeting, () =>
