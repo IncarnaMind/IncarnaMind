@@ -974,11 +974,11 @@ const CLAIM_RESULTS = {
  * The rows of the Note's check card an agent is told sentences of, with the count the page gives
  * each, in the order `claims` lists them: what needs a look first, so the cap never hides it.
  */
-const CLAIM_GROUPS = [
-  ["look", "needLook"],
-  ["toCheck", "notChecked"],
-  ["notYetCited", "canBeCited"],
-] as const satisfies readonly (readonly [CheckRow, AgentCheckedClaim["group"]])[];
+const CLAIM_GROUPS: readonly (readonly [readonly CheckRow[], AgentCheckedClaim["group"]])[] = [
+  [["look"], "needLook"],
+  [["toCheck", "cantCheck"], "notChecked"],
+  [["notYetCited"], "canBeCited"],
+];
 
 const READ_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 
@@ -2581,8 +2581,10 @@ export function createAgentAccess(
       beyond(item) ? "toCheck" : item.row;
     const counted = (row: CheckRow) =>
       record.sentences.filter((item) => rowOf(item) === row).length;
-    const listed = CLAIM_GROUPS.flatMap(([row, group]) =>
-      record.sentences.filter((item) => rowOf(item) === row).map((item) => ({ ...item, group })),
+    const listed = CLAIM_GROUPS.flatMap(([rows, group]) =>
+      record.sentences
+        .filter((item) => rows.some((row) => row === rowOf(item)))
+        .map((item) => ({ ...item, group })),
     );
     const claims = listed.slice(0, MAX_CHECKED_CLAIMS).map((item): AgentCheckedClaim => {
       const unsaid = { says: null, document: null, location: null, quote: null, cite: null };
@@ -2627,7 +2629,7 @@ export function createAgentAccess(
         models: record.models,
         supported: counted("supported"),
         needLook: counted("look"),
-        notChecked: counted("toCheck") + (record.notChecked ?? 0),
+        notChecked: counted("toCheck") + counted("cantCheck") + (record.notChecked ?? 0),
         canBeCited: counted("notYetCited"),
         ownViews: counted("ownViews"),
         claims,

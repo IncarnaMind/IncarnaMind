@@ -80,7 +80,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await expect(badge).toHaveAttribute("data-state", "not-checked");
   await expect(badge.locator(".check-badge-words")).toHaveText("1 sentence not checked yet");
   const card = await checkCard(window);
-  await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked");
+  await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked yet");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
   // One action, and nothing under it: Check for contradictions is in ⌘K and the page menu.
   await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");

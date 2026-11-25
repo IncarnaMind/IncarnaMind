@@ -12,12 +12,17 @@ export function ProposeChoice({
   onChange,
   hint = true,
   noFolders = false,
+  label,
+  testId = "agent-propose",
 }: {
   checked: boolean;
   onChange(checked: boolean): void;
   hint?: boolean;
   /** There is no Folder to name: every Document is in none. */
   noFolders?: boolean;
+  /** Custom label when granting write access to several apps at once. */
+  label?: string;
+  testId?: string;
 }) {
   const t = useT();
   const hintId = useId();
@@ -26,13 +31,13 @@ export function ProposeChoice({
       <label className={checkRowClass}>
         <input
           type="checkbox"
-          data-testid="agent-propose"
+          data-testid={testId}
           checked={checked}
           aria-describedby={hint ? hintId : undefined}
           onChange={(event) => onChange(event.target.checked)}
-          className={checkBoxClass}
+          className={`${checkBoxClass} accent-ink`}
         />
-        {t(noFolders ? "agents.propose.label.all" : "agents.propose.label")}
+        {label ?? t(noFolders ? "agents.propose.label.all" : "agents.propose.label")}
       </label>
       {hint && (
         <p id={hintId} className={checkHintClass}>

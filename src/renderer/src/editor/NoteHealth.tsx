@@ -203,6 +203,7 @@ const ROW_WORDS = {
   ownViews: "checks.row.ownViews",
   checking: "checks.row.checking",
   toCheck: "checks.row.notChecked",
+  cantCheck: "checks.row.cantCheck",
 } as const;
 
 function RowMark({ row }: { row: CheckRow }) {
@@ -220,6 +221,7 @@ function RowMark({ row }: { row: CheckRow }) {
     case "checking":
       return <ClaimMarkIcon state="checking" className="mind-health-icon" />;
     case "toCheck":
+    case "cantCheck":
       return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
   }
 }
