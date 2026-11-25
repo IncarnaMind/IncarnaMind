@@ -1,10 +1,9 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentClient, AgentClientId, AgentSetupPreview } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
-import { type AgentConnectOutcome, manyAgentsConnector } from "../../agentConnection";
+import type { AgentConnectOutcome } from "../../agentConnection";
 import { resetClaudeCodeInstall } from "../../claudeCodeInstall";
 import { core } from "../../core";
-import { errorMessage } from "../../errors";
 import { useGap, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { InlinePath } from "../PathText";
@@ -19,9 +18,10 @@ import {
   hintClass,
 } from "../ui";
 import { AgentShareChoice } from "./AgentShareChoice";
-import { clientName, setupWords } from "./agentWords";
+import { clientName, setupProblem, setupWords } from "./agentWords";
 import {
   AgentSecretNotice,
+  connectManyAgents,
   FileChangePreview,
   useSecretStorage,
   useShareFolders,
@@ -39,11 +39,6 @@ export interface ManyAgentsChoice {
   folderIds: string[];
   propose: boolean;
 }
-
-const connectManyAgents = manyAgentsConnector(core, (error) => {
-  console.error("Couldn't turn connecting agents off again after a failed setup", error);
-  useAppStore.getState().reportError(error);
-});
 
 /** Connects several AI apps sequentially under one choice, with per-app Undo and Try again (#3644). */
 export function useManyAgentConnection() {
@@ -72,7 +67,7 @@ export function useManyAgentConnection() {
       }
       return results;
     } catch (error) {
-      setProblem(errorMessage(error, t));
+      setProblem(setupProblem(error, t));
       return null;
     } finally {
       setBusy(false);

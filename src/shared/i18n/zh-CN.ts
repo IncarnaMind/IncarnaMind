@@ -8473,6 +8473,7 @@ export const zhCN = {
   "agents.setup.file": "IncarnaMind 会把自己添加到{agent}的设置中",
   "agents.setup.command": "复制一行命令，在终端中运行",
   "agents.setup.other": "复制设置，粘贴到你的智能体中",
+  "agents.setup.failed": "无法在这里完成连接。请重试，或改为手动连接。",
   "agents.note.codex": "适用于 ChatGPT 桌面应用，不适用于网页版。",
   "agents.setup.paste": "复制设置，粘贴到{agent}中",
   "agents.setup.parts": "在{agent}中逐项填写 IncarnaMind 给出的设置",
