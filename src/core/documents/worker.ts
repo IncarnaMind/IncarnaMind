@@ -37,9 +37,25 @@ const running = new Map<
   }
 >();
 let nextRequest = 1;
+let closing = false;
+
+const finishIfClosing = () => {
+  if (closing && running.size === 0) port.close();
+};
 
 port.on("message", (message: WorkerRequest) => {
+  if ("close" in message) {
+    closing = true;
+    for (const job of running.values()) {
+      job.stop.abort();
+      for (const waiter of job.waiting.values()) waiter.reject(new Error("Stopped."));
+      job.waiting.clear();
+    }
+    finishIfClosing();
+    return;
+  }
   if ("job" in message) {
+    if (closing) return;
     const { id } = message;
     const job = { stop: new AbortController(), waiting: new Map() };
     running.set(id, job);
@@ -73,10 +89,17 @@ port.on("message", (message: WorkerRequest) => {
           send({ id, request, page, file });
         }),
     };
-    void runJob(message.job, channel, message.password).then((result) => {
-      running.delete(id);
-      send({ id, result });
-    });
+    void runJob(message.job, channel, message.password).then(
+      (result) => {
+        running.delete(id);
+        if (!closing) send({ id, result });
+        finishIfClosing();
+      },
+      () => {
+        running.delete(id);
+        finishIfClosing();
+      },
+    );
     return;
   }
   const job = running.get(message.id);

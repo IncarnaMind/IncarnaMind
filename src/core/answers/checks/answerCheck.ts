@@ -206,7 +206,7 @@ export interface AnswerCheckOptions {
   /** The interface language: what a sentence's result on its Citations is written in. */
   language(): Language;
   /** The model that answered, as the Answer's own request used it; null when it can't be used now. */
-  prepare(choice: ChatModelChoice): Promise<PreparedChatModel | null>;
+  prepare(choice: ChatModelChoice, signal?: AbortSignal): Promise<PreparedChatModel | null>;
   scope(mindId: string | null, documentIds: readonly string[] | null): EvidenceScope;
   searchableCount(documentIds: readonly string[] | null): number;
   /** What the Citations quote, each Document named as it is now. */
@@ -440,11 +440,12 @@ export function createAnswerCheck(options: AnswerCheckOptions) {
    * in was worse than supported.
    */
   async function checkAnswer(input: AnswerCheckInput): Promise<Map<number, SupportResult> | null> {
+    if (input.signal.aborted) return null;
     const sentences = sentencesToCheck(input);
     const uncited = (input.uncited?.length ?? 0) > 0 && (input.read?.length ?? 0) > 0;
     if (sentences.length === 0 && !uncited) return null;
-    const prepared = await options.prepare(input.model);
-    if (!prepared) return null;
+    const prepared = await options.prepare(input.model, input.signal);
+    if (input.signal.aborted || !prepared) return null;
     if (judgesUnreliably(prepared)) {
       input.onStop?.("small-model");
       return null;

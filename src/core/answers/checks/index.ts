@@ -1434,15 +1434,24 @@ export function createChecks(options: ChecksOptions) {
    * The model that answered, for its Answer's sentences: they are judged as part of its own
    * request, on the chat flow the User already allowed, never asking again (#2311).
    */
-  async function answeringModel(choice: ChatModelChoice): Promise<PreparedChatModel | null> {
-    const readiness = await chat.readiness(choice, "chat");
-    if (!readiness.ready) return null;
-    const { service } = readiness.provider;
-    if (service && (options.localOnly() || options.consent.status("chat", service) !== "accepted"))
-      return null;
+  async function answeringModel(
+    choice: ChatModelChoice,
+    signal?: AbortSignal,
+  ): Promise<PreparedChatModel | null> {
+    if (signal?.aborted) return null;
     try {
-      return await chat.prepareModel(choice, "chat");
+      const readiness = await chat.readiness(choice, "chat");
+      if (signal?.aborted || !readiness.ready) return null;
+      const { service } = readiness.provider;
+      if (
+        service &&
+        (options.localOnly() || options.consent.status("chat", service) !== "accepted")
+      )
+        return null;
+      const prepared = await chat.prepareModel(choice, "chat");
+      return signal?.aborted ? null : prepared;
     } catch (error) {
+      if (signal?.aborted) return null;
       if (error instanceof ChatNotReadyError || error instanceof ConsentDeclinedError) return null;
       throw error;
     }

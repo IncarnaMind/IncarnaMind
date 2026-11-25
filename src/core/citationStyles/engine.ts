@@ -4,6 +4,7 @@
  * being maintained, hand-written styles can sit behind the same interface.
  */
 import type { Worker } from "node:worker_threads";
+import { closeWorkerThread } from "../workerClose";
 import type { FormatJob } from "./format";
 import type { EngineStyle, WorkerRequest, WorkerResponse } from "./protocol";
 import startCitationWorker from "./styleWorker?nodeWorker";
@@ -93,7 +94,7 @@ export function createWorkerEngine(folder: string): CitationStyleEngine {
         each.reject(new CitationFormatError("The core is closed.", false));
       }
       pending.clear();
-      void stopping?.terminate();
+      if (stopping) closeWorkerThread(stopping);
     },
   };
 }
