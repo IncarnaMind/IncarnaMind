@@ -658,7 +658,8 @@ const firstLine = (window: Page, past: number) =>
       top: start.top,
       from: { x: start.left + 0.5, y: start.top + start.height / 2 },
       to: { x: reach.right + 0.5, y: reach.top + reach.height / 2 },
-      end: { x: finish.right + 0.5, y: finish.top + finish.height / 2 },
+      // Well past the last letter: a browser can round a drag's end back to the boundary before the pointer (Linux does).
+      end: { x: finish.right + 12, y: finish.top + finish.height / 2 },
     };
   }, past);
 
@@ -788,9 +789,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await window.mouse.up();
           await expect(window.getByTestId("selection-menu")).toBeVisible();
         };
-        /** How many pixels of a row, from the first letter to past the Citation, show the page and not the selection. */
+        /** How many pixels of a row, from the first letter to a few past the Citation, show the page and not the selection. */
         const gaps = async (row: number) =>
-          (await rowColours(window, line.from.x + 2, row, line.to.x - line.from.x - 4)).filter(
+          (await rowColours(window, line.from.x + 2, row, line.to.x - line.from.x - 24)).filter(
             (colour) => colour === page,
           ).length;
 
