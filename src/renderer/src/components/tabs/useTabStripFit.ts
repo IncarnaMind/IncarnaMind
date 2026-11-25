@@ -130,8 +130,14 @@ export function useTabStripFit(
         // Short of the shown tab's least width, the strip is tight: Export and the conversation's
         // button leave it, and the Note's other controls give up the rest (styles.css).
         if (shown >= 0 && roomNow() - taken < least) band.dataset.tight = "";
-        const room =
-          band.dataset.tight === undefined ? roomNow() - taken : Math.max(roomNow() - taken, least);
+        const free = roomNow() - taken;
+        // What the Note's controls hold, all of which they give up before the shown tab goes under
+        // its least width; with nothing to give, the tab narrows as before.
+        const give =
+          band.dataset.tight === undefined
+            ? 0
+            : (band.querySelector('[data-testid="note-controls"]')?.scrollWidth ?? 0);
+        const room = Math.min(free + give, Math.max(free, least));
         // Whether the shown tab must narrow depends on the tabs and the room alone, not on the
         // scroll or on who asked, so every place agrees and the strip comes to rest.
         if (shown >= 0) {
