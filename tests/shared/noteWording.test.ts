@@ -137,8 +137,6 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "firstOpen.work.meetings.notes",
   "firstOpen.work.meetings.notes.done",
   "location.section.notes",
-  "meetings.notice.background.mac",
-  "meetings.notice.background.other",
   "meetings.quickNote",
   "meetings.quickNote.placeholder",
   "meetings.record.keywords",

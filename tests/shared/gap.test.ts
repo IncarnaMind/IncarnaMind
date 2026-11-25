@@ -20,14 +20,14 @@ describe("The gap between two pieces of text on a screen", () => {
     expect(gap("zh-CN", "Mac", "上的音频")).toBe(" ");
   });
 
-  test("joins the recording notice as the interface language says", () => {
+  test("joins the question before deleting a meeting's audio and its answer as the interface language says", () => {
     const join = (language: "en" | "zh-CN") => {
-      const before = translate(language, "meetings.notice.both");
-      const after = translate(language, "meetings.audio.kept");
+      const before = translate(language, "meetings.audio.confirm");
+      const after = translate(language, "meetings.audio.deleteConfirm");
       return `${before}${gap(language, before, after)}${after}`;
     };
-    expect(join("zh-CN")).toContain("所有人。音频");
-    expect(join("en")).toContain("call. Audio stays");
+    expect(join("zh-CN")).toContain("保留。删除音频");
+    expect(join("en")).toContain("stays. Delete audio");
   });
 
   test("is none beside a space already there, so a name in a spaced template keeps one space", () => {
