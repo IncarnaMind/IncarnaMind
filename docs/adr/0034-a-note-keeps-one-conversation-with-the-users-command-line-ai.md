@@ -58,7 +58,7 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 
 - **Kept for the Note and the connection.** The first request starts it with an id IncarnaMind makes (`--session-id`), and every later request continues it (`--resume`). A new connection to the same Note starts a new conversation.
 - **IncarnaMind keeps the id and its own record.** For each Note: the conversation's id, and for each request the words the User typed, the quote of the selection, and the reply's one line. The record is what the User sees when they open the conversation. IncarnaMind never reads Claude Code's transcript, as ADR-0032 never reads the agent's files.
-- **One run per Note at a time.** The core holds one run per Note, as it does for a check, so two windows never resume one conversation at once. While a run goes, the input's Send is Stop.
+- **One run per Note at a time.** The core holds one run per Note, as it does for a check, so two windows never resume one conversation at once. While a run goes, a message the User sends goes into that run (see Stop below).
 - **Its working folder** is a folder of IncarnaMind's own for that Note, in IncarnaMind's data folder, empty. Claude Code files the transcript under that folder's name, so one Note's conversation is one project in Claude Code's list of projects, and can be deleted alone (decision 5).
 - **The flags are ADR-0032's,** with these differences:
   - no `--no-session-persistence`;
@@ -154,9 +154,11 @@ The assistant panel hosting a whole conversation stays ADR-0026's; this conversa
 
   The line goes when the User types the next request. An applied change stays marked in the Note with its Undo, unlike the User's AI app, where a direct change leaves no mark.
 - **Stop:**
-  - While a run goes, Send is Stop (Esc too, from the input). Stop ends the run at once: the line goes, the input is idle, and nothing is added in its place.
+  - While a run goes, Send is Stop while the input is empty, and Send once words are typed (Esc stops too, from the input). Stop ends the run at once: the line goes, the input is idle, and nothing is added in its place.
   - A change that applied before Stop stays, with its Undo; a change that waits stays waiting; nothing else lands.
-  - While a run goes, Return does nothing new: only Stop, and Esc, act (the owner, 2026-11-22). A selection toolbar action then sends nothing either, and a line says the AI is still working and Stop comes first.
+  - A message sent while a run goes goes into that run at once, as when the User types into the AI's own app while it works (#3765; this replaces "Return does nothing new" of 2026-11-22). It shows at once as sent, marked Waiting, until the AI takes it (Claude Code echoes it back, `--replay-user-messages`): at its next step, or, during a plain reply, as the next turn of the same process once that reply ends. Each reply belongs to the latest message the AI took before it. It is never refused and never lost: the run reads on until every message sent has its answer. One not taken when the User stops stays in the conversation, Not sent, with Send, Edit, Copy and Discard. A selection toolbar action still waits for Stop, since the running request can't take a new selection, and a line says so.
+  - The User chooses by the input whether the AI asks before it acts or works on its own, beside the model (#3765): Claude Code's `default` and `auto` modes. It starts on the User's own settings for the AI and names whatever mode they say; a choice holds for the conversation only and is written nowhere, the AI's own settings least (`--permission-mode` at the start, `set_permission_mode` while it runs, taken from its next step); a mode the AI refuses is said with its reason.
+  - New conversation, in the conversation's name's menu (#3765): every turn stays, a line marks the break, and the next request begins a new conversation with the AI, which remembers nothing before it.
 - **A failure,** in the line, with one action, as for the check:
   - not signed in;
   - too old;
