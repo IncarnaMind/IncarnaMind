@@ -706,12 +706,20 @@ export function createAgentSetup(options: AgentSetupOptions) {
       await options.agents.disconnect(pairingId);
     },
 
-    /** Makes the bundle of a pairing waiting for its agent or running a legacy shim anew and opens it. */
+    /** Makes the bundle of a pairing waiting for its agent or running a legacy shim anew and opens it, or reopens an install link. */
     async openInstallAgain(pairingId: unknown): Promise<void> {
       const { pairings, awaitingInstall, shimsOutOfDate } = options.agents.settings();
       const pairing = pairings.find((each) => each.id === pairingId);
       if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
-      if (clientDefinition(pairing.client)?.setup !== "bundle") return;
+      const client = clientDefinition(pairing.client);
+      if (client?.setup === "link") {
+        if (!options.openLink || !client.link) {
+          throw new Error("This copy of IncarnaMind can't open other apps.");
+        }
+        await options.openLink(client.link(await options.agents.launch(pairing.id)));
+        return;
+      }
+      if (client?.setup !== "bundle") return;
       if (!awaitingInstall.includes(pairing.id) && !shimsOutOfDate.includes(pairing.id)) return;
       const launch = shimsOutOfDate.includes(pairing.id)
         ? await options.agents.rotateKey(pairing.id)

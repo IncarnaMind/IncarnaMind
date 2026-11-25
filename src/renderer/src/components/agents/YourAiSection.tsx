@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { AgentClient, AgentPairing, AgentSettings, LibraryGroup } from "../../../../core/api";
+import { unitsOf } from "../../../../shared/i18n/join";
 import {
   resetClaudeCodeInstall,
   useClaudeCodeInstallAvailability,
@@ -32,6 +33,8 @@ import { clientName, clientNote, setupWords } from "./agentWords";
 import { ClaudeCodeInstallRow } from "./ClaudeCodeInstallRow";
 import { ConnectAgentDialog } from "./ConnectAgentDialog";
 import { type AgentChoice, useAgentConnection } from "./ConnectAgentFields";
+import { ConnectManyDialog } from "./ConnectManyDialog";
+import { type ManyAgentsChoice, useManyAgentConnection } from "./ConnectManyFields";
 
 /** One empty list for every read before the Library is: a new one each time would redraw forever. */
 const NO_FOLDERS: readonly LibraryGroup[] = [];
@@ -155,7 +158,9 @@ export function YourAiSection({
   const installAvailability = useClaudeCodeInstallAvailability();
   const installState = useClaudeCodeInstallState();
   const [connecting, setConnecting] = useState<AgentClient | null>(null);
+  const [manyClients, setManyClients] = useState<readonly AgentClient[] | null>(null);
   const connection = useAgentConnection();
+  const many = useManyAgentConnection();
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
   // The Skills a Disconnect left because the User changed them, said until the page goes.
   const [skillLeft, setSkillLeft] = useState<{ agent: string; paths: string[] }[]>([]);
@@ -265,6 +270,44 @@ export function YourAiSection({
   const toConnect = (clients ?? []).filter(
     (client) => client.id === "other" || !inUse.has(client.id),
   );
+  const foundToConnect = toConnect.filter((client) => client.installed && client.id !== "other");
+
+  const openConnectMany = () => {
+    many.clear();
+    setManyClients(foundToConnect);
+  };
+
+  const allowMany = async (choice: ManyAgentsChoice) => {
+    const outcomes = await many.connectAll(choice, { enable: true });
+    if (outcomes.some((each) => each.kind === "connected")) {
+      setSkillLeft([]);
+      setAddingAnother(false);
+    }
+  };
+
+  const connectAllRow =
+    foundToConnect.length >= 2 ? (
+      <SettingsRow
+        data-testid="agents-connect-all-row"
+        label={t("agents.connectAll.row", { count: foundToConnect.length })}
+        detail={t("agents.connectAll.rowDetail", {
+          apps: unitsOf(
+            foundToConnect.map((client) => clientName(client, t)),
+            language,
+          ),
+        })}
+        control={
+          <button
+            type="button"
+            data-testid="agents-connect-all"
+            onClick={openConnectMany}
+            className={buttonStyle("primary", "sm")}
+          >
+            {t("agents.connectAll.button", { count: foundToConnect.length })}
+          </button>
+        }
+      />
+    ) : null;
 
   return (
     <section data-testid="agents-settings" className="flex flex-col gap-6">
@@ -382,6 +425,7 @@ export function YourAiSection({
                   onKeepDesktop={keepDesktop}
                 />
               )}
+              {!listed && connectAllRow}
               {!listed && (
                 <SettingsRowAction
                   testId="agents-connect-another"
@@ -423,7 +467,10 @@ export function YourAiSection({
             <div ref={list} data-testid="agents-clients">
               <AgentFinder clients={toConnect} testId="agents-list">
                 {(shown) => (
-                  <SettingsGroup data-testid="agents-list">{shown.map(clientRow)}</SettingsGroup>
+                  <SettingsGroup data-testid="agents-list">
+                    {connectAllRow}
+                    {shown.map(clientRow)}
+                  </SettingsGroup>
                 )}
               </AgentFinder>
             </div>
@@ -442,6 +489,20 @@ export function YourAiSection({
           }
           setConnecting(null);
           connection.clearProblem();
+        }}
+      />
+
+      <ConnectManyDialog
+        open={manyClients !== null}
+        clients={manyClients ?? []}
+        busy={many.busy}
+        outcomes={many.outcomes}
+        onAllow={(choice) => void allowMany(choice)}
+        onUndo={many.undoOne}
+        onRetry={many.retryOne}
+        onClose={() => {
+          setManyClients(null);
+          many.clear();
         }}
       />
     </section>

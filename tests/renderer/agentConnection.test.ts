@@ -3,8 +3,12 @@
  * never turns it off while another attempt connected an agent, or is still under way.
  */
 import { describe, expect, test } from "vitest";
-import type { AgentPairing, SetUpAgent, SetUpAgentInput } from "../../src/core/api";
-import { type AgentBridge, agentConnector } from "../../src/renderer/src/agentConnection";
+import type { AgentClient, AgentPairing, SetUpAgent, SetUpAgentInput } from "../../src/core/api";
+import {
+  type AgentBridge,
+  agentConnector,
+  manyAgentsConnector,
+} from "../../src/renderer/src/agentConnection";
 
 /** A core whose setups wait until the test settles them, one by one. */
 function bridgeOf() {
@@ -94,5 +98,74 @@ describe("connecting an agent where connecting agents is turned on with it", () 
     (await started("cursor")).fail();
     await expect(attempt).rejects.toThrow();
     expect(state.enabled).toBe(true);
+  });
+});
+
+describe("connecting several AI apps in one press (#3644)", () => {
+  const clientOf = (id: AgentClient["id"], setup: AgentClient["setup"] = "file"): AgentClient => ({
+    id,
+    name: id,
+    otherNames: [],
+    chat: false,
+    installed: true,
+    setup,
+    skillPath: null,
+  });
+
+  test("connects each app sequentially, and one failure leaves the others connected", async () => {
+    const order: string[] = [];
+    const state = { enabled: false, pairings: [] as AgentPairing[] };
+    const bridge: AgentBridge = {
+      getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
+      setAgentsEnabled: async (enabled) => {
+        state.enabled = enabled;
+      },
+      setUpAgent: async (each) => {
+        order.push(String(each.client));
+        if (each.client === "cursor") throw new Error("No app can open this link.");
+        const pairing = { id: `pairing-${each.client}`, client: each.client } as AgentPairing;
+        state.pairings.push(pairing);
+        return { pairing, result: { kind: "wrote", path: "" } } as SetUpAgent;
+      },
+    };
+    const rollbackProblems: unknown[] = [];
+    const connectMany = manyAgentsConnector(bridge, (error) => rollbackProblems.push(error));
+    const outcomes = await connectMany(
+      [clientOf("codex"), clientOf("cursor", "link"), clientOf("claude-code")],
+      { folderIds: ["not-in-a-folder"], propose: true },
+      { enable: true },
+    );
+
+    expect(order).toEqual(["codex", "cursor", "claude-code"]);
+    expect(outcomes.map((each) => [each.client.id, each.kind])).toEqual([
+      ["codex", "connected"],
+      ["cursor", "failed"],
+      ["claude-code", "connected"],
+    ]);
+    expect(state.enabled).toBe(true);
+    expect(state.pairings).toHaveLength(2);
+    expect(rollbackProblems).toEqual([]);
+  });
+
+  test("turns connecting agents back off when every app in the batch fails", async () => {
+    const state = { enabled: false, pairings: [] as AgentPairing[] };
+    const bridge: AgentBridge = {
+      getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
+      setAgentsEnabled: async (enabled) => {
+        state.enabled = enabled;
+      },
+      setUpAgent: async () => {
+        throw new Error("Permission denied.");
+      },
+    };
+    const connectMany = manyAgentsConnector(bridge, () => undefined);
+    const outcomes = await connectMany(
+      [clientOf("codex"), clientOf("claude-code")],
+      { folderIds: ["not-in-a-folder"], propose: true },
+      { enable: true },
+    );
+
+    expect(outcomes.every((each) => each.kind === "failed")).toBe(true);
+    expect(state.enabled).toBe(false);
   });
 });

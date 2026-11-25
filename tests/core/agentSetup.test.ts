@@ -1183,4 +1183,56 @@ describe("the Skill that installs with an agent's connection", () => {
       SERVER_INSTRUCTIONS.indexOf("`ask`"),
     );
   });
+
+  it("connects several apps with one choice, reopens an install link, and Disconnect all leaves every file as it was (#3644)", async () => {
+    const { core, home, links, coast } = await started();
+    const codexFile = join(home, ".codex", "config.toml");
+    const claudeFile = join(home, ".claude.json");
+    await mkdir(join(home, ".codex"), { recursive: true });
+    await writeFile(codexFile, 'model = "gpt-6-luna"\n');
+    const claudeBefore = '{\n  "theme": "light"\n}\n';
+    await writeFile(claudeFile, claudeBefore);
+
+    const codex = await core.setUpAgent({ client: "codex", folderIds: [coast.id], propose: true });
+    const claude = await core.setUpAgent({
+      client: "claude-code",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const cursor = await core.setUpAgent({
+      client: "cursor",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const zed = await core.setUpAgent({ client: "zed", folderIds: [coast.id], propose: true });
+
+    expect(codex.result.kind).toBe("wrote");
+    expect(claude.result.kind).toBe("wrote");
+    expect(cursor.result).toEqual({ kind: "opened", how: "link" });
+    expect(zed.result.kind).toBe("copy");
+    if (zed.result.kind === "copy") {
+      expect(zed.result.shown).not.toBe(zed.result.text);
+    }
+
+    // Reopening a link client invokes openLink again with the pairing's link.
+    const linksBefore = links.length;
+    await core.openAgentInstallAgain(cursor.pairing.id);
+    expect(links.length).toBe(linksBefore + 1);
+    expect(links.at(-1)).toMatch(/^cursor:\/\//);
+
+    // Each app gets its own connection and can be disconnected cleanly.
+    expect((await core.getAgents()).pairings).toHaveLength(4);
+    for (const pairing of [codex.pairing, claude.pairing, cursor.pairing, zed.pairing]) {
+      await core.disconnectAgent(pairing.id);
+    }
+    expect((await core.getAgents()).pairings).toHaveLength(0);
+    expect(await readFile(codexFile, "utf8")).toBe('model = "gpt-6-luna"\n');
+    expect(await readFile(claudeFile, "utf8")).toBe(claudeBefore);
+    await expect(stat(join(home, ".claude", "skills", "incarnamind", "SKILL.md"))).rejects.toThrow(
+      /ENOENT/,
+    );
+    await expect(stat(join(home, ".agents", "skills", "incarnamind", "SKILL.md"))).rejects.toThrow(
+      /ENOENT/,
+    );
+  });
 });
