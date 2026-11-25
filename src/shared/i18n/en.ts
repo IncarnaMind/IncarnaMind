@@ -9546,6 +9546,8 @@ export const en = {
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
   "noteAsk.noAi": "Asking needs your AI",
+  "noteAsk.cantRead.one": "{agent} can’t read this note",
+  "noteAsk.cantRead": "Your AI can’t read this note",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",
   "noteAsk.action.translate": "Translate it into {language}",
