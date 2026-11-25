@@ -144,10 +144,12 @@ function ownAiAsk(): (() => void) | null {
 const RING: FocusOptions & { focusVisible: boolean } = { focusVisible: true };
 
 /** The first action at the foot of a Note none of the User's AIs reads (Move to…, Settings or Connect). */
-const noteConnectOf = (mindId: string): HTMLElement | null =>
-  document.querySelector<HTMLElement>(
-    `[data-testid="note-foot-ask"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="note-ask-no-ai"] button`,
+const noteConnectOf = (mindId: string): HTMLElement | null => {
+  const foot = `[data-testid="note-foot-ask"][data-mind-id="${CSS.escape(mindId)}"]`;
+  return document.querySelector<HTMLElement>(
+    `${foot} [data-testid="note-ask-connect"], ${foot} [data-testid="note-ask-move"], ${foot} [data-testid="note-ask-settings"]`,
   );
+};
 
 /** New chat: the assistant shows a new, empty conversation (an empty one is reused), ready to ask. */
 export function newChat(): void {
