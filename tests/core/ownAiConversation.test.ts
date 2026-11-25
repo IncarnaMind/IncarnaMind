@@ -2230,6 +2230,40 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(run.runs[1]?.conversation?.sessionId).not.toBe(run.runs[0]?.conversation?.sessionId);
   });
 
+  // protects=a request stopped after New conversation, before it reached the AI, leaves the new conversation to the next request, which resumes nothing before the line; a later request continues the new one (#3765); fails_when=the next request resumes the conversation from before the line
+  it("keeps New conversation when the request after it is stopped before it reaches the AI", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "Done." }));
+    let lookup: Gate | null = null;
+    const adapter: OwnAiRunner = {
+      ...run.adapter,
+      async folder() {
+        lookup?.reached();
+        await lookup?.shut;
+        return null;
+      },
+    };
+    const { core, mindId, ended } = await written(adapter);
+    await core.askInNote({ mindId, words: "what does the plan add" });
+    await ended(1);
+    await core.startNewNoteConversation(mindId);
+    lookup = gate();
+    await core.askInNote({ mindId, words: "and when" });
+    await lookup.at;
+    await core.stopInNote(mindId);
+    lookup.open();
+    expect(await ended(2)).toMatchObject({ state: "stopped" });
+    expect(run.runs).toHaveLength(1);
+    lookup = null;
+    await core.askInNote({ mindId, words: "and where" });
+    await ended(3);
+    await core.askInNote({ mindId, words: "and how" });
+    await ended(4);
+    const [first, anew, next] = run.runs;
+    expect(anew?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+    expect(anew?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
+    expect(next?.conversation).toEqual({ ...anew?.conversation, resume: true });
+  });
+
   // protects=a request sent in a run's last moments, after its AI's last answer, isn't refused: the next run begins with it and answers it (#3765); fails_when=it ends Not sent although the User only sent it while the request finished
   it("begins the next run with a request sent as the run before finished", async () => {
     let asking: (() => Promise<unknown>) | null = null;

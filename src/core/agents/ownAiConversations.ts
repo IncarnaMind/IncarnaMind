@@ -1105,15 +1105,18 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     let end: OwnAiEnd;
     let { session_id: sessionId } = conversation;
-    // The User started a new conversation after the last request that ran before this one (#3765).
+    // The User started a new conversation that no request has begun since (#3765): its line is
+    // newer than the session the conversation last began, so a request stopped before it reached
+    // the AI leaves the new conversation to the next one.
     const anew =
-      db.get<{ new_after: number }>(
-        `SELECT new_after FROM own_ai_turns
-         WHERE conversation_id = ? AND id != ? AND deleted_at IS NULL
-           AND outcome NOT IN ('waiting', 'unsent')
-         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      db.get<{ one: number }>(
+        `SELECT 1 AS one FROM own_ai_turns t
+         JOIN own_ai_conversations c ON c.id = t.conversation_id
+         WHERE t.conversation_id = ? AND t.id != ? AND t.deleted_at IS NULL
+           AND t.new_after = 1 AND t.updated_at > c.updated_at
+         LIMIT 1`,
         [conversation.id, turnId],
-      )?.new_after === 1;
+      ) !== undefined;
     const renewId = () => {
       sessionId = options.newId();
       db.run(
