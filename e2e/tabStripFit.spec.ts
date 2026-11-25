@@ -490,9 +490,10 @@ for (const language of LANGUAGES) {
       await press("ArrowRight");
       const fit = await read();
       up.push(fit.step ?? "none");
-      // With Split out of the strip, the group's ⋯ menu and the tab's own menu still offer it.
+      // With Split out of the strip, the Note's ⋯, which holds the group's items, and the tab's own
+      // menu still offer it (#3765).
       if (fit.split === false && fit.group >= 420) {
-        await window.getByTestId("group-menu").first().click();
+        await window.getByTestId("tab-strip").first().getByTestId("page-menu").click();
         await expect(window.getByTestId("tab-menu-split").first()).toBeEnabled();
         await window.keyboard.press("Escape");
         await pointAndClick(window, shownTab(window).first(), { button: "right" });

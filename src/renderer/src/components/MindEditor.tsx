@@ -1310,16 +1310,20 @@ function MindEditorView({
               )}
               {showingNotes && <CommentsButton editor={editor} mindId={mindId} doc={doc} />}
               {showingNotes && !readOnly && <NoteConversationButton mindId={mindId} />}
-              <PageMenu
-                editor={editor}
-                doc={doc}
-                mindId={mindId}
-                verification={verification}
-                readOnly={readOnly}
-                revealEditor={revealEditor}
-              />
             </>,
             slots.menu,
+          )}
+        {slots.more &&
+          createPortal(
+            <PageMenu
+              editor={editor}
+              doc={doc}
+              mindId={mindId}
+              verification={verification}
+              readOnly={readOnly}
+              revealEditor={revealEditor}
+            />,
+            slots.more,
           )}
         {showingNotes &&
           slots.review &&

@@ -57,7 +57,8 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
 /**
  * The places on a Mind's page outside its text (#908, see `MindTab`): `top`,
  * above the text, for what is happening now and needs the User, as a Word
- * import's progress; `menu`, the page's top right, for its ⋯ button; `count`
+ * import's progress; `menu`, in the tab strip that shows it, for its check, comments and Show
+ * conversation, and `more`, at that strip's end, for its ⋯ button (#3765); `count`
  * and `badge`, the page's bottom left and right, over the text, for the count
  * while writing and the check badge; `review`, beside the page or over its
  * right edge, for the reviewing pane (#697), and where it shows now;
@@ -69,6 +70,7 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
 export const PageSlotsContext = createContext<{
   top: HTMLElement | null;
   menu: HTMLElement | null;
+  more: HTMLElement | null;
   count: HTMLElement | null;
   badge: HTMLElement | null;
   review: HTMLElement | null;
@@ -79,6 +81,7 @@ export const PageSlotsContext = createContext<{
 }>({
   top: null,
   menu: null,
+  more: null,
   count: null,
   badge: null,
   review: null,

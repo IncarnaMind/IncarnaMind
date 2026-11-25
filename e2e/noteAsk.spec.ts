@@ -144,7 +144,7 @@ test("a request at a Note's foot changes the selected words at once, says what i
     const pill = box.getByTestId("note-ask-pill");
     const problem = box.getByTestId("note-ask-problem");
     const words = box.getByTestId("note-ask-pill-open");
-    // Show conversation sits at the Note's top right, beside its menu.
+    // Show conversation sits in the Note's tab strip, beside its menu (#3765).
     const toggle = window.locator(
       '[data-testid="tab-group"][data-focused] [data-testid="note-ask-conversation-toggle"]',
     );

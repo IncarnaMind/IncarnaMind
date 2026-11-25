@@ -165,15 +165,7 @@ export function CommentLayer({
     if (!element || !frame) return;
     const cards = [...element.querySelectorAll<HTMLElement>("[data-comment-card]")];
     const next: { id: string; top: number }[] = [];
-    // The first card stays 8px under the page's own controls at its top right, where the first
-    // line's card would touch them (#3759); scrolled, the cards go under them with the text.
-    const scroller = frame.closest<HTMLElement>(".mind-scroller");
-    const controls = frame.closest(".mind-tab-page")?.querySelector(".mind-menu-slot");
-    let bottom =
-      scroller && controls
-        ? controls.getBoundingClientRect().bottom -
-          (frame.getBoundingClientRect().top + scroller.scrollTop)
-        : -Infinity;
+    let bottom = Number.NEGATIVE_INFINITY;
     for (const card of cards) {
       const id = card.dataset.commentCard;
       if (!id) continue;

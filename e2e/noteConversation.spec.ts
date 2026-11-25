@@ -1767,13 +1767,13 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
     await expect(card).toBeVisible({ timeout: 20_000 });
     await dockedAbove("a question asked under the bar");
     await shot(window, "change-bar-question-900-en");
-    // While it runs, the line of changes waiting shows; scrolled, it keeps under the Note's
-    // top-right controls, its Reject all pressable.
+    // While it runs, the line of changes waiting shows, under the tab strip that holds the Note's
+    // own controls (#3765), its Reject all pressable.
     const waitingLine = group.getByTestId("proposals-bar");
     await expect(waitingLine).toBeVisible();
     const [line, controls] = [
       await boxOf(waitingLine),
-      await boxOf(group.locator(".mind-menu-slot")),
+      await boxOf(group.getByTestId("note-controls")),
     ];
     expect(line.y).toBeGreaterThanOrEqual(controls.y + controls.height);
     const rejectAll = waitingLine.getByRole("button").last();

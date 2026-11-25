@@ -313,24 +313,13 @@ export function WordCount({ editor, doc }: { editor: Editor; doc: Y.Doc }) {
 }
 
 /**
- * The counts at the foot of a Mind's ⋯ menu: "812 words · 8,071 characters"
- * (字数 812 · 字符数 8,071), of the whole while text is selected, and the
- * switch that shows the count while writing.
+ * The counts first in a Mind's ⋯ menu, a grey line: "812 words · 8,071 characters"
+ * (字数 812 · 字符数 8,071), of the whole while text is selected (#3765).
  */
-export function MindCounts({
-  editor,
-  doc,
-  switchable,
-}: {
-  editor: Editor;
-  doc: Y.Doc;
-  /** False for a read-only Mind, which can't remember the switch. */
-  switchable: boolean;
-}) {
+export function MindCountsLine({ editor }: { editor: Editor }) {
   const t = useT();
   const language = useLanguage();
   const counts = useCounts(editor);
-  const { shown } = useCountSettings(doc);
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const part = (basis: "words" | "characters") => {
     if (!counts) return "";
@@ -345,26 +334,31 @@ export function MindCounts({
       count: format(count),
     });
   };
+  if (!counts) return null;
+  return (
+    <p className="page-menu-counts tabular-nums" data-testid="page-counts">
+      {`${part("words")} · ${part("characters")}`}
+    </p>
+  );
+}
+
+/** The switch that shows the count while writing, at the foot of a Mind's ⋯ menu. */
+export function CountShownSwitch({ doc }: { doc: Y.Doc }) {
+  const t = useT();
+  const { shown } = useCountSettings(doc);
   return (
     <div className="page-menu-foot">
-      {counts && (
-        <p className="page-menu-counts tabular-nums" data-testid="page-counts">
-          {`${part("words")} · ${part("characters")}`}
-        </p>
-      )}
-      {switchable && (
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          aria-checked={shown}
-          data-testid="page-count-shown"
-          className="page-menu-switch"
-          onClick={() => setCountShown(doc, !shown)}
-        >
-          <span className="flex-1">{t("page.countShown")}</span>
-          <span className="switch" data-on={shown || undefined} aria-hidden="true" />
-        </button>
-      )}
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={shown}
+        data-testid="page-count-shown"
+        className="page-menu-switch"
+        onClick={() => setCountShown(doc, !shown)}
+      >
+        <span className="flex-1">{t("page.countShown")}</span>
+        <span className="switch" data-on={shown || undefined} aria-hidden="true" />
+      </button>
     </div>
   );
 }

@@ -49,14 +49,18 @@ export function movedClearOfBadge(
 }
 
 /**
- * The corner of the page that holds its check badge, which a card keeps clear of: with the Note's
- * own controls at its top right (#3677), or at the page's foot.
+ * Where the page's check badge stands, which a card keeps clear of: with the Note's own controls in
+ * its tab strip (#3765), or at the page's foot.
  */
 export function badgeCorner(anchor: Element | VirtualElement): Element | null | undefined {
   const context = anchor instanceof Element ? anchor : anchor.contextElement;
-  return context
-    ?.closest(".mind-tab-page")
-    ?.querySelector(".note-head-badge:has(.check-badge), .mind-foot-badge:has(.check-badge)");
+  const page = context?.closest(".mind-tab-page");
+  return (
+    page?.querySelector(".mind-foot-badge:has(.check-badge)") ??
+    page
+      ?.closest('[data-testid="tab-group"]')
+      ?.querySelector('[data-testid="note-controls"] .note-head-badge:has(.check-badge)')
+  );
 }
 
 /** Moves a card off the page's check badge, as `movedClearOfBadge` says. */

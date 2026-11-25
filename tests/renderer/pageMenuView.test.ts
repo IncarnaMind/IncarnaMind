@@ -80,7 +80,10 @@ vi.mock("../../src/renderer/src/mindStylePanel", () => ({}));
 vi.mock("../../src/renderer/src/verify", () => ({}));
 vi.mock("../../src/renderer/src/editor/LookMenu", () => ({ LookMenuItems: () => null }));
 vi.mock("../../src/renderer/src/editor/MindSourceFoot", () => ({ MindSourceFoot: () => null }));
-vi.mock("../../src/renderer/src/editor/WordCount", () => ({ MindCounts: () => null }));
+vi.mock("../../src/renderer/src/editor/WordCount", () => ({
+  MindCountsLine: () => null,
+  CountShownSwitch: () => null,
+}));
 vi.mock("../../src/renderer/src/editor/WordOrigin", () => ({
   useWordFile: () => ({
     file: ui.word ? { name: "Meeting.docx", documentId: null } : null,

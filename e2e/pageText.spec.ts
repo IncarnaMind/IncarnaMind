@@ -57,7 +57,7 @@ const menuItemIds = (menu: Locator) =>
     .locator('[role="menuitem"]')
     .evaluateAll((items) => items.map((item) => item.getAttribute("data-testid") ?? ""));
 
-test("the page starts with its text; the ⋯ at its top right opens by click and by keyboard, in the sidebar row's order, with the counts at its foot", async () => {
+test("the page starts with its text; the ⋯ in its tab strip opens by click and by keyboard, in the sidebar row's order, with the counts first", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);
   await useLocalChatModel(window);
@@ -69,7 +69,7 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
   const text = "The tide turns at noon";
   await window.keyboard.type(text);
 
-  // At the page's top right, labelled for the Mind, and it stays while the text scrolls.
+  // At the end of its tab strip (#3765), labelled for the Mind, and it stays while the text scrolls.
   const button = pageMenuButton(window);
   await expect(button).toHaveAccessibleName("More for The tide turns at noon");
   const pane = await window.getByTestId("mind-pane").boundingBox();
@@ -119,7 +119,7 @@ test("the page starts with its text; the ⋯ at its top right opens by click and
   await expect(button).toHaveAccessibleName("More for Tide notes");
   await expect(window.getByTestId("mind-editor").locator("p").first()).toHaveText(text);
 
-  // By keyboard: Enter on the button, the first item focused; the counts at the foot.
+  // By keyboard: Enter on the button, the first item focused; the counts first.
   await button.focus();
   await window.keyboard.press("Enter");
   await expect(menu).toBeVisible();

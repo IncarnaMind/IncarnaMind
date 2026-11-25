@@ -1,4 +1,5 @@
 import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { isWordFile, isWordType } from "../../../../shared/wordFileTypes";
 import { files } from "../../core";
 import { useDropTarget } from "../../dragDrop";
@@ -34,6 +35,7 @@ import { EventBar } from "../meetings/EventBar";
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
+import { useNoteControls } from "./noteControls";
 import { useTabPlace } from "./tabItems";
 
 /**
@@ -46,7 +48,6 @@ export function MindTab({ mindId }: { mindId: string }) {
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const isExample = useIsExample(mindId);
   const [top, setTop] = useState<HTMLElement | null>(null);
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [count, setCount] = useState<HTMLElement | null>(null);
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [ask, setAsk] = useState<HTMLElement | null>(null);
@@ -58,6 +59,8 @@ export function MindTab({ mindId }: { mindId: string }) {
   const assistantSlot = useContext(ComposerDockContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
+  // Its own controls, in the strip that shows it (#3765).
+  const placed = useNoteControls((state) => (tabId ? state.byTab[tabId] : undefined));
   const meeting = useMeetingOf(mindId);
   const view = useMeetingNoteView(tabId, mindId);
   const hasViews = hasMeetingViews(meeting);
@@ -129,7 +132,8 @@ export function MindTab({ mindId }: { mindId: string }) {
                     <PageSlotsContext.Provider
                       value={{
                         top,
-                        menu,
+                        menu: placed?.controls ?? null,
+                        more: placed?.more ?? null,
                         count,
                         badge,
                         review: review.slot,
@@ -155,12 +159,11 @@ export function MindTab({ mindId }: { mindId: string }) {
               />
             </div>
             {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
-            <div className="mind-menu-slot">
-              {hasViews && tabId && meeting.status === "stopped" && (
-                <MeetingViewChip meeting={meeting} tabId={tabId} />
-              )}
-              <div ref={setMenu} className="flex items-center gap-1" />
-            </div>
+            {placed?.controls &&
+              hasViews &&
+              tabId &&
+              meeting.status === "stopped" &&
+              createPortal(<MeetingViewChip meeting={meeting} tabId={tabId} />, placed.controls)}
             <div
               className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}
               style={transcriptShown ? { display: "none" } : undefined}

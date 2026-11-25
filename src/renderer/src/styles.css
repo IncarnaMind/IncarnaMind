@@ -1071,6 +1071,32 @@
   .tab-strip-spacer {
     flex: 1 1 auto;
   }
+  /*
+   * A Note's own controls, in one row with its tab (#3765): its check, comments and Show
+   * conversation, on the strip's centre line as Export and Split, in the strip's own colours.
+   */
+  .tab-strip-note {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 28px;
+    margin: 0 2px 4px;
+    &:empty {
+      display: none;
+    }
+    .note-head-badge {
+      margin-right: 2px;
+    }
+    .note-conversation-button {
+      color: var(--color-ink-strong);
+      &:hover,
+      &[aria-expanded="true"] {
+        background: var(--color-tab-hover);
+        color: var(--color-ink);
+      }
+    }
+  }
   /* The Tasks chip (#126; DESIGN.md, Finding Tasks): a pill in the band while a Task runs or needs the User. */
   .tasks-chip {
     display: flex;
@@ -1550,19 +1576,6 @@
     gap: 6px;
   }
 
-  /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
-  .mind-menu-slot {
-    position: absolute;
-    z-index: 11;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    border-radius: 6px;
-    background: var(--color-sheet);
-  }
-
   /*
    * The reviewing pane (#697; the board Final-10-Redlines): beside the page,
    * inside the Mind's tab; under a 760px Mind, folded to its button, which
@@ -1781,27 +1794,6 @@
     &[aria-expanded="true"] {
       background: var(--color-hover);
       color: var(--color-ink);
-    }
-    &:focus-visible {
-      outline: 2px solid var(--color-accent);
-      outline-offset: 1px;
-    }
-  }
-  .page-menu-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    color: var(--color-ink-meta);
-    outline: none;
-
-    &:hover,
-    &:focus-visible,
-    &[aria-expanded="true"] {
-      background: var(--color-hover);
-      color: var(--color-ink-secondary);
     }
     &:focus-visible {
       outline: 2px solid var(--color-accent);
@@ -9773,26 +9765,6 @@
     font-size: var(--text-meta);
     line-height: 16px;
     color: var(--color-ink-meta);
-  }
-
-  /*
-   * The recording bar, and the line of changes waiting, reach into the page controls' gutters in a
-   * narrow pane: they stay in view under the controls.
-   */
-  @container mind (width < 808px) {
-    .meeting-bar,
-    .proposals-bar {
-      top: 48px;
-    }
-  }
-  /*
-   * With Show conversation and the check badge among them, the page's controls reach the bar in a
-   * wider pane too, as a Note beside its conversation is (#3759).
-   */
-  @container mind (width < 1000px) {
-    .mind-tab-page:has([data-conversation-toggle]) :is(.meeting-bar, .proposals-bar) {
-      top: 48px;
-    }
   }
 
   /* The margins narrow, from 56px and 48px to 40px each at 760px, with the measure kept at 680px. */
