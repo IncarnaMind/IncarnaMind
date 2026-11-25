@@ -100,10 +100,14 @@ export function hasSelectionToExtend(view: EditorView): boolean {
 }
 
 /**
- * Copies the page's current selection into ProseMirror on pointer release.
+ * Copies a non-collapsed page selection into ProseMirror on pointer release.
  * Chromium defers `selectionchange` to the next rendering update; if ProseMirror's
  * focus handler's 20 ms timer fires first after a click into an unfocused editor, it
- * restores the stale selection and wipes the new click or double-click (#3697).
+ * restores the stale selection and wipes the new double-click or drag (#3697).
+ * A collapsed DOM selection is never copied here: during a drag, an inline decoration
+ * (such as `HeldSelection`) can wrap the selected text while ProseMirror's `LeftMouseDown`
+ * defers `selectionToDOM` (`delaySelUpdate`), temporarily collapsing `getSelection()` to
+ * `(paragraph, 0)` until `LeftMouseDown.done()` restores the dragged range after `mouseup`.
  */
 export function syncSelectionFromDOM(view: EditorView): boolean {
   if (view.isDestroyed || view.composing || !view.hasFocus()) return false;
@@ -111,7 +115,14 @@ export function syncSelectionFromDOM(view: EditorView): boolean {
   const chosen = view.dom.ownerDocument.getSelection();
   const node = chosen?.anchorNode;
   const focus = chosen?.focusNode;
-  if (!chosen || !node || !focus || !view.dom.contains(node) || !view.dom.contains(focus)) {
+  if (
+    !chosen ||
+    chosen.isCollapsed ||
+    !node ||
+    !focus ||
+    !view.dom.contains(node) ||
+    !view.dom.contains(focus)
+  ) {
     return false;
   }
   let anchor: number;
@@ -127,7 +138,7 @@ export function syncSelectionFromDOM(view: EditorView): boolean {
     return false;
   }
   const next = TextSelection.between(doc.resolve(anchor), doc.resolve(head), 1);
-  if (selection.eq(next)) return false;
+  if (next.empty || selection.eq(next)) return false;
   view.dispatch(
     view.state.tr.setSelection(next).setMeta("pointer", true).setMeta("addToHistory", false),
   );
@@ -211,7 +222,13 @@ export const ShiftClickSelection = Extension.create({
             }
           };
           const onRelease = (event: MouseEvent) => {
-            if (event.button === 0 && !event.defaultPrevented) syncSelectionFromDOM(view);
+            if (
+              event.button === 0 &&
+              !event.defaultPrevented &&
+              (event.detail >= 2 || view.state.selection.empty)
+            ) {
+              syncSelectionFromDOM(view);
+            }
           };
           view.dom.addEventListener("mousedown", onMarkerPress, true);
           view.dom.addEventListener("mouseup", onRelease);
