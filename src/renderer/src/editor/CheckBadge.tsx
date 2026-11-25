@@ -648,6 +648,8 @@ function BadgeFrame({
   // content beyond that room scrolls, and the next open fits the result (#2313).
   const [heldHeight, setHeldHeight] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  /** Whether the card opened with nothing in it, so what lands in it sets its height. */
+  const openedEmpty = useRef(false);
   const heldFor = useRef(holdKey);
   useLayoutEffect(() => {
     if (heldFor.current === holdKey) return;
@@ -662,7 +664,8 @@ function BadgeFrame({
     if (heldHeight !== null) return;
     const element = body.current;
     if (!element) return;
-    if (!bodyIsEmpty(element)) {
+    openedEmpty.current = bodyIsEmpty(element);
+    if (!openedEmpty.current) {
       setHeldHeight(element.offsetHeight);
       return;
     }
@@ -707,11 +710,12 @@ function BadgeFrame({
       card?.removeEventListener("focusin", touched);
     };
   }, [open, heldHeight, anchor, fromTop]);
-  // Opening down from its badge, what lands after the card took its height moves nothing above
-  // it: the foot goes down to show it, as far as the window lets it. A row can land after the
-  // wait for it ended, on a slower computer (#3765).
+  // A card that opened empty, down from its badge, takes its height from what lands in it: a row
+  // landing after the wait for it ended, on a slower computer, moves nothing above it, so the
+  // foot goes down to show it, as far as the window lets it (#3765). One that opened with what it
+  // shows keeps the height it opened with.
   useLayoutEffect(() => {
-    if (!open || heldHeight === null || !fromTop || !anchor) return;
+    if (!open || heldHeight === null || !fromTop || !anchor || !openedEmpty.current) return;
     const element = body.current;
     const content = element?.firstElementChild;
     if (!element || !content) return;

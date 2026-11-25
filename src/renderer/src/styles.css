@@ -3706,6 +3706,12 @@
       flex: none;
     }
   }
+  /* Room for a check's marks as they change, so a check ending moves nothing in a full strip;
+     the marks keep to its right edge, by the Note's other controls (#3765). */
+  .note-head-badge:has(.check-badge) {
+    justify-content: flex-end;
+    min-width: 72px;
+  }
   .check-badge-quiet {
     display: none;
     align-items: center;
