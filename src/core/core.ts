@@ -301,6 +301,7 @@ import { figureSchedule, noteFooting } from "./figureSchedule";
 import { createFileLock } from "./fileLock";
 import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFirstRun } from "./firstRun";
+import { turnOnAtFirstStart } from "./firstStart";
 import { createFolders, folderIdFor } from "./folders";
 import { LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
@@ -882,12 +883,6 @@ export function createCore(adapters: CoreAdapters): Core {
   timings.prune();
   const systemPaper = () =>
     paperFor(systemRegion(adapters.systemRegion?.(), adapters.systemLanguages()));
-  try {
-    ensureWorkspace(db, now);
-  } catch (error) {
-    db.close();
-    throw error;
-  }
   const events = createEventHub();
 
   const knownSecrets = new Set<string>();
@@ -1116,6 +1111,20 @@ export function createCore(adapters: CoreAdapters): Core {
     () => adapters.systemUserName?.() || accountName(),
     adapters.sandboxProblem ?? null,
   );
+  try {
+    if (ensureWorkspace(db, now).made) {
+      turnOnAtFirstStart({
+        settings,
+        loginItem: adapters.loginItem,
+        callWatcher: adapters.callWatcher,
+        records: capture !== undefined,
+        log: adapters.log ?? silentLogger,
+      });
+    }
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   const folders = createFolders(db, now);
   const foldersChanged = () => events.emit("folders.changed", folders.list());
   // A kind's Tag shows in the interface's language (#2339).
@@ -6329,12 +6338,7 @@ export function createCore(adapters: CoreAdapters): Core {
   let liveMeetings = liveCalls(meetings.list());
   const meetingOffers = createMeetingOffers({
     watcher: adapters.callWatcher,
-    watching: () => {
-      const { device } = settings.get();
-      return (
-        device.callOffers && device.meetingNoticeAccepted && adapters.audioCapture !== undefined
-      );
-    },
+    watching: () => settings.get().device.callOffers && adapters.audioCapture !== undefined,
     allowed: (app) => offerAllowed(settings.get().device, { kind: "call", app }),
     calendarAllowed: () =>
       adapters.audioCapture !== undefined &&
@@ -9675,6 +9679,10 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     getMeetingOffers: async () => meetingOffers.get(),
     takeMeetingOffer: async (offerId) => {
+      // Refused before anything is taken, so the offer waits while the window shows the notice.
+      if (!settings.get().device.meetingNoticeAccepted) {
+        throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
+      }
       const { meetingId, joinUrl } = meetingOffers.take(String(offerId));
       const meeting = meetings.get(meetingId);
       if (joinUrl) {

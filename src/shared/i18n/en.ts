@@ -6674,6 +6674,8 @@ export const en = {
   "error.meetingOffer.link":
     "Recording, but the meeting link didn’t open: open it from your calendar.",
   "error.openAtLogin.unsupported": "This copy of IncarnaMind can’t open at login.",
+  "error.openAtLogin.notWritten":
+    "Couldn’t change {path}, which opens IncarnaMind at login. Check its permissions or remove it.",
   "error.meeting.helpButton": "This meeting doesn’t have that kind of help.",
   "error.meeting.memoHelp": "A voice memo has no call help.",
   "error.meeting.microphone": "The microphone can only be paused or resumed.",
