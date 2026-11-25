@@ -271,7 +271,8 @@ function heard(event: NoteTurnEvent): void {
   const { turnId } = event;
   const applied = import("./askedChanges")
     .then(async ({ applyTurn }) => {
-      await Promise.all(
+      // One Note that fails never lets what reads the Notes after the turn start on the rest early.
+      const settled = await Promise.allSettled(
         [...byNote].map(([mindId, changes]) => {
           const row = rowOf(mindId, changes);
           return applyTurn(turnId, row, () => row, {
@@ -281,6 +282,9 @@ function heard(event: NoteTurnEvent): void {
           });
         }),
       );
+      for (const each of settled) {
+        if (each.status === "rejected") useAppStore.getState().reportError(each.reason);
+      }
     })
     .catch(useAppStore.getState().reportError)
     .finally(() => applying.delete(turnId));
