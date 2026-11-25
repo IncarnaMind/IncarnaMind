@@ -18,8 +18,9 @@ import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { SidebarToggle } from "../SidebarToggle";
 import { MoveConversation } from "./NoteAsk";
-import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
+import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
+import { Reply } from "./Reply";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -218,6 +219,10 @@ export function NoteColumn({
   );
 }
 
+/** Marks the turns scrolled past their start, where the upward box fades its top (styles.css). */
+const markScrolled = (element: HTMLElement) =>
+  element.toggleAttribute("data-scrolled", element.scrollTop > 0);
+
 /**
  * The conversation's turns, `turns` as read while it is open (null until then), newest in view,
  * scrolling in their own place: the column's body, or the panel that opens upward inside the
@@ -269,6 +274,7 @@ export function NoteConversationBody({
     atEnd.current = !turn;
     if (turn) element.scrollTop = turn.offsetTop - 8;
     else element.scrollTop = element.scrollHeight;
+    markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
   // With the newest in view, it stays in view in the same frame as anything above it grows or
@@ -286,6 +292,7 @@ export function NoteConversationBody({
         atEnd.current = true;
       else if (element.scrollTop < was - 1) atEnd.current = false;
       was = element.scrollTop;
+      markScrolled(element);
     };
     const observer = new ResizeObserver(() => {
       if (atEnd.current) element.scrollTop = element.scrollHeight;

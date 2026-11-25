@@ -566,6 +566,8 @@ test("a request that can't start says why where the User typed, whole, with the 
     await nextRun("too-old");
     await send("Make it shorter");
     await shownWhole(tooOld);
+    // The words it didn't send stay in the input, to send again.
+    await expect(input).toHaveValue("Make it shorter");
     await shot(window, "conversation-problem-upward-en");
     // In the window's column, at its foot; in the narrow window, where the column isn't drawn,
     // above the input of the conversation open upward again, in Chinese.
@@ -609,6 +611,7 @@ test("a request that can't start says why where the User typed, whole, with the 
     await expect(secondColumn).toBeVisible();
     await nextRun("change");
     before = (await outcomesOf(window, mindId)).length;
+    await input.fill("");
     await send("Put it in capitals");
     await ended(window, mindId, before);
     const last = secondColumn.getByTestId("note-column-turn").last();
@@ -627,6 +630,135 @@ test("a request that can't start says why where the User typed, whole, with the 
     );
     await expect(frontMind(second)).toContainText(P2.toUpperCase());
     await second.close();
+  } finally {
+    await app.close();
+  }
+});
+
+test("a sent quote leaves the input, a request that can't start keeps the words typed, and a line that says why is whole, names no terminal and has its action, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 900, 760);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const quote = group.getByTestId("note-ask-quote");
+    const problem = group.getByTestId("note-ask-problem");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    // Words selected by the keyboard: the last word of the first paragraph.
+    const selectLastWord = async () => {
+      await frontMind(window).locator("p").first().click();
+      await expect(frontMind(window).getByTestId("mind-editor")).toBeFocused();
+      await window.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+      for (let n = 0; n < "weekdays.".length; n++) await window.keyboard.press("Shift+ArrowLeft");
+    };
+
+    // The quote goes with the words; the same words selected anew bring it back.
+    await selectLastWord();
+    await expect(quote).toContainText("weekdays.");
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await send("What does this mean?");
+    await expect(input).toHaveValue("");
+    await expect(quote).toHaveCount(0);
+    await ended(window, mindId, before);
+    await expect(quote).toHaveCount(0);
+    await selectLastWord();
+    await expect(quote).toContainText("weekdays.");
+
+    // Signed out: nothing is sent, the words stay, and the line has Sign in, in both languages.
+    await nextRun("signed-out");
+    await send("Make it shorter");
+    const signIn = group.getByTestId("note-ask-sign-in");
+    await expect(problem).toContainText("Claude Code isn’t signed in on this computer.");
+    await expect(problem).not.toContainText("terminal");
+    await expect(signIn).toHaveText("Sign in");
+    await expect(input).toHaveValue("Make it shorter");
+    await expect(quote).toContainText("weekdays.");
+    expect(await cutIn(problem)).toEqual([]);
+    await shot(window, "problem-signed-out-900-en");
+    await setLanguage(window, "zh-CN");
+    await expect(problem).toContainText("Claude Code 尚未在这台电脑上登录。");
+    await expect(problem).not.toContainText("终端");
+    await expect(signIn).toHaveText("登录");
+    expect(await cutIn(problem)).toEqual([]);
+    await shot(window, "problem-signed-out-900-zh-CN");
+    await setLanguage(window, "en");
+
+    // A run that stops part way says so in one line, and Try again sends it again.
+    await input.fill("");
+    await nextRun("limit");
+    before = (await outcomesOf(window, mindId)).length;
+    await send("Summarise the note");
+    await ended(window, mindId, before);
+    await expect(problem).toContainText(
+      "Claude Code stopped: your Claude plan or API key has reached its limit.",
+    );
+    await expect(group.getByTestId("note-ask-try-again")).toHaveText("Try again");
+    expect(await cutIn(problem)).toEqual([]);
+    await nextRun("plan");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-try-again"));
+    await ended(window, mindId, before);
+    await expect(problem).toHaveCount(0);
+    const turns = await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await bridge.noteConversation(id)).map((turn) => turn.request);
+    }, mindId);
+    expect(turns.at(-1)).toBe("Summarise the note");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Citation in a reply shows its quote on hover and opens its Document there, as one in the Note does; scrolled, the conversation open upward fades out under its controls, never cut by the box's edge", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await stepTo(99);
+    await nextRun("long");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+
+    // Open, the reply's chips are the Note's own.
+    await showConversation(window, 0, true);
+    const reply = window.getByTestId("note-ask-reply").last();
+    const chip = reply.locator(".citation-marker").first();
+    await expect(chip).toBeVisible();
+    await chip.hover();
+    const card = window.getByTestId("citation-card");
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("Ferry interview");
+    await shot(window, "reply-citation-card-1440-en");
+    await pointAndClick(window, chip);
+    await expect(window.getByTestId("viewer-title")).toContainText("Ferry interview");
+    await expect(
+      window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
+    ).toBeVisible();
+    await shot(window, "reply-citation-opened-1440-en");
+
+    // At 900 the conversation opens upward, at its end: scrolled, its top fades out.
+    await setWindowSize(app, window, 900, 760);
+    const panel = window.getByTestId("note-ask-panel");
+    await expect(panel).toBeVisible();
+    const body = panel.getByTestId("note-conversation-body");
+    const masked = () => body.evaluate((element) => getComputedStyle(element).maskImage);
+    await expect.poll(() => body.evaluate((element) => element.scrollTop > 0)).toBe(true);
+    await expect.poll(masked).not.toBe("none");
+    await shot(window, "upward-scrolled-900-en");
+    await body.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect.poll(masked).toBe("none");
   } finally {
     await app.close();
   }
@@ -1349,6 +1481,24 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
     await expect(card).toBeVisible({ timeout: 20_000 });
     await dockedAbove("a question asked under the bar");
     await shot(window, "change-bar-question-900-en");
+    // While it runs, the line of changes waiting shows; scrolled, it keeps under the Note's
+    // top-right controls, its Reject all pressable.
+    const waitingLine = group.getByTestId("proposals-bar");
+    await expect(waitingLine).toBeVisible();
+    const [line, controls] = [
+      await boxOf(waitingLine),
+      await boxOf(group.locator(".mind-menu-slot")),
+    ];
+    expect(line.y).toBeGreaterThanOrEqual(controls.y + controls.height);
+    const rejectAll = waitingLine.getByRole("button").last();
+    expect(
+      await rejectAll.evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+        );
+      }),
+    ).toBe(true);
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, asked);
     await expect(card).toHaveCount(0);

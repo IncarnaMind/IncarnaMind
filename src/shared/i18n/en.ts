@@ -9535,8 +9535,9 @@ export const en = {
   "noteAsk.action.translate": "Translate it into {language}",
   "noteAsk.action.edit": "Change it",
   "noteAsk.action.explain": "Explain this",
-  "noteAsk.problem.signed-out":
-    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
+  "noteAsk.problem.signed-out": "{agent} isn’t signed in on this computer.",
+  "noteAsk.signIn": "Sign in",
+  "noteAsk.tryAgain": "Try again",
   "noteAsk.problem.too-old":
     "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then send it again.",
   "noteAsk.problem.update":
@@ -9544,14 +9545,13 @@ export const en = {
   "noteAsk.problem.no-answer":
     "{agent} didn’t answer on this computer, so nothing was sent. Try again.",
   "noteAsk.problem.plan-limit":
-    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
+    "{agent} stopped: your Claude plan or API key has reached its limit.",
   "noteAsk.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
-  "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
-  "noteAsk.problem.stalled":
-    "{agent} stopped answering for six minutes, so it stopped. Send it again.",
+  "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped.",
+  "noteAsk.problem.stalled": "{agent} didn’t answer for six minutes, so it stopped.",
   "noteAsk.problem.compaction":
-    "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped. Send it again.",
+    "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",
@@ -9559,12 +9559,10 @@ export const en = {
   "noteAsk.problem.local-mode": "{agent} stopped: “Keep everything on this computer” is on.",
   "noteAsk.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
-  "noteAsk.problem.failed": "{agent} stopped before it finished. Try again.",
-  "noteAsk.problem.outside":
-    "{agent} stopped because it asked for something outside this request. Try again.",
-  "noteAsk.problem.unreadable": "{agent} stopped before it finished. Try again.",
-  "noteAsk.problem.service":
-    "{agent} stopped before it finished. Check your sign-in and usage in {agent}.",
+  "noteAsk.problem.failed": "{agent} stopped before it finished.",
+  "noteAsk.problem.outside": "{agent} stopped because it asked for something outside this request.",
+  "noteAsk.problem.unreadable": "{agent} stopped before it finished.",
+  "noteAsk.problem.service": "{agent} stopped before it finished.",
   "noteAsk.problem.read-only": "{agent} may only read. Let it propose changes?",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":

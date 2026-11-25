@@ -13,6 +13,7 @@ import { GripIcon } from "../components/icons";
 import { ObjectMenu, useObjectMenu } from "../components/ObjectMenu";
 import { useT } from "../i18n";
 import { findBlock, questionWithAnswer } from "./blockCommands";
+import { ClipboardMenuItems } from "./clipboardItems";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
 
 /** Centred on the point `handleAnchor` gives, to its left. */
@@ -163,7 +164,10 @@ function enter(
   const cell = over ? cellAround(doc.resolve(over.pos)) : null;
   const from = cell ? cell.pos : block.pos;
   const to = from + (cell ? (cell.nodeAfter?.nodeSize ?? 0) : block.node.nodeSize);
-  let held = selection.from > from && selection.to < to;
+  // A right-click on selected text keeps it, as everywhere, for Cut and Copy.
+  const onSelected =
+    !!over && !selection.empty && over.pos >= selection.from && over.pos <= selection.to;
+  let held = (selection.from > from && selection.to < to) || onSelected;
   if (selection instanceof CellSelection) {
     held =
       cell === null &&
@@ -206,6 +210,9 @@ export function BlockHandle({
    * drawn so that it has its size when it is first placed.
    */
   const [target, setTarget] = useState("");
+  // Opened by a right-click or the context-menu key in the text, not the handle: Cut, Copy and
+  // Paste come first, as in Word.
+  const [inText, setInText] = useState(false);
   const menuOpen = useRef(false);
 
   // A Question and the Answer right after it are dragged as one. This runs
@@ -271,7 +278,10 @@ export function BlockHandle({
     const id: unknown = found?.node.attrs[BLOCK_ID_ATTRIBUTE];
     if (!found || typeof id !== "string") return null;
     enter(editor, found, point);
-    flushSync(() => setTarget(id));
+    flushSync(() => {
+      setTarget(id);
+      setInText(true);
+    });
     return row.querySelector<HTMLButtonElement>('[data-testid="block-menu"]');
   });
 
@@ -307,6 +317,7 @@ export function BlockHandle({
               if (!event.nativeEvent.isTrusted || menuOpen.current) return;
               if (!(event.target instanceof Element) || !event.target.closest("[data-object-menu]"))
                 return;
+              flushSync(() => setInText(false));
               if (typeof stands !== "string") return;
               const found = findBlock(editor.state.doc, stands);
               if (!found) return;
@@ -322,6 +333,9 @@ export function BlockHandle({
               icon={GripIcon}
               className="block-grip"
               onOpenChange={onOpenChange}
+              first={
+                inText ? (close) => <ClipboardMenuItems editor={editor} close={close} /> : undefined
+              }
               without={block ? withoutOwnDelete(block.node) : []}
               here={{
                 "block.delete": () => {

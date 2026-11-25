@@ -8,6 +8,7 @@ import {
   launchApp,
   newMind,
   removeDataFolder,
+  setLanguage,
   slideToHandle,
 } from "./app";
 
@@ -154,6 +155,83 @@ test("Esc closes a Block's menu, and the handle then moves on to the Block under
   await window.keyboard.type("b");
   await expect(paragraphs.nth(2)).toContainText("b");
   await expect(paragraphs.nth(0)).not.toContainText("b");
+  await app.close();
+});
+
+test("a paragraph's right-click has Cut, Copy and Paste first, in English and Chinese; its handle's menu has the Block's own items", async () => {
+  const { app, window } = await launchApp(dataDir);
+  await dismissChatSetup(window);
+  await newMind(window);
+  const editor = window.getByTestId("mind-editor");
+  await editor.click();
+  await window.keyboard.type("The ferry runs late.");
+  await window.keyboard.press("Enter");
+  await window.keyboard.type("Commuters wait.");
+  const paragraphs = editor.locator("p");
+  const menu = window.getByTestId("block-actions");
+  // Selected by the keyboard: "late." at the end of the first line.
+  const selectEnd = async (letters: number) => {
+    await paragraphs.nth(0).click();
+    await window.keyboard.press("End");
+    for (let n = 0; n < letters; n++) await window.keyboard.press("Shift+ArrowLeft");
+    await window.keyboard.press("Escape");
+  };
+  const rightClickSelection = async () => {
+    const at = await window.evaluate(() => {
+      const box = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+      return box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
+    });
+    if (!at) throw new Error("Nothing is selected.");
+    await window.mouse.move(at.x, at.y, { steps: 4 });
+    await window.mouse.click(at.x, at.y, { button: "right" });
+  };
+  const copyLabel = process.platform === "darwin" ? "拷贝" : "复制";
+  for (const [language, labels] of [
+    ["en", ["Cut", "Copy", "Paste"]],
+    ["zh-CN", ["剪切", copyLabel, "粘贴"]],
+  ] as const) {
+    await setLanguage(window, language);
+    await selectEnd(5);
+    await rightClickSelection();
+    await expect(menu).toBeVisible();
+    // Cut, Copy and Paste first, with their keys, then the Block's own items after a rule.
+    const items = menu.getByRole("menuitem");
+    for (const [index, label] of labels.entries()) {
+      await expect(items.nth(index)).toContainText(label);
+    }
+    await expect(menu.getByTestId("text-cut")).not.toHaveAttribute("aria-disabled", "true");
+    await expect(menu.getByTestId("block.includeInContext")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+  }
+  await setLanguage(window, "en");
+
+  // Copy takes the words selected; a right-click with nothing selected offers Paste only, there.
+  await selectEnd(5);
+  await rightClickSelection();
+  await menu.getByTestId("text-copy").click();
+  await expect(menu).toBeHidden();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("late.");
+  const end = await paragraphs.nth(1).boundingBox();
+  if (!end) throw new Error("The second paragraph isn't on screen.");
+  await window.mouse.click(end.x + end.width - 2, end.y + end.height / 2, { button: "right" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByTestId("text-cut")).toHaveAttribute("aria-disabled", "true");
+  await expect(menu.getByTestId("text-copy")).toHaveAttribute("aria-disabled", "true");
+  await menu.getByTestId("text-paste").click();
+  await expect(paragraphs.nth(1)).toHaveText("Commuters wait.late.");
+
+  // Cut takes them out of the Note.
+  await selectEnd(5);
+  await rightClickSelection();
+  await menu.getByTestId("text-cut").click();
+  await expect(paragraphs.nth(0)).toHaveText("The ferry runs ");
+
+  // The handle's own menu is the Block's: no Cut, Copy or Paste.
+  await (await slideToHandle(window, paragraphs.nth(0))).click();
+  await expect(menu).toBeVisible();
+  await expect(menu.getByTestId("text-cut")).toHaveCount(0);
+  await expect(window.getByTestId("block.includeInContext")).toBeFocused();
   await app.close();
 });
 

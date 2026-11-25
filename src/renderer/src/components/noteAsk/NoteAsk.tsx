@@ -1,3 +1,4 @@
+import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
   type KeyboardEvent,
@@ -118,9 +119,11 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const kept = useKeptConversation(mindId, ask?.state ?? null);
 
   useEffect(() => {
-    const follow = () => {
+    const follow = ({ transaction }: { transaction: Transaction }) => {
       setQuote(selectedForRequest(editor.state)?.quote ?? "");
-      setWhole(false);
+      // Only the User's own selecting brings a quote back: the selection a change to the text moves
+      // is still the one sent or put away.
+      if (!transaction.docChanged) setWhole(false);
     };
     editor.on("selectionUpdate", follow);
     return () => {
@@ -132,7 +135,13 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     const typed = words.trim();
     if (typed === "" || working) return;
     const selected = whole ? null : selectedForRequest(editor.state);
+    // The quote goes with the words, as they leave the input.
     setWords("");
+    setWhole(true);
+    const giveBack = () => {
+      setWords(typed);
+      setWhole(whole);
+    };
     try {
       const went = await askInNote(mindId, {
         words: typed,
@@ -140,9 +149,11 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
         selection: selected?.selection ?? null,
         caret: selected ? "" : caretOf(editor.state),
       });
+      // A request that couldn't start keeps what the User typed for sending again.
+      if (went === "problem") giveBack();
       if (went === "link") await askFirstAgent(mindId, { kind: "question", text: typed });
     } catch (error) {
-      setWords(typed);
+      giveBack();
       useAppStore.getState().reportError(error);
     }
   };

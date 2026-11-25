@@ -13644,6 +13644,8 @@ export interface NoteCitation {
   token: string;
   documentName: string;
   quote: string;
+  /** As a Note holds it, found in its Document now: its card and its place in the Document. */
+  citation: Citation;
 }
 
 /**

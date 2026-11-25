@@ -1,21 +1,26 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AgentToolName, NoteCitation } from "../../../../core/api";
+import { type ReactNode, useEffect, useState } from "react";
+import type { AgentToolName } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
 import { undoAsked, useAskedState } from "../../askedChanges";
+import { openClaudeCodeSignIn } from "../../claudeCodeInstall";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
 import { showWaitingChanges } from "../../mindChanges";
-import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
+import {
+  allowAndAskAgain,
+  askedAgain,
+  askInNote,
+  firstWordsOf,
+  type NoteAsk,
+} from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
-import { parseMarkdown } from "../../viewer/markdown";
-import { ProblemLine } from "../ProblemLine";
+import { type ProblemAction, ProblemLine } from "../ProblemLine";
 import { OwnStepText, useAnnounce, WaitingLine } from "./OwnAsk";
 
 /** What the pill says of each Tool while it runs, with what the call names as `{summary}`. */
@@ -276,6 +281,18 @@ export function NoteAskPill({
   );
 }
 
+/** The ways a run stops part way that sending it again can mend. */
+const RETRIED: ReadonlySet<string> = new Set([
+  "plan-limit",
+  "timeout",
+  "stalled",
+  "compaction",
+  "failed",
+  "outside",
+  "unreadable",
+  "service",
+]);
+
 /**
  * Why a request failed, in one line that wraps, with the one thing to do when there is one. In a
  * turn of the conversation, `turn` is that turn's record: the line is part of it, read out only as
@@ -294,21 +311,36 @@ export function FailureLine({
 }) {
   const t = useT();
   const readOnly = ask.problem === "read-only";
+  // A request that never started keeps its words in the input, where Send is: only a run that
+  // stopped part way is sent again from its line.
+  const again =
+    ask.turnId !== null && RETRIED.has(ask.problem ?? "failed") ? askedAgain(ask, turn) : null;
+  const action: ProblemAction | undefined = readOnly
+    ? {
+        label: t("noteAsk.allow"),
+        testId: "note-ask-allow",
+        onClick: () =>
+          void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
+      }
+    : ask.problem === "signed-out"
+      ? {
+          label: t("noteAsk.signIn"),
+          testId: "note-ask-sign-in",
+          onClick: () => void openClaudeCodeSignIn(),
+        }
+      : again
+        ? {
+            label: t("noteAsk.tryAgain"),
+            testId: "note-ask-try-again",
+            onClick: () => void askInNote(mindId, again).catch(useAppStore.getState().reportError),
+          }
+        : undefined;
   return (
     <ProblemLine
       testId="note-ask-problem"
       role={readOnly || turn ? "status" : "alert"}
       className={className}
-      action={
-        readOnly
-          ? {
-              label: t("noteAsk.allow"),
-              testId: "note-ask-allow",
-              onClick: () =>
-                void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
-            }
-          : undefined
-      }
+      action={action}
     >
       {readOnly
         ? t("noteAsk.readOnly", { agent: ask.agent })
@@ -383,59 +415,5 @@ export function EndAction({
     >
       {t("edit.applied.undo")}
     </button>
-  );
-}
-
-/** Stands for a Citation chip in the text until the reply is drawn: its number between the two. */
-const CHIP_OPEN = "\uE000";
-const CHIP_CLOSE = "\uE001";
-
-/**
- * A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces
- * show Markdown, and each Citation IncarnaMind gave its connection as the numbered chip a Note
- * shows (#3677). Any other `[cite:…]` is left out, never drawn as a Citation.
- */
-export function Reply({ text, citations }: { text: string; citations: readonly NoteCitation[] }) {
-  const t = useT();
-  const drawn = useRef<HTMLDivElement>(null);
-  const tokens: string[] = [];
-  const shown = text.replace(/\s?\[cite:([a-z0-9]{1,32})\]/g, (_, token: string) => {
-    if (!citations.some((each) => each.token === token)) return "";
-    if (!tokens.includes(token)) tokens.push(token);
-    return `${CHIP_OPEN}${tokens.indexOf(token) + 1}${CHIP_CLOSE}`;
-  });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the chips are drawn anew for each text.
-  useLayoutEffect(() => {
-    const root = drawn.current;
-    if (!root) return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const holding: Text[] = [];
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node instanceof Text && node.data.includes(CHIP_OPEN)) holding.push(node);
-    }
-    for (const node of holding) {
-      const parts = node.data.split(new RegExp(`${CHIP_OPEN}(\\d+)${CHIP_CLOSE}`));
-      const pieces = parts.map((part, index) => {
-        // A word joiner keeps each chip with the word before it, as a Note keeps its marks.
-        if (index % 2 === 0)
-          return document.createTextNode(index < parts.length - 1 ? `${part}\u2060` : part);
-        const cited = citations.find((each) => each.token === tokens[Number(part) - 1]);
-        const chip = document.createElement("span");
-        chip.className = "citation-marker";
-        chip.dataset.check = "found";
-        chip.textContent = part;
-        chip.title = cited
-          ? `${cited.documentName}: “${cited.quote}”`
-          : t("noteColumn.citation", { number: part });
-        return chip;
-      });
-      node.replaceWith(...pieces);
-    }
-  }, [shown, t, citations]);
-  return (
-    <div key={shown} ref={drawn} data-testid="note-ask-reply" className="note-ask-reply-text">
-      <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />
-    </div>
   );
 }

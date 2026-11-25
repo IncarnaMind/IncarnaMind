@@ -3257,6 +3257,13 @@
       max-width: min(85%, calc(100% - var(--note-ask-tools)));
       margin-right: var(--note-ask-tools);
     }
+    /*
+     * Scrolled, the lines going up fade out under the controls and before the box's rounded top,
+     * never cut by its edge.
+     */
+    &[data-scrolled] {
+      mask-image: linear-gradient(to bottom, transparent 8px, #000 48px);
+    }
   }
   /* Level with the first request's one line: its 12px from the top and its 36px height. */
   .note-ask-panel-tools {
@@ -9703,9 +9710,13 @@
     color: var(--color-ink-meta);
   }
 
-  /* The recording bar reaches into the page controls' gutters in a narrow pane. */
+  /*
+   * The recording bar, and the line of changes waiting, reach into the page controls' gutters in a
+   * narrow pane: they stay in view under the controls.
+   */
   @container mind (width < 808px) {
-    .meeting-bar {
+    .meeting-bar,
+    .proposals-bar {
       top: 48px;
     }
   }
@@ -9714,7 +9725,7 @@
    * wider pane too, as a Note beside its conversation is (#3759).
    */
   @container mind (width < 1000px) {
-    .mind-tab-page:has([data-conversation-toggle]) .meeting-bar {
+    .mind-tab-page:has([data-conversation-toggle]) :is(.meeting-bar, .proposals-bar) {
       top: 48px;
     }
   }

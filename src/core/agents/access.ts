@@ -589,10 +589,13 @@ export interface AgentAccess {
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
   /**
    * Tokens IncarnaMind gave this connection, each checked against its Document as it is now, as a
-   * change to a Note checks one; it records nothing, being no call of the agent's (#3677). A token
-   * is read in its Document again only once that Document's content changed.
+   * change to a Note checks one, with the Citation a Note would hold where its quote is found there;
+   * it records nothing, being no call of the agent's (#3677). A token is read in its Document again
+   * only once that Document's content changed.
    */
-  citationsNow(tokens: readonly string[]): AgentCheckedCitation[];
+  citationsNow(
+    tokens: readonly string[],
+  ): { report: AgentCheckedCitation; citation: Citation | null }[];
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -1896,11 +1899,12 @@ export function createAgentAccess(
     live: readonly LiveDocument[],
     token: string,
     recheck: (kept: AgentCitation) => CitationRecheck = recheckKept,
-  ): { cited: CitedToken | null; report: AgentCheckedCitation } => {
+  ): { cited: CitedToken | null; report: AgentCheckedCitation; found: Citation | null } => {
     const kept = deps.citations.find(pairing.id, token);
     if (!kept || !usable(inScope, kept.documentId)) {
       return {
         cited: null,
+        found: null,
         report: {
           cite: citeTag(token),
           check: "unknown",
@@ -1938,6 +1942,7 @@ export function createAgentAccess(
         attributes,
         citable: !deps.notCited(kept.passageId),
       },
+      found,
       report: {
         cite: citeTag(token),
         check,
@@ -2755,7 +2760,10 @@ export function createAgentAccess(
         rechecked.set(kept.token, { hash, now });
         return now;
       };
-      return tokens.map((token) => checkToken(pairing, inScope, live, token, recheck).report);
+      return tokens.map((token) => {
+        const { report, found } = checkToken(pairing, inScope, live, token, recheck);
+        return { report, citation: found };
+      });
     },
 
     checkCitations(input) {

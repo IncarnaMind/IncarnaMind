@@ -360,18 +360,27 @@ export async function allowAndAskAgain(
 ): Promise<void> {
   const ask = useNoteAsks.getState().byMind[mindId];
   if (!ask) return;
-  // The record keeps the words a request was about, not where they are: sent again without them,
-  // its changes would no longer be held to them, so such a request is left for the User to ask.
-  const asked =
-    ask.asked.words !== ""
-      ? ask.asked
-      : turn && turn.request !== "" && turn.quote === ""
-        ? { words: turn.request, quote: "", selection: null }
-        : null;
+  const asked = askedAgain(ask, turn);
   await core.updateAgent(ask.pairingId, { propose: true });
   if (asked) await askInNote(mindId, asked);
   else clearNoteAsk(mindId);
 }
+
+/**
+ * What sending the Note's last request again sends: as this window asked it, or from its turn's
+ * record. The record keeps the words a request was about, not where they are: sent again without
+ * them, its changes would no longer be held to them, so such a request is left for the User to ask
+ * (null).
+ */
+export const askedAgain = (
+  ask: NoteAsk,
+  turn?: { request: string; quote: string },
+): NoteAsked | null =>
+  ask.asked.words !== ""
+    ? ask.asked
+    : turn && turn.request !== "" && turn.quote === ""
+      ? { words: turn.request, quote: "", selection: null }
+      : null;
 
 /**
  * A selection toolbar action sent as a request of the Note's input (ADR-0034), with the words

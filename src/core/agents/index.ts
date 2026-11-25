@@ -1205,10 +1205,14 @@ export function createAgents(options: AgentsOptions) {
         replyCitations.delete(pairingId);
         return [];
       }
-      return checked.flatMap((now, index) => {
+      return checked.flatMap(({ report, citation }, index) => {
         const token = tokens[index];
-        return now.check === "found" && token && now.document !== null && now.quote !== null
-          ? [{ token, documentName: now.document, quote: now.quote }]
+        return report.check === "found" &&
+          token &&
+          report.document !== null &&
+          report.quote !== null &&
+          citation
+          ? [{ token, documentName: report.document, quote: report.quote, citation }]
           : [];
       });
     },
