@@ -28,7 +28,7 @@ import { closeTip, useFeatureTip } from "../../tips";
 import { ROUTE_LABELS } from "../../transcriptionServices";
 import { openTranscriptBeside } from "../../transcripts";
 import { TranscriptHeadLine } from "../../viewer/TranscriptHeadLine";
-import { MeetingTranscriptView } from "../../viewer/TranscriptView";
+import { MeetingTranscriptView, type SpeakerReviewOpener } from "../../viewer/TranscriptView";
 import { type ViewerFrame, ViewerFrameContext } from "../../viewer/ViewerHeader";
 import { useNotesAsked, writeMeetingNotes } from "../../writeMeetingNotes";
 import { CallEndingLine } from "../CallEndingLine";
@@ -481,6 +481,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   );
   const sheet = useRef<HTMLElement>(null);
   const [added, setAdded] = useState<MessageKey | null>(null);
+  const [review, setReview] = useState<SpeakerReviewOpener | null>(null);
   // ⌘K's Show the Transcript and ⌥⌘→ take the User to it, as they took them to the old view.
   const focusAsked = useMeetingViewFocus(tabId, "transcript");
   useEffect(() => {
@@ -590,6 +591,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 target={target}
                 bare
                 onAdded={setAdded}
+                onReview={setReview}
               />
             </ViewerFrameContext.Provider>
           </div>
@@ -608,15 +610,17 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 <ResumeLineIcon className="size-4" />
                 <span className="meeting-button-word">{t("meetings.foot.resume")}</span>
               </button>
-              <button
-                type="button"
-                data-testid="meeting-sheet-review-speakers"
-                // The review opens where the Transcript has it, at the top of its lines.
-                onClick={() => void commands.run("meeting.reviewSpeakers")}
-                className="meeting-button"
-              >
-                <span>{t("meetings.review.open")}</span>
-              </button>
+              {review && (
+                <button
+                  type="button"
+                  data-testid="meeting-sheet-review-speakers"
+                  // The review opens in the sheet's own Transcript, at the top of its lines.
+                  onClick={() => review.open()}
+                  className="meeting-button"
+                >
+                  <span>{t("meetings.review.open")}</span>
+                </button>
+              )}
               {canChooseMeetingTemplate(meeting) && (
                 <>
                   <span className="ml-auto" />

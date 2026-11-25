@@ -145,9 +145,10 @@ export function TranscriptView({ document, target }: { document: Document; targe
  * A Meeting's Transcript in its Note's page (#138): its words from the first one said, before
  * the Transcript's Document is made with its first finished line, then its lines as they come.
  * `aside`: the page's own control at the header's end ("Open beside"). `bare`: drawn inside
- * something that names it, says its line and opens Review speakers… itself (the call's sheet,
+ * something that names it, says its line and draws Review speakers… itself (the call's sheet,
  * #3762): no header, no head line, no opener of its own. `onAdded`: what Add to note says, for
- * that something to show where the header would have.
+ * that something to show where the header would have. `onReview`: this view's own Review
+ * speakers…, while it can open the review here, else null.
  */
 export function MeetingTranscriptView({
   meeting,
@@ -156,6 +157,7 @@ export function MeetingTranscriptView({
   aside,
   bare = false,
   onAdded,
+  onReview,
 }: {
   meeting: Meeting;
   document: Document | undefined;
@@ -163,6 +165,7 @@ export function MeetingTranscriptView({
   aside?: ReactNode;
   bare?: boolean;
   onAdded?: (said: MessageKey | null) => void;
+  onReview?: (review: SpeakerReviewOpener | null) => void;
 }) {
   const t = useT();
   const documentId = meeting.transcript?.documentId ?? null;
@@ -179,6 +182,7 @@ export function MeetingTranscriptView({
       aside={aside}
       bare={bare}
       onAdded={onAdded}
+      onReview={onReview}
     />
   );
   // While the call records, the words being said stay in view as its first line is filed.
@@ -261,6 +265,11 @@ function quoteLinesAt(
 
 const NOT_SAID: NonNullable<Meeting["transcript"]>["partials"] = [];
 
+/** A Transcript view's own Review speakers…: it opens the review in that view. */
+export interface SpeakerReviewOpener {
+  open(): void;
+}
+
 function TranscriptContent({
   document,
   transcript,
@@ -269,6 +278,7 @@ function TranscriptContent({
   aside,
   bare = false,
   onAdded,
+  onReview,
 }: {
   document: Document | null;
   transcript: Transcript;
@@ -277,6 +287,7 @@ function TranscriptContent({
   aside?: ReactNode;
   bare?: boolean;
   onAdded?: (said: MessageKey | null) => void;
+  onReview?: (review: SpeakerReviewOpener | null) => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -623,6 +634,14 @@ function TranscriptContent({
     ],
   );
   useHandle(transcriptHandle, lend);
+  // The commands' handle is whichever view lent it last, another view of the same Transcript
+  // perhaps: what draws this view's opener gets this view's own.
+  const { reviewSpeakers } = lend;
+  useEffect(() => {
+    if (!onReview) return;
+    onReview(reviewable ? { open: reviewSpeakers } : null);
+    return () => onReview(null);
+  }, [onReview, reviewable, reviewSpeakers]);
   useViewerHandle(
     "transcriptActions",
     useMemo(

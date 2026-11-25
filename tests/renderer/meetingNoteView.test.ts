@@ -1058,6 +1058,42 @@ describe("the meeting's control and sheet after #3762's review", () => {
     expect(sheetIn()).not.toBeNull();
   });
 
+  // protects=the sheet's Review speakers… opens the review in the sheet's own Transcript, even where another view of the same Transcript lent ⌘K's commands their handle after it (a Transcript tab opened again, as a restored Note's is) (#3762); fails_when=the press goes to that other view and the sheet opens nothing; no_claim=⌘K's own Review speakers…, which acts on the Transcript in use.
+  test("the sheet's Review speakers… opens the review in the sheet, not in another view that lent its handle last", async () => {
+    const { transcriptHandle } = await import("../../src/renderer/src/commands/handles");
+    await show();
+    await click("meeting-foot-transcript");
+    const lent = transcriptHandle.current;
+    if (!lent) throw new Error("The sheet's Transcript lent no handle");
+    const elsewhere = vi.fn();
+    transcriptHandle.current = { ...lent, reviewSpeakers: elsewhere };
+    await click("meeting-sheet-review-speakers");
+    expect(elsewhere).not.toHaveBeenCalled();
+    expect(
+      find("meeting-sheet").querySelector(
+        `section[aria-label="${translate("en", "meetings.review.title")}"]`,
+      ),
+    ).not.toBeNull();
+  });
+
+  // protects=while the sheet's Transcript is still being read, its Review speakers… isn't offered, so a press can't go to nothing; it comes once the lines are there (#3762); fails_when=the button shows before its Transcript can open the review, and a press then opens nothing
+  test("the sheet offers Review speakers… once its Transcript is read, not before", async () => {
+    // As a restored Note's sheet opens: its Transcript's Document comes back a moment later.
+    useAppStore.setState({ documents: [] });
+    await show();
+    await click("meeting-foot-transcript");
+    const foot = find("meeting-sheet-foot");
+    expect(find("meeting-sheet").textContent).toContain("Opening the Document");
+    expect(foot.querySelector('[data-testid="meeting-sheet-review-speakers"]')).toBeNull();
+    await act(async () => useAppStore.setState({ documents: [documentOf()] }));
+    await click("meeting-sheet-review-speakers");
+    expect(
+      find("meeting-sheet").querySelector(
+        `section[aria-label="${translate("en", "meetings.review.title")}"]`,
+      ),
+    ).not.toBeNull();
+  });
+
   test("⌘K's Delete audio on a stopped call with the sheet down raises it at the audio's question, and folding it keeps the audio", async () => {
     await show();
     expect(sheetIn()).toBeNull();
