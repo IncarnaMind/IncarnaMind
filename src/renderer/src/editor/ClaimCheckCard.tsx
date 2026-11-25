@@ -290,6 +290,7 @@ export function ClaimMark({
   onRevealed,
   inline = false,
   shown,
+  selected = false,
 }: {
   claim: ShownClaim;
   editor: Editor;
@@ -302,6 +303,8 @@ export function ClaimMark({
   inline?: boolean;
   /** Whether it shows on the page (`markShown`). */
   shown: boolean;
+  /** Whether the selection covers its whole sentence. */
+  selected?: boolean;
 }) {
   const t = useT();
   const state = claim.shown.state;
@@ -513,6 +516,7 @@ export function ClaimMark({
         data-leaning={leaning?.verdict}
         data-own-note={ownNoteOnly || undefined}
         data-quiet={shown ? undefined : true}
+        data-selected={selected || undefined}
         className={`margin-check claim-mark ${inline ? "claim-mark--inline" : ""} ${reveal ? "margin-check--reveal" : ""}`}
         style={style}
         aria-label={label}
