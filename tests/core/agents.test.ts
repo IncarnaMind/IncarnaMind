@@ -1026,8 +1026,9 @@ describe("outside agents", () => {
     // sentence only (found in #3667); 3,435 before search answered with no ready Citation at all;
     // 3,479 before report_check took a change and the quotes that say otherwise (#3715); 3,617
     // before save_as_word (#3751); 3,751 before it saved its file where Export › Word saves one,
-    // said where, and hand_over_file named a Word file already on disk as its own (#3751).
-    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_779);
+    // said where, and hand_over_file named a Word file already on disk as its own (#3751); 3,779
+    // before save_as_word said the file it keeps is not to be handed over too (#3751).
+    expect(estimateTokens(definitions)).toBeLessThanOrEqual(3_787);
     for (const tool of tools) {
       // Kiro's rule, the strictest: letters, digits and underscores, 64 characters with the prefix.
       expect(`mcp__incarnamind__${tool.name}`).toMatch(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/);

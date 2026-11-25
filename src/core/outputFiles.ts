@@ -402,7 +402,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
     const answer = answerOf(linked.id);
     if (answer?.allowed === 1) return true;
     if (answer) throw new LinkedFolderWritesDeclinedError(linked.id, linked.path);
-    if (unasked) throw new FileWriteUnansweredError();
+    if (unasked) throw new FileWriteUnansweredError({ kind: "linked-folder", path: linked.path });
     await ask(`linked-folder:${linked.id}`, {
       kind: "linked-folder",
       linkedFolderId: linked.id,
@@ -482,20 +482,25 @@ export function createOutputFiles(options: OutputFilesOptions) {
      * when none holds them. So the same bytes saved again are written once (#3751).
      */
     async alreadySaved(name: string, bytes: Uint8Array): Promise<SavedFile | null> {
+      const chosen = location();
       let folder: string;
       try {
-        folder = await realFolder(location() ?? options.suggested);
-      } catch (error) {
-        if (isGone(error)) return null;
-        throw error;
+        folder = await realFolder(chosen ?? options.suggested);
+      } catch {
+        // No folder there to hold it: the save itself says why, or asks where new files go.
+        return null;
       }
+      // As a save refuses it: a link put in the chosen Output location's place leads elsewhere.
+      if (chosen !== null && !isInside(chosen, folder)) return null;
       const wanted = fingerprintOf(bytes);
       for (const candidate of nameCandidates(fileNameOf(name))) {
         const path = join(folder, candidate);
         let held: Uint8Array;
         try {
-          // A link under the name is a name taken, as a save takes it, never a file it saved.
-          if (!(await lstat(path)).isFile()) continue;
+          // A link or a folder under the name is a name taken, as a save takes it, never a file it saved.
+          const found = await lstat(path);
+          if (!found.isFile()) continue;
+          if (found.size !== bytes.length) continue;
           held = new Uint8Array(await readFile(path));
         } catch (error) {
           if (isGone(error)) return null;

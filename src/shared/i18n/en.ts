@@ -6509,6 +6509,7 @@ export const en = {
   "error.files.notSkipped.show": "Only a file the last add skipped can be shown.",
   "error.files.notSaved.show": "Only a file IncarnaMind saved can be shown.",
   "error.files.notSaved.open": "Only a file IncarnaMind saved can be opened.",
+  "error.files.savedGone": "the file is no longer there; it was moved or deleted",
   "error.provider.modelMissing": "Enter a model name.",
   "error.provider.unknown": "IncarnaMind doesn’t know the provider “{provider}”.",
   "error.provider.removed": "This provider was removed.",
@@ -9147,6 +9148,14 @@ export const en = {
   "agents.handOver.word.which": "Give exactly one: mindId for a note, or markdown for your text.",
   "agents.handOver.word.unshared":
     "This note cites a Document in a Folder that isn’t shared with you, so IncarnaMind won’t write it into a Word file for you. Ask the User to share that Folder with you, or to export the note to Word themselves.",
+  "agents.handOver.word.deleted":
+    "This note cites a Document that is no longer in the User’s Library, so IncarnaMind won’t write it into a Word file for you. Ask the User to take that Citation out of the note, or to export the note to Word themselves.",
+  "agents.handOver.word.libraryFacts":
+    "This note cites facts about the User’s Library, which you can’t read, so IncarnaMind won’t write it into a Word file for you. Ask the User to export the note to Word themselves.",
+  "agents.handOver.word.askLocation":
+    "IncarnaMind couldn’t save it where new files go without asking the User. Ask them to choose an Output location in IncarnaMind, in Settings › General, then save it again.",
+  "agents.handOver.word.askLinked":
+    "The Output location is in “{folder}”, a Linked folder the User hasn’t allowed new files in yet. Ask them to allow new files there in IncarnaMind, in Settings › General, then save it again.",
   "agents.handOver.unread.unreadable":
     "IncarnaMind kept the file but couldn’t read it: it may be damaged.",
   "agents.handOver.unread.password-protected":
@@ -9740,15 +9749,20 @@ export const en = {
   "agents.ask.request.noteFile":
     "My message is about the file you handed over to IncarnaMind, {title} (version {version}, from {path}).",
   "agents.ask.request.fixWordNote":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId.",
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nFix it in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
   "agents.ask.request.fixWordNoteAll":
-    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId.",
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nFix each of them in the note (mindId: {mindId}) from my Documents with propose_changes, change nothing else, then save it again with save_as_word and that mindId{folder}.",
+  "agents.ask.request.fixWordNoteWaits":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says this {verdict}:\n\n{where}{sentence}{quote}\n\nPropose the fix in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your change waits for me to accept it, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted it.",
+  "agents.ask.request.fixWordNoteAllWaits":
+    "In IncarnaMind, the check of the Word file saved from my note {title} (version {version}) says these {count} need a look:\n\n{sentences}\n\nPropose a fix for each of them in the note (mindId: {mindId}) from my Documents with propose_changes, and change nothing else. The note is mine, so your changes wait for me to accept them, and a Word file holds no change that waits: tell me so, and save it again with save_as_word and that mindId{folder} once I have accepted them.",
+  "agents.ask.request.wordFolder": ", with folderId {folderId}",
   "agents.ask.request.wordNote":
     "My message is about the Word file saved from my note {title} in IncarnaMind (version {version}, mindId: {mindId}).",
   "agents.ask.request.fixWordText":
-    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nIts text is in the note mindId {mindId} (read_mind). Fix it from my Documents, change nothing else, and save it again with save_as_word, the title {title} and the corrected markdown.",
+    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says this {verdict}:\n\n{where}{sentence}{quote}\n\nIts text is in the note mindId {mindId} (read_mind). Fix it from my Documents, change nothing else, and save it again with save_as_word, the title {title}, folderId {folderId} and the corrected markdown.",
   "agents.ask.request.fixWordTextAll":
-    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says these {count} need a look:\n\n{sentences}\n\nIts text is in the note mindId {mindId} (read_mind). Fix each of them from my Documents, change nothing else, and save it again with save_as_word, the title {title} and the corrected markdown.",
+    "In IncarnaMind, the check of the Word file you saved from your own text, {title} (version {version}), says these {count} need a look:\n\n{sentences}\n\nIts text is in the note mindId {mindId} (read_mind). Fix each of them from my Documents, change nothing else, and save it again with save_as_word, the title {title}, folderId {folderId} and the corrected markdown.",
   "agents.ask.request.wordText":
     "My message is about the Word file you saved to IncarnaMind from your own text, {title} (version {version}); its text is in the note mindId {mindId}.",
   "agents.ask.request.note":

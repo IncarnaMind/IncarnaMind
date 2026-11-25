@@ -102,9 +102,14 @@ export interface HandedFileAsked {
   version: number;
   /**
    * Where it came from: the path the agent handed it over from, or the Note or text IncarnaMind
-   * wrote it from with `save_as_word` (#3751), fixed there and saved again.
+   * wrote it from with `save_as_word` (#3751), fixed there and saved again into the same item:
+   * `folderId` to save with, null where a save names none to reach it; `own`, the agent wrote the
+   * Note, so its fix lands at once rather than waiting for the User.
    */
-  from: { kind: "path"; path: string } | { kind: "note"; mindId: string } | { kind: "text" };
+  from:
+    | { kind: "path"; path: string }
+    | { kind: "note"; mindId: string; own: boolean; folderId: string | null }
+    | { kind: "text"; folderId: string };
   /** Where in the file the claim a check result is on stands ("slide 4"); null when unknown. */
   whereOf(checkId: string | null): string | null;
 }
@@ -296,17 +301,26 @@ const FILE_REQUESTS = {
     fix: "agents.ask.request.fixFile",
     fixAll: "agents.ask.request.fixFileAll",
   },
-  note: {
+  ownNote: {
     about: "agents.ask.request.wordNote",
     fix: "agents.ask.request.fixWordNote",
     fixAll: "agents.ask.request.fixWordNoteAll",
+  },
+  // The User's Note: the fix waits for their accept, and no waiting change goes into a file.
+  note: {
+    about: "agents.ask.request.wordNote",
+    fix: "agents.ask.request.fixWordNoteWaits",
+    fixAll: "agents.ask.request.fixWordNoteAllWaits",
   },
   text: {
     about: "agents.ask.request.wordText",
     fix: "agents.ask.request.fixWordText",
     fixAll: "agents.ask.request.fixWordTextAll",
   },
-} as const satisfies Record<HandedFileAsked["from"]["kind"], Record<string, MessageKey>>;
+} as const satisfies Record<string, Record<string, MessageKey>>;
+
+const wordsOf = (from: HandedFileAsked["from"]) =>
+  FILE_REQUESTS[from.kind === "note" && from.own ? "ownNote" : from.kind];
 
 /** A request about a file the agent handed over, or IncarnaMind wrote for it; `checkedIn`: its check's Note. */
 function fileRequest(
@@ -317,13 +331,16 @@ function fileRequest(
 ): AgentRequestText {
   const title = quotedName(file.title);
   const { from } = file;
-  const words = FILE_REQUESTS[from.kind];
+  const words = wordsOf(from);
+  const folderId = from.kind === "path" ? null : from.folderId;
   const named = {
     title,
     version: file.version,
     path: from.kind === "path" ? from.path : "",
     // A Note's file is fixed in the Note; a text's, read from the Note its check is in.
     mindId: from.kind === "note" ? from.mindId : checkedIn,
+    folderId: folderId ?? "",
+    folder: folderId === null ? "" : say("agents.ask.request.wordFolder", { folderId }),
   };
   if (ask.kind !== "fix") {
     return {

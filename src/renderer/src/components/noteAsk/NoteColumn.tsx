@@ -5,6 +5,7 @@ import type { MessageKey } from "../../../../shared/i18n";
 import { core, files } from "../../core";
 import { showFileLabelKey } from "../../fileInfo";
 import { useT } from "../../i18n";
+import { savedFileFailure } from "../../outputFiles";
 import {
   askInNote,
   firstWordsOf,
@@ -18,6 +19,7 @@ import {
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
+import { ProblemLine } from "../ProblemLine";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
@@ -566,8 +568,14 @@ const madeKind = (step: NoteStep): "note" | "changed" | "file" | null => {
 /** A file the AI saved for the User (#3751): opened or shown, as a file Export saved is. */
 function SavedFileCard({ file }: { file: AgentSavedFile }) {
   const t = useT();
-  const run = (act: (path: string) => Promise<void>) =>
-    void act(file.path).catch(useAppStore.getState().reportError);
+  const [problem, setProblem] = useState<string | null>(null);
+  const run = (
+    act: (path: string) => Promise<void>,
+    failed: "export.failed.open" | "export.failed.show",
+  ) => {
+    setProblem(null);
+    act(file.path).catch((failure: unknown) => setProblem(savedFileFailure(failure, failed, t)));
+  };
   return (
     <div data-testid="note-column-saved" className="note-column-made-card note-column-saved">
       <span className="note-column-made-title" title={file.name}>
@@ -577,7 +585,7 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
         <button
           type="button"
           data-testid="note-column-saved-open"
-          onClick={() => run(files.openSavedFile)}
+          onClick={() => run(files.openSavedFile, "export.failed.open")}
           className="note-ask-pill-action"
         >
           {t("export.open")}
@@ -585,12 +593,13 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
         <button
           type="button"
           data-testid="note-column-saved-show"
-          onClick={() => run(files.showSavedFile)}
+          onClick={() => run(files.showSavedFile, "export.failed.show")}
           className="note-ask-pill-action"
         >
           {t(showFileLabelKey(navigator.platform))}
         </button>
       </span>
+      {problem && <ProblemLine testId="note-column-saved-problem">{problem}</ProblemLine>}
     </div>
   );
 }

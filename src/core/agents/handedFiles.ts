@@ -242,6 +242,7 @@ export function createHandedFileTool(context: HandedFileToolContext) {
         ...file,
         folderId: folder.id,
         ...(!known && { createdAt }),
+        ...(tool === "save_as_word" && { written: true }),
         // The grant as it is when the hand-over's turn comes: the User may have taken it back.
         allowed: () => {
           const now = context.again();

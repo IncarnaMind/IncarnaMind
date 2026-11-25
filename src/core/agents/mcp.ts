@@ -856,7 +856,7 @@ export function createAgentServer(
     {
       title: "Save as a Word file",
       description:
-        "For a Word file (.docx) of a Note or of your text, never build one yourself: IncarnaMind writes it as its Export › Word does, Citations as footnotes, saves it in the User's folder for new files (saved: its path) and keeps it as hand_over_file does. Give mindId, or markdown as in create_mind with a title. While running, call again.",
+        "For a Word file (.docx) of a Note or of your text, never build one yourself: IncarnaMind writes it as its Export › Word does, Citations as footnotes, saves it in the User's folder for new files (saved: its path) and keeps it in their Library with its check, so don't hand it over. Give mindId, or markdown as in create_mind with a title. While running, call again.",
       inputSchema: z.object({
         mindId: z.string().optional(),
         markdown: z.string().optional(),

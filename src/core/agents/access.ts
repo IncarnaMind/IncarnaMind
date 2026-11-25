@@ -906,10 +906,22 @@ export interface AgentAccessDeps {
   handedNote(fileId: string): string | null;
   handOver: HandedFileToolDeps["handOver"];
   handedCheck: HandedFileToolDeps["handedCheck"];
-  /** A Word file as Export › Word writes one, with the User's choices for it, dated `at` (#3751). */
-  wordFile(source: WordSource, at: string): Promise<WordMade>;
-  /** Saves that file in the Output location, as Export › Word saves its own. */
-  saveWordFile(source: WordSource, fileName: string, data: Uint8Array): Promise<WordSaved>;
+  /**
+   * A Word file as Export › Word writes one, with the User's choices for it, dated `at` (#3751),
+   * unless it would name a Document `reaches` says the agent can't read.
+   */
+  wordFile(
+    source: WordSource,
+    at: string,
+    reaches: (documentId: string) => boolean,
+  ): Promise<WordMade>;
+  /** Saves that file in the Output location, as Export › Word saves its own; `asks` the User only when they are at the window. */
+  saveWordFile(
+    source: WordSource,
+    fileName: string,
+    data: Uint8Array,
+    asks: boolean,
+  ): Promise<WordSaved>;
 }
 
 /**
@@ -2396,8 +2408,10 @@ export function createAgentAccess(
         documentIds: cited.flatMap((each) => (each.cited ? [each.cited.minted.documentId] : [])),
       };
     },
-    wordFile: (source, at) => deps.wordFile(source, at),
-    saveWordFile: (source, fileName, data) => deps.saveWordFile(source, fileName, data),
+    wordFile: (source, at, reaches) => deps.wordFile(source, at, reaches),
+    // A Note's own conversation runs with the User at its window, who can answer where a file goes.
+    saveWordFile: (source, fileName, data) =>
+      deps.saveWordFile(source, fileName, data, grant?.kind === "conversation"),
   });
 
   const canvasTools = createCanvasTools({

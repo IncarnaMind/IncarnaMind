@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from "node:path";
 import { deflateRawSync } from "node:zlib";
@@ -59,7 +59,7 @@ import {
 import { missingNumberWords } from "../shared/missingNumbers";
 import { sameName } from "../shared/names";
 import { mindName } from "../shared/naming";
-import { recordNoteWriter } from "../shared/noteWriter";
+import { noteWriterOf, recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
@@ -74,7 +74,7 @@ import { wordFileOf } from "../shared/wordFiles";
 import { wordFontsOf, wordLookOf } from "../shared/wordLook";
 import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
-import { createAgentFiles } from "./agentFiles";
+import { createAgentFiles, type StoredHandedFile } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
 import {
   agentSocketPath,
@@ -83,7 +83,7 @@ import {
   HOSTED_FLOW_SENDS,
   serviceOf,
 } from "./agents";
-import { createAgentAsk } from "./agents/ask";
+import { createAgentAsk, type HandedFileAsked } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
 import { createClaudeCodeInstallController } from "./agents/installClaudeCode";
@@ -3795,17 +3795,19 @@ export function createCore(adapters: CoreAdapters): Core {
     log: adapters.log ?? silentLogger,
   });
   const exportLedger = createExportLedger({ outputs, folderOf: folderOfNote });
-  // A Word file an outside agent asks for (#3751), as Export › Word writes and saves one.
   const agentWordFiles = createAgentWordFiles({
     mind: (mindId) => minds.get(mindId),
     noteState: (mindId) =>
       content.read(mindId, (blocks) => (blocks.doc ? Y.encodeStateAsUpdate(blocks.doc) : null)),
-    wordOf: (notes, mindId, options, at) =>
-      createExports({ ...exportDependenciesOf(notes), now: () => at }).export(
-        mindId,
-        options,
-        false,
-      ),
+    wordOf: async (notes, mindId, options, at) => {
+      const named = new Set<string>();
+      const exported = await createExports({
+        ...exportDependenciesOf(notes),
+        now: () => at,
+      }).export(mindId, options, false, named);
+      return { exported, named: [...named] };
+    },
+    isDocument: (documentId) => liveDocument(documentId) !== undefined,
     wordChoices: () => optionsFor("docx", settings.get().user.exportOptions),
     startSettings: (mindSettings, folderId) => {
       const style = folderId === null ? null : library.citationStyle(folderId);
@@ -3817,6 +3819,49 @@ export function createCore(adapters: CoreAdapters): Core {
     say: (key, params) => translate(settings.get().language, key, params),
     newId: () => crypto.randomUUID(),
   });
+  /** A file IncarnaMind saved, still where it saved it; refused in plain words once moved or deleted. */
+  const stillSaved = async (path: string): Promise<void> => {
+    try {
+      if ((await stat(path)).isFile()) return;
+    } catch (error) {
+      if (
+        !(
+          error instanceof Error &&
+          "code" in error &&
+          ["ENOENT", "ENOTDIR"].includes(String(error.code))
+        )
+      )
+        throw error;
+    }
+    throw new NotFoundError({ key: "error.files.savedGone" });
+  };
+  /**
+   * Where a handed-over file came from, for a request about its check: its path, or the Note or
+   * text `save_as_word` wrote it from, with the Folder a save must name to reach the same item, and
+   * whether the agent wrote that Note, as `pairingWrote` decides it (./agents/access).
+   */
+  const wordFileFrom = (file: StoredHandedFile): HandedFileAsked["from"] => {
+    const item = wordItemOf(file.path);
+    const folderId = file.folderId ?? NOT_IN_A_FOLDER_ID;
+    if (item === null) return { kind: "path", path: file.path };
+    if (item.kind === "text") return { kind: "text", folderId };
+    const writer = content.read(item.mindId, (blocks) =>
+      blocks.doc ? noteWriterOf(blocks.doc) : null,
+    );
+    const own =
+      writer?.pairingId === file.pairingId &&
+      (writer.mindId === undefined
+        ? minds.duplicatedFrom(item.mindId) === null
+        : writer.mindId === item.mindId);
+    // A plain save keeps a Note's file in the Note's own Folder.
+    const noteFolder = minds.list().find((mind) => mind.id === item.mindId)?.folderId ?? null;
+    return {
+      kind: "note",
+      mindId: item.mindId,
+      own,
+      folderId: noteFolder === file.folderId ? null : folderId,
+    };
+  };
   /**
    * The files an export writes beside its own, in the folder it went to (#1937): a Markdown
    * export's pictures. The User let that folder take the export, so it takes these too.
@@ -6461,7 +6506,17 @@ export function createCore(adapters: CoreAdapters): Core {
     filedOnArrival: (path) => boundFolderAt(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
-    contentHashInUse: (hash, except) => documents.contentHashInUse(hash, except),
+    contentHashInUse: (hash, except, withExports) =>
+      withExports
+        ? documents.contentHashInUse(hash, except)
+        : documents
+            .list()
+            .some(
+              (document) =>
+                document.contentHash === hash &&
+                document.id !== except &&
+                document.ownFile?.kind !== "export",
+            ),
     dropPurged: () => documents.dropPurged(),
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
@@ -6870,12 +6925,13 @@ export function createCore(adapters: CoreAdapters): Core {
       handedNote: newestHandedNote,
       handOver: (input) => handOver.handOver(input),
       handedCheck: (mindId, waitMs, reach) => handOver.handedCheck(mindId, waitMs, reach),
-      wordFile: (source, at) => agentWordFiles.write(source, at),
-      saveWordFile: (source, fileName, data) =>
+      wordFile: (source, at, reaches) => agentWordFiles.write(source, at, reaches),
+      saveWordFile: (source, fileName, data, asks) =>
         agentWordFiles.save(
           fileName,
           data,
           source.kind === "note" ? folderOfNote(source.mindId) : source.folderId,
+          asks,
         ),
       checksWritten: () => settings.get().user.checkAssistantWrites,
     },
@@ -7328,7 +7384,7 @@ export function createCore(adapters: CoreAdapters): Core {
       return {
         title: found.file.title,
         version: found.version.number,
-        from: wordItemOf(found.file.path) ?? { kind: "path", path: found.file.path },
+        from: wordFileFrom(found.file),
         whereOf: (checkId) => (checkId === null ? null : (wheres.get(checkId) ?? null)),
       };
     },
@@ -9780,12 +9836,15 @@ export function createCore(adapters: CoreAdapters): Core {
     showSavedFile: async (path) => {
       if (!outputs.saved(path)) throw new NotFoundError({ key: "error.files.notSaved.show" });
       if (!adapters.shell) throw new Error("This copy of IncarnaMind can't show files.");
+      // The system shows nothing for a file that is gone, and says so in its own words when opening one.
+      await stillSaved(path);
       adapters.shell.showItemInFolder(path);
     },
     openSavedFile: async (path) => {
       if (!outputs.saved(path)) throw new NotFoundError({ key: "error.files.notSaved.open" });
       if (!adapters.shell)
         throw new Error("This copy of IncarnaMind can't open files in other apps.");
+      await stillSaved(path);
       await adapters.shell.openPath(path);
     },
     getAgents: async () => agents.settings(),

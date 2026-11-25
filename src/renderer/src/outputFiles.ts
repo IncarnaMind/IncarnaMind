@@ -1,6 +1,8 @@
 import type { OutputSettings } from "../../core/api";
 import type { MessageKey, MessageParams } from "../../shared/i18n";
+import { saveFailureReason } from "../../shared/systemReasons";
 import { core, files } from "./core";
+import { errorMessage } from "./errors";
 import { defaultFolderLabelKey } from "./fileInfo";
 import { folderName } from "./linkedFolders";
 import { useAppStore } from "./store";
@@ -37,3 +39,17 @@ export const savedFolderLabel = (
 /** Opens Settings at the Output location, its Change… focused: a first save's Change folder…. */
 export const showOutputLocationSetting = (): void =>
   useAppStore.getState().openSettings("general", "output-location");
+
+/**
+ * Why Open or Show in Finder didn't work on a file IncarnaMind saved, as the line or card that
+ * offers them says it: "Couldn't open it: the file is no longer there…" (#3751).
+ */
+export function savedFileFailure(
+  failure: unknown,
+  failed: "export.failed.open" | "export.failed.show",
+  t: Translate,
+): string {
+  const message = errorMessage(failure, t);
+  const reason = saveFailureReason(message);
+  return t(failed, { reason: reason ? t(reason.key, reason.values) : message });
+}

@@ -10,16 +10,24 @@
 import type { NodeJSON } from "../../shared/blockJson";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { mindName } from "../../shared/naming";
+import { WRITTEN_ITEM } from "../agentFiles/handOver";
 import type { AgentSavedFile, AgentToolName, Effect, Mind } from "../api";
 import { NOT_IN_A_FOLDER_ID } from "../api";
 import { NotFoundError, TranslatableError } from "../errors";
-import type { WordMade, WordSaved, WordSource } from "../exports/agentWordFiles";
+import type { WordMade, WordSaved, WordSource, WordUnreached } from "../exports/agentWordFiles";
 import type { AdmittedPairing, AgentCheckedCitation, VisualLeftOut } from "./access";
 import { type AgentHandedFile, type PlannedHandOver, WRITES_LIBRARY } from "./handedFiles";
 import { AgentRefusedError, text } from "./refusals";
 
 const READS_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 const WRITES_OUTPUT: Effect = { action: "write", scope: { kind: "output" } };
+
+/** What the agent is told when the file would name what it can't read, and what the User can do. */
+const UNREACHED = {
+  unshared: "agents.handOver.word.unshared",
+  deleted: "agents.handOver.word.deleted",
+  library: "agents.handOver.word.libraryFacts",
+} as const satisfies Record<WordUnreached, MessageKey>;
 
 export interface SaveAsWordInput {
   mindId?: unknown;
@@ -68,17 +76,20 @@ export interface WordFileToolContext {
   draftTitle(value: unknown): string;
   draftText(value: unknown): string;
   draftBlocks(title: string, written: string): Promise<DraftBlocks>;
-  wordFile(source: WordSource, at: string): Promise<WordMade>;
+  wordFile(
+    source: WordSource,
+    at: string,
+    reaches: (documentId: string) => boolean,
+  ): Promise<WordMade>;
   saveWordFile(source: WordSource, fileName: string, data: Uint8Array): Promise<WordSaved>;
 }
 
-const ITEM = "incarnamind:";
+const ITEM = WRITTEN_ITEM;
 
 /**
  * What the item of a Word file IncarnaMind wrote is known by, in place of a path: the Note it was
- * written from or the name of the text, and the Folder it is kept in. No file's path is like it,
- * since `hand_over_file` takes only a full one; so the same Note or name saved again in a Folder is
- * that item's next version, and saved in another Folder is an item there.
+ * written from or the name of the text, and the Folder it is kept in. So the same Note or name
+ * saved again in a Folder is that item's next version, and saved in another Folder is an item there.
  */
 const itemOf = (from: { mindId: string } | { title: string }, folderId: string | null) => {
   const folder = folderId ?? NOT_IN_A_FOLDER_ID;
@@ -151,9 +162,11 @@ export function createWordFileTool(context: WordFileToolContext) {
             };
           };
           const write = async (source: WordSource, at: string) => {
-            const word = await inWords(() => context.wordFile(source, at));
-            if (word.kind === "unshared") {
-              throw new AgentRefusedError("outside-scope", t("agents.handOver.word.unshared"));
+            const word = await inWords(() =>
+              context.wordFile(source, at, context.reaches(pairing)),
+            );
+            if (word.kind === "unreached") {
+              throw new AgentRefusedError("outside-scope", t(UNREACHED[word.why]));
             }
             made = { source, fileName: word.fileName, data: word.data };
             return word.data;
@@ -170,12 +183,7 @@ export function createWordFileTool(context: WordFileToolContext) {
               path,
               folderId,
               give: async (_, at) => {
-                const source: WordSource = {
-                  kind: "note",
-                  mindId: mind.id,
-                  title,
-                  reaches: context.reaches(pairing),
-                };
+                const source: WordSource = { kind: "note", mindId: mind.id, title };
                 const bytes = await write(source, at);
                 return { file: { place: path, title, kind: "docx", bytes }, documentIds: [] };
               },
