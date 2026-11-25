@@ -145,7 +145,7 @@ for (const language of ["en", "zh-CN"] as const) {
         )
         .toBe("landed");
       await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
-      await pointAndClick(window, group.getByTestId("conversation-move-right"));
+      await pointAndClick(window, group.getByTestId("conversation-move-left"));
 
       // Its step names the file and its kind, with Export's own Open and Show in Finder.
       const card = window.getByTestId("note-column-saved");
