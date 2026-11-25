@@ -154,11 +154,12 @@ test("a request at a Note's foot changes the selected words at once, says what i
       await window.keyboard.press("Enter");
     };
 
-    // The Note has its own input, where the pill would have asked.
-    await expect(input).toHaveAttribute("placeholder", "Describe a change…");
+    // The Note has its own input, where the pill would have asked: one placeholder for a question
+    // and a change (#3765).
+    await expect(input).toHaveAttribute("placeholder", "Ask, or describe a change…");
     await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);
     await both(app, window, "note-ask-input", async () => {
-      await expect(input).toHaveAttribute("placeholder", "描述要做的修改…");
+      await expect(input).toHaveAttribute("placeholder", "提问，或描述要做的修改…");
     });
 
     // Words selected and a change asked: it lands at once, in them alone, nothing opened or copied.

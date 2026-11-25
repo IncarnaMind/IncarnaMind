@@ -9335,7 +9335,7 @@ export const en = {
   "agents.ownCheck.problem.service":
     "{agent} stopped before finishing. Check your sign-in and usage in {agent}.",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
-  "noteAsk.placeholder": "Describe a change…",
+  "noteAsk.placeholder": "Ask, or describe a change…",
   "noteAsk.send": "Send",
   "noteAsk.stop": "Stop",
   "noteAsk.working": "{agent} is working…",
@@ -9528,7 +9528,7 @@ export const en = {
   "noteAsk.did.publish_canvas": "Made a page",
   "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
-  "noteAsk.command": "Describe a change to this note…",
+  "noteAsk.command": "Ask, or describe a change to this note…",
   "noteAsk.noAi": "Asking needs your AI",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",

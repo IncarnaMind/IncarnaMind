@@ -8712,7 +8712,7 @@ export const zhCN = {
   "agents.ownCheck.problem.unreadable": "{agent} 未完成就停止了。在 {agent} 中打开这次核对。",
   "agents.ownCheck.problem.service": "{agent} 未完成就停止了。在 {agent} 中检查登录状态和用量。",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
-  "noteAsk.placeholder": "描述要做的修改…",
+  "noteAsk.placeholder": "提问，或描述要做的修改…",
   "noteAsk.send": "发送",
   "noteAsk.stop": "停止",
   "noteAsk.working": "{agent} 正在处理…",
@@ -8900,7 +8900,7 @@ export const zhCN = {
   "noteAsk.did.publish_canvas": "制作了页面",
   "noteAsk.did.other": "调用了 IncarnaMind",
   "noteAsk.wholeNote": "改为针对整篇笔记",
-  "noteAsk.command": "描述对这篇笔记的修改…",
+  "noteAsk.command": "提问，或描述对这篇笔记的修改…",
   "noteAsk.noAi": "提问需要你的 AI",
   "noteAsk.action.improve": "改进写法",
   "noteAsk.action.shorten": "缩短",
