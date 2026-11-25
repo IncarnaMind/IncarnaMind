@@ -1133,7 +1133,9 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
 
   // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), with a look-alike letter a disk folds (the long s, U+017F, is s) or a character an older Mac disk leaves out of names, as Windows opens it (dots or spaces at a part's end, a stream after a colon), where a symbolic link by another name really leads, a link to a folder not there yet too, as a hard link, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, CLAUDE.md. or CLAUDE.md::$DATA, CLAUDE<U+200B>.md, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
   it("knows a steering file in any case, as a disk or Windows spells it, through a link, in a command spelt another way, and the User's own servers", async () => {
-    const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+    // As the system's temporary folder names it: on Windows that can be a short 8.3 path, which
+    // the test home guard allows only as it is spelt.
+    const work = await mkdtemp(join(tmpdir(), "im-steer-"));
     await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
     await mkdir(join(work, ".claude"));
     await symlink(join(work, "CLAUDE.md"), join(work, "notes.md"), "file");
@@ -1316,7 +1318,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
   it.runIf(process.platform === "win32")(
     "knows a steering folder by its 8.3 short name on Windows",
     async () => {
-      const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+      const work = await mkdtemp(join(tmpdir(), "im-steer-"));
       await mkdir(join(work, ".claude"));
       expect(existsSync(join(work, "CLAUDE~1"))).toBe(true);
       const { answers } = await useHookAnswers([
@@ -1333,7 +1335,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
   it.skipIf(process.platform === "win32")(
     "follows a link named with a backslash to a steering file",
     async () => {
-      const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+      const work = await mkdtemp(join(tmpdir(), "im-steer-"));
       await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
       await symlink(join(work, "CLAUDE.md"), join(work, "a\\b"));
       const { answers } = await useHookAnswers([
