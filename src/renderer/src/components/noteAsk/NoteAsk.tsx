@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { core } from "../../core";
@@ -102,13 +103,17 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     );
   }, [mindId]);
   const working = ask?.state === "working";
+  const turns = useOpenConversation(mindId, open, `${ask?.turnId ?? ""}:${ask?.state ?? ""}`);
+  // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
+  // later would cover what the User had scrolled into view, and a change's bar docked above it.
+  const shownOpen = open && (!upward || turns !== null);
   const [question] = ask?.state === "working" ? ask.questions : [];
   // Folded, a question shows its card in the box, which grows over the Note as the conversation
   // does upward, and goes back once it is answered (#3653).
   const asking = question !== undefined && !open;
   // An AI set to ask nothing says so once in the box too, where the User sees it (#3653).
   const unasking = working && !open && ASKS_NOTHING.has(ask?.mode ?? "") ? ask?.mode : undefined;
-  const floating = (upward && open) || asking || unasking !== undefined;
+  const floating = (upward && shownOpen) || asking || unasking !== undefined;
   // With no conversation yet there is nothing to open: no handle, and the box is its input row.
   const kept = useKeptConversation(mindId, ask?.state ?? null);
 
@@ -172,7 +177,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const foot = useRef<HTMLDivElement>(null);
   const folded = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (!open && !asking && foot.current) folded.current = foot.current.offsetHeight;
+    if (!floating && foot.current) folded.current = foot.current.offsetHeight;
   });
   const toggle = () => setColumnOpen(mindId, !open);
   // Grown over the Note's foot, it gives the Note's end as much more room, so the Note's last line
@@ -230,7 +235,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   ) : null;
   // Open, the conversation shows the line's reply and a failure of its request; a request that
   // failed before it began has no turn there, so its line stays above the input.
-  const shownLine = open && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
+  const shownLine = shownOpen && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
   const agent = ask?.agent || "Claude Code";
   const input = (
     <NoteAskInput
@@ -250,7 +255,11 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       // Folded, the box says how to see the conversation again in words, wherever it opens; open,
       // only a line the conversation can't show stays above the input.
       line={
-        open ? shownLine : kept || ask ? <ConversationHandle line={line} onOpen={toggle} /> : null
+        shownOpen ? (
+          shownLine
+        ) : kept || ask ? (
+          <ConversationHandle line={line} onOpen={toggle} />
+        ) : null
       }
       panel={
         asking ? (
@@ -265,12 +274,13 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
               {t(`ownAsk.mode.${unasking}` as MessageKey, { agent })}
             </p>
           </div>
-        ) : upward && open ? (
+        ) : upward && shownOpen && turns ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">
             <NoteConversationBody
               mindId={mindId}
               editor={editor}
               agent={agent}
+              turns={turns}
               className="note-ask-panel-body"
             />
             <PanelTools column={slot !== null} onFold={toggle} />
@@ -281,7 +291,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   );
   if (!upward && open && slot !== null) {
     return createPortal(
-      <NoteColumn mindId={mindId} editor={editor} agent={agent} input={input} />,
+      <NoteColumn mindId={mindId} editor={editor} agent={agent} turns={turns} input={input} />,
       slot,
     );
   }
@@ -390,6 +400,37 @@ export function MoveConversation({
       )}
     </button>
   );
+}
+
+/**
+ * The Note's conversation while it is open, upward or in the window's column, read as it opens and
+ * again as each request starts and ends (`changed`); null until read, and once it folds, so it opens
+ * on what it holds now. Moving between its two places reads nothing.
+ */
+function useOpenConversation(
+  mindId: string,
+  open: boolean,
+  changed: string,
+): readonly NoteTurn[] | null {
+  const [read, setRead] = useState<{ mindId: string; turns: readonly NoteTurn[] } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
+  useEffect(() => {
+    if (!open) {
+      setRead(null);
+      return;
+    }
+    let current = true;
+    core
+      .noteConversation(mindId)
+      .then((turns) => {
+        if (current) setRead({ mindId, turns });
+      })
+      .catch(useAppStore.getState().reportError);
+    return () => {
+      current = false;
+    };
+  }, [mindId, open, changed]);
+  return read?.mindId === mindId ? read.turns : null;
 }
 
 /** Whether the Note has a conversation kept, read as it opens and as each request ends. */
