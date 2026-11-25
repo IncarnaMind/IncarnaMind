@@ -7,7 +7,8 @@
  *   STILLS_OUT=<folder> STILLS_LANG=en npx playwright test \
  *     -c e2e/audit/playwright.audit.config.ts meetingStills
  */
-import { chmod, mkdir, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
+import { chmod, mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge, Meeting } from "../../src/core/api";
@@ -673,9 +674,12 @@ test(`meeting control's cards, the computer's sound and saving, ${LANG}`, async 
 
     const [recording] = await meetings(window);
     const folder = join(dataDir, "meetings", recording?.id ?? "");
+    // The folder is made with the first part saved.
     await expect
       .poll(
-        async () => (await readdir(folder)).some((name) => /^microphone-\d{10}\.wav$/.test(name)),
+        () =>
+          existsSync(folder) &&
+          readdirSync(folder).some((name) => /^microphone-\d{10}\.wav$/.test(name)),
         { timeout: 30_000 },
       )
       .toBe(true);
