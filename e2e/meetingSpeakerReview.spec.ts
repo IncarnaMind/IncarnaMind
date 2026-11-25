@@ -12,17 +12,18 @@ import { paddedClockTime } from "../src/shared/clock";
 import { lineKey } from "../src/shared/speakers";
 import {
   useLocalChatModel as chooseLocalChatModel,
-  closeFirstFillPopover,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
+  openMeetingSheet,
   pointAndClick,
-  recordMeetingNow,
+  recordMeeting,
   removeDataFolder,
   runCommand,
   setLanguage,
   setWindowSize,
+  stopMeeting,
 } from "./app";
 import { encode, film } from "./feel";
 
@@ -139,15 +140,15 @@ async function shot(window: Page, name: string) {
 }
 
 async function savedMeeting(window: Page): Promise<Meeting> {
-  const bar = await recordMeetingNow(window);
+  await recordMeeting(window);
   await expect
     .poll(async () => (await meetings(window))[0]?.transcript?.lines ?? 0, { timeout: 30_000 })
     .toBeGreaterThanOrEqual(8);
-  await pointAndClick(window, bar.getByTestId("meeting-stop"));
+  await stopMeeting(window);
   await expect
     .poll(async () => (await meetings(window))[0]?.fill?.state, { timeout: 30_000 })
     .toBe("filled");
-  await closeFirstFillPopover(window);
+  await expect(window.getByTestId("meeting-sheet")).toBeHidden();
   const meeting = (await meetings(window))[0];
   if (!meeting?.transcript?.savedPath || !meeting.transcript.documentId) {
     throw new Error("The meeting transcript was not saved.");
@@ -165,10 +166,6 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
     await chooseLocalChatModel(window);
-    await window.evaluate(async () => {
-      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-      await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-    });
     const meeting = await savedMeeting(window);
     const documentId = meeting.transcript?.documentId;
     const savedPath = meeting.transcript?.savedPath;
@@ -215,8 +212,9 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     await setSpeakers(metadata);
     const activity = await reviewService(app, meeting.id, result);
     await runCommand(window, "meeting.showTranscript", "Show the Transcript");
-    const embedded = window.getByTestId("meeting-note-transcript");
-    const trigger = embedded.getByRole("button", { name: "Review speakers…" });
+    const embedded = window.getByTestId("meeting-sheet");
+    const trigger = embedded.getByTestId("meeting-sheet-review-speakers");
+    await expect(trigger).toHaveAccessibleName("Review speakers…");
     if (artifacts) stopFilming = await film(window, resolve(artifacts, "speaker-review-frames"));
     await pointAndClick(window, trigger);
     const panel = embedded.getByRole("region", { name: "Review speakers" });
@@ -225,6 +223,7 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
     await expect(panel).toContainText("Under $0.01");
     expect((await activity()).runs).toBe(0);
     await shot(window, "speaker-review-confirm-en-wide");
+    // Esc closes the innermost thing open: the review, not the sheet it is in.
     await window.keyboard.press("Escape");
     await expect(trigger).toBeFocused();
     await expect(panel).toHaveCount(0);
@@ -245,8 +244,9 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
       result.suggestions[0]?.text ?? "",
     );
 
-    const beside = embedded.getByTestId("meeting-transcript-beside");
+    const beside = embedded.getByTestId("meeting-sheet-beside");
     await pointAndClick(window, beside);
+    await expect(embedded).toBeHidden();
     const externalTrigger = window.getByRole("button", { name: "Review speakers…" }).last();
     await pointAndClick(window, externalTrigger);
     const external = window.getByRole("region", { name: "Review speakers" });
@@ -377,9 +377,7 @@ test("A saved Meeting asks before speaker review and shares its per-line choices
       .getByTestId("mind-list-item")
       .and(window.locator(`[data-mind-id="${meeting.mindId}"]`));
     await pointAndClick(window, note);
-    await pointAndClick(window, window.getByTestId("meeting-view-chip"));
-    await pointAndClick(window, window.getByTestId("meeting-view-transcript"));
-    const restored = window.getByTestId("meeting-note-transcript");
+    const restored = await openMeetingSheet(window);
     await restored.getByRole("button", { name: "复核发言人…" }).press("Enter");
     await expect(restored.getByRole("button", { name: "发送给 Soniox 并复核" })).toBeVisible();
     await expect(
@@ -409,11 +407,6 @@ test("a saved room meeting with silent computer audio offers local review and pl
   try {
     await dismissChatSetup(window);
     await chooseLocalChatModel(window);
-    await window.evaluate(() =>
-      (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
-        device: { meetingNoticeAccepted: true },
-      }),
-    );
     const meeting = await savedMeeting(window);
     const { documentId, savedPath } = meeting.transcript ?? {};
     if (!documentId || !savedPath) throw new Error("Missing room transcript.");
@@ -464,10 +457,10 @@ test("a saved room meeting with silent computer audio offers local review and pl
       })),
     });
     await runCommand(window, "meeting.showTranscript", "Show the Transcript");
-    await window
-      .getByTestId("meeting-note-transcript")
-      .getByRole("button", { name: "Review speakers…" })
-      .click();
+    await pointAndClick(
+      window,
+      window.getByTestId("meeting-sheet").getByTestId("meeting-sheet-review-speakers"),
+    );
     const panel = window.getByRole("region", { name: "Review speakers" });
     await expect(panel).toContainText("NVIDIA Sortformer");
     await expect(panel).toContainText("155 MB");

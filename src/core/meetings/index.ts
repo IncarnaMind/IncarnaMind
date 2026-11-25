@@ -2,7 +2,8 @@
  * Meetings (#135): the recording's state, and its audio on disk.
  *
  * A Meeting belongs to a Mind. It starts "ready" (the Mind shows the start
- * block), then records, pauses and stops. The audio comes from the host's
+ * block), then records, pauses and stops; a call stopped can record again
+ * (#3762), a voice memo can't. The audio comes from the host's
  * `AudioCapture` and goes to disk in 10-second parts per source as it comes
  * (./audioFiles), so a crash, sleep or device change loses at most the part
  * still filling.
@@ -48,7 +49,6 @@ import {
   MEETING_SAMPLE_RATE,
 } from "../adapters";
 import {
-  type AudioLossCause,
   type AudioSource,
   MEETING_AUDIO_KEPT_MS,
   type Meeting,
@@ -59,6 +59,7 @@ import {
   type MeetingHelpTemplate,
   type MeetingKind,
   type MeetingLevel,
+  type MeetingSaveProblem,
   type MeetingSourceState,
   type MeetingSummarySource,
   type Mind,
@@ -183,6 +184,14 @@ function storedSummaryOf(row: Pick<MeetingRow, "summary">): StoredSummaryWithRev
   return row.summary ? (JSON.parse(row.summary) as StoredSummaryWithReview) : null;
 }
 
+/** A summary finished at Stop goes on with the lines that come when the Meeting records again. */
+function summaryGoingOn(row: Pick<MeetingRow, "summary">): Pick<MeetingRow, "summary"> | null {
+  const stored = storedSummaryOf(row);
+  if (stored?.summary.state !== "ready") return null;
+  const state = stored.summary.text ? "updating" : "preparing";
+  return { summary: JSON.stringify({ ...stored, summary: { ...stored.summary, state } }) };
+}
+
 function storedFillOf(row: Pick<MeetingRow, "fill">): StoredFill | null {
   if (row.fill === null) return null;
   try {
@@ -225,7 +234,7 @@ interface Live {
   micSilent: number;
   /** Some sound has come from the computer's sound: without it, a macOS that isn't allowing it can't be told from a quiet call. */
   systemSignal: boolean;
-  saveError: string | null;
+  saveError: MeetingSaveProblem | null;
   /** The loudest each source has been since the level was last told, and when that was. */
   levels: Record<AudioSource, number>;
   levelAt: number;
@@ -239,7 +248,11 @@ export interface MeetingsOptions {
   dataDir: string;
   now: () => string;
   capture: AudioCapture | undefined;
-  noticeAccepted(): boolean;
+  /**
+   * A recording started: Meetings are in use on this device, which the offers to take notes wait
+   * for (`offerAllowed`). It turns nothing on.
+   */
+  recorded(): void;
   /** The "What is recorded" choice in Settings. */
   systemAudioByDefault(): boolean;
   /** "Keep a meeting's audio" in Settings (#687): a Meeting that starts then keeps its audio. */
@@ -271,7 +284,7 @@ export interface RestoredMeeting {
 }
 
 /** Why a part couldn't be saved, from the error's code. */
-function lossCauseOf(code: string): AudioLossCause {
+function saveProblemOf(code: string): MeetingSaveProblem {
   if (code === "ENOSPC" || code === "EDQUOT") return "full";
   if (code === "EACCES" || code === "EPERM" || code === "EROFS") return "denied";
   return "error";
@@ -359,8 +372,8 @@ export function createMeetings(options: MeetingsOptions) {
   const clock = () => Date.parse(now());
   const folderOf = (meetingId: string) => meetingFolder(options.dataDir, meetingId);
   let live: Live | null = null;
-  /** Whether each Meeting has audio on disk, looked up once. */
-  const kept = new Map<string, boolean>();
+  /** Where each Meeting's audio on disk starts in its time, looked up once; null with none. */
+  const kept = new Map<string, number | null>();
   /** Save recording… writing a Meeting's audio now (#687): set when its audio goes, so it stops. */
   const writing = new Map<string, { stop: boolean }>();
   /** The call's help, oldest first, kept in memory: it matters only while the Meeting is live. */
@@ -407,14 +420,23 @@ export function createMeetings(options: MeetingsOptions) {
 
   const isLiveRow = (row: MeetingRow) => row.status === "recording" || row.status === "paused";
 
-  const hasAudio = (meetingId: string): boolean => {
+  const keptFrom = (meetingId: string): number | null => {
     let value = kept.get(meetingId);
     if (value === undefined) {
-      value = listParts(folderOf(meetingId)).length > 0;
+      value = listParts(folderOf(meetingId))[0]?.offsetMs ?? null;
       kept.set(meetingId, value);
     }
     return value;
   };
+
+  const hasAudio = (meetingId: string): boolean => keptFrom(meetingId) !== null;
+
+  /**
+   * Where the audio recorded since the Meeting's audio was deleted starts, in its time: the lines
+   * before it have none (#3762). Null when none was deleted, or nothing was recorded since.
+   */
+  const keptSinceDeleted = (row: Pick<MeetingRow, "id" | "audio_deleted_at">): number | null =>
+    row.audio_deleted_at === null ? null : keptFrom(row.id);
 
   /** Where the stretch ends in wall-clock time, in ms. */
   const endOf = (period: Period) => Date.parse(period.start) + (period.durationMs ?? 0);
@@ -481,6 +503,7 @@ export function createMeetings(options: MeetingsOptions) {
         : row.status !== "stopped" && writeupTemplateId
           ? (options.helpForWriteupTemplate?.(writeupTemplateId) ?? null)
           : null;
+    const keptFromMs = keptSinceDeleted(row);
     return {
       id: row.id,
       mindId: row.mind_id,
@@ -499,6 +522,7 @@ export function createMeetings(options: MeetingsOptions) {
         expiresAt: row.audio_expires_at,
         deletedAt: row.audio_deleted_at,
         keptUntilDeleted: row.audio_kept_at !== null,
+        ...(keptFromMs !== null && { keptFromMs }),
       },
       saveError: current?.saveError ?? null,
       transcript:
@@ -578,21 +602,27 @@ export function createMeetings(options: MeetingsOptions) {
     } catch (error) {
       // The part is lost; the Meeting says so until a part is saved again.
       const code = (error as NodeJS.ErrnoException).code ?? "unknown";
-      log.error("meeting.saveFailed", { meetingId: current.meetingId, source, code });
+      log.error("meeting.saveFailed", {
+        meetingId: current.meetingId,
+        source,
+        code,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      const problem = saveProblemOf(code);
       health.add(current.meetingId, {
         kind: "audioLost",
         source,
-        cause: lossCauseOf(code),
+        cause: problem,
         atMs: offsetMs,
         durationMs: msOf(samples.length),
       });
-      if (current.saveError === null) {
-        current.saveError = error instanceof Error ? error.message : String(error);
+      if (current.saveError !== problem) {
+        current.saveError = problem;
         changed();
       }
       return;
     }
-    kept.set(current.meetingId, true);
+    kept.set(current.meetingId, Math.min(keptFrom(current.meetingId) ?? offsetMs, offsetMs));
     if (first || current.saveError !== null) {
       current.saveError = null;
       changed();
@@ -820,13 +850,19 @@ export function createMeetings(options: MeetingsOptions) {
     current.watching = setInterval(() => watchForNothing(current), NOTHING_HEARD_EVERY_MS);
     current.watching.unref?.();
     if (row.kind === "meeting") screens?.begin(row.id);
-    current.session = capture.start(
-      { systemAudio: systemAudio && capture.systemAudio },
-      {
-        audio: (source, samples, capturedAt) => hear(current, source, samples, capturedAt),
-        state: (source, state) => heardState(current, source, state),
-      },
-    );
+    try {
+      current.session = capture.start(
+        { systemAudio: systemAudio && capture.systemAudio },
+        {
+          audio: (source, samples, capturedAt) => hear(current, source, samples, capturedAt),
+          state: (source, state) => heardState(current, source, state),
+        },
+      );
+    } catch (error) {
+      // Nothing records: what began for it ends, so another Meeting may record.
+      end(current);
+      throw error;
+    }
     if (silenced) current.session.setMicrophone(false);
   }
 
@@ -910,12 +946,12 @@ export function createMeetings(options: MeetingsOptions) {
     }
   }
 
-  /** What recording needs: a copy that records, the notice read, and nothing else capturing. */
+  /**
+   * What recording needs: a copy that records and nothing else capturing. The first recording
+   * starts at once, with nothing to read first (#3762).
+   */
   function assertCanStart(meetingId: string | null): void {
     if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
-    if (!options.noticeAccepted()) {
-      throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
-    }
     assertNoneCapturing(meetingId);
   }
 
@@ -931,7 +967,7 @@ export function createMeetings(options: MeetingsOptions) {
     const write = writing.get(meetingId);
     if (write) write.stop = true;
     removeAudio(folderOf(meetingId));
-    kept.set(meetingId, false);
+    kept.set(meetingId, null);
     log.info("meeting.audioDeleted", { meetingId, reason });
   }
 
@@ -981,11 +1017,14 @@ export function createMeetings(options: MeetingsOptions) {
     );
     const failed: string[] = [];
     for (const { id, mind_id, audio_deleted_at } of purged) {
+      let audioLeft = true;
       try {
+        // Audio recorded after a deletion is on disk again, under the earlier date.
+        audioLeft = audio_deleted_at === null || hasAudio(id);
         transcripts?.forget(id);
         screens?.forget(id);
         health.forget(id);
-        if (audio_deleted_at === null) deleteAudio(id, "purged");
+        if (audioLeft) deleteAudio(id, "purged");
       } catch (error) {
         log.error("meeting.purgeFailed", { meetingId: id, code: codeOf(error) });
         failed.push(mind_id);
@@ -997,7 +1036,7 @@ export function createMeetings(options: MeetingsOptions) {
         summary: null,
         summary_corrections: null,
         edited_summary_content: null,
-        ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
+        ...(audioLeft && { audio_deleted_at: at, audio_expires_at: null }),
       });
     }
     return failed;
@@ -1027,11 +1066,14 @@ export function createMeetings(options: MeetingsOptions) {
       const periods = periodsOf(row);
       const last = periods.at(-1);
       if (last && last.durationMs === null) {
-        const audioEnd = Math.max(
+        // The part still filling is lost, but the lines heard live from it stay in the Transcript:
+        // the stretch ends after them, so what is recorded next never lands on their times.
+        const end = Math.max(
           last.offsetMs,
           ...parts.map((part) => part.offsetMs + part.durationMs),
+          transcripts?.linesEndAt(row.id) ?? 0,
         );
-        last.durationMs = audioEnd - last.offsetMs;
+        last.durationMs = end - last.offsetMs;
       }
       // Asleep when IncarnaMind closed, or cut off: either way it didn't record until now.
       if (last) {
@@ -1156,10 +1198,24 @@ export function createMeetings(options: MeetingsOptions) {
       system_audio: system ? 1 : 0,
       periods: JSON.stringify([period]),
       started_at: at,
-      // As the setting is when it starts: what the recording notice said holds for it.
+      // As the setting is when it starts: Settings › Meetings said so before it started.
       ...(options.keepAudioByDefault() && { audio_kept_at: at }),
     });
-    begin(rowOf(row.id), period);
+    try {
+      begin(rowOf(row.id), period);
+    } catch (error) {
+      // Not started: it waits to start again, as it was.
+      save(row.id, {
+        status: row.status,
+        system_audio: row.system_audio,
+        periods: row.periods,
+        started_at: row.started_at,
+        audio_kept_at: row.audio_kept_at,
+      });
+      changed();
+      throw error;
+    }
+    options.recorded();
     log.info("meeting.started", { meetingId: row.id, kind: row.kind, systemAudio: system });
     changed();
     return toMeeting(rowOf(row.id));
@@ -1255,12 +1311,32 @@ export function createMeetings(options: MeetingsOptions) {
       return toMeeting(rowOf(row.id));
     },
 
+    /**
+     * Records again after a pause, or after Stop (#3762): the same Meeting goes on, its time from
+     * where it stopped. Its audio, deleted or not, stays as it is, and what comes is kept as any
+     * recording's is.
+     */
     resume(meetingId: unknown): Meeting {
       const row = rowOf(meetingId);
-      if (row.status !== "paused") throw new InvalidInputError({ key: "error.meeting.notPaused" });
-      assertNoneCapturing(row.id);
+      const stopped = row.status === "stopped";
+      if (row.status !== "paused" && !stopped) {
+        throw new InvalidInputError({ key: "error.meeting.notPaused" });
+      }
+      if (stopped && row.kind === "memo") {
+        throw new InvalidInputError({ key: "error.meeting.resumeMemo" });
+      }
+      assertCanStart(row.id);
+      const refused = stopped ? (transcripts?.reopenRefused(row.id) ?? null) : null;
+      if (refused) {
+        throw new InvalidInputError({
+          key:
+            refused === "elsewhere"
+              ? "error.meeting.resumeTranscriptElsewhere"
+              : "error.meeting.resumeTranscriptUnreadable",
+        });
+      }
       // A deletion already due goes first, so what is recorded next never falls under its date
-      // (#687); one that still fails keeps the Meeting paused, and says why.
+      // (#687); one that still fails keeps the Meeting as it is, and says why.
       if (dueOr(row, null) !== null) {
         try {
           deleteAudio(row.id, "expired");
@@ -1280,14 +1356,34 @@ export function createMeetings(options: MeetingsOptions) {
         durationMs: null,
         endedBy: null,
       };
+      const before = rowOf(row.id);
       save(row.id, {
         status: "recording",
         paused_by: null,
         periods: JSON.stringify([...periods, period]),
         audio_expires_at: null,
+        ...(stopped && { stopped_at: null, ...summaryGoingOn(row) }),
       });
-      begin(rowOf(row.id), period);
-      log.info("meeting.resumed", { meetingId: row.id });
+      try {
+        begin(rowOf(row.id), period);
+      } catch (error) {
+        // The capture couldn't start: the Meeting is as it was, its audio and lines kept, and a
+        // stopped one's Transcript, opened again for the lines that didn't come, is saved as Stop
+        // saves it.
+        save(row.id, {
+          status: before.status,
+          paused_by: before.paused_by,
+          periods: before.periods,
+          audio_expires_at: before.audio_expires_at,
+          stopped_at: before.stopped_at,
+          summary: before.summary,
+        });
+        if (stopped) transcripts?.stop(row.id);
+        log.error("meeting.resumeFailed", { meetingId: row.id, code: codeOf(error) });
+        changed();
+        throw error;
+      }
+      log.info("meeting.resumed", { meetingId: row.id, afterStop: stopped });
       changed();
       return toMeeting(rowOf(row.id));
     },
@@ -1567,10 +1663,10 @@ export function createMeetings(options: MeetingsOptions) {
       return storedFillOf(rowOf(meetingId));
     },
 
-    /** Records the Meeting's fill (#142) and reports the change. */
-    setFill(meetingId: string, fill: StoredFill, templateId?: string | null): Meeting {
+    /** Records the Meeting's fill (#142), or none, and reports the change. */
+    setFill(meetingId: string, fill: StoredFill | null, templateId?: string | null): Meeting {
       save(meetingId, {
-        fill: JSON.stringify(fill),
+        fill: fill === null ? null : JSON.stringify(fill),
         ...(templateId === undefined ? {} : { writeup_template_id: templateId }),
       });
       changed();
@@ -1600,7 +1696,8 @@ export function createMeetings(options: MeetingsOptions) {
 
     /**
      * A stretch of a stopped Meeting's audio for playing it from a word (#138): see
-     * `readStretch`. NotFoundError once its audio is deleted or its files are gone.
+     * `readStretch`. NotFoundError once its audio is deleted or its files are gone, and for a
+     * stretch that ends before the audio recorded since a deletion (`MeetingAudio.keptFromMs`).
      */
     readAudio(input: unknown): MeetingAudioStretch {
       const { meetingId, fromMs, toMs, source } = isRecord(input) ? input : {};
@@ -1617,8 +1714,15 @@ export function createMeetings(options: MeetingsOptions) {
       const row = rowOf(meetingId);
       const from = Math.max(0, fromMs);
       const to = Math.min(toMs, from + MAX_STRETCH_MS);
+      // A stretch no part covers reads as silence: before what was recorded since a deletion, that
+      // would play the deleted lines as silence.
+      const since = keptSinceDeleted(row);
+      if (row.status === "stopped" && since !== null && to <= since) {
+        throw new NotFoundError({ key: "error.meeting.audioGoneBefore" });
+      }
+      // Audio recorded after a deletion plays: the parts on disk say what is left, not the date.
       const samples =
-        row.audio_deleted_at === null && row.status === "stopped"
+        row.status === "stopped"
           ? readStretch(
               folderOf(row.id),
               from,
@@ -1755,11 +1859,10 @@ export function createMeetings(options: MeetingsOptions) {
     /** Whether a Meeting deleted with the Mind at `deletedAt` still keeps its audio. */
     recordingDeletedWith(mindId: string, deletedAt: string): boolean {
       return db
-        .all<{ id: string }>(
-          `SELECT id FROM meetings
-           WHERE mind_id = ? AND deleted_at = ? AND audio_deleted_at IS NULL`,
-          [mindId, deletedAt],
-        )
+        .all<{ id: string }>("SELECT id FROM meetings WHERE mind_id = ? AND deleted_at = ?", [
+          mindId,
+          deletedAt,
+        ])
         .some((row) => hasAudio(row.id));
     },
 

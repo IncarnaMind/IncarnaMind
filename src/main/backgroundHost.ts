@@ -32,8 +32,6 @@ export interface BackgroundHostOptions {
   /** Shows the window on Home, which holds the offer. */
   showOffer(): void;
   showOfferLinkFailure(): void;
-  /** Shows the recording notice in the window, whose Start takes the offer. */
-  showOfferNotice(offerId: string): void;
   quit(): void;
   /** A test build: the tray's menu and the notifications are reached through `globalThis`. */
   testHooks: boolean;
@@ -74,16 +72,22 @@ export function serveBackground(options: BackgroundHostOptions): BackgroundHost 
     stopRecording: (meetingId) => void core.stopMeeting(meetingId).catch(failed("stop")),
     takeOffer: (offerId) => {
       options.showWindow();
-      void core.takeMeetingOffer(offerId).catch((error: unknown) => {
-        const key = error instanceof TranslatableError ? error.wording?.key : undefined;
-        // An offer taken before Meetings are set up waits for the recording notice (#3758).
-        if (key === "error.meeting.noticeUnread") {
-          options.showOfferNotice(offerId);
-          return;
-        }
-        if (key === "error.meetingOffer.link") options.showOfferLinkFailure();
-        failed("takeOffer")(error);
-      });
+      // A window made for the offer opens on Home: the call's Note is shown in front of it.
+      void core.takeMeetingOffer(offerId).then(
+        (meeting) => options.showMeeting(meeting.mindId),
+        (error: unknown) => {
+          failed("takeOffer")(error);
+          const linkFailed =
+            error instanceof TranslatableError && error.wording?.key === "error.meetingOffer.link";
+          if (!linkFailed) return;
+          options.showOfferLinkFailure();
+          // Only the link failed: the call records all the same.
+          void core.listMeetings().then((meetings) => {
+            const live = meetings.find(isLive);
+            if (live) options.showMeeting(live.mindId);
+          }, failed("takeOffer"));
+        },
+      );
     },
     declineOffer: (offerId, always) =>
       void core.declineMeetingOffer({ offerId, always }).catch(failed("declineOffer")),

@@ -4,11 +4,11 @@ import {
   createDataFolder,
   dismissChatSetup,
   launchApp,
+  openMeetingSheet,
   pointAndClick,
   recordMeeting,
   removeDataFolder,
   setLanguage,
-  startRecording,
 } from "./app";
 
 /*
@@ -49,11 +49,13 @@ const settingsOpened = (app: ElectronApplication) =>
     return [...(fake?.settingsOpened ?? [])];
   });
 
+/** A call recording without the computer's sound: its line is in the Transcript sheet (#3762). */
 async function recordWithSoundDenied(app: ElectronApplication, window: Page) {
   await dismissChatSetup(window);
-  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
-  await expect(window.getByTestId("meeting-line-system")).toBeVisible();
-  return { app, bar };
+  await recordMeeting(window);
+  const sheet = await openMeetingSheet(window);
+  await expect(sheet.getByTestId("meeting-line-system")).toBeVisible();
+  return { app, sheet };
 }
 
 for (const language of ["en", "zh-CN"] as const) {
@@ -62,10 +64,10 @@ for (const language of ["en", "zh-CN"] as const) {
       computerSound: "denied",
       permissionGuide: "beside",
     });
-    await recordWithSoundDenied(app, window);
+    const { sheet } = await recordWithSoundDenied(app, window);
     await setLanguage(window, language);
 
-    const open = window.getByTestId("meeting-settings-system");
+    const open = sheet.getByTestId("meeting-settings-system");
     await pointAndClick(window, open);
     await expect.poll(() => settingsOpened(app)).toEqual(["system"]);
     const guide = await guideWindow(app);
@@ -95,7 +97,7 @@ for (const language of ["en", "zh-CN"] as const) {
       language === "en" ? "Waiting for you…" : "等你操作…",
     );
     // The line where recording lacked the permission stays, and the app's window shows no steps.
-    await expect(window.getByTestId("meeting-line-system")).toBeVisible();
+    await expect(sheet.getByTestId("meeting-line-system")).toBeVisible();
     await expect(window.getByTestId("meeting-line-guide")).toHaveCount(0);
 
     const closed = guide.waitForEvent("close");
@@ -112,14 +114,16 @@ for (const language of ["en", "zh-CN"] as const) {
   });
 }
 
-test("the microphone: the guide names it, ✕ closes it, and so does Esc once it has the focus", async () => {
+test("the microphone: the guide names it, ✕ closes it, and so does Esc once it has the focus; it opens from the card over the meeting's control and from the Transcript sheet's line", async () => {
   const { app, window } = await launchApp(dataDir, {
     microphone: "denied",
     permissionGuide: "beside",
   });
   await dismissChatSetup(window);
-  await startRecording(window, await recordMeeting(window), { notice: true });
-  await pointAndClick(window, window.getByTestId("meeting-settings-microphone"));
+  await recordMeeting(window);
+  const problem = window.getByTestId("meeting-foot-problem");
+  await expect(problem).toContainText("IncarnaMind can’t use your mic");
+  await pointAndClick(window, problem.getByTestId("meeting-foot-problem-settings"));
   await expect.poll(() => settingsOpened(app)).toEqual(["microphone"]);
 
   const guide = await guideWindow(app);
@@ -135,7 +139,8 @@ test("the microphone: the guide names it, ✕ closes it, and so does Esc once it
   await closed;
   await expect.poll(() => guideOf(app)).toBeUndefined();
 
-  await pointAndClick(window, window.getByTestId("meeting-settings-microphone"));
+  const sheet = await openMeetingSheet(window);
+  await pointAndClick(window, sheet.getByTestId("meeting-settings-microphone"));
   const again = await guideWindow(app);
   await expect(again.getByTestId("permission-guide")).toBeVisible();
   const closedAgain = again.waitForEvent("close");
@@ -152,24 +157,24 @@ test("where the guide can't sit beside System Settings, the steps show in the wi
     computerSound: "denied",
     permissionGuide: "inline",
   });
-  await recordWithSoundDenied(app, window);
+  const { sheet } = await recordWithSoundDenied(app, window);
 
-  await pointAndClick(window, window.getByTestId("meeting-settings-system"));
+  await pointAndClick(window, sheet.getByTestId("meeting-settings-system"));
   await expect.poll(() => settingsOpened(app)).toEqual(["system"]);
-  const steps = window.getByTestId("meeting-line-guide");
+  const steps = sheet.getByTestId("meeting-line-guide");
   await expect(steps).toContainText(
     "In System Settings, open Privacy & Security › Screen & System Audio Recording, find IncarnaMind in the list and switch it on.",
   );
   expect(guideOf(app)).toBeUndefined();
-  await expect(window.getByTestId("meeting-line-system")).toBeVisible();
+  await expect(sheet.getByTestId("meeting-line-system")).toBeVisible();
 
   await grant(app, "system");
   await expect(steps).toContainText("Done. Quit and reopen IncarnaMind");
   // It stays, with the page where it was, until the User dismisses it.
-  await pointAndClick(window, window.getByTestId("meeting-line-guide-close"));
+  await pointAndClick(window, sheet.getByTestId("meeting-line-guide-close"));
   await expect(steps).toHaveCount(0);
 
-  await pointAndClick(window, window.getByTestId("meeting-settings-system"));
+  await pointAndClick(window, sheet.getByTestId("meeting-settings-system"));
   await expect(steps).toContainText("Done. Quit and reopen IncarnaMind");
   await app.close();
 });

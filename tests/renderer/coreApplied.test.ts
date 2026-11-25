@@ -814,6 +814,34 @@ test("an editor opened during a background core apply is followed immediately", 
   doc.destroy();
 });
 
+// protects=the page's line of a turn's applied changes names that turn, so a Note's conversation that can undo it hides that line alone and another change's line keeps its controls (#3762); fails_when=the line carries no turn, and the page can only hide every applied line at once
+test("the line of a turn's applied changes names the turn", async () => {
+  const { doc, application } = applicationWithChange(false);
+  let editor: Editor | null = null;
+  mountDom(
+    {
+      undoAskedChanges: async () => transitionOfMind(doc),
+      redoAskedChanges: async () => transitionOfMind(doc),
+      releaseAskedChanges: async () => undefined,
+    },
+    {
+      apply: async (input) => {
+        if (input.mindId !== "mind") return null;
+        editor = editorWith(doc);
+        onTestFinished(registerMindEditor("mind", editor));
+        return application;
+      },
+    },
+  );
+  const { applyWhatWasAsked } = await import("../../src/renderer/src/askedChanges");
+  const answer = conversationWithMadeChange(application);
+  await applyWhatWasAsked(answer.id);
+  emitConversation(answer);
+  const line = await eventually(() => (editor ? appliedLineIn(editor.state) : null));
+  expect(line).toMatchObject({ kind: "applied", turn: answer.id });
+  doc.destroy();
+});
+
 // Value: protects=a response before the accepted Yjs update is catch-up, not divergence; fails_when=Review and core Undo are released while the editor is behind; why_new=independent review reproduced the ordering; seam=real background apply and later accepted update; no_claim=an actually diverged editor (covered by Review invalidation tests)
 test("an editor behind the accepted update recovers Review and Undo on arrival", async () => {
   const { doc, application } = applicationWithChange(false);

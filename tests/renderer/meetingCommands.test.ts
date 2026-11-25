@@ -546,19 +546,22 @@ describe("Record a voice memo (#1568)", () => {
     expect(record.reversible).toBe(true);
   });
 
-  // protects=the first memo waits for the one-time recording notice, as a first meeting does, and a copy that can't record says so in the sidebar, with nothing made either way; fails_when=it records before the notice, or makes a memo where nothing can record; no_claim=what the notice says, which the e2e reads.
-  test("waits for the recording notice the first time, and says so where this copy can't record", async () => {
+  // protects=the first memo records at once, with no notice first (#3762), and a copy that can't record says so in the sidebar, making nothing; fails_when=the first memo waits for anything, or a memo is made where nothing can record; no_claim=the memo's own flow, which the e2e covers.
+  test("records at once the first time too, and says so where this copy can't record", async () => {
     stores.useAppStore.setState({
       settings: { device: { meetingNoticeAccepted: false }, meetingAudio: "both" } as Settings,
+      minds: [],
     });
+    showing("mind-1");
+    recordMemo.mockClear();
     await commands.run("memo.record", IN_MIND);
-    expect(stores.useMeetings.getState().noticeFor).toEqual({ memo: true });
-    stores.useMeetings.setState({ noticeFor: null });
+    expect(recordMemo).toHaveBeenCalledTimes(1);
+    stores.useMeetings.setState({ meetings: [] });
 
     canRecord(false);
     await commands.run("memo.record", IN_MIND);
     expect(stores.useMeetings.getState().cantRecord).toBe(true);
-    expect(stores.useMeetings.getState().noticeFor).toBeNull();
+    expect(recordMemo).toHaveBeenCalledTimes(1);
     stores.useMeetings.setState({ cantRecord: false });
   });
 

@@ -82,7 +82,17 @@ describe("A Meeting's capture health", { timeout: 60_000 }, () => {
     renameSync(folder, `${folder}-aside`);
     writeFileSync(folder, "");
     record(10 * SECOND, ["microphone"]);
-    expect((await meetingOf(core, meeting.id)).saveError).not.toBeNull();
+    // The window is told why in words it can say, never the system's message and its path, which
+    // the log keeps with the Meeting.
+    expect((await meetingOf(core, meeting.id)).saveError).toBe("error");
+    expect(fieldsOf(entries, "meeting.saveFailed")).toEqual([
+      {
+        meetingId: meeting.id,
+        source: "microphone",
+        code: expect.any(String),
+        message: expect.stringContaining(meeting.id),
+      },
+    ]);
     rmSync(folder);
     renameSync(`${folder}-aside`, folder);
     record(10 * SECOND, ["microphone"]);

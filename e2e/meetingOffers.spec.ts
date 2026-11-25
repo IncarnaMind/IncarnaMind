@@ -11,12 +11,14 @@ import {
   film,
   launchApp,
   motionSettled,
+  openMeetingSheet,
   openSettings,
+  recordMeeting,
   removeDataFolder,
   setLanguage,
   setWindowSize,
   startedBefore,
-  transcribeHere,
+  stopMeeting,
 } from "./app";
 
 /*
@@ -95,7 +97,7 @@ const clickNotification = (app: ElectronApplication, kind: "offer" | "ending", a
     [HOOKS, kind, action ?? null] as const,
   );
 
-/** As the first-recording sheet leaves a new User: Meetings set up, offers and the tray on. */
+/** Meetings in use on this device, with the offers and the tray turned on in Settings › General. */
 const setUpMeetings = async (window: Page) =>
   (await bridge(window)).evaluate((core) =>
     core.updateSettings({
@@ -116,6 +118,15 @@ const meetingStatuses = async (window: Page) =>
   (await bridge(window)).evaluate(async (core) =>
     (await core.listMeetings()).map((each) => each.status),
   );
+
+/** The app's own window, once one is open: not the call help panel a recording opens beside it. */
+async function appWindow(app: ElectronApplication): Promise<Page> {
+  const own = (page: Page) => !page.isClosed() && page.url().includes("index.html");
+  await expect.poll(() => app.windows().some(own)).toBe(true);
+  const found = app.windows().find(own);
+  if (!found) throw new Error("No window of the app's is open.");
+  return found;
+}
 
 const WORDS = {
   en: {
@@ -262,8 +273,8 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(await meetingStatuses(window)).toEqual([]);
 
       await clickNotification(app, "offer", 0);
-      const bar = window.getByTestId("meeting-bar");
-      await expect(bar).toHaveAttribute("data-status", "recording");
+      const control = window.getByTestId("meeting-foot");
+      await expect(control).toHaveAttribute("data-status", "recording");
       await expect.poll(() => notifications(app)).toEqual([]);
       await shot(window, `offer-taken-recording-${language}`);
 
@@ -271,10 +282,10 @@ for (const language of ["en", "zh-CN"] as const) {
       const line = window.getByTestId("meeting-line-call-ended");
       if (process.platform === "win32") {
         await expect(line).toHaveCount(0);
-        await expect(bar).toHaveAttribute("data-status", "recording");
+        await expect(control).toHaveAttribute("data-status", "recording");
         expect(await notifications(app)).toEqual([]);
         await shot(window, `offer-manual-stop-${language}`);
-        await bar.getByTestId("meeting-stop").click();
+        await stopMeeting(window);
       } else {
         await expect(line).toContainText(
           language === "en" ? "Did your meeting end?" : "会议结束了吗？",
@@ -396,7 +407,7 @@ test("a click on the notification itself records nothing: Home shows the offer, 
   expect(await notifications(app)).toHaveLength(1);
 
   await line.getByTestId("call-offer-take").click();
-  await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+  await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
   await expect(line).toHaveCount(0);
   await app.close();
 });
@@ -432,74 +443,60 @@ test("someone who set up Meetings before this version is asked once on Home, and
   await app.close();
 });
 
-/** Record a meeting from the + menu, which shows the recording notice the first time. */
-async function recordAMeeting(window: Page) {
-  await window.getByTestId("plus-menu").click();
-  await window.getByTestId("plus-record-meeting").click();
-  await window.getByTestId("meeting-start-record").click();
-  const notice = window.getByTestId("meeting-notice");
-  await expect(notice).toBeVisible();
-  return notice;
-}
-
 for (const language of ["en", "zh-CN"] as const) {
-  test(`someone setting up Meetings in a data folder from before reads that the offers turn on, and Home never asks (${language})`, async () => {
+  test(`in a data folder an earlier version started, a first recording starts at once and turns nothing else on; Home then asks once to turn the offers on (${language})`, async () => {
     startedBefore(dataDir);
     const { app, window } = await launch();
     await dismissChatSetup(window);
     await setLanguage(window, language);
-    const notice = await recordAMeeting(window);
-    // Windows can't notice calls yet (#2843): its sheet neither says nor turns on the offers.
-    const windows = process.platform === "win32";
-    await expect(notice.getByTestId("meeting-notice-background")).toHaveCount(windows ? 0 : 1);
-    await transcribeHere(notice);
-    await window.mouse.move(0, 0);
-    for (const [width, height] of [
-      [1440, 900],
-      [900, 640],
-    ] as const) {
-      await setWindowSize(app, window, width, height);
-      await shot(window, `meeting-notice-from-before-${language}-${width}`);
-    }
-    await notice.getByTestId("meeting-notice-start").click();
+    await recordMeeting(window);
     await expect
       .poll(() => deviceSettings(window))
-      .toMatchObject({ meetingNoticeAccepted: true, callOffers: !windows, keepRunning: !windows });
-    await expect.poll(() => loginItem(dataDir)).toEqual(windows ? null : { on: true });
-    await window.getByTestId("meeting-stop").click();
+      .toMatchObject({ meetingNoticeAccepted: true, callOffers: false, keepRunning: false });
+    expect(await loginItem(dataDir)).toBeNull();
+    await stopMeeting(window);
     await window.getByTestId("sidebar-home").click();
     await expect(window.getByTestId("home")).toBeVisible();
-    await expect(window.getByTestId("call-offers-tip")).toHaveCount(0);
-    await app.close();
-  });
-
-  test(`in a new data folder the recording notice doesn't say it turns on what is on already (${language})`, async () => {
-    const { app, window } = await launch();
-    await dismissChatSetup(window);
-    await setLanguage(window, language);
-    const notice = await recordAMeeting(window);
-    await expect(notice.getByTestId("meeting-notice-start")).toBeVisible();
-    await expect(notice.getByTestId("meeting-notice-background")).toHaveCount(0);
-    await transcribeHere(notice);
-    await window.mouse.move(0, 0);
-    for (const [width, height] of [
-      [1440, 900],
-      [900, 640],
-    ] as const) {
-      await setWindowSize(app, window, width, height);
-      await shot(window, `meeting-notice-new-${language}-${width}`);
+    const tip = window.getByTestId("call-offers-tip");
+    // Windows can't notice calls yet (#2843): Home asks nothing there.
+    if (process.platform === "win32") {
+      await expect(tip).toHaveCount(0);
+    } else {
+      await expect(tip.getByTestId("call-offers-turn-on")).toHaveText(
+        language === "en" ? "Turn on" : "开启",
+      );
+      await expect(tip).toContainText(language === "en" ? "Open at login in the" : "登录时在");
     }
-    await notice.getByTestId("meeting-notice-start").click();
-    await expect
-      .poll(() => deviceSettings(window))
-      .toMatchObject({ meetingNoticeAccepted: true, callOffers: true, keepRunning: true });
-    await window.getByTestId("meeting-stop").click();
-    await window.getByTestId("sidebar-home").click();
-    await expect(window.getByTestId("home")).toBeVisible();
-    await expect(window.getByTestId("call-offers-tip")).toHaveCount(0);
+    expect(await deviceSettings(window)).toMatchObject({ callOffers: false, keepRunning: false });
     await app.close();
   });
 }
+
+test("in a new data folder, a first recording starts at once and turns nothing else on, and Home has nothing to ask", async () => {
+  const { app, window } = await launch();
+  await dismissChatSetup(window);
+  const before = await deviceSettings(window);
+  expect(before).toMatchObject({
+    meetingNoticeAccepted: false,
+    callOffers: true,
+    keepRunning: true,
+  });
+  await recordMeeting(window);
+  await expect
+    .poll(() => deviceSettings(window))
+    .toMatchObject({
+      meetingNoticeAccepted: true,
+      callOffers: true,
+      keepRunning: true,
+      calendarOffers: before.calendarOffers,
+    });
+  expect(await loginItem(dataDir)).toEqual({ on: true });
+  await stopMeeting(window);
+  await window.getByTestId("sidebar-home").click();
+  await expect(window.getByTestId("home")).toBeVisible();
+  await expect(window.getByTestId("call-offers-tip")).toHaveCount(0);
+  await app.close();
+});
 
 /** Settings › General's three switches, as the User sees them. */
 async function backgroundSwitches(window: Page) {
@@ -556,22 +553,21 @@ test("a data folder an earlier version started keeps its switches off, and its l
   await app.close();
 });
 
-test("an offer taken before the first recording shows the recording notice, whose Start records the call", async () => {
+test("an offer taken before the first recording records the call at once, and the sheet's one line says to tell everyone", async () => {
   const { app, window } = await launch();
   await dismissChatSetup(window);
   await callsUse(app, ["zoom"]);
   await expect.poll(async () => (await notifications(app)).length).toBe(1);
+  expect(await meetingStatuses(window)).toEqual([]);
 
   await clickNotification(app, "offer", 0);
-  const notice = window.getByTestId("meeting-notice");
-  await expect(notice).toBeVisible();
-  await expect(notice.getByTestId("meeting-notice-background")).toHaveCount(0);
-  expect(await meetingStatuses(window)).toEqual([]);
-  // The offer waits while the notice is read.
-  expect(await notifications(app)).toHaveLength(1);
-  await transcribeHere(notice);
-  await notice.getByTestId("meeting-notice-start").click();
-  await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+  await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+  expect(await meetingStatuses(window)).toEqual(["recording"]);
+  await expect.poll(() => notifications(app)).toEqual([]);
+  const sheet = await openMeetingSheet(window);
+  await expect(sheet.locator(".meeting-sheet-consent")).toHaveText(
+    "Tell everyone you’re recording.",
+  );
   expect((await deviceSettings(window)).meetingNoticeAccepted).toBe(true);
   await app.close();
 });
@@ -626,7 +622,7 @@ for (const language of ["en", "zh-CN"] as const) {
 }
 
 for (const from of ["notification", "tray"] as const) {
-  test(`with the window closed, Take notes in the ${from} before the first recording opens a window on the recording notice, whose Start records the call`, async () => {
+  test(`with the window closed, Take notes in the ${from} before the first recording opens a window recording the call at once`, async () => {
     const { app, window } = await launch();
     await dismissChatSetup(window);
     await expect.poll(() => trayShown(app)).toBe(true);
@@ -638,21 +634,16 @@ for (const from of ["notification", "tray"] as const) {
 
     await callsUse(app, ["zoom"]);
     await expect.poll(async () => (await notifications(app)).length).toBe(1);
-    const opened = app.waitForEvent("window");
     if (from === "notification") await clickNotification(app, "offer", 0);
     else await clickTray(app, "tray.takeNotes");
-    const next = await opened;
-    const notice = next.getByTestId("meeting-notice");
-    await expect(notice).toBeVisible();
-    expect(await meetingStatuses(next)).toEqual([]);
-    await transcribeHere(notice);
-    await notice.getByTestId("meeting-notice-start").click();
-    await expect(next.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+    const next = await appWindow(app);
+    await expect(next.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+    expect(await meetingStatuses(next)).toEqual(["recording"]);
     await app.close();
   });
 }
 
-test("Home's Take notes before the first recording shows the recording notice too, and Cancel records nothing", async () => {
+test("Home's Take notes before the first recording records at once too", async () => {
   const { app, window } = await launch();
   await dismissChatSetup(window);
   await callsUse(app, ["zoom"]);
@@ -660,19 +651,47 @@ test("Home's Take notes before the first recording shows the recording notice to
   await clickNotification(app, "offer");
   const line = window.getByTestId("call-offer-line");
   await expect(line).toBeVisible();
-
-  await line.getByTestId("call-offer-take").click();
-  const notice = window.getByTestId("meeting-notice");
-  await expect(notice).toBeVisible();
-  await notice.getByRole("button", { name: "Cancel" }).click();
-  await expect(notice).toBeHidden();
   expect(await meetingStatuses(window)).toEqual([]);
-  await expect(line).toBeVisible();
 
   await line.getByTestId("call-offer-take").click();
-  await transcribeHere(notice);
-  await notice.getByTestId("meeting-notice-start").click();
-  await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+  await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+  expect(await meetingStatuses(window)).toEqual(["recording"]);
   await expect(line).toHaveCount(0);
+  await app.close();
+});
+
+// protects=Home's line turns both the offers and running in the background on, so it never shows while running in the background is already on, and a switch the User changes in Settings ends it for good; fails_when=the line offers what is already on, or asks again after the User chose in Settings
+test("Home never asks to turn the offers on while running in the background is on, nor once the User turned that off in Settings", async () => {
+  startedBefore(dataDir);
+  const { app, window } = await launch();
+  await dismissChatSetup(window);
+  // Running in the background on, as an earlier version left it; the offers to take notes off.
+  await (await bridge(window)).evaluate((core) =>
+    core.updateSettings({ device: { keepRunning: true } }),
+  );
+
+  await recordMeeting(window);
+  await stopMeeting(window);
+  await window.getByTestId("sidebar-home").click();
+  await expect(window.getByTestId("home")).toBeVisible();
+  // A round trip to the core after Home shows, so a line Home would show has shown.
+  await expect
+    .poll(() => deviceSettings(window))
+    .toMatchObject({ meetingNoticeAccepted: true, callOffers: false, keepRunning: true });
+  const tip = window.getByTestId("call-offers-tip");
+  await expect(tip).toHaveCount(0);
+
+  // Turned off in Settings, both are off, and the User chose there: Home still asks nothing.
+  const settings = await openSettings(window, "general");
+  await settings.getByTestId("keep-running-switch").click();
+  await expect(settings.getByTestId("keep-running-switch")).not.toBeChecked();
+  await window.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await window.getByTestId("sidebar-home").click();
+  await expect(window.getByTestId("home")).toBeVisible();
+  await expect
+    .poll(() => deviceSettings(window))
+    .toMatchObject({ callOffers: false, keepRunning: false });
+  await expect(tip).toHaveCount(0);
   await app.close();
 });

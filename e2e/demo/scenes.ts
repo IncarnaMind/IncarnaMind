@@ -6,14 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import {
-  assistantAnswers,
-  leaveText,
-  markShownFor,
-  openDocumentAt,
-  openSteps,
-  transcribeHere,
-} from "../app";
+import { assistantAnswers, leaveText, markShownFor, openDocumentAt, openSteps } from "../app";
 import { say } from "./call";
 import type { Film, Hand } from "./film";
 import { SCENE_TABLE } from "./sceneTable";
@@ -434,7 +427,6 @@ async function speak(take: Take, from: number, to: number): Promise<void> {
 /** An expert interview: the interview's help, a follow-up, then the guide's topics not covered. */
 async function call(take: Take): Promise<void> {
   const { window, hand, script } = take;
-  const notice = window.getByTestId("meeting-notice");
   await hand.cut(async () => {
     await clearAside(window);
     await openMind(window, script.paper.title);
@@ -443,19 +435,12 @@ async function call(take: Take): Promise<void> {
     await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
       timeout: 240_000,
     });
+    // Record a meeting records at once, the first time too: its control at the new Note's foot.
     await command(window, hand, script.words.typed.record, script.words.recordCommand);
-    // The button sits at the window's left edge, where the pointer would pull the sidebar out over it.
-    await window
-      .getByTestId("meeting-start")
-      .getByTestId("meeting-start-record")
-      .evaluate((button) => (button as HTMLElement).click());
-    await expect(notice).toBeVisible();
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
   }, PARK);
   await hand.hold(250);
-  await transcribeHere(notice);
-  await hand.click(notice.getByTestId("meeting-notice-start"));
-  const bar = window.getByTestId("meeting-bar");
-  await expect(bar).toHaveAttribute("data-status", "recording");
+  const sheet = window.getByTestId("meeting-sheet");
 
   const meeting = await hand.cut(async () => {
     // The interview's kind adds the two buttons. The floating panel has them on a User's screen,
@@ -468,9 +453,11 @@ async function call(take: Take): Promise<void> {
     ).toBeVisible();
     await window.keyboard.press("Enter");
     await expect.poll(async () => (await meetingNow(window))?.template).toBe("interview");
-    if ((await bar.getByTestId("meeting-call-help").getAttribute("aria-pressed")) === "true") {
-      await bar.getByTestId("meeting-call-help").click();
-    }
+    await window.getByTestId("meeting-foot-transcript").click();
+    const help = sheet.getByTestId("meeting-call-help");
+    if ((await help.getAttribute("aria-pressed")) === "true") await help.click();
+    await sheet.getByTestId("meeting-sheet-hide").click();
+    await expect(sheet).toBeHidden();
     await openAssistant(window);
     await window.getByTestId("assistant-new-chat").click();
     await window.getByTestId("mind-editor").click();
@@ -485,12 +472,10 @@ async function call(take: Take): Promise<void> {
   // heard off camera; the film keeps the transcript and the Answers, not the wait for speech.
   await hand.cut(async () => {
     await speak(take, 0, 3);
-    await bar.getByTestId("meeting-views").locator("label").nth(1).click();
-    await expect(window.getByTestId("meeting-transcript-beside")).toBeEnabled({
-      timeout: 240_000,
-    });
+    await window.getByTestId("meeting-foot-transcript").click();
+    await expect(sheet.getByTestId("meeting-sheet-beside")).toBeEnabled({ timeout: 240_000 });
   });
-  await hand.click(window.getByTestId("meeting-transcript-beside"));
+  await hand.click(sheet.getByTestId("meeting-sheet-beside"));
   await expect(window.getByTestId("transcript-line").first()).toBeVisible({ timeout: 120_000 });
   // The transcript has the expert's words before the follow-up, and the User's line on the Me
   // side: content and speakers, not how many rows the engine split the speech into.
@@ -568,7 +553,7 @@ async function call(take: Take): Promise<void> {
   });
 
   // Stop: the notes fill in from the transcript.
-  await hand.click(bar.getByTestId("meeting-stop"));
+  await hand.click(window.getByTestId("meeting-foot-stop"));
   await hand.cut(async () => {
     const fill = window.getByTestId("meeting-fill-line");
     try {

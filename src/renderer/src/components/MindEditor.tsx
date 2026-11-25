@@ -562,7 +562,6 @@ function MindEditorView({
   const meetingKind = meeting?.kind;
   const tabId = useTabPlace()?.tabId;
   const noteView = useMeetingNoteView(tabId, mindId);
-  const showingNotes = meetingKind !== "meeting" || noteView !== "transcript";
   const myNotes = meetingKind === "meeting" && noteView === "mine";
   const revealEditor = useCallback(() => {
     if (tabId) flushSync(() => showMeetingNoteView(tabId, mindId, "notes"));
@@ -942,7 +941,7 @@ function MindEditorView({
 
   // The commands on the Mind's text (⌘K, ⌘↵ and ⌘⌫ on its changes) act on the Mind last written in.
   useEffect(() => {
-    if (readOnly || !showingNotes) return;
+    if (readOnly) return;
     const lend = () => {
       noteHandle.current = { editor, mindId, doc, place };
     };
@@ -952,7 +951,7 @@ function MindEditorView({
       editor.off("focus", lend);
       if (noteHandle.current?.editor === editor) noteHandle.current = null;
     };
-  }, [editor, mindId, doc, place, readOnly, showingNotes]);
+  }, [editor, mindId, doc, place, readOnly]);
 
   // The Mind the assistant reads (it draws this Mind's composer): Add to note puts an Answer
   // here through this editor, and a second Esc in the assistant comes back here.
@@ -1302,14 +1301,12 @@ function MindEditorView({
         {slots.menu &&
           createPortal(
             <>
-              {showingNotes && reviewing && slots.reviewShown !== "beside" && (
+              {reviewing && slots.reviewShown !== "beside" && (
                 <ReviewFold editor={editor} mindId={mindId} />
               )}
-              {showingNotes && (
-                <div ref={setHeadSlot} data-testid="note-head-badge" className="note-head-badge" />
-              )}
-              {showingNotes && <CommentsButton editor={editor} mindId={mindId} doc={doc} />}
-              {showingNotes && !readOnly && <NoteConversationButton mindId={mindId} />}
+              <div ref={setHeadSlot} data-testid="note-head-badge" className="note-head-badge" />
+              <CommentsButton editor={editor} mindId={mindId} doc={doc} />
+              {!readOnly && <NoteConversationButton mindId={mindId} />}
               <PageMenu
                 editor={editor}
                 doc={doc}
@@ -1321,8 +1318,7 @@ function MindEditorView({
             </>,
             slots.menu,
           )}
-        {showingNotes &&
-          slots.review &&
+        {slots.review &&
           reviewing &&
           (slots.reviewShown === "beside" || slots.reviewShown === "over") &&
           createPortal(
@@ -1330,17 +1326,14 @@ function MindEditorView({
             slots.review,
           )}
         {/* The quiet first open shows the example's text alone (#856). */}
-        {showingNotes &&
-          slots.count &&
+        {slots.count &&
           countShown &&
           !(firstOpen && isExample) &&
           createPortal(<WordCount editor={editor} doc={doc} />, slots.count)}
-        {showingNotes &&
-          !readOnly &&
+        {!readOnly &&
           slots.ask &&
           createPortal(<NoteAsk mindId={mindId} editor={editor} />, slots.ask)}
-        {showingNotes &&
-          badgeTarget &&
+        {badgeTarget &&
           createPortal(
             <CheckBadge
               editor={editor}
@@ -1364,18 +1357,13 @@ function MindEditorView({
               {t("meetings.mine.empty")}
             </p>
           )}
-          <BlockHandle editor={editor} enabled={showingNotes && !readOnly}>
+          <BlockHandle editor={editor} enabled={!readOnly}>
             <OpinionMenu editor={editor} mindId={mindId} doc={doc}>
               <EditorContent editor={editor} />
             </OpinionMenu>
           </BlockHandle>
           {meeting?.kind === "meeting" && (
-            <MeetingFillAt
-              editor={editor}
-              doc={doc}
-              meeting={meeting}
-              lineShown={showingNotes && !myNotes}
-            />
+            <MeetingFillAt editor={editor} doc={doc} meeting={meeting} lineShown={!myNotes} />
           )}
           {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
@@ -1400,12 +1388,11 @@ function MindEditorView({
             )}
         </div>
         {guide && <StartGuide mindId={mindId} />}
-        {showingNotes &&
-          sheetSlot &&
+        {sheetSlot &&
           comparing &&
           !readOnly &&
           createPortal(<CompareSheet mindId={mindId} doc={doc} editor={editor} />, sheetSlot)}
-        {showingNotes && !readOnly && (
+        {!readOnly && (
           <SelectionMenu
             editor={editor}
             ai={formatsOnly ? undefined : aiActions}
@@ -1415,7 +1402,7 @@ function MindEditorView({
             }}
           />
         )}
-        {showingNotes && !readOnly && cite && (
+        {!readOnly && cite && (
           <CiteSearch
             key={`${cite.from}:${cite.to}`}
             place={cite}
@@ -1424,29 +1411,25 @@ function MindEditorView({
             onDone={() => setCite(null)}
           />
         )}
-        {showingNotes && (
-          <AskedComment
-            editor={editor}
-            mindId={mindId}
-            doc={doc}
-            fallback={slots.menu}
-            readOnly={readOnly}
-          />
-        )}
-        {showingNotes && !readOnly && <LinkBubble editor={editor} />}
-        {showingNotes && findShown && (
+        <AskedComment
+          editor={editor}
+          mindId={mindId}
+          doc={doc}
+          fallback={slots.menu}
+          readOnly={readOnly}
+        />
+        {!readOnly && <LinkBubble editor={editor} />}
+        {findShown && (
           <FindBar editor={editor} onClose={() => useMindTools.getState().hideFind()} />
         )}
-        {showingNotes && (
-          <NoteOutline
-            editor={editor}
-            mindId={mindId}
-            buttonSlot={slots.outlineButton}
-            panelSlot={slots.outline}
-          />
-        )}
-        {showingNotes && <FootnotePopover editor={editor} citationView={citationView} />}
-        {showingNotes && editingMath !== null && (
+        <NoteOutline
+          editor={editor}
+          mindId={mindId}
+          buttonSlot={slots.outlineButton}
+          panelSlot={slots.outline}
+        />
+        <FootnotePopover editor={editor} citationView={citationView} />
+        {editingMath !== null && (
           <MathEditor
             key={editingMath}
             editor={editor}

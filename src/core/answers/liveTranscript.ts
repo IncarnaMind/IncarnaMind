@@ -7,10 +7,13 @@
  * cite as it cites a Passage. Both come after the Mind it reads and before
  * what the User selected there and the Question itself.
  */
+import { clockTime } from "../../shared/clock";
 import type { WindowedPassage } from "../documents/search";
+import { tagged } from "../promptData";
 import type { ContextWindow } from "../providers/models";
 import { estimateTokens } from "./context";
 import type { AnswerMessage } from "./engine";
+import { CALL_TAGS } from "./prompt";
 
 /**
  * A recording Meeting's live Transcript as a Question sees it: its Passages in reading order, and
@@ -20,6 +23,11 @@ import type { AnswerMessage } from "./engine";
 export interface LiveTranscript {
   passages: WindowedPassage[];
   behind: boolean;
+  /**
+   * The speech being transcribed as the Question is asked, as the window shows it, oldest first:
+   * in no Passage yet, so the model reads it but can't cite it (#3762). Absent: none.
+   */
+  unconfirmed?: readonly UnconfirmedSpeech[];
   screen?: {
     readings: SharedScreenText[];
     ended: AbortSignal;
@@ -30,6 +38,34 @@ export interface LiveTranscript {
     mostlyVisual: boolean;
     refersToScreen: boolean;
   };
+}
+
+/** Words still being transcribed: where they start in the call, in ms, and whose they are. */
+export interface UnconfirmedSpeech {
+  startMs: number;
+  text: string;
+  /** "Me", "Them" or "Speaker ?", as a live line's mark; null when nobody is told apart. */
+  speaker: string | null;
+}
+
+/**
+ * The words still being transcribed, as the model reads them after the live transcript: in a block
+ * of its own marked not final, each line with its time and mark, its text as data; "" for none.
+ */
+export function unconfirmedText(speech: readonly UnconfirmedSpeech[] | undefined): string {
+  const said = (speech ?? []).filter((each) => each.text.trim() !== "");
+  if (said.length === 0) return "";
+  return tagged(
+    "live-transcript",
+    said
+      .map(
+        ({ startMs, text, speaker }) =>
+          `[${clockTime(startMs)}${speaker ? ` · ${speaker}` : ""}] ${text.trim()}`,
+      )
+      .join("\n"),
+    ' final="no"',
+    CALL_TAGS,
+  );
 }
 
 /** The most of a live transcript a Question takes: about 8k tokens, half an hour of talk or so. */
@@ -81,10 +117,13 @@ export function withTranscript(
   messages: readonly AnswerMessage[],
   shown: string,
   screens = "",
+  unconfirmed = "",
 ): AnswerMessage[] {
   return withBeforeQuestion(
     messages,
-    [screens, `<live-transcript>\n${shown}\n</live-transcript>`].filter(Boolean).join("\n\n"),
+    [screens, `<live-transcript>\n${shown}\n</live-transcript>`, unconfirmed]
+      .filter(Boolean)
+      .join("\n\n"),
   );
 }
 

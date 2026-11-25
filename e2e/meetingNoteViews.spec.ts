@@ -8,6 +8,7 @@ import {
   firstTranscriptLine,
   focusSettled,
   launchApp,
+  openMeetingSheet,
   openPageMenu,
   pointAndClick,
   recordMeeting,
@@ -17,7 +18,7 @@ import {
   setLanguage,
   setWindowSize,
   slideSelect,
-  startRecording,
+  stopMeeting,
   useLocalChatModel,
 } from "./app";
 
@@ -29,11 +30,11 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-test("a meeting's ⌘K views retain its editor; assistant return and page Review changes reveal Notes before focusing it", async () => {
+test("a meeting's ⌘K views retain its editor under the Transcript sheet; assistant return and page Review changes fold the sheet before focusing the notes", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 900, 660);
   await dismissChatSetup(window);
-  const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+  await recordMeeting(window);
   const editor = window.getByTestId("mind-editor");
   const paragraph = editor.locator(":scope > p");
   const original = "The tides here are very strong and really regular.";
@@ -49,8 +50,7 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
       { timeout: 30_000 },
     )
     .toBeGreaterThanOrEqual(2);
-  await pointAndClick(window, bar.getByTestId("meeting-stop"));
-  await expect(bar).toBeHidden();
+  await stopMeeting(window);
   await expect
     .poll(
       async () => {
@@ -69,8 +69,8 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
   const mindId = await tab.getAttribute("data-mind-id");
   if (!tabId || !panelId || !mindId) throw new Error("Expected the Meeting's Note tab and panel.");
   const panel = window.locator(`[id="${panelId}"]`);
-  const transcript = panel.getByTestId("meeting-note-transcript");
-  const chip = panel.getByTestId("meeting-view-chip");
+  const transcript = panel.getByTestId("meeting-sheet");
+  const raise = panel.getByTestId("meeting-foot-transcript");
   const caretPrefix = "The tides here are very strong";
   await slideSelect(window, paragraph, "strong");
   await window.keyboard.press("ArrowRight");
@@ -103,7 +103,7 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
       if (!state.phase) return;
       const shownTranscript = document
         .getElementById(id)
-        ?.querySelector('[data-testid="meeting-note-transcript"]');
+        ?.querySelector('[data-testid="meeting-sheet"]');
       state.events.push({
         phase: state.phase,
         kind,
@@ -153,22 +153,23 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
       body: JSON.stringify(before, null, 2),
       contentType: "application/json",
     });
+    // The Transcript rises as a sheet over the Note, which stays as it was under it.
     await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript.getByTestId("transcript-line").first()).toBeVisible();
-    await expect(editor).toBeHidden();
-    await expect(chip).toContainText("Transcript");
+    await expect(editor).toBeVisible();
+    await expect(raise).toHaveAttribute("aria-expanded", "true");
     expect(await noteState()).toEqual(before);
     await expectSameTab();
 
     await runCommand(window, "meeting.showNotes", "Show notes");
     await expect(editor).toBeVisible();
     await expect(transcript).toHaveCount(0);
+    await expect(raise).toHaveAttribute("aria-expanded", "false");
     expect(await noteState()).toEqual(before);
     await expectSameTab();
 
     await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript).toBeVisible();
-    await expect(editor).toBeHidden();
     await window.keyboard.press("ControlOrMeta+j");
     const composer = window.getByTestId("composer-input");
     await expect(composer).toBeFocused();
@@ -231,7 +232,6 @@ test("a meeting's ⌘K views retain its editor; assistant return and page Review
     const beforeReview = await noteState();
     await runCommand(window, "meeting.showTranscript", "Show the Transcript");
     await expect(transcript).toBeVisible();
-    await expect(editor).toBeHidden();
     expect(await noteState()).toEqual(beforeReview);
     const menu = await openPageMenu(window);
     await expect(menu.getByTestId("page-review-changes")).toHaveText("Review changes");
@@ -291,12 +291,9 @@ test("a zoomed live Transcript shows spoken lines above assistant setup and the 
     await setLanguage(window, "zh-CN");
     await setWindowSize(app, window, 900, 660);
     await (await app.browserWindow(window)).evaluate((win) => win.webContents.setZoomFactor(1.25));
-    const bar = await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await firstTranscriptLine(window);
-    await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-    const transcript = window
-      .getByTestId("meeting-note-transcript")
-      .getByTestId("viewer-transcript");
+    const transcript = (await openMeetingSheet(window)).getByTestId("viewer-transcript");
     await expect(window.getByTestId("assistant")).toHaveAttribute("data-dock", "bottom");
     await expect
       .poll(

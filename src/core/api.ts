@@ -2659,6 +2659,13 @@ export interface CitationRecheck {
    */
   changed?: ChangedQuote | null;
   /**
+   * Asked with the version the Citation quotes, which is no longer the current one: the current
+   * version is a Transcript's that holds every line of that one as it was, with only lines added
+   * after them, as a meeting's Transcript grows while it records (#3762). Its quote is found at
+   * its place, so the Citation stands as cited. Absent otherwise.
+   */
+  grew?: true;
+  /**
    * Its quote isn't at its cited Units in the current version: where the whole quote stands in
    * that version instead (#3041), matched as the check matches it. `location` is null when it
    * stands in more than one place, or in one wider than a Citation's Units. Null when it is
@@ -3834,13 +3841,14 @@ export interface DeviceSettings {
    */
   checkDecisionModel: CheckDecisionModel | "off" | null;
   /**
-   * The User has read, once on this device, what a recording captures and
-   * that the other people should be told. Recording waits for it.
+   * A Meeting or voice memo has been recorded on this device: Home's line that turns on the offers
+   * to take notes waits for it. Its name is from when a notice had to be read first; the first
+   * recording now starts at once and the core sets it (#3762). Nothing else is turned on with it.
    */
   meetingNoticeAccepted: boolean;
   /**
-   * The meeting bar asks, when a recording starts, whether someone will
-   * share their screen, to read it for Answers during the call (ADR-0031).
+   * A recording asks, when it starts, whether someone will share their screen, to read it for
+   * Answers during the call (ADR-0031).
    */
   meetingScreenAsk: boolean;
   meetingScreenPictureLimit: number;
@@ -3853,7 +3861,8 @@ export interface DeviceSettings {
   /**
    * Settings › General › "Keep running in the menu bar" (in the tray on Windows and Linux, #189):
    * its icon stays, and closing the window leaves IncarnaMind running. On from a new data folder's
-   * first start (#3758); in one an earlier version started, turned on when the User sets up Meetings.
+   * first start (#3758); in one an earlier version started, Home's line after the first recording
+   * turns it on with the offers for calls.
    */
   keepRunning: boolean;
   /** Settings › General › Notifications: the offer to take notes before a calendar meeting (#207). */
@@ -3861,8 +3870,7 @@ export interface DeviceSettings {
   /**
    * Settings › General › Notifications: the offer to take notes when a call app takes the
    * microphone (#208). On from a new data folder's first start where calls can be noticed (#3758).
-   * In one an earlier version started, the sheet that sets up Meetings turns it on, and someone who
-   * set them up before this was built is asked once, on Home.
+   * In one an earlier version started, Home asks once, after the first recording, to turn it on.
    */
   callOffers: boolean;
   /** The call apps the User turned offers off for ("Don't ask for Zoom"), by id (src/shared/meetingApps.ts). */
@@ -12438,13 +12446,16 @@ export interface Meeting {
   /** While audio is being captured, when this stretch began (ISO 8601); otherwise null. */
   recordingSince: string | null;
   gaps: MeetingGap[];
-  /** When recording first started, and when it was stopped (ISO 8601). */
+  /** When recording first started, and when it was last stopped (ISO 8601): null while it records again. */
   startedAt: string | null;
   stoppedAt: string | null;
   /** Its audio on this computer, which is deleted at most a day after the Meeting. */
   audio: MeetingAudio;
-  /** Why the latest audio couldn't be saved (e.g. the disk is full), until a part is saved again. */
-  saveError: string | null;
+  /**
+   * Why the latest audio couldn't be saved, until a part is saved again: the disk full, saving not
+   * allowed, or another failure, whose system message only the log keeps.
+   */
+  saveError: MeetingSaveProblem | null;
   /** Its Transcript, made on this computer (#136); null before it starts, or where this copy can't transcribe. */
   transcript: MeetingTranscript | null;
   /** Its shared screen (ADR-0031), while it records or is paused; null otherwise, or where this copy can't read one. */
@@ -12467,7 +12478,10 @@ export interface Meeting {
   helpTemplate: MeetingHelpTemplate | null;
   /** The Skill chosen for the Meeting's write-up. Otherwise it uses the default sections. */
   writeupTemplateId?: string;
-  /** Its notes filled in from the Transcript after Stop (#142); null before Stop. */
+  /**
+   * Its notes filled in from the Transcript after Stop (#142); null before Stop, and while it
+   * records again after Stop unless notes were written then, which stay as they are.
+   */
   fill: MeetingFill | null;
   createdAt: string;
   updatedAt: string;
@@ -12563,6 +12577,11 @@ export interface MeetingFillProblem {
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
+  /**
+   * For "no-model" when the User's own AI is connected but wasn't given the meeting's Note, so it
+   * can't write the notes: its connection's name. `message` then says so, and what to do.
+   */
+  agent?: string;
   /** For "model" from the provider: its error's kind, which the line may word as an Answer's does. */
   error?: ProviderErrorKind;
   /** With `error`: the model the fill asked. */
@@ -12692,6 +12711,9 @@ export type CaptureEvent =
  * ("closed"); or no audio came in for a while ("stalled"), as when a device changes.
  */
 export type AudioLossCause = "full" | "denied" | "error" | "closed" | "stalled";
+
+/** Why a part of a Meeting's audio couldn't be written. */
+export type MeetingSaveProblem = Extract<AudioLossCause, "full" | "denied" | "error">;
 
 /** Where a Meeting's speech is turned into text: on this computer, or by a cloud service (#141). */
 export type TranscriptionEngine = "local" | "cloud";
@@ -12830,6 +12852,12 @@ export interface MeetingAudio {
    * on when the Meeting started recording. It then has no `expiresAt`.
    */
   keptUntilDeleted: boolean;
+  /**
+   * Where the audio recorded since it was deleted starts, in ms of the Meeting's time, as after a
+   * Resume (#3762): a line that ends by then has no audio and doesn't play. Absent while no audio
+   * was deleted, and while none was recorded since.
+   */
+  keptFromMs?: number;
 }
 
 /**
@@ -13662,11 +13690,22 @@ export interface NoteQuestion {
 /** How a step of the AI's own went with its question: as answered, or ended before it was. */
 export type NoteAnswered = NoteAnswer | "stopped" | "closed" | "refused";
 
-/** A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document and its quote. */
+/**
+ * A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document, its quote, and
+ * where the quote stands in that Document now, to open it there: the Passage and version it was
+ * found in, its Units (pages, slides…, from 1; null for a whole file) and its Location in them, a
+ * Transcript's being its line's time (`{ kind: "time", from, to, speaker? }`, ms into the call).
+ */
 export interface NoteCitation {
   token: string;
+  documentId: string;
   documentName: string;
   quote: string;
+  passageId: string;
+  contentHash: string;
+  pageFrom: number | null;
+  pageTo: number | null;
+  location: CitationLocation | null;
 }
 
 /**
@@ -16117,8 +16156,7 @@ export interface CoreApi {
   discardMeeting(meetingId: string): Promise<void>;
   /**
    * Starts recording a ready Meeting: the microphone, and the computer's sound
-   * if asked. Needs the one-time recording notice accepted on this device, and
-   * no other Meeting recording.
+   * if asked. Needs no other Meeting recording.
    */
   startMeeting(input: StartMeetingInput): Promise<Meeting>;
   /**
@@ -16128,7 +16166,15 @@ export interface CoreApi {
    */
   recordMemo(input?: CreateMeetingInput): Promise<Meeting>;
   pauseMeeting(meetingId: string): Promise<Meeting>;
-  /** Records again after a pause, the User's or one IncarnaMind closing made. */
+  /**
+   * Records again after a pause, the User's or one IncarnaMind closing made, or after Stop
+   * (#3762): the same Note and Transcript, its time going on from where it stopped, and Stop ends
+   * it again. A call's notes written at Stop stay until the next Stop writes them anew, which
+   * Undo takes back. InvalidInputError for a voice memo after Stop (`error.meeting.resumeMemo`),
+   * when recording on would lose lines its Transcript holds
+   * (`error.meeting.resumeTranscriptUnreadable`), and when its Transcript is saved outside the
+   * data folder, where new lines can't reach it (`error.meeting.resumeTranscriptElsewhere`).
+   */
   resumeMeeting(meetingId: string): Promise<Meeting>;
   /** Ends the recording. Its audio is kept for at most a day. */
   stopMeeting(meetingId: string): Promise<Meeting>;
@@ -16316,8 +16362,7 @@ export interface CoreApi {
   getMeetingOffers(): Promise<MeetingOffers>;
   /**
    * Take notes opens the event’s Note (a new Note for an ad-hoc call) and starts recording.
-   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers, and
-   * one taken before the recording notice was read, which keeps the offer.
+   * For a calendar meeting it also opens the invite’s link, if present. Rejects stale offers.
    */
   takeMeetingOffer(offerId: string): Promise<Meeting>;
   /** Not now, or with `always` "Don't ask for {app}": the offer goes, and nothing is recorded. */
@@ -16806,11 +16851,6 @@ export interface CoreEvents {
    */
   "meetings.offerShown": null;
   "meetings.offerLinkFailed": null;
-  /**
-   * Sent by the host: Take notes was pressed in an offer's notification or the tray's menu before
-   * Meetings were set up (#3758). The window shows the recording notice, whose Start takes it.
-   */
-  "meetings.offerNoticeShown": { offerId: string };
   /**
    * Connecting agents was turned on or off, Local mode paused or resumed them, or a pairing
    * was made, changed, used or removed: as `getAgents` now returns it.
