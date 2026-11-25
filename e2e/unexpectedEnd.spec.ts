@@ -170,17 +170,22 @@ test("after a run is killed the next start says IncarnaMind closed, in English a
   expect(await takenAgain(second.window)).toBeNull();
 
   // A signal asks the app to quit, as `kill` does: it quits as asked, and says which.
-  const closed = new Promise<void>((resolve) => second.app.once("close", () => resolve()));
-  const pid = second.app.process().pid;
-  if (pid === undefined) throw new Error("The app has no process.");
-  process.kill(pid, "SIGTERM");
-  await closed;
-  expect(await lastRunOf()).toMatch(
-    new RegExp(
-      ` INFO {2}app\\.quitAsked by=signal signal=SIGTERM\\n.* INFO {2}app\\.quit\\n.* INFO {2}app\\.exited pid=${pid} code=0\\n`,
-      "s",
-    ),
-  );
+  // Windows has no POSIX SIGTERM handler (process.kill terminates the process outright), so quit cleanly there.
+  if (process.platform === "win32") {
+    await second.app.close();
+  } else {
+    const closed = new Promise<void>((resolve) => second.app.once("close", () => resolve()));
+    const pid = second.app.process().pid;
+    if (pid === undefined) throw new Error("The app has no process.");
+    process.kill(pid, "SIGTERM");
+    await closed;
+    expect(await lastRunOf()).toMatch(
+      new RegExp(
+        ` INFO {2}app\\.quitAsked by=signal signal=SIGTERM\\n.* INFO {2}app\\.quit\\n.* INFO {2}app\\.exited pid=${pid} code=0\\n`,
+        "s",
+      ),
+    );
+  }
 
   const third = await launchApp(dataDir);
   await expect(third.window.getByTestId("sidebar")).toContainText("关闭前的笔记");

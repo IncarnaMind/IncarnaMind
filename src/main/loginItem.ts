@@ -83,6 +83,14 @@ export function autostartEntry(program: string): string {
 const turnedOff = (entry: string) =>
   /^X-GNOME-Autostart-enabled=false\s*$/m.test(entry) || /^Hidden=true\s*$/m.test(entry);
 
+/** Whether the entry still points at `program`: its Exec, and TryExec when present, match. */
+const pointsAt = (entry: string, program: string) => {
+  const exec = /^Exec=.*$/m.exec(entry)?.[0];
+  if (exec !== execLine(program)) return false;
+  const tryExec = /^TryExec=.*$/m.exec(entry)?.[0];
+  return tryExec === undefined || tryExec === tryExecLine(program);
+};
+
 /** The entry naming `program` to run, with every other line as it was, off included. */
 function pointedAt(entry: string, program: string): string {
   if (!/^Exec=/m.test(entry)) return entry;
@@ -130,9 +138,14 @@ export function createSystemLoginItem(options: SystemLoginItemOptions): LoginIte
   }
   const get = (): OpenAtLogin => {
     if (platform === "linux") {
-      // The desktop reads the entry as this account does: one it can't read opens nothing.
+      // The desktop reads the entry as this account does: one it can't read or that still
+      // points at an older moved program won't open this copy.
       const found = entry();
-      return { supported: true, on: found !== null && !turnedOff(found), needsApproval: false };
+      return {
+        supported: true,
+        on: found !== null && !turnedOff(found) && pointsAt(found, options.program),
+        needsApproval: false,
+      };
     }
     const settings = app.getLoginItemSettings(args ? { args } : undefined);
     // Electron sends executableWillLaunchAtLogin on every system, always false outside Windows.
