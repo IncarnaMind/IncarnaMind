@@ -32,6 +32,7 @@ import { isListedDocument } from "../meetingTranscript";
 import { downloadProgress } from "../modelDownload";
 import { enterFrom, exitToward } from "../motion";
 import { organizeStateOf } from "../organizeOutcome";
+import { useOwnAiOnly } from "../ownAiPanel";
 import { ownsATag, useOwnDocuments } from "../ownDocuments";
 import { rerankingModelStatus } from "../rerankStatus";
 import { openSandboxHelp, useRunsWithoutSandbox } from "../sandbox";
@@ -600,6 +601,9 @@ function useStatuses(): Status[] {
   );
   // The first Tag a Document of the User's own carries: until then, no model is asked for Tags.
   const tagsShown = useAppStore((state) => ownsATag(state));
+  // With only their own AI, Tags by themselves need a model, which Settings › AI's Organize and
+  // Tags row says where it is turned on; the foot says nothing is missing (#3764).
+  const ownAiOnly = useOwnAiOnly();
   const taggingWaits = counts.waitingForTagger > 0;
   const tagging = !organizesNew && counts.tagging > 0;
   const organizingNow = organizing && liveStates.some(({ state }) => state.run === "working");
@@ -1037,7 +1041,7 @@ function useStatuses(): Status[] {
             .catch((error: unknown) => useAppStore.getState().reportError(error)),
       },
     });
-  } else if (tagsShown && taggingWaits) {
+  } else if (tagsShown && taggingWaits && ownAiOnly === false) {
     statuses.push({
       testId: "tagging-waiting",
       tone: "waiting",

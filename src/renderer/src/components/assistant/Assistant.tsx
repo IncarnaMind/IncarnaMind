@@ -29,7 +29,7 @@ import { dialogOrMenuOpen } from "../../escapeDismiss";
 import { useT } from "../../i18n";
 import { useAssistantWaiting } from "../../mindStatus";
 import { useSettingUp } from "../../modelSetup";
-import { useOwnAiPillShown } from "../../ownAiPanel";
+import { useKeyAsksOwnAi } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
 import { GripIcon } from "../icons";
 import {
@@ -119,8 +119,8 @@ export function Assistant({
     }
   }, [focusWanted]);
 
-  // While their own AI's pill shows, ⌘J asks that AI, so the unfold names no key (#3373).
-  const pillAsks = useOwnAiPillShown();
+  // While ⌘J asks their own AI, the unfold names no key (#3373).
+  const pillAsks = useKeyAsksOwnAi();
   const unfoldLabel = pillAsks
     ? t("assistant.unfold.plain")
     : t("assistant.unfold", { shortcut: shortcutLabel("composer.focus") });

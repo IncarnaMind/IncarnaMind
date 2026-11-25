@@ -59,6 +59,8 @@ const bridge = {
   runsHere: false,
   ownAiRunsHere: async () => bridge.runsHere,
   listAgentsToAsk: async () => bridge.agents,
+  // Connecting an agent turns connecting on.
+  getAgents: async () => ({ enabled: bridge.agents.length > 0, pairings: bridge.agents }),
   listConversations: async () => [],
   askAgent: async (input: AskAgentInput) => {
     bridge.asked.push(input);
@@ -125,7 +127,7 @@ const { useModelSetup } = await import("../../src/renderer/src/modelSetup");
 const { askInAssistant } = await import("../../src/renderer/src/conversations");
 const { askAgent, askedAbout, askToCheck } = await import("../../src/renderer/src/askYourAi");
 const { composerKey } = await import("../../src/renderer/src/composer");
-const { useFoldForOwnAi, useOwnAiPill } = await import("../../src/renderer/src/ownAiPanel");
+const { useFoldForOwnAi, useOwnAiPillAt } = await import("../../src/renderer/src/ownAiPanel");
 const { useQuietAssistant } = await import("../../src/renderer/src/quietAssistant");
 // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
 const noticePath = "../../src/renderer/src/components/providers/ChatReadinessNotice.tsx";
@@ -218,7 +220,7 @@ async function windowShown(): Promise<{
   let quiet = false;
   const Probe = () => {
     useFoldForOwnAi();
-    pill = useOwnAiPill();
+    pill = useOwnAiPillAt(MIND);
     quiet = useQuietAssistant();
     return null;
   };

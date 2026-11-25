@@ -37,7 +37,13 @@ export function OrganizeRows({
   const t = useT();
   const { current, read, library } = sorting;
   const agentAlone = useAgentAlone();
-  const picker = useSortingPicker(id, sorting);
+  // Their AI suggests Folders and Tags when asked: with no model chosen, that is what the job
+  // uses, so the row names it rather than a model it lacks (#3764).
+  const picker = useSortingPicker(
+    id,
+    sorting,
+    agentAlone ? t("ai.jobs.organize.yourAi") : undefined,
+  );
 
   const failed = picker.failed;
   const optionsShown = library !== null && !failed && current !== null && !current.unresolved;

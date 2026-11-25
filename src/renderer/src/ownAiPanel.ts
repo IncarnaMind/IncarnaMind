@@ -1,7 +1,8 @@
 /**
- * The assistant for a User whose own AI is connected and who set up no model (#3373, #3612): its
- * panel is never shown, whatever it was before, and the pill at the foot of a Note or a Document
- * asks their own AI about it, as ⌘J does. The one exception is a Conversation they already have,
+ * The assistant for a User whose own AI is the way to ask and who set up no model (#3373, #3612):
+ * its panel is never shown, whatever it was before, and a Note asks their own AI from its foot.
+ * Their AI is the way once they connected one, and stays it after they disconnect it, so the
+ * panel never comes back for that (#3764). The one exception is a Conversation they already have,
  * opened to be read: the panel shows it until they fold it. Folded for their AI, it opens as it
  * was once a model is set up.
  */
@@ -19,20 +20,51 @@ import {
   useReadAgentsToAsk,
 } from "./askYourAi";
 import { useClaudeCodeInstallAvailability } from "./claudeCodeInstall";
+import { core } from "./core";
 import { assistantTabOf, documentsOnScreenOf, groupsMerged } from "./layoutSlice";
 import { useAppStore } from "./store";
 import { useGroupsMerged } from "./useWindowWidth";
 
-/** Only their own AI asks for the User: connected, and no model in IncarnaMind; null until both are known. */
+/**
+ * Connecting the User's own AI is on: connecting one turns it on, and disconnecting it leaves it
+ * on; null until read.
+ */
+const useAgentsOn = create<{ on: boolean | null }>(() => ({ on: null }));
+
+function useReadAgentsOn(): void {
+  useEffect(() => {
+    let current = true;
+    // A change heard before the first read answers is newer than that answer.
+    let heard = false;
+    core.getAgents().then((settings) => {
+      if (current && !heard) useAgentsOn.setState({ on: settings.enabled });
+    }, useAppStore.getState().reportError);
+    const stop = core.on("agents.changed", (settings) => {
+      heard = true;
+      useAgentsOn.setState({ on: settings.enabled });
+    });
+    return () => {
+      current = false;
+      stop();
+    };
+  }, []);
+}
+
+/**
+ * Only their own AI asks for the User: no model in IncarnaMind, and an AI of theirs connected
+ * now or before; null until all three are known.
+ */
 export function useOwnAiOnly(): boolean | null {
   const known = useAppStore((state) => state.chatReadiness !== null);
   const without = useNoModel();
   const agents = useAgentsToAskRead(null);
-  if (!known || agents === null) return null;
-  return without && agents.length > 0;
+  const on = useAgentsOn((state) => state.on);
+  if (!known || agents === null || on === null) return null;
+  return without && (agents.length > 0 || on);
 }
 
-export const ownAiOnlyNow = (): boolean => noModel() && agentsToAsk(null).length > 0;
+export const ownAiOnlyNow = (): boolean =>
+  noModel() && (agentsToAsk(null).length > 0 || useAgentsOn.getState().on === true);
 
 /** A Conversation the User opened to read, which the panel shows until they fold it. */
 const useReading = create<{ reading: boolean }>(() => ({ reading: false }));
@@ -60,6 +92,8 @@ export function setUpModelInstead(): void {
  */
 export function useFoldForOwnAi(): void {
   useReadAgentsToAsk(null);
+  useReadAgentsOn();
+  useReadAskedOn();
   useClaudeCodeInstallAvailability();
   const only = useOwnAiOnly();
   const reading = useReading((state) => state.reading);
@@ -89,9 +123,9 @@ export interface OwnAiPill {
 }
 
 /**
- * What the pill asks about: the Note the assistant reads, else the Document in front. A Note no
+ * What ⌘J asks about: the Note the assistant reads, else the Document in front. A Note no
  * connected AI may read (an example's, which a new User has open) gives way to the Document opened
- * beside it, so the pill doesn't go when the User opens one there.
+ * beside it, so ⌘J still asks when the User opens one there.
  */
 interface AskedOn {
   mindId: string | null;
@@ -154,8 +188,14 @@ function useAskedOn(): AskedOn {
   return askedOn(mindId, documentId, mindId === null ? null : noteAgents);
 }
 
-/** Whether the pill shows, as the Workbench reads its agents: for a page that makes room for it. */
-export function useOwnAiPillShown(): boolean {
+/** Reads the agents of what ⌘J asks about, which `ownAiPillNow` takes from what was read. */
+function useReadAskedOn(): void {
+  const on = useAskedOn();
+  useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
+}
+
+/** Whether ⌘J asks the User's own AI, as `ownAiPillNow` reads it, followed. */
+export function useKeyAsksOwnAi(): boolean {
   const hidden = useHiddenForOwnAi();
   const on = useAskedOn();
   const runsHere = useOwnAiRunsHere();
@@ -164,16 +204,22 @@ export function useOwnAiPillShown(): boolean {
   );
 }
 
-/** The pill's Note or Document and agents, with the panel out of sight for a User with only their own AI; null otherwise. */
-export function useOwnAiPill(): OwnAiPill | null {
+/**
+ * The Ask pill at the foot of Note `mindId`, which asks their own AI about that Note, with the
+ * panel out of sight for a User with only their own AI; null otherwise. Each Note on screen has
+ * its own, as each has its own input, and none stands over a Document (#3764).
+ */
+export function useOwnAiPillAt(mindId: string): OwnAiPill | null {
   const hidden = useHiddenForOwnAi();
-  const on = useAskedOn();
-  useReadAgentsToAsk(on.mindId, on.documentId ?? undefined);
+  useReadAgentsToAsk(mindId);
   const runsHere = useOwnAiRunsHere();
-  return pillOf(hidden, on, useAgentsToAsk(on.mindId, on.documentId ?? undefined), runsHere);
+  return pillOf(hidden, { mindId, documentId: null }, useAgentsToAsk(mindId), runsHere);
 }
 
-/** The same, read once: what ⌘J asks while the pill shows. */
+/**
+ * What ⌘J hands their own AI, read once: the Note the pill asks about, or the Document in front
+ * with no Note to ask from, as the viewer's Ask about this names ⌘J.
+ */
 export function ownAiPillNow(): OwnAiPill | null {
   const on = askedOnOf(groupsMerged());
   return pillOf(
@@ -184,5 +230,20 @@ export function ownAiPillNow(): OwnAiPill | null {
   );
 }
 
-/** The Note a question typed elsewhere (⌘K, the Library) is about: the one the assistant reads. */
-export const ownAiNoteNow = (): string | null => askedOnOf(groupsMerged()).mindId;
+/**
+ * With only their own AI as the way to ask, none of theirs reads this Note, disconnected or never
+ * given its Folder: its foot says so, with the one way to fix it (#3764).
+ */
+export function useNoAiForNote(mindId: string): boolean {
+  const only = useOwnAiOnly();
+  useReadAgentsToAsk(mindId);
+  const agents = useAgentsToAskRead(mindId);
+  return only === true && agents !== null && agents.length === 0;
+}
+
+/** With only their own AI as the way to ask, none of theirs is connected: nothing offers to ask. */
+export function useNoAiConnected(): boolean {
+  const only = useOwnAiOnly();
+  const agents = useAgentsToAskRead(null);
+  return only === true && agents !== null && agents.length === 0;
+}

@@ -9120,6 +9120,7 @@ export const en = {
   "agents.activity.check_citations": "Checked its Citations",
   "agents.activity.show_citation": "Opened it in IncarnaMind for you",
   "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
+  "ai.jobs.organize.yourAi": "Your AI",
   "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
   "agents.sorting.shareTags": "Allow sharing Tag names",
   "agents.sorting.left.one":
@@ -9436,6 +9437,7 @@ export const en = {
   "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
+  "noteAsk.noAi": "Asking needs your AI",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",
   "noteAsk.action.translate": "Translate it into {language}",

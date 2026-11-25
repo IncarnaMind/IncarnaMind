@@ -8571,6 +8571,7 @@ export const zhCN = {
   "agents.activity.check_citations": "核对了引用",
   "agents.activity.show_citation": "在 IncarnaMind 中为你打开了它",
   "ai.jobs.organize.agent": "你可以让已连接的 AI 推荐文件夹和标签。",
+  "ai.jobs.organize.yourAi": "你的 AI",
   "agents.sorting.tagConsent": "允许将这些文档的标签名称发送给 {agent} 使用的 AI 模型吗？",
   "agents.sorting.shareTags": "允许共享标签名称",
   "agents.sorting.left.one":
@@ -8863,6 +8864,7 @@ export const zhCN = {
   "noteAsk.did.other": "调用了 IncarnaMind",
   "noteAsk.wholeNote": "改为针对整篇笔记",
   "noteAsk.command": "描述对这篇笔记的修改…",
+  "noteAsk.noAi": "提问需要你的 AI",
   "noteAsk.action.improve": "改进写法",
   "noteAsk.action.shorten": "缩短",
   "noteAsk.action.translate": "翻译成{language}",

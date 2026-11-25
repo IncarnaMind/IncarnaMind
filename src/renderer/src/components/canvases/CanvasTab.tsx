@@ -5,7 +5,7 @@ import { drawnCanvas, useCanvases } from "../../canvases";
 import { core, files } from "../../core";
 import { useT } from "../../i18n";
 import { openCited } from "../../openCited";
-import { useOwnAiPillShown } from "../../ownAiPanel";
+import { useHiddenForOwnAi } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useAppStore } from "../../store";
 import { siteOf } from "../../webPages";
@@ -31,9 +31,9 @@ export function CanvasTab({ canvasId }: { canvasId: string }) {
   const [link, setLink] = useState<string | null>(null);
   const [stopped, setStopped] = useState<"memory" | "crashed" | null>(null);
   const view = useRef<HTMLElement | null>(null);
-  // An Ask pill floats at the card's foot (#3373): the page stops above it, as a Note's text fades.
-  const ownAiPill = useOwnAiPillShown();
-  const quietPill = useQuietAssistant();
+  // The quiet Ask pill floats at the card's foot: the page stops above it, as a Note's text fades.
+  const quiet = useQuietAssistant();
+  const hiddenForOwnAi = useHiddenForOwnAi();
 
   useEffect(() => {
     if (newest === null) return;
@@ -95,7 +95,7 @@ export function CanvasTab({ canvasId }: { canvasId: string }) {
       className="relative flex min-h-0 min-w-0 flex-1 bg-sheet"
     >
       <div
-        className={`flex min-h-0 min-w-0 flex-1 flex-col ${ownAiPill || quietPill ? "pb-[68px]" : ""}`}
+        className={`flex min-h-0 min-w-0 flex-1 flex-col ${quiet && !hiddenForOwnAi ? "pb-[68px]" : ""}`}
       >
         <p
           data-testid="canvas-unchecked"

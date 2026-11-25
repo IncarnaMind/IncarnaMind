@@ -48,7 +48,7 @@ import { translateNow } from "./i18n";
 import type { Words } from "./lineNames";
 import { modelInUseOf } from "./modelInUse";
 import { shownModelNow } from "./modelNames";
-import { askFromSelection, noteAskShownNow } from "./ownAiInNote";
+import { askFromSelection, focusNoteAsk, noteAskShownNow } from "./ownAiInNote";
 import { ownAiOnlyNow } from "./ownAiPanel";
 import { useAppStore } from "./store";
 
@@ -324,14 +324,20 @@ export async function requestEdit(
         action === "instruction"
           ? (instruction ?? "").trim()
           : action === "translate"
-            ? translateNow("noteAsk.action.translate", { language: instruction ?? "" })
+            ? instruction
+              ? translateNow("noteAsk.action.translate", { language: instruction })
+              : ""
             : translateNow(`noteAsk.action.${ownAi}` as "noteAsk.action.improve");
-      if (words !== "") {
-        const went = await askFromSelection(editor.state, mindId, words);
-        if (went === "started" || went === "problem" || went === "busy") {
-          closeSelectionMenu(editor);
-          return false;
-        }
+      // Nothing said yet (Edit with AI…, Translate… with no language): the User says it in the
+      // Note's input, the words selected as its quote, rather than in another app (#3764).
+      if (words === "") {
+        focusNoteAsk(mindId);
+        return false;
+      }
+      const went = await askFromSelection(editor.state, mindId, words);
+      if (went === "started" || went === "problem" || went === "busy") {
+        closeSelectionMenu(editor);
+        return false;
       }
     }
     return handOver(editor, mindId, ownAi, instruction, range);
