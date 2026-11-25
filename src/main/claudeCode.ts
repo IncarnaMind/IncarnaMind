@@ -237,7 +237,7 @@ const write = (stdin: Writable, message: Record<string, unknown>) => {
 };
 
 /** Claude Code didn't take the `initialize` that registers IncarnaMind's hook: nothing was sent. */
-export class ClaudeCodeHookError extends Error {
+class ClaudeCodeHookError extends Error {
   constructor() {
     super("Claude Code didn't take IncarnaMind's hook, so the request wasn't sent.");
     this.name = "ClaudeCodeHookError";
