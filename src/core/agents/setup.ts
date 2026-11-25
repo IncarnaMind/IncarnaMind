@@ -283,8 +283,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
   /** Settings files written, by pairing, while their Undo stands. */
   const written = new Map<string, Written[]>();
   /**
-   * One set-up, Undo or Disconnect of an agent at a time, by its client, so two presses at once
-   * find the one connection, and none writes the entry of a pairing another is taking away.
+   * One set-up, Undo, Disconnect, Repair or install again of an agent at a time, by its client, so
+   * two presses at once find the one connection, none writes the entry of a pairing another is
+   * taking away, and none hands its agent a key another has just replaced.
    */
   const clientTurns = new Map<string, Promise<void>>();
   const clientOf = (pairingId: unknown) =>
@@ -637,7 +638,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
     written.delete(pairing.id);
     madeAgain.delete(pairing.id);
     const files = settingsFilesFor(pairing.client);
-    const token = (await options.agents.launch(pairing.id)).env[AGENT_TOKEN_ENV] ?? "";
+    // A key that can't be read leaves its entry unknown, which is no reason to keep the pairing.
+    const token =
+      (await options.agents.launch(pairing.id).catch(() => null))?.env[AGENT_TOKEN_ENV] ?? "";
     const created = options.agents.created(pairing.id);
     for (const file of files) {
       await exclusive(pathOf(file), async () => {
@@ -789,26 +792,27 @@ export function createAgentSetup(options: AgentSetupOptions) {
     },
 
     /** Makes the bundle of a pairing waiting for its agent or running a legacy shim anew and opens it, or reopens an install link. */
-    async openInstallAgain(pairingId: unknown): Promise<void> {
-      const { pairings, awaitingInstall, shimsOutOfDate } = options.agents.settings();
-      const pairing = pairings.find((each) => each.id === pairingId);
-      if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
-      const client = clientDefinition(pairing.client);
-      if (client?.setup === "link") {
-        if (pairing.lastUsedAt !== null || connectedOnce.has(pairing.id)) return;
-        if (!options.openLink || !client.link) {
-          throw new Error("This copy of IncarnaMind can't open other apps.");
+    openInstallAgain: (pairingId: unknown): Promise<void> =>
+      inTurn(clientTurns, clientOf(pairingId), async () => {
+        const { pairings, awaitingInstall, shimsOutOfDate } = options.agents.settings();
+        const pairing = pairings.find((each) => each.id === pairingId);
+        if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
+        const client = clientDefinition(pairing.client);
+        if (client?.setup === "link") {
+          if (pairing.lastUsedAt !== null || connectedOnce.has(pairing.id)) return;
+          if (!options.openLink || !client.link) {
+            throw new Error("This copy of IncarnaMind can't open other apps.");
+          }
+          await options.openLink(client.link(await options.agents.launch(pairing.id)));
+          return;
         }
-        await options.openLink(client.link(await options.agents.launch(pairing.id)));
-        return;
-      }
-      if (client?.setup !== "bundle") return;
-      if (!awaitingInstall.includes(pairing.id) && !shimsOutOfDate.includes(pairing.id)) return;
-      const launch = shimsOutOfDate.includes(pairing.id)
-        ? await options.agents.rotateKey(pairing.id)
-        : await options.agents.launch(pairing.id);
-      await openBundle(pairing.id, launch);
-    },
+        if (client?.setup !== "bundle") return;
+        if (!awaitingInstall.includes(pairing.id) && !shimsOutOfDate.includes(pairing.id)) return;
+        const launch = shimsOutOfDate.includes(pairing.id)
+          ? await options.agents.rotateKey(pairing.id)
+          : await options.agents.launch(pairing.id);
+        await openBundle(pairing.id, launch);
+      }),
 
     async settingsFor(pairingId: unknown) {
       const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
@@ -844,14 +848,15 @@ export function createAgentSetup(options: AgentSetupOptions) {
     },
 
     /** Writes a pairing's entry again with the program as it is now: the User's Repair (#3644). */
-    async repair(pairingId: unknown): Promise<AgentSetupResult> {
-      const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
-      const client = pairing ? clientDefinition(pairing.client) : undefined;
-      if (!pairing || !client) throw new NotFoundError({ key: "error.agent.notConnected" });
-      const result = await install(client, pairing.id, await options.agents.launch(pairing.id));
-      options.agents.announce();
-      return result;
-    },
+    repair: (pairingId: unknown): Promise<AgentSetupResult> =>
+      inTurn(clientTurns, clientOf(pairingId), async () => {
+        const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
+        const client = pairing ? clientDefinition(pairing.client) : undefined;
+        if (!pairing || !client) throw new NotFoundError({ key: "error.agent.notConnected" });
+        const result = await install(client, pairing.id, await options.agents.launch(pairing.id));
+        options.agents.announce();
+        return result;
+      }),
 
     /** At start-up: the Skill's copies IncarnaMind wrote, brought up to the current text. */
     refreshSkills: () => refreshSkills(),

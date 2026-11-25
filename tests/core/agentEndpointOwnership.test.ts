@@ -619,7 +619,8 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect((await core.getAgents()).shimsOutOfDate).toEqual([]);
   }, 60_000);
 
-  it("set up again where its key can't be read, an app's one connection gets a new key: the new one works, the old is refused", async () => {
+  /** Claude connected, then the app started again with its key gone from the keychain, as when the keyring changed. */
+  async function keyUnreadable() {
     const { core, start, keychain, folderIds, dataDir } = await claudeComputer();
     const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
     const oldLaunch = await core.getAgentLaunch(pairing.id);
@@ -630,7 +631,11 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     const restarted = start();
     await expect.poll(() => agentSocketAnswers(socketPath)).toBe(true);
     await expect(restarted.getAgentLaunch(pairing.id)).rejects.toThrow(/can’t be read/);
+    return { restarted, pairing, oldLaunch, folderIds };
+  }
 
+  it("set up again where its key can't be read, an app's one connection gets a new key: the new one works, the old is refused", async () => {
+    const { restarted, pairing, oldLaunch, folderIds } = await keyUnreadable();
     const again = await restarted.setUpAgent({ client: "claude-desktop", folderIds });
     expect(again.pairing.id).toBe(pairing.id);
     expect((await restarted.getAgents()).pairings).toHaveLength(1);
@@ -643,6 +648,18 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     } finally {
       await agent.close();
     }
+  }, 60_000);
+
+  it("a connection whose key can't be read here still disconnects, its consent gone with it", async () => {
+    const { restarted, pairing } = await keyUnreadable();
+    const consent = async () =>
+      (await restarted.listDataFlows()).find(
+        (each) => each.flow.id === "agents" && each.flow.service.id === `agent:${pairing.id}`,
+      )?.consent;
+    expect(await consent()).toBe("accepted");
+    await restarted.disconnectAgent(pairing.id);
+    expect((await restarted.getAgents()).pairings).toEqual([]);
+    expect(await consent()).not.toBe("accepted");
   }, 60_000);
 
   it("signs only the matching keyId, and the app refuses forged, reflected, and replayed line 3 proofs", async () => {
