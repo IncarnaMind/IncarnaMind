@@ -364,11 +364,11 @@ for (const language of ["en", "zh-CN"] as const) {
         .poll(typedInClaudeCode)
         .toEqual([asked, t("agents.ask.line.check", { title: `“${walk.title}”` })]);
       const badge = window.getByTestId("badge-asked");
-      await expect(badge).toHaveText(t("agents.asked.short.asked"));
+      await expect(badge).toHaveText(t("agents.asked.short.asked", { agent: "Claude Code" }));
       const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
       );
-      await expect(badge).toHaveText(t("agents.asked.short.working"));
+      await expect(badge).toHaveText(t("agents.asked.short.working", { agent: "Claude Code" }));
       const results = given.sentences.map((sentence) => {
         const at = walk.said.findIndex((said) => sentence.text.startsWith(said.text));
         const said = walk.said[at];
