@@ -199,13 +199,16 @@ describe("Record a voice memo (#1568)", { timeout: 60_000 }, () => {
     core.close();
   });
 
-  // protects=without the recording notice read, nothing is made and nothing records; fails_when=a Mind or a Meeting is left behind, or audio is captured; no_claim=the notice's words, which the e2e covers.
-  test("before the recording notice is read, it makes nothing", async () => {
+  // protects=the first memo records at once, with no notice to read first, and turns no other setting on (#3762); fails_when=it waits for a notice, or another setting changes; no_claim=the words on screen, which the e2e covers.
+  test("the first memo records at once and turns nothing else on", async () => {
     const { core } = await transcribingCore(await createTempDataFolder());
     await core.updateSettings({ device: { meetingNoticeAccepted: false } });
-    await expect(core.recordMemo()).rejects.toThrow();
-    expect(await core.listMeetings()).toEqual([]);
-    expect(await core.listMinds()).toEqual([]);
+    const before = await core.getSettings();
+    expect((await core.recordMemo()).status).toBe("recording");
+    expect(await core.getSettings()).toEqual({
+      ...before,
+      device: { ...before.device, meetingNoticeAccepted: true },
+    });
     core.close();
   });
 

@@ -936,7 +936,7 @@ describe("Keeping a Meeting's audio, and saving it (#687)", () => {
 });
 
 describe("What a Meeting needs", () => {
-  test("A copy that can record offers a Meeting at once, in a Folder given, and the recording notice is read before it starts", async () => {
+  test("A copy that can record offers a Meeting at once, in a Folder given, and the first one records at once, turning nothing else on", async () => {
     const dataDir = await createTempDataFolder();
     const nothing = startCore(await createTempDataFolder());
     await expect(nothing.createMeeting()).rejects.toThrow(/can't record audio/);
@@ -949,11 +949,17 @@ describe("What a Meeting needs", () => {
       folder.id,
     );
     const { id } = await core.createMeeting();
-    await expect(core.startMeeting({ meetingId: id })).rejects.toThrow(/notice/);
-    expect(capture.started).toBe(0);
-
-    await core.updateSettings({ device: { meetingNoticeAccepted: true } });
+    const before = await core.getSettings();
+    expect(before.device.meetingNoticeAccepted).toBe(false);
     expect((await core.startMeeting({ meetingId: id })).status).toBe("recording");
+    expect(capture.started).toBe(1);
+
+    // Only the record that Meetings are in use changes, which the offers to take notes wait for.
+    const after = await core.getSettings();
+    expect(after).toEqual({
+      ...before,
+      device: { ...before.device, meetingNoticeAccepted: true },
+    });
   });
 
   test("one Meeting records at a time", async () => {

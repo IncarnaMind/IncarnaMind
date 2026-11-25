@@ -24,7 +24,7 @@ export const STOP_AFTER_CALL_MS = 30_000;
 /**
  * Whether an offer to take notes may show, by the User's switches in Settings › General (#189):
  * the calendar's before a calendar meeting (#207), a call's when `app` took the microphone.
- * Offers wait for Meetings to be set up: the recording notice read on this device.
+ * Offers wait for Meetings to be in use: a first recording made on this device.
  */
 export function offerAllowed(
   device: Pick<

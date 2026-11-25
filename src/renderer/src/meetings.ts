@@ -10,9 +10,7 @@ import { errorMessage } from "./errors";
 import { translateNow } from "./i18n";
 import { currentMindIdOf } from "./layoutSlice";
 import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
-import { offersCanTurnOn } from "./platformOffers";
 import { useAppStore } from "./store";
-import { closeTip } from "./tips";
 import { useUndo } from "./undo";
 
 interface MeetingsState {
@@ -21,8 +19,6 @@ interface MeetingsState {
   problems: Readonly<Record<string, string>>;
   /** What went wrong deleting or keeping a Meeting's audio, said on its audio line (#687). */
   audioProblems: Readonly<Record<string, string>>;
-  /** The Meeting whose Start, or the voice memo, waits for the one-time recording notice. */
-  noticeFor: { meetingId: string; systemAudio: boolean } | { memo: true } | null;
   starting: Readonly<Record<string, true>>;
   /** The Meeting whose start block Record just made: its Start recording takes the focus once it shows. */
   startToFocus: string | null;
@@ -46,28 +42,22 @@ interface MeetingsState {
   load(): Promise<void>;
   /**
    * "Record a meeting": the Meeting recording now, opened, or else a new Mind in a tab of its
-   * own, in the Folder of the Mind in view; it starts recording at once once the User has read
-   * the one-time notice, and shows the start block before.
+   * own, in the Folder of the Mind in view, recording at once (#3762).
    */
   record(): Promise<void>;
   /**
    * Join and record (#190): a Meeting in this Note, the one a calendar event's Take notes made,
-   * recording at once once the User has read the one-time notice; the Meeting recording now is
-   * opened instead, as Record a meeting opens it.
+   * recording at once; the Meeting recording now is opened instead, as Record a meeting opens it.
    */
   recordIn(mindId: string): Promise<void>;
   /**
    * "Record a voice memo" (#1568): the Meeting recording now, opened; else a memo records at
    * once, in the empty Mind in front, or in a new Mind in a tab of its own, in the Folder of the
-   * Mind in front (#1362). The first time, after the one-time recording notice.
+   * Mind in front (#1362).
    */
   recordMemo(): Promise<void>;
   clearCantRecord(): void;
-  /** Start recording, after the one-time notice if this device hasn't shown it. */
   start(meetingId: string, systemAudio: boolean): Promise<void>;
-  /** The notice was read: recording starts, and the notice isn't shown again. */
-  acceptNotice(): Promise<void>;
-  cancelNotice(): void;
   pause(meetingId: string): Promise<void>;
   resume(meetingId: string): Promise<void>;
   setMicrophonePaused(meetingId: string, paused: boolean): Promise<void>;
@@ -173,20 +163,13 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     }
   };
 
-  /**
-   * A Meeting just made, shown (`show`) and started: at once once the one-time notice was read,
-   * else from its start block, which then takes the focus.
-   */
-  const startMade = async (meeting: Meeting, settings: Settings, show: () => Promise<unknown>) => {
-    // Record starts at once (#3762): the first time, `start` shows the one card before it records.
-    const starts = settings.device.meetingNoticeAccepted || meeting.kind === "meeting";
-    if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
+  /** A Meeting just made, shown (`show`) and started at once, the first time too (#3762). */
+  const startMade = async (meeting: Meeting, show: () => Promise<unknown>) => {
+    set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
     // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
-    // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.
-    if (starts) useAppStore.setState({ bodyToFocus: meeting.mindId });
-    else set({ startToFocus: meeting.id });
+    useAppStore.setState({ bodyToFocus: meeting.mindId });
     await show();
-    if (starts) await get().start(meeting.id, meeting.systemAudio);
+    await get().start(meeting.id, meeting.systemAudio);
     // The core's event can come after start() returns, and showing the start block between
     // would flash it: the Meeting leaves "starting" with its status, or here if the start failed.
     if (meeting.id in get().problems) set(stopStarting(meeting.id));
@@ -196,7 +179,6 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
     meetings: [],
     problems: {},
     audioProblems: {},
-    noticeFor: null,
     cantRecord: false,
     starting: {},
     startToFocus: null,
@@ -231,7 +213,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         const folderId = minds.find((each) => each.id === inView)?.folderId ?? null;
         const meeting = await core.createMeeting(folderId ? { folderId } : undefined);
         created = meeting.id;
-        await startMade(meeting, settings, () =>
+        await startMade(meeting, () =>
           // A tab of its own, as New Mind opens one: never in place of the Mind the User is in.
           useAppStore.getState().changeLayout({
             type: "open",
@@ -265,7 +247,7 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         set((state) => ({
           meetings: [meeting, ...state.meetings.filter((each) => each.id !== meeting.id)],
         }));
-        await startMade(meeting, settings, async () => undefined);
+        await startMade(meeting, async () => undefined);
       } catch (error) {
         useAppStore.getState().reportError(error);
         if (created) set({ ...stopStarting(created)(get()), startToFocus: null });
@@ -284,54 +266,15 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
         set({ cantRecord: true });
         return;
       }
-      if (!settings.device.meetingNoticeAccepted) {
-        set({ noticeFor: { memo: true } });
-        return;
-      }
       await memoNow();
     },
 
     clearCantRecord: () => set({ cantRecord: false }),
 
     async start(meetingId, systemAudio) {
-      if (!useAppStore.getState().settings?.device.meetingNoticeAccepted) {
-        set({ noticeFor: { meetingId, systemAudio } });
-        return;
-      }
       await attempt(meetingId, () => core.startMeeting({ meetingId, systemAudio }));
     },
 
-    async acceptNotice() {
-      const waiting = get().noticeFor;
-      set({ noticeFor: null });
-      if (!waiting) return;
-      if ("memo" in waiting) {
-        try {
-          await core.updateSettings({ device: { meetingNoticeAccepted: true } });
-        } catch (error) {
-          useAppStore.getState().reportError(error);
-          return;
-        }
-        await memoNow();
-        return;
-      }
-      await attempt(waiting.meetingId, async () => {
-        // Setting up Meetings turns on the offers to take notes and what they need (#189), as the
-        // sheet says: Home's line for those set up before has nothing left to ask.
-        const offers = offersCanTurnOn();
-        await core.updateSettings({
-          device: {
-            meetingNoticeAccepted: true,
-            ...(offers && { keepRunning: true, callOffers: true }),
-          },
-        });
-        closeTip("call-offers");
-        if (offers) core.setOpenAtLogin(true).catch(useAppStore.getState().reportError);
-        await core.startMeeting(waiting);
-      });
-    },
-
-    cancelNotice: () => set({ noticeFor: null }),
     pause: (meetingId) => attempt(meetingId, () => core.pauseMeeting(meetingId)),
     resume: (meetingId) => attempt(meetingId, () => core.resumeMeeting(meetingId)),
     async setMicrophonePaused(meetingId, paused) {

@@ -239,7 +239,11 @@ export interface MeetingsOptions {
   dataDir: string;
   now: () => string;
   capture: AudioCapture | undefined;
-  noticeAccepted(): boolean;
+  /**
+   * A recording started: Meetings are in use on this device, which the offers to take notes wait
+   * for (`offerAllowed`). It turns nothing on.
+   */
+  recorded(): void;
   /** The "What is recorded" choice in Settings. */
   systemAudioByDefault(): boolean;
   /** "Keep a meeting's audio" in Settings (#687): a Meeting that starts then keeps its audio. */
@@ -910,12 +914,12 @@ export function createMeetings(options: MeetingsOptions) {
     }
   }
 
-  /** What recording needs: a copy that records, the notice read, and nothing else capturing. */
+  /**
+   * What recording needs: a copy that records and nothing else capturing. The first recording
+   * starts at once, with nothing to read first (#3762).
+   */
   function assertCanStart(meetingId: string | null): void {
     if (!capture) throw new InvalidInputError("This copy of IncarnaMind can't record audio.");
-    if (!options.noticeAccepted()) {
-      throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
-    }
     assertNoneCapturing(meetingId);
   }
 
@@ -1156,10 +1160,11 @@ export function createMeetings(options: MeetingsOptions) {
       system_audio: system ? 1 : 0,
       periods: JSON.stringify([period]),
       started_at: at,
-      // As the setting is when it starts: what the recording notice said holds for it.
+      // As the setting is when it starts: Settings › Meetings said so before it started.
       ...(options.keepAudioByDefault() && { audio_kept_at: at }),
     });
     begin(rowOf(row.id), period);
+    options.recorded();
     log.info("meeting.started", { meetingId: row.id, kind: row.kind, systemAudio: system });
     changed();
     return toMeeting(rowOf(row.id));

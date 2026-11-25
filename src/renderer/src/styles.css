@@ -2703,9 +2703,10 @@
       .meeting-foot-stack {
         align-items: center;
       }
-      .meeting-foot-tip {
+      .meeting-foot-over {
         left: 50%;
         translate: -50% 0;
+        align-items: center;
       }
     }
   }
@@ -2750,7 +2751,9 @@
     align-items: center;
     gap: 2px;
     width: 112px;
+    min-width: 0;
     height: 44px;
+    margin: 0;
     padding: 0 5px;
     border: 1px solid var(--color-rule);
     border-radius: 22px;
@@ -2842,40 +2845,42 @@
     width: 16px !important;
     height: 16px !important;
   }
-  /* The foot is one row: Template and Language fold behind ⋯ where the row can't hold them. */
-  .meeting-sheet-foot {
-    container: sheet-foot / inline-size;
-    flex-wrap: nowrap !important;
-    [data-fold="template"] {
-      flex-shrink: 1;
-      min-width: 0;
-    }
-    .meeting-sheet-more {
-      display: none;
-    }
-  }
-  @container sheet-foot (width < 680px) {
-    .meeting-sheet-foot [data-fold="template"],
-    .meeting-sheet-foot [data-sheet-fold] {
-      display: none;
-    }
-    .meeting-sheet-foot .meeting-sheet-more {
-      display: inline-flex;
-    }
-  }
   /* The finished change is said once, where the conversation shows it: line or column (#3762). */
   .app-card:has([data-testid="note-ask-undo"]) [data-testid="applied-line"] {
     display: none !important;
   }
-  .meeting-foot-tip {
+  /*
+   * What the meeting says over its control, each a card of its own: the microphone's problem, the
+   * first tip, the shared screen's question or state. Over the page, so the row never moves.
+   */
+  .meeting-foot-over {
     position: absolute;
     bottom: calc(100% + 8px);
     left: 0;
     display: flex;
+    flex-direction: column;
     align-items: flex-start;
     gap: 8px;
     width: max-content;
-    max-width: 420px;
+    max-width: min(480px, 100vw - 32px);
+    .meeting-screen-line {
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: var(--color-sheet);
+      box-shadow: var(--shadow-popover);
+      font-size: 13px;
+      line-height: 20px;
+    }
+    .meeting-screen-icon {
+      width: 16px;
+      height: 16px;
+    }
+  }
+  .meeting-foot-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 100%;
     padding: 8px 8px 8px 12px;
     border-radius: 10px;
     background: var(--color-sheet);
@@ -2971,34 +2976,12 @@
   .meeting-sheet-foot {
     display: flex;
     flex: none;
-    flex-wrap: wrap;
     align-items: center;
     gap: 2px;
     padding: 8px;
     border-top: 1px solid var(--color-rule);
     font-size: 13px;
     line-height: 20px;
-  }
-  .meeting-card-rows {
-    display: flex;
-    flex-direction: column;
-    margin-top: 16px;
-    border-top: 1px solid var(--color-rule);
-  }
-  .meeting-card-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    min-height: 52px;
-    border-bottom: 1px solid var(--color-rule);
-    font-size: 14px;
-    line-height: 20px;
-    color: var(--color-ink);
-  }
-  .meeting-card-done {
-    padding-right: 8px;
-    color: var(--color-ink-meta);
   }
   .note-ask {
     position: relative;

@@ -5628,7 +5628,10 @@ export function createCore(adapters: CoreAdapters): Core {
       const template = skills.list().find((skill) => skill.id === skillId && skill.meetingTemplate);
       return helpTemplateForWriteup(template?.builtIn ? template.name : null);
     },
-    noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
+    recorded: () => {
+      if (!settings.get().device.meetingNoticeAccepted)
+        settings.update({ device: { meetingNoticeAccepted: true } });
+    },
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
     language: () => settings.get().language,

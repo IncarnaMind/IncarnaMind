@@ -6658,7 +6658,6 @@ export const en = {
   "error.meeting.purgeFailed":
     "Deleted, but a meeting’s recording is still on this computer. IncarnaMind tries again next start.",
   "error.meeting.otherRecording": "Another Meeting is being recorded. Stop it first.",
-  "error.meeting.noticeUnread": "Read the recording notice before recording a Meeting.",
   "error.meeting.noSharedScreen": "This copy of IncarnaMind can’t read a shared screen.",
   "error.meeting.noWindow": "Choose the window to read.",
   "error.meeting.screenNotKept": "That screen from the meeting isn’t kept any more.",
@@ -7462,12 +7461,6 @@ export const en = {
   "meetings.foot.micSilent": "Your mic isn’t heard",
   "meetings.foot.micMissing": "No mic found",
   "meetings.foot.micEnded": "Your mic stopped",
-  "meetings.card.title": "Record your meetings",
-  "meetings.card.body": "Transcribed on this computer. Nothing is sent anywhere.",
-  "meetings.card.mine": "Transcribe my voice",
-  "meetings.card.theirs": "Transcribe the other side of the call",
-  "meetings.card.allow": "Allow",
-  "meetings.card.allowed": "Allowed",
   "meetings.line.interrupted":
     "IncarnaMind closed while recording. Everything up to {time} is saved.",
   "meetings.line.resume": "Resume",
@@ -7567,11 +7560,10 @@ export const en = {
   "meetings.screen.look": "Look at the screen",
   "citation.screen.fromPicture":
     "Read from the shared screen at {time}; it can’t be checked against text.",
-  "meetings.screen.ask": "Will someone share their screen?",
   "meetings.screen.askProvider":
-    "When you ask, {provider} can receive its text and a picture if needed.",
+    "Read a shared screen? When you ask, {provider} gets its text, or a picture if needed.",
   "meetings.screen.askModel":
-    "When you ask, your selected model can receive its text and a picture if needed.",
+    "Read a shared screen? When you ask, your AI model gets its text, or a picture if needed.",
   "meetings.screen.askExternal": "Your connected AI uses the transcript in Call Help.",
   "meetings.screen.choose": "Choose window…",
   "meetings.screen.decline": "Not this time",

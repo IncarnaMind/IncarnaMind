@@ -31,27 +31,37 @@ import {
 import { CallHelpToggle, MeetingLines } from "../MeetingBar";
 import { MeetingAudioLine } from "../MeetingInMind";
 import { ProblemLine } from "../ProblemLine";
+import { SharedScreenLine } from "../SharedScreenLine";
 import { TipPopover } from "../TipPopover";
 import { useTabPlace } from "../tabs/tabItems";
 import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { useTip } from "../useTip";
-import { LevelBars } from "./LevelBars";
-import {
-  applyMeetingWriteupTemplate,
-  MeetingTemplatePicker,
-  MeetingTemplateRows,
-} from "./MeetingTemplatePicker";
+import { LevelBars, levelName } from "./LevelBars";
+import { applyMeetingWriteupTemplate, MeetingTemplateRows } from "./MeetingTemplatePicker";
 
-/** Whether a meeting Note's Transcript sheet is up, per Note, and the words a Citation asked it to show. */
-const useSheets = create<{ open: Record<string, boolean>; tipSeen: boolean; quote: string }>(
-  () => ({ open: {}, tipSeen: false, quote: "" }),
-);
+/**
+ * Whether a meeting Note's Transcript sheet is up, per Note, and the words a Citation asked it to
+ * show. `refocus` counts each fold that gives the focus back to the control's chevron.
+ */
+const useSheets = create<{
+  open: Record<string, boolean>;
+  tipSeen: boolean;
+  quote: string;
+  refocus: Record<string, number>;
+}>(() => ({ open: {}, tipSeen: false, quote: "", refocus: {} }));
 const setSheet = (mindId: string, open: boolean) =>
   useSheets.setState((state) => ({
     open: { ...state.open, [mindId]: open },
     tipSeen: true,
     quote: open ? state.quote : "",
+  }));
+/** Folds the sheet from inside it (Esc, Hide): the focus goes back to the chevron it rose from. */
+const foldSheet = (mindId: string) =>
+  useSheets.setState((state) => ({
+    open: { ...state.open, [mindId]: false },
+    quote: "",
+    refocus: { ...state.refocus, [mindId]: (state.refocus[mindId] ?? 0) + 1 },
   }));
 export const useSheetOpen = (mindId: string) => useSheets((state) => state.open[mindId] === true);
 
@@ -100,6 +110,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   const t = useT();
   const open = useSheetOpen(mindId);
   const tipSeen = useSheets((state) => state.tipSeen);
+  const refocus = useSheets((state) => state.refocus[mindId] ?? 0);
   const [asked, setAsked] = useState(false);
   const live = isLive(meeting);
   const paused = meeting.status === "paused";
@@ -123,38 +134,41 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   };
   return (
     <div className="meeting-foot-stack">
-      {micProblem && (
-        <div data-testid="meeting-foot-problem" className="meeting-foot-tip meeting-foot-problem">
-          <ProblemLine
-            role="alert"
-            testId="meeting-foot-problem-line"
-            action={{
-              label: t(
-                isMacOS() ? "meetings.line.openSettings.mac" : "meetings.line.openSettings.other",
-              ),
-              testId: "meeting-foot-problem-settings",
-              onClick: () => void openSettings(meeting.id, "microphone"),
-            }}
-          >
-            {t(micProblem)}
-          </ProblemLine>
-        </div>
-      )}
-      {live && !tipSeen && !micProblem && (
-        <div role="status" data-testid="meeting-foot-tip" className="meeting-foot-tip">
-          <span>{t("meetings.foot.tip")}</span>
-          <button
-            type="button"
-            data-testid="meeting-foot-tip-close"
-            aria-label={t("meetings.foot.tipClose")}
-            title={t("meetings.foot.tipClose")}
-            onClick={() => useSheets.setState({ tipSeen: true })}
-            className="meeting-foot-tip-close"
-          >
-            <CloseLineIcon className="size-3.5" />
-          </button>
-        </div>
-      )}
+      <div className="meeting-foot-over">
+        {micProblem && (
+          <div data-testid="meeting-foot-problem" className="meeting-foot-tip meeting-foot-problem">
+            <ProblemLine
+              role="alert"
+              testId="meeting-foot-problem-line"
+              action={{
+                label: t(
+                  isMacOS() ? "meetings.line.openSettings.mac" : "meetings.line.openSettings.other",
+                ),
+                testId: "meeting-foot-problem-settings",
+                onClick: () => void openSettings(meeting.id, "microphone"),
+              }}
+            >
+              {t(micProblem)}
+            </ProblemLine>
+          </div>
+        )}
+        {live && !tipSeen && !micProblem && (
+          <div role="status" data-testid="meeting-foot-tip" className="meeting-foot-tip">
+            <span>{t("meetings.foot.tip")}</span>
+            <button
+              type="button"
+              data-testid="meeting-foot-tip-close"
+              aria-label={t("meetings.foot.tipClose")}
+              title={t("meetings.foot.tipClose")}
+              onClick={() => useSheets.setState({ tipSeen: true })}
+              className="meeting-foot-tip-close"
+            >
+              <CloseLineIcon className="size-4" />
+            </button>
+          </div>
+        )}
+        {!open && <SharedScreenLine meeting={meeting} />}
+      </div>
       {!live && !asked && meeting.fill?.state === "own-ai" && (
         <button
           type="button"
@@ -165,10 +179,9 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
           {t("meetings.foot.writeNotes")}
         </button>
       )}
-      <div
+      <fieldset
         data-testid="meeting-foot"
         data-status={meeting.status}
-        role="group"
         aria-label={t("meetings.bar.label")}
         className="meeting-foot"
       >
@@ -183,13 +196,14 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
                 <ResumeLineIcon className="size-4" />
               </SlotButton>
             ) : (
-              <span data-testid="meeting-foot-level" className="meeting-foot-slot">
+              <SlotLevel tip={t(levelName(meeting))}>
                 <LevelBars meeting={meeting} />
-              </span>
+              </SlotLevel>
             )}
             <SlotButton
               testId="meeting-foot-transcript"
               expanded={open}
+              focusOn={refocus}
               tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
               onClick={() => setSheet(mindId, !open)}
             >
@@ -208,6 +222,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             testId="meeting-foot-transcript"
             wide
             expanded={open}
+            focusOn={refocus}
             tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
             onClick={() => setSheet(mindId, !open)}
           >
@@ -215,8 +230,20 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
           </SlotButton>
         )}
-      </div>
+      </fieldset>
     </div>
+  );
+}
+
+/**
+ * The level bars' slot. Not a control, so no Tab stop: the bars give a screen reader their name,
+ * and the pointer gets it as their title.
+ */
+function SlotLevel({ tip, children }: { tip: string; children: ReactNode }) {
+  return (
+    <span data-testid="meeting-foot-level" title={tip} className="meeting-foot-slot">
+      {children}
+    </span>
   );
 }
 
@@ -226,6 +253,7 @@ function SlotButton({
   tip,
   expanded,
   wide = false,
+  focusOn = 0,
   onClick,
   children,
 }: {
@@ -233,11 +261,16 @@ function SlotButton({
   tip: string;
   expanded?: boolean;
   wide?: boolean;
+  /** Each time it grows past 0, the button takes the focus. */
+  focusOn?: number;
   onClick(): void;
   children: ReactNode;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const opened = useTip(trigger);
+  useEffect(() => {
+    if (focusOn > 0) trigger.current?.focus();
+  }, [focusOn]);
   return (
     <>
       <button
@@ -246,14 +279,8 @@ function SlotButton({
         data-testid={testId}
         aria-label={tip}
         aria-expanded={expanded}
-        onClick={() => {
-          // As a native tooltip does: the click hides the name, which would cover the sheet it opens.
-          opened.close();
-          onClick();
-        }}
-        onFocus={(event) => {
-          if (event.currentTarget.matches(":focus-visible")) opened.show();
-        }}
+        onClick={onClick}
+        onFocus={opened.show}
         onBlur={opened.blur}
         onPointerMove={opened.point}
         onPointerLeave={opened.leave}
@@ -282,14 +309,21 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   const place = useTabPlace();
   const tabId = place?.tabId ?? "";
   const documentId = meeting?.transcript?.documentId;
-  const document = useAppStore((state) => state.documents.find((each) => each.id === documentId));
+  const file = useAppStore((state) => state.documents.find((each) => each.id === documentId));
   const target = useMemo<ViewerTarget>(
     () => ({ documentId: documentId ?? "", request: 0 }),
     [documentId],
   );
   const frame = useMemo<ViewerFrame>(
-    () => ({ document, tabId, target, embedded: true, preview: false, keep: () => undefined }),
-    [document, tabId, target],
+    () => ({
+      document: file,
+      tabId,
+      target,
+      embedded: true,
+      preview: false,
+      keep: () => undefined,
+    }),
+    [file, tabId, target],
   );
   const quote = useSheets((state) => state.quote);
   const detailsShown = useMeetings(
@@ -321,8 +355,12 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   });
   useEffect(() => {
     if (!open) return;
+    // Esc closes the innermost thing open: a menu or a dialog over the sheet takes it first.
     const close = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSheet(mindId, false);
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      if (document.querySelector("dialog:modal") !== null) return;
+      event.preventDefault();
+      foldSheet(mindId);
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
@@ -363,7 +401,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 data-testid="meeting-sheet-hide"
                 aria-label={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
                 title={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
-                onClick={() => setSheet(mindId, false)}
+                onClick={() => foldSheet(mindId)}
                 className="meeting-sheet-icon"
               >
                 <ChevronDownLineIcon className="size-4" />
@@ -381,7 +419,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           ) : (
             <div className="meeting-sheet-consent">
               <TranscriptHeadLine
-                playable={meeting.transcript?.state === "saved" && meeting.audio.kept && !!document}
+                playable={meeting.transcript?.state === "saved" && meeting.audio.kept && !!file}
               />
             </div>
           )}
@@ -391,7 +429,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
               <MeetingTranscriptView
                 key={meeting.id}
                 meeting={meeting}
-                document={document}
+                document={file}
                 target={target}
                 aside={null}
               />
@@ -508,28 +546,12 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
       </button>
       <CallHelpToggle />
       <span className="ml-auto" />
-      <MeetingTemplatePicker meeting={meeting} />
-      <button
-        type="button"
-        data-testid="meeting-sheet-language"
-        data-sheet-fold="language"
-        aria-label={t("meetings.foot.languageTip")}
-        title={t("meetings.foot.languageTip")}
-        onClick={() => useAppStore.getState().openSettings("meetings")}
-        className="meeting-button meeting-button--words"
-      >
-        <span>{t("meetings.foot.language")}</span>
-        <ChevronDownLineIcon className="size-3 shrink-0" />
-      </button>
       <SheetMore meeting={meeting} />
     </footer>
   );
 }
 
-/**
- * Where the sheet's foot is too narrow for its row, Template and Language behind one ⋯, so the
- * row never wraps (styles.css, the foot's container query).
- */
+/** Template and Language behind one ⋯ at the foot's end: the sheet is never wider than the text. */
 function SheetMore({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const menu = usePopoverMenu({ align: "end", focus: "first" });

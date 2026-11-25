@@ -3834,13 +3834,14 @@ export interface DeviceSettings {
    */
   checkDecisionModel: CheckDecisionModel | "off" | null;
   /**
-   * The User has read, once on this device, what a recording captures and
-   * that the other people should be told. Recording waits for it.
+   * A Meeting or voice memo has been recorded on this device: the offers to take notes wait for
+   * it. Its name is from when a notice had to be read first; the first recording now starts at
+   * once and the core sets it (#3762). Nothing else is turned on with it.
    */
   meetingNoticeAccepted: boolean;
   /**
-   * The meeting bar asks, when a recording starts, whether someone will
-   * share their screen, to read it for Answers during the call (ADR-0031).
+   * A recording asks, when it starts, whether someone will share their screen, to read it for
+   * Answers during the call (ADR-0031).
    */
   meetingScreenAsk: boolean;
   meetingScreenPictureLimit: number;
