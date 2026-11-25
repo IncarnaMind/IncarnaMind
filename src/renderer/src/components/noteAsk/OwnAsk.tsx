@@ -88,9 +88,8 @@ function useMore(box: RefObject<HTMLElement | null>, key: string, all: boolean) 
 }
 
 /**
- * Text the User must read whole before answering, at most twelve lines until Show all: a command,
- * or what a file it writes holds. Past twelve lines the card says how many more there are, since
- * what is out of sight could be a redirect or a second command.
+ * What a file it writes holds, at most twelve lines until Show all; past twelve lines the card says
+ * how many more there are.
  */
 function Whole({ value, testId, className }: { value: string; testId: string; className: string }) {
   const t = useT();
@@ -127,9 +126,10 @@ function Whole({ value, testId, className }: { value: string; testId: string; cl
 }
 
 /**
- * A value as the User must read it: a command or a search whole, a command under the AI's own words
- * for it when it gave some (two lines of them until Show all); a path or an address with its last
- * part whole and its start cut to two lines until Show all.
+ * A value as the User must read it: a command or a search whole, every line of it, never folded,
+ * since the AI's own words for it, which lead when it gave some (two lines of them until Show all),
+ * may not say what it does, and lines out of sight could hide a second command; a path or an
+ * address with its last part whole and its start cut to two lines until Show all.
  */
 function Value({ action }: { action: NoteAction }) {
   if (action.kind === "command" || action.kind === "search") {
@@ -140,11 +140,14 @@ function Value({ action }: { action: NoteAction }) {
             <span className="own-clamp own-clamp--2">{visible(action.description)}</span>
           </p>
         )}
-        <Whole
-          value={action.value}
-          testId="own-ask-value"
-          className={`own-ask-value--command ${action.description ? "own-ask-value--under" : ""}`}
-        />
+        <pre
+          data-testid="own-ask-value"
+          className={`own-ask-value own-ask-text own-ask-value--command ${
+            action.description ? "own-ask-value--under" : ""
+          }`}
+        >
+          {visible(action.value)}
+        </pre>
       </>
     );
   }

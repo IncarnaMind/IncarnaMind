@@ -3247,9 +3247,6 @@
     font-size: 11px;
     line-height: 16px;
     color: var(--color-ink-secondary);
-    &:not([data-all]) {
-      max-height: calc(12 * 16px + 12px);
-    }
   }
   /* Everything a lasting answer of several parts grants, under its button. */
   .own-ask-grants {
