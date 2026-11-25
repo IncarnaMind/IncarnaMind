@@ -78,7 +78,10 @@ vi.mock("../../src/renderer/src/dragDrop", () => ({
   useDropTarget: () => ({ over: false, props: {} }),
 }));
 vi.mock("../../src/renderer/src/mindStyles", () => ({ useWritingProperties: () => ({}) }));
-vi.mock("../../src/renderer/src/quietAssistant", () => ({ useQuietAssistant: () => null }));
+vi.mock("../../src/renderer/src/quietAssistant", () => ({
+  useQuietAssistant: () => null,
+  useAskPillShown: () => false,
+}));
 vi.mock("../../src/renderer/src/reviewPane", () => ({
   useRoomBeside: () => true,
   useReviewPanes: (select: (state: { panes: Record<string, { over: boolean }> }) => unknown) =>
@@ -93,7 +96,6 @@ vi.mock("../../src/renderer/src/wordImport", () => ({ useWordImport: {} }));
 vi.mock("../../src/renderer/src/components/ExportResultLine", () => ({
   ExportResultLine: () => null,
 }));
-vi.mock("../../src/renderer/src/components/FirstOpenSteps", () => ({ ExampleIntro: () => null }));
 vi.mock("../../src/renderer/src/components/GettingStarted", () => ({ useIsExample: () => false }));
 vi.mock("../../src/renderer/src/components/MakeSkillCard", () => ({ MakeSkillCard: () => null }));
 vi.mock("../../src/renderer/src/components/MeetingInMind", () => ({

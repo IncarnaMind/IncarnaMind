@@ -810,6 +810,10 @@ export interface AgentAccessDeps {
   minds(): Mind[];
   /** The examples' Minds: never the User's, so no share of everything reaches one in no Folder. */
   exampleNotes(): readonly string[];
+  /** The Documents of the example whose Mind this is; null for a Mind that is no example's. */
+  exampleDocuments(mindId: string): readonly string[] | null;
+  /** The examples the User lent this connection (`lentExamples`); set for each connection alone. */
+  lent?(): Lent;
   /** The Mind a Mind was duplicated from; null for one that is no copy. */
   duplicatedFrom(mindId: string): string | null;
   /** These Documents' names and kinds, those that are live, in this order. */
@@ -881,7 +885,7 @@ export interface AgentAccessDeps {
   checksWritten(): boolean;
   citations: AgentCitations;
   /** The requests the User made of their own AI, kept for each agent to read once (./requests). */
-  requests: Pick<AgentRequests, "ofPairing" | "markRead">;
+  requests: Pick<AgentRequests, "ofPairing" | "markRead" | "forMind">;
   /** The checks the User asked of an agent, for a Note it may not have written (./askedChecks). */
   askedChecks: Pick<AskedChecks, "holds" | "end">;
   /** Keeps a call for the pairing's activity list, with the request it read. */
@@ -1351,7 +1355,46 @@ type ReachDeps = Pick<
   | "mindBlocks"
   | "duplicatedFrom"
   | "exampleNotes"
+  | "lent"
 >;
+
+/** The examples a connection reads because the User asked it in them (#3791). */
+export interface Lent {
+  mindIds: ReadonlySet<string>;
+  documentIds: readonly string[];
+}
+
+const NOTHING_LENT: Lent = { mindIds: new Set(), documentIds: [] };
+
+/**
+ * The examples the User lent a connection by asking it in one (#3791): the Note a run was started
+ * from, and each Note the User asked this pairing about, with their Documents. An example holds
+ * nothing of the User's, so asking in it is enough to share it; no share of Folders reaches it.
+ */
+export function lentExamples(
+  deps: Pick<AgentAccessDeps, "exampleNotes" | "exampleDocuments" | "requests">,
+  pairingId: string,
+  grant: RunGrant | undefined,
+): Lent {
+  const examples = deps.exampleNotes();
+  if (examples.length === 0) return NOTHING_LENT;
+  const front =
+    grant?.kind === "conversation"
+      ? grant.front.mindId
+      : grant?.kind === "check"
+        ? grant.mindId
+        : null;
+  const asked = examples.filter(
+    (mindId) =>
+      mindId === front ||
+      deps.requests.forMind(mindId).some((request) => request.pairingId === pairingId),
+  );
+  if (asked.length === 0) return NOTHING_LENT;
+  return {
+    mindIds: new Set(asked),
+    documentIds: asked.flatMap((mindId) => deps.exampleDocuments(mindId) ?? []),
+  };
+}
 
 /** The pairing was given all of the User's Documents and Notes, those added later too (#3544). */
 export const sharesAll = (pairing: Pick<AdmittedPairing, "folderIds">): boolean =>
@@ -1413,9 +1456,9 @@ function pairingWrote(deps: ReachDeps, pairing: AdmittedPairing, mindId: string)
 }
 
 /**
- * Whether `read_mind` reads this Mind for the pairing: in a Folder it reaches, or in none when it
- * wrote it there, or when it was given all and the Mind is no example's. `reached`: the pairing's
- * `reachedFolders`, when the caller has them.
+ * Whether `read_mind` reads this Mind for the pairing: an example the User lent it, in a Folder it
+ * reaches, or in none when it wrote it there, or when it was given all and the Mind is no
+ * example's. `reached`: the pairing's `reachedFolders`, when the caller has them.
  */
 export const pairingReaches = (
   deps: ReachDeps,
@@ -1423,6 +1466,7 @@ export const pairingReaches = (
   mind: Mind,
   reached: ReadonlySet<string> = reachedFolders(deps, pairing),
 ): boolean => {
+  if (deps.lent?.().mindIds.has(mind.id)) return true;
   if (mind.folderId !== null) return reached.has(mind.folderId);
   if (!reached.has(NOT_IN_A_FOLDER_ID)) return false;
   return sharesAll(pairing)
@@ -1498,10 +1542,14 @@ export function holdsMore(
  * alone, and reads only the pairing's Folders, never a file by its path.
  */
 export function createAgentAccess(
-  deps: AgentAccessDeps,
+  shared: AgentAccessDeps,
   pairingId: string,
   grant?: RunGrant,
 ): AgentAccess {
+  const deps: AgentAccessDeps = {
+    ...shared,
+    lent: () => lentExamples(shared, pairingId, grant),
+  };
   const t: Say = (key, params) => deps.say(key, params);
   /**
    * The requests of this run whose changes the window that asked applies once the request ends
@@ -1662,20 +1710,26 @@ export function createAgentAccess(
 
   /**
    * The Documents a call may read: everything its pairing reaches, or only what the Folders it
-   * names hold, the Folders inside them included.
+   * names hold, the Folders inside them included; with no Folder named, or Not in a Folder among
+   * them, the examples lent to it too.
    */
   const scopeOf = (pairing: AdmittedPairing, folderIds: unknown): string[] => {
     if (pairing.folderIds.length === 0) {
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     const reached = reachedFolders(deps, pairing);
-    const holding = (folders: Iterable<string>) =>
-      documentsForPairing(deps, pairing, [...folders], reached);
-    if (folderIds === undefined) return holding(reached);
+    const lent = deps.lent?.().documentIds ?? [];
+    const holding = (folders: Iterable<string>, withLent = false) => [
+      ...new Set([
+        ...documentsForPairing(deps, pairing, [...folders], reached),
+        ...(withLent ? lent : []),
+      ]),
+    ];
+    if (folderIds === undefined) return holding(reached, true);
     if (!Array.isArray(folderIds) || !folderIds.every((id) => typeof id === "string")) {
       throw new AgentRefusedError("invalid", "folderIds must be a list of Folder ids.");
     }
-    if (folderIds.length === 0) return holding(reached);
+    if (folderIds.length === 0) return holding(reached, true);
     if (!folderIds.every((id) => reached.has(id))) {
       throw new AgentRefusedError("outside-scope", t("agents.problem.outside-scope"));
     }
@@ -1687,6 +1741,7 @@ export function createAgentAccess(
             : deps.foldersInside(id).filter((each) => reached.has(each)),
         ),
       ),
+      folderIds.includes(NOT_IN_A_FOLDER_ID),
     );
   };
 
@@ -2483,7 +2538,10 @@ export function createAgentAccess(
    */
   const lookingNow = (pairing: AdmittedPairing, named: RequestNamed): Looking => {
     const reached = reachedFolders(deps, pairing);
-    const readable = new Set(documentsForPairing(deps, pairing, [...reached], reached));
+    const readable = new Set([
+      ...documentsForPairing(deps, pairing, [...reached], reached),
+      ...(deps.lent?.().documentIds ?? []),
+    ]);
     const folders = new Map(deps.folders().map((folder) => [folder.id, folder.name]));
     const documents = new Map(
       deps.documentsNamed([...named.open, ...named.documents]).map((each) => [each.id, each.name]),

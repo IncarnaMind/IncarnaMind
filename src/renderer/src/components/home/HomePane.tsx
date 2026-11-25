@@ -8,6 +8,7 @@ import { useHomeNextStep } from "../../useHomeNextStep";
 import { CallOffersTip } from "./CallOffersTip";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
+import { HomeAsk } from "./HomeAsk";
 import { HomeHeader } from "./HomeHeader";
 import { HomeNextStep } from "./HomeNextStep";
 import { MeetingOfferLine } from "./MeetingOfferLine";
@@ -49,7 +50,9 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
-          {next && (
+          <HomeAsk />
+          {/* Adding files and asking are the input and the buttons above (#3791). */}
+          {next && next.kind !== "add" && next.kind !== "ask" && (
             <div className="mb-6 text-[13px] leading-5">
               <HomeNextStep step={next} />
             </div>

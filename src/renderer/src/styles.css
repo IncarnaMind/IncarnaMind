@@ -2693,6 +2693,14 @@
   .note-ask {
     position: relative;
   }
+  /* An example's one line, just above its input, starting where the input's words start (#3791). */
+  .example-line {
+    padding: 10px 0 0 18px;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 18px;
+    color: var(--color-ink-meta);
+  }
   /* Where the input can't show, the pill or the line that stands in its place, centred. */
   .note-foot-ask {
     display: flex;

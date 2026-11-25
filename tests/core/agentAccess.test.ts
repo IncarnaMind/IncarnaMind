@@ -14,7 +14,9 @@ import {
   MAX_CHECKED_CLAIMS,
   MAX_CHECKS_AN_HOUR,
 } from "../../src/core/agents/access";
+import { CONVERSATION_TOOLS, type RunGrant } from "../../src/core/agents/askedChecks";
 import type { AgentCitation } from "../../src/core/agents/citations";
+import type { KeptRequest } from "../../src/core/agents/requests";
 import { createAgentWorkings } from "../../src/core/agents/workings";
 import type { OutsideAnswer } from "../../src/core/answers";
 import { createElement } from "../../src/core/answers/blocks";
@@ -33,7 +35,11 @@ import { recordNoteWriter } from "../../src/shared/noteWriter";
 
 const AT = "2026-11-01T00:00:00.000Z";
 
-function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessDeps> = {}) {
+function accessAnswering(
+  outcome: OutsideAnswer,
+  overrides: Partial<AgentAccessDeps> = {},
+  grant?: RunGrant,
+) {
   const deps: AgentAccessDeps = {
     sorting: { list: vi.fn(), submit: vi.fn() },
     admit: (pairingId) => ({
@@ -78,6 +84,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     documentsNamed: () => [],
     duplicatedFrom: () => null,
     exampleNotes: () => [],
+    exampleDocuments: () => null,
     liveDocuments: () => [],
     mindBlocks: () => {
       throw new Error("Not called.");
@@ -118,7 +125,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
       },
       documentsOf: () => new Set(),
     },
-    requests: { ofPairing: () => [], markRead: () => null },
+    requests: { ofPairing: () => [], markRead: () => null, forMind: () => [] },
     askedChecks: { holds: () => false, end: () => undefined },
     record: () => undefined,
     say: (key, params) => translate("en", key, params),
@@ -151,7 +158,7 @@ function accessAnswering(outcome: OutsideAnswer, overrides: Partial<AgentAccessD
     checksWritten: () => false,
     ...overrides,
   };
-  return createAgentAccess(deps, "pairing");
+  return createAgentAccess(deps, "pairing", grant);
 }
 
 describe("refreshing a shared live Transcript", () => {
@@ -1043,5 +1050,58 @@ describe("a call that waits while what the agent reaches changes (#3458 review)"
     expect(reads).toEqual([["tides"], ["harbour"]]);
     expect(checked).toMatchObject({ needLook: 0, claims: [] });
     expect(JSON.stringify(checked)).not.toContain("Tides says");
+  });
+});
+
+describe("an example the User asks their AI in (#3791)", () => {
+  const EXAMPLE = "credit-paper";
+  const askedIn = (pairingId: string): KeptRequest => ({
+    id: "request",
+    pairingId,
+    mindId: EXAMPLE,
+    title: "Draft: credit committee paper",
+    sentences: [],
+    text: "",
+    named: null,
+    createdAt: AT,
+    readAt: null,
+  });
+  const exampleAccess = (asked: readonly KeptRequest[], grant?: RunGrant) =>
+    accessAnswering(
+      { asked: false, reason: "not-ready" },
+      {
+        exampleNotes: () => [EXAMPLE],
+        exampleDocuments: (mindId) => (mindId === EXAMPLE ? ["credit-results"] : null),
+        requests: {
+          ofPairing: () => [],
+          markRead: () => null,
+          forMind: (mindId) => (mindId === EXAMPLE ? [...asked] : []),
+        },
+        search: async (_query, documentIds) =>
+          documentIds.map((documentId) => passageOf(documentId, documentId)),
+      },
+      grant,
+    );
+  const searched = async (access: ReturnType<typeof exampleAccess>) =>
+    (await access.search({ query: "gross margin" })).passages.map((each) => each.documentId);
+
+  // protects=the examples reach no connection the User didn't ask in one of them, so a search of their own Library never brings the app's examples; fails_when=an example's Documents are searched with no request from it
+  it("lends nothing to a connection never asked in one", async () => {
+    expect(await searched(exampleAccess([]))).toEqual(["tides"]);
+    expect(await searched(exampleAccess([askedIn("another")]))).toEqual(["tides"]);
+  });
+
+  // protects=asking from the example's own input reaches the example's Note and Documents, as its first answer needs; fails_when=the example stays out of reach for the request the User typed there
+  it("lends the example to a connection asked there, by a request or a run started from it", async () => {
+    expect(await searched(exampleAccess([askedIn("pairing")]))).toEqual([
+      "tides",
+      "credit-results",
+    ]);
+    const run: RunGrant = {
+      kind: "conversation",
+      tools: CONVERSATION_TOOLS,
+      front: { mindId: EXAMPLE, selection: null, words: "What was the margin?", folder: null },
+    };
+    expect(await searched(exampleAccess([], run))).toEqual(["tides", "credit-results"]);
   });
 });

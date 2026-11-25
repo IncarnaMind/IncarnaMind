@@ -13,16 +13,16 @@ import { assistantTabOf } from "../../layoutSlice";
 import { useMeetingOf } from "../../meetings";
 import { hasMeetingViews, useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
-import { useHiddenForOwnAi, useOwnAiOnly } from "../../ownAiPanel";
-import { useQuietAssistant } from "../../quietAssistant";
+import { useOwnAiOnly } from "../../ownAiPanel";
+import { useAskPillShown } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
 import { useAppStore } from "../../store";
 import { undoBandFor, useUndoPillBands } from "../../undoPill";
 import { useGroupsMerged } from "../../useWindowWidth";
 import { useWordImport } from "../../wordImport";
 import { NoteFootAsk } from "../assistant/NoteFootAsk";
+import { ExampleLine } from "../ExampleLine";
 import { ExportResultLine } from "../ExportResultLine";
-import { ExampleIntro } from "../FirstOpenSteps";
 import { useIsExample } from "../GettingStarted";
 import { PlusLineIcon } from "../lineIcons";
 import { MakeSkillCard } from "../MakeSkillCard";
@@ -67,12 +67,10 @@ export function MindTab({ mindId }: { mindId: string }) {
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
   const wordDrop = useWordFileDrop();
   const writing = useWritingProperties(mindId);
-  const quiet = useQuietAssistant();
   const ownAiOnly = useOwnAiOnly();
-  const hiddenForOwnAi = useHiddenForOwnAi();
   // The page fades out above the Ask pill a quiet assistant floats over it. Above the way to ask at
   // the Note's own foot, the foot fades it, and only while something stands there (styles.css).
-  const floatingPill = quiet && !hiddenForOwnAi;
+  const floatingPill = useAskPillShown();
   // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
@@ -118,7 +116,6 @@ export function MindTab({ mindId }: { mindId: string }) {
                 style={writing}
               >
                 <div className="mind-measure">
-                  {isExample && <ExampleIntro mindId={mindId} />}
                   <div ref={setTop} data-testid="mind-top-slot" />
                   <EventBar mindId={mind.id} />
                   <MeetingInMind mindId={mind.id} />
@@ -174,8 +171,9 @@ export function MindTab({ mindId }: { mindId: string }) {
             className="note-ask-foot"
             style={transcriptShown ? { display: "none" } : { paddingRight: scrollbar }}
           >
+            {isExample && <ExampleLine mindId={mind.id} />}
             <div ref={setAsk} className="mind-measure" />
-            {!isExample && <NoteFootAsk mindId={mind.id} />}
+            <NoteFootAsk mindId={mind.id} example={isExample} />
           </div>
         </div>
         <div ref={review.setSlot} data-shown={reviewShown} className="review-slot" />

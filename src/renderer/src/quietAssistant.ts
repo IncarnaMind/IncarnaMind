@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useAgentsToAskRead, useReadAgentsToAsk } from "./askYourAi";
 import { useComposer } from "./composer";
 import { useConversations } from "./conversations";
 import { useFirstOpen } from "./firstOpen";
@@ -32,6 +33,20 @@ export function useQuietAssistant(): boolean {
   const ownAiOnly = useOwnAiOnly() === true;
   const hidden = useHiddenForOwnAi();
   return ownAiOnly ? hidden : isQuiet(firstOpen, revealed, asked, askedOwn);
+}
+
+/**
+ * Whether the quiet assistant floats its Ask pill: it asks IncarnaMind's own model, so it shows only
+ * where one is set up and no AI app of the User's is connected; otherwise a Note's foot is the one
+ * place to ask (#3791).
+ */
+export function useAskPillShown(): boolean {
+  const quiet = useQuietAssistant();
+  const hidden = useHiddenForOwnAi();
+  const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
+  useReadAgentsToAsk(null);
+  const connected = (useAgentsToAskRead(null)?.length ?? 0) > 0;
+  return quiet && !hidden && modelReady && !connected;
 }
 
 /** The same, read once rather than followed, for a change that isn't a render (#2270). */

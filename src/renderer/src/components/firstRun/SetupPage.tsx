@@ -13,6 +13,7 @@ import type { SetupStep, StepPlace } from "./SetupPanel";
 import { SortingStep } from "./SortingStep";
 import { TranscriptionStep } from "./TranscriptionStep";
 import { WorkStep } from "./WorkStep";
+import { YourAiStep } from "./YourAiStep";
 
 const FIRST_RUN: readonly SetupStep[] = ["work", "ai", "meetings"];
 export const MODEL_STEPS: readonly SetupStep[] = ["ai", "sorting", "meetings"];
@@ -68,7 +69,7 @@ export function SetupSteps({
       />
     );
   }
-  if (step === "ai") return <AiStep place={place} />;
+  if (step === "ai") return first ? <YourAiStep place={place} /> : <AiStep place={place} />;
   if (step === "sorting") return <SortingStep place={place} />;
   return <TranscriptionStep place={place} />;
 }

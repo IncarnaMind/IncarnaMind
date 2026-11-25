@@ -625,6 +625,7 @@ export function createAgents(options: AgentsOptions) {
     citations,
     requests: {
       ofPairing: requests.ofPairing,
+      forMind: requests.forMind,
       markRead: (id, text) => {
         const read = requests.markRead(id, text);
         if (read) options.requested(shownRequest(read));
@@ -930,13 +931,14 @@ export function createAgents(options: AgentsOptions) {
     /**
      * The agents the User can ask about this Note now (#3373): each would be let in, and reads it
      * as `read_mind` does; with no Note, each that would be let in. The one connected or used
-     * last comes first.
+     * last comes first. Any of them in an example, which asking there lends it (#3791).
      */
     askable(mindId: string | null, documentId?: string): AgentPairing[] {
       if (listenProblem !== null) return [];
-      const mind =
+      const found =
         mindId === null ? null : options.access.minds().find((each) => each.id === mindId);
-      if (mind === undefined) return [];
+      if (found === undefined) return [];
+      const mind = found && options.access.exampleNotes().includes(found.id) ? null : found;
       const latest = (pairing: AgentPairing) =>
         pairing.lastUsedAt !== null && pairing.lastUsedAt > pairing.createdAt
           ? pairing.lastUsedAt

@@ -6904,6 +6904,7 @@ export function createCore(adapters: CoreAdapters): Core {
       recheck: (input) => recheckCitation(documents, input),
       minds: () => listedMinds().filter((mind) => isKnownKind(mind.kind)),
       exampleNotes: () => examples.made().mindIds,
+      exampleDocuments: (mindId) => examples.documentsOf(mindId),
       duplicatedFrom: (mindId) => minds.duplicatedFrom(mindId),
       documentsNamed: (documentIds) =>
         documents
