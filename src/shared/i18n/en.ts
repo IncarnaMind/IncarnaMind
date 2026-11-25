@@ -9000,10 +9000,12 @@ export const en = {
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
-  "agents.propose.firstAdd": "¶+ adds after the change before it: name a paragraph first.",
+  "agents.propose.firstAdd":
+    "¶+ adds after the change before it: name a paragraph first, or write at the top of the note, as into an empty one, with ¶0+.",
   "agents.propose.firstWaiting":
     "The first paragraphs are already waiting for review. Let the user review them before proposing more.",
-  "agents.propose.noParagraphs": "{name} isn’t in the note: it has no paragraphs to name.",
+  "agents.propose.noParagraphs":
+    "{name} isn’t in the note: it has no paragraphs to name. Write into it with ¶0+.",
   "agents.propose.outOfRange": "{name} isn’t in the note: its paragraphs are ¶1 to ¶{count}.",
   "agents.propose.outOfRange.titled":
     "{name} isn’t in the note: ¶0 is its title, and its paragraphs are ¶1 to ¶{count}.",

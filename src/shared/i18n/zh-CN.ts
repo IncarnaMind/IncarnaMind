@@ -8408,9 +8408,10 @@ export const zhCN = {
   "agents.propose.version": "给出 read_mind 加 named 时返回的 version。",
   "agents.propose.outsideSelection":
     "它在笔记里等用户确认：改动超出了用户选中的文字。只改这些文字的修改单独调用一次，就会直接生效。",
-  "agents.propose.firstAdd": "¶+ 会添加在上一处修改之后，先写明一个段落。",
+  "agents.propose.firstAdd":
+    "¶+ 会添加在上一处修改之后，先写明一个段落；要写在笔记开头（空笔记也一样），请用 ¶0+。",
   "agents.propose.firstWaiting": "首批段落已在等待确认。请等用户处理后再建议添加。",
-  "agents.propose.noParagraphs": "笔记中没有 {name}：这篇笔记没有可命名的段落。",
+  "agents.propose.noParagraphs": "笔记中没有 {name}：这篇笔记没有可命名的段落。请用 ¶0+ 写入。",
   "agents.propose.outOfRange": "笔记中没有 {name}：段落为 ¶1 到 ¶{count}。",
   "agents.propose.outOfRange.titled": "笔记中没有 {name}：¶0 是标题，段落为 ¶1 到 ¶{count}。",
   "agents.propose.twice": "{name} 写了两次：每个段落只修改一次。",
