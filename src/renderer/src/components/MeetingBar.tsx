@@ -1,6 +1,11 @@
 import { isMacOS } from "@tiptap/core";
 import type { ReactNode } from "react";
-import type { AudioSource, Meeting, MeetingSourceState } from "../../../core/api";
+import type {
+  AudioSource,
+  Meeting,
+  MeetingSaveProblem,
+  MeetingSourceState,
+} from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { shortcutLabel } from "../commands/keymap";
 import { files } from "../core";
@@ -170,10 +175,7 @@ export function MeetingLines({ meeting, cards = false }: { meeting: Meeting; car
 
   if (problem) lines.push({ key: "problem", text: problem });
   if (meeting.saveError) {
-    lines.push({
-      key: "save",
-      text: t("meetings.line.saveFailed", { message: meeting.saveError }),
-    });
+    lines.push({ key: "save", text: t(SAVE_FAILED[meeting.saveError]) });
   }
   if (meeting.status === "paused" && meeting.pausedBy === "interrupted") {
     lines.push({
@@ -297,6 +299,12 @@ export function MeetingLines({ meeting, cards = false }: { meeting: Meeting; car
 }
 
 const FOLDED_LINES: ReadonlySet<string> = new Set(["problem", "save", "interrupted", "system"]);
+
+const SAVE_FAILED: Record<MeetingSaveProblem, MessageKey> = {
+  full: "meetings.line.saveFailed.full",
+  denied: "meetings.line.saveFailed.denied",
+  error: "meetings.line.saveFailed.error",
+};
 
 const STATUS_LINES: ReadonlySet<string> = new Set([
   "gap",

@@ -7018,7 +7018,12 @@ export const zhCN = {
   "meetings.line.resume": "继续录制",
   "meetings.line.gapClosed": "{time} 处有 {missed}没有录到：IncarnaMind 当时已关闭。",
   "meetings.line.gapSleep": "{time} 处有 {missed}没有录到：电脑当时处于睡眠状态。",
-  "meetings.line.saveFailed": "无法保存音频：{message}",
+  "meetings.line.saveFailed.full":
+    "音频没有保存：磁盘已满。转写稿照常继续；腾出磁盘空间后会自动恢复保存。",
+  "meetings.line.saveFailed.denied":
+    "音频没有保存：IncarnaMind 没有写入数据文件夹的权限。转写稿照常继续。",
+  "meetings.line.saveFailed.error":
+    "音频暂时没有保存。转写稿照常继续，IncarnaMind 会继续尝试保存。",
   "meetings.line.microphoneDenied": "IncarnaMind 没有使用麦克风的权限。",
   "meetings.line.microphoneSilent": "15 秒没有麦克风声音：可能已静音，或选错了麦克风。",
   "meetings.line.microphoneUnavailable": "找不到麦克风。",

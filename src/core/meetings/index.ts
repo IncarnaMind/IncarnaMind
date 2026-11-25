@@ -49,7 +49,6 @@ import {
   MEETING_SAMPLE_RATE,
 } from "../adapters";
 import {
-  type AudioLossCause,
   type AudioSource,
   MEETING_AUDIO_KEPT_MS,
   type Meeting,
@@ -60,6 +59,7 @@ import {
   type MeetingHelpTemplate,
   type MeetingKind,
   type MeetingLevel,
+  type MeetingSaveProblem,
   type MeetingSourceState,
   type MeetingSummarySource,
   type Mind,
@@ -234,7 +234,7 @@ interface Live {
   micSilent: number;
   /** Some sound has come from the computer's sound: without it, a macOS that isn't allowing it can't be told from a quiet call. */
   systemSignal: boolean;
-  saveError: string | null;
+  saveError: MeetingSaveProblem | null;
   /** The loudest each source has been since the level was last told, and when that was. */
   levels: Record<AudioSource, number>;
   levelAt: number;
@@ -284,7 +284,7 @@ export interface RestoredMeeting {
 }
 
 /** Why a part couldn't be saved, from the error's code. */
-function lossCauseOf(code: string): AudioLossCause {
+function saveProblemOf(code: string): MeetingSaveProblem {
   if (code === "ENOSPC" || code === "EDQUOT") return "full";
   if (code === "EACCES" || code === "EPERM" || code === "EROFS") return "denied";
   return "error";
@@ -602,16 +602,22 @@ export function createMeetings(options: MeetingsOptions) {
     } catch (error) {
       // The part is lost; the Meeting says so until a part is saved again.
       const code = (error as NodeJS.ErrnoException).code ?? "unknown";
-      log.error("meeting.saveFailed", { meetingId: current.meetingId, source, code });
+      log.error("meeting.saveFailed", {
+        meetingId: current.meetingId,
+        source,
+        code,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      const problem = saveProblemOf(code);
       health.add(current.meetingId, {
         kind: "audioLost",
         source,
-        cause: lossCauseOf(code),
+        cause: problem,
         atMs: offsetMs,
         durationMs: msOf(samples.length),
       });
-      if (current.saveError === null) {
-        current.saveError = error instanceof Error ? error.message : String(error);
+      if (current.saveError !== problem) {
+        current.saveError = problem;
         changed();
       }
       return;

@@ -1254,4 +1254,46 @@ describe("the meeting's control and sheet after #3762's review", () => {
     expect(heads[0]?.closest(".meeting-sheet-consent")).not.toBeNull();
     expect(sheet.querySelector(".transcript-review-row")).toBeNull();
   });
+
+  // protects=audio that can't be saved while a call records is said in plain words, over the folded control and in the sheet alike, with what still works and the one thing to do where there is one, never the system's message or a path (#3762); fails_when=the line shows a raw error, or the folded card and the sheet say it differently
+  test.each([
+    [
+      "en",
+      "full",
+      "Audio isn’t being saved: the disk is full. The Transcript goes on; free up disk space and saving starts again.",
+    ],
+    [
+      "en",
+      "denied",
+      "Audio isn’t being saved: IncarnaMind isn’t allowed to write to its data folder. The Transcript goes on.",
+    ],
+    [
+      "en",
+      "error",
+      "Audio isn’t being saved right now. The Transcript goes on, and IncarnaMind keeps trying.",
+    ],
+    ["zh-CN", "full", "音频没有保存：磁盘已满。转写稿照常继续；腾出磁盘空间后会自动恢复保存。"],
+    ["zh-CN", "denied", "音频没有保存：IncarnaMind 没有写入数据文件夹的权限。转写稿照常继续。"],
+    ["zh-CN", "error", "音频暂时没有保存。转写稿照常继续，IncarnaMind 会继续尝试保存。"],
+  ] as const)(
+    "audio that can't be saved is said in plain words, folded and in the sheet (%s, %s)",
+    async (language, saveError, said) => {
+      actions.language = language;
+      useMeetings.setState({
+        meetings: [
+          meetingOf({
+            id: `save-${language}-${saveError}`,
+            status: "recording",
+            saveError,
+            transcript: { documentId: "transcript", lines: 1, state: "live", partials: [] },
+          } as unknown as Partial<Meeting>),
+        ],
+      });
+      await show();
+      expect(find("meeting-line-save").textContent).toBe(said);
+      await click("meeting-foot-transcript");
+      expect(find("meeting-line-save", find("meeting-sheet")).textContent).toBe(said);
+      expect(container.querySelectorAll('[data-testid="meeting-line-save"]')).toHaveLength(1);
+    },
+  );
 });

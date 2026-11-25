@@ -7479,7 +7479,12 @@ export const en = {
   "meetings.line.resume": "Resume",
   "meetings.line.gapClosed": "{missed} not recorded at {time}: IncarnaMind was closed.",
   "meetings.line.gapSleep": "{missed} not recorded at {time}: the computer was asleep.",
-  "meetings.line.saveFailed": "Audio couldn’t be saved: {message}",
+  "meetings.line.saveFailed.full":
+    "Audio isn’t being saved: the disk is full. The Transcript goes on; free up disk space and saving starts again.",
+  "meetings.line.saveFailed.denied":
+    "Audio isn’t being saved: IncarnaMind isn’t allowed to write to its data folder. The Transcript goes on.",
+  "meetings.line.saveFailed.error":
+    "Audio isn’t being saved right now. The Transcript goes on, and IncarnaMind keeps trying.",
   "meetings.line.microphoneDenied": "IncarnaMind isn’t allowed to use the microphone.",
   "meetings.line.microphoneSilent":
     "No sound from the microphone for 15 seconds: it may be muted, or the wrong one chosen.",

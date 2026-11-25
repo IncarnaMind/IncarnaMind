@@ -1143,18 +1143,24 @@ test("with the sheet folded, audio that can't be saved is said over the control,
   await writeFile(folder, "");
   try {
     const said = window.getByTestId("meeting-line-save");
-    await expect(said).toContainText("Audio couldn’t be saved: ", { timeout: 30_000 });
+    // In plain words, with what still works: never the system's message or the folder's path.
+    await expect(said).toHaveText(
+      "Audio isn’t being saved right now. The Transcript goes on, and IncarnaMind keeps trying.",
+      { timeout: 30_000 },
+    );
     await expect(window.getByTestId("meeting-sheet")).toHaveCount(0);
     await expect(said).toHaveCount(1);
     expect(boxBottom(await boxOf(said))).toBeLessThanOrEqual((await boxOf(control)).y);
     await shot(window, "meeting-save-failed-folded-en");
     await setLanguage(window, "zh-CN");
-    await expect(said).toContainText("无法保存音频：");
+    await expect(said).toHaveText("音频暂时没有保存。转写稿照常继续，IncarnaMind 会继续尝试保存。");
     await shot(window, "meeting-save-failed-folded-zh");
 
     // With the sheet up, the sheet says it, and nothing over the control does.
     const sheet = await openMeetingSheet(window);
-    await expect(sheet.getByTestId("meeting-line-save")).toContainText("无法保存音频：");
+    await expect(sheet.getByTestId("meeting-line-save")).toHaveText(
+      "音频暂时没有保存。转写稿照常继续，IncarnaMind 会继续尝试保存。",
+    );
     await expect(said).toHaveCount(1);
   } finally {
     await rm(folder);

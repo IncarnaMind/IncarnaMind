@@ -12451,8 +12451,11 @@ export interface Meeting {
   stoppedAt: string | null;
   /** Its audio on this computer, which is deleted at most a day after the Meeting. */
   audio: MeetingAudio;
-  /** Why the latest audio couldn't be saved (e.g. the disk is full), until a part is saved again. */
-  saveError: string | null;
+  /**
+   * Why the latest audio couldn't be saved, until a part is saved again: the disk full, saving not
+   * allowed, or another failure, whose system message only the log keeps.
+   */
+  saveError: MeetingSaveProblem | null;
   /** Its Transcript, made on this computer (#136); null before it starts, or where this copy can't transcribe. */
   transcript: MeetingTranscript | null;
   /** Its shared screen (ADR-0031), while it records or is paused; null otherwise, or where this copy can't read one. */
@@ -12708,6 +12711,9 @@ export type CaptureEvent =
  * ("closed"); or no audio came in for a while ("stalled"), as when a device changes.
  */
 export type AudioLossCause = "full" | "denied" | "error" | "closed" | "stalled";
+
+/** Why a part of a Meeting's audio couldn't be written. */
+export type MeetingSaveProblem = Extract<AudioLossCause, "full" | "denied" | "error">;
 
 /** Where a Meeting's speech is turned into text: on this computer, or by a cloud service (#141). */
 export type TranscriptionEngine = "local" | "cloud";
