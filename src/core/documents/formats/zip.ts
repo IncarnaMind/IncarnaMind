@@ -114,6 +114,11 @@ function contains(bytes: Uint8Array, needle: Uint8Array): boolean {
 
 export class ZipArchive {
   private readonly entries = new Map<string, DirectoryEntry>();
+  /**
+   * False when two entries share a name, or a name that isn't ASCII isn't marked UTF-8: it reads,
+   * but written back, a part would be lost or renamed.
+   */
+  rewritable = true;
   private readonly view: DataView;
   /** How much the parts read so far have inflated to, together. */
   private inflated = 0;
@@ -148,7 +153,12 @@ export class ZipArchive {
         throw new ExtractionError("unreadable", "The package's directory is corrupt.");
       }
       const nameLength = view.getUint16(offset + 28, true);
-      const name = decoder.decode(bytes.subarray(offset + 46, offset + 46 + nameLength));
+      const raw = bytes.subarray(offset + 46, offset + 46 + nameLength);
+      const name = decoder.decode(raw);
+      const utf8 = (view.getUint16(offset + 8, true) & 0x0800) !== 0;
+      if (this.entries.has(name) || (!utf8 && raw.some((byte) => byte >= 0x80))) {
+        this.rewritable = false;
+      }
       this.entries.set(name, {
         name,
         method: view.getUint16(offset + 10, true),

@@ -197,7 +197,7 @@ import { useMindTools } from "../mindTools";
 import { onMindWriting, writingPartOf, writingPlaceOf } from "../mindWriting";
 import { forgetNewMindKeys, takeNewMindKeys } from "../newMindKeys";
 import { firstOpenOf } from "../nudges";
-import { hiddenForOwnAiNow, ownAiOnlyNow, useHiddenForOwnAi } from "../ownAiPanel";
+import { hiddenForOwnAiNow, ownAiOnlyNow, useHiddenForOwnAi, useOwnAiOnly } from "../ownAiPanel";
 import { holdReviewable, useReviewPanes } from "../reviewPane";
 import { holdShownPage } from "../shownPages";
 import { skillDescription, skillTitle } from "../skills";
@@ -1063,6 +1063,9 @@ function MindEditorView({
 
   useMenuEditLine(editor, mindId, readOnly);
   const hiddenForOwnAi = useHiddenForOwnAi();
+  // As in the User's AI app's own page, the bar over a selection only formats and comments: the
+  // words go to the Note's input as its quote, and ⌘J puts the caret there (#3764).
+  const formatsOnly = useOwnAiOnly() === true;
   const editField = useMemo(
     (): EditWithAiField => ({
       mindId,
@@ -1405,8 +1408,8 @@ function MindEditorView({
         {showingNotes && !readOnly && (
           <SelectionMenu
             editor={editor}
-            ai={aiActions}
-            edit={editField}
+            ai={formatsOnly ? undefined : aiActions}
+            edit={formatsOnly ? undefined : editField}
             comment={{
               run: (current) => commentOnSelection(current, mindId, doc),
             }}

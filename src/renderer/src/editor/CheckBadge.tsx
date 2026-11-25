@@ -15,12 +15,11 @@ import { flushSync } from "react-dom";
 import type * as Y from "yjs";
 import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
-import { useAskedAgent } from "../askedAgent";
+import { stopBackgroundCheck, useAskedAgent } from "../askedAgent";
 import { useNoModel } from "../askYourAi";
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { EstimateMeta } from "../components/EstimateSource";
-import { MetaLine } from "../components/MetaLine";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useScrollFade } from "../components/useScrollFade";
@@ -138,7 +137,6 @@ function MindBadge({
   mindId: string;
   quiet: boolean;
 }) {
-  const t = useT();
   const checkedAll = useMindCheckRun(doc);
   const skippedKeys = checkedAll?.skipped.join(" ") ?? "";
   const skipped = useMemo(() => new Set(skippedKeys.split(" ").filter(Boolean)), [skippedKeys]);
@@ -220,10 +218,12 @@ function MindBadge({
           planned={planned}
           estimate={estimate}
           estimateState={estimateState}
+          settled={
+            checkedAll !== null && health.toCheck.length === 0 && health.checking.length === 0
+          }
         />
       }
     >
-      <p className="check-card-title">{t("health.label")}</p>
       <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
       <ContradictionLine doc={doc} mindId={mindId} />
       <CheckFasterLine status={checkDecision} />
@@ -246,6 +246,7 @@ export function CheckActions({
   planned,
   estimate,
   estimateState,
+  settled = false,
 }: {
   editor: Editor;
   doc: Y.Doc;
@@ -254,6 +255,8 @@ export function CheckActions({
   planned: Planned | null;
   estimate: EstimateLine | null;
   estimateState: CheckEstimateView["state"];
+  /** The Note has a whole check and no sentence left to check: what the plan says, before it lands. */
+  settled?: boolean;
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
@@ -269,15 +272,22 @@ export function CheckActions({
     if (!running && estimate) setLastPrice(estimate);
   }, [estimate, running]);
   const price = estimate ?? lastPrice;
+  // While the User's own AI is asked to check, the card's line says how that goes and asks again
+  // itself: a second Check here would ask once more (#3587). A run in the background is stopped
+  // where Check was, as a run on a model is (#3756).
+  const askedNow = useAskedAgent({ kind: "check", mindId });
+  const asked = askedNow !== null;
+  const backgroundRun = askedNow?.asked.background === true && askedNow.asked.state === "working";
+  const stoppable = running || backgroundRun;
   // The press disables Check and the focus falls to the page: it goes to Stop, so a keyboard User
   // can stop the run, and back to Check when the run ends. A focus somewhere else, such as the
   // composer being typed in, stays where the User put it.
   const checkPress = useRef<HTMLButtonElement>(null);
   const stopPress = useRef<HTMLButtonElement>(null);
-  const wasRunning = useRef(running);
+  const wasStoppable = useRef(stoppable);
   useLayoutEffect(() => {
-    if (wasRunning.current === running) return;
-    wasRunning.current = running;
+    if (wasStoppable.current === stoppable) return;
+    wasStoppable.current = stoppable;
     const active = document.activeElement;
     const lost =
       !(active instanceof HTMLElement) ||
@@ -286,9 +296,9 @@ export function CheckActions({
       active === checkPress.current ||
       active.matches(":disabled");
     if (!lost) return;
-    if (running) stopPress.current?.focus();
+    if (stoppable) stopPress.current?.focus();
     else checkPress.current?.focus();
-  }, [running]);
+  }, [stoppable]);
   const correctable = useEditorState({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
@@ -299,20 +309,29 @@ export function CheckActions({
   });
   const askAll = useAskAll(editor, mindId, true);
   const noModel = useNoModel();
-  // While the User's own AI is asked to check, the card's line says how that goes and asks again
-  // itself: a second Check here would ask once more (#3587).
-  const asked = useAskedAgent({ kind: "check", mindId }) !== null;
-  const pressHidden = running || asked;
+  // With no AI to check with, the card's line offers what sets one up: a Check would ask again.
+  // Once a model is set up, the line it left behind gives way to Check again.
+  const notReady = useChecks((state) => state.problems[mindId]?.kind === "not-ready") && noModel;
+  const pressHidden = running || asked || notReady;
+  // Check keeps its room under Stop while a run goes; where the card's line offers the next step,
+  // there is no Check to keep room for.
+  const pressRoom = !notReady && (!asked || backgroundRun);
   // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
   const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
+  // Nothing changed since the last check: checking again is a quiet choice, never the card's lead.
+  const nothingNew = planned === null ? settled : planned.plan.kind === "unchanged";
+  const again = !pressHidden && nothingNew;
   if (askingMind) return <MindCheckAsk mindId={mindId} />;
   if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
+  const unchangedPlan = unchanged && planned?.plan.kind === "unchanged" ? planned.plan : null;
+  // A foot with nothing in it would be an empty band under the card's line (#3756).
+  if (!pressRoom && !running && fixes === 0 && !askAll && !price && unchangedPlan === null) {
+    return null;
+  }
   return (
     <>
-      {unchanged && planned?.plan.kind === "unchanged" && (
-        <MindUnchanged mindId={mindId} since={planned.plan.since} />
-      )}
+      {unchangedPlan && <MindUnchanged mindId={mindId} since={unchangedPlan.since} />}
       {price && (
         <div className="check-card-estimate">
           <EstimateMeta testId="check-estimate" line={price} />
@@ -363,42 +382,42 @@ export function CheckActions({
           />
         )}
         <div className="check-card-press">
-          <button
-            ref={checkPress}
-            type="button"
-            data-testid="badge-check-mind"
-            data-hidden={pressHidden ? "" : undefined}
-            aria-hidden={pressHidden || undefined}
-            disabled={pressHidden}
-            title={planned === null ? undefined : checkTitle(t, planned)}
-            className={buttonStyle(fixes > 0 || askLeads ? "secondary" : "primary", "sm")}
-            onClick={() =>
-              void (checkPressOf(estimateState) === "ask"
-                ? startCheckUnpriced(mindId)
-                : startCheck(mindId, planned ?? undefined))
-            }
-          >
-            {t("mindCheck.command")}
-          </button>
-          {running && (
-            <MetaLine
-              as="div"
-              data-testid="card-foot-progress"
-              className="check-card-progress"
-              parts={[
-                <RunningText key="words" editor={editor} mindId={mindId} testId="card-progress" />,
-                <button
-                  key="stop"
-                  ref={stopPress}
-                  type="button"
-                  data-testid="card-foot-stop"
-                  className="check-badge-stop"
-                  onClick={() => stopCheck(mindId)}
-                >
-                  {t("checks.stop")}
-                </button>,
-              ]}
-            />
+          {pressRoom && (
+            <button
+              ref={checkPress}
+              type="button"
+              data-testid="badge-check-mind"
+              data-hidden={pressHidden ? "" : undefined}
+              aria-hidden={pressHidden || undefined}
+              disabled={pressHidden}
+              title={planned === null ? undefined : checkTitle(t, planned)}
+              className={
+                again
+                  ? "check-card-link"
+                  : buttonStyle(fixes > 0 || askLeads ? "secondary" : "primary", "sm")
+              }
+              onClick={() =>
+                void (checkPressOf(estimateState) === "ask"
+                  ? startCheckUnpriced(mindId)
+                  : startCheck(mindId, planned ?? undefined))
+              }
+            >
+              {t(again ? "mindCheck.again" : "mindCheck.command")}
+            </button>
+          )}
+          {/* The badge above says what the run is doing: the card keeps only its Stop. */}
+          {(running || backgroundRun) && (
+            <div data-testid="card-foot-progress" className="check-card-progress">
+              <button
+                ref={stopPress}
+                type="button"
+                data-testid={running ? "card-foot-stop" : "checks-asked-stop"}
+                className="check-badge-stop"
+                onClick={() => void (running ? stopCheck(mindId) : stopBackgroundCheck(mindId))}
+              >
+                {t("checks.stop")}
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -714,7 +733,9 @@ function BadgeFrame({
           {actions && (
             <>
               <div className="check-card-sep" />
-              <div data-testid="check-card-foot">{actions}</div>
+              <div data-testid="check-card-foot" className="check-card-end">
+                {actions}
+              </div>
             </>
           )}
         </Popover>

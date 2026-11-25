@@ -334,13 +334,18 @@ export function noteStateParts(
 }
 
 /**
- * The card's head when it has nothing left to count: the badge's line where the badge names a
- * caveat beside its time ("Checked 18 Oct, 3:20 pm · 3 files couldn't be read"), else "Everything
- * checked", which isn't true of a Note with a caveat (#3212).
+ * The check card's first line when no whole-Note check gave one of its own: Checked, its time and
+ * what is left that the card's rows and unread line don't say (#3756); "Everything checked" only
+ * when nothing is left (#3212), where the card doesn't say "All supported" instead.
  */
-export function allCheckedHead(state: NoteState | null, t: Translate, language: Language): string {
-  const line = state === null ? [] : noteStateParts(state, t, language);
-  return line.length > 1 ? line.join(" · ") : t("health.allChecked");
+export function cardHead(state: NoteState | null, t: Translate, language: Language): string {
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const caveat = state === null ? null : checkedCaveat(state, t, format);
+  if (state === null || (caveat === null && state.unread === 0)) return t("health.allChecked");
+  const time = state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language);
+  const checked =
+    time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
+  return caveat === null ? checked : `${checked} · ${caveat}`;
 }
 
 /**

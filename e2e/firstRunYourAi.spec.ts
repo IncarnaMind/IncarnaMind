@@ -286,18 +286,29 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   await claudeCode.locator("input").press("Space");
   const connect = ai.getByTestId("setup-agent-connect");
   await expect(connect).toContainText("Let Claude Code read your Documents?");
+  // Chosen, the card is brought into view, its Allow above the step's foot (#3756).
+  await expect
+    .poll(async () => {
+      const [allow, foot] = await Promise.all([
+        connect.getByTestId("setup-agent-allow").boundingBox(),
+        window.getByTestId("setup-foot").boundingBox(),
+      ]);
+      return allow && foot ? allow.y + allow.height <= foot.y : false;
+    })
+    .toBe(true);
   await expect(connect.getByTestId("connect-agent-reads")).toHaveText(
     translate("en", "agents.connect.reads.all", { agent: "Claude Code" }),
   );
   await expect(connect.getByTestId("agent-folder-row")).toHaveCount(0);
   await expect(connect.getByTestId("agent-propose")).toBeChecked();
-  await expect(connect.getByTestId("connect-agent-disconnect")).toHaveText(
-    "You can disconnect it at any time.",
-  );
+  await expect(connect.getByTestId("connect-agent-disconnect")).toHaveCount(0);
   const details = connect.getByTestId("connect-agent-details");
   await expect(details).not.toHaveAttribute("open", "");
   await expect(details).toContainText(
     translate("en", "agents.connect.body", { agent: "Claude Code" }),
+  );
+  await expect(details.getByTestId("connect-agent-later")).toHaveText(
+    translate("en", "agents.connect.reads.later"),
   );
   await expect(details.getByTestId("connect-agent-skill")).toBeHidden();
   for (const width of WIDTHS) {
@@ -324,6 +335,8 @@ test("connecting the AI the User has in the step: no key, sorting on request, th
   expect(settings.mcpServers.incarnamind).toMatchObject({ type: "stdio" });
   expect(await readFile(join(home, ".claude.json.incarnamind-backup"), "utf8")).toBe("{}\n");
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
+  // Connected, the tiles fold away: what is left is the line and Continue (#3756).
+  await expect(ai.getByTestId("setup-agent")).toHaveCount(0);
   await stills(window, "3-your-ai-connected");
 
   await ai.getByTestId("setup-next").click();
@@ -623,12 +636,12 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         "Check my note “Harbour summary” in IncarnaMind against my Documents.",
       ]);
     const badge = window.getByTestId("badge-asked");
-    await expect(badge).toHaveText("Asked your AI");
+    await expect(badge).toHaveText("Asked Claude Code");
 
     const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
     );
-    await expect(badge).toHaveText("Your AI is checking");
+    await expect(badge).toHaveText("Claude Code is checking");
     const results = given.sentences.map((sentence) =>
       sentence.text.startsWith(CARGO)
         ? { n: sentence.n, verdict: "supported", cites: [cargo] }

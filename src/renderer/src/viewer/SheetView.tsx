@@ -41,6 +41,7 @@ import { commands } from "../commands/registry";
 import { ProblemLine } from "../components/ProblemLine";
 import { useLanguage, useT } from "../i18n";
 import { useSettingUp } from "../modelSetup";
+import { useNoAiConnected } from "../ownAiPanel";
 import { useAppStore, type ViewerTarget } from "../store";
 import { useCitedArea } from "./citedArea";
 import { citedPlaceGone, quotesOf } from "./citedPlace";
@@ -668,6 +669,9 @@ function Grid({
   const model = useMemo(() => buildModel(sheet, book), [sheet, book]);
   const csv = model.look === null;
   const settingUp = useSettingUp();
+  // As over words, no Ask with no AI of the User's to take it (#3764).
+  const noAi = useNoAiConnected();
+  const askable = !settingUp && !noAi;
   const sheetUnits = useMemo(
     () => (csv ? units : units.filter((unit) => (unit.label?.sheet ?? "") === sheet.name)),
     [units, csv, sheet.name],
@@ -714,12 +718,12 @@ function Grid({
       rangeSelection
         ? {
             ...citeRangeAction(rangeSelection, citationPick),
-            ...(!settingUp && { ask: () => void askAboutRange(rangeSelection) }),
+            ...(askable && { ask: () => void askAboutRange(rangeSelection) }),
             addToNote: () => void addRangeToNote(rangeSelection),
             copy: () => void copyRange(rangeSelection),
           }
         : null,
-    [rangeSelection, settingUp, citationPick],
+    [rangeSelection, askable, citationPick],
   );
   useViewerHandle("range", rangeActions);
 
@@ -1340,7 +1344,7 @@ function Grid({
           selection={rangeSelection}
           anchor={menuAnchor}
           size={activeSize}
-          askable={!settingUp}
+          askable={askable}
           onClose={() => setMenuAnchor(null)}
         />
       )}

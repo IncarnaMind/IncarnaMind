@@ -7,13 +7,12 @@
  * are written by the native writer (../docx) into the document's own styles,
  * lists and footnotes (./parts). Every part written is parsed again with
  * xmldom before anything is saved: a part that isn't well-formed XML with
- * every prefix bound stops the export, naming the part (WordPartError).
+ * every prefix bound stops the export, naming the part (PackagePartError).
  * What can't be kept is reported (`WordExportReport`), never dropped silently.
  * Changes still waiting, the User's edits and IncarnaMind's comments go in
  * for review as the export was asked (../wordReview, #107).
  */
 import { deflateRawSync } from "node:zlib";
-import { DOMParser } from "@xmldom/xmldom";
 import * as Y from "yjs";
 import type { NodeJSON } from "../../../shared/blockJson";
 import type { ResolvedCitationStyle } from "../../../shared/citationStyles";
@@ -60,6 +59,16 @@ import {
 import { type ContentsEntry, DocxWriter } from "../docx";
 import type { ExportLabels } from "../labels";
 import { noteChecks } from "../noteChecks";
+import { checkWellFormed, PackagePartError, PackageWriter } from "../packagePatch/package";
+import {
+  appendInside,
+  applySplices,
+  closeTag,
+  endOf,
+  openTag,
+  selfClosing,
+  startOf,
+} from "../packagePatch/text";
 import {
   FOOTER_CONTENT_TYPE,
   FOOTER_RELATIONSHIP,
@@ -82,7 +91,6 @@ import {
   mindJson,
 } from "./mind";
 import { notesSplices } from "./notes";
-import { RELATIONSHIP_TYPES, WordPackageWriter, WordPartError } from "./package";
 import { currentTokens, sourceOf as keptSourceOf, type Token } from "./paragraph";
 import {
   DocumentComments,
@@ -91,9 +99,9 @@ import {
   DocumentNumbering,
   DocumentStyles,
   PatchTarget,
+  RELATIONSHIP_TYPES,
   reserveIds,
 } from "./parts";
-import { appendInside, applySplices, closeTag, endOf, openTag, selfClosing, startOf } from "./text";
 
 export interface WordPatchInput {
   /** The package kept when the Mind was imported. */
@@ -174,7 +182,7 @@ const KNOWN_TYPES = [
 export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchResult> {
   const pkg = await openWordPackage(input.bytes);
   const base = await readWordDocument(pkg, await reviewOf(pkg));
-  const writer = new WordPackageWriter(pkg.zip);
+  const writer = new PackageWriter(pkg.zip);
   // Checks the part can be spliced: it encodes back to the same bytes.
   await writer.text(pkg.part);
 
@@ -459,7 +467,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       placedWatermark = marked.watermark;
     }
   } catch (error) {
-    throw new WordPartError(
+    throw new PackagePartError(
       pkg.part,
       `couldn't be written: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -581,7 +589,7 @@ const SETTINGS_AFTER_UPDATE_FIELDS = [
 ] as const;
 
 /** Asks Word to update the fields, so a table of contents' cached result is rebuilt as it opens. */
-async function enableUpdateFields(writer: WordPackageWriter, mainPart: string): Promise<void> {
+async function enableUpdateFields(writer: PackageWriter, mainPart: string): Promise<void> {
   const settings = await writer.part("word/settings.xml");
   if (settings) {
     // An older export may have put the request at the end: it is removed and written where it
@@ -615,7 +623,7 @@ async function enableUpdateFields(writer: WordPackageWriter, mainPart: string): 
  * or a footer keeps it, so the file's own furniture is never replaced.
  */
 async function writePageMarks(
-  writer: WordPackageWriter,
+  writer: PackageWriter,
   mainPart: string,
   text: string,
   marks: PrintedMarks,
@@ -688,7 +696,7 @@ const SETTINGS_BEFORE_BACKGROUND = new Set([
 
 /** Shows the header's watermark, as Word's own Watermark command does. */
 async function enableDisplayBackgroundShape(
-  writer: WordPackageWriter,
+  writer: PackageWriter,
   mainPart: string,
 ): Promise<void> {
   const part = await writer.part("word/settings.xml");
@@ -753,7 +761,7 @@ function keptFurniture(
 }
 
 /** Parts whose content type IncarnaMind doesn't know: copied as they are, and listed. */
-async function unknownParts(writer: WordPackageWriter): Promise<string[]> {
+async function unknownParts(writer: PackageWriter): Promise<string[]> {
   const types = await writer.part("[Content_Types].xml");
   if (!types) return [];
   const overrides = new Map<string, string>();
@@ -771,24 +779,4 @@ async function unknownParts(writer: WordPackageWriter): Promise<string[]> {
       overrides.get(name) ?? defaults.get(name.slice(name.lastIndexOf(".") + 1).toLowerCase());
     return type !== undefined && !KNOWN_TYPES.some((known) => known.test(type));
   });
-}
-
-/**
- * Throws unless a part written is well-formed XML with every prefix bound,
- * as xmldom (a conforming parser, unlike the reader's own) reads it.
- */
-function checkWellFormed(name: string, text: string): void {
-  if (!/\.(xml|rels)$/i.test(name)) return;
-  const problems: string[] = [];
-  try {
-    new DOMParser({ onError: (_level, message) => problems.push(message) }).parseFromString(
-      text.replace(/^\uFEFF/, ""),
-      "text/xml",
-    );
-  } catch (error) {
-    problems.push(error instanceof Error ? error.message : String(error));
-  }
-  if (problems.length > 0) {
-    throw new WordPartError(name, `couldn't be written as well-formed XML: ${problems[0]}`);
-  }
 }

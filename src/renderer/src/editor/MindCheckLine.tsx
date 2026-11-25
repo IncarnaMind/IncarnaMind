@@ -175,10 +175,48 @@ export function RunningText({
 }
 
 /**
- * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20", what stopped it,
- * and how many of its sentences it couldn't tell are claims and are still to check (#1682).
+ * When the whole Mind was last checked: "Checked 48 sentences, 2 Oct, 15:20" (#1682), and what the
+ * state leaves that no row counts. With `supported`, every sentence the check needed to support
+ * is, and the line says so before when; the rows count them (#3756).
  */
 export function CheckedWhen({
+  run,
+  supported = false,
+  caveat = null,
+}: {
+  run: MindCheckRun;
+  supported?: boolean;
+  caveat?: string | null;
+}) {
+  const t = useT();
+  const language = useLanguage();
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const when = formatDateTime(run.at, language);
+  return (
+    <MetaLine
+      data-testid="health-checked-all"
+      parts={[
+        supported ? (
+          <span key="said" className="check-card-checked">
+            {t("health.checkedAll.supported", { when })}
+          </span>
+        ) : (
+          t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
+            count: format(run.sentences),
+            when,
+          })
+        ),
+        caveat,
+      ]}
+    />
+  );
+}
+
+/**
+ * What else the last whole check left, under the rows: how many sentences it couldn't tell are
+ * claims (#1682), the opinions it left out, and what stopped it. Null when it left nothing.
+ */
+export function CheckedMore({
   run,
   editor,
   doc,
@@ -195,28 +233,19 @@ export function CheckedWhen({
   const language = useLanguage();
   const opinions = useOpinionChecks(editor, doc);
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  const when = formatDateTime(run.at, language);
-  const said = t(run.sentences === 1 ? "health.checkedAll.one" : "health.checkedAll", {
-    count: format(run.sentences),
-    when,
-  });
-  return (
-    <MetaLine
-      data-testid="health-checked-all"
-      parts={[
-        said,
-        ...(unexamined > 0
-          ? [
-              t(unexamined === 1 ? "health.unexamined.one" : "health.unexamined", {
-                count: format(unexamined),
-              }),
-            ]
-          : []),
-        opinions.length > 0 && (
-          <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
-        ),
-        ...(run.stop ? runStopParts(run.stop, t, language) : []),
-      ]}
-    />
-  );
+  const parts = [
+    ...(unexamined > 0
+      ? [
+          t(unexamined === 1 ? "health.unexamined.one" : "health.unexamined", {
+            count: format(unexamined),
+          }),
+        ]
+      : []),
+    opinions.length > 0 && (
+      <OpinionsLine key="opinions" editor={editor} doc={doc} mindId={mindId} className="" />
+    ),
+    ...(run.stop ? runStopParts(run.stop, t, language) : []),
+  ];
+  if (!parts.some(Boolean)) return null;
+  return <MetaLine data-testid="health-checked-more" className="check-card-note" parts={parts} />;
 }

@@ -417,7 +417,7 @@ test("Continue in the open chat, from the Ask pill's menu: the line an Ask types
   }
 });
 
-test("with no model, a Document open is what ⌘J and a question typed in ⌘K ask about, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
+test("with no model, a Document open is what ⌘J asks about, ⌘K offers no Ask, its id waits for the agent, and an agent that finds nothing waiting is not refused", async () => {
   const { app, window } = await launchApp(dataDir, { home });
   await acceptPlainTextKeys(window);
   try {
@@ -438,8 +438,8 @@ test("with no model, a Document open is what ⌘J and a question typed in ⌘K a
     const request = `My message is about the document I have open in IncarnaMind: “Annual summary 2025” (documentId: ${documentId}).`;
 
     // The panel stays out of sight (#3612): ⌘J asks Claude Code about the Document, and the User
-    // types the question there; a question typed in ⌘K goes with the Document. The panel folded
-    // says the window knows the User has only their own AI, which ⌘J waits on.
+    // types the question there. ⌘K only finds: typed words make no Ask row (#3764). The panel
+    // folded says the window knows the User has only their own AI, which ⌘J waits on.
     await expect(window.getByTestId("assistant")).toBeHidden();
     await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
@@ -447,14 +447,16 @@ test("with no model, a Document open is what ⌘J and a question typed in ⌘K a
     await expect(window.getByTestId("assistant")).toBeHidden();
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type("Summarise this document");
-    const ask = window
-      .getByTestId("palette-item")
-      .filter({ hasText: "Ask “Summarise this document”" });
-    await expect(ask).toContainText("Ask Claude Code");
+    await expect(window.getByTestId("palette-search")).toHaveValue("Summarise this document");
+    await expect(
+      window.getByTestId("palette-item").filter({ hasText: "Ask “Summarise this document”" }),
+    ).toHaveCount(0);
+    await expect(window.locator('[data-testid="palette-group"][data-group="ask"]')).toHaveCount(0);
     await shot(window, "ask-document-palette-en");
-    await pointAndClick(window, ask);
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(2);
-    expect(typedIn((await urlsOpened(app))[1])).toBe(`${named}\n\nSummarise this document`);
+    expect(typedIn((await urlsOpened(app))[1])).toBe(named);
 
     // The rest waits for the agent, once each; a third look finds nothing waiting, and is no failed call.
     const agent = await claudeCode(launch);
@@ -479,12 +481,13 @@ test("with no model, a Document open is what ⌘J and a question typed in ⌘K a
     await setLanguage(window, "zh-CN");
     await window.keyboard.press("ControlOrMeta+k");
     await window.keyboard.type("总结一下这个文档");
-    const asked = window.getByTestId("palette-item").filter({ hasText: "总结一下这个文档" });
-    await expect(asked).toContainText("Claude Code");
-    await pointAndClick(window, asked);
+    await expect(window.getByTestId("palette-search")).toHaveValue("总结一下这个文档");
+    await expect(window.locator('[data-testid="palette-group"][data-group="ask"]')).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("ControlOrMeta+j");
     await expect.poll(() => urlsOpened(app)).toHaveLength(3);
     expect(typedIn((await urlsOpened(app))[2])).toBe(
-      "关于我在 IncarnaMind 中的文档“Annual summary 2025”：\n\n总结一下这个文档",
+      "关于我在 IncarnaMind 中的文档“Annual summary 2025”：",
     );
   } finally {
     await app.close();
@@ -524,13 +527,13 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     const asked = window.getByTestId("checks-asked");
     const badge = window.getByTestId("badge-asked");
     await expect(asked).toHaveText(ASKED);
-    await expect(badge).toHaveText("Asked your AI");
+    await expect(badge).toHaveText("Asked Claude Code");
     await expect(badge).toHaveAttribute("title", ASKED);
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
     await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
     await expect(window.getByTestId("checks-asked-set-up")).toHaveText("Set up a model");
-    await expect(window.getByTestId("badge-check-mind")).toBeDisabled();
+    await expect(window.getByTestId("badge-check-mind")).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Asking needs your AI");
     await shot(window, "check-no-model-asked-en");
     await setLanguage(window, "zh-CN");
@@ -546,11 +549,11 @@ test("with no model, one press of Check asks the User's own AI and the Note says
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
       ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
       await expect(asked).toHaveText("Checking this note in Claude Code.");
-      await expect(badge).toHaveText("Your AI is checking");
+      await expect(badge).toHaveText("Claude Code is checking");
       await shot(window, "check-no-model-checking-en");
       await setLanguage(window, "zh-CN");
       await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
-      await expect(badge).toHaveText("你的 AI 正在核对");
+      await expect(badge).toHaveText("Claude Code 正在核对");
       await shot(window, "check-no-model-checking-zh-CN");
       await setLanguage(window, "en");
 

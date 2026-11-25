@@ -35,7 +35,9 @@ export function useHandedFile(mindId: string | null, doc: Y.Doc): HandedFileOfMi
   );
   // A version read while its check was being made has no Note yet, and the Document takes no
   // newer version when the Note comes: it is read again as the Notes change, until it has one.
-  const unmade = handed?.versions.some((each) => each.mindId === null) === true;
+  // A version the User made by hand (agent "") never gets one (#149).
+  const unmade =
+    handed?.versions.some((each) => each.mindId === null && each.agent !== "") === true;
   const minds = useAppStore((state) => (unmade ? state.minds : null));
   useEffect(() => {
     if (mindId === null || !checksFile || (readAt.get(mindId) === version && minds === null))

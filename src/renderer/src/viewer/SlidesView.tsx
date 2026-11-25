@@ -1,4 +1,5 @@
 import {
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -18,12 +19,11 @@ import {
   type DeckDrawing,
   drawPptx,
   type FailedSlide,
-  type Item,
   type SlideDrawing,
 } from "../../../core/documents/formats/pptxDrawing";
 import { withoutArea } from "../../../shared/locations";
 import { findQuoteInPieces, type TextRange } from "../../../shared/quoteMatch";
-import { useViewerHandle } from "../commands/handles";
+import { useViewerHandle, ViewerTabContext } from "../commands/handles";
 import { ChatLineIcon } from "../components/lineIcons";
 import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { core, files } from "../core";
@@ -55,16 +55,51 @@ import {
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
-import { findInDrawing, rangesByKey } from "./slides/pieces";
+import { DeckLines } from "./slides/DeckLines";
+import { type DeckEditing, useDeckEditing } from "./slides/deckEditing";
+import { findInDrawing, pictureParts, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
+import { SlideEditor } from "./slides/SlideEditor";
 import { useDocumentFile } from "./useDocumentFile";
 import { ViewerHeader } from "./ViewerHeader";
 
 interface Loaded {
   bytes: Uint8Array;
+  /** The SHA-256 of `bytes`, as the core names a version: what a hand edit says it was made on. */
+  hash: string;
   deck: PptxResult;
   /** The slides as drawings; null when the deck couldn't be drawn, and is shown as an outline. */
   drawing: DeckDrawing | null;
+}
+
+type DeckRefusal = "signed" | "final" | "protected" | "unrewritable";
+
+/** Why the deck is never edited by hand, asked once a version: null while it may be, or isn't known yet. */
+function useDeckRefusal(document: Document): DeckRefusal | null {
+  const [refusal, setRefusal] = useState<{ version: string; why: DeckRefusal | null } | null>(null);
+  useEffect(() => {
+    if (document.kind !== "pptx" || document.web || document.fileStatus !== "available") return;
+    let live = true;
+    void core
+      .deckRefusal(document.id)
+      .then((why) => {
+        // A deck that may be edited draws nothing more: no new render under a gesture.
+        if (live && why) setRefusal({ version: document.contentHash, why });
+      })
+      .catch((error: unknown) =>
+        console.error("Whether the deck may be edited couldn't be read.", error),
+      );
+    return () => {
+      live = false;
+    };
+  }, [document.id, document.contentHash, document.kind, document.web, document.fileStatus]);
+  return refusal?.version === document.contentHash ? refusal.why : null;
+}
+
+/** The SHA-256 of `bytes` in hex, as the core's `hashBytes` gives it. */
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 const read = async (bytes: Uint8Array): Promise<Loaded> => {
@@ -78,7 +113,7 @@ const read = async (bytes: Uint8Array): Promise<Loaded> => {
   if (drawing && drawing.unreadable.length > 0) {
     console.warn("viewer.pptx.partsNotRead", drawing.unreadable.join(", "));
   }
-  return { bytes, deck, drawing };
+  return { bytes, hash: await sha256Hex(bytes), deck, drawing };
 };
 
 /** The backdrop's padding, and the gutter on its right where a Citation's mark and label go. */
@@ -101,14 +136,54 @@ const MARK_GAP = 8;
  * the outline it was before: title, text, tables, chart figures, images.
  */
 export function SlidesView({ document, target }: { document: Document; target: ViewerTarget }) {
-  const { loaded, reload } = useDocumentFile(document.id, document.contentHash, read);
+  const editing = useDeckEditing(document, useContext(ViewerTabContext));
+  // A version this window's hand edits wrote is drawn from what they wrote, not read again.
+  const { loaded, reload } = useDocumentFile(document.id, editing.steady, read);
+  editing.read.current = loaded.kind === "ready" ? loaded.value.hash : null;
+  const refusal = useDeckRefusal(document);
+  const editable =
+    document.kind === "pptx" &&
+    !document.web &&
+    document.fileStatus === "available" &&
+    refusal === null;
+  const [written, setWritten] = useState<Loaded | null>(null);
+  // What a hand edit wrote is drawn at once, until the viewer reads the file it wrote again.
+  useEffect(() => {
+    const bytes = editing.written;
+    if (!bytes) {
+      setWritten(null);
+      return;
+    }
+    let live = true;
+    void read(bytes).then((value) => {
+      if (live) setWritten(value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [editing.written]);
+  // A change that waits keeps its line, and its Save a copy, once the deck can't be edited any more:
+  // its file gone or out of reach, or written by another app as a version that is never edited.
+  const waitingLine = editing.waiting ? (
+    <DeckLines editing={editing} waitingOnly fileGone={document.fileStatus === "missing"} />
+  ) : null;
   return (
     <FileStates
       document={document}
       loaded={loaded}
       quote={target.quote}
       reload={reload}
-      ready={(value) => <Slides loaded={value} document={document} target={target} />}
+      lines={waitingLine}
+      ready={(value) => (
+        <Slides
+          loaded={written ?? value}
+          document={document}
+          target={target}
+          editing={editable ? editing : null}
+          waitingLine={waitingLine}
+          refusal={refusal}
+        />
+      )}
     />
   );
 }
@@ -139,26 +214,6 @@ function findInNotes(slide: SlideOutline, quote: string): Map<string, TextRange[
   );
 }
 
-/** The package parts of every picture a drawing shows, its backgrounds' and fills' too. */
-function pictureParts(slide: SlideDrawing): string[] {
-  const parts: string[] = [];
-  if (slide.background.kind === "image") parts.push(slide.background.part);
-  const walk = (items: readonly Item[]) => {
-    for (const item of items) {
-      if (item.kind === "picture" && item.part) parts.push(item.part);
-      if (item.kind === "shape" && item.fill.kind === "image") parts.push(item.fill.part);
-      if (item.kind === "group") walk(item.children);
-      if (item.kind === "table") {
-        for (const row of item.rows) {
-          for (const cell of row.cells) if (cell.fill.kind === "image") parts.push(cell.fill.part);
-        }
-      }
-    }
-  };
-  walk(slide.items);
-  return parts;
-}
-
 // A slide's speaker notes are part of its Unit (ADR-0011).
 const slideOf = (node: Node) => {
   const slide = node.parentElement?.closest<HTMLElement>("[data-slide]")?.dataset.slide;
@@ -169,10 +224,19 @@ function Slides({
   loaded,
   document,
   target,
+  editing,
+  waitingLine,
+  refusal,
 }: {
   loaded: Loaded;
   document: Document;
   target: ViewerTarget;
+  /** Hand editing of the deck, where its file may be edited. */
+  editing: DeckEditing | null;
+  /** The line of a change that waits, drawn when the deck can't be edited. */
+  waitingLine: ReactNode;
+  /** Why the deck is never edited by hand, said once over its slides. */
+  refusal: DeckRefusal | null;
 }) {
   const t = useT();
   const { slides } = loaded.deck;
@@ -353,7 +417,15 @@ function Slides({
       ? { slide: citedSlide, where: "none" }
       : null;
   }, [slides, drawn, target.quote, target.quotes, target.pageFrom, target.pageTo]);
-  const mark = useMemo(() => quoteMarkOf(target.citation), [target.citation]);
+  // The quote isn't in this version, which changed after it was cited: its check isn't of these words.
+  const cited = target.citation?.contentHash;
+  const quoteChanged = highlight?.where === "none" && !!cited && cited !== document.contentHash;
+  const mark = useMemo(() => {
+    const made = quoteMarkOf(target.citation);
+    return made && quoteChanged
+      ? { ...made, tone: "cant-check" as const, changed: true as const }
+      : made;
+  }, [target.citation, quoteChanged]);
   // The slides draw once the viewer is measured: the quotes found count, not those drawn yet.
   const found = useMemo(
     () =>
@@ -508,6 +580,16 @@ function Slides({
         placeGone={citedPlaceGone(target, slides.length)}
       />
       <QuoteStepsLine stepper={stepper} />
+      {editing ? <DeckLines editing={editing} /> : waitingLine}
+      {refusal && (
+        <p className="viewer-deck-refusal" data-testid="viewer-deck-refusal" data-quote-skip="">
+          {t(
+            refusal === "unrewritable"
+              ? "error.deck.unrewritable"
+              : `error.deck.protected.${refusal}`,
+          )}
+        </p>
+      )}
       <QuoteStepContext.Provider value={step}>
         <div className="flex min-h-0 flex-1">
           {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
@@ -563,6 +645,7 @@ function Slides({
                     }
                     onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
                     setElement={setElement(slide.number)}
+                    editing={editing}
                   />
                 );
               })}
@@ -588,6 +671,7 @@ function SlideFrame({
   onNotesToggle,
   onAsk,
   setElement,
+  editing,
 }: {
   outline: SlideOutline;
   slide: SlideDrawing;
@@ -602,6 +686,7 @@ function SlideFrame({
   onNotesToggle(open: boolean): void;
   onAsk?: () => void;
   setElement(element: HTMLElement | null): void;
+  editing: DeckEditing | null;
 }) {
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
@@ -655,13 +740,27 @@ function SlideFrame({
         style={{ width: width * scale, height: height * scale }}
       >
         <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0", width, height }}>
-          <SlideCanvas
-            slide={slide}
-            width={width}
-            height={height}
-            images={images}
-            ranges={slideRanges}
-          />
+          {editing ? (
+            <SlideEditor
+              slide={slide}
+              width={width}
+              height={height}
+              images={images}
+              ranges={slideRanges}
+              scale={scale}
+              onEdit={editing.edit}
+              onOverflow={editing.setOverflow}
+              onOpenPicture={openDocumentPicture}
+            />
+          ) : (
+            <SlideCanvas
+              slide={slide}
+              width={width}
+              height={height}
+              images={images}
+              ranges={slideRanges}
+            />
+          )}
         </div>
         {onAsk && (
           <button

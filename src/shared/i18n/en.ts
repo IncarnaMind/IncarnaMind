@@ -627,7 +627,7 @@ export const en = {
   "folder.wall.title": "This Folder keeps its work inside it",
   "folder.bound.mark": "Linked folder: {path}",
   "folder.bound.promise":
-    "IncarnaMind never changes, moves or deletes the files already in this folder.",
+    "IncarnaMind never moves or deletes the files already in this folder, and changes one only when you edit a deck by hand.",
   "folder.fileAsFolder": "File as one Folder",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
@@ -1762,6 +1762,7 @@ export const en = {
   "health.toCheck": "{count} sentences not checked yet",
   "health.tableCells": "{count} table cells",
   "health.allChecked": "Everything checked",
+  "health.allSupported": "All supported",
   "health.look.one": "1 sentence needs a look: {reasons}",
   "health.look": "{count} sentences need a look: {reasons}",
   "health.look.separator": ", ",
@@ -1803,6 +1804,7 @@ export const en = {
     "checks citations health contradicted unsupported claims sentences badge claims and citations",
   "health.checkedAll.one": "Checked 1 sentence, {when}",
   "health.checkedAll": "Checked {count} sentences, {when}",
+  "health.checkedAll.supported": "All supported, checked {when}",
   "health.unexamined.one": "Couldn’t tell whether 1 sentence needs checking",
   "health.unexamined": "Couldn’t tell whether {count} sentences need checking",
   "health.next": "{part}: go to the next",
@@ -1874,6 +1876,7 @@ export const en = {
   "mindCheck.declined": "The check didn’t run: you chose Not now on the note.",
   "mindCheck.closed": "The check didn’t run: the question on the note was closed.",
   "mindCheck.every": "Check every sentence again",
+  "mindCheck.again": "Check again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",
   "mindCheck.changed.one": "1 sentence not checked yet",
@@ -2503,12 +2506,39 @@ export const en = {
   "annotations.search.open": "Open this highlight",
   "viewer.mark.found": "Citation {number}: quote found",
   "viewer.mark.notFound": "Citation {number}: quote not found",
+  "viewer.mark.changed": "Citation {number}: changed since it was checked",
+  "viewer.mark.changed.at": "Citation {number}: changed since it was checked, {location}",
   "viewer.mark.contradicted": "Citation {number}: contradicted",
   "viewer.mark.contradicted.at": "Citation {number}: contradicted, {location}",
   "viewer.mark.cantCheck": "Citation {number}: check the page",
   "viewer.mark.cantCheck.at": "Citation {number}: check the page, {location}",
   "viewer.mark.found.at": "Citation {number}: quote found, {location}",
   "viewer.mark.notFound.at": "Citation {number}: quote not found, {location}",
+  "viewer.deck.edit.moved": "Moved a shape on slide\u00a0{slide}",
+  "viewer.deck.edit.resized": "Resized a shape on slide\u00a0{slide}",
+  "viewer.deck.edit.text": "Changed the text on slide\u00a0{slide}",
+  "viewer.deck.edit.cell": "Changed a table cell on slide\u00a0{slide}",
+  "viewer.deck.edit.fitted": "Shrank the text to fit on slide\u00a0{slide}",
+  "viewer.deck.edit.tried": "Wrote the change that waited",
+  "viewer.deck.edit.copied": "Made a copy with your change",
+  "viewer.deck.saved.file": "saved in “{name}”",
+  "viewer.deck.saved.elsewhere": "saved in “{name}” in “{folder}”",
+  "viewer.deck.saved.version": "saved as version {number}",
+  "viewer.deck.saved.kept": "saved",
+  "viewer.deck.saved.letGo": "(let go of the version kept {date})",
+  "viewer.deck.undoRefused": "The deck has changed since, so this can’t be undone.",
+  "viewer.deck.waiting.undo": "Not undone: the file can’t be written now.",
+  "viewer.deck.tryAgain": "Try again",
+  "viewer.deck.saveCopy": "Save a copy beside it",
+  "viewer.deck.overflow": "The text on slide\u00a0{slide} runs past its box",
+  "viewer.deck.shrinkToFit": "Shrink text to fit",
+  "viewer.deck.putBack": "Put back as it was",
+  "viewer.deck.putBack.at": "Put back as it was at {time}",
+  "viewer.deck.putBackFirst": "Put back as it was before IncarnaMind first changed it",
+  "viewer.deck.restoredFirst": "Put “{name}” back as it was before IncarnaMind first changed it",
+  "viewer.deck.saving": "Saving “{name}”…",
+  "viewer.deck.restored": "Put “{name}” back as it was at {time}",
+  "viewer.deck.tip": "Changes save to the file itself. To go back: ⋯ › Put back as it was.",
   "viewer.slide.label": "Slide {number}",
   "viewer.slide.hidden": "hidden",
   "viewer.slide.notes": "Speaker notes",
@@ -2785,7 +2815,7 @@ export const en = {
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
   "linkedFolders.preview.becomesFolder":
-    "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never changes, moves or deletes the files already there.",
+    "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never moves or deletes the files already there, and changes one only when you edit a deck by hand.",
   "linkedFolders.preview.merge.one":
     "“{names}”, already linked, merges into this folder and keeps its Tags and Citations.",
   "linkedFolders.preview.merge.other":
@@ -3319,7 +3349,8 @@ export const en = {
   "fileWrite.linked.title": "Add files to “{folder}”?",
   "fileWrite.linked.body":
     "IncarnaMind only reads “{folder}”. Save “{name}” there, and allow new files from now on?",
-  "fileWrite.linked.safe": "IncarnaMind never changes or deletes your files.",
+  "fileWrite.linked.safe":
+    "IncarnaMind never deletes your files, and changes one only when you edit a deck by hand.",
   "fileWrite.linked.note": "You can change this in Settings › General.",
   "fileWrite.linked.allow": "Allow",
   "fileWrite.linked.deny": "Don’t allow",
@@ -6045,6 +6076,32 @@ export const en = {
   "error.export.restore.nothing": "There is nothing to put back in “{name}”.",
   "error.export.restore.changed":
     "“{name}” was changed after it was written, so it wasn’t put back.",
+  "error.deck.badEdit": "That change to the deck couldn’t be made.",
+  "error.deck.changed": "The deck changed elsewhere, so nothing was written. The newest is shown.",
+  "error.deck.noSitting": "That deck is no longer open for editing.",
+  "error.deck.unrewritable":
+    "This deck’s file can’t be written back whole, so it isn’t edited here.",
+  "error.deck.notEditable": "That part of the deck can’t be edited here.",
+  "error.deck.waiting": "A change is waiting: try again or save a copy first.",
+  "error.deck.noStep": "There’s nothing here to undo or redo.",
+  "error.deck.keptGone": "That earlier version of the deck is no longer kept.",
+  "error.deck.unwritable.read-only": "“{name}” is read-only, so the change isn’t saved yet.",
+  "error.deck.unwritable.locked": "“{name}” is open in another app. Close it, then try again.",
+  "error.deck.unwritable.gone": "“{name}” was moved or deleted, so the change isn’t saved yet.",
+  "error.deck.unwritable.unkept":
+    "IncarnaMind couldn’t keep “{name}” as it was, so it wasn’t changed.",
+  "error.deck.protected.signed": "This deck is signed, so it isn’t edited here.",
+  "error.deck.protected.final": "This deck is marked as final, so it isn’t edited here.",
+  "error.deck.protected.protected":
+    "This deck needs a password to change, so it isn’t edited here.",
+  "error.deck.unwritable.changed":
+    "“{name}” was changed in another app, so the change isn’t saved yet.",
+  "error.deck.unwritable.lockFile":
+    "Still locked. If no app has it open, delete “{lock}” beside it.",
+  "error.deck.unwritable.folder":
+    "The folder “{folder}” can’t be written, so the change isn’t saved yet.",
+  "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
+  "error.deck.unwritable.full": "The disk is full. Free some space, then try again.",
   "error.verify.notAllRead":
     "Part of the Word file couldn’t be read into this note, so its claims can’t be found yet.",
   "error.mindCheck.request": "That isn’t a request to check a note that IncarnaMind can read.",
@@ -6136,6 +6193,20 @@ export const en = {
     "When Windows shut down or signed out, 1 change to “{name}” hadn’t been saved yet. Everything else was kept.",
   "quit.unsaved.title": "{count} changes aren’t saved",
   "quit.unsaved.title.one": "1 change isn’t saved",
+  "quit.unsaved.decks": "{count} changes to decks aren’t saved",
+  "quit.unsaved.decks.one": "1 change to a deck isn’t saved",
+  "quit.unsaved.deck.read-only": "“{name}” is read-only.",
+  "quit.unsaved.deck.locked": "“{name}” is open in another app.",
+  "quit.unsaved.deck.gone": "“{name}” was moved or deleted.",
+  "quit.unsaved.deck.changed": "“{name}” was changed in another app.",
+  "quit.unsaved.deck.full": "The disk is full.",
+  "quit.unsaved.deck.unkept": "IncarnaMind couldn’t keep “{name}” as it was.",
+  "quit.unsaved.deck.writing": "A deck is still being saved.",
+  "error.files.needsAnswer": "IncarnaMind needs to ask where it goes: keep it open to answer.",
+  "quit.unsaved.deck.folder": "The folder “{folder}” can’t be written.",
+  "quit.unsaved.deck.copyFailed": "The copy of “{name}” couldn’t be saved. {reason}",
+  "quit.copiedElsewhere": "The copy of “{name}” is in “{folder}”.",
+  "quit.copiedElsewhere.ok": "Quit",
   "quit.unsaved.quit": "Quit anyway",
   "quit.unsaved.keep": "Keep open",
   "quit.unsaved.copyFailed": "The copy couldn’t be saved. {reason}",
@@ -8674,8 +8745,6 @@ export const en = {
     "Check notes in the background and keep one conversation per note. Downloads and installs Claude Code from Anthropic into your user folder.",
   "agents.install.jobs.title": "Background note checks",
   "agents.install.jobs.detail": "Needs a command-line AI or a model in IncarnaMind.",
-  "agents.install.checks.detail":
-    "Connect an AI you already use, or install Claude Code to check notes in the background.",
   "agents.install.progress.title": "Installing Claude Code…",
   "agents.install.progress.detail":
     "Running Anthropic’s installer into {directory}. This usually takes under a minute.",
@@ -9051,6 +9120,7 @@ export const en = {
   "agents.activity.check_citations": "Checked its Citations",
   "agents.activity.show_citation": "Opened it in IncarnaMind for you",
   "ai.jobs.organize.agent": "Ask your connected AI to suggest Folders and Tags.",
+  "ai.jobs.organize.yourAi": "Your AI",
   "agents.sorting.tagConsent": "Share these Documents’ Tag names with the model {agent} uses?",
   "agents.sorting.shareTags": "Allow sharing Tag names",
   "agents.sorting.left.one":
@@ -9163,24 +9233,28 @@ export const en = {
   "agents.propose.label": "Let it write notes and propose changes in these Folders",
   "agents.propose.label.all": "Let it write notes and propose changes",
   "agents.propose.hint":
-    "Its notes and Canvases appear at once, and it can have its notes checked. For its Canvases and notes, IncarnaMind copies in the pictures and files it names, and only those. It can also hand over a deck, workbook or other file it made: IncarnaMind reads that one file and keeps each version. What it writes waits for your Check, unless checking as it lands is on in Settings › AI. Its changes to your notes wait for you.",
+    "Its notes appear at once; its changes to your notes wait for you. IncarnaMind reads only the files it names or hands over.",
   // What it may read (#3544): all, said in words while there is no Folder to choose instead.
   "agents.connect.reads.all":
-    "It may read all your Documents and notes, including those you add later. What it reads goes to the AI model {agent} uses.",
-  "agents.connect.reads": "What it reads goes to the AI model {agent} uses.",
+    "It can read all your Documents and notes. What it reads goes to its AI model.",
+  "agents.connect.reads.later": "That includes the Documents and notes you add later.",
+  "agents.connect.reads": "What it reads goes to its AI model.",
   "agents.connect.reads.walled":
-    "What it reads goes to the AI model {agent} uses. A Folder that keeps its work inside it is shared only on its own.",
+    "What it reads goes to its AI model. A Folder that keeps its work inside it is shared only on its own.",
   "agents.share.all": "All my Documents and notes, and what I add later",
   "agents.share.folders": "Choose Folders",
   // The consent to start the agent for a check in the background (#3606).
   "agents.connect.background":
-    "With no AI model set up here, Check and the box at the bottom of a note run your {agent} in the background. Nothing opens and no chat is added. It works only through IncarnaMind, and uses your own Claude plan or API key.",
+    "Checks and note requests run {agent} in the background on your Claude plan or API key.",
   // The consent to start Codex for a check in the background, and what it reads of its own (#3639).
   "agents.connect.background.codex":
-    "With no AI model set up here, Check runs your Codex command line in the background, if it is installed. Nothing opens and no chat is added. It may use only IncarnaMind, which stops it at anything else. It uses your own ChatGPT plan or API key.",
+    "Checks run Codex in the background on your ChatGPT plan or API key.",
+  "agents.connect.background.details":
+    "Only while no AI model is set up here: nothing opens, no chat is added, and it works only through IncarnaMind.",
+  "agents.connect.background.codex.details":
+    "Only while no AI model is set up here: nothing opens, no chat is added, and it may use only IncarnaMind, which stops it at anything else.",
   "agents.connect.codexInstructions":
     "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",
-  "agents.connect.disconnect": "You can disconnect it at any time.",
   "agents.connect.details": "Details",
   "agents.connect.fileChange": "IncarnaMind adds these lines to {path}:",
   "agents.connect.backup":
@@ -9244,13 +9318,13 @@ export const en = {
   "agents.asked.organizing": "Organizing your Documents in {agent}.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
   "agents.asked.again": "Ask again",
-  "agents.asked.short.asked": "Asked your AI",
-  "agents.asked.short.working": "Your AI is checking",
-  "agents.asked.short.quiet": "No word from your AI",
+  "agents.asked.short.asked": "Asked {agent}",
+  "agents.asked.short.working": "{agent} is checking",
+  "agents.asked.short.quiet": "No word from {agent}",
   // A check run on the User's own command-line AI in the background (#3606).
   "agents.asked.stop": "Stop",
   "agents.asked.checkAgain": "Check again",
-  "agents.asked.short.failed": "Your AI stopped",
+  "agents.asked.short.failed": "{agent} stopped",
   "agents.ownCheck.problem.signed-out":
     "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
   "agents.ownCheck.problem.too-old":
@@ -9363,6 +9437,7 @@ export const en = {
   "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
   "noteAsk.command": "Describe a change to this note…",
+  "noteAsk.noAi": "Asking needs your AI",
   "noteAsk.action.improve": "Improve the writing",
   "noteAsk.action.shorten": "Make it shorter",
   "noteAsk.action.translate": "Translate it into {language}",

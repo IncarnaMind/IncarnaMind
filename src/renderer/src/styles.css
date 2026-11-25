@@ -2166,8 +2166,12 @@
     line-height: 16px;
     font-weight: 600;
     color: var(--color-ink-secondary);
+    /* Every row is its own Next: the word shows on the row under the pointer or the keyboard, so
+       a card of three rows doesn't say Next three times (#3756). */
+    visibility: hidden;
   }
   .check-row:is(:hover, :focus-visible) > .check-row-next {
+    visibility: visible;
     background: var(--color-hover);
     color: var(--color-ink);
   }
@@ -2192,6 +2196,7 @@
     position: relative;
   }
   .check-row--action:has(> .check-row-go:is(:hover, :focus-visible)) > .check-row-next {
+    visibility: visible;
     background: var(--color-hover);
     color: var(--color-ink);
   }
@@ -2278,6 +2283,21 @@
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
   }
+  /* The card's first line: what the last check found the Note to be, said once (#3756). */
+  .check-card-head {
+    padding: 6px 8px 4px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-secondary);
+
+    & .meta-line {
+      margin: 0;
+      padding-left: 0;
+    }
+  }
+  .check-card-checked {
+    color: var(--color-ink);
+  }
   .check-card-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2306,10 +2326,24 @@
       opacity: 0.5;
     }
   }
+  /* Check again is a quiet button, no border, in Check's own height, so the card keeps its height
+     through a run's end; its focus ring has a button's room around the words. */
+  .check-card-press > .check-card-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 8px;
+    border-radius: 6px;
+  }
   .check-card-sep {
     height: 1px;
     margin: 6px 4px;
     background: var(--color-rule);
+  }
+  /* A card whose line holds its next step has no foot: no rule above an empty band (#3756). */
+  .check-card-end:empty,
+  .check-card-sep:has(+ .check-card-end:empty) {
+    display: none;
   }
   .check-card-ask {
     display: flex;
@@ -2645,6 +2679,19 @@
   }
   .note-ask {
     position: relative;
+  }
+  /* Where the input can't show, the pill or the line that stands in its place, centred. */
+  .note-foot-ask {
+    display: flex;
+    justify-content: center;
+    padding-block: 4px 16px;
+    /* A line as wide as its words clips the focus ring of the action at its end. */
+    > [role="status"] {
+      flex: 1 1 auto;
+    }
+    .meta-line {
+      justify-content: center;
+    }
   }
   .note-ask-box {
     --note-ask-start: 18px;

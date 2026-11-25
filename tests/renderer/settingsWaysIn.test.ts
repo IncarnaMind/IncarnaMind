@@ -144,6 +144,8 @@ describe("every place that opens Settings › AI with no spot named", () => {
       "commands/settings.ts",
       // The Get started card's agent step, and its foot naming what was set.
       "components/FirstOpenSteps.tsx",
+      // A Note's foot with no AI of theirs that reads it: Connect your AI (#3764).
+      "components/assistant/NoteFootAsk.tsx",
       "components/firstRun/CardTail.tsx",
       // Organize, a meeting's notes and its summary, when the agent can't read what they need.
       "components/library/OrganizeAsk.tsx",

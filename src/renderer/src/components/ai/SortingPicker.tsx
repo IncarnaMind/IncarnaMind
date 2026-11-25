@@ -87,7 +87,12 @@ export function organizeGroups(
  * and what goes `below` it: that problem, or the form of the model being set up (`settingUp`), or
  * the key a chosen host uses.
  */
-export function useSortingPicker(id: string, sorting: ReturnType<typeof useSorting>) {
+export function useSortingPicker(
+  id: string,
+  sorting: ReturnType<typeof useSorting>,
+  /** What the pop-up shows with nothing chosen, where that isn't "No model yet". */
+  none?: string,
+) {
   const t = useT();
   const language = useLanguage();
   const { settingsOptions, current, choose, read, library, setUpOffers, jevSettings } = sorting;
@@ -111,6 +116,7 @@ export function useSortingPicker(id: string, sorting: ReturnType<typeof useSorti
       options={settingsOptions}
       groups={organizeGroups(settingsOptions, models, language, t)}
       current={current}
+      {...(none !== undefined && { none })}
       setUp={{
         offers: [...setUpOffers, { id: "other", label: t("tagging.other") }],
         open: settingUp,

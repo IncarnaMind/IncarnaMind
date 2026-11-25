@@ -31,6 +31,7 @@ import type {
 import { isInside } from "./documents/files";
 import {
   FileWriteCancelledError,
+  FileWriteUnansweredError,
   InvalidInputError,
   LinkedFolderWritesDeclinedError,
   NotFoundError,
@@ -67,6 +68,8 @@ export interface NewFile {
   approved?: boolean;
   /** Save it under `name` exactly: a name the User allowed is never written under another. */
   exact?: boolean;
+  /** Fail at once where it would ask the User: no window may be there to answer (the quit). */
+  unasked?: boolean;
 }
 
 export interface OutputFilesOptions {
@@ -310,7 +313,12 @@ export function createOutputFiles(options: OutputFilesOptions) {
   };
 
   /** Asks where new files go, saying why the default can't take this one; cancels if none is chosen. */
-  const askForLocation = async (fileName: string, problem: OutputFolderProblem): Promise<void> => {
+  const askForLocation = async (
+    fileName: string,
+    problem: OutputFolderProblem,
+    unasked = false,
+  ): Promise<void> => {
+    if (unasked) throw new FileWriteUnansweredError();
     await ask("output-location", {
       kind: "output-location",
       suggested: options.suggested,
@@ -327,12 +335,13 @@ export function createOutputFiles(options: OutputFilesOptions) {
    */
   const outputFolder = async (
     fileName: string,
+    unasked = false,
   ): Promise<{ folder: string; defaulted: boolean }> => {
     let chosen = location();
     if (chosen === null) {
       const usable = await usableDefault(options.suggested);
       if (usable.ok) return { folder: usable.real, defaulted: true };
-      await askForLocation(fileName, usable.reason);
+      await askForLocation(fileName, usable.reason, unasked);
       chosen = location();
       if (chosen === null) throw new FileWriteCancelledError();
     }
@@ -382,10 +391,12 @@ export function createOutputFiles(options: OutputFilesOptions) {
   const allowedIn = async (
     linked: Pick<LinkedFolder, "id" | "path">,
     fileName: string,
+    unasked = false,
   ): Promise<boolean> => {
     const answer = answerOf(linked.id);
     if (answer?.allowed === 1) return true;
     if (answer) throw new LinkedFolderWritesDeclinedError(linked.id, linked.path);
+    if (unasked) throw new FileWriteUnansweredError();
     await ask(`linked-folder:${linked.id}`, {
       kind: "linked-folder",
       linkedFolderId: linked.id,
@@ -473,10 +484,10 @@ export function createOutputFiles(options: OutputFilesOptions) {
       for (;;) {
         const { folder, defaulted } =
           file.folder === undefined
-            ? await outputFolder(name)
+            ? await outputFolder(name, file.unasked)
             : { folder: await givenFolder(file.folder, file.approved === true), defaulted: false };
         const linked = ownerOf(folder);
-        if (linked && !(await allowedIn(linked, name))) continue;
+        if (linked && !(await allowedIn(linked, name, file.unasked))) continue;
         // Before the file exists, so a Linked folder can't index it as the User's.
         if (file.ownFile) options.recordOwnFile(file.data, file.ownFile, file.fromFolder);
         let used: string;
@@ -485,7 +496,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         } catch (error) {
           // macOS can refuse Documents only when a file is made in it, after the folder looked fine.
           if (!defaulted || !isRefused(error)) throw error;
-          await askForLocation(name, "not-writable");
+          await askForLocation(name, "not-writable", file.unasked);
           continue;
         }
         if (defaulted) {

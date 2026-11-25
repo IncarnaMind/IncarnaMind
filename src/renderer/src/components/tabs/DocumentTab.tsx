@@ -15,6 +15,7 @@ import { DocumentView } from "../../viewer/DocumentView";
 import { type PlaceMemory, PlaceMemoryContext, type ViewPlace } from "../../viewer/place";
 import { SelectionMenu } from "../../viewer/SelectionMenu";
 import { type SelectionReader, SelectionReaderContext } from "../../viewer/selectedText";
+import { steadyVersion, useHandVersions, wroteByHand } from "../../viewer/slides/handVersions";
 import { DocumentToolbar, type ViewerFrame, ViewerFrameContext } from "../../viewer/ViewerHeader";
 import { DocumentRemoved } from "../../viewer/ViewerMessage";
 
@@ -38,7 +39,11 @@ function useFileKey(document: Document | undefined): string {
   const id = document?.id;
   const available = document?.fileStatus === "available";
   const ready = document?.kind === "pdf" && document.status === "ready";
-  const version = document?.kind === "transcript" ? "" : document?.contentHash;
+  // A deck's version its hand edits here wrote keeps the view: it draws what they wrote (#149).
+  const steady = useHandVersions((state) =>
+    document ? steadyVersion(state, document.id, document.contentHash) : undefined,
+  );
+  const version = document?.kind === "transcript" ? "" : steady;
   const [returns, setReturns] = useState(0);
   const last = useRef({ id, available, ready, version });
   useEffect(() => {
@@ -155,6 +160,13 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
     target.currentVersion === true ? null : (target.citation?.contentHash ?? null);
   // Deleted Documents leave the list, so a target that isn't in it has been removed.
   const document = useAppStore((state) => state.documents.find((each) => each.id === documentId));
+  // The cited version edited by hand in this window is the version shown, edits and all (#149).
+  const editedHere = useHandVersions(
+    (state) =>
+      citedVersion !== null &&
+      document !== undefined &&
+      wroteByHand(state, document.id, citedVersion, document.contentHash),
+  );
   // A Citation's Document that went with its Linked folder, whose quoted text was kept.
   const unlinked = useAppStore((state) => {
     if (!target.citation) return false;
@@ -304,7 +316,7 @@ export function DocumentTab({ tab }: { tab: LayoutTab }) {
                     ) : (
                       <Suspense key={fileKey} fallback={null}>
                         <SelectionReaderContext.Provider value={lendReader}>
-                          {citedVersion && document.contentHash !== citedVersion ? (
+                          {citedVersion && document.contentHash !== citedVersion && !editedHere ? (
                             <CitedVersionView document={document} target={target} />
                           ) : (
                             <DocumentView document={document} target={target} />

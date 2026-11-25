@@ -18,11 +18,12 @@ const pressed = vi.hoisted(() => ({
   check: vi.fn(),
   unpriced: vi.fn(),
   running: { value: false },
+  unchanged: { value: undefined as true | undefined },
 }));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   startCheck: pressed.check,
   startCheckUnpriced: pressed.unpriced,
-  useMindCheck: () => undefined,
+  useMindCheck: () => pressed.unchanged.value,
   useMindCheckRun: () => null,
 }));
 vi.mock("@tiptap/react", () => ({
@@ -36,11 +37,17 @@ vi.mock("@tiptap/react", () => ({
 }));
 vi.mock("@tiptap/y-tiptap", () => ({ ySyncPluginKey: {} }));
 vi.mock("../../src/renderer/src/checks", () => ({
-  useChecks: (selector: (state: { running: Record<string, unknown> }) => unknown) =>
+  useChecks: (
+    selector: (state: {
+      running: Record<string, unknown>;
+      problems: Record<string, unknown>;
+    }) => unknown,
+  ) =>
     selector({
       running: pressed.running.value
         ? { mind: { requestId: "check-1", action: "whole-mind" } }
         : {},
+      problems: {},
     }),
   setCheckCardOpen: vi.fn(),
   stopCheck: vi.fn(),
@@ -104,7 +111,7 @@ vi.mock("../../src/renderer/src/editor/changedSentences", () => ({
 vi.mock("../../src/renderer/src/editor/checkPlace", () => ({ useCardPlace: () => "card" }));
 vi.mock("../../src/renderer/src/editor/MindCheckLine", () => ({
   MindCheckAsk: () => null,
-  MindUnchanged: () => null,
+  MindUnchanged: () => createElement("p", { "data-testid": "mind-unchanged" }),
   RunningText: () => null,
 }));
 vi.mock("../../src/renderer/src/editor/NoteHealth", () => ({
@@ -217,6 +224,17 @@ afterEach(async () => {
   root = null;
   container.remove();
   vi.unstubAllGlobals();
+  pressed.unchanged.value = undefined;
+});
+
+// protects=#3756: a Check that finds nothing changed says so, with its way to check every sentence again, even when no time of the last check is known, and the quiet Check again stays under it; fails_when=the line goes when the plan names no time, so the press runs nothing and nothing says why
+test("nothing changed is said even with no time to name", async () => {
+  pressed.unchanged.value = true;
+  await render("none", { ...planned, plan: { kind: "unchanged", since: null } }, null);
+  expect(container.querySelector('[data-testid="mind-unchanged"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="badge-check-mind"]')?.textContent).toBe(
+    "mindCheck.again",
+  );
 });
 
 // protects=#2313: the card's press hands `startCheck` the plan its price line was for; fails_when=it presses without that plan, so a plan made since the price runs at once, unpriced; no_claim=the press waiting for a price.
@@ -294,7 +312,7 @@ test("a card with no price line keeps no empty line at rest", async () => {
   expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
 });
 
-// protects=a check asked of the User's own AI hides the card's Check only while no model is set up: once one is, Check is back and the badge has no asked state left to show, while a summary asked of that AI stays (#3587); fails_when=Check stays hidden after a model is set up, the asked check outlives it, or the summary's ask goes with it
+// protects=a check asked of the User's own AI leaves the card no Check only while no model is set up (the asked line offers the next step, #3756): once one is, Check is back and the badge has no asked state left to show, while a summary asked of that AI stays (#3587); fails_when=Check stays away after a model is set up, the asked check outlives it, or the summary's ask goes with it
 test("the card's Check is back once a model is set up while the User's own AI was asked", async () => {
   const { rememberAsked, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
   const codex = { id: "pairing-codex", name: "Codex", client: "codex" } as AgentPairing;
@@ -311,8 +329,7 @@ test("the card's Check is back once a model is set up while the User's own AI wa
   rememberAsked(codex, { kind: "summary", documentId: "harbour" }, { copied: true, at });
   await render("price", planned);
   const check = () => container.querySelector('[data-testid="badge-check-mind"]');
-  expect(check()?.hasAttribute("data-hidden")).toBe(true);
-  expect(check()?.hasAttribute("disabled")).toBe(true);
+  expect(check()).toBeNull();
 
   await readiness({ ready: true } as ChatReadiness);
   expect(check()?.hasAttribute("data-hidden")).toBe(false);
@@ -321,4 +338,47 @@ test("the card's Check is back once a model is set up while the User's own AI wa
   // An ask that answers after the model was set up leaves no check asked either.
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
   expect(asked()).toEqual(["summary"]);
+});
+
+// protects=#3756: a check run on the User's own AI in the background is stopped where Check was, as a run on a model is, and a card whose line offers the next step has no foot at all; fails_when=the run's Stop is missing from the foot, sits beside a Check, or an empty foot is drawn under the line
+test("a background run's Stop takes Check's place, and a card with nothing in its foot has none", async () => {
+  const { useAgentAsked } = await import("../../src/renderer/src/askedAgent");
+  const claude = {
+    id: "pairing-claude",
+    name: "Claude Code",
+    client: "claude-code",
+  } as AgentPairing;
+  const run = (state: "working" | "failed") =>
+    act(() =>
+      useAgentAsked.setState({
+        byKey: {
+          "mind:mind": {
+            agent: claude,
+            for: { kind: "check", mindId: "mind" },
+            copied: false,
+            state,
+            at: new Date().toISOString(),
+            seen: true,
+            background: true,
+          },
+        },
+      }),
+    );
+  await act(() => {
+    app.state = { chatReadiness: { ready: false, reason: "no-provider" } };
+    for (const listener of app.listeners) listener(app.state);
+  });
+  await run("working");
+  await render("none", planned, null);
+  expect(container.querySelector('[data-testid="checks-asked-stop"]')?.textContent).toBe(
+    "checks.stop",
+  );
+  expect(
+    container.querySelector('[data-testid="badge-check-mind"]')?.hasAttribute("data-hidden"),
+  ).toBe(true);
+
+  await run("failed");
+  expect(container.querySelector('[data-testid="checks-asked-stop"]')).toBeNull();
+  expect(container.innerHTML).toBe("");
+  await act(() => useAgentAsked.setState({ byKey: {} }));
 });

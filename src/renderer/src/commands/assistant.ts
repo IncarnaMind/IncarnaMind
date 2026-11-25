@@ -110,8 +110,10 @@ function askOrEdit(): void {
 
 /**
  * ⌘J for a User with only their own AI, the panel out of sight (#3373, #3612): words selected in a
- * Document are asked about, words in a Note go to Edit with AI…, and otherwise it asks as the pill
- * does. Null when there is nothing to hand over, or the panel shows.
+ * Document are asked about, a Note's own input takes the caret with the words selected there as
+ * its quote, words in a Note with no input go to their AI, and otherwise it asks as the pill
+ * does. With no AI of theirs that reads the Note, it goes to the one thing at the Note's foot
+ * that fixes that (#3764). Null when there is nothing to hand over, or the panel shows.
  */
 function ownAiAsk(): (() => void) | null {
   if (!hiddenForOwnAiNow()) return null;
@@ -122,6 +124,10 @@ function ownAiAsk(): (() => void) | null {
   if (note && !note.editor.isDestroyed && noteAskShownNow(note.mindId)) {
     return () => focusNoteAsk(note.mindId);
   }
+  const connect = note && !note.editor.isDestroyed ? noteConnectOf(note.mindId) : null;
+  // ⌘J comes through the app's menu, which the page doesn't count as a key press: without the
+  // option, the button takes the focus with no ring.
+  if (connect) return () => connect.focus(RING);
   if (note && !note.editor.isDestroyed && selectionForEdit(note.editor.state)) {
     return () => {
       if (!requestEditField(note.editor)) {
@@ -133,6 +139,15 @@ function ownAiAsk(): (() => void) | null {
   const [agent] = pill?.agents ?? [];
   return pill && agent ? () => void askOnPill(agent, pill) : null;
 }
+
+/** Chromium's option, not yet in the DOM types. */
+const RING: FocusOptions & { focusVisible: boolean } = { focusVisible: true };
+
+/** Connect your AI at the foot of a Note none of the User's AIs reads, where it shows. */
+const noteConnectOf = (mindId: string): HTMLElement | null =>
+  document.querySelector<HTMLElement>(
+    `[data-testid="note-foot-ask"][data-mind-id="${CSS.escape(mindId)}"] [data-testid="note-ask-connect"]`,
+  );
 
 /** New chat: the assistant shows a new, empty conversation (an empty one is reused), ready to ask. */
 export function newChat(): void {

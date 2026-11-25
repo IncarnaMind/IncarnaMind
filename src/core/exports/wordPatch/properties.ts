@@ -6,9 +6,9 @@
  */
 import { runMarks } from "../../documents/formats/docxImport";
 import { decodeEntities, elements, parseXml } from "../../documents/formats/xml";
+import { sliceOf } from "../packagePatch/text";
 import { escapeXml, fontsXml, halfPoints } from "../wordml";
 import { marksOf, type TextMarks } from "./mind";
-import { sliceOf } from "./text";
 
 /** CT_PPr's children, in order. */
 const PARAGRAPH_ORDER = [
