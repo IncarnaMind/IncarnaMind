@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { AgentSavedFile, NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { core, files } from "../../core";
-import { showFileLabelKey } from "../../fileInfo";
+import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
 import { useT } from "../../i18n";
 import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
 import {
@@ -578,28 +578,39 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
   };
   return (
     <div data-testid="note-column-saved" className="note-column-made-card note-column-saved">
-      <span className="note-column-made-title" title={file.name}>
-        {file.name}
-      </span>
-      <span className="flex shrink-0 gap-1">
-        <button
-          type="button"
-          data-testid="note-column-saved-open"
-          onClick={() => run(files.openSavedFile, "export.failed.open")}
-          className={SAVED_OPEN_BUTTON}
-        >
-          {t("export.open")}
-        </button>
-        <button
-          type="button"
-          data-testid="note-column-saved-show"
-          onClick={() => run(files.showSavedFile, "export.failed.show")}
-          className={SAVED_SHOW_BUTTON}
-        >
-          {t(showFileLabelKey(navigator.platform))}
-        </button>
-      </span>
-      {problem && <ProblemLine testId="note-column-saved-problem">{problem}</ProblemLine>}
+      <div className="note-column-saved-row">
+        <span className="note-column-saved-what">
+          <span className="note-column-made-title" title={file.name}>
+            {file.name}
+          </span>
+          <span data-testid="note-column-saved-kind" className="note-column-made-kind">
+            {t(KIND_LABELS.docx)}
+          </span>
+        </span>
+        <span className="note-column-saved-actions">
+          <button
+            type="button"
+            data-testid="note-column-saved-open"
+            onClick={() => run(files.openSavedFile, "export.failed.open")}
+            className={SAVED_OPEN_BUTTON}
+          >
+            {t("export.open")}
+          </button>
+          <button
+            type="button"
+            data-testid="note-column-saved-show"
+            onClick={() => run(files.showSavedFile, "export.failed.show")}
+            className={SAVED_SHOW_BUTTON}
+          >
+            {t(showFileLabelKey(navigator.platform))}
+          </button>
+        </span>
+      </div>
+      {problem && (
+        <ProblemLine testId="note-column-saved-problem" className="w-full">
+          {problem}
+        </ProblemLine>
+      )}
     </div>
   );
 }

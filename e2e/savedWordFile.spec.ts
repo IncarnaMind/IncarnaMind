@@ -21,9 +21,9 @@ import {
 
 /*
  * A Word file the User's own AI saves from a Note's conversation (#3751): its step names the file
- * with Open and Show in Finder, as Export's saved line offers them, and once the file is moved or
- * deleted they say so where the card is. With the stand-in for Claude Code (no model, no key). Set
- * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
+ * and its kind, with Open and Show in Finder as Export's saved line offers them, and once the file
+ * is moved or deleted they say so where the card is. With the stand-in for Claude Code (no model,
+ * no key). Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
 let dataDir: string;
@@ -147,9 +147,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
       await pointAndClick(window, group.getByTestId("conversation-move-right"));
 
-      // Its step names the file, with Export's own Open and Show in Finder.
+      // Its step names the file and its kind, with Export's own Open and Show in Finder.
       const card = window.getByTestId("note-column-saved");
       await expect(card).toContainText(`${words.title}.docx`);
+      await expect(card.getByTestId("note-column-saved-kind")).toHaveText("Word");
       await shot(window, `saved-word-file-card-${language}`);
       await pointAndClick(window, card.getByTestId("note-column-saved-open"));
       await pointAndClick(window, card.getByTestId("note-column-saved-show"));
