@@ -9131,7 +9131,7 @@ export const en = {
   "agents.pairing.reads": "Reads {folders}",
   "agents.pairing.readsNothing": "Reads no Folders yet",
   "agents.pairing.readsAll": "Reads all your Documents and notes, and what you add later",
-  "agents.pairing.proposes": "Writes notes, Canvases and files; proposes note and deck edits",
+  "agents.pairing.proposes": "Writes notes, Canvases and files there; proposes changes to yours",
   "agents.pairing.inside": "Also reads the Folders inside: {folders}",
   "agents.folders.sharedWith": "Included with {folder}",
   "agents.pairing.lastUsed": "Last used {when}",
