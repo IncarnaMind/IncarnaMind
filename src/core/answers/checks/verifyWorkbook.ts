@@ -195,6 +195,48 @@ function cellText(cell: WorkbookCell | undefined, worked: ReadonlyMap<number, Wo
 
 const NOTHING_WORKED: ReadonlyMap<number, WorkedCell> = new Map();
 
+const MAX_SHEET_TEXT_CHARS = 8_000;
+
+/**
+ * A workbook's sheet as the file holds it (#3506), for the models that read its rows: its name
+ * and every non-empty row in order with its row number and cells (showing worked values for
+ * unsaved formulas), so a row's section heading, notes, units or Sources heading are read with it.
+ * Large sheets are capped so a check's context stays bounded.
+ */
+export function sheetText(
+  sheet: WorkbookSheet,
+  range: CellRange | null,
+  worked: ReadonlyMap<number, WorkedCell> = NOTHING_WORKED,
+): string {
+  const within = checkedRange(sheet, range);
+  const byRow = new Map<number, Map<number, WorkbookCell>>();
+  for (const cell of cellsIn(sheet, within)) {
+    const row = byRow.get(cell.row) ?? new Map<number, WorkbookCell>();
+    row.set(cell.column, cell);
+    byRow.set(cell.row, row);
+  }
+  const rowNumbers = [...byRow.keys()].sort((a, b) => a - b);
+  const columns = [...new Set([...byRow.values()].flatMap((row) => [...row.keys()]))].sort(
+    (a, b) => a - b,
+  );
+  const header = range ? `Sheet "${sheet.name}" (${rangeName(range)}):` : `Sheet "${sheet.name}":`;
+  const lines = [header];
+  let size = header.length;
+  for (const row of rowNumbers) {
+    const cells = columns.map((column) => cellText(byRow.get(row)?.get(column), worked).trim());
+    while (cells.length > 0 && cells.at(-1) === "") cells.pop();
+    if (cells.length === 0) continue;
+    const line = `Row ${row}: ${cells.join(" | ")}`;
+    if (size + line.length + 1 > MAX_SHEET_TEXT_CHARS) {
+      lines.push(`… (${rowNumbers.length - (lines.length - 1)} more rows omitted)`);
+      break;
+    }
+    lines.push(line);
+    size += line.length + 1;
+  }
+  return lines.join("\n");
+}
+
 /**
  * The sheet, or the range of it, as a table, and what it holds: a header row when its first row
  * has only words. A formula the file saved no result for shows what `worked` says it works out to.

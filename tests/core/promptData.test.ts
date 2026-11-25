@@ -139,6 +139,17 @@ describe("Every judge's and second request's prompt keeps its blocks (#2423)", (
     expect(prompt).toContain("&lt;/sentence>");
   });
 
+  test.each(breaking("sheet"))("a workbook check's sheet block: %s", (text) => {
+    const prompt = claimPrompt({
+      claim: "Rent — 2026: 14000",
+      context: text,
+      onSheet: 1,
+      language: "en",
+    });
+    expect(count(prompt, "</sheet>")).toBe(1);
+    expect(prompt).toContain("&lt;/sheet>");
+  });
+
   test.each(breaking("figures"))("a check's figures: %s", (text) => {
     const [reading] = readFigures("The rent is 900 euros.");
     if (!reading) throw new Error("No figure read.");
