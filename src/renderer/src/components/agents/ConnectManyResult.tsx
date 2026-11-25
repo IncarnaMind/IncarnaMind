@@ -3,6 +3,7 @@ import type { AgentClient, AgentClientId } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
 import type { AgentConnectOutcome } from "../../agentConnection";
 import { core } from "../../core";
+import { ClaimMarkIcon } from "../../editor/icons";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
@@ -16,16 +17,17 @@ const linkClass =
   "rounded-sm font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
 
 /**
- * The per-app result after connecting several AI apps in one press (#3644):
- * connected silently (with Undo), waiting for an Install press in its app (with Open again),
- * waiting for a paste (with hidden-token preview, Copy and Help), or failed (with Try again).
+ * Per-app results after connecting several AI apps in one press (#3644): connected (with Undo),
+ * waiting on Install (with Open again), waiting on paste (with Copy and Help), or failed (with Try again).
  */
 export function ConnectManyResult({
   outcomes,
+  undone,
   onUndo,
   onRetry,
 }: {
   outcomes: readonly AgentConnectOutcome[];
+  undone: ReadonlySet<AgentClientId>;
   onUndo(clientId: AgentClientId, pairingId: string): Promise<void>;
   onRetry(client: AgentClient): Promise<void>;
 }) {
@@ -33,7 +35,6 @@ export function ConnectManyResult({
   const language = useLanguage();
   const reportError = useAppStore((state) => state.reportError);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [undone, setUndone] = useState<ReadonlySet<AgentClientId>>(new Set());
   const [retrying, setRetrying] = useState<AgentClientId | null>(null);
 
   const copy = async (id: string, text: string) => {
@@ -48,7 +49,6 @@ export function ConnectManyResult({
   const undo = async (clientId: AgentClientId, pairingId: string) => {
     try {
       await onUndo(clientId, pairingId);
-      setUndone((prev) => new Set(prev).add(clientId));
     } catch (error) {
       reportError(error);
     }
@@ -161,9 +161,7 @@ export function ConnectManyResult({
                 data-testid="connect-many-waiting"
                 className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
               >
-                <span aria-hidden="true" className="shrink-0 text-ink-meta">
-                  …
-                </span>
+                <ClaimMarkIcon state="not-checked" className="size-4 shrink-0 text-ink-meta" />
                 <span className="min-w-0 [overflow-wrap:anywhere]">
                   {t("agents.connectAll.waitingPress", { agent: label })}
                 </span>
@@ -184,10 +182,6 @@ export function ConnectManyResult({
           );
         }
 
-        const pasteInstruction = doneWords(result, pairing, t).replace(
-          /^(?:Copied\. |已复制。)/,
-          "",
-        );
         return (
           <div
             key={outcome.client.id}
@@ -200,20 +194,18 @@ export function ConnectManyResult({
               data-testid="connect-many-paste"
               className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
             >
-              <span aria-hidden="true" className="shrink-0 text-ink-meta">
-                …
-              </span>
+              <ClaimMarkIcon state="not-checked" className="size-4 shrink-0 text-ink-meta" />
               <span className="min-w-0 [overflow-wrap:anywhere]">
                 {t("agents.connectAll.waitingPaste", { agent: label })}
               </span>
             </div>
             <p role="status" className="px-3 text-[12px] leading-[18px] text-ink-meta">
-              {pasteInstruction}
+              {doneWords(result, pairing, t, { copied: false })}
               {pairing.client && (
                 <>
                   <span aria-hidden="true"> · </span>
                   <a
-                    href={helpUrl(pairing.client as AgentClientId, language)}
+                    href={helpUrl(pairing.client, language)}
                     target="_blank"
                     rel="noreferrer"
                     className={linkClass}
@@ -226,7 +218,7 @@ export function ConnectManyResult({
             <div className="flex items-start gap-2 px-3">
               <pre
                 data-testid="connect-many-paste-text"
-                className="max-h-36 min-w-0 flex-1 overflow-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink"
+                className="min-w-0 flex-1 overflow-x-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink"
               >
                 {result.shown}
               </pre>

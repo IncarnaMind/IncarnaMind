@@ -274,12 +274,19 @@ export function createAgentSetup(options: AgentSetupOptions) {
     join(options.tempDir, `${BUNDLE_FOLDER_PREFIX}${pairingId}`);
   const removeBundle = (pairingId: string) =>
     rm(bundleFolder(pairingId), { recursive: true, force: true });
+  const connectedOnce = new Set<string>();
   // A bundle holds its pairing's key: it stays only while the pairing waits for its agent. A
   // folder of a pairing this database never held is another IncarnaMind's, which shares the
   // temporary folder (every app of one account does).
   options.agents.watch({
-    connected: (pairingId) => void removeBundle(pairingId).catch(options.reportError),
-    disconnected: removeBundle,
+    connected: (pairingId) => {
+      connectedOnce.add(pairingId);
+      void removeBundle(pairingId).catch(options.reportError);
+    },
+    disconnected: async (pairingId) => {
+      connectedOnce.delete(pairingId);
+      await removeBundle(pairingId);
+    },
   });
   const waiting = new Set(options.agents.settings().awaitingInstall);
   const held = new Set(options.agents.held());
@@ -713,6 +720,7 @@ export function createAgentSetup(options: AgentSetupOptions) {
       if (!pairing) throw new NotFoundError({ key: "error.agent.notConnected" });
       const client = clientDefinition(pairing.client);
       if (client?.setup === "link") {
+        if (pairing.lastUsedAt !== null || connectedOnce.has(pairing.id)) return;
         if (!options.openLink || !client.link) {
           throw new Error("This copy of IncarnaMind can't open other apps.");
         }

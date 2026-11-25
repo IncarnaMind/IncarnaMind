@@ -27,6 +27,7 @@ describe("the agent strings in a sentence", () => {
           count: 2,
           found: "2.1.100",
           lowest: "2.1.248",
+          reason: "disk full",
         });
         expect(text).not.toContain("{");
         expect(text).not.toContain("Other agent");

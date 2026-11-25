@@ -279,7 +279,7 @@ export function YourAiSection({
 
   const allowMany = async (choice: ManyAgentsChoice) => {
     const outcomes = await many.connectAll(choice, { enable: true });
-    if (outcomes.some((each) => each.kind === "connected")) {
+    if (outcomes?.some((each) => each.kind === "connected")) {
       setSkillLeft([]);
       setAddingAnother(false);
     }
@@ -496,11 +496,14 @@ export function YourAiSection({
         open={manyClients !== null}
         clients={manyClients ?? []}
         busy={many.busy}
+        problem={many.problem}
         outcomes={many.outcomes}
+        undone={many.undone}
         onAllow={(choice) => void allowMany(choice)}
         onUndo={many.undoOne}
         onRetry={many.retryOne}
         onClose={() => {
+          if (many.busy) return;
           setManyClients(null);
           many.clear();
         }}

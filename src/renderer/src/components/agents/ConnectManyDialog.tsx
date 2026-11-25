@@ -14,16 +14,14 @@ import { useModal } from "../useModal";
 import { ConnectManyFields, type ManyAgentsChoice } from "./ConnectManyFields";
 import { ConnectManyResult } from "./ConnectManyResult";
 
-/**
- * The one-press multi-app sheet in Settings › AI (#3644): shows `ConnectManyFields` before the
- * press and switches cleanly to `ConnectManyResult` once done so apps waiting on Install, a paste
- * snippet, Undo or Try again stay right in view.
- */
+/** Settings › AI modal for connecting several found AI apps in one press (#3644). */
 export function ConnectManyDialog({
   open,
   clients,
   busy,
+  problem,
   outcomes,
+  undone,
   onAllow,
   onUndo,
   onRetry,
@@ -32,7 +30,9 @@ export function ConnectManyDialog({
   open: boolean;
   clients: readonly AgentClient[];
   busy: boolean;
+  problem: string | null;
   outcomes: readonly AgentConnectOutcome[] | null;
+  undone: ReadonlySet<AgentClientId>;
   onAllow(choice: ManyAgentsChoice): void;
   onUndo(clientId: AgentClientId, pairingId: string): Promise<void>;
   onRetry(client: AgentClient): Promise<void>;
@@ -46,10 +46,15 @@ export function ConnectManyDialog({
     <dialog
       ref={dialog}
       tabIndex={-1}
+      onCancel={(event) => {
+        event.stopPropagation();
+        // Keep the dialog open while setup is still writing so its results stay in view.
+        if (busy) event.preventDefault();
+      }}
       onClose={(event) => {
         // React passes the event on up its tree, to Settings' own dialog, which would close too.
         event.stopPropagation();
-        onClose();
+        if (!busy) onClose();
       }}
       aria-labelledby={titleId}
       data-testid="connect-many-dialog"
@@ -62,7 +67,12 @@ export function ConnectManyDialog({
           </h2>
           {outcomes ? (
             <>
-              <ConnectManyResult outcomes={outcomes} onUndo={onUndo} onRetry={onRetry} />
+              <ConnectManyResult
+                outcomes={outcomes}
+                undone={undone}
+                onUndo={onUndo}
+                onRetry={onRetry}
+              />
               <div className={dialogActionsClass}>
                 <button
                   type="button"
@@ -77,9 +87,16 @@ export function ConnectManyDialog({
           ) : (
             <ConnectManyFields
               clients={clients}
+              problem={problem}
               actions={({ choice, disabled }) => (
                 <div className={dialogActionsClass}>
-                  <button type="button" onClick={onClose} className={buttonClass}>
+                  <button
+                    type="button"
+                    data-testid="connect-many-cancel"
+                    disabled={busy}
+                    onClick={onClose}
+                    className={buttonClass}
+                  >
                     {t("agents.connect.cancel")}
                   </button>
                   <button

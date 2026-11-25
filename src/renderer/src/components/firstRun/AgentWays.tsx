@@ -99,8 +99,8 @@ export function AgentWays({
   };
 
   const allowAll = async (choice: Parameters<typeof many.connectAll>[0]) => {
-    await many.connectAll(choice, { enable: true });
-    setChosen(null);
+    const results = await many.connectAll(choice, { enable: true });
+    if (results) setChosen(null);
   };
 
   const openClaudeCodeConnect = useCallback(() => {
@@ -194,7 +194,12 @@ export function AgentWays({
         );
       })}
       {many.outcomes && (
-        <ConnectManyResult outcomes={many.outcomes} onUndo={many.undoOne} onRetry={many.retryOne} />
+        <ConnectManyResult
+          outcomes={many.outcomes}
+          undone={many.undone}
+          onUndo={many.undoOne}
+          onRetry={many.retryOne}
+        />
       )}
       {clients.state === "failed" && (
         <ReadProblem
@@ -203,7 +208,7 @@ export function AgentWays({
           testId="setup-agents-problem"
         />
       )}
-      {clients.state === "ready" && !justSetUp && !many.outcomes && (
+      {clients.state === "ready" && !justSetUp && !many.hasActiveOutcome && (
         <AgentFinder clients={clients.data} testId="setup-agents">
           {(shown) => (
             <fieldset
@@ -223,6 +228,7 @@ export function AgentWays({
                     checked={chosen === "all"}
                     onChange={() => {
                       connection.clearProblem();
+                      many.clear();
                       setChosen("all");
                     }}
                     className="mt-0.5 size-4 shrink-0 accent-ink"
@@ -254,6 +260,7 @@ export function AgentWays({
                     checked={chosen !== "all" && chosen?.id === client.id}
                     onChange={() => {
                       connection.clearProblem();
+                      many.clear();
                       setChosen(client);
                     }}
                     className="size-4 shrink-0 accent-ink"
@@ -281,6 +288,7 @@ export function AgentWays({
           <h3 className="text-ui font-semibold text-ink">{t("agents.connectAll.title")}</h3>
           <ConnectManyFields
             clients={foundToConnect}
+            problem={many.problem}
             actions={({ choice, disabled }) => (
               <div className="flex justify-end">
                 <button

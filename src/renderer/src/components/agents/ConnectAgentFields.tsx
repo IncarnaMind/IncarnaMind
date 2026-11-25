@@ -1,35 +1,30 @@
 import { type ReactNode, useEffect, useState } from "react";
-import {
-  type AgentClient,
-  type AgentSetupPreview,
-  ALL_SHARED_ID,
-  NOT_IN_A_FOLDER_ID,
-  type SecretStorageStatus,
-} from "../../../../core/api";
+import type { AgentClient, AgentSetupPreview } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
 import { agentConnector } from "../../agentConnection";
-import { leftOutOfAll, onlyNotInAFolder } from "../../agentFolders";
 import { core } from "../../core";
 import { errorMessage } from "../../errors";
 import { useGap, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { InlinePath } from "../PathText";
 import { ProblemMark } from "../ProblemLine";
-import { SecretStorageNotice } from "../providers/ProviderForm";
 import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass, errorTextClass, fieldLabelClass, hintClass, inputClass } from "../ui";
-import { useAgentFolderRows } from "./AgentFolderList";
 import type { JustSetUp } from "./AgentPairingRow";
 import { AgentShareChoice } from "./AgentShareChoice";
+import {
+  AgentSecretNotice,
+  FileChangePreview,
+  useSecretStorage,
+  useShareFolders,
+} from "./connectShared";
 import { ProposeChoice } from "./ProposeChoice";
 
-const ALL_UNFILED: ReadonlySet<string> = new Set([NOT_IN_A_FOLDER_ID]);
 /** The first line while the User has a Folder, by the Folders all leaves out (`leftOutOfAll`). */
 const READS_WITH = {
   none: "agents.connect.reads",
   walled: "agents.connect.reads.walled",
 } as const;
-const NOTHING: ReadonlySet<string> = new Set();
 
 /** What the User chose before they allow: the Folders, Other agent's name, and whether it may write. */
 export interface AgentChoice {
@@ -104,23 +99,18 @@ export function ConnectAgentFields({
 }) {
   const t = useT();
   const gap = useGap();
-  const [all, setAll] = useState(true);
-  /** What the User has ticked; null until they tick or untick something. */
-  const [picked, setPicked] = useState<ReadonlySet<string> | null>(null);
-  const rows = useAgentFolderRows(true);
-  const leftOut = leftOutOfAll(useAppStore((state) => state.library?.groups) ?? []);
+  const folders = useShareFolders();
+  const { storage, canKeepKey, accept: acceptPlainText } = useSecretStorage(client.id);
   /** The name the User gives "Other agent". */
   const [name, setName] = useState("");
   const [propose, setPropose] = useState(true);
   const [preview, setPreview] = useState<AgentSetupPreview | null>(null);
-  /** Where the agent's key can be kept: with no keyring (Linux), only once the User allows plain text. */
-  const [storage, setStorage] = useState<SecretStorageStatus | null>(null);
   const reportError = useAppStore((state) => state.reportError);
 
   // A new agent starts with all of it, and its own preview.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset folder choice only when switching client.
   useEffect(() => {
-    setAll(true);
-    setPicked(null);
+    folders.reset();
     setName("");
     setPropose(true);
     setPreview(null);
@@ -128,28 +118,13 @@ export function ConnectAgentFields({
     core.previewAgentSetup(client.id).then((value) => {
       if (current) setPreview(value);
     }, reportError);
-    core.getSecretStorage().then((value) => {
-      if (current) setStorage(value);
-    }, reportError);
     return () => {
       current = false;
     };
   }, [client.id, reportError]);
-  const canKeepKey = storage?.canSave !== false;
 
   const agent = name.trim() || clientInSentence(client, t);
-  const anyFolder = rows.some((row) => row.id !== NOT_IN_A_FOLDER_ID);
-  const shared = all || !anyFolder;
-  const chosen = picked ?? (onlyNotInAFolder(rows) ? ALL_UNFILED : NOTHING);
-  const toggle = (folderId: string, on: boolean) => {
-    const next = new Set(chosen);
-    if (on) next.add(folderId);
-    else next.delete(folderId);
-    setPicked(next);
-  };
-  const allowed = shared
-    ? [ALL_SHARED_ID]
-    : rows.filter((row) => chosen.has(row.id)).map((row) => row.id);
+  const { all, setAll, rows, leftOut, anyFolder, shared, chosen, toggle, allowed } = folders;
 
   return (
     <>
@@ -219,32 +194,7 @@ export function ConnectAgentFields({
               {t("agents.connect.codexInstructions")}
             </p>
           )}
-          {preview && (
-            <div data-testid="connect-agent-change" className="flex flex-col gap-1">
-              <p className={dialogTextClass}>
-                <Slotted
-                  message={t("agents.connect.fileChange", { path: SLOT })}
-                  slot={<InlinePath path={preview.path} />}
-                />
-              </p>
-              <details data-testid="connect-agent-change-lines">
-                <summary className="cursor-pointer text-[13px] leading-5 text-ink-secondary">
-                  {t("agents.connect.showChange")}
-                </summary>
-                <pre className="mt-1 max-h-48 overflow-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink">
-                  {preview.change}
-                </pre>
-              </details>
-              {preview.backup && (
-                <p data-testid="connect-agent-backup" className={dialogTextClass}>
-                  <Slotted
-                    message={t("agents.connect.backup", { path: SLOT })}
-                    slot={<InlinePath path={preview.backup} />}
-                  />
-                </p>
-              )}
-            </div>
-          )}
+          {preview && <FileChangePreview preview={preview} testIdPrefix="connect-agent" />}
           {client.skillPath && (
             <p data-testid="connect-agent-skill" className={dialogTextClass}>
               <Slotted
@@ -256,12 +206,7 @@ export function ConnectAgentFields({
         </div>
       </details>
       {allowed.length === 0 && <p className={hintClass}>{t("agents.connect.pickOne")}</p>}
-      {storage && !storage.canSave && (
-        <SecretStorageNotice
-          status={storage}
-          onAccept={() => core.acceptPlainTextSecretStorage().then(setStorage, reportError)}
-        />
-      )}
+      <AgentSecretNotice storage={storage} onAccept={acceptPlainText} />
       {problem && (
         <p data-testid="connect-agent-problem" role="alert" className={errorTextClass}>
           <ProblemMark />

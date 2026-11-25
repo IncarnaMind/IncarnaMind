@@ -3,12 +3,20 @@
  * never turns it off while another attempt connected an agent, or is still under way.
  */
 import { describe, expect, test } from "vitest";
-import type { AgentClient, AgentPairing, SetUpAgent, SetUpAgentInput } from "../../src/core/api";
+import type {
+  AgentClient,
+  AgentPairing,
+  AgentSetupResult,
+  SetUpAgent,
+  SetUpAgentInput,
+} from "../../src/core/api";
 import {
   type AgentBridge,
   agentConnector,
   manyAgentsConnector,
 } from "../../src/renderer/src/agentConnection";
+import { doneWords } from "../../src/renderer/src/components/agents/agentWords";
+import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
 /** A core whose setups wait until the test settles them, one by one. */
 function bridgeOf() {
@@ -167,5 +175,114 @@ describe("connecting several AI apps in one press (#3644)", () => {
 
     expect(outcomes.every((each) => each.kind === "failed")).toBe(true);
     expect(state.enabled).toBe(false);
+  });
+
+  test("concurrent Try again keeps connecting agents on when one fails and the other connects", async () => {
+    const { state, bridge, started, rollbackProblems } = bridgeOf();
+    const connectMany = manyAgentsConnector(bridge, (error) => rollbackProblems.push(error));
+    const first = connectMany(
+      [clientOf("claude-code")],
+      { folderIds: ["not-in-a-folder"], propose: true },
+      { enable: true },
+    );
+    const claude = await started("claude-code");
+    expect(state.enabled).toBe(true);
+    const second = connectMany(
+      [clientOf("codex")],
+      { folderIds: ["not-in-a-folder"], propose: true },
+      { enable: true },
+    );
+    const codex = await started("codex");
+    claude.fail();
+    const [failed] = await first;
+    expect(failed?.kind).toBe("failed");
+    expect(state.enabled).toBe(true);
+    codex.connect();
+    const [connected] = await second;
+    expect(connected?.kind).toBe("connected");
+    expect(state.enabled).toBe(true);
+    expect(rollbackProblems).toEqual([]);
+  });
+
+  test("surfaces an enable failure without running any app setup", async () => {
+    const called: string[] = [];
+    const bridge: AgentBridge = {
+      getAgents: async () => ({ enabled: false, pairings: [] }),
+      setAgentsEnabled: async () => {
+        throw new Error("Settings are read-only.");
+      },
+      setUpAgent: async (each) => {
+        called.push(String(each.client));
+        throw new Error("Should not run.");
+      },
+    };
+    const connectMany = manyAgentsConnector(bridge, () => undefined);
+    await expect(
+      connectMany(
+        [clientOf("codex"), clientOf("claude-code")],
+        { folderIds: ["not-in-a-folder"], propose: true },
+        { enable: true },
+      ),
+    ).rejects.toThrow("Settings are read-only.");
+    expect(called).toEqual([]);
+  });
+
+  test("many-app copy instructions never claim the clipboard was written, even for unreadable settings files", () => {
+    const pairing = {
+      id: "p1",
+      name: "Claude Code",
+      client: "claude-code",
+      folderIds: [],
+      propose: true,
+      lastUsedAt: null,
+      createdAt: "2026-11-25T00:00:00.000Z",
+    } as AgentPairing;
+    const cases: AgentSetupResult[] = [
+      {
+        kind: "copy",
+        how: "settings",
+        text: "{}",
+        shown: "{}",
+        path: "/tmp/.workbuddy/mcp.json",
+        skill: "",
+      },
+      {
+        kind: "copy",
+        how: "command",
+        text: "claude mcp add",
+        shown: "claude mcp add",
+        path: "/tmp/.claude.json",
+        skill: "",
+      },
+      { kind: "copy", how: "settings", text: "{}", shown: "{}", skill: "" },
+      { kind: "copy", how: "command", text: "gemini mcp add", shown: "gemini mcp add", skill: "" },
+    ];
+    for (const language of ["en", "zh-CN"] as const) {
+      const t = (key: MessageKey, params?: MessageParams) => translate(language, key, params);
+      for (const result of cases) {
+        const line = doneWords(result, pairing, t, { copied: false });
+        expect(line).not.toMatch(/Copied/i);
+        expect(line).not.toContain("已复制");
+        if (result.kind === "copy" && result.how === "settings" && result.path) {
+          expect(line).toContain(result.path);
+        }
+      }
+    }
+    const other: AgentPairing = { ...pairing, client: "other", name: "Other agent" };
+    expect(
+      doneWords(
+        { kind: "copy", how: "settings", text: "{}", shown: "{}", skill: "" },
+        other,
+        (key, params) => translate("en", key, params),
+      ),
+    ).toContain("Copied.");
+    const kilo: AgentPairing = { ...pairing, client: "kilo-code", name: "Kilo Code" };
+    expect(
+      doneWords(
+        { kind: "copy", how: "settings", text: "{}", shown: "{}", skill: "" },
+        kilo,
+        (key, params) => translate("en", key, params),
+      ),
+    ).not.toContain("Copied.");
   });
 });

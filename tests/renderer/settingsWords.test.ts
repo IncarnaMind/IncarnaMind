@@ -85,9 +85,12 @@ const CONSENT_FACTS = [
   // with the Folders all leaves out (#3544), and what a connected agent reads, in those words.
   "agents.connect.reads.all",
   "agents.connect.reads.walled",
+  "agents.connectAll.reads.all",
+  "agents.connectAll.reads.walled",
   "agents.pairing.readsAll",
   "agents.connect.backup",
   "agents.connect.body",
+  "agents.connectAll.body",
   // That connecting Claude Code lets IncarnaMind start it for a check, on the User's plan (#3606),
   // and Codex too, which reads the User's own instructions file in those runs (#3639).
   "agents.connect.background",

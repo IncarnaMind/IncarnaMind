@@ -1,4 +1,4 @@
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -216,6 +216,9 @@ for (const language of ["en", "zh-CN"] as const) {
     const dialog = window.getByTestId("connect-many-dialog");
     await expect(dialog).toBeVisible();
     await acceptPlainTextKeys(window, dialog);
+    await shot(window, `settings-dialog-all-${language}`, 1440, 900);
+    await shot(window, `settings-dialog-all-${language}`, 900, 700);
+    await setWindowSize(app, window, 1440, 900);
     await dialog.getByTestId("agent-share-folders").check();
     await dialog.getByTestId("agent-folder").check();
     await shot(window, `settings-dialog-${language}`, 1440, 900);
@@ -241,5 +244,52 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(stat(join(home, ".claude", "skills", "incarnamind", "SKILL.md"))).rejects.toThrow(
       /ENOENT/,
     );
+  });
+
+  test(`Settings › AI: one app fails while the others connect, and Try again recovers it (${language})`, async () => {
+    const folders = { applications: apps, commands: apps, home };
+    await installAgent("codex", folders, "command");
+    await installAgent("claude-code", folders, "command");
+    await installAgent("cursor", folders, "app");
+    // Put a directory at ~/.claude.json so Claude Code's setup fails cleanly on every OS while Codex and Cursor succeed.
+    await rm(join(home, ".claude.json"), { force: true });
+    await mkdir(join(home, ".claude.json"));
+
+    const launched = await launchApp(dataDir, { ...STAND_INS, home, agentApps: [apps] });
+    app = launched.app;
+    const { window } = launched;
+    await interceptOpenPath(app);
+    await interceptOpenExternal(app);
+    await setWindowSize(app, window, 1440, 900);
+    await dismissChatSetup(window);
+
+    const page = await openSettings(window, "ai");
+    if (language === "zh-CN") {
+      await setLanguage(window, "zh-CN");
+    }
+    await page.getByTestId("agents-connect-all").click();
+    const dialog = window.getByTestId("connect-many-dialog");
+    await expect(dialog).toBeVisible();
+    await acceptPlainTextKeys(window, dialog);
+    await dialog.getByTestId("connect-many-allow").click();
+
+    await expect(dialog.getByTestId("connect-many-result")).toBeVisible();
+    await expect(dialog.locator('[data-client="codex"][data-outcome="connected"]')).toBeVisible();
+    await expect(dialog.locator('[data-client="cursor"][data-outcome="opened"]')).toBeVisible();
+    const failed = dialog.locator('[data-client="claude-code"][data-outcome="failed"]');
+    await expect(failed).toBeVisible();
+    await shot(window, `settings-partial-failed-${language}`, 1440, 900);
+    await shot(window, `settings-partial-failed-${language}`, 900, 700);
+    await setWindowSize(app, window, 1440, 900);
+
+    // Fix the file and press Try again for Claude Code alone; it connects without touching Codex or Cursor.
+    await rm(join(home, ".claude.json"), { recursive: true, force: true });
+    await writeFile(join(home, ".claude.json"), CLAUDE_BEFORE);
+    await failed.getByTestId("connect-many-retry").click();
+    await expect(
+      dialog.locator('[data-client="claude-code"][data-outcome="connected"]'),
+    ).toBeVisible();
+    await dialog.getByTestId("connect-many-done").click();
+    await expect(page.getByTestId("agent-pairing")).toHaveCount(3);
   });
 }

@@ -1214,11 +1214,20 @@ describe("the Skill that installs with an agent's connection", () => {
       expect(zed.result.shown).not.toBe(zed.result.text);
     }
 
-    // Reopening a link client invokes openLink again with the pairing's link.
+    // Reopening a link client invokes openLink again while awaiting install, and stops once connected.
     const linksBefore = links.length;
     await core.openAgentInstallAgain(cursor.pairing.id);
     expect(links.length).toBe(linksBefore + 1);
     expect(links.at(-1)).toMatch(/^cursor:\/\//);
+
+    const cursorUrl = new URL(links.at(-1) ?? "");
+    const cursorConfig = JSON.parse(
+      Buffer.from(cursorUrl.searchParams.get("config") ?? "", "base64").toString(),
+    );
+    await searchesThrough(core, launchIn(cursorConfig));
+    const linksAfterUse = links.length;
+    await core.openAgentInstallAgain(cursor.pairing.id);
+    expect(links.length).toBe(linksAfterUse);
 
     // Each app gets its own connection and can be disconnected cleanly.
     expect((await core.getAgents()).pairings).toHaveLength(4);
@@ -1234,5 +1243,53 @@ describe("the Skill that installs with an agent's connection", () => {
     await expect(stat(join(home, ".agents", "skills", "incarnamind", "SKILL.md"))).rejects.toThrow(
       /ENOENT/,
     );
+  });
+
+  it("a middle failure in a multi-app setup leaves other apps intact and leaves no pairing or Skill for the failed app (#3644)", async () => {
+    const { core, home, links, coast } = await started();
+    const codexFile = join(home, ".codex", "config.toml");
+    await mkdir(join(home, ".codex"), { recursive: true });
+    await writeFile(codexFile, 'model = "gpt-6-luna"\n');
+    // Putting a folder at ~/.claude.json forces Claude Code's setup to fail on every OS.
+    await mkdir(join(home, ".claude.json"));
+
+    const codex = await core.setUpAgent({ client: "codex", folderIds: [coast.id], propose: true });
+    await expect(
+      core.setUpAgent({ client: "claude-code", folderIds: [coast.id], propose: true }),
+    ).rejects.toThrow();
+    const cursor = await core.setUpAgent({
+      client: "cursor",
+      folderIds: [coast.id],
+      propose: true,
+    });
+
+    expect(codex.result.kind).toBe("wrote");
+    expect(await readFile(codexFile, "utf8")).toContain("[mcp_servers.incarnamind]");
+    expect(cursor.result).toEqual({ kind: "opened", how: "link" });
+    expect(links.at(-1)).toMatch(/^cursor:\/\//);
+
+    const pairings = (await core.getAgents()).pairings;
+    expect(pairings.map((each) => each.client)).toEqual(["codex", "cursor"]);
+    await expect(stat(join(home, ".claude", "skills", "incarnamind", "SKILL.md"))).rejects.toThrow(
+      /ENOENT/,
+    );
+  });
+
+  it("an unreadable settings file in a multi-app setup falls back to manual instructions without touching the file (#3644)", async () => {
+    const { core, home, coast } = await started();
+    const claudeFile = join(home, ".claude.json");
+    const unreadable = "{ // comments aren't JSON\n}";
+    await writeFile(claudeFile, unreadable);
+
+    const codex = await core.setUpAgent({ client: "codex", folderIds: [coast.id], propose: true });
+    const claude = await core.setUpAgent({
+      client: "claude-code",
+      folderIds: [coast.id],
+      propose: true,
+    });
+
+    expect(codex.result.kind).toBe("wrote");
+    expect(claude.result).toMatchObject({ kind: "copy", how: "command", path: claudeFile });
+    expect(await readFile(claudeFile, "utf8")).toBe(unreadable);
   });
 });
