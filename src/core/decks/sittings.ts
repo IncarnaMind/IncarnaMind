@@ -54,7 +54,7 @@ export interface DeckSittingDeps {
   /** The Document's file name, for the words about a change that waits. */
   nameOf(documentId: string): string;
   /** The name of the folder holding the Document, for lines that name it. */
-  folderNameOf?(documentId: string): string;
+  folderNameOf(documentId: string): string;
 }
 
 /** One gesture: the edits it made, as one step to undo. */
@@ -434,7 +434,7 @@ export function createDeckSittings(deps: DeckSittingDeps) {
           };
           const folder =
             current.folder ??
-            (failed === "folder" ? deps.folderNameOf?.(sitting.documentId) : undefined);
+            (failed === "folder" ? deps.folderNameOf(sitting.documentId) : undefined);
           const next: WaitingWhy = {
             ...current,
             ...(folder ? { folder } : {}),

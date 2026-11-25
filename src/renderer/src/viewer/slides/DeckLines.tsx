@@ -25,7 +25,7 @@ function unwritableActions(
   // Gone, or written by another program since: only a copy beside it keeps the change.
   if (why === "gone" || why === "changed") return { action: copyAction };
   if (copyFailed === "folder") return { action: actions.chooseFolder, also: actions.tryAgain };
-  return why === "locked" || why === "full"
+  return why === "locked" || why === "full" || why === "cloud"
     ? { action: actions.tryAgain, also: copyAction }
     : { action: copyAction, also: actions.tryAgain };
 }
