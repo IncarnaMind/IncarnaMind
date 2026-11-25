@@ -9415,7 +9415,7 @@ export const en = {
   // Before a request here has named its model: the box names none.
   "noteAsk.modelNone": "Model",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
-  "noteColumn.moveRight": "Move to the right",
+  "noteColumn.moveLeft": "Move to the left",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
   "noteColumn.citation": "Citation {number}",

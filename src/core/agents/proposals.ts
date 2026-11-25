@@ -35,6 +35,7 @@ import { citationAttributesOf } from "../../shared/citations";
 import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
+  isEmptyLine,
   readProposalAttribute,
   readProposalRef,
   resolveProposals,
@@ -1140,8 +1141,44 @@ function holdsOtherBlocks(written: string): boolean {
 }
 
 /**
+ * The Blocks of a Note that holds only empty lines, as a new Note does; null when it holds anything
+ * else, or a change waits in it.
+ */
+function emptyLines(blocks: Y.XmlFragment): Y.XmlElement[] | null {
+  const all = blocks.toArray();
+  const lines = all.filter(
+    (block): block is Y.XmlElement =>
+      block instanceof Y.XmlElement &&
+      isEmptyLine(block) &&
+      !block.getAttribute(PROPOSAL_ATTRIBUTE),
+  );
+  return lines.length > 0 && lines.length === all.length ? lines : null;
+}
+
+/**
+ * What is added to a Note of empty lines takes their place, as text written into an empty document
+ * does, so it starts at the Note's first line (#3759): each line is taken out with the first Block
+ * added, one change for the User to decide, so Undo or Reject leaves the Note as it was.
+ */
+function replaceEmptyLines(
+  blocks: Y.XmlFragment,
+  lines: readonly Y.XmlElement[],
+  added: Y.XmlElement[],
+): void {
+  blocks.insert(0, added);
+  const first = readProposalAttribute(added[0]?.getAttribute(PROPOSAL_ATTRIBUTE));
+  if (!first) return;
+  for (const line of lines) {
+    setProposal(
+      line,
+      blockProposal({ id: first.id, request: first.request }, "delete", targetText(line)),
+    );
+  }
+}
+
+/**
  * Where "¶0+" adds: before the Note's first named paragraph, at its top, after a tab's start that
- * opens it; at the end of a Note with none.
+ * opens it; at the end of a Note with none and something else in it.
  */
 function topIndex(
   blocks: Y.XmlFragment,
@@ -1397,9 +1434,11 @@ function writeNamed(
     return { element: anchor?.element ?? null, nodes };
   });
   for (const attributes of citedAnew) tally(placed, citationKey(attributes), 1);
+  const empty = note.paragraphs.length === 0 ? emptyLines(blocks) : null;
   for (const { element, nodes } of additions) {
     if (nodes.length === 0) continue;
     if (element) addAfter(blocks, element, nodes, options);
+    else if (empty) replaceEmptyLines(blocks, empty, proposedBlocks(nodes, options));
     else blocks.insert(topIndex(blocks, note, elements), proposedBlocks(nodes, options));
   }
   if (!holdsOnlyPlaced(blocks, options.request, placed)) return refused({ notPlaced: true });

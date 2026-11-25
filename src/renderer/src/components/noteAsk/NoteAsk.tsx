@@ -2,12 +2,14 @@ import type { Editor } from "@tiptap/react";
 import {
   type KeyboardEvent,
   type ReactNode,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import type { NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 import { askFirstAgent, useReadAgentsToAsk } from "../../askYourAi";
 import { core } from "../../core";
@@ -34,72 +36,64 @@ import {
   ChevronRightLineIcon,
   ConversationLineIcon,
   DockBottomLineIcon,
-  DockRightLineIcon,
+  DockLeftLineIcon,
 } from "../lineIcons";
+import { useTabPlace } from "../tabs/tabItems";
+import { WindowColumnContext } from "../tabs/windowColumn";
 import { type InputCarry, NoteAskInput } from "./NoteAskInput";
 import { NoteAskPill } from "./NoteAskPill";
 import { NoteColumn, NoteConversationBody } from "./NoteColumn";
+import { drawnNoteAskBox } from "./noteAskBox";
 import { ASKS_NOTHING, QuestionCard } from "./OwnAsk";
 
-/** Under this width the column can't stand beside the Note: it opens as a sheet over it. */
-const BESIDE_FROM = 1100;
+/**
+ * The window's column, where it is drawn while it fits beside the tab groups, and whether it follows
+ * this tab's Note (#3759).
+ */
+function useWindowColumn(): { slot: HTMLElement | null; followed: boolean } {
+  const column = useContext(WindowColumnContext);
+  const tabId = useTabPlace()?.tabId;
+  return { slot: column.slot, followed: tabId !== undefined && column.tabId === tabId };
+}
 
-function useBeside(): boolean {
-  const [beside, setBeside] = useState(() => window.innerWidth >= BESIDE_FROM);
-  useEffect(() => {
-    const follow = () => setBeside(window.innerWidth >= BESIDE_FROM);
-    window.addEventListener("resize", follow);
-    return () => window.removeEventListener("resize", follow);
-  }, []);
-  return beside;
+/**
+ * Whether the Note's conversation shows open: as each Note remembers it, upward in its own box; in
+ * the window's one column, or upward when the column doesn't fit, only for the Note the column
+ * follows.
+ */
+function useConversationOpen(mindId: string): boolean {
+  const remembered = useColumnOpen(mindId);
+  const place = useNoteColumns((state) => state.place);
+  const { followed } = useWindowColumn();
+  return remembered && (place === "upward" || followed);
 }
 
 /**
  * The Note's one input (ADR-0034, #3627), for a User whose own AI IncarnaMind runs in the
  * background: one box at the Note's foot, its top row the AI's line while there is one, saying what
  * the AI is doing and then its reply in one sentence. The conversation opens upward inside the same
- * box, or, moved there by the User, as a column at the Note's right with the input at its foot
- * (#3677). There is only ever one input, and sending never folds the conversation.
+ * box, or, moved there by the User, in the window's column left of the tab groups with the input
+ * at its foot, while the column fits there (#3677, #3759). There is only ever one input, and
+ * sending never folds the conversation.
  */
-export function NoteAsk({
-  mindId,
-  editor,
-  columnSlot,
-  overSlot,
-}: {
-  mindId: string;
-  editor: Editor;
-  columnSlot: HTMLElement | null;
-  overSlot: HTMLElement | null;
-}) {
+export function NoteAsk({ mindId, editor }: { mindId: string; editor: Editor }) {
   useReadAgentsToAsk(mindId);
   const shown = useNoteAskShown(mindId);
   if (!shown) return null;
-  return <NoteAskBox mindId={mindId} editor={editor} columnSlot={columnSlot} overSlot={overSlot} />;
+  return <NoteAskBox mindId={mindId} editor={editor} />;
 }
 
-function NoteAskBox({
-  mindId,
-  editor,
-  columnSlot,
-  overSlot,
-}: {
-  mindId: string;
-  editor: Editor;
-  columnSlot: HTMLElement | null;
-  overSlot: HTMLElement | null;
-}) {
+function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   const t = useT();
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const [words, setWords] = useState("");
   const carry = useRef<InputCarry | null>(null);
   const [quote, setQuote] = useState(() => selectedForRequest(editor.state)?.quote ?? "");
   const [whole, setWhole] = useState(false);
-  const open = useColumnOpen(mindId);
+  const open = useConversationOpen(mindId);
   const place = useNoteColumns((state) => state.place);
-  const beside = useBeside();
-  const slot = beside ? columnSlot : overSlot;
-  // With no column to open in, it opens upward.
+  const slot = useWindowColumn().slot;
+  // With no column to open in, or none that fits beside the groups, it opens upward.
   const upward = place === "upward" || slot === null;
   useEffect(listen, []);
   // A window opened while a request runs hears of it, and of what its AI asks, from the record.
@@ -109,13 +103,17 @@ function NoteAskBox({
     );
   }, [mindId]);
   const working = ask?.state === "working";
+  const turns = useOpenConversation(mindId, open, `${ask?.turnId ?? ""}:${ask?.state ?? ""}`);
+  // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
+  // later would cover what the User had scrolled into view, and a change's bar docked above it.
+  const shownOpen = open && (!upward || turns !== null);
   const [question] = ask?.state === "working" ? ask.questions : [];
   // Folded, a question shows its card in the box, which grows over the Note as the conversation
   // does upward, and goes back once it is answered (#3653).
   const asking = question !== undefined && !open;
   // An AI set to ask nothing says so once in the box too, where the User sees it (#3653).
   const unasking = working && !open && ASKS_NOTHING.has(ask?.mode ?? "") ? ask?.mode : undefined;
-  const floating = (upward && open) || asking || unasking !== undefined;
+  const floating = (upward && shownOpen) || asking || unasking !== undefined;
   // With no conversation yet there is nothing to open: no handle, and the box is its input row.
   const kept = useKeptConversation(mindId, ask?.state ?? null);
 
@@ -179,17 +177,42 @@ function NoteAskBox({
   const foot = useRef<HTMLDivElement>(null);
   const folded = useRef<number | null>(null);
   useLayoutEffect(() => {
-    if (!open && !asking && foot.current) folded.current = foot.current.offsetHeight;
+    if (!floating && foot.current) folded.current = foot.current.offsetHeight;
   });
   const toggle = () => setColumnOpen(mindId, !open);
+  // Grown over the Note's foot, it gives the Note's end as much more room, so the Note's last line
+  // still scrolls up above it.
+  useLayoutEffect(() => {
+    const box = foot.current ? drawnNoteAskBox(foot.current) : null;
+    const scroller = foot.current
+      ?.closest(".mind-tab-page")
+      ?.querySelector<HTMLElement>(".mind-scroller");
+    if (!floating || !box || !scroller) return;
+    const measure = () => {
+      const over = scroller.getBoundingClientRect().bottom - box.getBoundingClientRect().top;
+      scroller.style.setProperty("--note-ask-over", `${Math.max(0, Math.round(over))}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    observer.observe(scroller);
+    return () => {
+      observer.disconnect();
+      scroller.style.removeProperty("--note-ask-over");
+    };
+  }, [floating]);
   useEffect(() => {
     if (!upward || !open) return;
     const fold = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node) || foot.current?.contains(target)) return;
-      // A menu's popover, or Show conversation at the Note's top right, which folds it itself:
-      // folding here first would have its press open it again.
-      if (target instanceof Element && target.closest("[popover], [data-conversation-toggle]"))
+      // A menu's popover; Show conversation at the Note's top right, which folds it itself: folding
+      // here first would have its press open it again; and a change's bar, which stands above the
+      // box: folding would move it from under the press.
+      if (
+        target instanceof Element &&
+        target.closest("[popover], [data-conversation-toggle], .change-bar")
+      )
         return;
       setColumnOpen(mindId, false);
     };
@@ -212,7 +235,7 @@ function NoteAskBox({
   ) : null;
   // Open, the conversation shows the line's reply and a failure of its request; a request that
   // failed before it began has no turn there, so its line stays above the input.
-  const shownLine = open && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
+  const shownLine = shownOpen && !(ask?.state === "failed" && ask.turnId === null) ? null : line;
   const agent = ask?.agent || "Claude Code";
   const input = (
     <NoteAskInput
@@ -229,14 +252,14 @@ function NoteAskBox({
       onStop={() => void stopInNote(mindId)}
       onKeyDown={onKeyDown}
       carry={carry}
+      // Folded, the box says how to see the conversation again in words, wherever it opens; open,
+      // only a line the conversation can't show stays above the input.
       line={
-        upward ? (
-          kept || ask ? (
-            <ConversationHandle line={shownLine} open={open} onToggle={toggle} />
-          ) : null
-        ) : (
+        shownOpen ? (
           shownLine
-        )
+        ) : kept || ask ? (
+          <ConversationHandle line={line} onOpen={toggle} />
+        ) : null
       }
       panel={
         asking ? (
@@ -251,14 +274,16 @@ function NoteAskBox({
               {t(`ownAsk.mode.${unasking}` as MessageKey, { agent })}
             </p>
           </div>
-        ) : upward && open ? (
+        ) : upward && shownOpen && turns ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">
             <NoteConversationBody
               mindId={mindId}
               editor={editor}
               agent={agent}
+              turns={turns}
               className="note-ask-panel-body"
             />
+            <PanelTools column={slot !== null} onFold={toggle} />
           </div>
         ) : null
       }
@@ -266,7 +291,7 @@ function NoteAskBox({
   );
   if (!upward && open && slot !== null) {
     return createPortal(
-      <NoteColumn mindId={mindId} editor={editor} agent={agent} input={input} />,
+      <NoteColumn mindId={mindId} editor={editor} agent={agent} turns={turns} input={input} />,
       slot,
     );
   }
@@ -285,47 +310,60 @@ function NoteAskBox({
 }
 
 /**
- * The box's top row with the conversation upward: the AI's line, or "Show conversation" when there
- * is none, and the chevron that opens and folds it. Open, it holds the move to the right and the
- * fold, and a line only where the conversation above it can't show it.
+ * The folded box's top row: the AI's line, or "Show conversation" when there is none, and at its
+ * end the chevron that opens the conversation.
  */
-function ConversationHandle({
-  line,
-  open,
-  onToggle,
-}: {
-  line: ReactNode;
-  open: boolean;
-  onToggle(): void;
-}) {
+function ConversationHandle({ line, onOpen }: { line: ReactNode; onOpen(): void }) {
   const t = useT();
   return (
     <div data-testid="note-ask-handle" className="note-ask-handle">
-      {line ??
-        (open ? (
-          <span className="flex-1" />
-        ) : (
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={onToggle}
-            className="note-ask-pill note-ask-pill-text"
-          >
-            {t("noteAsk.showConversation")}
-          </button>
-        ))}
-      {open && <MoveConversation to="column" className="note-ask-chevron" />}
+      {line ?? (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onOpen}
+          className="note-ask-pill note-ask-pill-text"
+        >
+          {t("noteAsk.showConversation")}
+        </button>
+      )}
       <button
         type="button"
         data-testid="note-ask-handle-toggle"
-        aria-expanded={open}
-        aria-label={t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
-        title={t(open ? "noteAsk.hideConversation" : "noteAsk.showConversation")}
+        aria-expanded="false"
+        aria-label={t("noteAsk.showConversation")}
+        title={t("noteAsk.showConversation")}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={onToggle}
+        onClick={onOpen}
         className="note-ask-chevron"
       >
-        <ChevronRightLineIcon className={`size-3.5 ${open ? "rotate-90" : "-rotate-90"}`} />
+        <ChevronRightLineIcon className="size-3.5 -rotate-90" />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The conversation's two controls while it is open upward, at its top right in line with the first
+ * request, as the column has them in its top row: the move into the column, while the column fits
+ * (`column`), and the fold. They take no row of their own.
+ */
+function PanelTools({ column, onFold }: { column: boolean; onFold(): void }) {
+  const t = useT();
+  return (
+    <div className="note-ask-panel-tools">
+      {column && <MoveConversation to="column" className="note-column-icon" />}
+      <button
+        type="button"
+        data-testid="note-ask-fold"
+        aria-expanded="true"
+        aria-label={t("noteAsk.hideConversation")}
+        title={t("noteAsk.hideConversation")}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onFold}
+        className="note-column-icon"
+      >
+        <ChevronRightLineIcon className="size-3.5 rotate-90" />
       </button>
     </div>
   );
@@ -333,7 +371,7 @@ function ConversationHandle({
 
 /**
  * Moves the open conversation between its two places (#3677): up from the box at the Note's foot
- * into the column at the Note's right, and back. It stays open, and the one input goes with it.
+ * into the window's column, and back. It stays open, and the one input goes with it.
  */
 export function MoveConversation({
   to,
@@ -343,11 +381,11 @@ export function MoveConversation({
   className: string;
 }) {
   const t = useT();
-  const label = t(to === "column" ? "noteColumn.moveRight" : "noteColumn.moveDown");
+  const label = t(to === "column" ? "noteColumn.moveLeft" : "noteColumn.moveDown");
   return (
     <button
       type="button"
-      data-testid={to === "column" ? "conversation-move-right" : "conversation-move-down"}
+      data-testid={to === "column" ? "conversation-move-left" : "conversation-move-down"}
       aria-label={label}
       title={label}
       // The input keeps the focus as it moves with the conversation.
@@ -356,12 +394,43 @@ export function MoveConversation({
       className={className}
     >
       {to === "column" ? (
-        <DockRightLineIcon className="size-3.5" />
+        <DockLeftLineIcon className="size-3.5" />
       ) : (
         <DockBottomLineIcon className="size-4" />
       )}
     </button>
   );
+}
+
+/**
+ * The Note's conversation while it is open, upward or in the window's column, read as it opens and
+ * again as each request starts and ends (`changed`); null until read, and once it folds, so it opens
+ * on what it holds now. Moving between its two places reads nothing.
+ */
+function useOpenConversation(
+  mindId: string,
+  open: boolean,
+  changed: string,
+): readonly NoteTurn[] | null {
+  const [read, setRead] = useState<{ mindId: string; turns: readonly NoteTurn[] } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
+  useEffect(() => {
+    if (!open) {
+      setRead(null);
+      return;
+    }
+    let current = true;
+    core
+      .noteConversation(mindId)
+      .then((turns) => {
+        if (current) setRead({ mindId, turns });
+      })
+      .catch(useAppStore.getState().reportError);
+    return () => {
+      current = false;
+    };
+  }, [mindId, open, changed]);
+  return read?.mindId === mindId ? read.turns : null;
 }
 
 /** Whether the Note has a conversation kept, read as it opens and as each request ends. */
@@ -388,7 +457,7 @@ function useKeptConversation(mindId: string, state: string | null): boolean {
 export function NoteConversationButton({ mindId }: { mindId: string }) {
   const t = useT();
   const shown = useNoteAskShown(mindId);
-  const open = useColumnOpen(mindId);
+  const open = useConversationOpen(mindId);
   if (!shown) return null;
   return (
     <button

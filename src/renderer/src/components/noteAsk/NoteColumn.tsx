@@ -2,7 +2,7 @@ import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentSavedFile, NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
-import { core, files } from "../../core";
+import { files } from "../../core";
 import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
 import { useT } from "../../i18n";
 import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
@@ -20,6 +20,7 @@ import {
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { ProblemLine } from "../ProblemLine";
+import { SidebarToggle } from "../SidebarToggle";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
@@ -164,19 +165,21 @@ function readOf(steps: readonly NoteStep[], t: Translate): string | null {
 }
 
 /**
- * The Note's conversation, opened as a column at the Note's right (#3677): each request as a
- * bubble, its steps, what it made or changed, and its reply. While it is open the Note's one input
- * is at its foot, so the User reads and asks in one place.
+ * The Note's conversation, opened as the window's column beside the tab groups (#3677, #3759):
+ * each request as a bubble, its steps, what it made or changed, and its reply. While it is open the
+ * Note's one input is at its foot, so the User reads and asks in one place.
  */
 export function NoteColumn({
   mindId,
   editor,
   agent,
+  turns,
   input,
 }: {
   mindId: string;
   editor: Editor;
   agent: string;
+  turns: readonly NoteTurn[] | null;
   input: ReactNode;
 }) {
   const t = useT();
@@ -193,6 +196,7 @@ export function NoteColumn({
       }}
     >
       <header className="note-column-head">
+        <SidebarToggle place="band" />
         <h2 className="note-column-title">{t("noteColumn.title")}</h2>
         <MoveConversation to="upward" className="note-column-icon" />
         <button
@@ -212,6 +216,7 @@ export function NoteColumn({
         mindId={mindId}
         editor={editor}
         agent={agent}
+        turns={turns}
         className="note-column-body"
       />
       <div className="note-column-foot">{input}</div>
@@ -220,18 +225,21 @@ export function NoteColumn({
 }
 
 /**
- * The conversation's turns, newest in view, scrolling in their own place: the column's body, or
- * the panel that opens upward inside the input's box.
+ * The conversation's turns, `turns` as read while it is open (null until then), newest in view,
+ * scrolling in their own place: the column's body, or the panel that opens upward inside the
+ * input's box.
  */
 export function NoteConversationBody({
   mindId,
   editor,
   agent,
+  turns,
   className,
 }: {
   mindId: string;
   editor: Editor;
   agent: string;
+  turns: readonly NoteTurn[] | null;
   className: string;
 }) {
   const t = useT();
@@ -241,8 +249,6 @@ export function NoteConversationBody({
   const trails = useNoteTrails((state) => state.byTurn);
   const at = useNoteColumns((state) => state.at[mindId] ?? null);
   const body = useRef<HTMLDivElement>(null);
-  const [turns, setTurns] = useState<readonly NoteTurn[] | null>(null);
-  const changed = `${ask?.turnId ?? ""}:${ask?.state ?? ""}`;
   // Once in the conversation, above the first step the AI took with a tool of its own, a line says
   // it does so (#3653), unless that step asked, whose card said it already; and once, at the first
   // request its own mode asks nothing in.
@@ -256,20 +262,6 @@ export function NoteConversationBody({
   const firstOwn = firstStep && unasked(firstStep.step) ? firstStep.turn : null;
   const modeTurn =
     turns?.find((turn) => ASKS_NOTHING.has(trails[turn.id]?.mode ?? turn.mode ?? ""))?.id ?? null;
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: read again as each request starts and ends.
-  useEffect(() => {
-    let current = true;
-    core
-      .noteConversation(mindId)
-      .then((read) => {
-        if (current) setTurns(read);
-      })
-      .catch(useAppStore.getState().reportError);
-    return () => {
-      current = false;
-    };
-  }, [mindId, changed]);
 
   const atEnd = useRef(true);
   // Opened from the foot line, it shows that reply; otherwise the newest is in view, as in every chat.
