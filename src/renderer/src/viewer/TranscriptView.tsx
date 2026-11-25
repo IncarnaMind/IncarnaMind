@@ -401,6 +401,7 @@ function TranscriptContent({
     (row: PartRow) => keptFromMs === undefined || row.part.endMs > keptFromMs,
     [keptFromMs],
   );
+  const playableRow = useCallback((row: PartRow) => playable && heard(row), [playable, heard]);
   // With no lines the view's own sentence says so: a count and a head line would say it twice (#1031).
   const hasLines = transcript.cues.length > 0;
   // What puts a problem and Try again in the recording bar: until then no line comes as people
@@ -928,9 +929,7 @@ function TranscriptContent({
                       nameable={nameable}
                       lines={lines}
                       speakers={speakers}
-                      playable={
-                        playable && row.turn.paragraphs.some((paragraph) => paragraph.some(heard))
-                      }
+                      playable={playableRow}
                       caret={caret}
                       rest={rest?.line === row.turn.id ? rest : null}
                       saying={row.turn === lastTurn && goesOn ? goesOn : null}

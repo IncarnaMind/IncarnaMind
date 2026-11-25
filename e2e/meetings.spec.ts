@@ -412,19 +412,21 @@ test("an engine that can't start says so in plain words, never in its JavaScript
   expect(meeting?.status).toBe("recording");
 
   // Stopped, the Meeting's Note says the Transcript isn't finished and that its recording is kept,
-  // while it is (#2957), once, over its control.
+  // while it is (#2957), once, on its page: the control holds only the recording's own lines.
   await stopMeeting(window);
   await expect
     .poll(async () => (await bridge(window))[0]?.audio)
     .toMatchObject({ kept: true, keptUntilDeleted: true });
-  await expect(line).toHaveText("转写中途停止，录音已保留。· 重试");
-  await expect(window.locator('[data-testid="meeting-transcript-line"]:visible')).toHaveCount(1);
+  const stopped = window.locator('[data-testid="meeting-transcript-line"]:visible');
+  await expect(stopped).toHaveText("转写中途停止，录音已保留。· 重试");
+  await expect(stopped).toHaveCount(1);
+  await expect(line).toHaveCount(0);
   await shot(window, "meeting-transcript-stopped-before-end-zh");
   await setLanguage(window, "en");
-  await expect(line).toHaveText(
+  await expect(stopped).toHaveText(
     "Transcription stopped before the end. Your recording is kept. · Try again",
   );
-  await expect(line).not.toContainText("createAsync");
+  await expect(stopped).not.toContainText("createAsync");
   await shot(window, "meeting-transcript-stopped-before-end-en");
 
   // Its audio deleted, the line no longer says it is kept, with nothing reloaded.
@@ -434,7 +436,7 @@ test("an engine that can't start says so in plain words, never in its JavaScript
       (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.deleteMeetingAudio(id),
     meetingId,
   );
-  await expect(line).toHaveText("Transcription stopped. · Try again");
+  await expect(stopped).toHaveText("Transcription stopped. · Try again");
 });
 
 test("Open beside opens the live Transcript next to the meeting, closing its tab hides it, and at Stop it is saved", async () => {

@@ -124,7 +124,8 @@ export function TranscriptTurn({
   nameable: Document | null;
   lines: readonly TranscriptLine[];
   speakers: TranscriptSpeakers | null;
-  playable: boolean;
+  /** Whether a click on the line's words plays it: its audio may be gone up to a point in the turn. */
+  playable(row: PartRow): boolean;
   caret: { line: string; at: number } | null;
   rest: { step: SpeakersStep; done(): void } | null;
   saying: Saying | null;
@@ -222,7 +223,7 @@ export function TranscriptTurn({
                     <PartWords
                       row={row}
                       meetingId={meetingId}
-                      playable={playable}
+                      playable={playable(row)}
                       caretAt={caretAt}
                     />
                   </span>

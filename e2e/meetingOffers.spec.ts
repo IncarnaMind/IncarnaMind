@@ -426,3 +426,52 @@ test("a first recording starts at once and turns nothing else on; Home then asks
   expect(await deviceSettings(window)).toMatchObject({ callOffers: false, keepRunning: false });
   await app.close();
 });
+
+for (const language of ["en", "zh-CN"] as const) {
+  // protects=Home's line turns both the offers and running in the background on, so it never shows while running in the background is already on, and shows after a first recording once both are off; fails_when=the line offers what is already on, or never comes back once both are off
+  test(`Home never asks to turn the offers on while running in the background is on, and asks once both are off (${language})`, async () => {
+    const { app, window } = await launch();
+    await dismissChatSetup(window);
+    // Running in the background turned on by hand, the offers to take notes left off.
+    const settings = await openSettings(window, "general");
+    const keepRunning = settings.getByTestId("keep-running-switch");
+    await expect(keepRunning).not.toBeChecked();
+    await keepRunning.click();
+    await expect(keepRunning).toBeChecked();
+    await window.keyboard.press("Escape");
+    await expect(settings).toBeHidden();
+
+    await recordMeeting(window);
+    await stopMeeting(window);
+    await window.getByTestId("sidebar-home").click();
+    await expect(window.getByTestId("home")).toBeVisible();
+    // A round trip to the core after Home shows, so a line Home would show has shown.
+    await expect
+      .poll(() => deviceSettings(window))
+      .toMatchObject({ meetingNoticeAccepted: true, callOffers: false, keepRunning: true });
+    const tip = window.getByTestId("call-offers-tip");
+    await expect(tip).toHaveCount(0);
+
+    // Turned off again, both are off: Home asks, where the computer can notice calls (#2843).
+    const again = await openSettings(window, "general");
+    await again.getByTestId("keep-running-switch").click();
+    await expect(again.getByTestId("keep-running-switch")).not.toBeChecked();
+    await window.keyboard.press("Escape");
+    await expect(again).toBeHidden();
+    await expect
+      .poll(() => deviceSettings(window))
+      .toMatchObject({ callOffers: false, keepRunning: false });
+    await setLanguage(window, language);
+    await window.getByTestId("sidebar-home").click();
+    await expect(window.getByTestId("home")).toBeVisible();
+    if (process.platform === "win32") {
+      await expect(tip).toHaveCount(0);
+    } else {
+      await expect(tip.getByTestId("call-offers-turn-on")).toHaveText(
+        language === "en" ? "Turn on" : "开启",
+      );
+      await expect(tip).toContainText(language === "en" ? "Open at login in the" : "登录时在");
+    }
+    await app.close();
+  });
+}

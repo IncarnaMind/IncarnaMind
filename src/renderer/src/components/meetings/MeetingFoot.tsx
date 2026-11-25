@@ -1,5 +1,5 @@
 import { isMacOS } from "@tiptap/core";
-import { type ReactNode, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import type { Meeting } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
@@ -37,8 +37,6 @@ import {
   BookmarkLineIcon,
   ChevronDownLineIcon,
   CloseLineIcon,
-  MicLineIcon,
-  MicOffLineIcon,
   MoreLineIcon,
   OpenBesideLineIcon,
   PauseLineIcon,
@@ -57,11 +55,13 @@ import { buttonStyle, menuFrameClass, menuItemClass, menuRuleClass, menuTitleCla
 import { usePopoverMenu } from "../usePopoverMenu";
 import { useTip } from "../useTip";
 import { LevelBars, levelName } from "./LevelBars";
+import { MeetingAgentUnavailable } from "./MeetingAgentNotes";
 import {
   applyMeetingWriteupTemplate,
   canChooseMeetingTemplate,
   MeetingTemplateRows,
 } from "./MeetingTemplatePicker";
+import { MicrophoneButton } from "./MicrophoneButton";
 
 /**
  * The sheet's own state beside the tab's view (the Transcript is the view the sheet shows): the
@@ -78,7 +78,13 @@ const useSheet = create<{
 export const useSheetOpen = (tabId: string | undefined, mindId: string) =>
   useMeetingNoteView(tabId, mindId) === "transcript";
 
+/** Opened upward the conversation would lie over the sheet; in the window's column it stays beside. */
+function clearSheetOfConversation(mindId: string): void {
+  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(mindId, false);
+}
+
 function setSheet(tabId: string, mindId: string, open: boolean): void {
+  if (open) clearSheetOfConversation(mindId);
   useSheet.setState((state) => ({ tipSeen: true, cited: open ? state.cited : null }));
   showMeetingNoteView(tabId, mindId, open ? "transcript" : "notes");
 }
@@ -111,8 +117,7 @@ export function showCitedInTranscript(cited: ViewerTarget): boolean {
           .flatMap((group) => group.tabs)
           .find((each) => each.item.kind === "mind" && each.item.mindId === meeting.mindId);
   if (!tab) return false;
-  // Opened upward the conversation would lie over the sheet; in the window's column it stays beside.
-  if (!document.querySelector('[data-testid="note-column"]')) setColumnOpen(meeting.mindId, false);
+  clearSheetOfConversation(meeting.mindId);
   useSheet.setState((state) => ({
     tipSeen: true,
     cited: { ...cited, request: (state.cited?.request ?? 0) + 1 },
@@ -200,15 +205,18 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
   useAudioQuestionInSheet(meeting, tabId, open);
   const writable = !live && meeting.fill?.state === "own-ai";
   const notesAsked = useNotesAsked(meeting, writable);
+  // Pressed and gone nowhere: the line above the input says why, or, where the AI chosen for the
+  // notes can't read them, the card over the control does.
+  const [unsent, setUnsent] = useState(false);
   const writeNotes = () => {
     setSheet(tabId, mindId, false);
-    // Where the request didn't go, the button comes back, and the line above the input says why.
-    writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest")).catch(
-      useAppStore.getState().reportError,
-    );
+    writeMeetingNotes(meeting, t("meetings.foot.writeNotesRequest"))
+      .then((went) => setUnsent(!went))
+      .catch(useAppStore.getState().reportError);
   };
+  const notesAgentId = meeting.fill?.agentId ?? null;
   return (
-    <div className="meeting-foot-stack">
+    <div data-beside-conversation="" className="meeting-foot-stack">
       <div className="meeting-foot-over">
         {/* With the sheet up, its own line says it. */}
         {micProblem && !open && (
@@ -249,6 +257,11 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
         )}
         {!open && (
           <>
+            {writable && unsent && notesAgentId && (
+              <div className="meeting-foot-card">
+                <MeetingAgentUnavailable meeting={meeting} agentId={notesAgentId} role="alert" />
+              </div>
+            )}
             <SharedScreenLine meeting={meeting} />
             <div className="meeting-foot-card">
               <CallEndingLine meeting={meeting} />
@@ -623,27 +636,18 @@ function SheetTime({ meeting }: { meeting: Meeting }) {
 
 function SheetFoot({ meeting }: { meeting: Meeting }) {
   const t = useT();
-  const { pause, resume, chooseScreen, setMicrophonePaused } = useMeetings.getState();
+  const { pause, resume, chooseScreen } = useMeetings.getState();
   const recording = meeting.status === "recording";
-  const micPaused = meeting.microphonePausedAtMs !== null;
   const shortcut = shortcutLabel("meeting.pauseResume");
   const markShortcut = shortcutLabel("meeting.mark");
   return (
     <footer data-testid="meeting-sheet-foot" data-live="" className="meeting-sheet-foot">
-      <button
-        type="button"
-        data-testid="meeting-sheet-mic"
-        aria-pressed={micPaused}
-        aria-label={t(micPaused ? "meetings.mic.resume" : "meetings.mic.pause")}
-        title={t(micPaused ? "meetings.mic.resume" : "meetings.mic.pauseTip")}
-        onClick={() => void setMicrophonePaused(meeting.id, !micPaused)}
+      <MicrophoneButton
+        meeting={meeting}
+        testId="meeting-sheet-mic"
         className="meeting-button meeting-button--words"
-      >
-        {micPaused ? <MicOffLineIcon className="size-4" /> : <MicLineIcon className="size-4" />}
-        <span className="meeting-button-word">
-          {t(micPaused ? "meetings.mic.resume" : "meetings.mic.pause")}
-        </span>
-      </button>
+        worded
+      />
       <button
         type="button"
         data-testid={recording ? "meeting-sheet-pause" : "meeting-sheet-resume"}

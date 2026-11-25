@@ -418,6 +418,11 @@ for (const language of ["en", "zh-CN"] as const) {
           }),
         ).toBe(true);
       }
+      // A press on a card keeps the conversation open, so the card stays under the pointer.
+      const standing = await boxOf(tip);
+      await pointAndClick(window, tip.locator("span").first());
+      await expect(window.getByTestId("note-ask-panel")).toBeVisible();
+      expect(await boxOf(tip)).toEqual(standing);
       // Its ✕ is reached and works from the keyboard while the conversation stays open.
       await tip.getByTestId("meeting-foot-tip-close").focus();
       await window.keyboard.press("Enter");

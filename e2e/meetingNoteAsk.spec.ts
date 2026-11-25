@@ -206,6 +206,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await pointAndClick(window, chevron);
       await expect(window.getByTestId("meeting-sheet")).toBeVisible();
       await expect(chevron).toHaveAttribute("aria-expanded", "true");
+      // Opened upward the conversation would lie over the sheet: it folds as the sheet rises.
+      await expect(panel).toBeHidden();
     } finally {
       await app.close();
     }

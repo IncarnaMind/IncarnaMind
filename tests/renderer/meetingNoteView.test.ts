@@ -1141,6 +1141,61 @@ describe("the meeting's control and sheet after #3762's review", () => {
     },
   );
 
+  test("a turn running across the deletion point offers to play only its words said since", async () => {
+    served =
+      "WEBVTT\n\n00:00:00.500 --> 00:00:02.000\n<v Me>Before the deletion.\n\n" +
+      "00:00:03.000 --> 00:00:05.000\n<v Me>After the resume.\n";
+    useMeetings.setState({
+      meetings: [
+        meetingOf({
+          audio: {
+            kept: true,
+            expiresAt: "2026-11-08T12:54:00.000Z",
+            deletedAt: null,
+            keptUntilDeleted: false,
+            keptFromMs: 2500,
+          },
+        } as Partial<Meeting>),
+      ],
+    });
+    await show();
+    await click("meeting-foot-transcript");
+    const turns = find("meeting-sheet").querySelectorAll('[data-testid="transcript-turn"]');
+    expect(turns).toHaveLength(1);
+    const [before, after] = [
+      ...find("meeting-sheet").querySelectorAll<HTMLElement>('[data-testid="transcript-line"]'),
+    ];
+    if (!before || !after) throw new Error("Missing the turn's two lines");
+    for (const word of before.querySelectorAll<HTMLElement>("[data-word]")) {
+      expect(word.hasAttribute("data-playable")).toBe(false);
+      expect(word.getAttribute("title")).toBeNull();
+    }
+    for (const word of after.querySelectorAll<HTMLElement>("[data-word]")) {
+      expect(word.getAttribute("data-playable")).toBe("true");
+      expect(word.getAttribute("title")).toBe(translate("en", "transcript.word.play"));
+    }
+  });
+
+  test("a press on the control or its cards keeps the conversation open; the sheet rising folds it", async () => {
+    const { useNoteColumns } = await import("../../src/renderer/src/ownAiInNote");
+    useMeetings.setState({
+      meetings: [
+        meetingOf({
+          status: "recording",
+          transcript: { documentId: "transcript", lines: 1, state: "live", partials: [] },
+        } as unknown as Partial<Meeting>),
+      ],
+    });
+    await show();
+    const beside = find("meeting-foot").closest("[data-beside-conversation]");
+    expect(beside).not.toBeNull();
+    expect(beside?.querySelector(".meeting-foot-over")).not.toBeNull();
+    useNoteColumns.setState((state) => ({ open: { ...state.open, note: true } }));
+    await click("meeting-foot-transcript");
+    expect(sheetIn()).not.toBeNull();
+    expect(useNoteColumns.getState().open.note).toBe(false);
+  });
+
   test("the sheet's Transcript leaves out its own header, head line and Review speakers… opener", async () => {
     await show();
     await click("meeting-foot-transcript");

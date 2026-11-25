@@ -26,6 +26,9 @@ import {
 const OUT = process.env.STILLS_OUT ?? "";
 const LANG = (process.env.STILLS_LANG ?? "en") as "en" | "zh-CN";
 const HEIGHT = 900;
+/** Every state at three widths; with the conversation in its column only where the column fits. */
+const WIDTHS = [1440, 1280, 900] as const;
+const COLUMN_WIDTHS = [1440, 1280] as const;
 
 const WORDS = {
   en: {
@@ -273,6 +276,30 @@ async function measure(window: Page, regions: readonly string[]) {
   }, regions);
 }
 
+/**
+ * Asks the stand-in about the call in front, then moves the conversation to the window's column at
+ * the left: the input goes with it, the control stays at the Note's foot.
+ */
+async function askIntoColumn(window: Page, bin: string) {
+  await expect
+    .poll(
+      async () =>
+        (await meetings(window)).find((each) => each.status !== "stopped")?.transcript?.documentId,
+      { timeout: 60_000 },
+    )
+    .toBeTruthy();
+  const live = (await meetings(window)).find((each) => each.status !== "stopped");
+  await writeFile(join(bin, "mode.doc"), live?.transcript?.documentId ?? "");
+  await writeFile(join(bin, "mode"), "ask");
+  await window.getByTestId("note-ask-input").click();
+  await window.keyboard.type(WORDS.question);
+  await window.keyboard.press("Enter");
+  await expect(window.getByTestId("note-ask-pill-open")).toBeVisible({ timeout: 60_000 });
+  await window.getByTestId("note-ask-handle-toggle").click();
+  await window.getByTestId("conversation-move-left").click();
+  await expect(window.getByTestId("note-column")).toBeVisible();
+}
+
 const REGIONS = [
   "meeting-foot",
   "meeting-foot-tip",
@@ -312,7 +339,7 @@ test(`meeting stills, ${LANG}`, async () => {
   /** The window at each width the state is drawn at, with what it measures. */
   const still = async (
     name: string,
-    widths: readonly number[] = [1440, 900],
+    widths: readonly number[] = WIDTHS,
     before?: () => Promise<void>,
   ) => {
     for (const width of widths) {
@@ -474,8 +501,8 @@ test(`meeting stills, ${LANG}`, async () => {
           await window.getByTestId("conversation-move-down").click();
         await expect(panel).toBeVisible();
       };
-      await still("d2-reply", [1440, 900], openUpward);
-      await still("d3-citation", [1440, 900], async () => {
+      await still("d2-reply", WIDTHS, openUpward);
+      await still("d3-citation", WIDTHS, async () => {
         await openUpward();
         await panel.locator(".citation-marker").first().click();
         await expect(window.getByTestId("meeting-sheet")).toBeVisible();
@@ -556,14 +583,14 @@ test(`meeting stills, ${LANG}`, async () => {
         )
           await window.keyboard.press("Escape");
       };
-      await still("f1-notes-checked", [1440, 900], closeCard);
+      await still("f1-notes-checked", WIDTHS, closeCard);
       const cite = editor.getByTestId("citation").first();
-      await still("f2-words-said", [1440, 900], async () => {
+      await still("f2-words-said", WIDTHS, async () => {
         await closeCard();
         await cite.click({ force: true });
         await expect(window.getByTestId("citation-card")).toBeVisible();
       });
-      await still("f3-unsupported", [1440, 900], async () => {
+      await still("f3-unsupported", WIDTHS, async () => {
         await window.keyboard.press("Escape");
         await window
           .getByText(LANG === "en" ? "already approved" : "已经批准")
@@ -701,7 +728,11 @@ for (const microphone of ["allowed", "denied"] as const)
         await expect(window.getByTestId("meeting-foot-problem"))
           .toBeVisible({ timeout: 15_000 })
           .catch(() => log.push("no microphone line"));
-        await still("g3-mic-denied", [1440, 900]);
+        await still("g3-mic-denied", WIDTHS);
+        await askIntoColumn(window, bin).catch((error: unknown) =>
+          log.push(`FAILED column: ${String(error).slice(0, 300)}`),
+        );
+        await still("h1m-column-mic-denied", COLUMN_WIDTHS);
         return;
       }
 
@@ -712,7 +743,7 @@ for (const microphone of ["allowed", "denied"] as const)
         id,
       );
       await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "paused");
-      await still("g4-paused", [1440, 900]);
+      await still("g4-paused", WIDTHS);
       await window.evaluate(
         (meetingId) => (globalThis as unknown as Core).incarnamind.resumeMeeting(meetingId),
         id,
@@ -849,10 +880,23 @@ test(`meeting with the conversation at the left, ${LANG}`, async () => {
     await window.getByTestId("note-ask-handle-toggle").click();
     await window.getByTestId("conversation-move-left").click();
     await expect(window.getByTestId("note-column")).toBeVisible();
-    await still("h1-column-recording", [1440, 900]);
+    await still("h1-column-recording", COLUMN_WIDTHS);
+
+    // Paused, the column beside: the resume triangle in the bars' slot.
+    await window.evaluate(
+      (meetingId) => (globalThis as unknown as Core).incarnamind.pauseMeeting(meetingId),
+      meeting.id,
+    );
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "paused");
+    await still("h1p-column-paused", COLUMN_WIDTHS);
+    await window.evaluate(
+      (meetingId) => (globalThis as unknown as Core).incarnamind.resumeMeeting(meetingId),
+      meeting.id,
+    );
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
 
     // The sheet over the Note, the column beside it.
-    await still("h2-column-sheet", [1440, 900], async () => {
+    await still("h2-column-sheet", COLUMN_WIDTHS, async () => {
       if (!(await window.getByTestId("meeting-sheet").isVisible()))
         await window.getByTestId("meeting-foot-transcript").click();
       await expect(window.getByTestId("meeting-sheet")).toBeVisible();
@@ -860,7 +904,7 @@ test(`meeting with the conversation at the left, ${LANG}`, async () => {
     await window.getByTestId("meeting-sheet-hide").click();
 
     // A Citation pressed in the column's reply: the sheet at its line, the reply beside it.
-    await still("h3-column-citation", [1440, 900], async () => {
+    await still("h3-column-citation", COLUMN_WIDTHS, async () => {
       if (await window.getByTestId("meeting-sheet").isVisible())
         await window.getByTestId("meeting-sheet-hide").click();
       const reply = window.getByTestId("note-column").or(window.getByTestId("note-ask-panel"));
@@ -896,7 +940,7 @@ test(`meeting with the conversation at the left, ${LANG}`, async () => {
         .getByTestId("note-ask-handle-toggle")
         .click()
         .catch(() => undefined);
-    await still("h4-column-stopped", [1440, 900]);
+    await still("h4-column-stopped", COLUMN_WIDTHS);
     await mode(LANG === "en" ? "notes" : "notes-zh");
     await window.getByTestId("meeting-write-notes").click();
     await expect
@@ -904,7 +948,30 @@ test(`meeting with the conversation at the left, ${LANG}`, async () => {
         timeout: 60_000,
       })
       .toBe(true);
-    await still("h5-column-notes", [1440, 900]);
+    await still("h5-column-notes", COLUMN_WIDTHS);
+
+    // Checked against the Transcript, the column beside.
+    await mode(LANG === "en" ? "check" : "check-zh");
+    await editor.click();
+    await runCommand(window, "mind.check", WORDS.check);
+    await expect
+      .poll(
+        async () =>
+          (await window.getByTestId("check-badge-open").first().getAttribute("aria-label")) ?? "",
+        { timeout: 90_000 },
+      )
+      .toMatch(/look|留意/)
+      .catch(() => log.push("the check badge never named a sentence to look at"));
+    await editor.evaluate((el) => (el as HTMLElement).blur());
+    await still("h6-column-checked", COLUMN_WIDTHS, async () => {
+      if (
+        await window
+          .getByTestId("check-card")
+          .isVisible()
+          .catch(() => false)
+      )
+        await window.keyboard.press("Escape");
+    });
   } finally {
     await writeFile(join(OUT, `log-column-${tag}.txt`), log.join("\n"));
     await app.close().catch(() => undefined);
