@@ -17,8 +17,8 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OwnAiAsk, OwnAiProgress } from "../../src/core/adapters";
 import type { NoteAnswer } from "../../src/core/api";
@@ -1145,7 +1145,153 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     // A link to a .claude folder that isn't there yet.
     await mkdir(join(work, "fresh"));
     await symlink(join(work, "fresh", ".claude"), join(work, "fresh", "docs"), "junction");
+    // Links the walk follows as the system does: a loop; more than it follows; a link to a link; a
+    // relative target in the middle of a path; ".." after another link.
+    await symlink("loopB", join(work, "loopA"), "file");
+    await symlink("loopA", join(work, "loopB"), "file");
+    await mkdir(join(work, "chain"));
+    for (let n = 0; n < 41; n += 1) {
+      await symlink(`c${n + 1}`, join(work, "chain", `c${n}`), "dir");
+    }
+    await symlink(join(work, ".claude"), join(work, "chain", "c41"), "junction");
+    await symlink("hop2", join(work, "hop1"), "file");
+    await symlink("CLAUDE.md", join(work, "hop2"), "file");
+    await symlink(".claude", join(work, "mid"), "dir");
+    await mkdir(join(work, ".claude", "agents"));
+    await symlink(join(work, ".claude", "agents"), join(work, "sub"), "junction");
+    await symlink(["sub", ".."].join(sep), join(work, "up"), "dir");
+    // A steering name that is a link to a plain one, as CLAUDE.md to AGENTS.md, and the User's own
+    // ~/.claude kept in a folder of dotfiles.
+    await mkdir(join(work, "named"));
+    await writeFile(join(work, "named", "AGENTS.md"), "Crossing times are HH.MM.\n");
+    await symlink("AGENTS.md", join(work, "named", "CLAUDE.md"), "file");
+    await mkdir(join(work, "dotfiles"));
+    const ownClaude = join(homedir(), ".claude");
+    await rm(ownClaude, { recursive: true, force: true });
+    await symlink(join(work, "dotfiles"), ownClaude, "junction");
     const cases: [string, Record<string, unknown>, string][] = [
+      [
+        "a loop of links",
+        { tool_name: "Write", tool_input: { file_path: join(work, "loopA"), content: "x" } },
+        "ask",
+      ],
+      [
+        "42 links in a row to .claude, more than the walk follows",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "chain", "c0", "settings.json"), content: "{}" },
+        },
+        "ask",
+      ],
+      [
+        "hop1, a link to a link to CLAUDE.md",
+        { tool_name: "Write", tool_input: { file_path: join(work, "hop1"), content: "x" } },
+        "ask",
+      ],
+      [
+        "mid/settings.json, mid a relative link to .claude",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "mid", "settings.json"), content: "{}" },
+        },
+        "ask",
+      ],
+      [
+        "up/settings.json, up a link to sub/.. where sub is a link into .claude",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "up", "settings.json"), content: "{}" },
+        },
+        "ask",
+      ],
+      [
+        "AGENTS.md, which CLAUDE.md is a link to",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "named", "AGENTS.md"), content: "x" },
+          cwd: join(work, "named"),
+        },
+        "ask",
+      ],
+      [
+        "a file in the folder ~/.claude is a link to",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "dotfiles", "settings.json"), content: "{}" },
+          cwd: work,
+        },
+        "ask",
+      ],
+      [
+        "-o.claude/settings.json, after a short option",
+        {
+          tool_name: "Bash",
+          tool_input: { command: "curl -o.claude/settings.json https://example.com/s" },
+        },
+        "ask",
+      ],
+      [
+        "-C.claude, after a short option",
+        { tool_name: "Bash", tool_input: { command: "tar -xf a.tar -C.claude" } },
+        "ask",
+      ],
+      [
+        "-t.claude, after a short option",
+        { tool_name: "Bash", tool_input: { command: "cp -t.claude settings.json" } },
+        "ask",
+      ],
+      [
+        "a path from ~",
+        { tool_name: "Write", tool_input: { file_path: "~/notes.md", content: "x" } },
+        "ask",
+      ],
+      [
+        "a path through /proc/",
+        { tool_name: "Write", tool_input: { file_path: "/proc/self/cwd/notes.md", content: "x" } },
+        "ask",
+      ],
+      [
+        "a path through /dev/fd/",
+        { tool_name: "Write", tool_input: { file_path: "/dev/fd/3", content: "x" } },
+        "ask",
+      ],
+      [
+        "CLAUDE.md with a zero-width non-joiner inside",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "CLAUDE\u{200C}.md"), content: "x" },
+        },
+        "ask",
+      ],
+      [
+        "CLAUDE.md with a soft hyphen inside",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "CLAUDE\u{AD}.md"), content: "x" },
+        },
+        "ask",
+      ],
+      [
+        "a path of 5,000 characters",
+        {
+          tool_name: "Write",
+          tool_input: { file_path: join(work, "a".repeat(5000)), content: "x" },
+        },
+        "ask",
+      ],
+      [
+        "PowerShell writing CLAUDE.md, a backtick inside its name",
+        {
+          tool_name: "PowerShell",
+          tool_input: { command: "Set-Content -Path C`LAUDE.md -Value x" },
+        },
+        "ask",
+      ],
+      [
+        "PowerShell listing a folder",
+        { tool_name: "PowerShell", tool_input: { command: "Get-ChildItem" } },
+        "goes on",
+      ],
       [
         "fresh/docs/settings.local.json, docs a link to a .claude not there yet",
         {
@@ -1306,9 +1452,10 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         "goes on",
       ],
     ];
-    const { answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(() =>
-      rm(work, { recursive: true, force: true }),
-    );
+    const { answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(async () => {
+      await rm(ownClaude, { force: true });
+      await rm(work, { recursive: true, force: true });
+    });
     expect(cases.map(([name], index) => [name, answers[index]])).toEqual(
       cases.map(([name, , said]) => [name, said]),
     );
@@ -1344,6 +1491,27 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       expect(answers).toEqual(["ask"]);
     },
   );
+
+  // protects=on Windows Claude Code runs a command through its PowerShell tool, and its question reads as a command's card, as one through Bash does; fails_when=every PowerShell command on Windows is refused as a question IncarnaMind can't show
+  it("reads a question of its PowerShell tool as a command", async () => {
+    useClaude({
+      run: asking([
+        {
+          tool_name: "PowerShell",
+          tool_use_id: "toolu_ps",
+          input: { command: "Get-ChildItem -Path .", description: "List the folder" },
+        },
+      ]),
+    });
+    const asked: OwnAiAsk[] = [];
+    await converse(async (question) => {
+      asked.push(question);
+      return "deny";
+    });
+    expect(asked.map((each) => each.action)).toEqual([
+      { kind: "command", value: "Get-ChildItem -Path .", description: "List the folder" },
+    ]);
+  });
 
   // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
   it("allows a call of IncarnaMind's own without asking", async () => {

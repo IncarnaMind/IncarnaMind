@@ -6,6 +6,7 @@
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
 import { existsSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
@@ -43,14 +44,23 @@ const SEPARATORS = process.platform === "win32" ? /[\\/]/ : /\//;
 const partsOf = (path: string) => path.split(SEPARATORS).filter((part) => part !== "");
 
 /**
- * Where `path` leads: each part of it in turn, a link replaced by where it leads, even a link to a
- * folder or file that isn't there yet, since a write through it can make that.
+ * Where `path` leads, walked as the system walks it: each part in turn, a link replaced by the
+ * parts of its target and ".." the folder above the one reached, so it goes where a link took it,
+ * even to a folder or file that isn't there yet, since a write through it can make that. With
+ * `asText`, a link's target is read as text from the link's own folder instead, as Windows may read
+ * it. Null when the walk gives up: more links than a system follows, or a loop.
  */
-function leadsTo(path: string): string | null {
+function leadsTo(path: string, asText = false): string | null {
   let at = parse(path).root;
   const parts = partsOf(path.slice(at.length));
   for (let hops = 0; parts.length > 0; ) {
-    const next = join(at, parts.shift() ?? "");
+    const part = parts.shift() ?? "";
+    if (part === ".") continue;
+    if (part === "..") {
+      at = dirname(at);
+      continue;
+    }
+    const next = join(at, part);
     let target: string;
     try {
       target = readlinkSync(next);
@@ -60,7 +70,11 @@ function leadsTo(path: string): string | null {
     }
     hops += 1;
     if (hops > 40) return null;
-    const led = resolve(dirname(next), target);
+    const led = asText ? resolve(at, target) : isAbsolute(target) ? target : null;
+    if (led === null) {
+      parts.unshift(...partsOf(target));
+      continue;
+    }
     at = parse(led).root;
     parts.unshift(...partsOf(led.slice(at.length)));
   }
@@ -124,7 +138,8 @@ export function actionOf(
   server?: unknown,
 ): NoteAction | null {
   const input = object(given);
-  if (name === "Bash") {
+  // Claude Code on Windows runs a command through its PowerShell tool as through Bash.
+  if (name === "Bash" || name === "PowerShell") {
     const command = text(input.command);
     if (command === "") return null;
     // Where a command runs can't be told from it: it may change folder first.
@@ -241,10 +256,10 @@ const STEERING_FILES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Characters that draw nothing which an older Mac disk (HFS+) leaves out when it compares names, so
- * that CLAUDE.md with one inside is CLAUDE.md there.
+ * Characters that draw nothing, which an older Mac disk (HFS+), and folders some Linux kernels fold
+ * the case of, leave out when they compare names, so that CLAUDE.md with one inside is CLAUDE.md.
  */
-const UNSEEN_IN_NAMES = /[\u{200B}-\u{200F}\u{202A}-\u{202E}\u{206A}-\u{206F}\u{FEFF}]/gu;
+const UNSEEN_IN_NAMES = /\p{Default_Ignorable_Code_Point}/gu;
 
 /**
  * A part of a path as the disk finds it: letters a disk takes as others folded (the long s, U+017F,
@@ -274,32 +289,72 @@ function linkedHard(path: string): boolean {
   }
 }
 
+// Paths compared as the disk compares them: macOS's and Windows's in any case.
+const asCompared = (path: string) => (process.platform === "linux" ? path : path.toLowerCase());
+
+/**
+ * Where the steering files Claude Code reads for `cwd` really are: CLAUDE.md, CLAUDE.local.md,
+ * .mcp.json and .claude in it and in each folder above it, and the User's own ~/.claude and
+ * ~/.claude.json, each followed where it is a link, as CLAUDE.md to an AGENTS.md or ~/.claude to a
+ * folder of dotfiles is.
+ */
+function steeringPlaces(cwd: string): string[] {
+  const named: string[] = [];
+  for (let at = resolve(cwd); ; at = dirname(at)) {
+    for (const name of ["CLAUDE.md", "CLAUDE.local.md", ".mcp.json", ".claude"]) {
+      named.push(join(at, name));
+    }
+    if (dirname(at) === at) break;
+  }
+  named.push(join(homedir(), ".claude"), join(homedir(), ".claude.json"));
+  return named.flatMap((each) => {
+    if (!existsSync(each)) return [];
+    const real = realOf(each);
+    return real === null ? [] : [asCompared(real)];
+  });
+}
+
+// A path the hook can't walk at once: the walk runs in the main process, a step at a time.
+const LONGEST_PATH = 4096;
+
+// A path that names another place for Claude Code than for the hook: its home, a process's own view.
+const ELSEWHERE = /^(?:~|\/proc\/|\/dev\/fd\/)/;
+
 /**
  * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
  * skills and its memory (under a .claude folder), and servers (.mcp.json, .claude.json). Written in
  * the conversation's folder, or in its memory, it steers every later request there. Checked as
- * named, where it really is from `cwd` (a symbolic link by another name can lead to one), and, for
- * a file with other names (a hard link), as one, since which of them it is can't be told cheaply.
+ * named, where it really is from `cwd` (a symbolic link by another name can lead to one), against
+ * where the steering files for `cwd` really are, and, for a file with other names (a hard link), as
+ * one, since which of them it is can't be told cheaply. Where the walk can't tell, it asks; on
+ * Windows it asks when either reading of a link's ".." would reach one.
  */
 function steers(path: string, cwd: string): boolean {
-  if (steersAsNamed(path)) return true;
+  if (steersAsNamed(path) || ELSEWHERE.test(path) || path.length > LONGEST_PATH) return true;
   const whole = resolve(cwd, path);
-  const real = leadsTo(whole);
-  return (real !== null && steersAsNamed(real)) || linkedHard(real ?? whole);
+  const readings =
+    process.platform === "win32" ? [leadsTo(whole), leadsTo(whole, true)] : [leadsTo(whole)];
+  if (readings.some((real) => real === null)) return true;
+  const places = steeringPlaces(cwd);
+  return readings.some((real) => {
+    if (real === null || steersAsNamed(real) || linkedHard(real)) return true;
+    const found = asCompared(real);
+    return places.some((place) => found === place || found.startsWith(`${place}${sep}`));
+  });
 }
 
-const STEERING_NAMES =
-  /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|(?:^|[^\w.-])\.claude(?:$|[^\w.-])/i;
+// .claude may follow a short option's letter with nothing between, as in -C.claude.
+const STEERING_NAMES = /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|\.claude(?:$|[^\w.-])/i;
 
 /**
  * A command that names one of those files or folders, in any case, its letters folded as a disk
- * does, with the quotes and backslashes a shell takes out of a name taken out too: it may write
- * one. A command that writes one without naming it, as a script, a pattern, a name it builds or an
- * archive it unpacks, is not seen.
+ * does, with the quotes, backslashes and PowerShell's backticks a shell takes out of a name taken
+ * out too: it may write one. A command that writes one without naming it, as a script, a pattern, a
+ * name it builds or an archive it unpacks, is not seen.
  */
 const namesSteering = (command: string) => {
   const folded = command.normalize("NFKC").replace(UNSEEN_IN_NAMES, "");
-  return STEERING_NAMES.test(folded) || STEERING_NAMES.test(folded.replace(/["'\\]/g, ""));
+  return STEERING_NAMES.test(folded) || STEERING_NAMES.test(folded.replace(/["'`\\]/g, ""));
 };
 
 /** The id IncarnaMind's PreToolUse hook is registered under, in `initialize`. */
@@ -316,7 +371,7 @@ export const STEERING_HOOK = "incarnamind-steering";
 export const STEERING_HOOKS = {
   PreToolUse: [
     {
-      matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash",
+      matcher: "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
       hookCallbackIds: [STEERING_HOOK],
       onFailure: "block",
     },
@@ -329,7 +384,7 @@ export function steeringAnswer(input: Record<string, unknown>): Record<string, u
   const given = object(input.tool_input);
   const path = text(given.file_path) || text(given.notebook_path);
   const steering =
-    name === "Bash"
+    name === "Bash" || name === "PowerShell"
       ? namesSteering(text(given.command))
       : path !== "" && steers(path, text(input.cwd));
   if (!steering) return {};
