@@ -22,6 +22,7 @@ export const CHECK_TAGS: readonly PromptTag[] = [
   "sentence",
   "paragraph",
   "slide",
+  "sheet",
   "passage",
   "quote",
   "figures",
@@ -222,6 +223,8 @@ export function claimPrompt(input: {
   context?: string;
   /** `context` is the deck's slide by this number that the line is on (#3455). */
   onSlide?: number;
+  /** `context` is the workbook's sheet by this page number that the row is on (#3506). */
+  onSheet?: number;
   cited?: readonly { documentName: string; quote: string }[];
   /** The Passages those Citations quote, as the search Tool shows Passages. */
   citedShown?: string | null;
@@ -240,11 +243,17 @@ export function claimPrompt(input: {
             tagged("slide", `${slideHeading(input.onSlide)}\n${context}`, "", CHECK_TAGS),
             "",
           ]
-        : [
-            "Where it stands in the Note, for what it is about and what its words refer to: what is above it (the Note's opening, the headings it is under, its section so far), then the paragraph it is in:",
-            tagged("paragraph", context, "", CHECK_TAGS),
-            "",
-          ]
+        : input.onSheet !== undefined
+          ? [
+              "The sheet it is a row of, for what it is about, its section headings, units and notes, as the file holds it. The sheet is the file being checked, not a source: what it says neither supports nor contradicts the row, which only the Documents' Passages can:",
+              tagged("sheet", context, "", CHECK_TAGS),
+              "",
+            ]
+          : [
+              "Where it stands in the Note, for what it is about and what its words refer to: what is above it (the Note's opening, the headings it is under, its section so far), then the paragraph it is in:",
+              tagged("paragraph", context, "", CHECK_TAGS),
+              "",
+            ]
       : []),
     ...(cited.length > 0
       ? [

@@ -112,6 +112,8 @@ export interface ClaimCheckRequest {
   context?: string;
   /** `context` is the deck's slide by this number that the sentence is on, as the file holds it (#3455). */
   onSlide?: number;
+  /** `context` is the workbook's sheet by this page number that the row is on, as the file holds it (#3506). */
+  onSheet?: number;
   /** The sentence's paragraph under its nearest heading: what a decision model reads with it. */
   near?: string;
   cited?: readonly CheckedCitation[];

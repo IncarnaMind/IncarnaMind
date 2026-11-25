@@ -24,6 +24,7 @@ export const PROMPT_TAGS = [
   "notebook",
   "paragraph",
   "shared-screen",
+  "sheet",
   "slide",
   "passage",
   "question",

@@ -145,6 +145,8 @@ export const FIND_CLAIMS_INSTRUCTIONS = [
   SORT_INPUT,
   // A deck's box can hold a lone number whose label and unit are in other boxes (#3455).
   'A line of a deck\'s slide also names its "slide", and "slides" gives that slide as the file holds it: every box\'s text with where it sits. Read the line with its slide: a number in a box of its own is what the boxes around it say it is, and a line that is only a unit or a label makes no claim of its own: the number it goes with does.',
+  // A workbook's row can sit under a section heading, units or notes (#3506).
+  'A row of a workbook\'s sheet also names its "sheet", and "sheets" gives that sheet as the file holds it: its rows in order. Read each row with its sheet to see what its row label and columns refer to.',
   NUMBERS,
   CLAIM,
   `"no": ${NOTHING}`,
@@ -178,6 +180,8 @@ export interface SortedText {
   column?: string;
   /** The number of the deck's slide the sentence is a line of (#3455). */
   slide?: number;
+  /** The page number of the workbook's sheet the sentence is a row of (#3506). */
+  sheet?: number;
 }
 
 /** The line a slide's text (`slideText`) is shown under, which names the slide for the model. */
@@ -185,14 +189,15 @@ export const slideHeading = (slide: number): string =>
   `Slide ${slide}, as the file holds it: each box in the file's order, with where it sits as a share of the slide.`;
 
 /**
- * The sentences of one batch, each after its number, with each slide they are lines of as the file
- * holds it (#3455).
+ * The sentences of one batch, each after its number, with each slide (#3455) or workbook sheet
+ * (#3506) they are lines of as the file holds it.
  */
 export const findClaimsPrompt = (
   sentences: readonly ({ number: number } & SortedText)[],
   slides: Readonly<Record<string, string>> = {},
+  sheets: Readonly<Record<string, string>> = {},
 ): string => {
-  const shown = Object.fromEntries(
+  const shownSlides = Object.fromEntries(
     [
       ...new Set(sentences.flatMap((each) => (each.slide === undefined ? [] : [each.slide]))),
     ].flatMap((slide) => {
@@ -200,9 +205,19 @@ export const findClaimsPrompt = (
       return held === undefined ? [] : [[String(slide), `${slideHeading(slide)}\n${held}`]];
     }),
   );
-  return JSON.stringify(
-    Object.keys(shown).length > 0 ? { slides: shown, sentences } : { sentences },
+  const shownSheets = Object.fromEntries(
+    [
+      ...new Set(sentences.flatMap((each) => (each.sheet === undefined ? [] : [each.sheet]))),
+    ].flatMap((sheet) => {
+      const held = sheets[String(sheet)];
+      return held === undefined ? [] : [[String(sheet), held]];
+    }),
   );
+  return JSON.stringify({
+    ...(Object.keys(shownSlides).length > 0 && { slides: shownSlides }),
+    ...(Object.keys(shownSheets).length > 0 && { sheets: shownSheets }),
+    sentences,
+  });
 };
 
 /** What a sort makes of a sentence: it goes to its check, is about the note itself, or says nothing. */
