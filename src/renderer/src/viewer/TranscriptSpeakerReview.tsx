@@ -138,7 +138,7 @@ export function TranscriptSpeakerReview({
       : null;
   const running = review?.phase.kind === "running" || review?.phase.kind === "cancelling";
   return (
-    <div className="max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
+    <div className="transcript-review-row max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
       <button
         ref={trigger}
         type="button"

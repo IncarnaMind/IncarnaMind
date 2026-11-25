@@ -2694,11 +2694,17 @@
     }
   }
   /*
-   * Fixed slots, so the input's left edge holds from 0:00 to 9:59:59 and the control is 248px
-   * wide in both languages while it records, 352px while paused (#3762).
+   * Fixed slots, so the input's left edge holds from 0:00 to 9:59:59 and the control is 268px
+   * wide in both languages while it records, 372px while paused (#3762).
    */
   .meeting-foot-main[data-live] {
-    width: 152px;
+    width: 172px;
+  }
+  .meeting-foot-paused {
+    font-size: 13px;
+    line-height: 20px;
+    white-space: nowrap;
+    color: var(--color-ink-meta);
   }
   /* After Stop: Transcript and Resume, 240px in both languages. */
   .meeting-foot-main:not([data-live]) {
@@ -2714,7 +2720,7 @@
     display: inline-flex;
     flex: none;
     justify-content: center;
-    width: 28px;
+    width: 48px;
   }
   .meeting-foot-stop {
     justify-content: center;
@@ -2727,9 +2733,24 @@
   .meeting-foot-problem {
     max-width: 480px;
   }
-  /* While it records the sheet's one line is the consent; after Stop, the Transcript's own head line shows. */
-  .meeting-sheet[data-live] [data-testid="transcript-head"] {
+  /*
+   * One line under the sheet's head: the consent while it records, the misheard line after Stop,
+   * drawn there in place of the view's own; Review speakers… goes to the foot.
+   */
+  .meeting-sheet-body [data-testid="transcript-head"],
+  .meeting-sheet-body .transcript-review-row:not(:has(section)) {
     display: none !important;
+  }
+  .meeting-sheet-consent .transcript-head {
+    margin: 0;
+    padding: 0;
+  }
+  .meeting-sheet-details {
+    flex: none;
+    padding: 0 16px 8px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
   }
   .meeting-sheet-meta {
     margin-left: 8px;

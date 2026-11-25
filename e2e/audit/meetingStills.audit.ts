@@ -52,6 +52,30 @@ const WORDS = {
       "Who confirms the tide tables?",
       "I'll write to the commuters about the new time.",
       "Thursday after next is fine.",
+      "What about the café on the quay?",
+      "Will the contractor work at weekends?",
+      "Can the slipway stay open on Saturdays?",
+      "Who tells the ferry passengers?",
+      "I'll draft the notice for the website.",
+      "Should we put a sign on the quay as well?",
+      "What if the tides run late?",
+      "Then we keep a week in hand.",
+      "Let's put that in the minutes.",
+      "One more thing on parking.",
+      "How many spaces do we lose?",
+      "Can the council lend us its car park?",
+      "I'll ask them tomorrow.",
+      "Anything else before we close?",
+      "Thanks, everyone.",
+      "Speak on Thursday after next.",
+      "I'll send the notes round today.",
+      "Bye for now.",
+      "One last check on the date.",
+      "Yes, the third of March.",
+      "Good.",
+      "Thanks again.",
+      "Talk soon.",
+      "Bye.",
     ],
     theirs: [
       "Yes, we can hear you.",
@@ -66,6 +90,30 @@ const WORDS = {
       "The harbour master confirms the tide tables by Friday.",
       "The café owner asked for two weeks' notice.",
       "Thursday after next works for us.",
+      "Weekend work costs more.",
+      "Saturdays should be fine for the first month.",
+      "The ferry company will put it on the timetable.",
+      "Please send us the draft.",
+      "A sign on the quay would help.",
+      "The harbour master builds in a week for the tides.",
+      "That should cover it.",
+      "We'll check the minutes.",
+      "We lose twenty spaces.",
+      "The council car park is free after six.",
+      "That would help the early commuters.",
+      "We'll wait to hear.",
+      "Nothing more from us.",
+      "Thanks, bye for now.",
+      "We'll look out for the notes.",
+      "The third of March, yes.",
+      "Agreed.",
+      "Thank you.",
+      "Talk soon.",
+      "Bye.",
+      "Bye now.",
+      "Speak then.",
+      "Good luck with the board.",
+      "Bye.",
     ],
   },
   "zh-CN": {
@@ -88,6 +136,30 @@ const WORDS = {
       "潮汐表由谁确认？",
       "我来通知通勤乘客新的时间。",
       "下下周四可以。",
+      "码头上的咖啡馆呢？",
+      "承包商周末施工吗？",
+      "周六滑道能开放吗？",
+      "谁来通知渡轮乘客？",
+      "我来起草网站上的通知。",
+      "码头上也立个牌子吧？",
+      "如果潮汐推迟怎么办？",
+      "那我们留一周余量。",
+      "把这点写进会议纪要。",
+      "还有一件事，停车。",
+      "会少多少个车位？",
+      "能借用市政府的停车场吗？",
+      "我明天去问。",
+      "散会前还有别的事吗？",
+      "谢谢大家。",
+      "下下周四再聊。",
+      "我今天把纪要发出来。",
+      "先这样。",
+      "最后确认一下日期。",
+      "对，三月三日。",
+      "好的。",
+      "再次感谢。",
+      "回头聊。",
+      "再见。",
     ],
     theirs: [
       "能听到。",
@@ -102,6 +174,30 @@ const WORDS = {
       "港务长周五前确认潮汐表。",
       "咖啡馆老板希望提前两周通知。",
       "下下周四我们可以。",
+      "周末施工费用更高。",
+      "第一个月周六应该没问题。",
+      "渡轮公司会写进时刻表。",
+      "请把草稿发给我们。",
+      "码头上立个牌子会有帮助。",
+      "港务长为潮汐留了一周。",
+      "这样应该够了。",
+      "我们会看纪要。",
+      "会少二十个车位。",
+      "市政府停车场六点后免费。",
+      "这对早班通勤的人有帮助。",
+      "等你们的消息。",
+      "我们这边没有别的了。",
+      "谢谢，先这样。",
+      "等你们的纪要。",
+      "对，三月三日。",
+      "同意。",
+      "谢谢。",
+      "回头聊。",
+      "再见。",
+      "再见。",
+      "到时候聊。",
+      "祝董事会顺利。",
+      "再见。",
     ],
   },
 }[LANG];
@@ -479,6 +575,11 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
         await window.getByTestId("meeting-foot-transcript").click();
         await expect(window.getByTestId("meeting-sheet")).toBeVisible();
         await still("e2-stopped-sheet");
+        const details = window.getByTestId("meeting-sheet").getByTestId("meeting-details-toggle");
+        await details.click();
+        await expect(window.getByTestId("meeting-sheet-details")).toBeVisible();
+        await still("e3-details-open", [1440]);
+        await details.click();
         await window.getByTestId("meeting-sheet-hide").click();
       }
     });
@@ -557,142 +658,144 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
 // The control's states that change its words or width: the time past an hour, paused, and a
 // microphone the app may not use. The clock is the page's own, fixed; the core records on.
 for (const microphone of ["allowed", "denied"] as const)
-test(`meeting control states, microphone ${microphone}, ${VARIANT}, ${LANG}`, async () => {
-  test.skip(!proposed, "the control is the proposal's");
-  test.setTimeout(10 * 60_000);
-  await mkdir(OUT, { recursive: true });
-  const dataDir = await createDataFolder();
-  const home = await realpath(await createDataFolder());
-  const bin = await realpath(await createDataFolder());
-  await writeFile(
-    join(bin, "claude"),
-    `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "meetingClaudeCode.mjs")}" "$@"\n`,
-  );
-  await chmod(join(bin, "claude"), 0o755);
-  const log: string[] = [];
-  const tag = LANG === "en" ? "en" : "zh";
-  const { app, window } = await launchApp(dataDir, {
-    home,
-    ownAi: join(bin, "claude"),
-    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
-    transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
-    microphone,
-  });
-  const still = async (name: string, widths: readonly number[]) => {
-    for (const width of widths) {
-      try {
-        await setWindowSize(app, window, width, HEIGHT);
-        await rest(window);
-        await motionSettled(window);
-        await window.waitForTimeout(1500);
-        const file = `${name}-${tag}-${width}`;
-        await window.screenshot({ path: join(OUT, `${file}.png`) });
-        await writeFile(
-          join(OUT, `${file}.json`),
-          JSON.stringify(await measure(window, REGIONS), null, 2),
-        );
-        log.push(`ok ${file}`);
-      } catch (error) {
-        log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
+  test(`meeting control states, microphone ${microphone}, ${VARIANT}, ${LANG}`, async () => {
+    test.skip(!proposed, "the control is the proposal's");
+    test.setTimeout(10 * 60_000);
+    await mkdir(OUT, { recursive: true });
+    const dataDir = await createDataFolder();
+    const home = await realpath(await createDataFolder());
+    const bin = await realpath(await createDataFolder());
+    await writeFile(
+      join(bin, "claude"),
+      `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "meetingClaudeCode.mjs")}" "$@"\n`,
+    );
+    await chmod(join(bin, "claude"), 0o755);
+    const log: string[] = [];
+    const tag = LANG === "en" ? "en" : "zh";
+    const { app, window } = await launchApp(dataDir, {
+      home,
+      ownAi: join(bin, "claude"),
+      extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+      transcriber: { lines: WORDS.mine, theirLines: WORDS.theirs, maxSpeechMs: 6000 },
+      microphone,
+    });
+    const still = async (name: string, widths: readonly number[]) => {
+      for (const width of widths) {
+        try {
+          await setWindowSize(app, window, width, HEIGHT);
+          await rest(window);
+          await motionSettled(window);
+          await window.waitForTimeout(1500);
+          const file = `${name}-${tag}-${width}`;
+          await window.screenshot({ path: join(OUT, `${file}.png`) });
+          await writeFile(
+            join(OUT, `${file}.json`),
+            JSON.stringify(await measure(window, REGIONS), null, 2),
+          );
+          log.push(`ok ${file}`);
+        } catch (error) {
+          log.push(`FAILED ${name} ${width}: ${String(error).slice(0, 300)}`);
+        }
       }
-    }
-    await setWindowSize(app, window, 1440, HEIGHT);
-  };
-  try {
-    await acceptPlainTextKeys(window);
-    await dismissChatSetup(window);
-    await setLanguage(window, LANG);
-    const folderId = await window.evaluate(async () => {
-      const core = (globalThis as unknown as Core).incarnamind;
-      await core.updateSettings({
-        device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
-      });
-      const folder = await core.createLibraryGroup({ name: "Kestrel Bay", description: "" });
-      await core.setAgentsEnabled(true);
-      await core.connectAgent({
-        name: "Claude Code",
-        client: "claude-code",
-        folderIds: [folder.id, "not-in-a-folder"],
-        propose: true,
-      });
-      return folder.id;
-    });
-    await setWindowSize(app, window, 1440, HEIGHT);
-    await window.getByTestId("plus-menu").click();
-    await window.getByTestId("plus-record-meeting").click();
-    await expect
-      .poll(async () => (await meetings(window)).some((each) => each.status === "recording"), {
-        timeout: 30_000,
-      })
-      .toBe(true);
-    await window.evaluate(async (folderId) => {
-      const core = (globalThis as unknown as Core).incarnamind;
-      const [recording] = (await core.listMeetings()).filter((each) => each.status === "recording");
-      if (recording) await core.moveToFolder({ mindIds: [recording.mindId], folderId });
-    }, folderId);
-    await window
-      .getByTestId("meeting-foot-tip-close")
-      .click({ timeout: 5000 })
-      .catch(() => undefined);
-    const editor = window.getByTestId("mind-editor");
-    await editor.locator("p").first().click();
-    await window.keyboard.type(WORDS.typed[0] ?? "");
-    await editor.evaluate((el) => (el as HTMLElement).blur());
-    await expect(window.getByTestId("note-ask-input"))
-      .toBeVisible({ timeout: 15_000 })
-      .catch(() => log.push("no input at the Note's foot"));
-    const meeting = async () => {
-      const found = (await meetings(window)).find((each) => each.status !== "stopped");
-      if (!found) throw new Error("No meeting.");
-      return found;
+      await setWindowSize(app, window, 1440, HEIGHT);
     };
-
-    // The microphone the app may not use: its line above the control, the mark in the bars' place.
-    if (microphone === "denied") {
-      await expect(window.getByTestId("meeting-foot-problem"))
+    try {
+      await acceptPlainTextKeys(window);
+      await dismissChatSetup(window);
+      await setLanguage(window, LANG);
+      const folderId = await window.evaluate(async () => {
+        const core = (globalThis as unknown as Core).incarnamind;
+        await core.updateSettings({
+          device: { meetingNoticeAccepted: true, transcriptionRoute: "local", meetingPanel: false },
+        });
+        const folder = await core.createLibraryGroup({ name: "Kestrel Bay", description: "" });
+        await core.setAgentsEnabled(true);
+        await core.connectAgent({
+          name: "Claude Code",
+          client: "claude-code",
+          folderIds: [folder.id, "not-in-a-folder"],
+          propose: true,
+        });
+        return folder.id;
+      });
+      await setWindowSize(app, window, 1440, HEIGHT);
+      await window.getByTestId("plus-menu").click();
+      await window.getByTestId("plus-record-meeting").click();
+      await expect
+        .poll(async () => (await meetings(window)).some((each) => each.status === "recording"), {
+          timeout: 30_000,
+        })
+        .toBe(true);
+      await window.evaluate(async (folderId) => {
+        const core = (globalThis as unknown as Core).incarnamind;
+        const [recording] = (await core.listMeetings()).filter(
+          (each) => each.status === "recording",
+        );
+        if (recording) await core.moveToFolder({ mindIds: [recording.mindId], folderId });
+      }, folderId);
+      await window
+        .getByTestId("meeting-foot-tip-close")
+        .click({ timeout: 5000 })
+        .catch(() => undefined);
+      const editor = window.getByTestId("mind-editor");
+      await editor.locator("p").first().click();
+      await window.keyboard.type(WORDS.typed[0] ?? "");
+      await editor.evaluate((el) => (el as HTMLElement).blur());
+      await expect(window.getByTestId("note-ask-input"))
         .toBeVisible({ timeout: 15_000 })
-        .catch(() => log.push("no microphone line"));
-      await still("g3-mic-denied", [1440, 900]);
-      return;
-    }
+        .catch(() => log.push("no input at the Note's foot"));
+      const meeting = async () => {
+        const found = (await meetings(window)).find((each) => each.status !== "stopped");
+        if (!found) throw new Error("No meeting.");
+        return found;
+      };
 
-    // Paused: the ring, the time held, no bars, Resume beside Stop.
-    const { id } = await meeting();
-    await window.evaluate(
-      (meetingId) => (globalThis as unknown as Core).incarnamind.pauseMeeting(meetingId),
-      id,
-    );
-    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "paused");
-    await still("g4-paused", [1440, 900]);
-    await window.evaluate(
-      (meetingId) => (globalThis as unknown as Core).incarnamind.resumeMeeting(meetingId),
-      id,
-    );
-    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+      // The microphone the app may not use: its line above the control, the mark in the bars' place.
+      if (microphone === "denied") {
+        await expect(window.getByTestId("meeting-foot-problem"))
+          .toBeVisible({ timeout: 15_000 })
+          .catch(() => log.push("no microphone line"));
+        await still("g3-mic-denied", [1440, 900]);
+        return;
+      }
 
-    // 59:59, then 1:00:00: the input's left edge holds.
-    const at = async (ms: number) => {
-      const now = await meeting();
-      if (!now.recordingSince) throw new Error("Not recording.");
-      await window.clock.setFixedTime(
-        new Date(Date.parse(now.recordingSince) + ms - now.recordedMs),
+      // Paused: the ring, the time held, no bars, Resume beside Stop.
+      const { id } = await meeting();
+      await window.evaluate(
+        (meetingId) => (globalThis as unknown as Core).incarnamind.pauseMeeting(meetingId),
+        id,
       );
-    };
-    await at(59 * 60_000 + 59_000);
-    await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("59:59", {
-      timeout: 5000,
-    });
-    await still("g1-time-5959", [1440]);
-    await at(60 * 60_000);
-    await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("1:00:00", {
-      timeout: 5000,
-    });
-    await still("g2-time-10000", [1440]);
-  } finally {
-    await writeFile(join(OUT, `log-states-${microphone}-${tag}.txt`), log.join("\n"));
-    await app.close().catch(() => undefined);
-    await removeDataFolder(dataDir);
-    await removeDataFolder(home);
-    await removeDataFolder(bin);
-  }
-});
+      await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "paused");
+      await still("g4-paused", [1440, 900]);
+      await window.evaluate(
+        (meetingId) => (globalThis as unknown as Core).incarnamind.resumeMeeting(meetingId),
+        id,
+      );
+      await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+
+      // 59:59, then 1:00:00: the input's left edge holds.
+      const at = async (ms: number) => {
+        const now = await meeting();
+        if (!now.recordingSince) throw new Error("Not recording.");
+        await window.clock.setFixedTime(
+          new Date(Date.parse(now.recordingSince) + ms - now.recordedMs),
+        );
+      };
+      await at(59 * 60_000 + 59_000);
+      await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("59:59", {
+        timeout: 5000,
+      });
+      await still("g1-time-5959", [1440]);
+      await at(60 * 60_000);
+      await expect(window.getByTestId("meeting-foot").getByRole("timer")).toHaveText("1:00:00", {
+        timeout: 5000,
+      });
+      await still("g2-time-10000", [1440]);
+    } finally {
+      await writeFile(join(OUT, `log-states-${microphone}-${tag}.txt`), log.join("\n"));
+      await app.close().catch(() => undefined);
+      await removeDataFolder(dataDir);
+      await removeDataFolder(home);
+      await removeDataFolder(bin);
+    }
+  });

@@ -11,6 +11,7 @@ import { clockTime } from "../../meetingTime";
 import { askInNote, setColumnOpen } from "../../ownAiInNote";
 import { useAppStore, type ViewerTarget } from "../../store";
 import { openTranscriptBeside } from "../../transcripts";
+import { TranscriptHeadLine } from "../../viewer/TranscriptHeadLine";
 import { MeetingTranscriptView } from "../../viewer/TranscriptView";
 import { type ViewerFrame, ViewerFrameContext } from "../../viewer/ViewerHeader";
 import { CaptureDetails, CaptureDetailsToggle } from "../CaptureDetails";
@@ -186,7 +187,13 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
                 {time}
               </span>
               <span className="meeting-foot-level">
-                {!paused && <LevelBars meeting={meeting} />}
+                {paused ? (
+                  <span data-testid="meeting-foot-paused" className="meeting-foot-paused">
+                    {t("meetings.bar.paused")}
+                  </span>
+                ) : (
+                  <LevelBars meeting={meeting} />
+                )}
               </span>
             </>
           ) : (
@@ -261,6 +268,9 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     [document, tabId, target],
   );
   const quote = useSheets((state) => state.quote);
+  const detailsShown = useMeetings(
+    (state) => meeting !== undefined && state.detailsShown[meeting.id] === true,
+  );
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = body.current;
@@ -322,15 +332,22 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           </button>
         </div>
       </header>
+      {detailsShown && (
+        <div data-testid="meeting-sheet-details" className="meeting-sheet-details">
+          {!live && <MeetingAudioLine meeting={meeting} />}
+          <CaptureDetails meeting={meeting} />
+        </div>
+      )}
       {live ? (
         <p className="meeting-sheet-consent">{t("meetings.foot.tell")}</p>
       ) : (
-        <div data-testid="meeting-sheet-audio" className="meeting-sheet-consent">
-          <MeetingAudioLine meeting={meeting} />
+        <div className="meeting-sheet-consent">
+          <TranscriptHeadLine
+            playable={meeting.transcript?.state === "saved" && meeting.audio.kept && !!document}
+          />
         </div>
       )}
       {live && <MeetingLines meeting={meeting} />}
-      <CaptureDetails meeting={meeting} />
       <div ref={body} className="meeting-sheet-body">
         <ViewerFrameContext.Provider value={frame}>
           <MeetingTranscriptView
@@ -342,7 +359,25 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           />
         </ViewerFrameContext.Provider>
       </div>
-      {live && <SheetFoot meeting={meeting} />}
+      {live ? (
+        <SheetFoot meeting={meeting} />
+      ) : (
+        <footer data-testid="meeting-sheet-foot" className="meeting-sheet-foot">
+          <button
+            type="button"
+            data-testid="meeting-sheet-review-speakers"
+            // The review itself still opens where the Transcript view has it, at the top of the lines.
+            onClick={() =>
+              body.current
+                ?.querySelector<HTMLButtonElement>(".transcript-review-row > button[aria-expanded]")
+                ?.click()
+            }
+            className="meeting-button meeting-button--words"
+          >
+            <span>{t("meetings.review.open")}</span>
+          </button>
+        </footer>
+      )}
     </section>
   );
 }
