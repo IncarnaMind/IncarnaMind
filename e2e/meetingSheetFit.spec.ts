@@ -158,6 +158,8 @@ for (const language of ["en", "zh-CN"] as const) {
   test(`after Stop, Write notes is a primary button a clear step over the control (${language})`, async () => {
     test.setTimeout(120_000);
     const { app, window } = await launchApp(dataDir);
+    // Connecting the AI keeps its key: a computer with no keyring keeps it as plain text.
+    await acceptPlainTextKeys(window);
     await setWindowSize(app, window, 1440, 900);
     await dismissChatSetup(window);
     await notesByOwnAi(window);
