@@ -2680,16 +2680,33 @@
       padding-block: 4px 16px;
     }
   }
-  /* A meeting's control stands at the input's left, on its row (#3762). */
   /*
    * The meeting's row is the text's measure, as a plain Note's input is: the control on the text's
    * left edge, the input to its right edge, and the sheet over them on the same two edges (#3762).
    */
   .note-ask-foot--meeting {
     padding-block: 4px 16px;
-    /* With the input in the window's column, the control stands on the column input's line. */
+    /*
+     * With the input in the window's column, the control is alone at the Note's foot: centred on
+     * the text, on the column input's line.
+     */
     &:not(:has(.note-ask)) {
       padding-bottom: 12px;
+    }
+    &:has(.meeting-foot-ask:empty) {
+      .meeting-foot-row {
+        justify-content: center;
+      }
+      .meeting-foot-ask {
+        display: none;
+      }
+      .meeting-foot-stack {
+        align-items: center;
+      }
+      .meeting-foot-tip {
+        left: 50%;
+        translate: -50% 0;
+      }
     }
   }
   .meeting-foot-row {
@@ -2846,8 +2863,8 @@
       display: inline-flex;
     }
   }
-  /* The finished change is said once, in the line above the Note's input (#3762). */
-  .mind-tab-page:has([data-testid="note-ask-undo"]) [data-testid="applied-line"] {
+  /* The finished change is said once, where the conversation shows it: line or column (#3762). */
+  .app-card:has([data-testid="note-ask-undo"]) [data-testid="applied-line"] {
     display: none !important;
   }
   .meeting-foot-tip {
@@ -3888,6 +3905,9 @@
     }
   }
   .note-column-accept {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
