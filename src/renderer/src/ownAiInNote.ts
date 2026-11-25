@@ -85,6 +85,10 @@ export interface NoteTrail {
   documentsFound: number;
   /** The AI's own mode, as it named it (#3653). */
   mode: string | null;
+  /** Since when, in ms since the epoch, a question of its waits on the User; null while none does. */
+  askingSince: number | null;
+  /** How long, in ms, its questions waited on the User's answers before this one. */
+  waitedMs: number;
 }
 
 export const useNoteTrails = create<{ byTurn: Readonly<Record<string, NoteTrail>> }>(() => ({
@@ -143,6 +147,9 @@ function keepTrail(event: NoteTurnEvent): void {
   useNoteTrails.setState((state) => {
     const was = state.byTurn[event.turnId];
     const ended = event.state !== "working";
+    const now = Date.now();
+    const asking = !ended && event.questions.length > 0;
+    const since = was?.askingSince ?? null;
     return {
       byTurn: {
         ...state.byTurn,
@@ -158,6 +165,8 @@ function keepTrail(event: NoteTurnEvent): void {
           renewed: event.renewed || (was?.renewed ?? false),
           documentsFound: Math.max(event.documentsFound, was?.documentsFound ?? 0),
           mode: event.mode ?? was?.mode ?? null,
+          askingSince: asking ? (since ?? now) : null,
+          waitedMs: (was?.waitedMs ?? 0) + (since !== null && !asking ? now - since : 0),
         },
       },
     };

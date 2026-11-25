@@ -188,20 +188,143 @@ function useStacked(toolbar: RefObject<HTMLDivElement | null>, key: string) {
     toolbar,
     () => {
       const element = toolbar.current;
-      if (!element) return;
-      const was = element.dataset.stacked;
-      delete element.dataset.stacked;
-      const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
-      const buttons = [...element.querySelectorAll("button")];
+      if (!element?.parentElement) return;
+      // A copy is laid out as one row, out of the card's flow: the answers themselves, put in a
+      // row even for a moment, make the card shorter, and the box it scrolls in keeps the place
+      // that shorter card left it at, short of its end.
+      const row = element.cloneNode(true) as HTMLElement;
+      delete row.dataset.stacked;
+      row.style.cssText = "position: absolute; inset: 0 0 auto; visibility: hidden";
+      element.parentElement.append(row);
+      const gap = Number.parseFloat(getComputedStyle(row).columnGap) || 0;
+      const buttons = [...row.querySelectorAll("button")];
       const needed =
         buttons.reduce((sum, each) => sum + each.getBoundingClientRect().width, 0) +
         gap * Math.max(0, buttons.length - 1);
-      if (was !== undefined) element.dataset.stacked = was;
+      row.remove();
       setStacked(needed > element.clientWidth + 0.5);
     },
     key,
   );
   return stacked;
+}
+
+/** The thing itself on a card: what runs, the path or address, what a file will hold or change. */
+const THING =
+  '[data-testid="own-ask-value"], [data-testid="own-ask-content"], [data-testid="own-ask-change"], .own-ask-input';
+
+/** The box a card scrolls in: the conversation, or the folded box. */
+function scrollerOf(element: HTMLElement): HTMLElement | null {
+  for (let at = element.parentElement; at; at = at.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(at).overflowY)) return at;
+  }
+  return null;
+}
+
+/** The lines of `px` at `line` tall, a pixel's rounding left out. */
+const linesIn = (px: number, line: number) => (px > 1 ? Math.ceil((px - 1) / line) : 0);
+
+/**
+ * How much of the thing itself is out of sight in the box the card scrolls in: above its top, and
+ * under the card's answers, which stay at its foot. In lines, to say, counting what the lines that
+ * say so cover; and in pixels past the edges those lines leave once they go, to bring into view.
+ */
+function useOutOfView(
+  card: RefObject<HTMLElement | null>,
+  answers: RefObject<HTMLElement | null>,
+  aboveLine: RefObject<HTMLElement | null>,
+  belowLine: RefObject<HTMLElement | null>,
+  key: string,
+) {
+  const [out, setOut] = useState({ above: 0, below: 0 });
+  const measure = () => {
+    const element = card.current;
+    const scroller = element ? scrollerOf(element) : null;
+    const foot = answers.current;
+    if (!element || !scroller || !foot) return { above: 0, below: 0, abovePx: 0, belowPx: 0 };
+    const view = scroller.getBoundingClientRect();
+    const top = view.top + scroller.clientTop;
+    const shownTop = aboveLine.current?.getBoundingClientRect().bottom ?? top;
+    const shownFoot = foot.getBoundingClientRect().top;
+    const room = belowLine.current
+      ? belowLine.current.getBoundingClientRect().height +
+        (Number.parseFloat(getComputedStyle(foot).rowGap) || 0)
+      : 0;
+    let [above, below, abovePx, belowPx] = [0, 0, 0, 0];
+    for (const thing of element.querySelectorAll<HTMLElement>(THING)) {
+      const style = getComputedStyle(thing);
+      const line = Number.parseFloat(style.lineHeight) || 18;
+      const at = thing.getBoundingClientRect();
+      const start = at.top + Number.parseFloat(style.paddingTop);
+      const end = at.bottom - Number.parseFloat(style.paddingBottom);
+      above += linesIn(Math.min(end, shownTop) - start, line);
+      below += linesIn(end - Math.max(start, shownFoot), line);
+      abovePx = Math.max(abovePx, top - start);
+      belowPx = Math.max(belowPx, end - (shownFoot + room));
+    }
+    return {
+      above: abovePx > 1 ? Math.max(1, above) : 0,
+      below: belowPx > 1 ? Math.max(1, below) : 0,
+      abovePx,
+      belowPx,
+    };
+  };
+  const follow = useRef(() => {});
+  follow.current = () => {
+    const { above, below } = measure();
+    setOut((was) => (was.above === above && was.below === below ? was : { above, below }));
+  };
+  // After each change of the card: a line shown or gone moves the edge it counts from.
+  useLayoutEffect(() => follow.current());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: watched anew for each question.
+  useLayoutEffect(() => {
+    const element = card.current;
+    const scroller = element ? scrollerOf(element) : null;
+    if (!element || !scroller) return;
+    const measureNow = () => follow.current();
+    const observer = new ResizeObserver(measureNow);
+    observer.observe(scroller);
+    observer.observe(element);
+    scroller.addEventListener("scroll", measureNow, { passive: true });
+    return () => {
+      observer.disconnect();
+      scroller.removeEventListener("scroll", measureNow);
+    };
+  }, [key]);
+  /** Scrolls what is out of sight on one side into view. */
+  const bring = (side: "above" | "below") => {
+    const element = card.current;
+    const scroller = element ? scrollerOf(element) : null;
+    const { abovePx, belowPx } = measure();
+    scroller?.scrollBy({ top: side === "above" ? -Math.ceil(abovePx) : Math.ceil(belowPx) });
+  };
+  return { ...out, bring };
+}
+
+/** Says, at the edge where the thing itself is cut, how many of its lines are past it. */
+function MoreLines({
+  side,
+  count,
+  onBring,
+  lineRef,
+}: {
+  side: "above" | "below";
+  count: number;
+  onBring(): void;
+  lineRef?: RefObject<HTMLButtonElement | null>;
+}) {
+  const t = useT();
+  return (
+    <button
+      ref={lineRef}
+      type="button"
+      data-testid={`own-ask-more-${side}`}
+      onClick={onBring}
+      className={`own-ask-link own-ask-more own-ask-more--${side}`}
+    >
+      {t(`ownAsk.more.${side}.${count === 1 ? "one" : "other"}`, { count })}
+    </button>
+  );
 }
 
 /**
@@ -249,6 +372,22 @@ export function QuestionCard({
   );
   const lasting = lastingWords(t, language, question.suggested);
   const grantsId = useId();
+  const card = useRef<HTMLFieldSetElement>(null);
+  const actions = useRef<HTMLDivElement>(null);
+  const aboveLine = useRef<HTMLButtonElement>(null);
+  const belowLine = useRef<HTMLButtonElement>(null);
+  const out = useOutOfView(
+    card,
+    actions,
+    aboveLine,
+    belowLine,
+    `${question.id}\u0000${all}\u0000${change}`,
+  );
+  const bring = (side: "above" | "below") => {
+    // The line goes once what it names is in view: the keyboard goes back to the input.
+    if (document.activeElement?.closest(".own-ask-more")) focusNoteAsk(mindId);
+    out.bring(side);
+  };
   const toolbar = useRef<HTMLDivElement>(null);
   const stacked = useStacked(toolbar, `${question.id}\u0000${language}\u0000${lasting.label}`);
   // On one row Deny comes first and Allow once last, as the app's approval cards put them; one under
@@ -286,6 +425,7 @@ export function QuestionCard({
   const file = action.kind === "write" || action.kind === "change" || action.kind === "read";
   return (
     <fieldset
+      ref={card}
       aria-labelledby={titleId}
       aria-describedby={action.steers || action.unsure ? steersId : undefined}
       data-testid="own-ask-card"
@@ -293,6 +433,16 @@ export function QuestionCard({
       data-kind={action.kind}
       className="approval-card own-ask-card"
     >
+      {out.above > 0 && (
+        <div className="own-ask-more-above">
+          <MoreLines
+            side="above"
+            count={out.above}
+            onBring={() => bring("above")}
+            lineRef={aboveLine}
+          />
+        </div>
+      )}
       <div className="approval-head">
         <p id={titleId} className="approval-title">
           <span aria-hidden="true" className="approval-dot" />
@@ -320,7 +470,7 @@ export function QuestionCard({
               <dd data-testid="own-ask-runs">{runs.join(" · ")}</dd>
             </>
           )}
-          {file && action.inFolder && (
+          {file && action.inFolder && !action.unsure && (
             <>
               <dt>{t("ownAsk.key.in")}</dt>
               <dd data-testid="own-ask-where">{t("ownAsk.here")}</dd>
@@ -381,7 +531,15 @@ export function QuestionCard({
           </button>
         )}
       </div>
-      <div className="approval-actions own-ask-actions">
+      <div ref={actions} className="approval-actions own-ask-actions">
+        {out.below > 0 && (
+          <MoreLines
+            side="below"
+            count={out.below}
+            onBring={() => bring("below")}
+            lineRef={belowLine}
+          />
+        )}
         {/* Above the row, so it is in view whenever the button is: a box that scrolls can hide what is under the row. */}
         {!stacked && lasting.grants && <Grants id={grantsId} grants={lasting.grants} />}
         <div

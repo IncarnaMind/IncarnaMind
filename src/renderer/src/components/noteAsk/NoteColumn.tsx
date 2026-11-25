@@ -7,6 +7,7 @@ import { useT } from "../../i18n";
 import {
   askInNote,
   firstWordsOf,
+  type NoteAsk,
   type NoteTrail,
   setColumnOpen,
   useNoteAsks,
@@ -17,7 +18,7 @@ import {
 import { useAppStore } from "../../store";
 import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
 import { MoveConversation } from "./NoteAsk";
-import { EndAction, Reply, useWaitingInNote } from "./NoteAskPill";
+import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 
 type Translate = ReturnType<typeof useT>;
@@ -82,17 +83,24 @@ export const shortModel = (id: string): string => {
   return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""}`;
 };
 
-const secondsOf = (trail: NoteTrail) =>
+/** Seconds since the request, less `waitedMs`. */
+const secondsOf = (trail: NoteTrail, waitedMs = 0) =>
   Math.max(
     1,
     Math.floor(
-      (Date.parse(trail.endedAt ?? new Date().toISOString()) - Date.parse(trail.startedAt)) / 1000,
+      (Date.parse(trail.endedAt ?? new Date().toISOString()) -
+        Date.parse(trail.startedAt) -
+        waitedMs) /
+        1000,
     ),
   );
 
+/** How long it worked, the time its questions waited on the User left out. */
+const workedOf = (trail: NoteTrail) => secondsOf(trail, trail.waitedMs);
+
 /** The steps folded to one line: how many Documents it read of those it found, and how long it took. */
 function foldedOf(trail: NoteTrail, t: Translate): string {
-  const seconds = secondsOf(trail);
+  const seconds = workedOf(trail);
   const { count, part } = readsOf(trail.steps);
   if (count === 0) return t("noteColumn.worked", { seconds });
   const total = Math.max(trail.documentsFound, count);
@@ -327,6 +335,11 @@ export function NoteConversationBody({
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
             ) : null
           }
+          failed={
+            index === turns.length - 1 && ask?.state === "failed" && ask.turnId === turn.id
+              ? ask
+              : null
+          }
         />
       ))}
     </div>
@@ -342,6 +355,7 @@ function Turn({
   first,
   modeLine,
   accept,
+  failed,
 }: {
   mindId: string;
   turn: NoteTurn;
@@ -351,6 +365,8 @@ function Turn({
   first: boolean;
   modeLine: boolean;
   accept: ReactNode;
+  /** The request, while this turn is its newest and failed: its line has the one thing to do. */
+  failed: NoteAsk | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -360,6 +376,8 @@ function Turn({
     (step) => !(step.kind === "said" && turn.reply !== "" && turn.reply.startsWith(step.text)),
   );
   const made = steps.filter((step) => madeKind(step) !== null);
+  // A step that didn't run for the stop already says it stopped.
+  const stopSaid = steps.some((step) => step.kind === "own" && step.by === "stopped");
   return (
     <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
@@ -405,6 +423,7 @@ function Turn({
           </ol>
         )}
       {state === "stopped" &&
+        !stopSaid &&
         (turn.closed.length > 0 && !trail ? (
           <ol data-testid="note-column-interrupted" className="note-column-list own-closed">
             {turn.closed.map((action, index) => (
@@ -438,11 +457,15 @@ function Turn({
             {trail ? stoppedOf(steps, t) : t("noteAsk.stopped")}
           </p>
         ))}
-      {state === "failed" && turn.problem && (
-        <p className="note-column-interrupted">
-          {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
-        </p>
-      )}
+      {state === "failed" &&
+        turn.problem &&
+        (failed ? (
+          <FailureLine ask={failed} mindId={mindId} className="note-column-interrupted" />
+        ) : (
+          <p className="note-column-interrupted">
+            {t(`noteAsk.problem.${turn.problem}`, { agent, found: "", lowest: "" })}
+          </p>
+        ))}
       {state === "landed" && trail && (
         <div className="note-column-steps">
           <button
@@ -472,7 +495,7 @@ function Turn({
                 <li className="note-column-step">
                   {t("noteColumn.answered", {
                     model: shortModel(trail.model),
-                    seconds: secondsOf(trail),
+                    seconds: workedOf(trail),
                   })}
                 </li>
               )}

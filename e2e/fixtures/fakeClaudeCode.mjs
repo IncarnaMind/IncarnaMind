@@ -3,7 +3,8 @@
 // stream, reaching IncarnaMind's server only through the settings file it was given. What it does
 // is read from the file INCARNAMIND_TEST_OWN_AI_MODE_FILE names at each start: "check" (the
 // default) marks every sentence it is given as not found; "wait" runs until it is stopped;
-// "signed-out" is not signed in; "limit" ends as a plan's limit does. A request typed at a Note's
+// "signed-out" is not signed in; "too-old" is a version older than IncarnaMind needs; "limit" ends
+// as a plan's limit does. A request typed at a Note's
 // foot (#3627): "change" puts the words selected in capitals, in the paragraph that holds them;
 // "explain" answers and changes nothing ("plan" too, about the harbour plan); "write" writes a new
 // Note, "Ferry summary"; "long" reads the ferry interviews step by step, each step
@@ -52,7 +53,7 @@ if (modeFile !== "") {
   appendFileSync(`${modeFile}.starts`, `${what}${asked}\n`);
 }
 if (args[0] === "--version") {
-  console.log("2.1.330 (Claude Code)");
+  console.log(mode === "too-old" ? "2.0.1 (Claude Code)" : "2.1.330 (Claude Code)");
   process.exit(0);
 }
 if (args[0] === "auth") process.exit(mode === "signed-out" ? 1 : 0);
