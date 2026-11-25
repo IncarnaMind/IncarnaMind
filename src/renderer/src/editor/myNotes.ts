@@ -636,6 +636,9 @@ export const MyNotesHistory = Extension.create<MyNotesHistoryOptions>({
 /** Shows the Note as My notes, or as Notes again. */
 export function showMyNotes(editor: Editor, on: boolean): void {
   if (editor.isDestroyed || (KEY.getState(editor.state)?.on ?? false) === on) return;
+  // Yjs joins changes made within half a second into one Undo step: what was done before the
+  // Note shows otherwise ends there, so ⌘Z after the switch takes back no more than what came after.
+  yUndoPluginKey.getState(editor.state)?.undoManager.stopCapturing();
   editor.view.dispatch(editor.state.tr.setMeta(KEY, on).setMeta("addToHistory", false));
 }
 

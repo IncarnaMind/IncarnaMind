@@ -509,7 +509,9 @@ test(`meeting stills, ${LANG}`, async () => {
       });
       await window.getByTestId("meeting-sheet-hide").click();
       await still("d4-narrow-conversation", [900], openUpward);
-      if (await panel.isVisible()) await window.keyboard.press("Escape");
+      // Folded to its line again, as a person leaves it before Stop.
+      if (await panel.isVisible()) await window.getByTestId("note-ask-fold").click();
+      await expect(panel).toBeHidden();
     });
 
     await step("long title", async () => {
@@ -736,7 +738,10 @@ for (const microphone of ["allowed", "denied"] as const)
         return;
       }
 
-      // Paused: the ring, the time held, no bars, Resume beside Stop.
+      // Paused once something was said, so the time it holds isn't the first second's.
+      await expect
+        .poll(async () => (await meeting()).transcript?.lines ?? 0, { timeout: 60_000 })
+        .toBeGreaterThanOrEqual(2);
       const { id } = await meeting();
       await window.evaluate(
         (meetingId) => (globalThis as unknown as Core).incarnamind.pauseMeeting(meetingId),

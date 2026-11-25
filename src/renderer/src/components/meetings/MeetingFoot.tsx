@@ -471,6 +471,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
     (state) => meeting !== undefined && state.detailsShown[meeting.id] === true,
   );
   const sheet = useRef<HTMLElement>(null);
+  const [added, setAdded] = useState<MessageKey | null>(null);
   // ⌘K's Show the Transcript and ⌥⌘→ take the User to it, as they took them to the old view.
   const focusAsked = useMeetingViewFocus(tabId, "transcript");
   useEffect(() => {
@@ -508,6 +509,11 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
           <header className="meeting-sheet-head">
             <h2 className="meeting-sheet-title">{t("meetings.views.transcript")}</h2>
             {live && <SheetTime meeting={meeting} />}
+            {added && (
+              <span role="status" data-testid="transcript-added" className="meeting-sheet-meta">
+                {t(added)}
+              </span>
+            )}
             <div className="ml-auto flex items-center gap-1">
               <CaptureDetailsToggle meeting={meeting} />
               <button
@@ -566,6 +572,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 document={file}
                 target={target}
                 bare
+                onAdded={setAdded}
               />
             </ViewerFrameContext.Provider>
           </div>

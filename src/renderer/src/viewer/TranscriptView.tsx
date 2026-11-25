@@ -146,7 +146,8 @@ export function TranscriptView({ document, target }: { document: Document; targe
  * the Transcript's Document is made with its first finished line, then its lines as they come.
  * `aside`: the page's own control at the header's end ("Open beside"). `bare`: drawn inside
  * something that names it, says its line and opens Review speakers… itself (the call's sheet,
- * #3762): no header, no head line, no opener of its own.
+ * #3762): no header, no head line, no opener of its own. `onAdded`: what Add to note says, for
+ * that something to show where the header would have.
  */
 export function MeetingTranscriptView({
   meeting,
@@ -154,12 +155,14 @@ export function MeetingTranscriptView({
   target,
   aside,
   bare = false,
+  onAdded,
 }: {
   meeting: Meeting;
   document: Document | undefined;
   target: ViewerTarget;
   aside?: ReactNode;
   bare?: boolean;
+  onAdded?: (said: MessageKey | null) => void;
 }) {
   const t = useT();
   const documentId = meeting.transcript?.documentId ?? null;
@@ -175,6 +178,7 @@ export function MeetingTranscriptView({
       meetingId={meeting.id}
       aside={aside}
       bare={bare}
+      onAdded={onAdded}
     />
   );
   // While the call records, the words being said stay in view as its first line is filed.
@@ -264,6 +268,7 @@ function TranscriptContent({
   meetingId,
   aside,
   bare = false,
+  onAdded,
 }: {
   document: Document | null;
   transcript: Transcript;
@@ -271,6 +276,7 @@ function TranscriptContent({
   meetingId: string | null;
   aside?: ReactNode;
   bare?: boolean;
+  onAdded?: (said: MessageKey | null) => void;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -490,6 +496,10 @@ function TranscriptContent({
     return () => clearTimeout(timer);
   }, [added]);
   useDismissOnEscape(added !== null, () => setAdded(null));
+  useEffect(() => {
+    onAdded?.(added);
+    return () => onAdded?.(null);
+  }, [added, onAdded]);
 
   const durationMs = meeting?.recordedMs ?? 0;
   const playFrom = useCallback(
