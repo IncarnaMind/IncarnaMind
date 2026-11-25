@@ -675,10 +675,163 @@ describe("A Meeting's audio is kept for at most a day", () => {
     });
     expect(existsSync(meetingFolder(dataDir, id))).toBe(false);
 
-    // What comes after is kept, from the time it comes.
+    // What comes after is kept, from the time it comes, and plays as any recording's.
     record(10 * SECOND, ["microphone"]);
     await core.stopMeeting(id);
     expect(partsOf(dataDir, id)).toEqual(["microphone@15+10"]);
+    const played = await core.readMeetingAudio({
+      meetingId: id,
+      fromMs: 16 * SECOND,
+      toMs: 17 * SECOND,
+    });
+    expect(played.samples.some((sample) => sample !== 0)).toBe(true);
+  });
+});
+
+describe("Resume after Stop (#3762)", () => {
+  // protects=a stopped call records on after Resume: its time goes on from where it stopped, while it records it has no stop time and no audio deadline, and Stop again gives its audio a day after this last stretch, both stretches' parts kept; fails_when=the time starts again, the wait between Stop and Resume counts as time or a gap, or the first stretch's audio goes; no_claim=the Transcript, which tests/core/meetingResume.test.ts covers.
+  test("its time goes on from where it stopped, and its audio is kept a day after the last stretch", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, clock, record } = await meetingCore(dataDir);
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(12 * SECOND);
+    await core.stopMeeting(id);
+
+    clock.advance(20 * MINUTE);
+    expect(await core.resumeMeeting(id)).toMatchObject({
+      status: "recording",
+      pausedBy: null,
+      stoppedAt: null,
+      recordedMs: 12 * SECOND,
+      recordingSince: "2026-10-06T09:20:12.000Z",
+      gaps: [],
+      sources: { microphone: "recording", system: "recording" },
+      audio: { kept: true, expiresAt: null },
+    });
+    record(10 * SECOND);
+
+    const stopped = await core.stopMeeting(id);
+    expect(stopped).toMatchObject({
+      status: "stopped",
+      recordedMs: 22 * SECOND,
+      stoppedAt: "2026-10-06T09:20:22.000Z",
+      gaps: [],
+      audio: { kept: true, expiresAt: "2026-10-07T09:20:22.000Z" },
+    });
+    expect(partsOf(dataDir, id)).toEqual([
+      "microphone@0+10",
+      "system@0+10",
+      "microphone@10+2",
+      "system@10+2",
+      "microphone@12+10",
+      "system@12+10",
+    ]);
+  });
+
+  // protects=a stopped call whose audio's day ended records on after Resume: the old audio is gone, whether the sweep took it or Resume did, and the new stretch's is kept for its own day; fails_when=Resume is refused, the old audio stays, or the new audio is swept under the old date; no_claim=the Transcript's lines, which tests/core/meetingResume.test.ts covers.
+  test("after its audio's day, a stopped call records on, the new audio kept for a day of its own", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const dataDir = await createTempDataFolder();
+    const { core, clock, record } = await meetingCore(dataDir);
+    const { id } = await core.createMeeting();
+    await core.startMeeting({ meetingId: id });
+    record(12 * SECOND);
+    await core.stopMeeting(id);
+    clock.advance(MEETING_AUDIO_KEPT_MS + MINUTE);
+    vi.advanceTimersByTime(MINUTE);
+    expect((await meetingOf(core, id)).audio).toMatchObject({
+      kept: false,
+      deletedAt: "2026-10-07T09:01:12.000Z",
+    });
+
+    expect((await core.resumeMeeting(id)).recordedMs).toBe(12 * SECOND);
+    record(10 * SECOND);
+    await core.stopMeeting(id);
+    vi.advanceTimersByTime(MINUTE);
+    expect(partsOf(dataDir, id)).toEqual(["microphone@12+10", "system@12+10"]);
+    expect((await meetingOf(core, id)).audio).toMatchObject({
+      kept: true,
+      expiresAt: "2026-10-08T09:01:22.000Z",
+    });
+
+    // A day that ended in the minute before the sweep: Resume deletes the old audio first.
+    const { id: late } = await core.createMeeting();
+    await core.startMeeting({ meetingId: late });
+    record(6 * SECOND);
+    await core.stopMeeting(late);
+    clock.advance(MEETING_AUDIO_KEPT_MS + 30 * SECOND);
+    await core.resumeMeeting(late);
+    expect(partsOf(dataDir, late)).toEqual([]);
+    record(10 * SECOND);
+    await core.stopMeeting(late);
+    vi.advanceTimersByTime(MINUTE);
+    expect(partsOf(dataDir, late)).toEqual(["microphone@6+10", "system@6+10"]);
+    expect((await meetingOf(core, late)).audio.kept).toBe(true);
+  });
+
+  // protects=killed while a resumed call records, IncarnaMind recovers it as any recording: paused, interrupted, both stretches' audio up to the last whole part, its time going on from there, and a gap for what was missed once it records again; fails_when=the first stretch's audio or time goes, the second's whole parts go, or it comes back stopped; no_claim=the Transcript, which tests/core/meetingResume.test.ts covers.
+  test("killed while a resumed call records, both stretches are kept and it waits, paused, to record on", async () => {
+    const dataDir = await createTempDataFolder();
+    const clock = manualClock();
+    const first = await meetingCore(dataDir, clock);
+    const { id } = await first.core.createMeeting();
+    await first.core.startMeeting({ meetingId: id });
+    first.record(12 * SECOND);
+    await first.core.stopMeeting(id);
+    clock.advance(MINUTE);
+    await first.core.resumeMeeting(id);
+    first.record(14 * SECOND);
+    writeFileSync(join(meetingFolder(dataDir, id), "microphone-0000022000.wav.writing"), "half");
+
+    // Killed: never closed. Relaunched two minutes later.
+    clock.advance(2 * MINUTE);
+    const second = await meetingCore(dataDir, clock);
+    expect(await meetingOf(second.core, id)).toMatchObject({
+      status: "paused",
+      pausedBy: "interrupted",
+      stoppedAt: null,
+      recordedMs: 22 * SECOND,
+      gaps: [],
+    });
+    expect(partsOf(dataDir, id)).toEqual([
+      "microphone@0+10",
+      "system@0+10",
+      "microphone@10+2",
+      "system@10+2",
+      "microphone@12+10",
+      "system@12+10",
+    ]);
+    const resumed = await second.core.resumeMeeting(id);
+    expect(resumed.gaps).toEqual([
+      { atMs: 22 * SECOND, missedMs: 4 * SECOND + 2 * MINUTE, reason: "interrupted" },
+    ]);
+    second.record(10 * SECOND);
+    expect(partsOf(dataDir, id).slice(-2)).toEqual(["microphone@22+10", "system@22+10"]);
+  });
+
+  // protects=a voice memo can't record more after Stop and says so plainly, in English and Chinese, staying as Stop left it with no capture started; fails_when=it records on, or the refusal has no words; no_claim=a call, which records on (tests/core/meetingResume.test.ts).
+  test("a voice memo stopped can't record on, and says why", async () => {
+    const dataDir = await createTempDataFolder();
+    const { core, capture, record } = await meetingCore(dataDir);
+    const memo = await core.recordMemo();
+    record(4 * SECOND, ["microphone"]);
+    await core.stopMeeting(memo.id);
+
+    await expect(core.resumeMeeting(memo.id)).rejects.toMatchObject({
+      wording: { key: "error.meeting.resumeMemo" },
+    });
+    expect(translate("en", "error.meeting.resumeMemo")).toBe(
+      "A voice memo can’t record more once it has stopped. Record a new one.",
+    );
+    expect(translate("zh-CN", "error.meeting.resumeMemo")).toBe(
+      "语音备忘停止后无法继续录制。请再录一段语音备忘。",
+    );
+    expect(await meetingOf(core, memo.id)).toMatchObject({
+      status: "stopped",
+      recordedMs: 4 * SECOND,
+    });
+    expect(capture.running).toBe(false);
   });
 });
 

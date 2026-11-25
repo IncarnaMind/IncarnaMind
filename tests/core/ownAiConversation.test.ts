@@ -407,6 +407,43 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(last?.documentsFound).toBe(1);
   });
 
+  // protects=the line above the input shows no internal wording: a line of the AI's that names a Tool, an id, one of the Tools' id names or a path isn't what it shows, nor a tool of the AI's own known only by its name, and every request asks for plain words in the User's language (#3762); fails_when=the User reads "read_mind", a mindId or "ToolSearch" while the AI works
+  it("keeps Tool names and ids off the line while it works", async () => {
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "said", text: "Reading the note with read_mind (named: true)" });
+      await pause(300);
+      request.progress?.({
+        kind: "own",
+        id: "call-1",
+        action: { kind: "other", value: "ToolSearch" },
+        state: "going",
+      });
+      await pause(300);
+      request.progress?.({ kind: "said", text: `Opening mindId ${mindIdOf(request)} now` });
+      await pause(300);
+      request.progress?.({ kind: "said", text: "Saving it as ~/Documents/ferry.md for you" });
+      await pause(300);
+      request.progress?.({ kind: "said", text: "Reading your ferry notes" });
+      await pause(300);
+      return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what do my notes say about the ferry?" });
+    await ended();
+    const doings = turns.filter((turn) => turn.state === "working").map((turn) => turn.doing);
+    expect(doings).toContainEqual({ kind: "said", text: "Reading your ferry notes" });
+    for (const doing of doings) {
+      expect(JSON.stringify(doing)).not.toMatch(/read_mind|mindId|ToolSearch|~\/Documents/);
+    }
+    // The steps keep what it did, for the conversation.
+    expect(turns.at(-1)?.steps).toContainEqual(
+      expect.objectContaining({ kind: "own", action: { kind: "other", value: "ToolSearch" } }),
+    );
+    expect(run.runs[0]?.prompt).toContain(
+      "The lines you write as you work are shown to the User: plain words, no Tool names, ids or paths, in their words' language, else in English.",
+    );
+  });
+
   // protects=a run that has sent nothing for a while is said to be quiet, and no longer once it sends again; fails_when=the line stays the same for minutes with nothing to say the AI is silent
   it("says when the AI has sent nothing for a while", async () => {
     let saidAt = 0;
@@ -1146,9 +1183,31 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     };
     const here = await written(run.adapter);
     const turn = await cited(here);
+    const report = (await here.core.listDocuments()).find((each) => each.id === here.reportId);
+    // With its Document and its place there now, so the window opens it at the quote (#3762).
     expect(turn?.citations).toEqual([
-      { token: expect.any(String), documentName: "Report", quote: FERRY },
+      expect.objectContaining({
+        token: expect.any(String),
+        documentId: here.reportId,
+        documentName: "Report",
+        quote: FERRY,
+        passageId: expect.any(String),
+        contentHash: report?.contentHash,
+      }),
     ]);
+    expect(Object.keys(turn?.citations[0] ?? {}).sort()).toEqual(
+      [
+        "token",
+        "documentId",
+        "documentName",
+        "quote",
+        "passageId",
+        "contentHash",
+        "pageFrom",
+        "pageTo",
+        "location",
+      ].sort(),
+    );
     expect(turn?.reply).toContain(`[cite:${turn?.citations[0]?.token}]`);
     expect(turn?.citations.map((each) => each.token)).not.toContain("k3x9a2b7");
 

@@ -7,7 +7,8 @@
  * sound, "Speaker ?"; in a voice memo (#1568), no one is named. The Transcript
  * is a Document from its first line, kept in the data folder's "Transcripts"
  * and belonging to the Meeting's Note (#2528), indexed again as lines come; at Stop it is finished
- * there, with nothing asked about where files go (#763). Then, while the
+ * there, with nothing asked about where files go (#763), and a Resume after Stop takes it up again
+ * for the lines that follow (#3762). Then, while the
  * audio is kept, the speaker pass (./speakerPass, #138) tells voices apart, and
  * who spoke each line goes into its who's who, not its file; a voice memo has no
  * such pass.
@@ -259,6 +260,13 @@ interface State extends Saved {
   words: MeetingWords | null;
   /** Where the capture began waiting for the system's permission, in the Meeting's time; null otherwise. */
   waitingFrom: number | null;
+  /**
+   * How often the Meeting has recorded again after a Stop (#3762): work a Stop began (its last
+   * lines, what was left to transcribe, the speaker pass) ends without saving once this changes.
+   */
+  reopened: number;
+  /** Its files couldn't be read at load: a rewrite of them would lose the lines they hold. */
+  unreadable: boolean;
 }
 
 export interface TranscriptDocuments {
@@ -405,6 +413,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     let saved: Saved = { documentId: null, doneMs: 0, pending: [], savedPath: null };
     let cues: Cue[] = [];
     let gaps: TranscriptGap[] = [];
+    let unreadable = false;
     try {
       if (existsSync(jsonPath(meetingId))) {
         saved = { ...saved, ...(JSON.parse(readFileSync(jsonPath(meetingId), "utf8")) as Saved) };
@@ -413,6 +422,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         saved.savedPath && existsSync(saved.savedPath) ? saved.savedPath : vttPath(meetingId);
       if (existsSync(vtt)) ({ cues, gaps } = readVtt(readFileSync(vtt, "utf8")));
     } catch (error) {
+      unreadable = true;
       log.error("transcript.unreadable", { meetingId, message: messageOf(error) });
     }
     const state: State = {
@@ -453,9 +463,43 @@ export function createTranscripts(options: TranscriptsOptions) {
       memo: options.memo?.(meetingId) ?? false,
       words: null,
       waitingFrom: null,
+      reopened: 0,
+      unreadable,
     };
     states.set(meetingId, state);
     return state;
+  }
+
+  // A Transcript an earlier version saved outside the data folder (#763) has its Document on that
+  // file: lines written to the data folder's would never reach it.
+  const canReopen = (state: State) =>
+    !state.unreadable && (state.savedPath === null || state.savedPath === vttPath(state.meetingId));
+
+  /** The Meeting stopped since this Transcript was last recorded: its Stop's work is under way or done. */
+  const afterStop = (state: State) =>
+    state.savedPath !== null ||
+    state.state === "finishing" ||
+    state.state === "saved" ||
+    state.state === "empty" ||
+    state.state === "failed";
+
+  /**
+   * A stopped Meeting records again (#3762): its Transcript takes the lines that follow in the same
+   * file and Document, its own kept as they are, and is saved again at the next Stop. What that
+   * Stop hadn't done yet is left for the next one.
+   */
+  function reopen(state: State): boolean {
+    if (!canReopen(state)) return false;
+    state.reopened++;
+    state.savedPath = null;
+    state.finishing = null;
+    state.separating = null;
+    delete state.speakers;
+    state.problem = null;
+    state.state = state.cues.length > 0 ? "behind" : "waiting";
+    persist(state);
+    log.info("transcript.reopened", { meetingId: state.meetingId, lines: state.cues.length });
+    return true;
   }
 
   /** Writes a file whole or not at all. */
@@ -1383,7 +1427,9 @@ export function createTranscripts(options: TranscriptsOptions) {
   model.onReady(() => {
     for (const state of states.values()) {
       if (state.live && !state.live.started) startEngine(state);
-      if (state.state === "finishing" && !state.finishing) state.finishing = finish(state);
+      if (state.state === "finishing" && !state.finishing) {
+        state.finishing = finish(state, state.reopened);
+      }
     }
     options.changed();
   });
@@ -1525,10 +1571,11 @@ export function createTranscripts(options: TranscriptsOptions) {
    * transcribe, then the WebVTT file saved to the Output location, where the
    * Document follows it.
    */
-  async function finish(state: State): Promise<void> {
+  async function finish(state: State, run: number): Promise<void> {
     // A Stop's last lines can come in after the core closed: what is left is finished at the next
     // start (#2957).
-    if (closed) return;
+    const reopened = () => state.reopened !== run;
+    if (closed || reopened()) return;
     try {
       if (state.pending.length > 0) {
         if (model.status().state !== "ready") {
@@ -1542,6 +1589,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         }
         const done: Range[] = [];
         for (const range of [...state.pending]) {
+          if (reopened()) return;
           await whileOpen(isClosed, catchUp(state, range));
           done.push(range);
           state.pending = state.pending.filter((each) => each !== range);
@@ -1551,9 +1599,10 @@ export function createTranscripts(options: TranscriptsOptions) {
           options.changed();
         }
       }
-      await save(state);
+      if (reopened()) return;
+      await save(state, run);
     } catch (error) {
-      if (closed) return;
+      if (closed || reopened()) return;
       state.state = "failed";
       state.problem = {
         kind: error instanceof EngineError ? "engine" : "save",
@@ -1564,16 +1613,16 @@ export function createTranscripts(options: TranscriptsOptions) {
         message: messageOf(error),
       });
     } finally {
-      state.finishing = null;
+      if (!reopened()) state.finishing = null;
       if (!closed) {
         persist(state);
         options.changed();
       }
     }
-    if (state.speakers === "due") separate(state);
+    if (!reopened() && state.speakers === "due") separate(state);
   }
 
-  async function save(state: State): Promise<void> {
+  async function save(state: State, run: number): Promise<void> {
     if (state.cues.length === 0) {
       state.state = "empty";
       options.saved?.(state.meetingId);
@@ -1586,7 +1635,7 @@ export function createTranscripts(options: TranscriptsOptions) {
     log.info("transcript.saved", { meetingId: state.meetingId, lines: state.cues.length });
     if (options.speakers && !state.memo) state.speakers = "due";
     await documents.checkNow(state.documentId, file.path);
-    if (state.speakers !== "due") options.saved?.(state.meetingId);
+    if (state.reopened === run && state.speakers !== "due") options.saved?.(state.meetingId);
   }
 
   // A Transcript whose who's who is set, by the User or by an earlier pass, keeps it: the User's
@@ -1604,6 +1653,7 @@ export function createTranscripts(options: TranscriptsOptions) {
       settle(state, "done");
       return;
     }
+    const run = state.reopened;
     const finished = Promise.withResolvers<void>();
     state.separating = finished.promise;
     options.changed();
@@ -1619,7 +1669,8 @@ export function createTranscripts(options: TranscriptsOptions) {
       }
     }
     const saved = transcriptOf(state);
-    const current = () => !closed && states.get(state.meetingId) === state;
+    const current = () =>
+      !closed && states.get(state.meetingId) === state && state.reopened === run;
     pass
       .run(state.meetingId, [...state.cues], call)
       .then(
@@ -1633,7 +1684,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         },
       )
       .then((outcome) => {
-        state.separating = null;
+        if (state.separating === finished.promise) state.separating = null;
         if (current()) settle(state, outcome);
       })
       .catch((error: unknown) => {
@@ -1908,7 +1959,7 @@ export function createTranscripts(options: TranscriptsOptions) {
      */
     begin(meetingId: string, offsetMs: number, callSound: () => boolean): void {
       const state = load(meetingId);
-      if (state.savedPath) return;
+      if (afterStop(state) && !reopen(state)) return;
       const live: Live = {
         stream: `${meetingId}:${++streams}`,
         engine: "local",
@@ -2015,7 +2066,8 @@ export function createTranscripts(options: TranscriptsOptions) {
         return;
       }
       state.state = "finishing";
-      state.finishing = (state.ending ?? Promise.resolve()).then(() => finish(state));
+      const run = state.reopened;
+      state.finishing = (state.ending ?? Promise.resolve()).then(() => finish(state, run));
       options.changed();
     },
 
@@ -2025,7 +2077,8 @@ export function createTranscripts(options: TranscriptsOptions) {
      */
     recovered(meetingId: string, recordedMs: number): void {
       const state = load(meetingId);
-      if (state.savedPath) return;
+      // Cut off right after a Resume that followed Stop, before the Transcript took it in.
+      if (afterStop(state) && !reopen(state)) return;
       const fromMs = Math.max(state.doneMs, state.cues.at(-1)?.endMs ?? 0);
       state.pending = addRange(state.pending, { fromMs, toMs: recordedMs });
       if (state.cues.length > 0 || state.pending.length > 0) state.state = "behind";
@@ -2049,7 +2102,15 @@ export function createTranscripts(options: TranscriptsOptions) {
       if (state.savedPath || state.state === "empty") return;
       if (state.cues.length === 0 && state.pending.length === 0) return;
       state.state = "finishing";
-      state.finishing = finish(state);
+      state.finishing = finish(state, state.reopened);
+    },
+
+    /**
+     * Whether a stopped Meeting's Transcript can take more lines (#3762): not one whose files
+     * couldn't be read, nor one an earlier version saved outside the data folder.
+     */
+    canReopen(meetingId: string): boolean {
+      return canReopen(load(meetingId));
     },
 
     retry(meetingId: string): void {
@@ -2081,7 +2142,7 @@ export function createTranscripts(options: TranscriptsOptions) {
         startEngine(state);
       } else if ((state.state === "failed" || state.state === "finishing") && !state.finishing) {
         state.state = "finishing";
-        state.finishing = finish(state);
+        state.finishing = finish(state, state.reopened);
       }
       options.changed();
     },

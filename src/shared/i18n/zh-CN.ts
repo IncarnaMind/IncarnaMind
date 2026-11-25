@@ -6317,6 +6317,9 @@ export const zhCN = {
   "error.meeting.audioNotDeleted": "这场会议的部分音频未能删除。IncarnaMind 会在一分钟后重试。",
   "error.meeting.resumeAudioNotDeleted":
     "这场会议之前的音频尚未删除，暂时无法继续录制。一分钟后再试。",
+  "error.meeting.resumeMemo": "语音备忘停止后无法继续录制。请再录一段语音备忘。",
+  "error.meeting.resumeTranscriptUnreadable":
+    "无法继续录制：继续录制会丢失这场会议转写稿中已有的内容。",
   "error.meeting.saveWhileRecording": "停止录制后才能另存录音。",
   "error.meeting.savingRecording": "这段录音正在另存。",
   "error.meeting.joinMoved": "这场会议之后已移动，无法撤销。",
@@ -7176,6 +7179,8 @@ export const zhCN = {
     "已开启“所有内容都留在这台电脑上”，而这篇笔记用的模型不在这台电脑上",
   "meetings.fill.problem.notAllowed": "尚未允许发送给 {service}：先在助手中提问以允许，然后重试",
   "meetings.fill.problem.noModel": "请先选择一个 AI 模型",
+  "meetings.fill.problem.agentUnreached":
+    "{agent} 无权读取这篇笔记。在“设置 › AI”中更改它能读取的内容，或选择一个 AI 模型",
   "meetings.fill.problem.modelRemoved": "这篇笔记的模型已移除。在助手里选择其他模型，然后重试",
   "meetings.fill.problem.alone": "{reason}。",
   "meetings.fill.undoName": "补全笔记",

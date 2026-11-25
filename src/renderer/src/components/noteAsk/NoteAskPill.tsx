@@ -11,7 +11,6 @@ import { undoAsked, useAskedState } from "../../askedChanges";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
-import { useMeetings } from "../../meetings";
 import { showWaitingChanges } from "../../mindChanges";
 import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
@@ -387,16 +386,13 @@ const CHIP_CLOSE = "\uE001";
  * words cited (#3762). Whether it opened; else the chip stays as it was.
  */
 function openCitedInTranscript(cited: NoteCitation): boolean {
-  const { documents } = useAppStore.getState();
-  const transcript = documents.find(
-    (each) =>
-      each.name === cited.documentName &&
-      useMeetings.getState().meetings.some((meeting) => meeting.transcript?.documentId === each.id),
-  );
-  return (
-    !!transcript &&
-    showCitedInTranscript({ documentId: transcript.id, quote: cited.quote, request: 0 })
-  );
+  return showCitedInTranscript({
+    documentId: cited.documentId,
+    quote: cited.quote,
+    ...(cited.pageFrom !== null && { pageFrom: cited.pageFrom }),
+    ...(cited.pageTo !== null && { pageTo: cited.pageTo }),
+    request: 0,
+  });
 }
 
 /**

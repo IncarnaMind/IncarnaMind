@@ -258,6 +258,15 @@ export interface AgentCheckedCitation {
   changed: boolean;
 }
 
+/** A token checked again for the window (`citationsNow`), with where its quote stands now. */
+export interface AgentCitationNow extends AgentCheckedCitation {
+  /** Found: its Document and the place in it the quote is at now, as a Citation names it. */
+  at: Pick<
+    Citation,
+    "documentId" | "passageId" | "contentHash" | "pageFrom" | "pageTo" | "location"
+  > | null;
+}
+
 export interface AgentCheckResult {
   citations: AgentCheckedCitation[];
   /** Sentences of the draft with no Citation in them, at most `MAX_UNCITED`. */
@@ -592,7 +601,7 @@ export interface AgentAccess {
    * change to a Note checks one; it records nothing, being no call of the agent's (#3677). A token
    * is read in its Document again only once that Document's content changed.
    */
-  citationsNow(tokens: readonly string[]): AgentCheckedCitation[];
+  citationsNow(tokens: readonly string[]): AgentCitationNow[];
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -2755,7 +2764,22 @@ export function createAgentAccess(
         rechecked.set(kept.token, { hash, now });
         return now;
       };
-      return tokens.map((token) => checkToken(pairing, inScope, live, token, recheck).report);
+      return tokens.map((token) => {
+        const { cited, report } = checkToken(pairing, inScope, live, token, recheck);
+        const kept = cited ? deps.citations.find(pairing.id, token) : null;
+        const found = kept && report.check === "found" ? foundNow(kept, recheck(kept)) : null;
+        return {
+          ...report,
+          at: found && {
+            documentId: found.documentId,
+            passageId: found.passageId,
+            contentHash: found.contentHash,
+            pageFrom: found.pageFrom,
+            pageTo: found.pageTo,
+            location: found.location,
+          },
+        };
+      });
     },
 
     checkCitations(input) {

@@ -6712,6 +6712,10 @@ export const en = {
     "Some of this meeting’s audio couldn’t be deleted. IncarnaMind tries again in a minute.",
   "error.meeting.resumeAudioNotDeleted":
     "Recording can’t resume until the earlier audio is deleted. Try again in a minute.",
+  "error.meeting.resumeMemo":
+    "A voice memo can’t record more once it has stopped. Record a new one.",
+  "error.meeting.resumeTranscriptUnreadable":
+    "Recording can’t resume: it would lose lines already in this meeting’s Transcript.",
   "error.meeting.saveWhileRecording": "Stop the recording to save it.",
   "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
@@ -7658,6 +7662,8 @@ export const en = {
   "meetings.fill.problem.notAllowed":
     "sending to {service} isn’t allowed yet: allow it by asking a Question, then Try again",
   "meetings.fill.problem.noModel": "choose an AI model first",
+  "meetings.fill.problem.agentUnreached":
+    "{agent} wasn’t given this note. Change what it reads in Settings › AI, or choose an AI model",
   "meetings.fill.problem.modelRemoved":
     "this note’s model was removed. Choose another in the assistant, then Try again",
   "meetings.fill.problem.alone": "{reason}.",

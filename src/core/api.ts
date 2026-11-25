@@ -2659,6 +2659,13 @@ export interface CitationRecheck {
    */
   changed?: ChangedQuote | null;
   /**
+   * Asked with the version the Citation quotes, which is no longer the current one: the current
+   * version is a Transcript's that holds every line of that one as it was, with only lines added
+   * after them, as a meeting's Transcript grows while it records (#3762). Its quote is found at
+   * its place, so the Citation stands as cited. Absent otherwise.
+   */
+  grew?: true;
+  /**
    * Its quote isn't at its cited Units in the current version: where the whole quote stands in
    * that version instead (#3041), matched as the check matches it. `location` is null when it
    * stands in more than one place, or in one wider than a Citation's Units. Null when it is
@@ -12422,7 +12429,7 @@ export interface Meeting {
   /** While audio is being captured, when this stretch began (ISO 8601); otherwise null. */
   recordingSince: string | null;
   gaps: MeetingGap[];
-  /** When recording first started, and when it was stopped (ISO 8601). */
+  /** When recording first started, and when it was last stopped (ISO 8601): null while it records again. */
   startedAt: string | null;
   stoppedAt: string | null;
   /** Its audio on this computer, which is deleted at most a day after the Meeting. */
@@ -12451,7 +12458,10 @@ export interface Meeting {
   helpTemplate: MeetingHelpTemplate | null;
   /** The Skill chosen for the Meeting's write-up. Otherwise it uses the default sections. */
   writeupTemplateId?: string;
-  /** Its notes filled in from the Transcript after Stop (#142); null before Stop. */
+  /**
+   * Its notes filled in from the Transcript after Stop (#142); null before Stop, and while it
+   * records again after Stop unless notes were written then, which stay as they are.
+   */
   fill: MeetingFill | null;
   createdAt: string;
   updatedAt: string;
@@ -12547,6 +12557,11 @@ export interface MeetingFillProblem {
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
+  /**
+   * For "no-model" when the User's own AI is connected but wasn't given the meeting's Note, so it
+   * can't write the notes: its connection's name. `message` then says so, and what to do.
+   */
+  agent?: string;
   /** For "model" from the provider: its error's kind, which the line may word as an Answer's does. */
   error?: ProviderErrorKind;
   /** With `error`: the model the fill asked. */
@@ -13640,11 +13655,22 @@ export interface NoteQuestion {
 /** How a step of the AI's own went with its question: as answered, or ended before it was. */
 export type NoteAnswered = NoteAnswer | "stopped" | "closed" | "refused";
 
-/** A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document and its quote. */
+/**
+ * A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document, its quote, and
+ * where the quote stands in that Document now, to open it there: the Passage and version it was
+ * found in, its Units (pages, slides…, from 1; null for a whole file) and its Location in them, a
+ * Transcript's being its line's time (`{ kind: "time", from, to, speaker? }`, ms into the call).
+ */
 export interface NoteCitation {
   token: string;
+  documentId: string;
   documentName: string;
   quote: string;
+  passageId: string;
+  contentHash: string;
+  pageFrom: number | null;
+  pageTo: number | null;
+  location: CitationLocation | null;
 }
 
 /**
@@ -16098,7 +16124,14 @@ export interface CoreApi {
    */
   recordMemo(input?: CreateMeetingInput): Promise<Meeting>;
   pauseMeeting(meetingId: string): Promise<Meeting>;
-  /** Records again after a pause, the User's or one IncarnaMind closing made. */
+  /**
+   * Records again after a pause, the User's or one IncarnaMind closing made, or after Stop
+   * (#3762): the same Note and Transcript, its time going on from where it stopped, and Stop ends
+   * it again. A call's notes written at Stop stay until the next Stop writes them anew, which
+   * Undo takes back. InvalidInputError for a voice memo after Stop (`error.meeting.resumeMemo`),
+   * and when recording on would lose lines its Transcript holds
+   * (`error.meeting.resumeTranscriptUnreadable`).
+   */
   resumeMeeting(meetingId: string): Promise<Meeting>;
   /** Ends the recording. Its audio is kept for at most a day. */
   stopMeeting(meetingId: string): Promise<Meeting>;

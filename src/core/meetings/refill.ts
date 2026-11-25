@@ -23,6 +23,20 @@ export interface Refill {
   undone?: true;
 }
 
+/**
+ * The fill whose notes the Note holds now, and the template they were written with: a refill's
+ * earlier one until the refill is written, and again once it is undone.
+ */
+export function shownFill(
+  stored: FillVersion & { refill?: Refill; unwritten?: true },
+  templateId: string | null,
+): { fill: FillVersion; templateId: string | null } {
+  const { refill, unwritten: _unwritten, ...latest } = stored;
+  return refill && (refill.undone || latest.state !== "filled")
+    ? { fill: refill.previous, templateId: refill.previousTemplateId }
+    : { fill: latest, templateId };
+}
+
 export function fillFingerprint(element: Y.XmlElement): string {
   return targetHash(
     JSON.stringify(nodeOf(element), (_key, value: unknown) =>

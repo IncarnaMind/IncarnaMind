@@ -1207,8 +1207,12 @@ export function createAgents(options: AgentsOptions) {
       }
       return checked.flatMap((now, index) => {
         const token = tokens[index];
-        return now.check === "found" && token && now.document !== null && now.quote !== null
-          ? [{ token, documentName: now.document, quote: now.quote }]
+        return now.check === "found" &&
+          token &&
+          now.document !== null &&
+          now.quote !== null &&
+          now.at !== null
+          ? [{ token, documentName: now.document, quote: now.quote, ...now.at }]
           : [];
       });
     },

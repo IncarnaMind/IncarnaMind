@@ -2,14 +2,16 @@ import type { CoreAdapters } from "../../src/core/adapters";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { createFakeCloud } from "../../src/core/transcription/fakeCloud";
 import { agentsAdapter } from "./agents";
-import { createTempDataFolder, manualClock, startCore } from "./core";
+import { createTempDataFolder, manualClock, startCore, type TestAdapters } from "./core";
 import { inProcessTranscriber, NO_TRANSCRIPTION_FILES, until } from "./transcription";
 
+/** `more`: adapters of the test's own, such as the User's own AI run in the background. */
 export async function startLiveAgentMeeting(
   run: NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>,
   grant: boolean,
   lines: string[],
   client: "codex" | "claude-code" = "codex",
+  more: TestAdapters = {},
 ) {
   const dir = await createTempDataFolder();
   const clock = manualClock();
@@ -27,6 +29,7 @@ export async function startLiveAgentMeeting(
     transcriptionModelSource: NO_TRANSCRIPTION_FILES,
     transcriptionKeyFetch: async () => new Response(null, { status: 200 }),
     summarizeWithMeetingAgent: run,
+    ...more,
   };
   const core = startCore(dir, adapters);
   const folder = await core.createLibraryGroup({ name: "Launch", description: "" });

@@ -808,6 +808,18 @@ for (const language of ["en", "zh-CN"] as const) {
           location: label,
           quote,
           changed: true,
+          // Found: where the quote is now, for the window to open the Transcript at its line (#3762).
+          at:
+            check === "found"
+              ? {
+                  documentId: "tides",
+                  passageId: "review",
+                  contentHash: "v2",
+                  pageFrom: 1,
+                  pageTo: 1,
+                  location: expect.objectContaining({ kind: "time" }),
+                }
+              : null,
         });
       },
     );

@@ -720,6 +720,40 @@ test("a silent call ends with no summary text and no model request", async () =>
   }
 });
 
+// protects=a call's summary finished at Stop goes on with the lines a Resume brings, from where it was, and is ready again once the next Stop's Transcript is saved (#3762); fails_when=it stays as the first Stop left it, or is made again from nothing; no_claim=the summary's wording.
+test("a call resumed after Stop has its summary go on with the new lines", async () => {
+  const run = vi.fn<NonNullable<CoreAdapters["summarizeWithMeetingAgent"]>>(async ({ prompt }) =>
+    prompt.includes(friday)
+      ? launchReply("Launch on Friday.", friday, 1)
+      : launchReply("Launch on Monday.", monday, null),
+  );
+  const { core, meeting, push, summary } = await setup(run);
+  try {
+    push(2500);
+    await until(core, meeting.id, (state) => state.lines >= 1);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({ state: "ready", text: "Launch on Monday." }),
+    );
+
+    expect((await core.resumeMeeting(meeting.id)).summary).toMatchObject({
+      state: "updating",
+      text: "Launch on Monday.",
+    });
+    push(4500);
+    await until(core, meeting.id, (state) => state.lines >= 3);
+    await core.stopMeeting(meeting.id);
+    await vi.waitFor(async () =>
+      expect(await summary()).toMatchObject({ state: "ready", text: "Launch on Friday." }),
+    );
+    const last = run.mock.lastCall?.[0].prompt ?? "";
+    expect(last).toContain(friday);
+    expect(last).toContain("Launch on Monday.");
+  } finally {
+    core.close();
+  }
+});
+
 test("opening an older stopped meeting keeps its original summary without sending a new request", async () => {
   const dir = await createTempDataFolder();
   const before = startCore(dir, { audioCapture: createFakeCapture() });

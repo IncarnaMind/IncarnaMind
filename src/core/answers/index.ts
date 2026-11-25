@@ -359,6 +359,7 @@ import {
   type LiveTranscript,
   listenedTokens,
   newestWithin,
+  unconfirmedText,
   withBeforeQuestion,
   withTranscript,
 } from "./liveTranscript";
@@ -3004,7 +3005,12 @@ export function createAnswers(options: AnswersOptions) {
             contextReasons.push({ via: "read", source: "transcript" });
             textOrigin ??= "transcript";
           }
-          messages = withTranscript(messages, session.show(kept), session.showScreens(screens));
+          messages = withTranscript(
+            messages,
+            session.show(kept),
+            session.showScreens(screens),
+            unconfirmedText(heard.unconfirmed),
+          );
         }
         const hasEarlierTurns = messages.length > 1;
         if (heard && hasEarlierTurns) {

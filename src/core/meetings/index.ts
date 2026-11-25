@@ -2,7 +2,8 @@
  * Meetings (#135): the recording's state, and its audio on disk.
  *
  * A Meeting belongs to a Mind. It starts "ready" (the Mind shows the start
- * block), then records, pauses and stops. The audio comes from the host's
+ * block), then records, pauses and stops; a call stopped can record again
+ * (#3762), a voice memo can't. The audio comes from the host's
  * `AudioCapture` and goes to disk in 10-second parts per source as it comes
  * (./audioFiles), so a crash, sleep or device change loses at most the part
  * still filling.
@@ -181,6 +182,14 @@ export interface StoredFill extends FillVersion {
 
 function storedSummaryOf(row: Pick<MeetingRow, "summary">): StoredSummaryWithReview | null {
   return row.summary ? (JSON.parse(row.summary) as StoredSummaryWithReview) : null;
+}
+
+/** A summary finished at Stop goes on with the lines that come when the Meeting records again. */
+function summaryGoingOn(row: Pick<MeetingRow, "summary">): Pick<MeetingRow, "summary"> | null {
+  const stored = storedSummaryOf(row);
+  if (stored?.summary.state !== "ready") return null;
+  const state = stored.summary.text ? "updating" : "preparing";
+  return { summary: JSON.stringify({ ...stored, summary: { ...stored.summary, state } }) };
 }
 
 function storedFillOf(row: Pick<MeetingRow, "fill">): StoredFill | null {
@@ -985,11 +994,13 @@ export function createMeetings(options: MeetingsOptions) {
     );
     const failed: string[] = [];
     for (const { id, mind_id, audio_deleted_at } of purged) {
+      // Audio recorded after a deletion is on disk again, under the earlier date.
+      const audioLeft = audio_deleted_at === null || hasAudio(id);
       try {
         transcripts?.forget(id);
         screens?.forget(id);
         health.forget(id);
-        if (audio_deleted_at === null) deleteAudio(id, "purged");
+        if (audioLeft) deleteAudio(id, "purged");
       } catch (error) {
         log.error("meeting.purgeFailed", { meetingId: id, code: codeOf(error) });
         failed.push(mind_id);
@@ -1001,7 +1012,7 @@ export function createMeetings(options: MeetingsOptions) {
         summary: null,
         summary_corrections: null,
         edited_summary_content: null,
-        ...(audio_deleted_at === null && { audio_deleted_at: at, audio_expires_at: null }),
+        ...(audioLeft && { audio_deleted_at: at, audio_expires_at: null }),
       });
     }
     return failed;
@@ -1260,12 +1271,26 @@ export function createMeetings(options: MeetingsOptions) {
       return toMeeting(rowOf(row.id));
     },
 
+    /**
+     * Records again after a pause, or after Stop (#3762): the same Meeting goes on, its time from
+     * where it stopped. Its audio, deleted or not, stays as it is, and what comes is kept as any
+     * recording's is.
+     */
     resume(meetingId: unknown): Meeting {
       const row = rowOf(meetingId);
-      if (row.status !== "paused") throw new InvalidInputError({ key: "error.meeting.notPaused" });
-      assertNoneCapturing(row.id);
+      const stopped = row.status === "stopped";
+      if (row.status !== "paused" && !stopped) {
+        throw new InvalidInputError({ key: "error.meeting.notPaused" });
+      }
+      if (stopped && row.kind === "memo") {
+        throw new InvalidInputError({ key: "error.meeting.resumeMemo" });
+      }
+      assertCanStart(row.id);
+      if (stopped && transcripts && !transcripts.canReopen(row.id)) {
+        throw new InvalidInputError({ key: "error.meeting.resumeTranscriptUnreadable" });
+      }
       // A deletion already due goes first, so what is recorded next never falls under its date
-      // (#687); one that still fails keeps the Meeting paused, and says why.
+      // (#687); one that still fails keeps the Meeting as it is, and says why.
       if (dueOr(row, null) !== null) {
         try {
           deleteAudio(row.id, "expired");
@@ -1290,9 +1315,10 @@ export function createMeetings(options: MeetingsOptions) {
         paused_by: null,
         periods: JSON.stringify([...periods, period]),
         audio_expires_at: null,
+        ...(stopped && { stopped_at: null, ...summaryGoingOn(row) }),
       });
       begin(rowOf(row.id), period);
-      log.info("meeting.resumed", { meetingId: row.id });
+      log.info("meeting.resumed", { meetingId: row.id, afterStop: stopped });
       changed();
       return toMeeting(rowOf(row.id));
     },
@@ -1572,10 +1598,10 @@ export function createMeetings(options: MeetingsOptions) {
       return storedFillOf(rowOf(meetingId));
     },
 
-    /** Records the Meeting's fill (#142) and reports the change. */
-    setFill(meetingId: string, fill: StoredFill, templateId?: string | null): Meeting {
+    /** Records the Meeting's fill (#142), or none, and reports the change. */
+    setFill(meetingId: string, fill: StoredFill | null, templateId?: string | null): Meeting {
       save(meetingId, {
-        fill: JSON.stringify(fill),
+        fill: fill === null ? null : JSON.stringify(fill),
         ...(templateId === undefined ? {} : { writeup_template_id: templateId }),
       });
       changed();
@@ -1622,8 +1648,9 @@ export function createMeetings(options: MeetingsOptions) {
       const row = rowOf(meetingId);
       const from = Math.max(0, fromMs);
       const to = Math.min(toMs, from + MAX_STRETCH_MS);
+      // Audio recorded after a deletion plays: the parts on disk say what is left, not the date.
       const samples =
-        row.audio_deleted_at === null && row.status === "stopped"
+        row.status === "stopped"
           ? readStretch(
               folderOf(row.id),
               from,
@@ -1760,11 +1787,10 @@ export function createMeetings(options: MeetingsOptions) {
     /** Whether a Meeting deleted with the Mind at `deletedAt` still keeps its audio. */
     recordingDeletedWith(mindId: string, deletedAt: string): boolean {
       return db
-        .all<{ id: string }>(
-          `SELECT id FROM meetings
-           WHERE mind_id = ? AND deleted_at = ? AND audio_deleted_at IS NULL`,
-          [mindId, deletedAt],
-        )
+        .all<{ id: string }>("SELECT id FROM meetings WHERE mind_id = ? AND deleted_at = ?", [
+          mindId,
+          deletedAt,
+        ])
         .some((row) => hasAudio(row.id));
     },
 
