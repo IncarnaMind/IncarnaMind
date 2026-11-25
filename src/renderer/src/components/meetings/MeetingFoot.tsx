@@ -152,9 +152,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
               <LevelBars meeting={meeting} />
             </>
           ) : (
-            <span className="meeting-foot-time">
-              {t("meetings.audio.recorded", { time: clockTime(meeting.recordedMs) })}
-            </span>
+            <span>{t("meetings.views.transcript")}</span>
           )}
           <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
         </button>

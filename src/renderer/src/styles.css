@@ -2635,14 +2635,13 @@
     }
   }
   /* A meeting's control stands at the input's left, on its row (#3762). */
-  /* The row spans the text's measure: the control starts at the text's left edge (#3762). */
+  /* The row and the Transcript's sheet over it share their edges (#3762). */
   .note-ask-foot--meeting {
     display: flex;
     align-items: flex-end;
     gap: 8px;
     padding-block: 4px 16px;
-    padding-inline: max(40px, calc((100% - 784px) / 2 + 56px))
-      max(40px, calc((100% - 784px) / 2 + 48px));
+    padding-inline: max(24px, calc((100% - 760px) / 2));
     > .mind-measure {
       flex: 1 1 auto;
       min-width: 0;
@@ -2791,7 +2790,7 @@
     /* The sheet names it and says the one line: the view's own head and its line stay out. */
     [data-testid="viewer-embedded-header"],
     [data-testid="transcript-head"] {
-      display: none;
+      display: none !important;
     }
     .viewer-backdrop {
       padding: 0;
