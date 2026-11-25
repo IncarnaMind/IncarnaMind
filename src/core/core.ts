@@ -9976,6 +9976,11 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.stop(mindId);
     },
+    discardInNote: async (mindId, turnId) => {
+      if (typeof mindId !== "string" || typeof turnId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.discard(mindId, turnId);
+    },
     answerInNote: async (mindId, questionId, answer) => {
       if (
         typeof mindId !== "string" ||

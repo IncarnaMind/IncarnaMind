@@ -64,6 +64,14 @@ export interface ClaudeCodeTurn {
       hear(listener: (mode: string) => void): () => void;
       refused(mode: string, reason: string): void;
     };
+    /**
+     * Hands the turn how to send Claude Code, after the prompt, each request the User sends while
+     * it goes (#3765). `taken` hears each, by its id, as Claude Code echoes it back on taking it;
+     * `answered`, each result that ends a request before the last.
+     */
+    meanwhile?(send: (id: string, prompt: string) => void): void;
+    taken?(id: string): void;
+    answered?(result: Record<string, unknown>): void;
   };
   /** A model alias or name Claude Code offers; absent: its own default. */
   model?: string;
@@ -118,6 +126,9 @@ function argsOf(turn: ClaudeCodeTurn): string[] {
       "--permission-prompt-tool",
       "stdio",
       ...(mode ? ["--permission-mode", mode] : []),
+      // Claude Code then echoes each message as it takes it: the one sign that a request sent
+      // meanwhile was taken.
+      "--replay-user-messages",
       ...kept,
       // Added to Claude Code's own system prompt, which its tools need, and from a file, as below.
       "--append-system-prompt-file",
@@ -260,12 +271,20 @@ export class ClaudeCodeHookError extends Error {
   }
 }
 
+const userMessage = (content: string) => ({
+  type: "user",
+  message: { role: "user", content },
+  parent_tool_use_id: null,
+  session_id: "",
+});
+
 /**
  * A turn with Claude Code's own abilities (#3653): its `initialize`, which registers IncarnaMind's
  * hook, goes first, and the prompt only once Claude Code has taken it; the input stays open until
  * the result, since each permission question is answered there. A question of another kind than a
- * tool's gets an error, so it never waits on a host that can't answer it. It ends with everything
- * it started.
+ * tool's gets an error, so it never waits on a host that can't answer it. A request sent meanwhile
+ * goes in after the prompt, and a result while one is still to be taken doesn't end the turn:
+ * Claude Code runs it next in the same process (#3765). It ends with everything it started.
  */
 function readOwnTurn(
   child: ChildProcess,
@@ -275,6 +294,20 @@ function readOwnTurn(
   const closed = new Promise((resolve) => child.once("close", resolve));
   const tree = wholeTree(child, closed, own.processes);
   let prompted = false;
+  let input: Writable | null = null;
+  // Sent before the prompt could go, then sent and not yet echoed, oldest first; the first echo
+  // is the prompt's own.
+  const held: { id: string; prompt: string }[] = [];
+  const untaken: string[] = [];
+  let promptTaken = false;
+  const send = (id: string, prompt: string) => {
+    if (!prompted || !input) {
+      held.push({ id, prompt });
+      return;
+    }
+    write(input, userMessage(prompt));
+    untaken.push(id);
+  };
   // Nothing goes before Claude Code takes the hook, so a wait on it ends well before the stall.
   const unanswered = new AbortController();
   const waiting = setTimeout(() => unanswered.abort(), own.initializeMs);
@@ -291,11 +324,13 @@ function readOwnTurn(
     ...(turn.stallMs !== undefined && { stallMs: turn.stallMs }),
     ...(turn.busy && { busy: turn.busy }),
     begin(stdin) {
+      input = stdin;
       write(stdin, {
         type: "control_request",
         request_id: "models",
         request: { subtype: "initialize", hooks: STEERING_HOOKS },
       });
+      own.meanwhile?.(send);
     },
     onMessage(msg, stdin) {
       if (msg.type === "control_response") {
@@ -315,12 +350,8 @@ function readOwnTurn(
           turn.onModels?.(answer);
           turn.signal.throwIfAborted();
           prompted = true;
-          write(stdin, {
-            type: "user",
-            message: { role: "user", content: turn.prompt },
-            parent_tool_use_id: null,
-            session_id: "",
-          });
+          write(stdin, userMessage(turn.prompt));
+          for (const each of held.splice(0)) send(each.id, each.prompt);
           if (own.modes) {
             stopHearing = own.modes.hear((mode) => {
               const id = `mode-${modesAsked.size + 1}`;
@@ -339,6 +370,14 @@ function readOwnTurn(
           // Its error names why, by one of its own codes: auto mode off in the User's settings, say.
           const said = typeof control.error === "string" ? control.error : "";
           own.modes?.refused(asked, MODE_REFUSALS.find((code) => said.includes(code)) ?? "other");
+        }
+        return undefined;
+      }
+      if (msg.type === "user" && msg.isReplay === true) {
+        if (!promptTaken) promptTaken = true;
+        else {
+          const id = untaken.shift();
+          if (id !== undefined) own.taken?.(id);
         }
         return undefined;
       }
@@ -375,6 +414,12 @@ function readOwnTurn(
       }
       if (msg.type === "control_cancel_request") {
         if (typeof msg.request_id === "string") own.withdrawn(msg.request_id);
+        return undefined;
+      }
+      // With a request still to be taken, a result ends only the one before: Claude Code runs it
+      // next. One before the prompt was taken (a conversation it doesn't have) ends it all.
+      if (msg.type === "result" && promptTaken && untaken.length > 0) {
+        own.answered?.(msg);
         return undefined;
       }
       if (msg.type === "result") return msg;

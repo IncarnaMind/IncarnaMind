@@ -8825,6 +8825,9 @@ export const zhCN = {
   "noteColumn.copy": "拷贝",
   "noteColumn.sendAgain": "再次发送",
   "noteColumn.edit": "编辑",
+  "noteColumn.waiting": "等待中",
+  "noteColumn.notSent": "未发送",
+  "noteColumn.discard": "舍弃",
   "noteColumn.citation": "引用 {number}",
   // 你的 AI 在笔记对话里用自己的工具前的请求，以及它用这些工具的步骤（#3653）。
   "ownAsk.title.command": "运行命令",

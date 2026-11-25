@@ -10,7 +10,7 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
+import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
 import { endLeftRuns, object, older, processes, StalledError, short } from "./agentCommand";
 import { resolveCommandOnPath } from "./claudeBinary";
 import { ClaudeCodeHookError, ClaudeCodeIsolationError, runClaudeCodeTurn } from "./claudeCode";
@@ -308,6 +308,10 @@ export function createOwnAi({
       let failure: OwnAiFailure | null = null;
       let begun = false;
       let written = "";
+      const endOf = (result: Record<string, unknown>): OwnAiEnd =>
+        result.subtype === "success" && result.is_error === false
+          ? { kind: "finished", reply: String(result.result ?? "").slice(0, MAX_REPLY_CHARS) }
+          : { kind: "failed", reason: failure ?? "other" };
       let toldHeard = 0;
       // The calls of IncarnaMind's Tools sent and not yet answered: the run waits on them silently.
       const running = new Set<string>();
@@ -389,6 +393,14 @@ export function createOwnAi({
                     request.progress?.({ kind: "modeRefused", mode, reason }),
                 },
               }),
+              ...(own.meanwhile && { meanwhile: own.meanwhile }),
+              taken: (id: string) => request.progress?.({ kind: "taken", id }),
+              answered: (result: Record<string, unknown>) => {
+                const end = endOf(result);
+                failure = null;
+                written = "";
+                request.progress?.({ kind: "answered", end });
+              },
             },
           }),
           ...(request.model && { model: request.model }),
@@ -528,9 +540,7 @@ export function createOwnAi({
           const lost = conversation?.resume && result.subtype === "error_during_execution";
           return { kind: "failed", reason: lost ? "lost-conversation" : "other" };
         }
-        return result.subtype === "success" && result.is_error === false
-          ? { kind: "finished", reply: String(result.result ?? "").slice(0, MAX_REPLY_CHARS) }
-          : { kind: "failed", reason: failure ?? "other" };
+        return endOf(result);
       } catch (error) {
         if (request.signal.aborted) throw error;
         if (error instanceof ClaudeCodeIsolationError)

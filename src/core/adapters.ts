@@ -1800,7 +1800,22 @@ export type OwnAiProgress =
   /** The agent's own permission mode, as it names it at its start and as it changes. */
   | { kind: "mode"; mode: string }
   /** The agent refused to switch to `mode`, by its own code for why (#3765). */
-  | { kind: "modeRefused"; mode: string; reason: string };
+  | { kind: "modeRefused"; mode: string; reason: string }
+  /**
+   * The agent took a request sent while the run goes, by the id it was sent with (#3765): what the
+   * run does from now on is for that request.
+   */
+  | { kind: "taken"; id: string }
+  /**
+   * A request of the run ended before the last did (#3765), and the agent goes on to one it hasn't
+   * taken yet; `run` resolves with the last.
+   */
+  | { kind: "answered"; end: OwnAiEnd };
+
+/** How a run of the User's own AI ended, or one of its requests before the last (#3765). */
+export type OwnAiEnd =
+  | { kind: "finished"; reply: string }
+  | { kind: "failed"; reason: OwnAiFailure };
 
 /**
  * What a run with its own abilities asks before it does something with a tool of its own (#3653):
@@ -1848,7 +1863,15 @@ export interface OwnAiRunner {
      * `signal` aborts when the agent withdraws the question or the run ends. Absent: none of its
      * own tools, and nothing it may ask is allowed (ADR-0032).
      */
-    own?: { ask(asked: OwnAiAsk, signal: AbortSignal): Promise<NoteAnswer> };
+    own?: {
+      ask(asked: OwnAiAsk, signal: AbortSignal): Promise<NoteAnswer>;
+      /**
+       * Hands the run, once, how to send the agent the requests the User sends while it goes
+       * (#3765), each with an id its "taken" step names. The agent takes them in order, at its next
+       * step or once its reply ends, and the run goes on until each one has its answer.
+       */
+      meanwhile?(send: (id: string, prompt: string) => void): void;
+    };
     instructions: string;
     prompt: string;
     conversation?: { key: string; sessionId: string; resume: boolean };
@@ -1874,7 +1897,7 @@ export interface OwnAiRunner {
      */
     started?(): void;
     signal: AbortSignal;
-  }): Promise<{ kind: "finished"; reply: string } | { kind: "failed"; reason: OwnAiFailure }>;
+  }): Promise<OwnAiEnd>;
   /**
    * Deletes a kept conversation: the agent's transcript of it and its working folder. False when
    * the agent couldn't be asked, so its own sweep deletes the transcript later.

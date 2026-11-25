@@ -20,6 +20,7 @@ import {
   caretOf,
   clearNoteAsk,
   focusNoteAsk,
+  isGoing,
   listen,
   openColumnAt,
   seedRunning,
@@ -100,12 +101,14 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     );
   }, [mindId]);
   const working = ask?.state === "working";
+  const going = isGoing(ask);
+  const changed = useNoteColumns((state) => state.changed[mindId] ?? 0);
   // Read again as a new conversation starts, which no request's state shows.
   const [reads, setReads] = useState(0);
   const turns = useOpenConversation(
     mindId,
     open,
-    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${reads}`,
+    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${ask?.queued.join(",") ?? ""}:${changed}:${reads}`,
   );
   // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
   // later would cover what the User had scrolled into view, and a change's bar docked above it.
@@ -154,8 +157,10 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
 
   const send = async () => {
     const typed = words.trim();
-    if (typed === "" || working) return;
-    const selected = whole ? null : selectedForRequest(editor.state);
+    if (typed === "") return;
+    // Sent into a run going, it is about the whole Note: the run holds its changes to the selection
+    // of the request it began with, so the input shows no quote meanwhile (#3765).
+    const selected = whole || going ? null : selectedForRequest(editor.state);
     // The quote goes with the words, as they leave the input.
     setWords("");
     setWhole(true);
@@ -168,11 +173,13 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
         words: typed,
         quote: selected?.quote ?? "",
         selection: selected?.selection ?? null,
-        caret: selected ? "" : caretOf(editor.state),
+        caret: selected || going ? "" : caretOf(editor.state),
       });
       // A request that couldn't start keeps what the User typed for sending again.
       if (went === "problem") giveBack();
       if (went === "link") await askFirstAgent(mindId, { kind: "question", text: typed });
+      // It shows in the conversation as sent, waiting for the AI to take it.
+      if (went === "sent") setColumnOpen(mindId, true);
     } catch (error) {
       giveBack();
       useAppStore.getState().reportError(error);
@@ -192,7 +199,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       }
     }
     if (event.key === "Escape") {
-      if (working) void stopInNote(mindId);
+      if (going) void stopInNote(mindId);
       else if (open) setColumnOpen(mindId, false);
       else return;
       event.preventDefault();
@@ -200,8 +207,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     }
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    // While a run goes, Return sends nothing new: only Stop and Esc act (#3677).
-    if (!working) void send();
+    void send();
   };
 
   // Upward, the box keeps the folded box's height in the Note's foot and grows over the Note, so
@@ -275,11 +281,11 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       words={words}
       onWords={(typed) => {
         setWords(typed);
-        if (ask && ask.state !== "working") clearNoteAsk(mindId);
+        clearNoteAsk(mindId);
       }}
-      quote={whole ? "" : quote}
+      quote={whole || going ? "" : quote}
       onWholeNote={() => setWhole(true)}
-      working={working}
+      working={going}
       onSend={() => void send()}
       onStop={() => void stopInNote(mindId)}
       onKeyDown={onKeyDown}

@@ -3086,6 +3086,30 @@
   .note-column-sent-time {
     margin-right: 6px;
   }
+  /* A request sent while another ran (#3765): waiting for its AI to take it, or never sent. */
+  .note-column-sent-state {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 16px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    .note-ask-dots,
+    .note-column-sent-word {
+      margin-right: 6px;
+    }
+    .note-column-icon {
+      margin-block: -6px;
+    }
+    /* While it waits, its Copy shows as a sent request's actions do. */
+    &[data-waiting] .note-column-icon {
+      opacity: 0;
+    }
+  }
+  .note-column-sent:is(:hover, :focus-within) .note-column-sent-state .note-column-icon {
+    opacity: 1;
+  }
   .note-column-bubble-quote {
     margin-bottom: 2px;
     color: var(--color-ink-meta);

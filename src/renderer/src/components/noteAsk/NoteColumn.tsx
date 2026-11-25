@@ -4,15 +4,19 @@ import type { AgentSavedFile, NoteQuestion, NoteStep, NoteTurn } from "../../../
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
 import { files } from "../../core";
+import { AskArrowIcon } from "../../editor/icons";
 import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
 import { useLanguage, useT } from "../../i18n";
 import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
 import {
   askInNote,
+  discardInNote,
   editRequest,
   firstWordsOf,
+  isGoing,
   type NoteAsk,
   type NoteTrail,
+  sendUnsent,
   setColumnOpen,
   useNoteAsks,
   useNoteColumns,
@@ -27,6 +31,7 @@ import {
   MindLineIcon,
   PencilLineIcon,
   RetryLineIcon,
+  TrashLineIcon,
 } from "../lineIcons";
 import { ProblemLine } from "../ProblemLine";
 import { SidebarToggle } from "../SidebarToggle";
@@ -278,7 +283,13 @@ export function NoteConversationBody({
   const waiting = useWaitingInNote(editor);
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const working = ask?.state === "working";
+  const going = isGoing(ask);
   const trails = useNoteTrails((state) => state.byTurn);
+  // The last request that ran: a request sent meanwhile may stand after it, waiting or never sent.
+  const ranAt =
+    turns
+      ?.map((turn) => turn.outcome !== "waiting" && turn.outcome !== "unsent")
+      .lastIndexOf(true) ?? -1;
   const at = useNoteColumns((state) => state.at[mindId] ?? null);
   const body = useRef<HTMLDivElement>(null);
   // Once in the conversation, above the first step the AI took with a tool of its own, a line says
@@ -359,25 +370,20 @@ export function NoteConversationBody({
           turn={turn}
           trail={trails[turn.id]}
           agent={agent}
-          questions={
-            index === turns.length - 1 && working && ask?.turnId === turn.id
-              ? ask.questions
-              : turn.questions
-          }
+          questions={working && ask?.turnId === turn.id ? ask.questions : turn.questions}
           first={turn.id === firstOwn}
           modeLine={turn.id === modeTurn}
-          newest={index === turns.length - 1 && ask?.turnId === turn.id}
+          newest={
+            index === turns.length - 1 &&
+            (ask?.turnId === turn.id || (ask?.queued.includes(turn.id) ?? false))
+          }
           // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
           accept={
-            index === turns.length - 1 && !working && ask && ask.turnId === turn.id ? (
+            index === ranAt && !going && ask && ask.turnId === turn.id ? (
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
             ) : null
           }
-          failed={
-            index === turns.length - 1 && ask?.state === "failed" && ask.turnId === turn.id
-              ? ask
-              : null
-          }
+          failed={index === ranAt && ask?.state === "failed" && ask.turnId === turn.id ? ask : null}
         />,
         // The AI remembers nothing above it (#3765).
         turn.newAfter && (
@@ -450,7 +456,13 @@ function Turn({
           {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
           <p>{turn.request}</p>
         </div>
-        <SentActions mindId={mindId} turn={turn} />
+        {state === "waiting" ? (
+          <Waiting words={turn.request} />
+        ) : state === "unsent" ? (
+          <NotSent mindId={mindId} turn={turn} />
+        ) : (
+          <SentActions mindId={mindId} turn={turn} />
+        )}
       </div>
       {modeLine && (
         <p data-testid="own-mode" className="note-column-notice">
@@ -605,19 +617,18 @@ function Turn({
 
 /**
  * Under a sent request, shown while it is pointed at or holds the focus (#3765): when it was sent,
- * then Send again, Edit and Copy. Send again is there for a request on the whole Note while none
- * runs: the words another was about can't be selected again for it, as Ask again has it. Edit puts
- * the words back in the input to change and send as a new request.
+ * then Send again, Edit and Copy. Send again is there for a request on the whole Note: the words
+ * another was about can't be selected again for it, as Ask again has it; while a run goes it goes
+ * into that run. Edit puts the words back in the input to change and send as a new request.
  */
 function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
   const t = useT();
   const language = useLanguage();
-  const working = useNoteAsks((state) => state.byMind[mindId]?.state === "working");
   const report = useAppStore.getState().reportError;
   return (
     <div data-testid="note-column-sent-actions" className="note-column-sent-actions">
       <span className="note-column-sent-time">{formatDateTime(turn.at, language)}</span>
-      {!working && turn.quote === "" && (
+      {turn.quote === "" && (
         <button
           type="button"
           data-testid="note-column-send-again"
@@ -633,25 +644,100 @@ function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
           <RetryLineIcon className="size-3.5" />
         </button>
       )}
+      <EditRequest mindId={mindId} words={turn.request} />
+      <CopyRequest words={turn.request} />
+    </div>
+  );
+}
+
+/** Puts a request's words back in the input, to change and send as a new request. */
+function EditRequest({ mindId, words }: { mindId: string; words: string }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid="note-column-edit"
+      aria-label={t("noteColumn.edit")}
+      title={t("noteColumn.edit")}
+      onClick={() => editRequest(mindId, words)}
+      className="note-column-icon"
+    >
+      <PencilLineIcon className="size-3.5" />
+    </button>
+  );
+}
+
+function CopyRequest({ words }: { words: string }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid="note-column-copy-request"
+      aria-label={t("noteColumn.copy")}
+      title={t("noteColumn.copy")}
+      onClick={() =>
+        void navigator.clipboard.writeText(words).catch(useAppStore.getState().reportError)
+      }
+      className="note-column-icon"
+    >
+      <CopyLineIcon className="size-3.5" />
+    </button>
+  );
+}
+
+/**
+ * Under a request sent while another ran, until its AI takes it (#3765). Copy is all it offers:
+ * the AI has it already, so it can't be changed or taken back.
+ */
+function Waiting({ words }: { words: string }) {
+  const t = useT();
+  return (
+    <div data-testid="note-column-waiting" className="note-column-sent-state" data-waiting="">
+      <span aria-hidden="true" className="note-ask-dots">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span role="status" className="note-column-sent-word">
+        {t("noteColumn.waiting")}
+      </span>
+      <CopyRequest words={words} />
+    </div>
+  );
+}
+
+/**
+ * Under a request sent while another ran whose run ended before its AI took it (#3765): it never
+ * reached the AI. Send asks it as a new request, in its place; Edit gives it back to the input;
+ * Discard removes it.
+ */
+function NotSent({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
+  const t = useT();
+  const report = useAppStore.getState().reportError;
+  return (
+    <div data-testid="note-column-not-sent" className="note-column-sent-state">
+      <span className="note-column-sent-word">{t("noteColumn.notSent")}</span>
       <button
         type="button"
-        data-testid="note-column-edit"
-        aria-label={t("noteColumn.edit")}
-        title={t("noteColumn.edit")}
-        onClick={() => editRequest(mindId, turn.request)}
+        data-testid="note-column-send"
+        aria-label={t("noteAsk.send")}
+        title={t("noteAsk.send")}
+        onClick={() => void sendUnsent(mindId, turn).catch(report)}
         className="note-column-icon"
       >
-        <PencilLineIcon className="size-3.5" />
+        <AskArrowIcon className="size-3" />
       </button>
+      <EditRequest mindId={mindId} words={turn.request} />
+      <CopyRequest words={turn.request} />
       <button
         type="button"
-        data-testid="note-column-copy-request"
-        aria-label={t("noteColumn.copy")}
-        title={t("noteColumn.copy")}
-        onClick={() => void navigator.clipboard.writeText(turn.request).catch(report)}
+        data-testid="note-column-discard"
+        aria-label={t("noteColumn.discard")}
+        title={t("noteColumn.discard")}
+        onClick={() => void discardInNote(mindId, turn.id).catch(report)}
         className="note-column-icon"
       >
-        <CopyLineIcon className="size-3.5" />
+        <TrashLineIcon className="size-3.5" />
       </button>
     </div>
   );

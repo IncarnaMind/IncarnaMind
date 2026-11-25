@@ -88,6 +88,7 @@ const event = (rest: Partial<NoteTurnEvent>): NoteTurnEvent => ({
   questions: [],
   mode: null,
   modeNew: false,
+  queued: [],
   ...rest,
 });
 const tell = (each: NoteTurnEvent) => {

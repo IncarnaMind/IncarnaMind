@@ -59,6 +59,8 @@ export interface NoteAsk {
   questions: NoteQuestion[];
   /** While it works, the AI's own mode when no earlier request of the conversation ran in it. */
   mode: string | null;
+  /** The requests sent into its run meanwhile that the AI hasn't taken yet (#3765). */
+  queued: string[];
   /** Sent again once the User lets the agent propose changes. */
   asked: NoteAsked;
 }
@@ -66,6 +68,13 @@ export interface NoteAsk {
 export const useNoteAsks = create<{ byMind: Readonly<Record<string, NoteAsk>> }>(() => ({
   byMind: {},
 }));
+
+/**
+ * Whether the Note's run goes on: its request works, or one sent into it waits to be taken after
+ * the request before ended (#3765). Stop stops it all.
+ */
+export const isGoing = (ask: NoteAsk | undefined): boolean =>
+  ask !== undefined && (ask.state === "working" || ask.queued.length > 0);
 
 /**
  * What the conversation shows of each request beyond IncarnaMind's record (#3677): its steps in
@@ -118,7 +127,9 @@ export const useNoteColumns = create<{
   /** The reply the conversation opens at, from the line. */
   at: Readonly<Record<string, string>>;
   place: "upward" | "column";
-}>(() => ({ open: {}, model: {}, started: {}, at: {}, place: savedPlace() }));
+  /** Counts each change to the conversation no request's state tells: it is read again on it. */
+  changed: Readonly<Record<string, number>>;
+}>(() => ({ open: {}, model: {}, started: {}, at: {}, place: savedPlace(), changed: {} }));
 
 /** Opens the conversation at a reply, as pressing the line does. */
 export const openColumnAt = (mindId: string, turnId: string | null) =>
@@ -160,7 +171,8 @@ function keepTrail(event: NoteTurnEvent): void {
           steps: event.steps.length > 0 || !was ? event.steps : was.steps,
           model: event.model ?? was?.model ?? null,
           startedAt: was?.startedAt ?? event.startedAt,
-          endedAt: ended ? new Date().toISOString() : null,
+          // An end told again, as a request sent meanwhile waits, ended when it was first told.
+          endedAt: ended ? (was?.endedAt ?? new Date().toISOString()) : null,
           fresh: event.fresh || (was?.fresh ?? false),
           renewed: event.renewed || (was?.renewed ?? false),
           documentsFound: Math.max(event.documentsFound, was?.documentsFound ?? 0),
@@ -175,6 +187,8 @@ function keepTrail(event: NoteTurnEvent): void {
 
 /** The turns this window asked for, whose changes it applies. */
 const askedHere = new Set<string>();
+/** What this window sent into a running request, by its turn, for when its AI takes it (#3765). */
+const sentHere = new Map<string, NoteAsked>();
 
 /** Whether the Note shows its input: only the User's own AI asks, and one of its agents can run so. */
 export function useNoteAskShown(mindId: string): boolean {
@@ -225,6 +239,7 @@ function heard(event: NoteTurnEvent): void {
   // Stopped, the request leaves nothing behind: no line, no reply (#3677).
   if (event.state === "stopped") {
     askedHere.delete(event.turnId);
+    sentHere.delete(event.turnId);
     put(event.mindId, null);
     return;
   }
@@ -246,9 +261,12 @@ function heard(event: NoteTurnEvent): void {
     documentsFound: event.documentsFound,
     questions: event.state === "working" ? event.questions : [],
     mode: event.state === "working" && event.modeNew ? event.mode : null,
-    asked: was?.asked ?? { words: "", quote: "", selection: null },
+    queued: event.queued,
+    asked: (was?.turnId === event.turnId ? was.asked : sentHere.get(event.turnId)) ??
+      was?.asked ?? { words: "", quote: "", selection: null },
   });
   if (event.state === "working" || !askedHere.delete(event.turnId)) return;
+  sentHere.delete(event.turnId);
   // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
   const byNote = new Map<string, NoteChangeApplied[]>();
@@ -282,13 +300,14 @@ export function listen(): void {
 }
 
 /**
- * Sends a request typed at the Note's foot. "link": no agent can run it in the background now,
- * and the caller asks by the link instead.
+ * Sends a request typed at the Note's foot. "sent": a request of the Note's runs, and this one
+ * went into its run, about the whole Note (#3765). "link": no agent can run it in the background
+ * now, and the caller asks by the link instead.
  */
 export async function askInNote(
   mindId: string,
   asked: NoteAsked,
-): Promise<"started" | "problem" | "link"> {
+): Promise<"started" | "sent" | "problem" | "link"> {
   listen();
   const model = useNoteColumns.getState().model[mindId];
   // A new request brings the newest back into view in the column.
@@ -305,6 +324,15 @@ export async function askInNote(
     ...(asked.caret && !asked.selection && { caret: asked.caret }),
   });
   if (start.kind === "link") return "link";
+  if (start.kind === "sent") {
+    askedHere.add(start.turnId);
+    sentHere.set(start.turnId, asked);
+    // Shown at once, whether or not the core's word of it came first.
+    const running = useNoteAsks.getState().byMind[mindId];
+    if (running && running.turnId !== start.turnId && !running.queued.includes(start.turnId))
+      put(mindId, { ...running, queued: [...running.queued, start.turnId] });
+    return "sent";
+  }
   const base: NoteAsk = {
     turnId: start.kind === "started" ? start.turnId : null,
     pairingId: start.pairing.id,
@@ -323,6 +351,7 @@ export async function askInNote(
     documentsFound: 0,
     questions: [],
     mode: null,
+    queued: [],
     asked,
   };
   if (start.kind === "started") askedHere.add(start.turnId);
@@ -334,6 +363,22 @@ export async function askInNote(
 }
 
 export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(mindId);
+
+/** Removes a request of the Note's that was never sent, and reads the conversation again. */
+export async function discardInNote(mindId: string, turnId: string): Promise<void> {
+  await core.discardInNote(mindId, turnId);
+  sentHere.delete(turnId);
+  askedHere.delete(turnId);
+  useNoteColumns.setState((state) => ({
+    changed: { ...state.changed, [mindId]: (state.changed[mindId] ?? 0) + 1 },
+  }));
+}
+
+/** Sends a request that was never sent as a new one; once it goes, the one not sent goes. */
+export async function sendUnsent(mindId: string, turn: { id: string; request: string }) {
+  const went = await askInNote(mindId, { words: turn.request, quote: "", selection: null });
+  if (went === "started" || went === "sent") await discardInNote(mindId, turn.id);
+}
 
 /** Answers what the User's own AI asks in the Note's conversation (#3653). */
 export const answerInNote = (mindId: string, questionId: string, answer: NoteAnswer) =>
@@ -394,14 +439,21 @@ export async function askFromSelection(
   words: string,
 ): Promise<"started" | "problem" | "link" | "none" | "busy"> {
   const running = useNoteAsks.getState().byMind[mindId];
-  // A new request waits for Stop, as Return at the input does while one runs (ADR-0034).
-  if (running?.state === "working") {
+  // Words selected can't go into the run going, whose grant holds its changes to the selection of
+  // the request it began with (#3765): this one waits for Stop.
+  if (running && isGoing(running)) {
     useNotices.getState().confirm("noteAsk.busy", { agent: running.agent }, { look: true });
     return "busy";
   }
   const selected = selectedForRequest(state);
   if (!selected) return "none";
-  return askInNote(mindId, { words, quote: selected.quote, selection: selected.selection });
+  const went = await askInNote(mindId, {
+    words,
+    quote: selected.quote,
+    selection: selected.selection,
+  });
+  // A run another window began meanwhile took it: it is on its way, as one started is.
+  return went === "sent" ? "started" : went;
 }
 
 /**
@@ -427,7 +479,7 @@ export function editRequest(mindId: string, words: string): void {
 /** The label goes once the User starts the next request, or closes it. */
 export const clearNoteAsk = (mindId: string): void => {
   const ask = useNoteAsks.getState().byMind[mindId];
-  if (ask && ask.state !== "working") put(mindId, null);
+  if (ask && !isGoing(ask)) put(mindId, null);
 };
 
 /** The opening words of the paragraph the cursor is in, with nothing selected: where to write. */

@@ -9456,6 +9456,10 @@ export const en = {
   // A request sent: send the same words again, or put them back in the input to change them.
   "noteColumn.sendAgain": "Send again",
   "noteColumn.edit": "Edit",
+  // A request sent while another ran (#3765): until the AI takes it, and when its run ended first.
+  "noteColumn.waiting": "Waiting",
+  "noteColumn.notSent": "Not sent",
+  "noteColumn.discard": "Discard",
   "noteColumn.citation": "Citation {number}",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).

@@ -21,9 +21,10 @@ export interface InputCarry {
  * The Note's one input (#3677): one rounded box, the only thing that draws its outline. Its rows
  * lay out inside it on the same left and right edges: the conversation when it opens upward, the
  * top row while the AI has a line, and the input row (the selection it is about, the words, the
- * model and Send, which is Stop while a request runs). It is at the Note's foot, or at the column's
- * foot while the column is open, drawn anew in each place, so it takes the focus and the caret
- * along with the words its owner keeps.
+ * model and Send, which is Stop while a request runs and nothing is typed: words typed then go
+ * into its run, #3765). It is at the Note's foot, or at the column's foot while the column is
+ * open, drawn anew in each place, so it takes the focus and the caret along with the words its
+ * owner keeps.
  */
 export function NoteAskInput({
   mindId,
@@ -140,7 +141,7 @@ export function NoteAskInput({
         />
         <NoteModelChoice mindId={mindId} busy={working} />
         <NoteModeChoice mindId={mindId} />
-        {working ? (
+        {working && words.trim() === "" ? (
           <button
             type="button"
             data-testid="note-ask-stop"

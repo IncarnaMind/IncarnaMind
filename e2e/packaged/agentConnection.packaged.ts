@@ -418,10 +418,11 @@ test("a check on the User's own Codex lands through the packaged shim, from a te
  * A request in a Note's conversation runs the User's own Claude Code with its own abilities
  * (#3653): the packaged app finds `claude` on the login shell's PATH and starts it with the
  * conversation's flags, and what the stand-in asks (e2e/fixtures/fakeClaudeCode.mjs) waits on the
- * User's answer. Allowed, the command runs; stopped with a question open, Claude Code and a process
- * it started in a group of its own, as its shells are, end on each system.
+ * User's answer. Allowed, the command runs; a request sent while one runs goes into its process and
+ * is answered there (#3765); stopped with a question open, Claude Code and a process it started in a
+ * group of its own, as its shells are, end on each system.
  */
-test("a request in a Note's conversation asks through the packaged app, runs what is allowed, and Stop with a question open ends Claude Code and all it started", async () => {
+test("a request in a Note's conversation asks through the packaged app, runs what is allowed, takes a request sent meanwhile, and Stop with a question open ends Claude Code and all it started", async () => {
   expect(existsSync(packagedExecutable)).toBe(true);
   const home = await mkdtemp(
     join(process.platform === "win32" ? tmpdir() : "/tmp", "incarnamind-claude-home-"),
@@ -518,6 +519,32 @@ test("a request in a Note's conversation asks through the packaged app, runs wha
         id: question?.id ?? "",
       });
       await expect.poll(outcome, { timeout: 60_000 }).toBe("landed");
+    });
+
+    await test.step("A request sent while one runs goes into its run and is answered there", async () => {
+      await writeFile(`${mode}.step`, "0");
+      await writeFile(mode, "queue-step");
+      const ask = (words: string) =>
+        core.evaluate((bridge, input) => bridge.askInNote(input), { mindId, words });
+      expect(await ask("Summarise the tides")).toMatchObject({ kind: "started" });
+      expect(await ask("And the neap tides?")).toMatchObject({ kind: "sent" });
+      await writeFile(`${mode}.step`, "2");
+      await expect
+        .poll(
+          () =>
+            core.evaluate(
+              async (bridge, id) =>
+                (await bridge.noteConversation(id))
+                  .slice(-2)
+                  .map((turn) => [turn.request, turn.outcome, turn.reply]),
+              mindId,
+            ),
+          { timeout: 60_000 },
+        )
+        .toEqual([
+          ["Summarise the tides", "landed", ""],
+          ["And the neap tides?", "landed", "Answered: And the neap tides?"],
+        ]);
     });
 
     await test.step("Stop with a question open ends Claude Code and all it started", async () => {

@@ -285,7 +285,7 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
     const noteAt = (await firstLine.boundingBox())?.y ?? 0;
 
     // Folded: the card shows in the box, over the Note's foot; the Note doesn't move, and the
-    // keyboard stays in the input, where Return sends nothing while the run waits.
+    // keyboard stays in the input.
     let before = (await outcomesOf(window, mindId)).length;
     const sentAt = Date.now();
     let card = await ask(window, "ask-command", "Check the late crossings and save a table");

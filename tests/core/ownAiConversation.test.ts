@@ -17,8 +17,10 @@ import type {
   AgentLaunch,
   NoteAction,
   NoteAnswer,
+  NoteRequestStart,
   NoteSelectionBlock,
   NoteSuggested,
+  NoteTurn,
   NoteTurnEvent,
 } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
@@ -93,6 +95,19 @@ async function rewrite(agent: Agent, mindId: string, changes: [string, string][]
     }),
   );
 }
+
+/** The requests the User sends into a run while it goes, as the command line is given them (#3765). */
+const meanwhileOf = (request: RunRequest) => {
+  const sent: { id: string; prompt: string }[] = [];
+  request.own?.meanwhile?.((id, prompt) => sent.push({ id, prompt }));
+  return sent;
+};
+
+const idOf = (start: NoteRequestStart) =>
+  start.kind === "started" || start.kind === "sent" ? start.turnId : "";
+
+/** A turn of the Note's conversation as the record keeps it. */
+const recordOf = (turn: NoteTurn) => [turn.request, turn.quote, turn.outcome, turn.reply];
 
 /** A command line that works until it is stopped. */
 const untilStopped = (_agent: Agent, request: RunRequest) =>
@@ -1899,6 +1914,151 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
         "and once more",
       ]);
       expect(turns.every((turn) => !turn.renewed)).toBe(true);
+    } finally {
+      await again.close();
+    }
+  });
+
+  // protects=a request typed while one runs goes into that run at once, about the whole Note, as a turn of its own that waits until its AI takes it (#3765); taken at the AI's next step, the request before ends with its steps and no reply of its own, and what follows, the next step and the reply, is the later one's; fails_when=it is refused, held for later, starts a second run, keeps a selection the run can't hold, or its reply lands under the request before
+  it("sends a request typed meanwhile into the run, taken at its next step and answered there", async () => {
+    const step = gate();
+    let sent: { id: string; prompt: string }[] = [];
+    const run = runner(async (agent, request) => {
+      sent = meanwhileOf(request);
+      request.progress?.({ kind: "said", text: "Looking at the note first." });
+      step.reached();
+      await step.shut;
+      const [next] = sent;
+      if (next) request.progress?.({ kind: "taken", id: next.id });
+      await agent.callTool({
+        name: "read_mind",
+        arguments: { mindId: mindIdOf(request), named: true },
+      });
+      return { kind: "finished", reply: "Fares rose by ten percent." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    const first = idOf(await core.askInNote({ mindId, words: "what changed this year?" }));
+    await step.at;
+    const start = await core.askInNote({
+      mindId,
+      words: "and the fares?",
+      quote: "212,000 passengers",
+    });
+    expect(start.kind).toBe("sent");
+    const later = idOf(start);
+    expect(run.runs).toHaveLength(1);
+    expect(sent.map((each) => each.id)).toEqual([later]);
+    expect(sent[0]?.prompt).toContain(`(mindId: ${mindId}), the User asks: and the fares?`);
+    expect(sent[0]?.prompt).not.toContain("selected");
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what changed this year?", "", "working", ""],
+      ["and the fares?", "", "waiting", ""],
+    ]);
+    expect(turns.at(-1)).toMatchObject({ turnId: first, state: "working", queued: [later] });
+
+    step.open();
+    expect(await ended(1)).toMatchObject({
+      turnId: first,
+      state: "landed",
+      reply: "",
+      steps: [{ kind: "said", text: "Looking at the note first." }],
+    });
+    const answered = await ended(2);
+    expect(answered).toMatchObject({
+      turnId: later,
+      state: "landed",
+      reply: "Fares rose by ten percent.",
+      queued: [],
+    });
+    expect(answered?.steps).toEqual([expect.objectContaining({ kind: "call", tool: "read_mind" })]);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what changed this year?", "", "landed", ""],
+      ["and the fares?", "", "landed", "Fares rose by ten percent."],
+    ]);
+  });
+
+  // protects=a request typed while the AI writes a plain reply waits through that reply, which stays the earlier request's, and is then answered as the next turn of the same run (#3765); one sent before the run could take any reaches it once it can; fails_when=the run ends with it unanswered, its reply lands under the earlier request, or the earlier reply is lost
+  it("answers a request sent during a plain reply as the next turn, each reply under its own request", async () => {
+    const step = gate();
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "said", text: "Writing the answer now." });
+      step.reached();
+      await step.shut;
+      const sent = meanwhileOf(request);
+      request.progress?.({
+        kind: "answered",
+        end: { kind: "finished", reply: "A second ramp, in 2027." },
+      });
+      const [next] = sent;
+      if (next) request.progress?.({ kind: "taken", id: next.id });
+      return { kind: "finished", reply: "Building starts in the spring." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    const first = idOf(await core.askInNote({ mindId, words: "what does the plan add?" }));
+    await step.at;
+    const later = idOf(await core.askInNote({ mindId, words: "and when?" }));
+    step.open();
+    // Ended with the request after it still to be taken: the run goes on.
+    expect(await ended(1)).toMatchObject({
+      turnId: first,
+      state: "landed",
+      reply: "A second ramp, in 2027.",
+      queued: [later],
+    });
+    expect(await ended(2)).toMatchObject({
+      turnId: later,
+      state: "landed",
+      reply: "Building starts in the spring.",
+      queued: [],
+    });
+    expect(run.runs).toHaveLength(1);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["what does the plan add?", "", "landed", "A second ramp, in 2027."],
+      ["and when?", "", "landed", "Building starts in the spring."],
+    ]);
+  });
+
+  // protects=Stop ends the whole run; a request sent into it that its AI hadn't taken stays in the conversation as never sent, for the User to send again or discard, and only such a request can be discarded (#3765); fails_when=it is lost, shows as stopped or still waiting, or Discard removes a request that ran
+  it("keeps a request Stop left untaken as never sent, which alone can be discarded", async () => {
+    const run = runner(untilStopped);
+    const { core, mindId, ended } = await written(run.adapter);
+    const first = idOf(await core.askInNote({ mindId, words: "rewrite everything" }));
+    await expect.poll(() => run.runs.length).toBe(1);
+    const later = idOf(await core.askInNote({ mindId, words: "and add a title" }));
+    await core.stopInNote(mindId);
+    expect(await ended()).toMatchObject({ turnId: first, state: "stopped", queued: [] });
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["rewrite everything", "", "stopped", ""],
+      ["and add a title", "", "unsent", ""],
+    ]);
+    await core.discardInNote(mindId, first);
+    await core.discardInNote("another-note", later);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toHaveLength(2);
+    await core.discardInNote(mindId, later);
+    expect((await core.noteConversation(mindId)).map(recordOf)).toEqual([
+      ["rewrite everything", "", "stopped", ""],
+    ]);
+    // Sent again, it is a request of its own.
+    expect((await core.askInNote({ mindId, words: "and add a title" })).kind).toBe("started");
+    await expect.poll(() => run.runs.length).toBe(2);
+    await core.stopInNote(mindId);
+    await ended(2);
+  });
+
+  // protects=a request sent meanwhile that its AI hadn't taken when IncarnaMind quit is never sent, after the next start, as one Stop left; fails_when=it stays waiting for a run that is gone, or reads as stopped
+  it("leaves a request still waiting when IncarnaMind quit as never sent", async () => {
+    const run = runner(untilStopped);
+    const { core, mindId, dataDir } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "rewrite everything" });
+    await expect.poll(() => run.runs.length).toBe(1);
+    await core.askInNote({ mindId, words: "and add a title" });
+    await core.close();
+    const again = startCore(dataDir, { ownAi: run.adapter, agents: await agentsAdapter(dataDir) });
+    try {
+      expect((await again.noteConversation(mindId)).map((turn) => turn.outcome)).toEqual([
+        "stopped",
+        "unsent",
+      ]);
     } finally {
       await again.close();
     }

@@ -13511,11 +13511,13 @@ export type NoteTurnProblem =
   | "update";
 
 /**
- * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",
- * no agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ * How a request at a Note's foot went to the User's own AI: "started", in the background; "sent",
+ * into the Note's request running already, whose AI takes it at its next step (#3765); "link", no
+ * agent can run it so and it goes by the link; "problem", one can't run now, with why.
  */
 export type NoteRequestStart =
   | { kind: "started"; pairing: AgentPairing; turnId: string }
+  | { kind: "sent"; pairing: AgentPairing; turnId: string }
   | { kind: "link" }
   | {
       kind: "problem";
@@ -13546,7 +13548,11 @@ export interface NoteTurn {
   quote: string;
   /** The agent's last words. */
   reply: string;
-  outcome: "working" | "landed" | "stopped" | "failed";
+  /**
+   * "waiting": sent while another request ran, and not yet taken by its AI (#3765); "unsent": that
+   * run ended before its AI took it, so it never reached the AI.
+   */
+  outcome: "working" | "landed" | "stopped" | "failed" | "waiting" | "unsent";
   problem: NoteTurnProblem | null;
   /** ISO 8601, UTC. */
   at: string;
@@ -13710,6 +13716,11 @@ export interface NoteTurnEvent {
   mode: string | null;
   /** No earlier request of the conversation ran in `mode`. */
   modeNew: boolean;
+  /**
+   * The requests sent into this run while it goes that its AI hasn't taken yet, by their turns' ids,
+   * oldest first (#3765): while there are any, the run goes on after this request ends.
+   */
+  queued: string[];
 }
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
@@ -16451,10 +16462,14 @@ export interface CoreApi {
    * Sends a request typed at a Note's foot to the User's own command-line AI, in the background, in
    * the Note's one conversation (ADR-0034): on `pairingId`, or the first agent that can run it.
    * Asks once for the consent to send it. Its progress and end are told by "agents.noteTurn".
+   * While a request of the Note's runs, this one goes into that run at once, about the whole Note,
+   * as a turn of its own (#3765).
    */
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
   /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
   stopInNote(mindId: string): Promise<void>;
+  /** Removes a request of the Note's conversation that was never sent (#3765); any other stays. */
+  discardInNote(mindId: string, turnId: string): Promise<void>;
   /**
    * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
    * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
@@ -17387,6 +17402,7 @@ const methods: Record<CoreApiMethod, true> = {
   stopOwnAiCheck: true,
   askInNote: true,
   stopInNote: true,
+  discardInNote: true,
   answerInNote: true,
   noteTurnNow: true,
   noteConversation: true,

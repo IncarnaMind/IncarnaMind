@@ -812,6 +812,210 @@ test("a sent request shows when it was sent, Send again, Edit and Copy while it 
   }
 });
 
+/** The requests the conversation shows, in order, by their words. */
+const requestsIn = (scope: Locator) => scope.locator(".note-column-bubble");
+
+test("while a run goes the input's round button is Stop with nothing typed and Send with words; a request sent then goes into the run, shows at once as sent with Waiting and Copy only, and once its AI takes it at its next step it is a sent request with the reply its own, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const stop = group.getByTestId("note-ask-stop");
+    const send = group.getByTestId("note-ask-send");
+    const panel = group.getByTestId("note-ask-panel");
+    const first = "Summarise the note";
+    const later = "Also list the dates";
+    await stepTo(0);
+    await nextRun("queue-step");
+    await pointAndClick(window, input);
+    await window.keyboard.type(first);
+    await window.keyboard.press("Enter");
+
+    // The input works while it runs: Stop while it is empty, Send once words are typed.
+    await expect(stop).toBeVisible();
+    await expect(send).toHaveCount(0);
+    await window.keyboard.type(later);
+    await expect(send).toBeEnabled();
+    await expect(stop).toHaveCount(0);
+    await setLanguage(window, "zh-CN");
+    await expect(send).toHaveAttribute("aria-label", "发送");
+    await setLanguage(window, "en");
+    await input.fill("");
+    await expect(stop).toBeVisible();
+    await expect(send).toHaveCount(0);
+
+    // Return sends it into the run at once: the conversation opens on it, sent and waiting.
+    await window.keyboard.type(later);
+    await window.keyboard.press("Enter");
+    await expect(input).toHaveValue("");
+    await expect(stop).toBeVisible();
+    await expect(requestsIn(panel)).toHaveText([first, later]);
+    const sent = panel.getByTestId("note-column-turn").last();
+    const waiting = sent.getByTestId("note-column-waiting");
+    await expect(waiting).toHaveText("Waiting");
+    await expect(waiting.locator(".note-ask-dots")).toBeVisible();
+    expect(await outcomesOf(window, mindId)).toEqual(["working", "waiting"]);
+    // Copy is all it offers: its AI has it already.
+    await expect(sent.getByTestId("note-column-edit")).toHaveCount(0);
+    await expect(sent.getByTestId("note-column-send-again")).toHaveCount(0);
+    await pointAndClick(window, sent.getByTestId("note-column-copy-request"));
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(later);
+    await setLanguage(window, "zh-CN");
+    await expect(waiting).toHaveText("等待中");
+    await setLanguage(window, "en");
+    await shot(window, "conversation-waiting-en");
+
+    // Taken at the AI's next step: an ordinary sent request, working; the one before ends with
+    // its steps and no reply of its own.
+    await stepTo(1);
+    await expect(waiting).toHaveCount(0);
+    await expect(sent.getByTestId("note-column-sent-actions")).toBeAttached();
+    const earlier = panel.getByTestId("note-column-turn").first();
+    await expect(earlier.getByTestId("note-column-steps-toggle")).toBeVisible();
+    await expect(earlier.getByTestId("note-column-reply")).toHaveCount(0);
+    await stepTo(2);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed"]);
+    await expect(sent.getByTestId("note-column-reply")).toContainText(`Answered: ${later}`);
+    await expect(earlier.getByTestId("note-column-reply")).toHaveCount(0);
+    await expect(stop).toHaveCount(0);
+    await expect(send).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test("a request sent while the AI writes a plain reply waits through it, the reply staying the one before's, then is answered as the next turn under its own request, in Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    await setLanguage(window, "zh-CN");
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const first = "港口计划增加了什么？";
+    const later = "什么时候建？";
+    await stepTo(0);
+    await nextRun("queue-turn");
+    await pointAndClick(window, input);
+    await window.keyboard.type(first);
+    await window.keyboard.press("Enter");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await window.keyboard.type(later);
+    await window.keyboard.press("Enter");
+    const [earlier, sent] = [
+      panel.getByTestId("note-column-turn").first(),
+      panel.getByTestId("note-column-turn").last(),
+    ];
+    await expect(requestsIn(panel)).toHaveText([first, later]);
+    await expect(sent.getByTestId("note-column-waiting")).toHaveText("等待中");
+
+    // The reply ends first, and is the earlier request's; the later one still waits, and Stop
+    // still stops the run.
+    await stepTo(1);
+    await expect(earlier.getByTestId("note-column-reply")).toContainText(`已回答：${first}`);
+    await expect(sent.getByTestId("note-column-waiting")).toHaveText("等待中");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    expect(await outcomesOf(window, mindId)).toEqual(["landed", "waiting"]);
+
+    // Then the AI takes it as the next turn of the same run, and its reply is its own.
+    await stepTo(2);
+    await expect(sent.getByTestId("note-column-waiting")).toHaveCount(0);
+    await expect(sent.getByTestId("note-column-live")).toContainText("正在写回答。");
+    await stepTo(3);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed"]);
+    await expect(sent.getByTestId("note-column-reply")).toContainText(`已回答：${later}`);
+    await expect(earlier.getByTestId("note-column-reply")).not.toContainText(later);
+    expect((await starts()).filter((each) => each.startsWith("run"))).toHaveLength(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("Stop with a request its AI hasn't taken stops the whole run and leaves that request Not sent, with Send, Edit, Copy and Discard; Esc stops too, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    const later = "And add a title";
+    await nextRun("wait");
+    await send("Make it shorter");
+    await expect(group.getByTestId("note-ask-pill-text")).toHaveText("Looking at your note");
+    await send(later);
+    const unsent = panel.getByTestId("note-column-turn").last();
+    await expect(unsent.getByTestId("note-column-waiting")).toBeVisible();
+    await pointAndClick(window, group.getByTestId("note-ask-stop"));
+    await expect.poll(() => outcomesOf(window, mindId)).toEqual(["stopped", "unsent"]);
+
+    const notSent = unsent.getByTestId("note-column-not-sent");
+    await expect(notSent.locator(".note-column-sent-word")).toHaveText("Not sent");
+    await expect(panel.getByTestId("note-column-turn").first()).toContainText("Stopped");
+    const labels = () =>
+      Promise.all(
+        ["send", "edit", "copy-request", "discard"].map((id) =>
+          notSent.getByTestId(`note-column-${id}`).getAttribute("aria-label"),
+        ),
+      );
+    expect(await labels()).toEqual(["Send", "Edit", "Copy", "Discard"]);
+    await shot(window, "conversation-not-sent-en");
+    await setLanguage(window, "zh-CN");
+    await expect(notSent.locator(".note-column-sent-word")).toHaveText("未发送");
+    await expect.poll(labels).toEqual(["发送", "编辑", "拷贝", "舍弃"]);
+    await setLanguage(window, "en");
+
+    // Copy takes its words; Edit gives them back to the input.
+    await pointAndClick(window, notSent.getByTestId("note-column-copy-request"));
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(later);
+    await pointAndClick(window, notSent.getByTestId("note-column-edit"));
+    await expect(input).toHaveValue(later);
+    await expect(input).toBeFocused();
+    await input.fill("");
+
+    // Send asks it as a new request, in its place.
+    await nextRun("plan");
+    await pointAndClick(window, notSent.getByTestId("note-column-send"));
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["stopped", "landed"]);
+    await expect(requestsIn(panel)).toHaveText(["Make it shorter", later]);
+    await expect(panel.getByTestId("note-column-reply").last()).toContainText(
+      "A second ramp at Kestrel Bay",
+    );
+    await expect(panel.getByTestId("note-column-not-sent")).toHaveCount(0);
+
+    // Esc stops a run with a request waiting in it as Stop does; Discard removes that request.
+    await nextRun("wait");
+    await send("Once more");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await window.keyboard.type("Never mind");
+    await window.keyboard.press("Enter");
+    await expect(panel.getByTestId("note-column-waiting")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect
+      .poll(() => outcomesOf(window, mindId))
+      .toEqual(["stopped", "landed", "stopped", "unsent"]);
+    await pointAndClick(window, panel.getByTestId("note-column-discard"));
+    await expect(requestsIn(panel)).toHaveText(["Make it shorter", later, "Once more"]);
+    expect(await outcomesOf(window, mindId)).toEqual(["stopped", "landed", "stopped"]);
+  } finally {
+    await app.close();
+  }
+});
+
 test("New conversation, from the conversation's name: one line marks it at the top, the turns above stay, the AI begins anew remembering nothing above it, greyed while a request runs, kept after a restart, in English and Chinese", async () => {
   let { app, window } = await launched();
   let mindId = "";

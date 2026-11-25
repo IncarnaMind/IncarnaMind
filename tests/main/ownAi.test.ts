@@ -569,6 +569,101 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
     }
   });
 
+  /**
+   * Claude Code as measured on a real run (#3765), given a second message while it works: it
+   * echoes each message as it takes it, the prompt first. "step": it takes the second at its next
+   * step and answers it; "turn": its reply to the first ends, then it takes the second and answers
+   * it as the next turn in the same process. Each reply names the message it answers.
+   */
+  const taking = (timing: "step" | "turn") => `
+    const lines = require("node:readline").createInterface({ input: process.stdin });
+    const say = (value) => console.log(JSON.stringify(value));
+    const end = (result) => say({ type: "result", subtype: "success", is_error: false, result });
+    const asked = (v) => String(v.message.content).replace(/^.*asks: /, "");
+    let first = null;
+    lines.on("line", (line) => {
+      const v = JSON.parse(line);
+      if (v.type === "control_request") {
+        say({ type: "control_response", response: { subtype: "success", request_id: v.request_id,
+          response: { models: [], ...${HOOKS_TAKEN} } } });
+        return;
+      }
+      if (v.type !== "user") return;
+      if (!first) {
+        first = v;
+        say({ ...v, isReplay: true });
+        say(${JSON.stringify(init(["Bash", "mcp__incarnamind__read_mind"]))});
+        say({ type: "assistant", message: { content: [{ type: "text", text: "Reading the note." }] } });
+        return;
+      }
+      const step = ${JSON.stringify(timing)} === "step";
+      if (!step) end("Answered " + asked(first));
+      say({ ...v, isReplay: true });
+      end(step ? "Answered " + asked(first) + " and " + asked(v) : "Answered " + asked(v));
+    });
+  `;
+  const LATER = "In their note “Tides” (mindId: m1), the User asks: longer";
+  /** A request whose second message goes once `when` hears the step it waits for, then once only. */
+  const meanwhile = async (timing: "step" | "turn", when: OwnAiProgress["kind"]) => {
+    const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
+    const steps: OwnAiProgress[] = [];
+    let give: ((id: string, prompt: string) => void) | null = null;
+    const hear = (step: OwnAiProgress) => {
+      if (!give || step.kind !== when) return;
+      give("b1", LATER);
+      give = null;
+    };
+    useClaude({ run: taking(timing) });
+    try {
+      const end = await createOwnAi({ conversations }).run({
+        client: "claude-code",
+        server: SERVER,
+        tools: "all",
+        own: {
+          ask: async () => "deny",
+          meanwhile: (send) => {
+            give = send;
+            // Before the prompt has gone: the message waits for it.
+            hear({ kind: "heard" });
+          },
+        },
+        instructions: INSTRUCTIONS,
+        prompt: "In their note “Tides” (mindId: m1), the User asks: shorter",
+        conversation: { key: KEY, sessionId: SESSION, resume: false },
+        progress: (step) => {
+          steps.push(step);
+          hear(step);
+        },
+        signal: new AbortController().signal,
+      });
+      return {
+        end,
+        steps: steps.filter((step) => step.kind === "taken" || step.kind === "answered"),
+      };
+    } finally {
+      await rm(conversations, { recursive: true, force: true });
+    }
+  };
+
+  // protects=a message sent while the turn works goes to the same Claude Code process, flagged so Claude Code echoes each it takes; the echo is the one sign it was taken, the prompt's own echo is not; taken mid-turn, the turn's result is its answer and ends the run (#3765); fails_when=it is refused, starts another process, is counted as taken before its echo, or the run ends at a result while it waits
+  it("sends a message into the running turn and hears it taken at the next step", async () => {
+    const run = await meanwhile("step", "said");
+    expect(run.end).toEqual({ kind: "finished", reply: "Answered shorter and longer" });
+    expect(run.steps).toEqual([{ kind: "taken", id: "b1" }]);
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(launch.mock.calls[0]?.[1]).toContain("--replay-user-messages");
+  });
+
+  // protects=a message sent before the prompt could go waits for it and goes right after; a result while a message is still to be taken ends only the first request, whose answer is told, and the run reads on to the next turn's result (#3765); fails_when=the message goes before the prompt, is lost, or the run ends with it unanswered
+  it("reads on past a result while a message waits, as Claude Code runs it next", async () => {
+    const run = await meanwhile("turn", "heard");
+    expect(run.end).toEqual({ kind: "finished", reply: "Answered longer" });
+    expect(run.steps).toEqual([
+      { kind: "answered", end: { kind: "finished", reply: "Answered shorter" } },
+      { kind: "taken", id: "b1" },
+    ]);
+  });
+
   const OFFERED = [
     {
       value: "default",
