@@ -15,6 +15,7 @@ import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote"
 import { useAppStore } from "../../store";
 import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
 import { parseMarkdown } from "../../viewer/markdown";
+import { showQuoteInTranscript } from "../meetings/MeetingFoot";
 import { ProblemLine } from "../ProblemLine";
 import { OwnStepText, useAnnounce, WaitingLine } from "./OwnAsk";
 
@@ -404,13 +405,30 @@ export function Reply({ text, citations }: { text: string; citations: readonly N
         chip.title = cited
           ? `${cited.documentName}: “${cited.quote}”`
           : t("noteColumn.citation", { number: part });
+        if (cited) {
+          chip.dataset.quote = cited.quote;
+          chip.setAttribute("role", "button");
+          chip.tabIndex = 0;
+        }
         return chip;
       });
       node.replaceWith(...pieces);
     }
   }, [shown, t, citations]);
   return (
-    <div key={shown} ref={drawn} data-testid="note-ask-reply" className="note-ask-reply-text">
+    // biome-ignore lint/a11y/noStaticElementInteractions: the chips inside are the buttons; this hears their press.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: a chip's Enter reaches it as a click.
+    <div
+      key={shown}
+      ref={drawn}
+      data-testid="note-ask-reply"
+      className="note-ask-reply-text"
+      onClick={(event) => {
+        const chip = (event.target as Element).closest<HTMLElement>(".citation-marker[data-quote]");
+        if (chip?.dataset.quote && showQuoteInTranscript(chip.dataset.quote))
+          event.stopPropagation();
+      }}
+    >
       <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />
     </div>
   );

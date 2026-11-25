@@ -69,15 +69,18 @@ export function MeetingTranscriptInNote({ meeting, tabId }: { meeting: Meeting; 
         </div>
       )}
       <MeetingSummary meeting={meeting} inTranscript />
-      {!live && meeting.fill?.state === "own-ai" && meeting.fill.agentId && (
-        <div className="shrink-0 border-b border-rule px-4 py-2">
-          <MeetingAgentNotes
-            meeting={meeting}
-            agentId={meeting.fill.agentId}
-            onAsked={() => showMeetingNoteView(tabId, meeting.mindId, "notes", { focus: true })}
-          />
-        </div>
-      )}
+      {!live &&
+        meeting.kind !== "meeting" &&
+        meeting.fill?.state === "own-ai" &&
+        meeting.fill.agentId && (
+          <div className="shrink-0 border-b border-rule px-4 py-2">
+            <MeetingAgentNotes
+              meeting={meeting}
+              agentId={meeting.fill.agentId}
+              onAsked={() => showMeetingNoteView(tabId, meeting.mindId, "notes", { focus: true })}
+            />
+          </div>
+        )}
       <ViewerFrameContext.Provider value={frame}>
         <MeetingTranscriptView
           key={meeting.id}

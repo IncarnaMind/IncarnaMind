@@ -46,6 +46,8 @@ export function MeetingInMind({ mindId }: { mindId: string }) {
     return () => resized.disconnect();
   }, []);
   if (!meeting) return null;
+  // A meeting's controls stand at the Note's foot (#3762): nothing above the notes.
+  if (meeting.kind === "meeting" && (isLive(meeting) || starting)) return null;
   if (meeting.status === "ready" && starting) {
     return <MeetingBarRoom meeting={meeting} />;
   }

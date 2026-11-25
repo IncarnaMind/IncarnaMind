@@ -56,7 +56,76 @@ function Notice({ waiting }: { waiting: NoticeFor }) {
     const { settings, embedding } = useAppStore.getState();
     return settings?.device.transcriptionRoute == null && embedding?.localOnly !== true;
   });
+  if (!("memo" in waiting)) return <RecordCard waiting={waiting} />;
   return asks ? <FirstNotice waiting={waiting} /> : <ChosenNotice waiting={waiting} />;
+}
+
+/**
+ * The first recording's one card (#3762): what it does in one sentence, then a row for each
+ * voice it transcribes, named by what the User gets, each allowed with one press. Transcribed on
+ * this computer unless the User chose a service in Settings › AI, where its line says what goes.
+ */
+function RecordCard({ waiting }: { waiting: { meetingId: string; systemAudio: boolean } }) {
+  const t = useT();
+  const { acceptNotice, cancelNotice } = useMeetings.getState();
+  const [allowed, setAllowed] = useState({ mine: false, theirs: !waiting.systemAudio });
+  const start = async () => {
+    try {
+      if (useAppStore.getState().settings?.device.transcriptionRoute == null)
+        await core.updateSettings({ device: { transcriptionRoute: "local" } });
+    } catch (error) {
+      useAppStore.getState().reportError(error);
+      return;
+    }
+    await acceptNotice();
+  };
+  const row = (key: "mine" | "theirs", label: string) => (
+    <li key={key} className="meeting-card-row">
+      <span>{label}</span>
+      {allowed[key] ? (
+        <span data-testid={`meeting-card-${key}-done`} className="meeting-card-done">
+          {t("meetings.card.allowed")}
+        </span>
+      ) : (
+        <button
+          type="button"
+          data-testid={`meeting-card-${key}`}
+          onClick={() => setAllowed((now) => ({ ...now, [key]: true }))}
+          className={buttonClass}
+        >
+          {t("meetings.card.allow")}
+        </button>
+      )}
+    </li>
+  );
+  return (
+    <div className={dialogBodyClass}>
+      <h2 id="meeting-notice-title" className={dialogTitleClass}>
+        {t("meetings.card.title")}
+      </h2>
+      <p id="meeting-notice-body" className={dialogTextClass}>
+        {t("meetings.card.body")}
+      </p>
+      <ul className="meeting-card-rows">
+        {row("mine", t("meetings.card.mine"))}
+        {waiting.systemAudio && row("theirs", t("meetings.card.theirs"))}
+      </ul>
+      <div className={dialogActionsClass}>
+        <button type="button" onClick={cancelNotice} className={buttonClass}>
+          {t("meetings.notice.cancel")}
+        </button>
+        <button
+          type="button"
+          data-testid="meeting-notice-start"
+          disabled={!(allowed.mine && allowed.theirs)}
+          onClick={() => void start()}
+          className={primaryButtonClass}
+        >
+          {t("meetings.start.record")}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /**

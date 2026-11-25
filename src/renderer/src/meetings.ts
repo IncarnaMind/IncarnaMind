@@ -178,7 +178,8 @@ export const useMeetings = create<MeetingsState>()((set, get) => {
    * else from its start block, which then takes the focus.
    */
   const startMade = async (meeting: Meeting, settings: Settings, show: () => Promise<unknown>) => {
-    const starts = settings.device.meetingNoticeAccepted;
+    // Record starts at once (#3762): the first time, `start` shows the one card before it records.
+    const starts = settings.device.meetingNoticeAccepted || meeting.kind === "meeting";
     if (starts) set((state) => ({ starting: { ...state.starting, [meeting.id]: true } }));
     // The notes come first in a meeting: the text has the cursor, as in a Mind made with ⌘T.
     // Under the start block it is the block's, so that Enter starts and Esc keeps the Mind as a note.

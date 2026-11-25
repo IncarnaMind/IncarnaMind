@@ -2634,6 +2634,209 @@
       padding-block: 4px 16px;
     }
   }
+  /* A meeting's control stands at the input's left, on its row (#3762). */
+  /* The row spans the text's measure: the control starts at the text's left edge (#3762). */
+  .note-ask-foot--meeting {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding-block: 4px 16px;
+    padding-inline: max(40px, calc((100% - 784px) / 2 + 56px))
+      max(40px, calc((100% - 784px) / 2 + 48px));
+    > .mind-measure {
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: none;
+      margin: 0;
+    }
+    .note-ask {
+      width: 100%;
+    }
+  }
+  .meeting-foot-stack {
+    position: relative;
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .meeting-foot {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 44px;
+    padding: 0 6px;
+    border: 1px solid var(--color-rule);
+    border-radius: 22px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--color-ink);
+  }
+  .meeting-foot-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 16px;
+    white-space: nowrap;
+    color: var(--color-ink-secondary);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &[aria-expanded="true"] {
+      background: var(--color-chip);
+      color: var(--color-ink);
+    }
+  }
+  .meeting-foot-time {
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .meeting-foot-tip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: max-content;
+    max-width: 420px;
+    padding: 8px 8px 8px 12px;
+    border-radius: 10px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-secondary);
+  }
+  .meeting-foot-tip-close {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--color-ink-meta);
+    &:hover {
+      background: var(--color-hover);
+    }
+  }
+  /* The Transcript, risen over the Note from the meeting's control: the input stays below it. */
+  .meeting-sheet {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    width: min(calc(100% - 48px), 760px);
+    height: min(560px, calc(100% - 72px));
+    overflow: hidden;
+    border: 1px solid var(--color-rule);
+    border-radius: 12px;
+    background: var(--color-sheet);
+    box-shadow: var(--shadow-popover);
+    translate: -50% 0;
+  }
+  .meeting-sheet-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: 44px;
+    padding: 0 8px 0 16px;
+  }
+  .meeting-sheet-title {
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+  }
+  .meeting-sheet-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    color: var(--color-ink-secondary);
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+  }
+  .meeting-sheet-consent {
+    flex: none;
+    padding: 0 16px 8px;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--color-ink-meta);
+  }
+  .meeting-sheet-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border-top: 1px solid var(--color-rule);
+    [data-cited="true"] {
+      background: var(--color-success-wash);
+    }
+    /* The sheet names it and says the one line: the view's own head and its line stay out. */
+    [data-testid="viewer-embedded-header"],
+    [data-testid="transcript-head"] {
+      display: none;
+    }
+    .viewer-backdrop {
+      padding: 0;
+      background: var(--color-sheet);
+    }
+    .viewer-page {
+      max-width: none;
+      margin: 0;
+      padding: 8px 16px;
+      border: 0;
+      box-shadow: none;
+    }
+  }
+  .meeting-sheet-foot {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 8px;
+    border-top: 1px solid var(--color-rule);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .meeting-card-rows {
+    display: flex;
+    flex-direction: column;
+    margin-top: 16px;
+    border-top: 1px solid var(--color-rule);
+  }
+  .meeting-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 52px;
+    border-bottom: 1px solid var(--color-rule);
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--color-ink);
+  }
+  .meeting-card-done {
+    padding-right: 8px;
+    color: var(--color-ink-meta);
+  }
   .note-ask {
     position: relative;
     width: min(100%, 560px);

@@ -128,6 +128,8 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       : step === "top" && meeting.fill.state === "undone"
         ? { ...meeting.fill, state: "filled" as const }
         : meeting.fill;
+  // Write notes at the Note's foot asks the User's own AI there (#3762).
+  if (fill.state === "own-ai" && fill.agentId && meeting.kind === "meeting") return null;
   if (fill.state === "own-ai" && fill.agentId) {
     return <MeetingAgentNotes meeting={meeting} agentId={fill.agentId} />;
   }

@@ -31,6 +31,7 @@ import { MeetingTranscriptInNote } from "../MeetingTranscriptInNote";
 import { MeetingViewChip } from "../MeetingViewChip";
 import { MindEditor } from "../MindEditor";
 import { EventBar } from "../meetings/EventBar";
+import { MeetingFoot, MeetingSheet, useMeetingFootShown } from "../meetings/MeetingFoot";
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
@@ -79,6 +80,7 @@ export function MindTab({ mindId }: { mindId: string }) {
   const besidePill = useAppStore(
     (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
   );
+  const meetingFoot = useMeetingFootShown(mindId);
   const review = useReviewShown(mindId);
   const reviewShown = transcriptShown ? "closed" : review.shown;
   if (!mind) return null;
@@ -155,6 +157,7 @@ export function MindTab({ mindId }: { mindId: string }) {
               )}
             </div>
             {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
+            {meetingFoot && <MeetingSheet mindId={mind.id} />}
             {/* In a narrow window the Note's conversation opens over the Note, above its input (#3677). */}
             <div ref={setColumnOver} className="note-column-over-slot" />
             <div className="mind-menu-slot">
@@ -172,7 +175,11 @@ export function MindTab({ mindId }: { mindId: string }) {
             </div>
           </div>
           {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
-          <div className="note-ask-foot" style={transcriptShown ? { display: "none" } : undefined}>
+          <div
+            className={`note-ask-foot ${meetingFoot ? "note-ask-foot--meeting" : ""}`}
+            style={transcriptShown ? { display: "none" } : undefined}
+          >
+            {meetingFoot && <MeetingFoot mindId={mind.id} />}
             <div ref={setAsk} className="mind-measure" />
             {!isExample && <NoteFootAsk mindId={mind.id} />}
           </div>

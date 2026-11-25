@@ -188,7 +188,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
 }
 
 /** Call help (通话助手): shows or hides the floating panel for this Meeting, as ⌘K and its shortcut do. */
-function CallHelpToggle() {
+export function CallHelpToggle() {
   const t = useT();
   const shown = useMeetingHelp((state) => state.panel.shown);
   const keys = useAppStore((state) => helpKeysLabel("panel", state.settings));
@@ -218,7 +218,7 @@ function CallHelpToggle() {
  * What the User should know about the recording, a line each: its health, a cut, a gap, and
  * transcription back on this computer after the cloud service stopped (#141).
  */
-function MeetingLines({ meeting }: { meeting: Meeting }) {
+export function MeetingLines({ meeting }: { meeting: Meeting }) {
   const t = useT();
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const gapsSeen = useMeetings((state) => state.gapsSeen[meeting.id] ?? 0);
