@@ -627,7 +627,7 @@ export const en = {
   "folder.wall.title": "This Folder keeps its work inside it",
   "folder.bound.mark": "Linked folder: {path}",
   "folder.bound.promise":
-    "Files in this folder are never moved or deleted; a deck changes only if you edit it.",
+    "Never moved or deleted; changes only if you edit or confirm AI edits, and you can put it back.",
   "folder.fileAsFolder": "File as one Folder",
   "tag.rename": "Rename",
   "tag.renameLabel": "New name for {name}",
@@ -2569,10 +2569,6 @@ export const en = {
     "{unchanged} slides kept exactly as they were; {changed} changed.",
   "viewer.deck.proposal.receipt.one": "1 slide kept exactly as it was; {changed} changed.",
   "viewer.deck.proposal.receipt.all": "All {changed} slides changed.",
-  "viewer.deck.proposal.receiptCopy":
-    "{unchanged} slides kept as they were; {changed} changed in “{name}”.",
-  "viewer.deck.proposal.receiptCopy.one": "1 slide kept as it was; {changed} changed in “{name}”.",
-  "viewer.deck.proposal.receiptCopy.all": "All {changed} slides changed in “{name}”.",
   "viewer.deck.proposal.undo": "Undo",
   "viewer.deck.ask.placeholder": "Ask your AI to change slide\u00a0{slide}…",
   "viewer.deck.ask.shapePlaceholder": "Ask your AI to change “{shape}” on slide\u00a0{slide}…",
@@ -2864,7 +2860,7 @@ export const en = {
   "linkedFolders.preview.onlineOnly.one": "1 online-only file is skipped for now.",
   "linkedFolders.preview.onlineOnly.other": "{count} online-only files are skipped for now.",
   "linkedFolders.preview.becomesFolder":
-    "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never moves or deletes the files already there, and changes one only when you edit a deck by hand.",
+    "Its files go in a Folder of the same name, and new files join them as they arrive. IncarnaMind never moves or deletes the files already there, and changes a file only when you edit it by hand or confirm a change your AI proposes, and you can put it back in one step.",
   "linkedFolders.preview.merge.one":
     "“{names}”, already linked, merges into this folder and keeps its Tags and Citations.",
   "linkedFolders.preview.merge.other":
@@ -3399,7 +3395,7 @@ export const en = {
   "fileWrite.linked.body":
     "IncarnaMind only reads “{folder}”. Save “{name}” there, and allow new files from now on?",
   "fileWrite.linked.safe":
-    "IncarnaMind never deletes your files, and changes one only when you edit a deck by hand.",
+    "Never deletes your files; changes one only when you edit or confirm it, and you can put it back.",
   "fileWrite.linked.note": "You can change this in Settings › General.",
   "fileWrite.linked.allow": "Allow",
   "fileWrite.linked.deny": "Don’t allow",
@@ -6152,8 +6148,6 @@ export const en = {
   "error.deck.copySlow": "Its folder didn’t answer within 10 seconds.",
   "error.deck.proposalStale":
     "This deck changed since those changes were suggested. Ask your AI again.",
-  "error.deck.proposalStaleCopy":
-    "The working copy already changed that part. Open the copy and ask your AI again.",
   "error.deck.proposalGone": "That suggested change is no longer waiting.",
   "error.deck.proposalInvalid": "That suggested change can’t be applied ({detail}).",
   "error.deck.proposalTooManyChanges": "A single suggestion can change at most {max} places.",

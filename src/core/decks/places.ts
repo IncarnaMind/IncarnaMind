@@ -1,12 +1,15 @@
 /**
- * Where a deck edited by hand is written (#149; ADR-0010, 2026-11-24). A deck IncarnaMind keeps
- * in its data folder (one an agent handed over) takes a new version, one a sitting. A deck of the
- * User's own is written itself, as PowerPoint saves it, only by the User's own hand: before a
- * sitting's first write the file as it stands is kept whole in the data folder (./kept), and every
- * write goes to a file beside it that is then renamed over it, with the file's permissions, so it
- * is never left half written. Each write first checks that the file still holds what was last
- * written there, or what the viewer showed, so nothing another program or agent saved is written
- * over. A file that can't be written says why, and the edit waits to be saved as a copy beside it.
+ * Where a deck edited by hand or confirmed from an AI Proposal is written (#149; ADR-0010,
+ * 2026-11-24; owner decision 2026-11-25). A deck IncarnaMind keeps in its data folder (one an
+ * agent handed over) takes a new version. A deck of the User's own is written itself, as
+ * PowerPoint saves it, only when edited by hand or when the User confirms an AI Proposal: before
+ * the first write the file as it stands is kept whole in the data folder (./kept), and every write
+ * goes to a file beside it that is then renamed over it, with the file's permissions, so it is
+ * never left half written. Each write first checks that the file is not locked and still holds
+ * what was last written there, or what the viewer showed, so nothing another program saved is
+ * written over. For hand edits, a file that can't be written says why and the edit waits to be
+ * saved as a copy beside it; for an AI Proposal, Confirm refuses in plain words with nothing
+ * written.
  */
 import { constants } from "node:fs";
 import { access, readFile, realpath, stat } from "node:fs/promises";

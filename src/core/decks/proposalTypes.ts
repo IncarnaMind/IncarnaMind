@@ -123,11 +123,7 @@ export interface DeckProposal {
 
 export interface DeckProposalAccepted {
   proposalId: string;
-  /** The Document holding the accepted change (same id for a kept deck, or the working copy's id). */
   documentId: string;
-  originalDocumentId: string;
-  /** True when a brand-new working copy was created beside/for a User's own deck on this accept. */
-  copyCreated: boolean;
   saved: DeckSaved;
   bytes: Uint8Array;
   contentHash: string;
@@ -140,8 +136,6 @@ export interface DeckProposalAccepted {
 export interface DeckProposalUndone {
   undoId: string;
   documentId: string;
-  /** When undoing the very first creation of a working copy, names the removed copy documentId. */
-  removedCopyId: string | null;
-  bytes: Uint8Array | null;
-  contentHash: string | null;
+  bytes: Uint8Array;
+  contentHash: string;
 }

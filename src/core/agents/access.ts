@@ -938,7 +938,6 @@ export interface AgentAccessDeps {
     kind: string;
     currentFolderIds: readonly string[];
     handed: { pairingId: string } | null;
-    workingCopyDocumentId?: string | null;
   } | null;
   /** Reads a `.pptx` Document's current bytes for `read_deck` (#149 part 2). */
   readDeckBytes?(documentId: string): Promise<Uint8Array>;
@@ -1502,30 +1501,18 @@ export function deckReachedByPairing(
   pairing: AdmittedPairing,
   documentId: string,
   reached: ReadonlySet<string> = reachedFolders(deps, pairing),
-): { id: string; name: string; kind: string; workingCopyDocumentId?: string | null } | null {
+): { id: string; name: string; kind: string } | null {
   const doc = deps.deckDocument?.(documentId) ?? null;
   if (!doc) return null;
   if (documentsForPairing(deps, pairing, [...reached], reached).includes(doc.id)) {
-    return {
-      id: doc.id,
-      name: doc.name,
-      kind: doc.kind,
-      workingCopyDocumentId: doc.workingCopyDocumentId ?? null,
-    };
+    return { id: doc.id, name: doc.name, kind: doc.kind };
   }
   if (!doc.handed || doc.handed.pairingId !== pairing.id) return null;
   const placementReached =
     doc.currentFolderIds.length > 0
       ? doc.currentFolderIds.every((folderId) => reached.has(folderId))
       : reached.has(NOT_IN_A_FOLDER_ID);
-  return placementReached
-    ? {
-        id: doc.id,
-        name: doc.name,
-        kind: doc.kind,
-        workingCopyDocumentId: doc.workingCopyDocumentId ?? null,
-      }
-    : null;
+  return placementReached ? { id: doc.id, name: doc.name, kind: doc.kind } : null;
 }
 
 /**

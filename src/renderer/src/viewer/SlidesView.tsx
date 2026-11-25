@@ -263,9 +263,7 @@ function Slides({
   const [previewLoaded, setPreviewLoaded] = useState<Loaded | null>(null);
   const proposalsState = useDeckProposals({
     document,
-    onAccepted: (accepted) => {
-      if (accepted.documentId === document.id) onProposedBytes(accepted.bytes);
-    },
+    onAccepted: (accepted) => onProposedBytes(accepted.bytes),
     onUndone: (bytes) => onProposedBytes(bytes),
   });
   useEffect(() => {

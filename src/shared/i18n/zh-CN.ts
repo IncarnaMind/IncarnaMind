@@ -576,7 +576,7 @@ export const zhCN = {
   "folder.wall.title": "只在本文件夹内工作",
   "folder.bound.mark": "关联文件夹：{path}",
   "folder.bound.promise":
-    "这个文件夹中的文件不会被移动或删除；只有你亲手编辑的演示文稿才会被修改。",
+    "这个文件夹里的文件不会被移动或删除；只有你亲手编辑或确认 AI 修改时才改动，可一步恢复原样。",
   "folder.fileAsFolder": "归为一个文件夹",
   "folder.wall.notFiled": "未新建任何内容：找不到这项工作所在的文件夹。笔记没有变化。",
   "folder.wall.pageNotFiled":
@@ -2434,11 +2434,6 @@ export const zhCN = {
   "viewer.deck.proposal.receipt": "{unchanged} 张幻灯片原样保留；修改了 {changed} 张。",
   "viewer.deck.proposal.receipt.one": "1 张幻灯片原样保留；修改了 {changed} 张。",
   "viewer.deck.proposal.receipt.all": "共修改了 {changed} 张幻灯片。",
-  "viewer.deck.proposal.receiptCopy":
-    "“{name}”已保存：{unchanged} 张幻灯片原样保留；修改了 {changed} 张。",
-  "viewer.deck.proposal.receiptCopy.one":
-    "“{name}”已保存：1 张幻灯片原样保留；修改了 {changed} 张。",
-  "viewer.deck.proposal.receiptCopy.all": "“{name}”已保存：共修改了 {changed} 张幻灯片。",
   "viewer.deck.proposal.undo": "撤销",
   "viewer.deck.ask.placeholder": "让 AI 修改第 {slide} 张幻灯片…",
   "viewer.deck.ask.shapePlaceholder": "让 AI 修改第 {slide} 张幻灯片的“{shape}”…",
@@ -2721,7 +2716,7 @@ export const zhCN = {
   "linkedFolders.preview.onlineOnly.one": "1 个仅在云端的文件暂时跳过。",
   "linkedFolders.preview.onlineOnly.other": "{count} 个仅在云端的文件暂时跳过。",
   "linkedFolders.preview.becomesFolder":
-    "其中的文件会放进同名文件夹，新文件也会自动加入。IncarnaMind 不会移动或删除其中已有的文件，只有你亲手编辑演示文稿时才会修改它。",
+    "其中的文件会放进同名文件夹，新文件也会自动加入。IncarnaMind 不会移动或删除其中已有的文件；只有你亲手编辑，或确认你的 AI 提出的修改时才会修改文件，且可以一步恢复原样。",
   "linkedFolders.preview.merge.one":
     "已添加的关联文件夹“{names}”位于其中，将并入这里，保留标签和引用。",
   "linkedFolders.preview.merge.other":
@@ -3213,7 +3208,8 @@ export const zhCN = {
   "fileWrite.linked.title": "在“{folder}”中添加文件？",
   "fileWrite.linked.body":
     "IncarnaMind 只读取“{folder}”。要把“{name}”保存到这里，并允许今后添加新文件吗？",
-  "fileWrite.linked.safe": "IncarnaMind 不会删除你的文件，只有你亲手编辑演示文稿时才会修改它。",
+  "fileWrite.linked.safe":
+    "不会删除你的文件；只有你亲手编辑或确认 AI 修改时才改动，可一步恢复原样。",
   "fileWrite.linked.note": "你可以在设置 › 通用中更改。",
   "fileWrite.linked.allow": "允许",
   "fileWrite.linked.deny": "不允许",
@@ -5812,7 +5808,6 @@ export const zhCN = {
   "error.deck.unwritable.folder": "无法写入文件夹“{folder}”，修改尚未保存。",
   "error.deck.copySlow": "它所在的文件夹 10 秒内没有响应。",
   "error.deck.proposalStale": "提出修改后演示文稿已有变动，请再问一次你的 AI。",
-  "error.deck.proposalStaleCopy": "这份演示文稿的副本已经改过这一处。请打开副本，再问一次你的 AI。",
   "error.deck.proposalGone": "这条修改建议已不在等待确认。",
   "error.deck.proposalInvalid": "无法应用这条修改建议（{detail}）。",
   "error.deck.proposalTooManyChanges": "单次建议最多修改 {max} 处。",

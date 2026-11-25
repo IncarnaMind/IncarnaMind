@@ -2,7 +2,7 @@
  * Review state and compact foot UI for AI-proposed changes to a PowerPoint deck (#149 part 2):
  * drives live on-slide Before/After preview from unwritten patched bytes, formats human-readable
  * target places, offers honest overflow actions (Grow / Shrink / Keep as is / Ask AI to shorten),
- * confirms in one press with Undo, and closes removed working copies without a spurious tab notice.
+ * and confirms in one press with Undo and one-step Put back.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
@@ -19,20 +19,16 @@ import { errorMessage } from "../../errors";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { pageUndoPlace, UndoRefused, useUndo } from "../../undo";
+import { refreshKept } from "./deckEditing";
 
 export interface DeckReceipt {
   undoId: string;
   unchanged: number;
   changed: number;
   total: number;
-  copyName: string | null;
-  copiedDocumentId: string | null;
 }
 
-/**
- * Keeps the unchanged-slides receipt across tab switches when confirming a Proposal on a User's
- * own deck opens the working copy (#149 part 2).
- */
+/** Keeps the unchanged-slides receipt while the deck's tab stays open (#149 part 2). */
 const useDeckReceipts = create<{ byDocument: Readonly<Record<string, DeckReceipt>> }>(() => ({
   byDocument: {},
 }));
@@ -51,23 +47,6 @@ export function setDeckReceipt(documentId: string, receipt: DeckReceipt | null):
 
 export function clearDeckReceipt(documentId: string): void {
   setDeckReceipt(documentId, null);
-}
-
-/** Closes tabs showing a deleted working copy directly, without triggering the "Closed · Reopen" notice. */
-async function closeRemovedCopyTabs(documentId: string): Promise<void> {
-  const { layout, changeLayout } = useAppStore.getState();
-  if (!layout) return;
-  const tabIds: string[] = [];
-  for (const group of layout.groups) {
-    for (const tab of group.tabs) {
-      if (tab.item.kind === "document" && tab.item.documentId === documentId) {
-        tabIds.push(tab.id);
-      }
-    }
-  }
-  for (const tabId of tabIds) {
-    await changeLayout({ type: "close", tabId });
-  }
 }
 
 function isDocumentOpenInLayout(documentId: string): boolean {
@@ -105,23 +84,6 @@ export function formatDeckPlace(item: DeckProposalItem, t: Translate): string {
 }
 
 export function formatDeckReceipt(receipt: DeckReceipt, t: Translate): string {
-  if (receipt.copyName) {
-    return receipt.unchanged === 0
-      ? t("viewer.deck.proposal.receiptCopy.all", {
-          changed: receipt.changed,
-          name: receipt.copyName,
-        })
-      : receipt.unchanged === 1
-        ? t("viewer.deck.proposal.receiptCopy.one", {
-            changed: receipt.changed,
-            name: receipt.copyName,
-          })
-        : t("viewer.deck.proposal.receiptCopy", {
-            unchanged: receipt.unchanged,
-            changed: receipt.changed,
-            name: receipt.copyName,
-          });
-  }
   return receipt.unchanged === 0
     ? t("viewer.deck.proposal.receipt.all", { changed: receipt.changed })
     : receipt.unchanged === 1
@@ -227,16 +189,7 @@ export function useDeckProposals({
     async (undoId: string, currentDocId: string) => {
       const undone = await core.undoDeckProposal(undoId);
       setDeckReceipt(currentDocId, null);
-      if (undone.documentId !== currentDocId) {
-        await useAppStore
-          .getState()
-          .openDocument({ documentId: undone.documentId }, { as: "here" });
-        if (undone.removedCopyId) {
-          await closeRemovedCopyTabs(undone.removedCopyId);
-        }
-      } else {
-        onUndone(undone.bytes);
-      }
+      onUndone(undone.bytes);
     },
     [onUndone],
   );
@@ -248,26 +201,18 @@ export function useDeckProposals({
       try {
         const accepted = await core.acceptDeckProposal(proposal.id, { fit });
         onAccepted(accepted);
-        const copiedDocumentId =
-          accepted.documentId !== accepted.originalDocumentId ? accepted.documentId : null;
-        const copyName = accepted.saved.kind === "copy" ? accepted.saved.name : null;
+        if (accepted.saved.kind === "file") {
+          void refreshKept(accepted.documentId).catch((err: unknown) =>
+            console.error("The deck's kept states couldn't be read.", err),
+          );
+        }
         const nextReceipt: DeckReceipt = {
           undoId: accepted.undoId,
           unchanged: accepted.unchangedSlides,
           changed: accepted.changedSlides,
           total: accepted.totalSlides,
-          copyName,
-          copiedDocumentId,
         };
-        if (accepted.documentId !== document.id) {
-          setDeckReceipt(document.id, null);
-        }
         setDeckReceipt(accepted.documentId, nextReceipt);
-        if (accepted.documentId !== document.id) {
-          void useAppStore
-            .getState()
-            .openDocument({ documentId: accepted.documentId }, { as: "here" });
-        }
         useUndo.getState().push({
           said: (translate) => formatDeckReceipt(nextReceipt, translate),
           shownAt: pageUndoPlace,
@@ -285,7 +230,7 @@ export function useDeckProposals({
         setBusyId(null);
       }
     },
-    [document.id, onAccepted, performUndo, t],
+    [onAccepted, performUndo, t],
   );
 
   const reject = useCallback(

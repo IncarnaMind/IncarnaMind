@@ -46,7 +46,6 @@ export interface DeckDocumentInfo {
   id: string;
   name: string;
   kind: string;
-  workingCopyDocumentId?: string | null;
 }
 
 export interface DeckEditToolContext {
@@ -340,7 +339,7 @@ export function createDeckEditTools(context: DeckEditToolContext) {
         );
         // Re-check pairing reach after parsing before returning any slide content (#149 S3).
         const afterParse = context.recheck(pairing.id, false);
-        const currentDoc = context.documentInScope(afterParse, doc.id);
+        context.documentInScope(afterParse, doc.id);
         const masked = maskSlideCitations(structure.slides, context, afterParse);
         const { slides, truncated } = boundReadSlides(masked);
         return {
@@ -356,9 +355,6 @@ export function createDeckEditTools(context: DeckEditToolContext) {
             editable: structure.editable,
             refusal: structure.refusal,
             fitChecked: structure.fitChecked,
-            ...(currentDoc.workingCopyDocumentId
-              ? { workingCopyDocumentId: currentDoc.workingCopyDocumentId }
-              : {}),
             ...(truncated ? { truncated: true } : {}),
             slides,
           },
@@ -541,7 +537,7 @@ export function createDeckEditTools(context: DeckEditToolContext) {
               totalSlides: proposal.totalSlides,
               hasOverflow: proposal.hasOverflow,
               ...(proposal.fitUnchecked ? { fitUnchecked: true } : {}),
-              note: "Waiting for the User to confirm in IncarnaMind. Proposals are held in memory and do not survive a restart.",
+              note: "Waiting for the User to confirm in IncarnaMind. Confirming writes the deck and keeps the file as it was so the User can put it back in one step. Proposals are held in memory and do not survive a restart.",
               overflow: proposal.items
                 .filter((item) => item.overflow !== null)
                 .map((item) => ({

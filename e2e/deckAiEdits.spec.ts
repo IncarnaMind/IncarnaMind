@@ -2,9 +2,9 @@
  * AI-proposed targeted edits on an open PowerPoint deck (#149 part 2), EN & ZH:
  * - Selecting a shape and asking your AI from the deck ask bar sends the deck, slide, shapeId,
  *   shapeName, and current text through `read_request`.
- * - An agent's `propose_deck_changes` waits in the deck viewer with before/after preview,
- *   confirms in one press with unchanged-slides receipt and Undo, and never overwrites the User's
- *   original `.pptx` file on disk.
+ * - An agent's `propose_deck_changes` waits in the deck viewer with before/after preview (nothing
+ *   written before Confirm), confirms in one press writing the file itself with unchanged-slides
+ *   receipt, kept original, and Undo restoring the original bytes on disk.
  * - Text too long for its box shows the overflow warning with Shrink to fit / Ask AI to shorten.
  * Set INCARNAMIND_SCREENSHOTS to a folder to capture full-window EN & ZH stills at 1440 and 900.
  */
@@ -262,7 +262,10 @@ for (const lang of ["en", "zh-CN"] as const) {
         await shot(window, `deck-ai-proposal-900-${lang}`);
         await setWindowSize(app, window, 1440, 900);
 
-        // Confirm -> receipt shows 2 unchanged, 1 changed, and original file stays byte-identical!
+        // Before Confirm, the file on disk is still byte-for-byte untouched.
+        expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(originalHash);
+
+        // Confirm -> receipt shows 2 unchanged, 1 changed, and writes the deck itself (no copy)!
         await card.getByTestId("viewer-deck-proposal-confirm").click();
         const receipt = window.getByTestId("viewer-deck-receipt");
         await expect(receipt).toBeVisible();
@@ -274,12 +277,13 @@ for (const lang of ["en", "zh-CN"] as const) {
         await shot(window, `deck-ai-receipt-900-${lang}`);
         await setWindowSize(app, window, 1440, 900);
 
-        expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(originalHash);
+        expect(sha256(new Uint8Array(await readFile(deckPath)))).not.toBe(originalHash);
 
-        // Undo from the receipt restores the prior state with no spurious "Closed 'Document viewer'" notice.
+        // Undo from the receipt restores the original bytes on disk with no spurious tab notice.
         await receipt.getByTestId("viewer-deck-receipt-undo").click();
         await expect(receipt).toBeHidden();
         await expect(window.getByText(/Closed.*Document viewer|已关闭/)).toHaveCount(0);
+        expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(originalHash);
 
         // Now test overflow on the tight box (shape "4") on the currently open deck.
         const currentDocId = await window.evaluate(async () => {

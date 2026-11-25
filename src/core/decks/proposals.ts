@@ -2,8 +2,9 @@
  * AI-proposed changes to a PowerPoint deck (#149 part 2): holds waiting Proposals per deck with
  * dry-run-verified previews (drawable live on the slide before anything is written), validates
  * every edit through the same package-patch layer as hand editing, preserves concurrent hand edits
- * on other shapes byte for byte when accepted, never writes a User's own original file (using one
- * working copy that later changes keep writing), and keeps Undo rollback snapshots bounded on disk.
+ * on other shapes byte for byte when confirmed, writes the confirmed change to the deck itself
+ * through the same atomic keep-first path as hand editing, and keeps Undo rollback snapshots
+ * bounded on disk.
  */
 import type { DeckSaved } from "../api";
 import { hashBytes } from "../documents/files";
@@ -49,29 +50,19 @@ export interface DeckProposalUndoStore {
 
 export interface DeckProposalDeps {
   read(documentId: string): Promise<Uint8Array>;
-  /** True only for a deck IncarnaMind keeps in its own handed-over storage; false for a User's own file. */
-  isKeptDeck(documentId: string): boolean;
-  /** Optional check that a previously created working copy is still live (not deleted). */
-  isLiveDocument?(documentId: string): boolean;
-  /** Writes a new version of an IncarnaMind-kept deck (returns the saved version receipt). */
-  writeKeptVersion(
+  /**
+   * Atomically writes `nextBytes` to `documentId` (checking that the file still holds `baseBytes`,
+   * keeping the pre-edit original in `Kept decks/` when `keepOriginal` is true for a User's own
+   * file, or writing a new version for an IncarnaMind-kept deck).
+   */
+  writeDeck(
     documentId: string,
     baseBytes: Uint8Array,
     nextBytes: Uint8Array,
+    options: { keepOriginal: boolean },
   ): Promise<{ documentId: string; saved: DeckSaved }>;
-  /** Saves the first working copy of a User's own deck without touching the original file. */
-  saveOwnDeckCopy(
-    documentId: string,
-    nextBytes: Uint8Array,
-  ): Promise<{ documentId: string; saved: DeckSaved }>;
-  /** Writes a subsequent change into an existing AI working copy (keeping its pre-sitting state). */
-  writeExistingCopy?(
-    documentId: string,
-    baseBytes: Uint8Array,
-    nextBytes: Uint8Array,
-  ): Promise<{ documentId: string; saved: DeckSaved }>;
-  /** Soft-deletes a newly saved copy when undoing the very first change on a User's own file. */
-  removeCopy?(documentId: string): Promise<void>;
+  /** Serializes writes to the same deck alongside hand edits and restores. */
+  inDocumentTurn?<T>(documentId: string, run: () => Promise<T>): Promise<T>;
   /** Bounded on-disk store for Undo rollback bytes (#149 S11). */
   undoStore?: DeckProposalUndoStore;
   onChanged?(documentId: string, proposals: DeckProposal[]): void;
@@ -79,13 +70,9 @@ export interface DeckProposalDeps {
   now(): string;
 }
 
-type WriteMode = "kept" | "existing-copy" | "new-copy";
-
 interface StoredUndo {
   id: string;
-  originalDocumentId: string;
-  targetDocumentId: string;
-  mode: WriteMode;
+  documentId: string;
   beforeHash: string;
   afterHash: string;
   /** Used only when `deps.undoStore` is not provided (tests). */
@@ -295,9 +282,6 @@ export function createDeckProposals(deps: DeckProposalDeps) {
   const undos = new Map<string, StoredUndo>();
   const undoOrder: string[] = [];
   const pairingHistory = new Map<string, number[]>();
-  /** Maps a User's original deck id -> its one AI working copy documentId (#149 S1). */
-  const workingCopyByOriginal = new Map<string, string>();
-  const aiCopies = new Set<string>();
 
   const listFor = (documentId: string): DeckProposal[] =>
     [...waiting.values()].filter((each) => each.documentId === documentId);
@@ -306,33 +290,8 @@ export function createDeckProposals(deps: DeckProposalDeps) {
     deps.onChanged?.(documentId, listFor(documentId));
   };
 
-  /**
-   * Single decision point for where an accepted AI Proposal writes (#149 S1):
-   * - IncarnaMind-kept deck -> new version on the kept deck.
-   * - Already an AI working copy (or original with a live working copy) -> writes that one copy
-   *   in place (keeping its pre-sitting state for Undo / Put back).
-   * - First AI change on a User's own original file -> creates ONE copy beside it, never touching
-   *   the original file on disk.
-   */
-  const resolveWriteTarget = (
-    documentId: string,
-  ): { mode: WriteMode; targetDocumentId: string } => {
-    if (deps.isKeptDeck(documentId)) {
-      return { mode: "kept", targetDocumentId: documentId };
-    }
-    if (aiCopies.has(documentId) && deps.writeExistingCopy) {
-      return { mode: "existing-copy", targetDocumentId: documentId };
-    }
-    const existingCopy = workingCopyByOriginal.get(documentId);
-    if (
-      existingCopy &&
-      deps.writeExistingCopy &&
-      (deps.isLiveDocument ? deps.isLiveDocument(existingCopy) : true)
-    ) {
-      return { mode: "existing-copy", targetDocumentId: existingCopy };
-    }
-    return { mode: "new-copy", targetDocumentId: documentId };
-  };
+  const inTurn = <T>(documentId: string, run: () => Promise<T>): Promise<T> =>
+    deps.inDocumentTurn ? deps.inDocumentTurn(documentId, run) : run();
 
   const enforceRateLimit = (pairingId: string) => {
     const nowMs = Date.parse(deps.now()) || Date.now();
@@ -377,17 +336,6 @@ export function createDeckProposals(deps: DeckProposalDeps) {
 
     get(proposalId: string): DeckProposal | null {
       return waiting.get(proposalId) ?? null;
-    },
-
-    workingCopyOf(documentId: string): string | null {
-      const copyId = workingCopyByOriginal.get(documentId);
-      if (!copyId) return null;
-      if (deps.isLiveDocument && !deps.isLiveDocument(copyId)) {
-        workingCopyByOriginal.delete(documentId);
-        aiCopies.delete(copyId);
-        return null;
-      }
-      return copyId;
     },
 
     /** Builds unwritten patched bytes for live on-slide preview (#149 visual #2). */
@@ -524,96 +472,84 @@ export function createDeckProposals(deps: DeckProposalDeps) {
       proposalId: string,
       options?: { fit?: DeckProposalFitChoice },
     ): Promise<DeckProposalAccepted> {
-      const proposal = waiting.get(proposalId);
-      if (!proposal) {
+      const initial = waiting.get(proposalId);
+      if (!initial) {
         throw new NotFoundError({ key: "error.deck.proposalGone" });
       }
-      const target = resolveWriteTarget(proposal.documentId);
-      const readDocId =
-        target.mode === "existing-copy" ? target.targetDocumentId : proposal.documentId;
-      const currentBytes = await deps.read(readDocId);
-      const currentHash = hashBytes(currentBytes);
-
-      // Preserve concurrent hand edits on other shapes as long as targeted shapes' fingerprints match.
-      if (currentHash !== proposal.baseVersion) {
-        const { structure } = await readDeckStructure(currentBytes);
-        if (!structure.editable) {
-          const key =
-            structure.refusal === "unrewritable"
-              ? "error.deck.unrewritable"
-              : (`error.deck.protected.${structure.refusal ?? "protected"}` as const);
-          throw new TranslatableError({ key });
+      return inTurn(initial.documentId, async () => {
+        const proposal = waiting.get(proposalId);
+        if (!proposal) {
+          throw new NotFoundError({ key: "error.deck.proposalGone" });
         }
-        for (const item of proposal.items) {
-          const now = inspectTarget(structure, item.change);
-          if (now.fingerprint !== item.targetFingerprint) {
-            throw new TranslatableError({
-              key:
-                target.mode === "existing-copy"
-                  ? "error.deck.proposalStaleCopy"
-                  : "error.deck.proposalStale",
-            });
+        const currentBytes = await deps.read(proposal.documentId);
+        const currentHash = hashBytes(currentBytes);
+
+        // Preserve concurrent hand edits on other shapes as long as targeted shapes' fingerprints match.
+        if (currentHash !== proposal.baseVersion) {
+          const { structure } = await readDeckStructure(currentBytes);
+          if (!structure.editable) {
+            const key =
+              structure.refusal === "unrewritable"
+                ? "error.deck.unrewritable"
+                : (`error.deck.protected.${structure.refusal ?? "protected"}` as const);
+            throw new TranslatableError({ key });
+          }
+          for (const item of proposal.items) {
+            const now = inspectTarget(structure, item.change);
+            if (now.fingerprint !== item.targetFingerprint) {
+              throw new TranslatableError({ key: "error.deck.proposalStale" });
+            }
           }
         }
-      }
 
-      const fitChoice = options?.fit ?? "default";
-      let applied: Awaited<ReturnType<typeof applyDeckChanges>>;
-      try {
-        applied = await applyDeckChanges(currentBytes, resolvedChanges(proposal.items, fitChoice));
-      } catch (error) {
-        if (error instanceof PackagePartError) {
-          throw new InvalidInputError({
-            key: "error.deck.proposalInvalid",
-            values: { detail: error.message },
-          });
+        const fitChoice = options?.fit ?? "default";
+        let applied: Awaited<ReturnType<typeof applyDeckChanges>>;
+        try {
+          applied = await applyDeckChanges(
+            currentBytes,
+            resolvedChanges(proposal.items, fitChoice),
+          );
+        } catch (error) {
+          if (error instanceof PackagePartError) {
+            throw new InvalidInputError({
+              key: "error.deck.proposalInvalid",
+              values: { detail: error.message },
+            });
+          }
+          throw error;
         }
-        throw error;
-      }
 
-      const result =
-        target.mode === "kept"
-          ? await deps.writeKeptVersion(proposal.documentId, currentBytes, applied.bytes)
-          : target.mode === "existing-copy" && deps.writeExistingCopy
-            ? await deps.writeExistingCopy(target.targetDocumentId, currentBytes, applied.bytes)
-            : await deps.saveOwnDeckCopy(proposal.documentId, applied.bytes);
+        const result = await deps.writeDeck(proposal.documentId, currentBytes, applied.bytes, {
+          keepOriginal: true,
+        });
 
-      const copyCreated = target.mode === "new-copy" && result.documentId !== proposal.documentId;
-      if (copyCreated) {
-        workingCopyByOriginal.set(proposal.documentId, result.documentId);
-        aiCopies.add(result.documentId);
-      }
+        const afterHash = hashBytes(applied.bytes);
+        const undoId = deps.newId();
+        await storeUndo(
+          {
+            id: undoId,
+            documentId: result.documentId,
+            beforeHash: currentHash,
+            afterHash,
+          },
+          currentBytes,
+        );
 
-      const afterHash = hashBytes(applied.bytes);
-      const undoId = deps.newId();
-      await storeUndo(
-        {
-          id: undoId,
-          originalDocumentId: proposal.documentId,
-          targetDocumentId: result.documentId,
-          mode: target.mode,
-          beforeHash: currentHash,
-          afterHash,
-        },
-        currentBytes,
-      );
+        waiting.delete(proposal.id);
+        notify(proposal.documentId);
 
-      waiting.delete(proposal.id);
-      notify(proposal.documentId);
-
-      return {
-        proposalId: proposal.id,
-        documentId: result.documentId,
-        originalDocumentId: proposal.documentId,
-        copyCreated,
-        saved: result.saved,
-        bytes: applied.bytes,
-        contentHash: afterHash,
-        totalSlides: applied.totalSlides,
-        changedSlides: applied.changedSlides,
-        unchangedSlides: applied.unchangedSlides,
-        undoId,
-      };
+        return {
+          proposalId: proposal.id,
+          documentId: result.documentId,
+          saved: result.saved,
+          bytes: applied.bytes,
+          contentHash: afterHash,
+          totalSlides: applied.totalSlides,
+          changedSlides: applied.changedSlides,
+          unchangedSlides: applied.unchangedSlides,
+          undoId,
+        };
+      });
     },
 
     reject(proposalId: string): boolean {
@@ -625,62 +561,34 @@ export function createDeckProposals(deps: DeckProposalDeps) {
     },
 
     async undo(undoId: string): Promise<DeckProposalUndone> {
-      const record = undos.get(undoId);
-      if (!record) {
+      const initial = undos.get(undoId);
+      if (!initial) {
         throw new NotFoundError({ key: "error.deck.proposalGone" });
       }
-      // Verify the target deck has not changed since Accept (for kept decks AND copies, #149 S2).
-      const nowBytes = await deps.read(record.targetDocumentId);
-      if (hashBytes(nowBytes) !== record.afterHash) {
-        throw new TranslatableError({ key: "error.deck.undoRefused" });
-      }
-
-      if (record.mode === "kept") {
+      return inTurn(initial.documentId, async () => {
+        const record = undos.get(undoId);
+        if (!record) {
+          throw new NotFoundError({ key: "error.deck.proposalGone" });
+        }
+        // Verify the deck has not changed since Confirm (#149 S2).
+        const nowBytes = await deps.read(record.documentId);
+        if (hashBytes(nowBytes) !== record.afterHash) {
+          throw new TranslatableError({ key: "error.deck.undoRefused" });
+        }
         const beforeBytes = await loadUndoBytes(record);
         if (!beforeBytes) {
           throw new TranslatableError({ key: "error.deck.undoRefused" });
         }
-        await deps.writeKeptVersion(record.targetDocumentId, nowBytes, beforeBytes);
+        await deps.writeDeck(record.documentId, nowBytes, beforeBytes, { keepOriginal: false });
         undos.delete(undoId);
         await deps.undoStore?.del(undoId).catch(() => undefined);
         return {
           undoId,
-          documentId: record.targetDocumentId,
-          removedCopyId: null,
+          documentId: record.documentId,
           bytes: beforeBytes,
           contentHash: record.beforeHash,
         };
-      }
-
-      if (record.mode === "existing-copy" && deps.writeExistingCopy) {
-        const beforeBytes = await loadUndoBytes(record);
-        if (!beforeBytes) {
-          throw new TranslatableError({ key: "error.deck.undoRefused" });
-        }
-        await deps.writeExistingCopy(record.targetDocumentId, nowBytes, beforeBytes);
-        undos.delete(undoId);
-        await deps.undoStore?.del(undoId).catch(() => undefined);
-        return {
-          undoId,
-          documentId: record.targetDocumentId,
-          removedCopyId: null,
-          bytes: beforeBytes,
-          contentHash: record.beforeHash,
-        };
-      }
-
-      await deps.removeCopy?.(record.targetDocumentId);
-      workingCopyByOriginal.delete(record.originalDocumentId);
-      aiCopies.delete(record.targetDocumentId);
-      undos.delete(undoId);
-      await deps.undoStore?.del(undoId).catch(() => undefined);
-      return {
-        undoId,
-        documentId: record.originalDocumentId,
-        removedCopyId: record.targetDocumentId,
-        bytes: null,
-        contentHash: null,
-      };
+      });
     },
   };
 }

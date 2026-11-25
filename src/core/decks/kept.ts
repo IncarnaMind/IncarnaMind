@@ -1,10 +1,12 @@
 /**
- * A deck of the User's own as it stood before each sitting of editing it by hand (#149, ADR-0010
- * 2026-11-24): kept whole in the data folder's "Kept decks", so the User can put the deck back as
- * it was. For each Document: its first state (the file as it was before IncarnaMind first changed
- * it), kept while the deck is in the Library, and its newest others up to `MAX_KEPT` in all; a
- * state already kept isn't kept twice. Each sitting names the state it began from, which Put back
- * as it was writes back. What goes is let go only after a write succeeds, and that line says so.
+ * A deck of the User's own as it stood before each sitting of hand editing or each confirmed AI
+ * Proposal (#149, ADR-0010 2026-11-24, owner decision 2026-11-25): kept whole in the data folder's
+ * "Kept decks", so the User can put the deck back as it was in one step, even after a restart. For
+ * each Document: its first state (the file as it was before IncarnaMind first changed it), kept
+ * while the deck is in the Library, and its newest others up to `MAX_KEPT` in all; a state already
+ * kept isn't kept twice. Each sitting or confirmed AI change names the state it began from, which
+ * Put back as it was writes back. What goes is let go only after a write succeeds, and that line
+ * says so.
  */
 import { lstat, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";

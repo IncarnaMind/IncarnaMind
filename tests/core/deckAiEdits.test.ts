@@ -4,12 +4,14 @@
  * - `propose_deck_changes` changes only the named shapes, cells, notes, or a single named chart series,
  *   keeping every untouched slide and part byte-identical, preserving concurrent hand edits on other shapes,
  *   detecting overflow for every autofit kind, writing Citation tags and workbook cell notes readable by tag name
- *   and relationship type even when parts/rIds are renamed, and never overwriting the User's own original file.
+ *   and relationship type even when parts/rIds are renamed, writing the confirmed change to the file itself
+ *   atomically after keeping the original on disk (surviving restart), and refusing cleanly when locked or changed.
  */
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { createNodeDeckFiles } from "../../src/core/decks/places";
 import { readDeckStructure } from "../../src/core/decks/readDeck";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { chartAgreement, chartSeries } from "../../src/core/exports/pptxPatch/charts";
@@ -232,8 +234,8 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(sha256(undone.bytes as Uint8Array)).toBe(sha256(bytesAfterHand));
   });
 
-  // protects=accepting an AI deck proposal on a User's own file never overwrites their original file on disk, writing a copy beside it instead (#149 trust rule); fails_when=the User's original .pptx bytes change on disk
-  it("never overwrites the User's own .pptx file on disk when confirming an AI proposal", async () => {
+  // protects=confirming an AI deck proposal on a User's own file keeps the original untouched before Confirm, writes only the changed part into the file itself on Confirm with zero copies created, and keeps the original for one-step Put back (#149); fails_when=bytes change before Confirm, extra copies are created, or untouched slides/parts change
+  it("writes the User's own .pptx file in place with no copies when confirming an AI proposal", async () => {
     const { core, coast, writer, files } = await started();
     const agent = await connectLegacyAgent(writer.launch);
     const userDeckPath = join(files, "Quarterly Research Update.pptx");
@@ -275,16 +277,25 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       }),
     );
 
-    const accepted = await core.acceptDeckProposal(proposed.proposalId);
-    // Original file on disk MUST remain byte-for-byte identical.
-    const originalOnDisk = new Uint8Array(await readFile(userDeckPath));
-    expect(sha256(originalOnDisk)).toBe(sha256(fixtureBytes));
-    expect(accepted.documentId).not.toBe(added.id);
-    expect(accepted.originalDocumentId).toBe(added.id);
+    // Original file on disk MUST remain byte-for-byte identical BEFORE Confirm.
+    expect(sha256(new Uint8Array(await readFile(userDeckPath)))).toBe(sha256(fixtureBytes));
 
-    // Every untouched part of the real fixture .pptx in the saved copy is byte-identical!
-    const copyBytes = accepted.bytes;
-    expect(partsChanged(fixtureBytes, copyBytes)).toEqual(["ppt/slides/slide1.xml"]);
+    const accepted = await core.acceptDeckProposal(proposed.proposalId);
+    // Confirmed AI change writes the User's own file in place (no copy beside it) and keeps original.
+    expect(accepted.documentId).toBe(added.id);
+    expect(accepted.saved.kind).toBe("file");
+    if (accepted.saved.kind === "file") expect(accepted.saved.keptId).toBeTruthy();
+
+    const writtenOnDisk = new Uint8Array(await readFile(userDeckPath));
+    expect(sha256(writtenOnDisk)).toBe(sha256(accepted.bytes));
+    // No extra copy was created in the User's folder or Library.
+    expect((await readdir(files)).filter((name) => name.endsWith(".pptx"))).toEqual([
+      "Quarterly Research Update.pptx",
+    ]);
+    expect((await core.listDocuments()).filter((d) => d.kind === "pptx")).toHaveLength(1);
+
+    // Every untouched part of the real fixture .pptx on disk is byte-identical!
+    expect(partsChanged(fixtureBytes, writtenOnDisk)).toEqual(["ppt/slides/slide1.xml"]);
   });
 
   // protects=editing a single named chart series updates both chart XML cache and embedded workbook for that series alone while leaving all other series untouched, and writes Citations as workbook cell notes readable even after renaming part/rId (#149 AC #5, #7); fails_when=another series changes, cache and workbook disagree, or cell notes fail to survive part/rId rename
@@ -892,8 +903,8 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(notes.B2).toContain("south quay holds 19 boats");
   });
 
-  // protects=S1 subsequent AI edits reuse one working copy without piling up copies, and S2 Undo refuses if the copy was hand-edited since; fails_when=2nd AI edit creates a second copy or Undo silently wipes a later hand edit
-  it("reuses one working copy on subsequent edits (S1) and refuses Undo after a later hand edit on the copy (S2)", async () => {
+  // protects=subsequent confirmed AI edits keep writing the User's own deck in place without creating copies, keep both the first and latest pre-edit states, and refuse Undo after a later hand edit (S2); fails_when=copies pile up, kept states are lost, or Undo silently wipes a later hand edit
+  it("writes subsequent AI edits to the deck itself with no copies and refuses Undo after a later hand edit (S2)", async () => {
     const { core, coast, writer, files } = await started();
     const agent = await connectLegacyAgent(writer.launch);
     const userDeckPath = join(files, "Quarterly.pptx");
@@ -917,36 +928,35 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       }),
     );
     const acc1 = await core.acceptDeckProposal(prop1.proposalId);
-    expect(acc1.copyCreated).toBe(true);
-    expect(acc1.documentId).not.toBe(added.id);
+    expect(acc1.documentId).toBe(added.id);
+    expect(acc1.saved.kind).toBe("file");
 
-    // Second AI edit on the working copy reuses it in place (no (2)/(3) pile-up!).
-    const readOrigAgain = structured<{ workingCopyDocumentId: string | null }>(
-      await agent.callTool({ name: "read_deck", arguments: { documentId: added.id } }),
-    );
-    expect(readOrigAgain.workingCopyDocumentId).toBe(acc1.documentId);
+    // Second AI edit also writes the same file in place — zero copies created!
     const read2 = structured<{ version: string }>(
-      await agent.callTool({ name: "read_deck", arguments: { documentId: acc1.documentId } }),
+      await agent.callTool({ name: "read_deck", arguments: { documentId: added.id } }),
     );
     const prop2 = structured<{ proposalId: string }>(
       await agent.callTool({
         name: "propose_deck_changes",
         arguments: {
-          documentId: acc1.documentId,
+          documentId: added.id,
           version: read2.version,
           changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Second AI edit"] }],
         },
       }),
     );
     const acc2 = await core.acceptDeckProposal(prop2.proposalId);
-    expect(acc2.copyCreated).toBe(false);
-    expect(acc2.documentId).toBe(acc1.documentId);
-    // Original file on disk STILL untouched!
-    expect(sha256(new Uint8Array(await readFile(userDeckPath)))).toBe(sha256(initial));
+    expect(acc2.documentId).toBe(added.id);
+    expect((await readdir(files)).filter((name) => name.endsWith(".pptx"))).toEqual([
+      "Quarterly.pptx",
+    ]);
+    const kept = await core.keptDeckStates(added.id);
+    expect(kept.first?.contentHash).toBe(sha256(initial));
+    expect(kept.sitting?.contentHash).toBe(acc1.contentHash);
 
-    // User hand-edits the working copy -> Undo of acc2 must now be REFUSED (S2)!
+    // User hand-edits the deck -> Undo of acc2 must now be REFUSED (S2)!
     const hand = await core.editDeck({
-      documentId: acc1.documentId,
+      documentId: added.id,
       sittingId: null,
       shown: acc2.contentHash,
       viewer: "test-viewer",
@@ -1096,17 +1106,19 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(afterMove.isError).toBe(true);
   });
 
-  // protects=confirming a stale proposal drawn on the original deck after its working copy already changed that shape fails with plain, actionable wording pointing the User to the copy (#149); fails_when=Confirm overwrites the copy or surfaces a raw technical error
-  it("gives plain wording when confirming an original-tab proposal whose shape already changed in the working copy", async () => {
-    const { core, coast, writer, files } = await started();
+  // protects=a confirmed AI change keeps the pre-edit original in Kept decks/ across a full app restart and one-step Put back restores the file byte-for-byte (#149 Condition 1); fails_when=kept state disappears on restart or restoreKeptDeck fails to restore exact original bytes
+  it("keeps the original across a restart and puts the file back byte-for-byte in one step", async () => {
+    const { core, coast, writer, files, restart } = await started();
     const agent = await connectLegacyAgent(writer.launch);
-    const deckPath = join(files, "OriginalCopyConflict.pptx");
-    await writeFile(deckPath, multiSlideDeck());
+    const deckPath = join(files, "RestartRestore.pptx");
+    const initial = multiSlideDeck();
+    const initialHash = sha256(initial);
+    await writeFile(deckPath, initial);
     const [deck] = await addAndProcess(core, [deckPath]);
     if (!deck) throw new Error("Deck not added.");
     await core.assignDocumentGroup(deck.id, coast.id);
 
-    const read1 = structured<{ documentId: string; version: string }>(
+    const read1 = structured<{ version: string }>(
       await agent.callTool({ name: "read_deck", arguments: { documentId: deck.id } }),
     );
     const prop1 = structured<{ proposalId: string }>(
@@ -1115,28 +1127,130 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
         arguments: {
           documentId: deck.id,
           version: read1.version,
-          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["First copy edit."] }],
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Confirmed AI edit."] }],
         },
       }),
     );
-    const accepted = await core.acceptDeckProposal(prop1.proposalId);
-    expect(accepted.documentId).not.toBe(deck.id);
+    // Nothing written to disk before Confirm.
+    expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(initialHash);
 
-    // Ask again on the original deck targeting the same shape already edited on the working copy.
-    const prop2 = structured<{ proposalId: string }>(
+    const accepted = await core.acceptDeckProposal(prop1.proposalId);
+    expect(accepted.documentId).toBe(deck.id);
+    expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(accepted.contentHash);
+    expect(accepted.contentHash).not.toBe(initialHash);
+    await agent.close();
+
+    // Quit and reopen the app on the same data folder.
+    const core2 = await restart();
+    try {
+      const kept = await core2.keptDeckStates(deck.id);
+      expect(kept.sitting?.contentHash).toBe(initialHash);
+      if (!kept.sitting) throw new Error("Expected kept sitting state after restart.");
+
+      // One-step "Put back as it was" restores the exact original bytes on disk.
+      const restored = await core2.restoreKeptDeck({
+        documentId: deck.id,
+        keptId: kept.sitting.id,
+        shown: accepted.contentHash,
+      });
+      expect(restored.contentHash).toBe(initialHash);
+      expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(initialHash);
+    } finally {
+      await core2.close();
+    }
+  });
+
+  // protects=confirming an AI deck proposal refuses in plain words with nothing written and zero temp files when the file is locked by another app or changed underneath (#149 Condition 3); fails_when=Confirm overwrites a locked or externally changed file, leaves temp leftovers, or drops the waiting proposal on lock
+  it("refuses in plain words with nothing written when the file is locked or changed underneath", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const lockedPath = join(files, "LockedDeck.pptx");
+    const initial = multiSlideDeck();
+    const initialHash = sha256(initial);
+    await writeFile(lockedPath, initial);
+    const [lockedDoc] = await addAndProcess(core, [lockedPath]);
+    if (!lockedDoc) throw new Error("Deck not added.");
+    await core.assignDocumentGroup(lockedDoc.id, coast.id);
+
+    const readLocked = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: lockedDoc.id } }),
+    );
+    const propLocked = structured<{ proposalId: string }>(
       await agent.callTool({
         name: "propose_deck_changes",
         arguments: {
-          documentId: deck.id,
-          version: read1.version,
-          changes: [
-            { kind: "text", slide: 1, shape: "3", paragraphs: ["Second edit on original."] },
-          ],
+          documentId: lockedDoc.id,
+          version: readLocked.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Blocked while locked."] }],
         },
       }),
     );
-    await expect(core.acceptDeckProposal(prop2.proposalId)).rejects.toMatchObject({
-      wording: { key: "error.deck.proposalStaleCopy" },
+
+    // Simulate PowerPoint holding the file open via its sibling lock file.
+    const lockFilePath = join(files, "~$LockedDeck.pptx");
+    await writeFile(lockFilePath, "lock");
+    await expect(core.acceptDeckProposal(propLocked.proposalId)).rejects.toMatchObject({
+      wording: { key: "error.deck.unwritable.locked", values: { name: "LockedDeck.pptx" } },
     });
+    // Nothing written, zero temp files left beside it, proposal still waiting.
+    expect(sha256(new Uint8Array(await readFile(lockedPath)))).toBe(initialHash);
+    expect((await readdir(files)).filter((n) => n.includes(".tmp") || n.includes(".part"))).toEqual(
+      [],
+    );
+    expect(await core.deckProposals(lockedDoc.id)).toHaveLength(1);
+
+    // Once PowerPoint closes (lock removed), Confirming the same waiting proposal succeeds.
+    await unlink(lockFilePath);
+    const afterUnlock = await core.acceptDeckProposal(propLocked.proposalId);
+    expect(afterUnlock.documentId).toBe(lockedDoc.id);
+    expect(sha256(new Uint8Array(await readFile(lockedPath)))).toBe(afterUnlock.contentHash);
+
+    // Part B: file changed underneath right before atomic rename (mid-write race).
+    const baseFiles = createNodeDeckFiles();
+    let triggerExternalWrite = false;
+    const externalBytes = multiSlideDeck({ autofit: "shrink" });
+    const raceStarted = await started([], {
+      adapters: {
+        deckFiles: {
+          ...baseFiles,
+          replaceFile: async (path, bytes, stillSame, mode) => {
+            if (triggerExternalWrite) {
+              triggerExternalWrite = false;
+              await writeFile(path, externalBytes);
+            }
+            return baseFiles.replaceFile(path, bytes, stillSame, mode);
+          },
+        },
+      },
+    });
+    const raceAgent = await connectLegacyAgent(raceStarted.writer.launch);
+    const racePath = join(raceStarted.files, "RaceDeck.pptx");
+    await writeFile(racePath, initial);
+    const [raceDoc] = await addAndProcess(raceStarted.core, [racePath]);
+    if (!raceDoc) throw new Error("Race deck not added.");
+    await raceStarted.core.assignDocumentGroup(raceDoc.id, raceStarted.coast.id);
+
+    const readRace = structured<{ version: string }>(
+      await raceAgent.callTool({ name: "read_deck", arguments: { documentId: raceDoc.id } }),
+    );
+    const propRace = structured<{ proposalId: string }>(
+      await raceAgent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: raceDoc.id,
+          version: readRace.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Should not clobber."] }],
+        },
+      }),
+    );
+
+    triggerExternalWrite = true;
+    await expect(raceStarted.core.acceptDeckProposal(propRace.proposalId)).rejects.toMatchObject({
+      wording: { key: "error.deck.changed" },
+    });
+    // The other program's bytes stay intact on disk, and replaceFile left zero temp files behind.
+    expect(sha256(new Uint8Array(await readFile(racePath)))).toBe(sha256(externalBytes));
+    expect((await readdir(raceStarted.files)).filter((n) => n !== "RaceDeck.pptx")).toEqual([]);
+    await raceAgent.close();
   });
 });

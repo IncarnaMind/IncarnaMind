@@ -16550,7 +16550,7 @@ export interface CoreApi {
     proposalId: string,
     options?: { fit?: DeckProposalFitChoice },
   ): Promise<Uint8Array>;
-  /** Accepts an AI deck Proposal, preserving hand edits on other shapes and never overwriting the User's own original file (#149 part 2). */
+  /** Accepts an AI deck Proposal, preserving hand edits on other shapes and keeping the original before writing (#149 part 2). */
   acceptDeckProposal(
     proposalId: string,
     options?: { fit?: DeckProposalFitChoice },

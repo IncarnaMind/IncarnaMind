@@ -235,6 +235,7 @@ import {
   deckPlaceFor,
   isKeptDeck,
   keptVersion,
+  ownFile,
   restoreKept,
 } from "./decks/places";
 import { createDeckProposals } from "./decks/proposals";
@@ -6687,35 +6688,17 @@ export function createCore(adapters: CoreAdapters): Core {
 
   const deckProposals = createDeckProposals({
     read: (documentId) => readDeck(documentId),
-    isKeptDeck: (documentId) => isKeptDeck(deckPlaces, documentId),
-    isLiveDocument: (documentId) => {
-      try {
-        documents.get(documentId);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    writeKeptVersion: (documentId, baseBytes, nextBytes) =>
-      writeDeckTarget(keptVersion(deckPlaces, documentId, baseBytes), documentId, nextBytes),
-    writeExistingCopy: (documentId, baseBytes, nextBytes) =>
-      writeDeckTarget(deckPlaceFor(deckPlaces, documentId, baseBytes), documentId, nextBytes),
-    saveOwnDeckCopy: async (documentId, nextBytes) => {
-      const copy = await copyBeside(deckPlaces, documentId, nextBytes);
-      return {
-        documentId: copy.documentId,
-        saved: {
-          kind: "copy",
-          name: copy.file.name,
-          path: copy.file.path,
-          inDefaultFolder: copy.file.inDefaultFolder,
-          beside: copy.beside,
-        },
-      };
-    },
-    removeCopy: async (documentId) => {
-      await removeDocuments(deletable([documentId]));
-    },
+    inDocumentTurn: (documentId, run) => deckSittings.inDocumentTurn(documentId, run),
+    writeDeck: (documentId, baseBytes, nextBytes, { keepOriginal }) =>
+      writeDeckTarget(
+        keepOriginal
+          ? deckPlaceFor(deckPlaces, documentId, baseBytes)
+          : isKeptDeck(deckPlaces, documentId)
+            ? keptVersion(deckPlaces, documentId, baseBytes)
+            : ownFile(deckPlaces, documentId, baseBytes, { kept: true, sitting: false }),
+        documentId,
+        nextBytes,
+      ),
     undoStore: {
       put: async (undoId, bytes) => {
         mkdirSync(deckUndoDir, { recursive: true });
@@ -7089,7 +7072,6 @@ export function createCore(adapters: CoreAdapters): Core {
             kind: doc.kind,
             currentFolderIds: folder ? [folder] : [],
             handed: handed ? { pairingId: handed.pairingId } : null,
-            workingCopyDocumentId: deckProposals.workingCopyOf(doc.id),
           };
         } catch {
           return null;
