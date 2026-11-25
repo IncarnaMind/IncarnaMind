@@ -178,7 +178,7 @@ test("a paragraph's right-click has Cut, Copy and Paste first, in English and Ch
   };
   const rightClickSelection = async () => {
     const at = await window.evaluate(() => {
-      const box = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+      const box = document.getSelection()?.getRangeAt(0).getBoundingClientRect();
       return box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
     });
     if (!at) throw new Error("Nothing is selected.");

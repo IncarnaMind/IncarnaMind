@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { type Citation, CITATION_NODE, type NoteCitation } from "../../src/core/api";
+import { CITATION_NODE, type Citation, type NoteCitation } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { replyBlocks } from "../../src/shared/replyBlocks";
 
