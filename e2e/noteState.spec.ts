@@ -278,7 +278,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await screenshot(window, `note-state-export-${language}-running`);
     await pointAndClick(window, runningLine);
     const cardAgain = window.getByTestId("check-card");
-    await expect(cardAgain.getByTestId("card-progress")).toBeVisible();
+    await expect(cardAgain.getByTestId("card-foot-progress")).toBeVisible();
     // The sentence being checked has its row, in the card's one noun, the sentence (#2831).
     await expect(cardAgain.getByTestId("health-checking")).toContainText(words.checking);
 
@@ -398,12 +398,13 @@ for (const language of ["en", "zh-CN"] as const) {
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       const allDone = await checkCard(window);
-      // The badge names the files beside its time, so the card's head says that line, not
-      // "Everything checked", which isn't true of this Note (#3212).
+      // The card's head says Checked, never "Everything checked", which isn't true of this Note
+      // (#3212); the files are named once, by the card's own line below (#3756).
       await expect(allDone.getByTestId("health-all-checked")).toHaveText(
-        language === "en"
-          ? /^Checked .+ · 3 files couldn’t be read$/
-          : /^已核对 .+ · 3 个文件未能读取$/,
+        language === "en" ? /^Checked .+$/ : /^已核对.+$/,
+      );
+      await expect(allDone.getByTestId("health-all-checked")).not.toContainText(
+        language === "en" ? "couldn’t be read" : "未能读取",
       );
       await expect(allDone.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",

@@ -220,6 +220,20 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   };
   const sayText = (text) =>
     say({ type: "assistant", message: { content: [{ type: "text", text }] } });
+  // Search gives Passages, not Citations: each Passage is cited by a quote copied from its text,
+  // as an agent cites one. A Passage whose quote isn't found has none.
+  const citesOf = async (passages) => {
+    if (passages.length === 0) return [];
+    const cited = await use("cite", {
+      citations: passages.map((each) => ({
+        passageId: each.passageId,
+        quote: each.text.split(/(?<=[.!?])\s/)[0].trim(),
+      })),
+    });
+    return (cited?.citations ?? []).map((each) =>
+      each.cite ? (each.cite.startsWith("[cite:") ? each.cite : `[cite:${each.cite}]`) : null,
+    );
+  };
   if (prompt.startsWith("In their note") && mode === "long") {
     // Thinks after its reads, as Claude Code sends a tick about every second.
     let ticking = null;
@@ -241,10 +255,8 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     ticking = setInterval(() => say({ type: "system", subtype: "thinking_tokens" }), 1000);
     await gate(step++);
     clearInterval(ticking);
-    const cite = (n) => {
-      const token = passages[n]?.cite;
-      return token ? ` ${token.startsWith("[cite:") ? token : `[cite:${token}]`}` : "";
-    };
+    const tokens = await citesOf(passages.slice(0, 5));
+    const cite = (n) => (tokens[n] ? ` ${tokens[n]}` : "");
     await agent.close();
     say({
       type: "result",
@@ -373,10 +385,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     // and contradicted.
     await gate(1);
     const found = await use("search", { query: "ferry crossing ramp late" });
-    const cites = (found?.passages ?? [])
-      .map((each) => each.cite)
-      .filter(Boolean)
-      .map((token) => (token.startsWith("[cite:") ? token : `[cite:${token}]`));
+    const cites = (await citesOf(found?.passages ?? [])).filter(Boolean);
     const verdicts =
       mode === "check-good" ? ["supported"] : ["supported", "partly supported", "contradicted"];
     await use("report_check", {

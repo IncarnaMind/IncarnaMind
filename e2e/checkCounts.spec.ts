@@ -193,7 +193,7 @@ for (const language of ["en", "zh-CN"] as const) {
     const allDone = await checkCard(window);
     await expect(allDone.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(allDone.getByTestId("health-look")).toHaveCount(0);
-    // Supported with no Citation yet is done: nothing holds back "Everything checked" (#2831),
+    // Supported with no Citation yet is done: nothing holds back "All supported" (#2831),
     // and it is the one that can be cited (#3358).
     await expect(allDone.getByTestId("health-all-checked")).toBeVisible();
     await expect(allDone.getByTestId("health-notYetCited")).toContainText(words.uncited);

@@ -123,7 +123,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await holdChecks(app);
     await pointAndClick(window, card.getByTestId("badge-check-mind"));
     await expect.poll(() => heldSteps(app)).toBeGreaterThan(0);
-    const foot = card.getByTestId("card-progress");
+    // The badge says how far the run is; the card's foot keeps only its Stop (#3756).
+    const foot = window.getByTestId("badge-progress");
     await expect(card.getByTestId("health-checking")).toContainText(words.checking);
     await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
     await expect(foot).toHaveText(words.foot(0));

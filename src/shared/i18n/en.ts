@@ -1762,6 +1762,7 @@ export const en = {
   "health.toCheck": "{count} sentences not checked yet",
   "health.tableCells": "{count} table cells",
   "health.allChecked": "Everything checked",
+  "health.allSupported": "All supported",
   "health.look.one": "1 sentence needs a look: {reasons}",
   "health.look": "{count} sentences need a look: {reasons}",
   "health.look.separator": ", ",
@@ -1803,6 +1804,7 @@ export const en = {
     "checks citations health contradicted unsupported claims sentences badge claims and citations",
   "health.checkedAll.one": "Checked 1 sentence, {when}",
   "health.checkedAll": "Checked {count} sentences, {when}",
+  "health.checkedAll.supported": "All supported, checked {when}",
   "health.unexamined.one": "Couldn’t tell whether 1 sentence needs checking",
   "health.unexamined": "Couldn’t tell whether {count} sentences need checking",
   "health.next": "{part}: go to the next",
@@ -1874,6 +1876,7 @@ export const en = {
   "mindCheck.declined": "The check didn’t run: you chose Not now on the note.",
   "mindCheck.closed": "The check didn’t run: the question on the note was closed.",
   "mindCheck.every": "Check every sentence again",
+  "mindCheck.again": "Check again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",
   "mindCheck.changed.one": "1 sentence not checked yet",
@@ -8744,8 +8747,6 @@ export const en = {
     "Check notes in the background and keep one conversation per note. Downloads and installs Claude Code from Anthropic into your user folder.",
   "agents.install.jobs.title": "Background note checks",
   "agents.install.jobs.detail": "Needs a command-line AI or a model in IncarnaMind.",
-  "agents.install.checks.detail":
-    "Connect an AI you already use, or install Claude Code to check notes in the background.",
   "agents.install.progress.title": "Installing Claude Code…",
   "agents.install.progress.detail":
     "Running Anthropic’s installer into {directory}. This usually takes under a minute.",
@@ -9319,13 +9320,13 @@ export const en = {
   "agents.asked.organizing": "Organizing your Documents in {agent}.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",
   "agents.asked.again": "Ask again",
-  "agents.asked.short.asked": "Asked your AI",
-  "agents.asked.short.working": "Your AI is checking",
-  "agents.asked.short.quiet": "No word from your AI",
+  "agents.asked.short.asked": "Asked {agent}",
+  "agents.asked.short.working": "{agent} is checking",
+  "agents.asked.short.quiet": "No word from {agent}",
   // A check run on the User's own command-line AI in the background (#3606).
   "agents.asked.stop": "Stop",
   "agents.asked.checkAgain": "Check again",
-  "agents.asked.short.failed": "Your AI stopped",
+  "agents.asked.short.failed": "{agent} stopped",
   "agents.ownCheck.problem.signed-out":
     "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then press Check again.",
   "agents.ownCheck.problem.too-old":
