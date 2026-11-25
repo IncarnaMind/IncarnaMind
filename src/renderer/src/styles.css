@@ -2820,6 +2820,15 @@
       flex: 0 0 100%;
       max-width: 100%;
     }
+    /* With the mode beside the model the words take a row too, the controls under them (#3765). */
+    .note-ask-row:has([data-testid="note-ask-mode-choice"]) {
+      .note-ask-input-text {
+        flex: 0 0 100%;
+      }
+      :is([data-testid="note-ask-model"], [data-testid="note-ask-model-only"]) {
+        margin-left: auto;
+      }
+    }
   }
   .note-ask-round {
     display: flex;

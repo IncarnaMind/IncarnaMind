@@ -1798,7 +1798,9 @@ export type OwnAiProgress =
    */
   | { kind: "own"; id: string; action: NoteAction; state: "going" | "done" | "failed" | "refused" }
   /** The agent's own permission mode, as it names it at its start and as it changes. */
-  | { kind: "mode"; mode: string };
+  | { kind: "mode"; mode: string }
+  /** The agent refused to switch to `mode`, by its own code for why (#3765). */
+  | { kind: "modeRefused"; mode: string; reason: string };
 
 /**
  * What a run with its own abilities asks before it does something with a tool of its own (#3653):
@@ -1852,6 +1854,13 @@ export interface OwnAiRunner {
     conversation?: { key: string; sessionId: string; resume: boolean };
     /** One of the values a run's "models" step gave; absent: the agent's own default. */
     model?: string;
+    /**
+     * The agent's permission mode chosen by the input for the conversation (#3765): the run starts
+     * in `start`, and each mode `hear`'s listener is given while it runs is asked of the agent at
+     * once, which takes it from its next step; one it refuses is heard as a "modeRefused" step.
+     * No `start`: the User's own settings for the agent. Nothing is written to those settings.
+     */
+    modes?: { start?: string; hear(listener: (mode: string) => void): () => void };
     /**
      * Asks the agent, in this run's own process and before the prompt goes, which models it
      * offers: a question it answers itself, with no model call. Heard as a "models" step.

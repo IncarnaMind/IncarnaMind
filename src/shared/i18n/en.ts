@@ -9413,6 +9413,26 @@ export const en = {
   // Before a request here has named its model: the box names none.
   "noteAsk.modelNone": "Model",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
+  // Whether the User's own AI asks before it acts, by the input after the model: each of its
+  // modes by Claude Code's own name for it, and a sentence for the two the input offers.
+  "noteAsk.mode.title": "Before {agent} acts",
+  "noteAsk.mode.default": "Asks first",
+  "noteAsk.mode.default.about": "Asks you first, except to read.",
+  "noteAsk.mode.auto": "On its own",
+  "noteAsk.mode.auto.about": "Acts without asking; a safety check blocks what looks risky.",
+  "noteAsk.mode.plan": "Plans only",
+  "noteAsk.mode.acceptEdits": "Edits on its own",
+  "noteAsk.mode.bypassPermissions": "Asks nothing",
+  "noteAsk.mode.dontAsk": "Never asks",
+  "noteAsk.mode.yours": "Your setting",
+  "noteAsk.mode.yours.about": "As your {agent} settings say.",
+  // Why the AI wouldn't work on its own here, by its own reason.
+  "noteAsk.mode.refused.auto_mode_settings": "Turned off in your {agent} settings.",
+  "noteAsk.mode.refused.auto_mode_model": "Not offered for this model.",
+  "noteAsk.mode.refused.auto_mode_unavailable": "Not offered for your account.",
+  "noteAsk.mode.refused.auto_mode_circuit_breaker": "Paused after too many blocked actions.",
+  "noteAsk.mode.refused.auto_mode_fast_mode": "Not while fast mode is on.",
+  "noteAsk.mode.refused.other": "{agent} didn’t switch.",
   // A new conversation with the AI after the turns so far, which stay; also the line that marks it.
   "noteColumn.new": "New conversation",
   "noteColumn.moveLeft": "Move to the left",

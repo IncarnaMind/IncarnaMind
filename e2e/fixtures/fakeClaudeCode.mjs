@@ -120,7 +120,13 @@ const gate = async (n) => {
 
 /** A Note's conversation, with its own abilities: the host answers its questions (#3653). */
 const own = args[args.indexOf("--permission-prompt-tool") + 1] === "stdio";
-const permission = readOr(`${modeFile}.permission`, mode === "auto" ? "auto" : "default");
+// The mode chosen by IncarnaMind's input starts the run (#3765); else the User's own settings.
+const chosenMode = args.includes("--permission-mode")
+  ? args[args.indexOf("--permission-mode") + 1]
+  : undefined;
+let permission =
+  chosenMode ?? readOr(`${modeFile}.permission`, mode === "auto" ? "auto" : "default");
+if (own && modeFile !== "") appendFileSync(`${modeFile}.modes`, `start ${permission}\n`);
 const answered = new Map();
 let questionsAsked = 0;
 /** Asks the host as Claude Code does, and resolves with its answer. */
@@ -157,9 +163,10 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         own &&
         args.includes("--append-system-prompt-file") &&
         args[args.indexOf("--allowedTools") + 1] === "mcp__incarnamind" &&
-        !["--restricted", "--strict-mcp-config", "--permission-mode", "--setting-sources"].some(
-          (flag) => args.includes(flag),
+        !["--restricted", "--strict-mcp-config", "--setting-sources"].some((flag) =>
+          args.includes(flag),
         ) &&
+        (chosenMode === undefined || ["default", "auto"].includes(chosenMode)) &&
         process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS === undefined;
       say({
         type: "control_response",
@@ -177,6 +184,30 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
             }
           : { subtype: "error", request_id: message.request_id, error: "not a run's flags" },
       });
+      return;
+    }
+    if (message.request?.subtype === "set_permission_mode") {
+      // As Claude Code 2.1.331 answers: the mode now in effect, said again as a status; auto mode
+      // refused where the mode file's ".noauto" says the User's settings turn it off.
+      const asked = message.request.mode;
+      appendFileSync(`${modeFile}.modes`, `set ${asked}\n`);
+      if (asked === "auto" && readOr(`${modeFile}.noauto`, "") !== "") {
+        say({
+          type: "control_response",
+          response: {
+            subtype: "error",
+            request_id: message.request_id,
+            error: "auto_mode_settings: auto mode is turned off in your settings",
+          },
+        });
+        return;
+      }
+      permission = asked;
+      say({
+        type: "control_response",
+        response: { subtype: "success", request_id: message.request_id, response: { mode: asked } },
+      });
+      say({ type: "system", subtype: "status", session_id: "fake-session", permissionMode: asked });
       return;
     }
     say({

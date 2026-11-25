@@ -1124,13 +1124,25 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     };
     const { core, mindId, claude } = await written(counted);
     await core.revokeConsent("hosted-agents", `agent:${claude.pairing.id}`);
-    expect(await core.noteModels(mindId)).toEqual({ models: [], ran: null });
+    expect(await core.noteModels(mindId)).toEqual({
+      models: [],
+      ran: null,
+      mode: null,
+      chosen: false,
+      refused: null,
+    });
     expect(calls).toBe(0);
     expect(run.runs).toEqual([]);
 
     const given = await written(counted);
     calls = 0;
-    expect(await given.core.noteModels(given.mindId)).toEqual({ models: [], ran: null });
+    expect(await given.core.noteModels(given.mindId)).toEqual({
+      models: [],
+      ran: null,
+      mode: null,
+      chosen: false,
+      refused: null,
+    });
     expect(calls).toBe(0);
     await given.core.askInNote({ mindId: given.mindId, words: "shorter" });
     await given.ended();
@@ -1138,10 +1150,74 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(await given.core.noteModels(given.mindId)).toEqual({
       models: MODELS,
       ran: "claude-haiku-5-5",
+      mode: null,
+      chosen: false,
+      refused: null,
     });
-    expect(await given.core.noteModels(given.otherId)).toEqual({ models: MODELS, ran: null });
+    expect(await given.core.noteModels(given.otherId)).toEqual({
+      models: MODELS,
+      ran: null,
+      mode: null,
+      chosen: false,
+      refused: null,
+    });
     await given.core.revokeConsent("hosted-agents", `agent:${given.claude.pairing.id}`);
-    expect(await given.core.noteModels(given.mindId)).toEqual({ models: [], ran: null });
+    expect(await given.core.noteModels(given.mindId)).toEqual({
+      models: [],
+      ran: null,
+      mode: null,
+      chosen: false,
+      refused: null,
+    });
+  });
+
+  // protects=the mode chosen by the input starts the conversation's next request, a running one is told at once and the input reads the AI's answer, a mode the AI refuses is dropped with its reason, and none goes back to the User's own settings; nothing of it is written anywhere (#3765); fails_when=the choice is lost before the next request, a refusal reads as switched, or none still sends one
+  it("starts the next request in the mode chosen by the input, and tells a running one", async () => {
+    let heard: ((mode: string) => void) | undefined;
+    let release = () => {};
+    const run = runner(async (_agent, request) => {
+      request.progress?.({ kind: "models", models: MODELS });
+      request.progress?.({ kind: "mode", mode: request.modes?.start ?? "default" });
+      if (request.prompt.includes("long")) {
+        request.modes?.hear((mode) => {
+          if (mode === "auto")
+            request.progress?.({ kind: "modeRefused", mode, reason: "auto_mode_settings" });
+          else request.progress?.({ kind: "mode", mode });
+        });
+        heard = () => undefined;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "first" });
+    await ended(1);
+    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: false });
+    await core.chooseNoteMode(mindId, "auto");
+    expect(await core.noteModels(mindId)).toMatchObject({ mode: "auto", chosen: true });
+    await core.askInNote({ mindId, words: "second" });
+    await ended(2);
+    expect(run.runs[1]?.modes?.start).toBe("auto");
+
+    await core.askInNote({ mindId, words: "a long one" });
+    await expect.poll(() => heard).toBeDefined();
+    await core.chooseNoteMode(mindId, "default");
+    expect(await core.noteModels(mindId)).toMatchObject({ mode: "default", chosen: true });
+    await core.chooseNoteMode(mindId, "auto");
+    expect(await core.noteModels(mindId)).toMatchObject({
+      mode: "default",
+      chosen: false,
+      refused: "auto_mode_settings",
+    });
+    release();
+    await ended(3);
+
+    await core.chooseNoteMode(mindId, null);
+    await core.askInNote({ mindId, words: "fourth" });
+    await ended(4);
+    expect(run.runs[3]?.modes?.start).toBeUndefined();
   });
 
   // protects=a reply's Citation is shown as one only when IncarnaMind gave that token to this connection; a made-up token is not; fails_when=a token the agent made up, or one of another connection, reaches the conversation as a Citation

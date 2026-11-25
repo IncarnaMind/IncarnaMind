@@ -75,6 +75,8 @@ const SAID_FROM = 12;
  * waiting for the AI: a line that doesn't change for longer reads as stuck (#3677).
  */
 const QUIET_MS = 30_000;
+/** How long a mode chosen while a request runs waits on the AI's answer before the input reads it. */
+const MODE_ANSWER_MS = 3000;
 const isAgentTool = (name: string): name is AgentToolName =>
   (AGENT_TOOLS as readonly string[]).includes(name);
 const MAX_QUOTE = 4000;
@@ -201,6 +203,17 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   // The model each conversation's last run named: the User's own setting may name another than the
   // list's first, which is the agent's general default.
   const ranOn = new Map<string, string>();
+  /**
+   * The permission mode the User chose by the input, by the agent's own id for the conversation:
+   * it holds for that conversation only and is written nowhere, the agent's settings least (#3765).
+   */
+  const chosenModes = new Map<string, string>();
+  /** Tells the Note's running request of a mode chosen while it runs. */
+  const modeHears = new Map<string, (mode: string) => void>();
+  /** Why the AI refused the mode chosen for a conversation, by its own code, until another is chosen. */
+  const refusedModes = new Map<string, string>();
+  /** Ends the wait for the running request's answer to a mode chosen now, by the Note. */
+  const modeAnswers = new Map<string, () => void>();
   const { db } = options;
   const running = new Map<
     string,
@@ -612,7 +625,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (offered.length > 0) listed = offered;
         return;
       }
+      if (step.kind === "modeRefused") {
+        // The pill goes back to the mode the run is in, and its menu says why (#3765).
+        if (chosenModes.get(sessionId) === step.mode) chosenModes.delete(sessionId);
+        refusedModes.set(sessionId, step.reason);
+        modeAnswers.get(mindId)?.();
+        tellWorking();
+        return;
+      }
       if (step.kind === "mode") {
+        modeAnswers.get(mindId)?.();
         if (mode !== step.mode) {
           mode = step.mode;
           modeNew =
@@ -867,6 +889,15 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               ),
               conversation: { key: conversation.id, sessionId, resume },
               ...(turn.model !== undefined && { model: turn.model }),
+              modes: {
+                ...(chosenModes.has(sessionId) && { start: chosenModes.get(sessionId) }),
+                hear(listener) {
+                  modeHears.set(turn.mindId, listener);
+                  return () => {
+                    if (modeHears.get(turn.mindId) === listener) modeHears.delete(turn.mindId);
+                  };
+                },
+              },
               listModels: true,
               progress,
               signal,
@@ -1077,12 +1108,65 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      * until a run has answered, and while no request from the Note could run (no connection that
      * runs here, no consent, local mode).
      */
-    models(mindId: string): { models: readonly OwnAiModel[]; ran: string | null } {
+    models(mindId: string): {
+      models: readonly OwnAiModel[];
+      ran: string | null;
+      mode: string | null;
+      chosen: boolean;
+      refused: string | null;
+    } {
       const pairing = options.askable(mindId).find(canRun);
       if (!listed || !pairing || options.heldBack(pairing, mindId))
-        return { models: [], ran: null };
+        return { models: [], ran: null, mode: null, chosen: false, refused: null };
       const conversation = conversationOf(mindId, pairing.id);
-      return { models: listed, ran: (conversation && ranOn.get(conversation.id)) ?? null };
+      const chosen = conversation ? chosenModes.get(conversation.session_id) : undefined;
+      // A request just started names none yet: the one before it still says what the AI is in.
+      const ranIn = conversation
+        ? (db.get<{ mode: string }>(
+            `SELECT mode FROM own_ai_turns
+             WHERE conversation_id = ? AND mode IS NOT NULL AND deleted_at IS NULL
+             ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+            [conversation.id],
+          )?.mode ?? null)
+        : null;
+      return {
+        models: listed,
+        ran: (conversation && ranOn.get(conversation.id)) ?? null,
+        mode: chosen ?? running.get(mindId)?.now()?.mode ?? ranIn,
+        chosen: chosen !== undefined,
+        refused: (conversation && refusedModes.get(conversation.session_id)) ?? null,
+      };
+    },
+
+    /**
+     * Chooses the AI's permission mode for the Note's conversation, by the input (#3765): its next
+     * request starts in it, and a request running now is told at once, which the AI takes from its
+     * next step where it can. Null goes back to the User's own settings for the AI from the next
+     * request. Nothing is written to the AI's own settings.
+     */
+    async chooseMode(mindId: string, mode: string | null): Promise<void> {
+      const pairing = options.askable(mindId).find(canRun);
+      const conversation = pairing ? conversationOf(mindId, pairing.id) : null;
+      if (!conversation) return;
+      refusedModes.delete(conversation.session_id);
+      if (mode === null) {
+        chosenModes.delete(conversation.session_id);
+        return;
+      }
+      chosenModes.set(conversation.session_id, mode);
+      const hear = modeHears.get(mindId);
+      if (!hear) return;
+      // A request running now answers at once, switched or not: what the input shows next is true.
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          if (modeAnswers.get(mindId) === done) modeAnswers.delete(mindId);
+          resolve();
+        };
+        const timer = setTimeout(done, MODE_ANSWER_MS);
+        modeAnswers.set(mindId, done);
+        hear(mode);
+      });
     },
 
     /** Deletes the conversations of Notes deleted for good. */

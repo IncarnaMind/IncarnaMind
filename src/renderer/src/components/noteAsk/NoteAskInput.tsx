@@ -3,6 +3,7 @@ import { AskArrowIcon, RemoveIcon } from "../../editor/icons";
 import { useT } from "../../i18n";
 import { StopIcon } from "../icons";
 import { TypingTextarea } from "../TypingTextarea";
+import { NoteModeChoice } from "./NoteModeChoice";
 import { NoteModelChoice } from "./NoteModelChoice";
 
 /**
@@ -138,6 +139,7 @@ export function NoteAskInput({
           className="note-ask-input-text"
         />
         <NoteModelChoice mindId={mindId} busy={working} />
+        <NoteModeChoice mindId={mindId} />
         {working ? (
           <button
             type="button"

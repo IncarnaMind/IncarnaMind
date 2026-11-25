@@ -381,6 +381,14 @@ export function createOwnAi({
               },
               initializeMs,
               ...(noted && { processes: noted }),
+              ...(request.modes && {
+                modes: {
+                  ...(request.modes.start && { start: request.modes.start }),
+                  hear: request.modes.hear,
+                  refused: (mode: string, reason: string) =>
+                    request.progress?.({ kind: "modeRefused", mode, reason }),
+                },
+              }),
             },
           }),
           ...(request.model && { model: request.model }),

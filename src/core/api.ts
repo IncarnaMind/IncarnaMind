@@ -13743,11 +13743,28 @@ export interface NoteModel {
   description: string;
 }
 
+/**
+ * The AI's own permission modes the input offers (#3765), as Claude Code names them: asking before
+ * it acts, except to read, and acting on its own behind its safety check.
+ */
+export const NOTE_MODES = ["default", "auto"] as const;
+export type NoteMode = (typeof NOTE_MODES)[number];
+
 /** The models a Note's conversation may run on, and the one its last run named (#3653). */
 export interface NoteModels {
   models: NoteModel[];
   /** As the run named it, e.g. "claude-haiku-5-5"; null until a run in this conversation has. */
   ran: string | null;
+  /**
+   * The AI's own permission mode the next request starts in (#3765), as it names it ("default",
+   * "auto", "plan", …): the one chosen by the input for this conversation, else the one its last
+   * request ran in; null until a request has named one.
+   */
+  mode: string | null;
+  /** Whether `mode` was chosen by the input rather than the User's own settings for the AI. */
+  chosen: boolean;
+  /** Why the AI last refused a mode chosen by the input, by its own code; null for none. */
+  refused: string | null;
 }
 
 /**
@@ -16455,6 +16472,12 @@ export interface CoreApi {
    */
   noteModels(mindId: string): Promise<NoteModels>;
   /**
+   * Chooses the AI's permission mode for the Note's conversation by the input (#3765): for this
+   * conversation only, taken by a request running now from its next step where the AI can; null
+   * goes back to the User's own settings for the AI. Writes nothing to the AI's own settings.
+   */
+  chooseNoteMode(mindId: string, mode: NoteMode | null): Promise<void>;
+  /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.
    */
@@ -17361,6 +17384,7 @@ const methods: Record<CoreApiMethod, true> = {
   noteConversationKept: true,
   startNewNoteConversation: true,
   noteModels: true,
+  chooseNoteMode: true,
   ownAiRunsHere: true,
   handedFileOf: true,
   editDeck: true,

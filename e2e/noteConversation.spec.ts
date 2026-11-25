@@ -901,6 +901,97 @@ test("New conversation, from the conversation's name: one line marks it at the t
   }
 });
 
+test("the mode by the input names the User's own setting for the AI, offers Asks first and On its own with a sentence each, starts the next request in the one chosen, switches a running request at its next step, says why the AI refused, and goes back to the User's setting, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  const modes = () =>
+    readFile(join(bin, "mode.modes"), "utf8").then((text) => text.trim().split("\n"));
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const pill = group.getByTestId("note-ask-mode-choice");
+    const menu = group.getByTestId("note-ask-modes");
+    const send = async (words: string, mode: string, wait = true) => {
+      const before = (await outcomesOf(window, mindId)).length;
+      await nextRun(mode);
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+      if (wait) await ended(window, mindId, before);
+    };
+    const choose = async (item: string) => {
+      await pointAndClick(window, pill);
+      await pointAndClick(window, menu.getByTestId(item));
+    };
+
+    // Nothing until a request has named the AI's mode; then the User's own, by the model.
+    await expect(pill).toHaveCount(0);
+    await send("What does the harbour plan add?", "plan");
+    await expect(pill).toHaveText("Asks first");
+    await pointAndClick(window, pill);
+    await expect(menu.locator("p").first()).toHaveText("Before Claude Code acts");
+    await expect(menu.getByRole("menuitemradio")).toHaveText([
+      "Asks firstAsks you first, except to read.",
+      "On its ownActs without asking; a safety check blocks what looks risky.",
+    ]);
+    await expect(menu.getByTestId("note-ask-mode-default")).toHaveAttribute("aria-checked", "true");
+    await window.keyboard.press("Escape");
+
+    // Chosen, the next request starts in it, and the User's setting is offered back.
+    await choose("note-ask-mode-auto");
+    await expect(pill).toHaveText("On its own");
+    await send("When does it open?", "plan");
+    expect((await modes()).at(-1)).toBe("start auto");
+
+    // The User's own setting is a third mode: back to it, the pill names it as itself.
+    await writeFile(join(bin, "mode.permission"), "acceptEdits");
+    await choose("note-ask-mode-yours");
+    await send("And the fares?", "plan");
+    expect((await modes()).at(-1)).toBe("start acceptEdits");
+    await expect(pill).toHaveText("Edits on its own");
+    await pointAndClick(window, pill);
+    await expect(menu.getByTestId("note-ask-mode-yours")).toHaveAttribute("aria-checked", "true");
+    await expect(menu.getByTestId("note-ask-mode-yours")).toContainText(
+      "Edits on its own · Your setting",
+    );
+    await window.keyboard.press("Escape");
+
+    // While a request runs: the AI takes the mode chosen at once; one it refuses says why.
+    await stepTo(0);
+    const before = (await outcomesOf(window, mindId)).length;
+    await send("Summarise the ferry interviews", "long", false);
+    await stepTo(3);
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await expect(pill).toHaveText("Edits on its own");
+    await choose("note-ask-mode-default");
+    await expect(pill).toHaveText("Asks first");
+    expect((await modes()).at(-1)).toBe("set default");
+    await writeFile(join(bin, "mode.noauto"), "1");
+    await choose("note-ask-mode-auto");
+    expect((await modes()).at(-1)).toBe("set auto");
+    await expect(pill).toHaveText("Asks first");
+    await pointAndClick(window, pill);
+    await expect(menu.getByTestId("note-ask-mode-auto")).toContainText(
+      "Turned off in your Claude Code settings.",
+    );
+    await window.keyboard.press("Escape");
+    await stepTo(99);
+    await ended(window, mindId, before);
+
+    await setLanguage(window, "zh-CN");
+    await expect(pill).toHaveText("先询问");
+    await pointAndClick(window, pill);
+    await expect(menu.locator("p").first()).toHaveText("Claude Code 行动前");
+    await expect(menu.getByTestId("note-ask-mode-auto")).toContainText(
+      "你的 Claude Code 设置里关闭了此项。",
+    );
+    await window.keyboard.press("Escape");
+  } finally {
+    await app.close();
+  }
+});
+
 test("what a reply made shows under its words, a card each with its kind's icon in a soft tile, its name, its kind and Open, and a press opens it, in English and Chinese", async () => {
   const { app, window } = await launched();
   try {
