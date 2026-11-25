@@ -261,7 +261,7 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await press(window);
 
     await expect(dialog).toContainText(
-      "To start your own AI on this computer when you press Check, ask at the bottom of a note, or ask call help during a call",
+      "To start your own AI on this computer when you press Check, ask in a note, or ask call help",
     );
     await both(app, window, "background-consent", async () => {
       await expect(dialog).toContainText(

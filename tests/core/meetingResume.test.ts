@@ -359,10 +359,10 @@ describe("Resume after Stop (#3762)", { timeout: 60_000 }, () => {
       wording: { key: "error.meeting.resumeTranscriptElsewhere" },
     });
     expect(translate("en", "error.meeting.resumeTranscriptElsewhere")).toBe(
-      "Recording can’t resume: this meeting’s Transcript is saved outside IncarnaMind’s data folder, so new lines can’t be added to it. Record a new meeting.",
+      "Recording can’t resume: this Transcript is saved outside the data folder. Record a new meeting.",
     );
     expect(translate("zh-CN", "error.meeting.resumeTranscriptElsewhere")).toBe(
-      "无法继续录制：这场会议的转写稿保存在 IncarnaMind 的数据文件夹之外，无法再往里添加内容。请录制一场新会议。",
+      "无法继续录制：这份转写稿保存在数据文件夹之外。请录制一场新会议。",
     );
     expect(await meetingOf(second.core, meeting.id)).toMatchObject({
       status: "stopped",

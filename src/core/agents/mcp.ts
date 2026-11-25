@@ -489,9 +489,7 @@ export function createAgentServer(
         changes: z
           .array(
             z.object({
-              paragraph: z
-                .string()
-                .describe("¶3, ¶3+, ¶+, or ¶0+ for the top: the one way into an empty Note."),
+              paragraph: z.string().describe("¶3, ¶3+, ¶+, ¶0+."),
               text: z.string().optional(),
               remove: z.boolean().optional(),
             }),

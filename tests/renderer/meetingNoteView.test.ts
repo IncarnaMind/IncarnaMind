@@ -1260,21 +1260,21 @@ describe("the meeting's control and sheet after #3762's review", () => {
     [
       "en",
       "full",
-      "Audio isn’t being saved: the disk is full. The Transcript goes on; free up disk space and saving starts again.",
+      "The disk is full: audio isn’t saved until you free up space, but the Transcript goes on.",
     ],
     [
       "en",
       "denied",
-      "Audio isn’t being saved: IncarnaMind isn’t allowed to write to its data folder. The Transcript goes on.",
+      "IncarnaMind can’t write to its data folder: audio isn’t saved, but the Transcript goes on.",
     ],
     [
       "en",
       "error",
-      "Audio isn’t being saved right now. The Transcript goes on, and IncarnaMind keeps trying.",
+      "Audio isn’t saved right now, but the Transcript goes on and IncarnaMind keeps trying.",
     ],
-    ["zh-CN", "full", "音频没有保存：磁盘已满。转写稿照常继续；腾出磁盘空间后会自动恢复保存。"],
-    ["zh-CN", "denied", "音频没有保存：IncarnaMind 没有写入数据文件夹的权限。转写稿照常继续。"],
-    ["zh-CN", "error", "音频暂时没有保存。转写稿照常继续，IncarnaMind 会继续尝试保存。"],
+    ["zh-CN", "full", "磁盘已满：腾出空间前音频不会保存，转写稿照常继续。"],
+    ["zh-CN", "denied", "IncarnaMind 无法写入数据文件夹：音频不会保存，转写稿照常继续。"],
+    ["zh-CN", "error", "音频暂时没有保存，转写稿照常继续，IncarnaMind 会继续尝试。"],
   ] as const)(
     "audio that can't be saved is said in plain words, folded and in the sheet (%s, %s)",
     async (language, saveError, said) => {

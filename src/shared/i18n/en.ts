@@ -6733,7 +6733,7 @@ export const en = {
   "error.meeting.resumeTranscriptUnreadable":
     "Recording can’t resume: it would lose lines already in this meeting’s Transcript.",
   "error.meeting.resumeTranscriptElsewhere":
-    "Recording can’t resume: this meeting’s Transcript is saved outside IncarnaMind’s data folder, so new lines can’t be added to it. Record a new meeting.",
+    "Recording can’t resume: this Transcript is saved outside the data folder. Record a new meeting.",
   "error.meeting.saveWhileRecording": "Stop the recording to save it.",
   "error.meeting.savingRecording": "This recording is already being saved.",
   "error.meeting.joinMoved": "The meeting has moved since, so this can’t be undone.",
@@ -7480,11 +7480,11 @@ export const en = {
   "meetings.line.gapClosed": "{missed} not recorded at {time}: IncarnaMind was closed.",
   "meetings.line.gapSleep": "{missed} not recorded at {time}: the computer was asleep.",
   "meetings.line.saveFailed.full":
-    "Audio isn’t being saved: the disk is full. The Transcript goes on; free up disk space and saving starts again.",
+    "The disk is full: audio isn’t saved until you free up space, but the Transcript goes on.",
   "meetings.line.saveFailed.denied":
-    "Audio isn’t being saved: IncarnaMind isn’t allowed to write to its data folder. The Transcript goes on.",
+    "IncarnaMind can’t write to its data folder: audio isn’t saved, but the Transcript goes on.",
   "meetings.line.saveFailed.error":
-    "Audio isn’t being saved right now. The Transcript goes on, and IncarnaMind keeps trying.",
+    "Audio isn’t saved right now, but the Transcript goes on and IncarnaMind keeps trying.",
   "meetings.line.microphoneDenied": "IncarnaMind isn’t allowed to use the microphone.",
   "meetings.line.microphoneSilent":
     "No sound from the microphone for 15 seconds: it may be muted, or the wrong one chosen.",
@@ -8738,7 +8738,7 @@ export const en = {
   "consent.flow.agents.purpose": "let your AI agent read and cite your Documents",
   "consent.flow.hosted-agents": "Your AI, run in the background",
   "consent.flow.hosted-agents.purpose":
-    "start your own AI on this computer when you press Check, ask at the bottom of a note, or ask call help during a call",
+    "start your own AI on this computer when you press Check, ask in a note, or ask call help",
   "consent.flow.agent-install": "Install Claude Code",
   "consent.flow.agent-install.purpose":
     "download and install Claude Code from Anthropic into your user folder",
