@@ -37,7 +37,7 @@ export function CaptureDetailsToggle({ meeting }: { meeting: Meeting }) {
       onClick={() => useMeetings.getState().showDetails(meeting.id)}
       className="meeting-button meeting-button--icon"
     >
-      <PulseLineIcon className="size-3.5" />
+      <PulseLineIcon className="size-4" />
     </button>
   );
 }

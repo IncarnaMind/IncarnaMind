@@ -2840,11 +2840,6 @@
     width: 28px;
     height: 28px;
   }
-  .meeting-sheet-head svg,
-  .meeting-sheet-foot svg {
-    width: 16px !important;
-    height: 16px !important;
-  }
   /* The finished change is said once, where the Note's conversation shows it: line or column (#3762). */
   .mind-tab-page[data-ask-undo] .mind-editor [data-testid="applied-line"] {
     display: none;

@@ -151,7 +151,7 @@ export function CallHelpToggle() {
       onClick={() => files.showMeetingPanel(!shown)}
       className="meeting-button meeting-button--words"
     >
-      <FloatLineIcon className="size-3.5" />
+      <FloatLineIcon className="size-4" />
       <span className="meeting-button-word">{t("meetings.callHelp")}</span>
     </button>
   );

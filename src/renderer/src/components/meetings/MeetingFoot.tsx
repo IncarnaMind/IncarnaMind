@@ -473,7 +473,7 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
                 onClick={() => void useMeetings.getState().resume(meeting.id)}
                 className="meeting-button meeting-button--words"
               >
-                <ResumeLineIcon className="size-3.5" />
+                <ResumeLineIcon className="size-4" />
                 <span>{t("meetings.foot.resume")}</span>
               </button>
               <button
@@ -522,7 +522,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void setMicrophonePaused(meeting.id, !micPaused)}
         className="meeting-button meeting-button--words"
       >
-        {micPaused ? <MicOffLineIcon className="size-3.5" /> : <MicLineIcon className="size-3.5" />}
+        {micPaused ? <MicOffLineIcon className="size-4" /> : <MicLineIcon className="size-4" />}
         <span>{t(micPaused ? "meetings.mic.resume" : "meetings.mic.pause")}</span>
       </button>
       <button
@@ -534,9 +534,9 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         className="meeting-button meeting-button--words"
       >
         {recording ? (
-          <PauseLineIcon className="size-3.5" />
+          <PauseLineIcon className="size-4" />
         ) : (
-          <ResumeLineIcon className="size-3.5" />
+          <ResumeLineIcon className="size-4" />
         )}
         <span>{t(recording ? "meetings.foot.pause" : "meetings.foot.resume")}</span>
       </button>
@@ -549,7 +549,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void commands.run("meeting.mark")}
         className="meeting-button meeting-button--words"
       >
-        <BookmarkLineIcon className="size-3.5" />
+        <BookmarkLineIcon className="size-4" />
         <span>{t("meetings.mark")}</span>
       </button>
       <button
@@ -561,7 +561,7 @@ function SheetFoot({ meeting }: { meeting: Meeting }) {
         onClick={() => void chooseScreen(meeting.id)}
         className="meeting-button meeting-button--words"
       >
-        <ScreenLineIcon className="size-3.5" />
+        <ScreenLineIcon className="size-4" />
         <span>{t("meetings.foot.screen")}</span>
       </button>
       <CallHelpToggle />
