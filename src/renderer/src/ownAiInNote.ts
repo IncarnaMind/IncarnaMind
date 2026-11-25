@@ -414,6 +414,16 @@ export function focusNoteAsk(mindId: string): void {
     ?.focus();
 }
 
+/** Words a sent request's Edit gives back to the Note's input, which takes them once (#3765). */
+export const useEditedRequests = create<{ byMind: Readonly<Record<string, string>> }>(() => ({
+  byMind: {},
+}));
+
+/** Puts a sent request's words back in the Note's input, to change and send as a new request. */
+export function editRequest(mindId: string, words: string): void {
+  useEditedRequests.setState((state) => ({ byMind: { ...state.byMind, [mindId]: words } }));
+}
+
 /** The label goes once the User starts the next request, or closes it. */
 export const clearNoteAsk = (mindId: string): void => {
   const ask = useNoteAsks.getState().byMind[mindId];

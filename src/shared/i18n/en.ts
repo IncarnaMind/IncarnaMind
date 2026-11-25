@@ -9391,6 +9391,7 @@ export const en = {
   "noteColumn.what.docs": "{count} Documents",
   "noteColumn.what.doc": "“{document}”",
   "noteColumn.made.note": "Note",
+  "noteColumn.made.open": "Open",
   "noteColumn.made.waiting.one": "1 change waits",
   "noteColumn.made.waiting.other": "{count} changes wait",
   "noteColumn.close": "Hide conversation",
@@ -9403,6 +9404,9 @@ export const en = {
   "noteColumn.moveLeft": "Move to the left",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
+  // A request sent: send the same words again, or put them back in the input to change them.
+  "noteColumn.sendAgain": "Send again",
+  "noteColumn.edit": "Edit",
   "noteColumn.citation": "Citation {number}",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).

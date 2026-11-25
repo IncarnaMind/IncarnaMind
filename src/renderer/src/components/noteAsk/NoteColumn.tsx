@@ -1,10 +1,12 @@
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
+import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import {
   askInNote,
+  editRequest,
   firstWordsOf,
   type NoteAsk,
   type NoteTrail,
@@ -15,7 +17,14 @@ import {
   withoutCitations,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
+import {
+  ChevronRightLineIcon,
+  CloseLineIcon,
+  CopyLineIcon,
+  MindLineIcon,
+  PencilLineIcon,
+  RetryLineIcon,
+} from "../lineIcons";
 import { SidebarToggle } from "../SidebarToggle";
 import { MoveConversation } from "./NoteAsk";
 import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
@@ -418,9 +427,12 @@ function Turn({
           {t("noteAsk.renewed", { agent })}
         </p>
       )}
-      <div className="note-column-bubble">
-        {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
-        <p>{turn.request}</p>
+      <div className="note-column-sent">
+        <div className="note-column-bubble">
+          {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
+          <p>{turn.request}</p>
+        </div>
+        <SentActions mindId={mindId} turn={turn} />
       </div>
       {modeLine && (
         <p data-testid="own-mode" className="note-column-notice">
@@ -518,14 +530,13 @@ function Turn({
               aria-hidden="true"
             />
           </button>
-          {open ? (
+          {open && (
             <ol className="note-column-list">
               {steps.map((step, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
                 <li key={index} className="note-column-step-item">
                   {first && step === steps.find(unasked) && <FirstOwnLine agent={agent} />}
                   <StepLine step={step} going={false} />
-                  {madeKind(step) && <MadeCard step={step} />}
                 </li>
               ))}
               {trail.model && (
@@ -537,21 +548,15 @@ function Turn({
                 </li>
               )}
             </ol>
-          ) : (
-            made.length > 0 && (
-              <div className="note-column-made">
-                {made.map((step, index) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
-                  <MadeCard key={index} step={step} />
-                ))}
-              </div>
-            )
           )}
         </div>
       )}
+      {/* What it made, under the reply's words, or under its steps when it wrote none. */}
+      {state === "landed" && turn.reply === "" && <MadeCards steps={made} />}
       {state === "landed" && turn.reply !== "" && (
         <div data-testid="note-column-reply" className="note-column-reply">
           <Reply text={turn.reply} citations={turn.citations} />
+          <MadeCards steps={made} />
           <div className="note-column-reply-foot">
             <span className="note-column-reply-meta">
               <button
@@ -578,6 +583,60 @@ function Turn({
   );
 }
 
+/**
+ * Under a sent request, shown while it is pointed at or holds the focus (#3765): when it was sent,
+ * then Send again, Edit and Copy. Send again is there for a request on the whole Note while none
+ * runs: the words another was about can't be selected again for it, as Ask again has it. Edit puts
+ * the words back in the input to change and send as a new request.
+ */
+function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
+  const t = useT();
+  const language = useLanguage();
+  const working = useNoteAsks((state) => state.byMind[mindId]?.state === "working");
+  const report = useAppStore.getState().reportError;
+  return (
+    <div data-testid="note-column-sent-actions" className="note-column-sent-actions">
+      <span className="note-column-sent-time">{formatDateTime(turn.at, language)}</span>
+      {!working && turn.quote === "" && (
+        <button
+          type="button"
+          data-testid="note-column-send-again"
+          aria-label={t("noteColumn.sendAgain")}
+          title={t("noteColumn.sendAgain")}
+          onClick={() =>
+            void askInNote(mindId, { words: turn.request, quote: "", selection: null }).catch(
+              report,
+            )
+          }
+          className="note-column-icon"
+        >
+          <RetryLineIcon className="size-3.5" />
+        </button>
+      )}
+      <button
+        type="button"
+        data-testid="note-column-edit"
+        aria-label={t("noteColumn.edit")}
+        title={t("noteColumn.edit")}
+        onClick={() => editRequest(mindId, turn.request)}
+        className="note-column-icon"
+      >
+        <PencilLineIcon className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        data-testid="note-column-copy-request"
+        aria-label={t("noteColumn.copy")}
+        title={t("noteColumn.copy")}
+        onClick={() => void navigator.clipboard.writeText(turn.request).catch(report)}
+        className="note-column-icon"
+      >
+        <CopyLineIcon className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
 const madeKind = (step: NoteStep): "note" | "changed" | null => {
   if (step.kind !== "call" || !MAKES.has(step.tool) || step.done === false) return null;
   if (step.tool === "create_mind") return "note";
@@ -585,7 +644,20 @@ const madeKind = (step: NoteStep): "note" | "changed" | null => {
   return null;
 };
 
-/** What the AI made or changed, other than the Note in front: a press opens it. */
+/** What a reply made or changed, other than the Note in front, a card each. */
+function MadeCards({ steps }: { steps: readonly NoteStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div className="note-column-made">
+      {steps.map((step, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+        <MadeCard key={index} step={step} />
+      ))}
+    </div>
+  );
+}
+
+/** A card for what the AI made or changed: its kind's icon, its name and kind; a press opens it. */
 function MadeCard({ step }: { step: NoteStep }) {
   const t = useT();
   const kind = madeKind(step);
@@ -608,8 +680,14 @@ function MadeCard({ step }: { step: NoteStep }) {
       }}
       className="note-column-made-card"
     >
-      <span className="note-column-made-title">{step.summary}</span>
-      <span className="note-column-made-kind">{what}</span>
+      <span className="note-column-made-icon" aria-hidden="true">
+        <MindLineIcon className="size-[18px]" />
+      </span>
+      <span className="note-column-made-text">
+        <span className="note-column-made-title">{step.summary}</span>
+        <span className="note-column-made-kind">{what}</span>
+      </span>
+      <span className="note-column-made-open">{t("noteColumn.made.open")}</span>
     </button>
   );
 }

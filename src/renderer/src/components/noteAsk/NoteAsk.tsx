@@ -28,6 +28,7 @@ import {
   setColumnOpen,
   stopInNote,
   useColumnOpen,
+  useEditedRequests,
   useNoteAskShown,
   useNoteAsks,
   useNoteColumns,
@@ -130,6 +131,25 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       editor.off("selectionUpdate", follow);
     };
   }, [editor]);
+
+  // A sent request's Edit: its words come back to change, about the whole Note, for the words it
+  // was about may be gone; the keyboard is at their end.
+  const edited = useEditedRequests((state) => state.byMind[mindId]);
+  useEffect(() => {
+    if (edited === undefined) return;
+    useEditedRequests.setState((state) => {
+      const { [mindId]: _taken, ...rest } = state.byMind;
+      return { byMind: rest };
+    });
+    setWords(edited);
+    setWhole(true);
+    requestAnimationFrame(() => {
+      focusNoteAsk(mindId);
+      const field = document.activeElement;
+      if (field instanceof HTMLTextAreaElement)
+        field.setSelectionRange(field.value.length, field.value.length);
+    });
+  }, [edited, mindId]);
 
   const send = async () => {
     const typed = words.trim();

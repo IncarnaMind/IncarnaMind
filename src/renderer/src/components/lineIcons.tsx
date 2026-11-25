@@ -653,6 +653,16 @@ export function RestoreLineIcon(props: IconProps) {
   );
 }
 
+/** Send again: an arrow going round once more. */
+export function RetryLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M20 12a8 8 0 1 1-2.3-5.6" />
+      <path d="M20 4v4h-4" />
+    </LineIcon>
+  );
+}
+
 const WINDOW_FRAME = <rect x="3.5" y="4.5" width="17" height="15" rx="2" />;
 
 /** Where the assistant can sit: a window with its place in it marked. */

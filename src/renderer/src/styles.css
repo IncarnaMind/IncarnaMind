@@ -3042,6 +3042,32 @@
     line-height: 20px;
     color: var(--color-ink);
   }
+  .note-column-sent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .note-column-sent-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 16px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    /* Unseen until the request is pointed at or holds the focus, yet reachable by Tab. */
+    opacity: 0;
+    .note-column-icon {
+      margin-block: -6px;
+    }
+  }
+  .note-column-sent:is(:hover, :focus-within) .note-column-sent-actions {
+    opacity: 1;
+  }
+  .note-column-sent-time {
+    margin-right: 6px;
+  }
   .note-column-bubble-quote {
     margin-bottom: 2px;
     color: var(--color-ink-meta);
@@ -3148,10 +3174,10 @@
   /* What the AI made or changed, beside the Note in front: a card that opens it. */
   .note-column-made-card {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    gap: 10px;
     width: 100%;
-    padding: 8px 12px;
+    padding: 8px 10px;
     border: 1px solid var(--color-rule);
     border-radius: 8px;
     background: var(--color-sheet);
@@ -3159,6 +3185,30 @@
     &:hover {
       background: var(--color-hover);
     }
+  }
+  .note-column-made-icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--color-accent-wash);
+    color: var(--color-accent);
+  }
+  .note-column-made-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .note-column-made-open {
+    flex: none;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--color-accent);
   }
   .note-column-made-title {
     max-width: 100%;
@@ -3223,8 +3273,6 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* About half the Note's visible height at the window sizes the app opens at. */
-    max-height: 40vh;
     border-bottom: 1px solid var(--color-rule);
   }
   /* The column's top row, inside the box: its name at the words' start, its controls at Send's end. */
@@ -3233,8 +3281,8 @@
     flex: none;
     align-items: center;
     gap: 2px;
-    height: 44px;
-    padding: 8px var(--note-ask-end) 0 var(--note-ask-start);
+    height: 36px;
+    padding: 6px var(--note-ask-end) 0 var(--note-ask-start);
   }
   .note-ask-panel-body {
     /*
@@ -3248,6 +3296,8 @@
     flex-direction: column;
     gap: 16px;
     min-height: 0;
+    /* About half the Note's visible height at the window sizes the app opens at, under the top row. */
+    max-height: 40vh;
     overflow: auto;
     padding: var(--scroll-head) var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
     .note-column-reply-foot {
@@ -3266,6 +3316,8 @@
    * reply, once the turns overflow: the turns above scroll away (NoteConversationBody).
    */
   :is(.note-ask-panel-body, .note-column-body) > [data-newest] {
+    /* Its least height, never less than its words: it doesn't shrink to the room and spill. */
+    flex: none;
     min-height: var(--newest-room, auto);
   }
   .note-column-body[data-scrolled] {

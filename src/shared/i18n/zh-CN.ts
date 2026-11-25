@@ -8768,6 +8768,7 @@ export const zhCN = {
   "noteColumn.what.docs": " {count} 个文档",
   "noteColumn.what.doc": "“{document}”",
   "noteColumn.made.note": "笔记",
+  "noteColumn.made.open": "打开",
   "noteColumn.made.waiting.one": "1 处修改等你确认",
   "noteColumn.made.waiting.other": "{count} 处修改等你确认",
   "noteColumn.close": "隐藏对话",
@@ -8779,6 +8780,8 @@ export const zhCN = {
   "noteColumn.moveLeft": "移到左侧",
   "noteColumn.moveDown": "移回笔记下方",
   "noteColumn.copy": "拷贝",
+  "noteColumn.sendAgain": "再次发送",
+  "noteColumn.edit": "编辑",
   "noteColumn.citation": "引用 {number}",
   // 你的 AI 在笔记对话里用自己的工具前的请求，以及它用这些工具的步骤（#3653）。
   "ownAsk.title.command": "运行命令",

@@ -203,8 +203,8 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       "A second ramp at Kestrel Bay, in 2027, so the vans and the foot passengers can board at once.",
     );
 
-    // Upward: the same box grows over the Note's foot, as tall as the conversation needs and no
-    // taller than 40% of the window, the reply never again in a row of its own. Its top row is the
+    // Upward: the same box grows over the Note's foot, as tall as the conversation needs, its turns
+    // no taller than 40% of the window, the reply never again in a row of its own. Its top row is the
     // conversation's name with the move to the left and the fold at its end, and the turns start
     // under it, never behind them (#3765); the conversation ends 12px above the input.
     await pointAndClick(window, handle);
@@ -212,7 +212,9 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     await expect(panel.getByTestId("note-column-turn")).toHaveCount(1);
     await expect(box.getByTestId("note-ask-pill")).toHaveCount(0);
     await expect(box.getByTestId("note-ask-top")).toHaveCount(0);
-    expect((await panel.boundingBox())?.height ?? 999).toBeLessThanOrEqual(900 * 0.4 + 1);
+    expect(
+      (await panel.getByTestId("note-conversation-body").boundingBox())?.height ?? 999,
+    ).toBeLessThanOrEqual(900 * 0.4 + 1);
     const aside = panel.getByTestId("conversation-move-left");
     await expect(aside).toHaveAttribute("aria-label", "Move to the left");
     await expect(panel.getByTestId("note-ask-fold")).toHaveAttribute(
@@ -711,6 +713,173 @@ test("a sent quote leaves the input, a request that can't start keeps the words 
   }
 });
 
+test("a sent request shows when it was sent, Send again, Edit and Copy while it is pointed at: Copy takes its words, Edit gives them back to the input to change, Send again asks them anew and starts under the top row, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 900, 760);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const asked = "What does the harbour plan add?";
+    let before = (await outcomesOf(window, mindId)).length;
+    await nextRun("plan");
+    await pointAndClick(window, input);
+    await window.keyboard.type(asked);
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    // The newest request: the one in view under the top row.
+    const sent = panel.locator(".note-column-sent").last();
+    const actions = sent.getByTestId("note-column-sent-actions");
+    const pointAt = async () => {
+      const box = await sent.locator(".note-column-bubble").boundingBox();
+      if (!box) throw new Error("The request isn't shown.");
+      await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+    };
+
+    // Unseen until pointed at; then when it was sent, and three actions, each named.
+    await window.mouse.move(4, 4);
+    await expect(actions).toHaveCSS("opacity", "0");
+    await pointAt();
+    await expect(actions).toHaveCSS("opacity", "1");
+    await expect(actions.locator(".note-column-sent-time")).toHaveText(/^\d{1,2}:\d{2}/);
+    await expect(actions.getByTestId("note-column-send-again")).toHaveAttribute(
+      "aria-label",
+      "Send again",
+    );
+    await expect(actions.getByTestId("note-column-edit")).toHaveAttribute("aria-label", "Edit");
+    await expect(actions.getByTestId("note-column-copy-request")).toHaveAttribute(
+      "aria-label",
+      "Copy",
+    );
+
+    // Copy takes the words as they were sent.
+    await pointAndClick(window, actions.getByTestId("note-column-copy-request"));
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(asked);
+
+    // Edit gives them back to the input, the keyboard at their end, to change and send anew.
+    await pointAndClick(window, actions.getByTestId("note-column-edit"));
+    await expect(input).toHaveValue(asked);
+    await expect(input).toBeFocused();
+    await window.keyboard.type(" And when?");
+    await expect(input).toHaveValue(`${asked} And when?`);
+    await input.fill("");
+
+    // Send again asks the same words as a new request.
+    before = (await outcomesOf(window, mindId)).length;
+    await nextRun("plan");
+    await pointAt();
+    await pointAndClick(window, actions.getByTestId("note-column-send-again"));
+    await ended(window, mindId, before);
+    await expect(panel.locator(".note-column-bubble")).toHaveText([asked, asked]);
+    // The turns overflow the box: the new request starts 8px under the top row, the one before
+    // scrolled away above it, rather than its tail left between them.
+    const placed = await panel.evaluate((element) => {
+      const head = element.querySelector('[data-testid="note-ask-panel-head"]');
+      const turns = Array.from(element.querySelectorAll('[data-testid="note-column-turn"]'));
+      const [older, newest] = [turns.at(-2), turns.at(-1)];
+      if (!head || !older || !newest) return null;
+      const under = head.getBoundingClientRect().bottom;
+      return {
+        newest: newest.getBoundingClientRect().top - under,
+        older: older.getBoundingClientRect().bottom - under,
+      };
+    });
+    expect(Math.abs((placed?.newest ?? 0) - 8)).toBeLessThanOrEqual(1);
+    expect(placed?.older ?? 1).toBeLessThanOrEqual(0);
+
+    await setLanguage(window, "zh-CN");
+    await pointAt();
+    await expect(actions.getByTestId("note-column-send-again")).toHaveAttribute(
+      "aria-label",
+      "再次发送",
+    );
+    await expect(actions.getByTestId("note-column-edit")).toHaveAttribute("aria-label", "编辑");
+    await expect(actions.getByTestId("note-column-copy-request")).toHaveAttribute(
+      "aria-label",
+      "拷贝",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("what a reply made shows under its words, a card each with its kind's icon in a soft tile, its name, its kind and Open, and a press opens it, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    // In the Folder the connection may read and propose in, beside the Harbour notes.
+    const folderId = await window.evaluate(
+      async (id) =>
+        (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds()).find(
+          (mind) => mind.id === id,
+        )?.folderId ?? null,
+      mindId,
+    );
+    const timetable = await writeNote(
+      window,
+      "Ferry timetable",
+      [{ text: "The 07:40 crossing leaves at 07:40." }],
+      { folderId },
+    );
+    await writeFile(join(bin, "mode.other"), timetable);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const panel = group.getByTestId("note-ask-panel");
+    const before = (await outcomesOf(window, mindId)).length;
+    await nextRun("make");
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Write up the delays");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    const reply = panel.getByTestId("note-column-reply").last();
+    const cards = reply.getByTestId("note-column-made");
+    await expect(cards).toHaveCount(2);
+
+    // Under the reply's words, each card its kind's icon in a soft tile at its left, then its name
+    // with its kind under it, and Open.
+    const [words, first] = [
+      await reply.getByTestId("note-ask-reply").boundingBox(),
+      await cards.first().boundingBox(),
+    ];
+    expect((first?.y ?? 0) - ((words?.y ?? 0) + (words?.height ?? 0))).toBeGreaterThanOrEqual(0);
+    const made = cards.first();
+    await expect(made.locator(".note-column-made-title")).toHaveText(
+      "Ferry delays: what the interviews say",
+    );
+    await expect(made.locator(".note-column-made-kind")).toHaveText("Note");
+    await expect(made.locator(".note-column-made-open")).toHaveText("Open");
+    await expect(cards.nth(1).locator(".note-column-made-title")).toHaveText("Ferry timetable");
+    await expect(cards.nth(1).locator(".note-column-made-kind")).toHaveText("1 change waits");
+    const tile = made.locator(".note-column-made-icon");
+    expect(await tile.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
+      "rgba(0, 0, 0, 0)",
+    );
+    const [tileBox, titleBox] = [
+      await tile.boundingBox(),
+      await made.locator(".note-column-made-title").boundingBox(),
+    ];
+    expect((tileBox?.x ?? 99) + (tileBox?.width ?? 0)).toBeLessThanOrEqual(titleBox?.x ?? 0);
+
+    await setLanguage(window, "zh-CN");
+    await expect(made.locator(".note-column-made-kind")).toHaveText("笔记");
+    await expect(made.locator(".note-column-made-open")).toHaveText("打开");
+    await expect(cards.nth(1).locator(".note-column-made-kind")).toHaveText("1 处修改等你确认");
+
+    // A press opens what it made.
+    await pointAndClick(window, made);
+    await expect(
+      window
+        .locator('[data-testid="tab-group"][data-focused] [role="tab"][aria-selected="true"]')
+        .first(),
+    ).toContainText("Ferry delays");
+  } finally {
+    await app.close();
+  }
+});
+
 test("a Citation in a reply shows its quote on hover and opens its Document there, as one in the Note does; scrolled, the conversation open upward fades out under its controls, never cut by the box's edge", async () => {
   const { app, window } = await launched();
   try {
@@ -1011,8 +1180,8 @@ async function showConversation(window: Page, index: number, open: boolean) {
 
 /**
  * Where the column doesn't fit, the conversation is open upward in the box at the foot of the Note
- * in group `index`, as wide as its text and under 40% of the window's height, showing `asked`, with
- * no column and no move to one.
+ * in group `index`, as wide as its text, its turns under 40% of the window's height, showing
+ * `asked`, with no column and no move to one.
  */
 async function expectUpward(window: Page, index: number, asked: string) {
   const group = window.getByTestId("tab-group").nth(index);
@@ -1036,7 +1205,9 @@ async function expectUpward(window: Page, index: number, asked: string) {
     })
     .toBeLessThanOrEqual(1);
   const height = await window.evaluate(() => globalThis.innerHeight);
-  expect((await boxOf(panel)).height).toBeLessThanOrEqual(height * 0.4 + 1);
+  expect((await boxOf(panel.getByTestId("note-conversation-body"))).height).toBeLessThanOrEqual(
+    height * 0.4 + 1,
+  );
 }
 
 /**
@@ -1071,8 +1242,10 @@ async function expectPanelEdges(group: Locator) {
           .map((child) => child.getBoundingClientRect())
           .filter((rect) => rect.height > 0)
           .at(-1);
+    // Taller than the turns' height, it shows its end instead.
+    const room = Number.parseFloat(body.style.getPropertyValue("--newest-room"));
     const newest =
-      turn?.hasAttribute("data-newest") && body.scrollHeight > body.clientHeight
+      turn?.hasAttribute("data-newest") && turn.getBoundingClientRect().height <= room + 1
         ? turn.getBoundingClientRect().top - top.bottom
         : 8;
     const frame = box.getBoundingClientRect();
