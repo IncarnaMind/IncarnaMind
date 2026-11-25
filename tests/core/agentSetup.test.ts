@@ -1492,7 +1492,11 @@ describe("one connection per app on this computer", () => {
 
   it("a second press whose step fails leaves the connection connected, reading and writing what it did", async () => {
     const { core, links, coast } = await started();
-    const first = await core.setUpAgent({ client: "cursor", folderIds: [coast.id], propose: false });
+    const first = await core.setUpAgent({
+      client: "cursor",
+      folderIds: [coast.id],
+      propose: false,
+    });
     links.push = () => {
       throw new Error("No app can open this link.");
     };

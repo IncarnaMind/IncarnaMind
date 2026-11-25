@@ -726,7 +726,10 @@ export function createAgentSetup(options: AgentSetupOptions) {
     const files = before.renewed ? [] : (written.get(pairingId) ?? []);
     for (const file of files) {
       if (!file.file.backup && (await readText(file.path)) !== file.after) {
-        throw new InvalidInputError({ key: "error.agent.undoChanged", values: { path: file.path } });
+        throw new InvalidInputError({
+          key: "error.agent.undoChanged",
+          values: { path: file.path },
+        });
       }
     }
     for (const file of files) {

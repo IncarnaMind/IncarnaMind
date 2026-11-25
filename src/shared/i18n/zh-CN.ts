@@ -8451,7 +8451,8 @@ export const zhCN = {
   "agents.settings.connectButton": "连接",
   "agents.settings.help": "分步说明",
   "agents.settings.skillLeft": "已断开{agent}。因为你改过技能文件，它仍保留在 {path}。",
-  "agents.settings.settingsLeft": "已断开{agent}。{path} 中仍有 IncarnaMind 的设置，可在该文件中删除。",
+  "agents.settings.settingsLeft":
+    "已断开{agent}。{path} 中仍有 IncarnaMind 的设置，可在该文件中删除。",
   "agents.settings.repairAll": "全部修复（{count} 个）",
   "agents.settings.disconnectAll": "全部断开…",
   "agents.settings.disconnectAll.ask":

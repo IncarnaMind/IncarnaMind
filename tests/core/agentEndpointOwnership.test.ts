@@ -35,12 +35,7 @@ import {
 } from "../../src/shared/agentSocket";
 import { translate } from "../../src/shared/i18n";
 import { agentSocketAnswers, legacyAgentClient } from "../helpers/agentClients";
-import {
-  agentsAdapter,
-  buildAgentShim,
-  connectedTwice,
-  startAgentsCore,
-} from "../helpers/agents";
+import { agentsAdapter, buildAgentShim, connectedTwice, startAgentsCore } from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { scriptedModel } from "../helpers/models";
 
@@ -703,8 +698,10 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
   }, 60_000);
 
   it("with another Claude Code connection left, one whose key can't be read leaves the entry it can't tell apart, and says where", async () => {
-    const { restarted, pairing, claudeJson } = await keyUnreadable("claude-code", (core, folderIds) =>
-      core.connectAgent({ name: "Claude Code 2", client: "claude-code", folderIds }),
+    const { restarted, pairing, claudeJson } = await keyUnreadable(
+      "claude-code",
+      (core, folderIds) =>
+        core.connectAgent({ name: "Claude Code 2", client: "claude-code", folderIds }),
     );
     const left = await restarted.disconnectAgent(pairing.id);
     expect(left.settingsLeft?.map((each) => each.path)).toEqual([claudeJson]);
@@ -755,12 +752,16 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     const { core, opened, folderIds } = await claudeComputer();
     const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
     const oldLaunch = await core.getAgentLaunch(pairing.id);
-    await callViaLegacyV1(oldLaunch.env[AGENT_SOCKET_ENV] ?? "", oldLaunch.env[AGENT_TOKEN_ENV] ?? "", {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/list",
-      params: {},
-    });
+    await callViaLegacyV1(
+      oldLaunch.env[AGENT_SOCKET_ENV] ?? "",
+      oldLaunch.env[AGENT_TOKEN_ENV] ?? "",
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: {},
+      },
+    );
     expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
 
     await Promise.all([
