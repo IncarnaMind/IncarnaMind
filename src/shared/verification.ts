@@ -83,6 +83,8 @@ export interface Verification {
   kept?: number;
   /** A deck's slides as the file holds them, by slide number, for what its lines are read with (#3455). */
   slides?: Readonly<Record<string, string>>;
+  /** A workbook's sheets as the file holds them, by sheet page number, for what its rows are read with (#3506). */
+  sheets?: Readonly<Record<string, string>>;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -173,6 +175,7 @@ export function readVerification(settings: Y.Map<unknown>): Verification | null 
     ...(count(value.pictures) > 0 && { pictures: count(value.pictures) }),
     ...(count(value.kept) > 0 && { kept: count(value.kept) }),
     ...(isRecord(value.slides) && { slides: textsOf(value.slides) }),
+    ...(isRecord(value.sheets) && { sheets: textsOf(value.sheets) }),
   };
 }
 
@@ -209,6 +212,7 @@ export function writeVerification(settings: Y.Map<unknown>, verification: Verifi
     ...(verification.pictures !== undefined && { pictures: verification.pictures }),
     ...(verification.kept !== undefined && { kept: verification.kept }),
     ...(verification.slides !== undefined && { slides: { ...verification.slides } }),
+    ...(verification.sheets !== undefined && { sheets: { ...verification.sheets } }),
   });
 }
 
