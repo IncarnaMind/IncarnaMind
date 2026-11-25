@@ -4205,11 +4205,21 @@ export interface DeckUnwritable {
   documentId: string;
   /**
    * "cloud": not downloaded from a cloud folder (macOS dataless / iCloud stub, Windows Files
-   * On-Demand placeholder). "unkept": IncarnaMind couldn't keep the file as it was first, in its
-   * data folder, so it didn't write it. "changed": another program wrote the file while the change
-   * waited, so only a copy beside it keeps the change.
+   * On-Demand placeholder). "unreadable": permission denied reading the file on disk. "unkept":
+   * IncarnaMind couldn't keep the file as it was first, in its data folder, so it didn't write it.
+   * "changed": another program wrote the file while the change waited, so only a copy beside it
+   * keeps the change.
    */
-  why: "read-only" | "folder" | "locked" | "cloud" | "gone" | "full" | "unkept" | "changed";
+  why:
+    | "read-only"
+    | "folder"
+    | "locked"
+    | "cloud"
+    | "unreadable"
+    | "gone"
+    | "full"
+    | "unkept"
+    | "changed";
   /** The file's name. */
   name: string;
   /** "folder": the name of the folder that takes no writes. */

@@ -6495,6 +6495,7 @@ export function createCore(adapters: CoreAdapters): Core {
     kept: keptDecks,
     inHandOverTurn: (run) => handOver.inTurn(run),
     files: deckFiles,
+    platform,
     now,
     newId: () => crypto.randomUUID(),
   };
@@ -6504,9 +6505,11 @@ export function createCore(adapters: CoreAdapters): Core {
     const cloud = await deckFiles.isCloudPlaceholder(path, info);
     if (!cloud && info !== null) {
       try {
-        return await deckFiles.readFile(path);
+        // Through `documents.filePath` so `library.check` records an external save even without a watcher.
+        const currentPath = await documents.filePath(documentId);
+        return await deckFiles.readFile(currentPath);
       } catch {
-        // File vanished or became exclusively locked between stat and read: fall back below.
+        // File vanished, became unavailable, or was exclusively locked between stat and read: fall back below.
       }
     }
     if (
@@ -6544,6 +6547,7 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     newId: () => crypto.randomUUID(),
     nameOf: (documentId) => basename(documents.pathEvenDeleted(documentId)),
+    folderNameOf: (documentId) => basename(dirname(documents.pathEvenDeleted(documentId))),
   });
 
   /** Hand edits of decks being written now: the host waits for them before it quits. */

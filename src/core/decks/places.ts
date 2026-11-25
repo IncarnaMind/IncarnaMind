@@ -11,6 +11,7 @@
 import { constants } from "node:fs";
 import { access, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { systemReason } from "../../shared/systemReasons";
 import type { DeckFileStat, DeckFiles } from "../adapters";
 import { HANDED_FOLDER } from "../agentFiles/handOver";
 import type { AgentFiles } from "../agentFiles/index";
@@ -40,7 +41,6 @@ export const WIN32_CLOUD_ATTRIBUTES = 0x00400000 | 0x00040000 | 0x00001000;
 export const isWindowsCloudAttributes = (attributes: number): boolean =>
   Number.isFinite(attributes) && attributes > 0 && (attributes & WIN32_CLOUD_ATTRIBUTES) !== 0;
 
-/** Default Node implementation of `DeckFiles`. */
 export function createNodeDeckFiles(
   options: {
     detectDataless?: boolean;
@@ -106,8 +106,8 @@ export interface DeckPlaceDeps {
   kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId" | "beganFrom">;
   /** Writes of a deck IncarnaMind keeps take turns with agents' hand-overs of it. */
   inHandOverTurn<T>(run: () => Promise<T>): Promise<T>;
-  /** File-system adapter; defaults to Node's fs operations. */
   files?: DeckFiles;
+  platform?: NodeJS.Platform;
   now(): string;
   newId(): string;
 }
@@ -128,8 +128,8 @@ function unwritable(error: unknown): DeckUnwritable["why"] | null {
 }
 
 /**
- * Why saving a copy beside the deck (and in the Output location) failed, for the line in the
- * viewer and the quit sheet; null for user cancellations or non-filesystem errors.
+ * Why saving a copy beside the deck (and in the Output location) failed, mapped from
+ * `systemReason`; null for user cancellations or non-filesystem errors.
  */
 export function copyFailureOf(error: unknown): NonNullable<DeckUnwritable["copyFailed"]> | null {
   if (
@@ -140,17 +140,12 @@ export function copyFailureOf(error: unknown): NonNullable<DeckUnwritable["copyF
     return null;
   }
   const code = (error as NodeJS.ErrnoException | null)?.code;
-  if (code === "ENOSPC" || code === "EDQUOT") return "full";
-  if (
-    code === "EACCES" ||
-    code === "EPERM" ||
-    code === "EROFS" ||
-    code === "ENOENT" ||
-    code === "ENOTDIR"
-  ) {
-    return "folder";
-  }
-  if (code === "EBUSY" || code === "ETXTBSY" || code === "EIO") return "other";
+  const raw = error instanceof Error ? error.message : String(error);
+  const text = code && !raw.startsWith(`${code}:`) ? `${code}: ${raw}` : raw;
+  const reason = systemReason(text);
+  if (reason === "error.system.full") return "full";
+  if (reason === "error.system.notAllowed" || reason === "error.system.gone") return "folder";
+  if (reason !== null) return "other";
   return null;
 }
 
@@ -164,22 +159,26 @@ async function goneOrCloud(files: DeckFiles, path: string, name: string): Promis
 }
 
 /**
- * Checks whether `path` still holds `wrote`. Unlike a boolean check, a read failure (file deleted,
- * evicted to a cloud stub, or exclusively locked on Windows) stays unwritable rather than
- * reporting `changed` and dropping the edit in hand.
+ * Checks whether `path` still holds `wrote`. Read failures return unwritable so a missing,
+ * cloud-evicted, locked or unreadable file keeps the edit waiting instead of dropping it as changed.
  */
 async function checkHolds(
   files: DeckFiles,
   path: string,
   wrote: string,
   name: string,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<{ kind: "same" } | PlaceWritten> {
   try {
     return (await files.hashFile(path)) === wrote ? { kind: "same" } : CHANGED;
   } catch (error) {
     if (isGone(error)) return goneOrCloud(files, path, name);
     const why = unwritable(error);
-    if (why) return { kind: "unwritable", why: why === "read-only" ? "locked" : why, name };
+    if (why === "read-only") {
+      // On Windows an exclusive sharing lock can surface as EACCES/EPERM on open; on POSIX it is permission denied.
+      return { kind: "unwritable", why: platform === "win32" ? "locked" : "unreadable", name };
+    }
+    if (why) return { kind: "unwritable", why, name };
     throw error;
   }
 }
@@ -198,7 +197,7 @@ function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array):
       deps.inHandOverTurn(async () => {
         const { path } = deps.document(documentId);
         const name = basename(path);
-        const held = await checkHolds(files, path, wrote, name);
+        const held = await checkHolds(files, path, wrote, name, deps.platform ?? process.platform);
         if (held.kind !== "same") return held;
         const contentHash = hashBytes(bytes);
         const item = deps.handed.holding(documentId)[0];
@@ -291,6 +290,7 @@ export function ownFile(
   options: { kept?: boolean; sitting?: boolean } = {},
 ): DeckPlace {
   const files = filesOf(deps);
+  const platform = deps.platform ?? process.platform;
   let wrote = hashBytes(base);
   let keptId: string | null = null;
   let kept = options.kept ?? false;
@@ -298,6 +298,8 @@ export function ownFile(
   let keptNew = false;
   /** The sitting is marked as begun from its kept state only once a write of it has landed. */
   let began = options.sitting === false;
+  /** After our own rename lands, the file is local for this sitting; re-checked on Try again or failure. */
+  let verifiedLocal = false;
   return {
     async write(bytes) {
       const { path } = deps.document(documentId);
@@ -306,19 +308,21 @@ export function ownFile(
       try {
         info = await files.stat(path);
       } catch (error) {
+        verifiedLocal = false;
         if (isGone(error)) return goneOrCloud(files, path, name);
         const why = unwritable(error);
         if (why) return { kind: "unwritable", why, name };
         throw error;
       }
       // Checked before `access` and before reading bytes so a cloud placeholder is never hydrated.
-      if (await files.isCloudPlaceholder(path, info)) {
+      if (!verifiedLocal && (await files.isCloudPlaceholder(path, info))) {
         return { kind: "unwritable", why: "cloud", name };
       }
       try {
         // A file the User made read-only stays as it is, though its folder would let a rename in.
         await files.access(path, "write");
       } catch (error) {
+        verifiedLocal = false;
         if (isGone(error)) return goneOrCloud(files, path, name);
         const why = unwritable(error);
         if (why) return { kind: "unwritable", why, name };
@@ -327,6 +331,7 @@ export function ownFile(
       try {
         await files.access(dirname(path), "write");
       } catch (error) {
+        verifiedLocal = false;
         const why = unwritable(error);
         // The folder, not the file, refuses: the line names it, and a copy can't go beside it.
         if (why === "read-only")
@@ -336,9 +341,15 @@ export function ownFile(
       }
       // An app that has the file open writes its own copy over ours when it saves.
       const lock = await lockFileOf(files, path);
-      if (lock) return { kind: "unwritable", why: "locked", name, lock };
-      const held = await checkHolds(files, path, wrote, name);
-      if (held.kind !== "same") return held;
+      if (lock) {
+        verifiedLocal = false;
+        return { kind: "unwritable", why: "locked", name, lock };
+      }
+      const held = await checkHolds(files, path, wrote, name, platform);
+      if (held.kind !== "same") {
+        verifiedLocal = false;
+        return held;
+      }
       await files.removeStalePartials(dirname(path));
       if (!kept) {
         const contentHash = hashBytes(base);
@@ -352,6 +363,7 @@ export function ownFile(
               durable: true,
             });
           } catch (error) {
+            verifiedLocal = false;
             // Not kept, not written: the change waits, and the file stays as it is.
             const why = unwritable(error);
             if (why === "full") return { kind: "unwritable", why: "full", name };
@@ -372,16 +384,23 @@ export function ownFile(
           path,
           bytes,
           async () => {
-            const still = await checkHolds(files, path, expected, name);
+            const still = await checkHolds(files, path, expected, name, platform);
             if (still.kind === "same") return true;
             if (still.kind === "unwritable") holdFailure = still;
             return false;
           },
           info.mode & 0o7777,
         );
-        if (holdFailure) return holdFailure;
-        if (!replaced) return CHANGED;
+        if (holdFailure) {
+          verifiedLocal = false;
+          return holdFailure;
+        }
+        if (!replaced) {
+          verifiedLocal = false;
+          return CHANGED;
+        }
       } catch (error) {
+        verifiedLocal = false;
         if (isGone(error)) return goneOrCloud(files, path, name);
         const code = (error as NodeJS.ErrnoException | null)?.code;
         if (
@@ -398,6 +417,7 @@ export function ownFile(
         if (why) return { kind: "unwritable", why, name };
         throw error;
       }
+      verifiedLocal = true;
       wrote = hashBytes(bytes);
       if (!began && keptId) deps.kept.beganFrom(keptId);
       began = true;

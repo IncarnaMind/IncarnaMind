@@ -308,10 +308,9 @@ export interface DeckFileStat {
 }
 
 /**
- * File operations used when writing a deck edited by hand (#149). Defaults to Node's
- * fs operations; tests inject failures (read-only, Windows sharing violation, folder
- * refusal, cloud placeholder, disk full, deleted/moved, copy-beside failure) through
- * this adapter instead of changing permissions on disk.
+ * File-system operations for writing a deck of the User's own (#149). Implementations must
+ * never hydrate a cloud placeholder in `isCloudPlaceholder`, and `replaceFile` must preserve
+ * atomic temp-then-rename semantics with `stillSo` checked right before the rename.
  */
 export interface DeckFiles {
   stat(path: string): Promise<DeckFileStat>;

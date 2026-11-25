@@ -6,7 +6,7 @@
  *    copy-beside failing (disk full) says so in place without losing the edit → recovers and saves.
  * Set `INCARNAMIND_SCREENSHOTS` to a folder to keep full-window captures at 1440×900 and 900×700.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { part, unzip } from "../tests/helpers/docx";
@@ -171,8 +171,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(problem).toBeVisible();
       await expect(problem).toContainText(
         language === "en"
-          ? `“${NAME}” isn’t downloaded from the cloud, so the change isn’t saved yet.`
-          : `“${NAME}”尚未从云端下载，修改尚未保存。`,
+          ? `“${NAME}” is in the cloud only. Download it first, then try again.`
+          : `“${NAME}”仅保存在云端。请先下载到本地，再重试。`,
       );
       expect(Buffer.compare(await readFile(path), DECK)).toBe(0);
       await still(window, `cloud-1440-${language}`);
@@ -184,9 +184,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await writeFile(rulesPath, JSON.stringify({ [NAME]: "copy-failed-full" }));
       await problem.getByTestId("viewer-deck-save-copy").click();
       await expect(problem).toContainText(
-        language === "en"
-          ? "Couldn’t save a copy: the disk is full. Free some space, then try again."
-          : "无法另存副本：磁盘已满。腾出空间后重试。",
+        language === "en" ? "Couldn’t save a copy: the disk is full." : "无法另存副本：磁盘已满。",
       );
       await expect(window.getByTestId("error-notice")).toHaveCount(0);
       await still(window, `copy-failed-1440-${language}`);
@@ -206,6 +204,70 @@ for (const language of ["en", "zh-CN"] as const) {
         .poll(async () => placeOf(await slideOnDisk(copyPath), 4))
         .toEqual({ x: basePos.x, y: basePos.y + 10 * 9525 });
       expect(Buffer.compare(await readFile(path), DECK)).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test(`deleted before first edit, then copy fails while fileGone: keeps edit and shows copy failure (${language})`, async () => {
+    const { app, window, viewer, first, path, rulesPath } = await openDeck(language, {});
+    try {
+      // Actually remove the deck on disk before the first edit.
+      await unlink(path);
+      await first.locator('[data-shape-id="4"]').click();
+      await window.keyboard.press("Shift+ArrowDown");
+
+      const problem = viewer.getByTestId("viewer-deck-unwritable");
+      await expect(problem).toBeVisible();
+      await expect(problem).toContainText(
+        language === "en"
+          ? `“${NAME}” was moved or deleted, so the change isn’t saved yet.`
+          : `“${NAME}”已不在原来的位置，修改尚未保存。`,
+      );
+      await expect(window.getByTestId("error-notice")).toHaveCount(0);
+
+      // Copy-beside fails (both folders refuse) while the Document is marked missing (fileGone):
+      // the line still reports the copy failure and offers Choose another folder…
+      await writeFile(rulesPath, JSON.stringify({ [NAME]: "copy-failed-folder" }));
+      await problem.getByTestId("viewer-deck-save-copy").click();
+      await expect(problem).toContainText(
+        language === "en" ? "nor the Output location can be written." : "和输出位置都无法写入。",
+      );
+      await expect(problem.getByTestId("viewer-deck-choose-folder")).toBeVisible();
+      await expect(window.getByTestId("error-notice")).toHaveCount(0);
+      await still(window, `gone-copy-failed-1440-${language}`);
+      await setWindowSize(app, window, 900, 700);
+      await still(window, `gone-copy-failed-900-${language}`);
+      await setWindowSize(app, window, 1440, 900);
+
+      // Recover copy-beside and save the edit cleanly without ever losing it.
+      await writeFile(rulesPath, JSON.stringify({}));
+      const savedPath = await window.evaluate(async () => {
+        const bridge = (
+          globalThis as unknown as {
+            incarnamind: {
+              listDocuments(): Promise<{ id: string }[]>;
+              deckChangeWaiting(id: string): Promise<{ sittingId: string } | null>;
+              saveDeckCopy(
+                id: string,
+              ): Promise<{ kind: string; saved?: { kind: string; path?: string } }>;
+            };
+          }
+        ).incarnamind;
+        const [doc] = await bridge.listDocuments();
+        if (!doc) throw new Error("Expected document");
+        const waiting = await bridge.deckChangeWaiting(doc.id);
+        if (!waiting) throw new Error("Expected waiting deck change");
+        const done = await bridge.saveDeckCopy(waiting.sittingId);
+        if (done.kind !== "saved" || done.saved?.kind !== "copy" || !done.saved.path) {
+          throw new Error(`Expected saved copy, got ${done.kind}`);
+        }
+        return done.saved.path;
+      });
+      const basePos = placeOf(SLIDE_ONE, 4);
+      await expect
+        .poll(async () => placeOf(await slideOnDisk(savedPath), 4))
+        .toEqual({ x: basePos.x, y: basePos.y + 10 * 9525 });
     } finally {
       await app.close();
     }

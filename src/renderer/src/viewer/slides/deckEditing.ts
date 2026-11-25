@@ -21,6 +21,7 @@ import { core } from "../../core";
 import { describeError } from "../../errors";
 import { languageNow, useLanguage } from "../../i18n";
 import type { Words, WordsInLine } from "../../lineNames";
+import { chooseOutputLocation } from "../../outputFiles";
 import { useAppStore } from "../../store";
 import { makeInTurn, sayWhileSlow, UndoRefused, undoSettled, useUndo } from "../../undo";
 import {
@@ -135,6 +136,7 @@ export interface DeckEditing {
   /** The file that couldn't take the last edit, while it waits to be saved as a copy. */
   waiting: DeckUnwritable | null;
   saveCopy(): void;
+  chooseFolder(): void;
   /** Writes the change that waits again, as the file may take it now. */
   tryAgain(): void;
   /** A text box that runs past its shape after typing, while the line about it shows. */
@@ -444,7 +446,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
               !on &&
               loadedBytes.current !== null &&
               (key === "error.deck.unwritable.cloud" ||
-                key === "error.document.fileGone" ||
+                key === "error.document.fileMissing" ||
                 key === "error.document.fileUnavailable" ||
                 describeError(firstError).reason !== null);
             if (!retryWithShown || !loadedBytes.current) throw firstError;
@@ -494,6 +496,11 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
       ),
     [settle],
   );
+  const chooseFolder = useCallback(() => {
+    void chooseOutputLocation().then((picked) => {
+      if (picked) saveCopy();
+    }, useAppStore.getState().reportError);
+  }, [saveCopy]);
   const tryAgain = useCallback(
     () =>
       settle(
@@ -532,6 +539,7 @@ export function useDeckEditing(document: Document, tabId: string | null): DeckEd
     loadedBytes,
     waiting,
     saveCopy,
+    chooseFolder,
     tryAgain,
     overflow,
     setOverflow,

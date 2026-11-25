@@ -6,7 +6,7 @@
  *
  * Every failure is injected through the `DeckFiles` adapter — no `chmod` anywhere.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Core, DeckFiles } from "../../src/core";
@@ -20,7 +20,7 @@ import { hashBytes } from "../../src/core/documents/files";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { markReplaceStage } from "../../src/core/fileNames";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { addAndProcess, createSourceFolder } from "../helpers/documents";
+import { addAndProcess, createSourceFolder, waitForProcessing } from "../helpers/documents";
 import { pptxOf, sp, xfrm } from "../helpers/pptx";
 
 const ROOT_RELS = {
@@ -28,11 +28,11 @@ const ROOT_RELS = {
   data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/></Relationships>`,
 };
 
-const makeDeck = () =>
+const makeDeck = (xPx = 576) =>
   new Uint8Array(
     pptxOf({
       slides: [
-        { shapes: sp({ id: 4, name: "Box", spPr: xfrm(5486400, 914400, 1828800, 914400) }) },
+        { shapes: sp({ id: 4, name: "Box", spPr: xfrm(xPx * 9525, 914400, 1828800, 914400) }) },
       ],
       parts: [ROOT_RELS],
     }),
@@ -69,7 +69,11 @@ afterEach(() => {
 });
 
 async function setup(
-  overrides: { deckFiles?: Partial<DeckFiles>; detectDatalessFiles?: boolean } = {},
+  overrides: {
+    deckFiles?: Partial<DeckFiles>;
+    detectDatalessFiles?: boolean;
+    platform?: NodeJS.Platform;
+  } = {},
 ) {
   const dataDir = await createTempDataFolder();
   const files = await createSourceFolder();
@@ -78,6 +82,7 @@ async function setup(
   await writeFile(path, original);
   core = startCore(dataDir, {
     ...(overrides.deckFiles && { deckFiles: overrides.deckFiles }),
+    ...(overrides.platform && { platform: overrides.platform }),
     ...(overrides.detectDatalessFiles !== undefined && {
       linkedFolders: { detectDatalessFiles: overrides.detectDatalessFiles },
     }),
@@ -201,6 +206,43 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
     blockHash = false;
     const done = asSaved(await core.retryDeckEdit(waiting.sittingId));
     expect(await offsetOf(done.bytes)).toEqual([String(215 * 9525), String(96 * 9525)]);
+  });
+
+  it("read permission denied (EACCES on hashFile): unreadable on POSIX, locked on Windows", async () => {
+    for (const [platform, expectedWhy] of [
+      ["darwin", "unreadable"],
+      ["win32", "locked"],
+    ] as const) {
+      const spy = vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+      try {
+        const node = createNodeDeckFiles({ detectDataless: false });
+        const {
+          core: c,
+          path,
+          document,
+        } = await setup({
+          deckFiles: {
+            hashFile: async (target) => {
+              if (target === path) throw errno("EACCES", "permission denied reading");
+              return node.hashFile(target);
+            },
+          },
+        });
+        const waiting = asUnwritable(
+          await c.editDeck({
+            documentId: document.id,
+            sittingId: null,
+            shown: document.contentHash,
+            edits: moveBox(218),
+          }),
+        );
+        expect(waiting).toMatchObject({ why: expectedWhy, name: "Plan.pptx" });
+        c.close();
+        core = null;
+      } finally {
+        spy.mockRestore();
+      }
+    }
   });
 
   it("LibreOffice lock file (.~lock.Plan.pptx#) reports locked and names the lock file", async () => {
@@ -356,32 +398,65 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
     ]);
   });
 
-  it("Windows cloud placeholder (Files On-Demand): bitmask check and full editDeck + Try again after download", async () => {
-    expect(isWindowsCloudAttributes(0x00400000)).toBe(true); // FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
-    expect(isWindowsCloudAttributes(0x00040000)).toBe(true); // FILE_ATTRIBUTE_RECALL_ON_OPEN
-    expect(isWindowsCloudAttributes(0x00001000)).toBe(true); // FILE_ATTRIBUTE_OFFLINE
+  it("Windows cloud placeholder (Files On-Demand): drives attribute bitmasks through editDeck + Try again, and skips repeated checks after a local write", async () => {
     expect(isWindowsCloudAttributes(WIN32_CLOUD_ATTRIBUTES | 0x20)).toBe(true);
-    expect(isWindowsCloudAttributes(0x20)).toBe(false); // ARCHIVE
-    expect(isWindowsCloudAttributes(0x80)).toBe(false); // NORMAL
-    expect(isWindowsCloudAttributes(0x01)).toBe(false); // READONLY
+    expect(isWindowsCloudAttributes(0x20)).toBe(false);
     expect(isWindowsCloudAttributes(0)).toBe(false);
     expect(isWindowsCloudAttributes(-1)).toBe(false);
     expect(isWindowsCloudAttributes(Number.NaN)).toBe(false);
 
-    const node = createNodeDeckFiles({ detectDataless: false });
-    let cloudOnly = true;
-    const readSpy = vi.fn(node.readFile);
-    const { core, path, original, document } = await setup({
-      detectDatalessFiles: false,
-      deckFiles: {
-        isCloudPlaceholder: async (target) => (target === path ? cloudOnly : false),
-        readFile: readSpy,
-      },
+    // Each Windows cloud attribute bit causes editDeck to report why: "cloud" without reading bytes.
+    for (const bits of [0x00400000, 0x00040000, 0x00001000]) {
+      const node = createNodeDeckFiles({
+        detectDataless: false,
+        windowsCloudPlaceholder: async () => isWindowsCloudAttributes(bits),
+      });
+      const readSpy = vi.fn(node.readFile);
+      const {
+        core: c,
+        original,
+        document,
+      } = await setup({
+        detectDatalessFiles: false,
+        deckFiles: { ...node, readFile: readSpy },
+      });
+      readSpy.mockClear();
+      const waiting = asUnwritable(
+        await c.editDeck({
+          documentId: document.id,
+          sittingId: null,
+          shown: document.contentHash,
+          shownBytes: original,
+          edits: moveBox(262),
+        }),
+      );
+      expect(waiting).toMatchObject({ why: "cloud", name: "Plan.pptx" });
+      expect(readSpy).not.toHaveBeenCalled();
+      c.close();
+      core = null;
+    }
+
+    // After downloading (attributes become NORMAL = 0x80), Try again writes, and 10 gestures check
+    // isCloudPlaceholder only before the sitting's first write (never on gestures 2..10 or Undo/Redo).
+    let attributes = 0x00400000;
+    const cloudChecks = vi.fn(async () => isWindowsCloudAttributes(attributes));
+    const node = createNodeDeckFiles({
+      detectDataless: false,
+      windowsCloudPlaceholder: cloudChecks,
     });
-    readSpy.mockClear();
+    const {
+      core: c,
+      path,
+      original,
+      document,
+    } = await setup({
+      detectDatalessFiles: false,
+      deckFiles: node,
+    });
+    cloudChecks.mockClear();
 
     const waiting = asUnwritable(
-      await core.editDeck({
+      await c.editDeck({
         documentId: document.id,
         sittingId: null,
         shown: document.contentHash,
@@ -390,16 +465,34 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
       }),
     );
     expect(waiting).toMatchObject({ why: "cloud", name: "Plan.pptx" });
-    expect(readSpy).not.toHaveBeenCalled();
 
-    // User downloads the file in Explorer, then clicks Try again.
-    cloudOnly = false;
-    const written = asSaved(await core.retryDeckEdit(waiting.sittingId));
+    attributes = 0x80; // FILE_ATTRIBUTE_NORMAL (downloaded)
+    const written = asSaved(await c.retryDeckEdit(waiting.sittingId));
     expect(await offsetOf(new Uint8Array(await readFile(path)))).toEqual([
       String(265 * 9525),
       String(96 * 9525),
     ]);
     expect(await hashOn(path)).toBe(hashBytes(written.bytes));
+
+    // Gestures 2..10 + Undo + Redo in the same sitting do 0 additional cloud attribute checks.
+    const callsAfterFirstWrite = cloudChecks.mock.calls.length;
+    let shown = hashBytes(written.bytes);
+    let lastStepId = written.stepId;
+    for (let i = 2; i <= 10; i++) {
+      const next = asSaved(
+        await c.editDeck({
+          documentId: document.id,
+          sittingId: written.sittingId,
+          shown,
+          edits: moveBox(265 + i),
+        }),
+      );
+      shown = hashBytes(next.bytes);
+      lastStepId = next.stepId;
+    }
+    await c.undoDeckEdit(written.sittingId, lastStepId);
+    await c.redoDeckEdit(written.sittingId, lastStepId);
+    expect(cloudChecks.mock.calls.length).toBe(callsAfterFirstWrite);
   });
 
   it("disk full (ENOSPC on kept backup and EDQUOT on replaceFile): reports full, original untouched, writes once space frees", async () => {
@@ -444,14 +537,9 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
     expect(await hashOn(path)).toBe(hashBytes(written.bytes));
   });
 
-  it("deleted or moved while open (before first edit): keeps edit waiting as gone and falls back to Output location if folder also vanished", async () => {
-    const node = createNodeDeckFiles({ detectDataless: false });
+  it("deleted on disk before first edit: renderer's two-step call (fileMissing -> retry with shownBytes) keeps edit waiting and saves a copy", async () => {
     const { core, files, path, original, document } = await setup({
       deckFiles: {
-        stat: async (target) => {
-          if (target === path) throw errno("ENOENT", "moved or deleted");
-          return node.stat(target);
-        },
         saveCopy: async (file, save) => {
           if (file.folder === dirname(path)) throw errno("ENOENT", "folder moved too");
           return save();
@@ -459,6 +547,20 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
       },
     });
 
+    // Actually remove the file on disk (no fake stat, no chmod).
+    await unlink(path);
+
+    // Renderer's first call carries no shownBytes: core marks the file missing and throws fileMissing.
+    await expect(
+      core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: moveBox(280),
+      }),
+    ).rejects.toMatchObject({ wording: { key: "error.document.fileMissing" } });
+
+    // Renderer's immediate retry supplies shownBytes: core verifies against shown and keeps edit waiting.
     const waiting = asUnwritable(
       await core.editDeck({
         documentId: document.id,
@@ -480,7 +582,45 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
     ]);
   });
 
-  it("copy-beside failing too (ENOSPC / EACCES): reports plain-words copyFailed in place, never loses edit, succeeds once recovered", async () => {
+  it("external save without a watcher: readDeck runs library.check so the Document updates to the newest version", async () => {
+    const { core, path, document } = await setup();
+    const externalBytes = new Uint8Array(
+      pptxOf({
+        slides: [
+          {
+            shapes:
+              sp({
+                id: 4,
+                name: "Externally Updated Box",
+                spPr: xfrm(420 * 9525, 914400, 1828800, 914400),
+              }) +
+              sp({
+                id: 5,
+                name: "Added By Another App",
+                spPr: xfrm(100000, 100000, 500000, 500000),
+              }),
+          },
+        ],
+        parts: [ROOT_RELS],
+      }),
+    );
+    await writeFile(path, externalBytes);
+
+    await expect(
+      core.editDeck({
+        documentId: document.id,
+        sittingId: null,
+        shown: document.contentHash,
+        edits: moveBox(285),
+      }),
+    ).rejects.toMatchObject({ wording: { key: "error.deck.changed" } });
+
+    // Even with no watcher running, library.check queued reprocessing of the external save.
+    const [refreshed] = await waitForProcessing(core, [document.id]);
+    expect(refreshed?.contentHash).toBe(hashBytes(externalBytes));
+  });
+
+  it("copy-beside failing too (ENOSPC / EACCES): reports copyFailed with folder name in place, unasked quit rethrows raw error, recovers cleanly", async () => {
     const node = createNodeDeckFiles({ detectDataless: false });
     let copyError: NodeJS.ErrnoException | null = errno("ENOSPC", "disk full everywhere");
     const { core, files, path, document } = await setup({
@@ -515,16 +655,20 @@ describe("Unwritable deck file cases via DeckFiles adapter (#149 part 3)", () =>
       copyFailed: "full",
     });
 
-    // Unasked quit copy throws plain-words TranslatableError and still preserves waiting edit.
+    // Unasked quit copy rethrows the original system error (so quit sheet words it once, not twice).
     await expect(core.saveDeckCopyUnasked(waiting.sittingId)).rejects.toMatchObject({
-      wording: { key: "error.deck.copyFailed.full" },
+      code: "ENOSPC",
     });
     expect(core.deckChangesWaiting()).toHaveLength(1);
 
-    // Folder refusal on both beside and Output location reports copyFailed: "folder".
+    // Folder refusal on both beside and Output location reports copyFailed: "folder" and names the deck's folder.
     copyError = errno("EACCES", "both folders read-only");
     const folderFail = asUnwritable(await core.saveDeckCopy(waiting.sittingId));
-    expect(folderFail).toMatchObject({ why: "read-only", copyFailed: "folder" });
+    expect(folderFail).toMatchObject({
+      why: "read-only",
+      copyFailed: "folder",
+      folder: basename(files),
+    });
     expect(core.deckChangesWaiting()).toHaveLength(1);
 
     // Once space/permissions recover, Save a copy succeeds with the preserved edit intact.

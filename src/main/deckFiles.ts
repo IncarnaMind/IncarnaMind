@@ -4,8 +4,8 @@
  * `INCARNAMIND_TEST_DECK_FILES` so smoke tests inject file-system failures without `chmod`.
  */
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { DeckFiles } from "../core/adapters";
 import { createNodeDeckFiles, isWindowsCloudAttributes } from "../core/decks/places";
@@ -13,12 +13,24 @@ import { markReplaceStage } from "../core/fileNames";
 
 const execFileAsync = promisify(execFile);
 
+function powershellPath(): string {
+  const systemRoot = process.env.SystemRoot || process.env.SYSTEMROOT || "C:\\Windows";
+  const systemPowershell = join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  return existsSync(systemPowershell) ? systemPowershell : "powershell.exe";
+}
+
 /** Queries Win32 `FileAttributes` without opening or hydrating a cloud placeholder. */
 async function windowsCloudPlaceholder(path: string): Promise<boolean> {
   if (process.platform !== "win32") return false;
   try {
     const { stdout } = await execFileAsync(
-      "powershell.exe",
+      powershellPath(),
       [
         "-NoProfile",
         "-NonInteractive",

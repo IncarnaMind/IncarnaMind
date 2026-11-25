@@ -53,6 +53,8 @@ export interface DeckSittingDeps {
   newId(): string;
   /** The Document's file name, for the words about a change that waits. */
   nameOf(documentId: string): string;
+  /** The name of the folder holding the Document, for lines that name it. */
+  folderNameOf?(documentId: string): string;
 }
 
 /** One gesture: the edits it made, as one step to undo. */
@@ -423,19 +425,21 @@ export function createDeckSittings(deps: DeckSittingDeps) {
         try {
           copy = await deps.copyBeside(sitting.documentId, waiting.bytes, unasked);
         } catch (error) {
+          if (unasked) throw error;
           const failed = copyFailureOf(error);
           if (!failed) throw error;
-          if (unasked) {
-            throw new TranslatableError(
-              { key: `error.deck.copyFailed.${failed}` },
-              { cause: error },
-            );
-          }
           const current = waitingWhy.get(sitting.id) ?? {
             why: "read-only" as const,
             name: deps.nameOf(sitting.documentId),
           };
-          const next: WaitingWhy = { ...current, copyFailed: failed };
+          const folder =
+            current.folder ??
+            (failed === "folder" ? deps.folderNameOf?.(sitting.documentId) : undefined);
+          const next: WaitingWhy = {
+            ...current,
+            ...(folder ? { folder } : {}),
+            copyFailed: failed,
+          };
           waitingWhy.set(sitting.id, next);
           return waitingOf(sitting, next);
         }
