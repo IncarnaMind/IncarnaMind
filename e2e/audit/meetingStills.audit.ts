@@ -512,7 +512,12 @@ test(`meeting stills, ${VARIANT}, ${LANG}`, async () => {
         const handle = window.getByTestId("note-ask-handle-toggle");
         if (await handle.isVisible()) await handle.click();
         else await window.getByTestId("note-ask-pill-open").click();
-        if (await window.getByTestId("note-column").isVisible().catch(() => false))
+        if (
+          await window
+            .getByTestId("note-column")
+            .isVisible()
+            .catch(() => false)
+        )
           await window.getByTestId("conversation-move-down").click();
         await expect(panel).toBeVisible();
       };
@@ -707,6 +712,19 @@ for (const microphone of ["allowed", "denied"] as const)
         return folder.id;
       });
       await setWindowSize(app, window, 1440, HEIGHT);
+      // A plain Note from the same build: its input's edges are the text's, as the meeting's row.
+      if (microphone === "allowed") {
+        await window.keyboard.press("ControlOrMeta+t");
+        const plain = window.getByTestId("mind-editor");
+        await expect(plain).toBeVisible();
+        await plain.locator("p").first().click();
+        await window.keyboard.type(WORDS.typed[0] ?? "");
+        await plain.evaluate((el) => (el as HTMLElement).blur());
+        await expect(window.getByTestId("note-ask-input"))
+          .toBeVisible({ timeout: 15_000 })
+          .catch(() => log.push("no input on the plain Note"));
+        await still("p1-plain-note", [1440, 900]);
+      }
       await window.getByTestId("plus-menu").click();
       await window.getByTestId("plus-record-meeting").click();
       await expect

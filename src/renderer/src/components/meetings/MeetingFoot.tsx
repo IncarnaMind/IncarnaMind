@@ -19,7 +19,6 @@ import {
   BookmarkLineIcon,
   ChevronDownLineIcon,
   CloseLineIcon,
-  DocumentLineIcon,
   MicLineIcon,
   MicOffLineIcon,
   MoreLineIcon,
@@ -212,7 +211,7 @@ function Foot({ mindId, meeting }: { mindId: string; meeting: Meeting }) {
             tip={t(open ? "meetings.foot.hide" : "meetings.foot.show", { keys })}
             onClick={() => setSheet(mindId, !open)}
           >
-            <DocumentLineIcon kind="transcript" className="size-4" />
+            <span>{t("meetings.views.transcript")}</span>
             <ChevronDownLineIcon className={`size-4 ${open ? "" : "rotate-180"}`} />
           </SlotButton>
         )}
@@ -325,101 +324,108 @@ export function MeetingSheet({ mindId }: { mindId: string }) {
   if (!meeting || !open) return null;
   const live = isLive(meeting);
   return (
-    <section
-      data-testid="meeting-sheet"
-      data-live={live || undefined}
-      aria-label={t("meetings.views.transcript")}
-      className="meeting-sheet viewer-pane [container:viewer/inline-size]"
-    >
-      <header className="meeting-sheet-head">
-        <h2 className="meeting-sheet-title">{t("meetings.views.transcript")}</h2>
-        {live && <SheetTime meeting={meeting} />}
-        <div className="ml-auto flex items-center gap-1">
-          <CaptureDetailsToggle meeting={meeting} />
-          <button
-            type="button"
-            data-testid="meeting-sheet-beside"
-            disabled={!documentId}
-            aria-label={t("meetings.views.besideCommand")}
-            title={t("meetings.views.besideCommand")}
-            onClick={() => {
-              setSheet(mindId, false);
-              openTranscriptBeside({ meeting, tabId, groupId: place?.groupId });
-            }}
-            className="meeting-sheet-icon"
-          >
-            <OpenBesideLineIcon className="size-4" />
-          </button>
-          <button
-            type="button"
-            data-testid="meeting-sheet-hide"
-            aria-label={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
-            title={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
-            onClick={() => setSheet(mindId, false)}
-            className="meeting-sheet-icon"
-          >
-            <ChevronDownLineIcon className="size-4" />
-          </button>
-        </div>
-      </header>
-      {detailsShown && (
-        <div data-testid="meeting-sheet-details" className="meeting-sheet-details">
-          {!live && <MeetingAudioLine meeting={meeting} />}
-          <CaptureDetails meeting={meeting} />
-        </div>
-      )}
-      {live ? (
-        <p className="meeting-sheet-consent">{t("meetings.foot.tell")}</p>
-      ) : (
-        <div className="meeting-sheet-consent">
-          <TranscriptHeadLine
-            playable={meeting.transcript?.state === "saved" && meeting.audio.kept && !!document}
-          />
-        </div>
-      )}
-      {live && <MeetingLines meeting={meeting} />}
-      <div ref={body} className="meeting-sheet-body">
-        <ViewerFrameContext.Provider value={frame}>
-          <MeetingTranscriptView
-            key={meeting.id}
-            meeting={meeting}
-            document={document}
-            target={target}
-            aside={null}
-          />
-        </ViewerFrameContext.Provider>
+    // On the text's measure, as the row under it is: the place is a column container as the page is.
+    <div className="meeting-sheet-place">
+      <div className="mind-measure">
+        <section
+          data-testid="meeting-sheet"
+          data-live={live || undefined}
+          aria-label={t("meetings.views.transcript")}
+          className="meeting-sheet viewer-pane [container:viewer/inline-size]"
+        >
+          <header className="meeting-sheet-head">
+            <h2 className="meeting-sheet-title">{t("meetings.views.transcript")}</h2>
+            {live && <SheetTime meeting={meeting} />}
+            <div className="ml-auto flex items-center gap-1">
+              <CaptureDetailsToggle meeting={meeting} />
+              <button
+                type="button"
+                data-testid="meeting-sheet-beside"
+                disabled={!documentId}
+                aria-label={t("meetings.views.besideCommand")}
+                title={t("meetings.views.besideCommand")}
+                onClick={() => {
+                  setSheet(mindId, false);
+                  openTranscriptBeside({ meeting, tabId, groupId: place?.groupId });
+                }}
+                className="meeting-sheet-icon"
+              >
+                <OpenBesideLineIcon className="size-4" />
+              </button>
+              <button
+                type="button"
+                data-testid="meeting-sheet-hide"
+                aria-label={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
+                title={t("meetings.foot.hide", { keys: shortcutLabel("meeting.nextView") })}
+                onClick={() => setSheet(mindId, false)}
+                className="meeting-sheet-icon"
+              >
+                <ChevronDownLineIcon className="size-4" />
+              </button>
+            </div>
+          </header>
+          {detailsShown && (
+            <div data-testid="meeting-sheet-details" className="meeting-sheet-details">
+              {!live && <MeetingAudioLine meeting={meeting} />}
+              <CaptureDetails meeting={meeting} />
+            </div>
+          )}
+          {live ? (
+            <p className="meeting-sheet-consent">{t("meetings.foot.tell")}</p>
+          ) : (
+            <div className="meeting-sheet-consent">
+              <TranscriptHeadLine
+                playable={meeting.transcript?.state === "saved" && meeting.audio.kept && !!document}
+              />
+            </div>
+          )}
+          {live && <MeetingLines meeting={meeting} />}
+          <div ref={body} className="meeting-sheet-body">
+            <ViewerFrameContext.Provider value={frame}>
+              <MeetingTranscriptView
+                key={meeting.id}
+                meeting={meeting}
+                document={document}
+                target={target}
+                aside={null}
+              />
+            </ViewerFrameContext.Provider>
+          </div>
+          {live ? (
+            <SheetFoot meeting={meeting} />
+          ) : (
+            <footer data-testid="meeting-sheet-foot" className="meeting-sheet-foot">
+              <button
+                type="button"
+                data-testid="meeting-sheet-resume-meeting"
+                aria-label={t("meetings.foot.resumeTip")}
+                title={t("meetings.foot.resumeTip")}
+                onClick={() => void useMeetings.getState().resume(meeting.id)}
+                className="meeting-button meeting-button--words"
+              >
+                <ResumeLineIcon className="size-3.5" />
+                <span>{t("meetings.foot.resume")}</span>
+              </button>
+              <button
+                type="button"
+                data-testid="meeting-sheet-review-speakers"
+                // The review itself still opens where the Transcript view has it, at the top of the lines.
+                onClick={() =>
+                  body.current
+                    ?.querySelector<HTMLButtonElement>(
+                      ".transcript-review-row > button[aria-expanded]",
+                    )
+                    ?.click()
+                }
+                className="meeting-button meeting-button--words"
+              >
+                <span>{t("meetings.review.open")}</span>
+              </button>
+            </footer>
+          )}
+        </section>
       </div>
-      {live ? (
-        <SheetFoot meeting={meeting} />
-      ) : (
-        <footer data-testid="meeting-sheet-foot" className="meeting-sheet-foot">
-          <button
-            type="button"
-            data-testid="meeting-sheet-resume-meeting"
-            aria-label={t("meetings.foot.resumeTip")}
-            title={t("meetings.foot.resumeTip")}
-            onClick={() => void useMeetings.getState().resume(meeting.id)}
-            className="meeting-button meeting-button--words"
-          >
-            <ResumeLineIcon className="size-3.5" />
-            <span>{t("meetings.foot.resume")}</span>
-          </button>
-          <button
-            type="button"
-            data-testid="meeting-sheet-review-speakers"
-            // The review itself still opens where the Transcript view has it, at the top of the lines.
-            onClick={() =>
-              body.current
-                ?.querySelector<HTMLButtonElement>(".transcript-review-row > button[aria-expanded]")
-                ?.click()
-            }
-            className="meeting-button meeting-button--words"
-          >
-            <span>{t("meetings.review.open")}</span>
-          </button>
-        </footer>
-      )}
-    </section>
+    </div>
   );
 }
 

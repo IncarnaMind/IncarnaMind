@@ -2681,25 +2681,38 @@
     }
   }
   /* A meeting's control stands at the input's left, on its row (#3762). */
-  /* The row and the Transcript's sheet over it share their edges (#3762). */
+  /*
+   * The meeting's row is the text's measure, as a plain Note's input is: the control on the text's
+   * left edge, the input to its right edge, and the sheet over them on the same two edges (#3762).
+   */
   .note-ask-foot--meeting {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
     padding-block: 4px 16px;
-    padding-inline: max(24px, calc((100% - 760px) / 2));
-    > .mind-measure {
-      flex: 1 1 auto;
-      min-width: 0;
-      max-width: none;
-      margin: 0;
-    }
-    .note-ask {
-      width: 100%;
-    }
     /* With the input in the window's column, the control stands on the column input's line. */
     &:not(:has(.note-ask)) {
       padding-bottom: 12px;
+    }
+  }
+  .meeting-foot-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+  .meeting-foot-ask {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .meeting-sheet-place {
+    position: absolute;
+    inset: 0 0 8px;
+    z-index: 20;
+    container: mind / inline-size;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    pointer-events: none;
+    > .mind-measure {
+      height: min(560px, calc(100% - 72px));
+      pointer-events: auto;
     }
   }
   .meeting-foot-stack {
@@ -2749,8 +2762,24 @@
       color: var(--color-ink);
     }
   }
+  /*
+   * After Stop, one button: "Transcript" and its chevron. 112px in Chinese; English's word needs
+   * 12px more, so the control is 124px there.
+   */
+  .meeting-foot[data-status="stopped"] {
+    width: 124px;
+  }
+  :root:lang(zh) .meeting-foot[data-status="stopped"] {
+    width: 112px;
+  }
   .meeting-foot-slot--wide {
-    width: 100px;
+    width: 100%;
+    gap: 4px;
+    padding: 0 12px;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 400;
+    white-space: nowrap;
   }
   .meeting-sheet-meta {
     display: inline-flex;
@@ -2853,20 +2882,15 @@
   }
   /* The Transcript, risen over the Note from the meeting's control: the input stays below it. */
   .meeting-sheet {
-    position: absolute;
-    bottom: 8px;
-    left: 50%;
-    z-index: 20;
     display: flex;
     flex-direction: column;
-    width: min(calc(100% - 48px), 760px);
-    height: min(560px, calc(100% - 72px));
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     border: 1px solid var(--color-rule);
     border-radius: 12px;
     background: var(--color-sheet);
     box-shadow: var(--shadow-popover);
-    translate: -50% 0;
   }
   .meeting-sheet-head {
     display: flex;
