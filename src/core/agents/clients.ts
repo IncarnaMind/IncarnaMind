@@ -766,8 +766,8 @@ export function withoutCodexTable(text: string): string {
 
 /**
  * The program IncarnaMind's entry in a settings file starts, as written there, where that entry
- * holds `token` (the pairing's key); null otherwise, or where the file can't be read. Nothing else
- * in the file is read.
+ * holds `token` (the pairing's key, or "" for any); null otherwise, or where the file can't be
+ * read. Nothing else in the file is read.
  */
 export function writtenCommand(format: SettingsFormat, text: string, token: string): string | null {
   if (format === "codex-toml") {

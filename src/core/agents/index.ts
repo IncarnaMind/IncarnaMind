@@ -39,6 +39,7 @@ import {
   type AgentToolName,
   ALL_SHARED_ID,
   type ConnectedAgent,
+  type DataFlowId,
   type DataKind,
   type Effect,
   type ExternalService,
@@ -142,6 +143,16 @@ export interface PairingEvents {
   disconnected(pairingId: string): Promise<void>;
 }
 
+/** What `connectAgain` changed on a connection, for `putBack` to take back. */
+export interface ConnectedBefore {
+  folderIds: string[];
+  propose: boolean;
+  /** Its token was renewed: the one before works nowhere now. */
+  renewed: boolean;
+  /** The data flows the press allowed that weren't allowed before it. */
+  allowed: DataFlowId[];
+}
+
 /** How an agent starts the shim: the command and arguments for its MCP settings. */
 export interface AgentLauncher {
   command: string;
@@ -157,7 +168,7 @@ export interface AgentsOptions {
   now(): string;
   clock(): number;
   secrets: Pick<Secrets, "set" | "tryGet" | "delete">;
-  consent: Pick<Consent, "status" | "choose" | "revoke" | "registry">;
+  consent: Pick<Consent, "status" | "allows" | "choose" | "revoke" | "registry">;
   readValue(key: string): unknown;
   writeValue(key: string, value: unknown): void;
   /** Local mode is on: every pairing is paused. */
@@ -489,16 +500,21 @@ export function createAgents(options: AgentsOptions) {
     return token;
   };
 
-  /**
-   * The User confirmed what the agent may read and where that goes before this is called, and, for
-   * an agent IncarnaMind can start for a check, that it may (the connect sheet says so).
-   */
+  /** The flows a connection's sheet allows: for an agent IncarnaMind can start for a check, that too. */
+  const flowsOf = (client: string | null): DataFlowId[] =>
+    HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"];
+
+  /** The User confirmed what the agent may read and where that goes before this is called. */
   const chooseFlows = (pairing: { id: string; name: string }, client: string | null) =>
-    options.consent.choose(
-      HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
-      serviceOf(pairing),
-      HOSTED_UNNAMED[client ?? ""],
-    );
+    options.consent.choose(flowsOf(client), serviceOf(pairing), HOSTED_UNNAMED[client ?? ""]);
+
+  const writeReach = (pairingId: string, folderIds: readonly string[], propose: boolean) =>
+    db.run("UPDATE agent_pairings SET folder_ids = ?, propose = ?, updated_at = ? WHERE id = ?", [
+      JSON.stringify(folderIds),
+      propose ? 1 : 0,
+      options.now(),
+      pairingId,
+    ]);
 
   /** The pairing a token belongs to, compared in constant time; null for none. */
   const pairingOfToken = async (token: string): Promise<string | null> => {
@@ -1049,22 +1065,36 @@ export function createAgents(options: AgentsOptions) {
     async connectAgain(
       pairingId: string,
       input: { folderIds: unknown; propose?: unknown },
-    ): Promise<ConnectedAgent> {
+    ): Promise<ConnectedAgent & { before: ConnectedBefore }> {
       const pairing = requirePairing(pairingId);
       const folderIds = parseFolders(input.folderIds);
       const propose = parsePropose(input.propose, pairing.propose);
       await ensureReachable();
       const stored = legacyShims.has(pairing.id) ? null : await tokenOf(pairing.id);
       const token = stored ?? (await renewToken(pairing.id));
-      db.run("UPDATE agent_pairings SET folder_ids = ?, propose = ?, updated_at = ? WHERE id = ?", [
-        JSON.stringify(folderIds),
-        propose ? 1 : 0,
-        options.now(),
-        pairing.id,
-      ]);
+      const service = serviceOf(pairing);
+      const before: ConnectedBefore = {
+        folderIds: pairing.folderIds,
+        propose: pairing.propose,
+        renewed: stored === null,
+        allowed: flowsOf(pairing.client).filter((flow) => !options.consent.allows(flow, service)),
+      };
+      writeReach(pairing.id, folderIds, propose);
       chooseFlows(pairing, pairing.client);
       changed();
-      return { pairing: requirePairing(pairing.id), launch: launchFor(token) };
+      return { pairing: requirePairing(pairing.id), launch: launchFor(token), before };
+    },
+
+    /**
+     * Takes back what `connectAgain` changed, on a connection that stays: what it reads and writes,
+     * and the consent the press gave. A renewed token stays: the one before it works nowhere.
+     */
+    putBack(pairingId: string, before: ConnectedBefore): AgentPairing {
+      const pairing = requirePairing(pairingId);
+      writeReach(pairing.id, before.folderIds, before.propose);
+      for (const flow of before.allowed) options.consent.revoke(flow, serviceOf(pairing).id);
+      changed();
+      return requirePairing(pairing.id);
     },
 
     update(pairingIdInput: unknown, input: unknown): AgentPairing {

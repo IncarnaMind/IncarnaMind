@@ -81,7 +81,7 @@ import {
   withoutCodexTable,
   writtenCommand,
 } from "./clients";
-import type { PairingEvents } from "./index";
+import type { ConnectedBefore, PairingEvents } from "./index";
 import { SKILL_MARKDOWN } from "./skill";
 import type { SkillFiles } from "./skillFiles";
 
@@ -96,7 +96,8 @@ export interface AgentSetupOptions {
     connectAgain(
       pairingId: string,
       input: { folderIds: unknown; propose?: unknown },
-    ): Promise<{ pairing: AgentPairing; launch: AgentLaunch }>;
+    ): Promise<{ pairing: AgentPairing; launch: AgentLaunch; before: ConnectedBefore }>;
+    putBack(pairingId: string, before: ConnectedBefore): AgentPairing;
     disconnect(pairingId: unknown): Promise<void>;
     launch(pairingId: unknown): Promise<AgentLaunch>;
     /** Issues a new key and revokes the previous one when reinstalling an out-of-date shim (ADR-0036). */
@@ -290,8 +291,15 @@ export function createAgentSetup(options: AgentSetupOptions) {
   const clientTurns = new Map<string, Promise<void>>();
   const clientOf = (pairingId: unknown) =>
     options.agents.settings().pairings.find((each) => each.id === pairingId)?.client ?? "";
-  /** The pairings whose last set-up was made again on them: their settings files held their entry before it. */
-  const madeAgain = new Set<string>();
+  /** What the last set-up replaced, by pairing, where that set-up was a second press on it, while its Undo stands. */
+  const madeAgain = new Map<string, ConnectedBefore>();
+  /** Of an app's connections, the one used last, else the newest: the one its settings likely hold. */
+  const latestOf = (pairings: readonly AgentPairing[]) =>
+    pairings.toSorted(
+      (a, b) =>
+        (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? "") ||
+        b.createdAt.localeCompare(a.createdAt),
+    )[0];
   const bundleFolder = (pairingId: string) =>
     join(options.tempDir, `${BUNDLE_FOLDER_PREFIX}${pairingId}`);
   const removeBundle = (pairingId: string) =>
@@ -627,6 +635,43 @@ export function createAgentSetup(options: AgentSetupOptions) {
     }
   };
 
+  /** A pairing's key; null where it can't be read on this computer. */
+  const keyOf = (pairingId: string): Promise<string | null> =>
+    options.agents.launch(pairingId).then(
+      (launch) => launch.env[AGENT_TOKEN_ENV] ?? "",
+      (error: unknown) => {
+        if (error instanceof NotFoundError && error.wording?.key === "error.agent.keyUnreadable") {
+          return null;
+        }
+        throw error;
+      },
+    );
+
+  /**
+   * IncarnaMind's entry out of a settings file, for a pairing whose key can't be read, so the entry
+   * is known by the program it starts alone: taken out where that is IncarnaMind's and no other
+   * connection of the agent is left to own it. Whether the file holds no such entry now.
+   */
+  const takeOutUnread = async (file: SettingsFile, pairing: AgentPairing, madeForIt: boolean) => {
+    const path = pathOf(file);
+    const text = await readText(path);
+    const command = text === null ? null : writtenCommand(file.format, text, "");
+    if (text === null || command === null) return true;
+    const others = options.agents
+      .settings()
+      .pairings.filter((each) => each.id !== pairing.id && each.client === pairing.client);
+    for (const other of others) {
+      const key = await keyOf(other.id);
+      if (key && text.includes(key)) return true;
+    }
+    if (others.length > 0 || command !== options.agents.launchFor("").command) return false;
+    const original = file.backup ? await readText(backupPathOf(path)) : null;
+    const after = changed(file, text, null, original !== null && !holdsMcpServers(original));
+    if (madeForIt && isEmptySettings(file.format, after)) await unlink(path);
+    else await replaceFile(path, after);
+    return true;
+  };
+
   const removeFromSettings = async (pairingId: unknown): Promise<AgentDisconnected> => {
     const pairing = options.agents.settings().pairings.find((each) => each.id === pairingId);
     if (!pairing) return { skillsLeft: [] };
@@ -634,18 +679,24 @@ export function createAgentSetup(options: AgentSetupOptions) {
       options.reportError(error);
       return [];
     });
-    const skillsLeft = left.map((path) => ({ path, shown: pathFromHome(path, options.home) }));
+    const shown = (path: string) => ({ path, shown: pathFromHome(path, options.home) });
+    const skillsLeft = left.map(shown);
     written.delete(pairing.id);
     madeAgain.delete(pairing.id);
     const files = settingsFilesFor(pairing.client);
-    // A key that can't be read leaves its entry unknown, which is no reason to keep the pairing.
-    const token =
-      (await options.agents.launch(pairing.id).catch(() => null))?.env[AGENT_TOKEN_ENV] ?? "";
+    const token = await keyOf(pairing.id);
     const created = options.agents.created(pairing.id);
+    const settingsLeft: string[] = [];
     for (const file of files) {
       await exclusive(pathOf(file), async () => {
+        const madeForIt = created.includes(pathOf(file));
         try {
-          await takeOut(file, token, created.includes(pathOf(file)));
+          if (token !== null) await takeOut(file, token, madeForIt);
+          else if (!(await takeOutUnread(file, pairing, madeForIt))) {
+            // The copy of the file as it was stays with the entry, to put it right by hand.
+            settingsLeft.push(pathOf(file));
+            return;
+          }
         } catch (error) {
           // The User's file is theirs to tidy: the key in it no longer works anyway.
           options.reportError(error);
@@ -654,13 +705,41 @@ export function createAgentSetup(options: AgentSetupOptions) {
       });
     }
     await removeCreatedFolders(created).catch(options.reportError);
-    return { skillsLeft };
+    return {
+      skillsLeft,
+      ...(settingsLeft.length > 0 && { settingsLeft: settingsLeft.map(shown) }),
+    };
   };
 
   const disconnectNow = async (pairingId: unknown): Promise<AgentDisconnected> => {
     const left = await removeFromSettings(pairingId);
     await options.agents.disconnect(pairingId);
     return left;
+  };
+
+  /**
+   * Undo of a second press: the connection was there before it and stays, reading and writing what
+   * it did. Its settings files go back to what they held, unless its key was renewed: the entry
+   * they held then has a key that works nowhere.
+   */
+  const undoAgain = async (pairingId: string, before: ConnectedBefore) => {
+    const files = before.renewed ? [] : (written.get(pairingId) ?? []);
+    for (const file of files) {
+      if (!file.file.backup && (await readText(file.path)) !== file.after) {
+        throw new InvalidInputError({ key: "error.agent.undoChanged", values: { path: file.path } });
+      }
+    }
+    for (const file of files) {
+      await exclusive(file.path, async () => {
+        // Rewritten since by the agent that keeps its own state there: the entry in it works, and stays.
+        if ((await readText(file.path)) !== file.after) return;
+        if (file.before === null) await unlink(file.path);
+        else await replaceFile(file.path, file.before);
+      });
+    }
+    written.delete(pairingId);
+    madeAgain.delete(pairingId);
+    options.agents.putBack(pairingId, before);
   };
 
   return {
@@ -724,14 +803,25 @@ export function createAgentSetup(options: AgentSetupOptions) {
         const connected =
           client.id === "other"
             ? undefined
-            : options.agents.settings().pairings.find((each) => each.client === client.id);
+            : latestOf(
+                options.agents.settings().pairings.filter((each) => each.client === client.id),
+              );
         if (connected) {
           // The connection was there before this press and stays if what follows fails; the Skill added now is its own.
           if (addedSkill) options.agents.recordCreated(connected.id, skillFolders);
-          const { pairing, launch } = await options.agents.connectAgain(connected.id, chosen);
-          const result = await install(client, pairing.id, launch);
-          madeAgain.add(pairing.id);
-          return { pairing, result };
+          const again = await options.agents.connectAgain(connected.id, chosen);
+          try {
+            const result = await install(client, again.pairing.id, again.launch);
+            madeAgain.set(again.pairing.id, again.before);
+            return { pairing: again.pairing, result };
+          } catch (error) {
+            try {
+              options.agents.putBack(again.pairing.id, again.before);
+            } catch (putting) {
+              options.reportError(putting);
+            }
+            throw error;
+          }
         }
         const { pairing, launch } = await options.agents
           .connect({ name: nameFor(client, input.name), client: client.id, ...chosen })
@@ -754,9 +844,9 @@ export function createAgentSetup(options: AgentSetupOptions) {
     async undo(pairingId: unknown): Promise<void> {
       if (typeof pairingId !== "string") throw new InvalidInputError("A pairing id must be text.");
       return inTurn(clientTurns, clientOf(pairingId), async () => {
-        // Its files held its entry before a second press, so putting them back would leave it there.
-        if (madeAgain.has(pairingId)) {
-          await disconnectNow(pairingId);
+        const before = madeAgain.get(pairingId);
+        if (before) {
+          await undoAgain(pairingId, before);
           return;
         }
         const files = written.get(pairingId) ?? [];

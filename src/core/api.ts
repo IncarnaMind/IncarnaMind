@@ -13120,6 +13120,11 @@ export interface AgentDisconnected {
    * the same with the home folder written as "~", as a line for the User names it.
    */
   skillsLeft: { path: string; shown: string }[];
+  /**
+   * The agent's settings files that still hold an entry for IncarnaMind, which it couldn't take out
+   * because the connection's key couldn't be read here; as `skillsLeft` gives them. Only when there are.
+   */
+  settingsLeft?: { path: string; shown: string }[];
 }
 
 export interface ConnectAgentInput {

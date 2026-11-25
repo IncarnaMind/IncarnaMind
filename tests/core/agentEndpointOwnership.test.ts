@@ -1,11 +1,22 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { AgentEndpointError, agentSocketPath, listenForAgents } from "../../src/core/agents/socket";
+import { ALL_SHARED_ID } from "../../src/core/api";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import {
   AGENT_HANDSHAKE_MAX_BYTES,
@@ -24,7 +35,12 @@ import {
 } from "../../src/shared/agentSocket";
 import { translate } from "../../src/shared/i18n";
 import { agentSocketAnswers, legacyAgentClient } from "../helpers/agentClients";
-import { agentsAdapter, buildAgentShim, startAgentsCore } from "../helpers/agents";
+import {
+  agentsAdapter,
+  buildAgentShim,
+  connectedTwice,
+  startAgentsCore,
+} from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 import { scriptedModel } from "../helpers/models";
 
@@ -578,7 +594,7 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     await core.setAgentsEnabled(true);
     const coast = await core.createLibraryGroup({ name: "Coast", description: "The sea." });
     const folderIds = [coast.id];
-    return { core, start, keychain, opened, folderIds, dataDir };
+    return { core, start, keychain, opened, folderIds, dataDir, home };
   }
 
   const keyInBundle = async (path: string) =>
@@ -619,11 +635,23 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     expect((await core.getAgents()).shimsOutOfDate).toEqual([]);
   }, 60_000);
 
-  /** Claude connected, then the app started again with its key gone from the keychain, as when the keyring changed. */
-  async function keyUnreadable() {
-    const { core, start, keychain, folderIds, dataDir } = await claudeComputer();
-    const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
+  /** Claude Code's own file, with the User's account in it and a server of theirs. */
+  const CLAUDE_JSON = `${JSON.stringify({ userID: "b0ed6c26", mcpServers: { notes: { type: "stdio", command: "n", args: [], env: {} } } }, null, 2)}\n`;
+
+  /**
+   * An app connected, then IncarnaMind started again with that connection's key gone from the
+   * keychain, as when the keyring changed. `also` runs before the restart, on the first core.
+   */
+  async function keyUnreadable<T>(
+    client: "claude-desktop" | "claude-code" = "claude-desktop",
+    also?: (core: ReturnType<typeof startCore>, folderIds: string[]) => Promise<T>,
+  ) {
+    const { core, start, keychain, folderIds, dataDir, home } = await claudeComputer();
+    const claudeJson = join(home, ".claude.json");
+    if (client === "claude-code") await writeFile(claudeJson, CLAUDE_JSON);
+    const { pairing } = await core.setUpAgent({ client, folderIds });
     const oldLaunch = await core.getAgentLaunch(pairing.id);
+    const others = await also?.(core, folderIds);
     core.close();
     const socketPath = oldLaunch.env[AGENT_SOCKET_ENV] ?? agentSocketPath(dataDir);
     await expect.poll(() => agentSocketAnswers(socketPath)).toBe(false);
@@ -631,8 +659,11 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     const restarted = start();
     await expect.poll(() => agentSocketAnswers(socketPath)).toBe(true);
     await expect(restarted.getAgentLaunch(pairing.id)).rejects.toThrow(/can’t be read/);
-    return { restarted, pairing, oldLaunch, folderIds };
+    return { restarted, pairing, oldLaunch, folderIds, claudeJson, others };
   }
+
+  const serversIn = async (path: string) =>
+    Object.keys(JSON.parse(await readFile(path, "utf8")).mcpServers ?? {});
 
   it("set up again where its key can't be read, an app's one connection gets a new key: the new one works, the old is refused", async () => {
     const { restarted, pairing, oldLaunch, folderIds } = await keyUnreadable();
@@ -660,6 +691,92 @@ describe("outside agent endpoint security and mutual HMAC handshake (#2049, ADR-
     await restarted.disconnectAgent(pairing.id);
     expect((await restarted.getAgents()).pairings).toEqual([]);
     expect(await consent()).not.toBe("accepted");
+  }, 60_000);
+
+  it("Claude Code's last connection whose key can't be read: Disconnect takes its entry out of the file, and the copy goes", async () => {
+    const { restarted, pairing, claudeJson } = await keyUnreadable("claude-code");
+    expect(await serversIn(claudeJson)).toEqual(["notes", "incarnamind"]);
+    const left = await restarted.disconnectAgent(pairing.id);
+    expect(left.settingsLeft).toBeUndefined();
+    expect(await readFile(claudeJson, "utf8")).toBe(CLAUDE_JSON);
+    await expect(stat(`${claudeJson}.incarnamind-backup`)).rejects.toThrow(/ENOENT/);
+  }, 60_000);
+
+  it("with another Claude Code connection left, one whose key can't be read leaves the entry it can't tell apart, and says where", async () => {
+    const { restarted, pairing, claudeJson } = await keyUnreadable("claude-code", (core, folderIds) =>
+      core.connectAgent({ name: "Claude Code 2", client: "claude-code", folderIds }),
+    );
+    const left = await restarted.disconnectAgent(pairing.id);
+    expect(left.settingsLeft?.map((each) => each.path)).toEqual([claudeJson]);
+    expect(await serversIn(claudeJson)).toEqual(["notes", "incarnamind"]);
+    expect(await readFile(`${claudeJson}.incarnamind-backup`, "utf8")).toBe(CLAUDE_JSON);
+  }, 60_000);
+
+  it("an entry holding another live connection's key is that one's: Disconnect of one whose key can't be read leaves it, and says nothing", async () => {
+    const { restarted, pairing, claudeJson, others } = await keyUnreadable(
+      "claude-code",
+      (core, folderIds) => connectedTwice(core, "claude-code", "Claude Code 2", folderIds),
+    );
+    const left = await restarted.disconnectAgent(pairing.id);
+    expect(left.settingsLeft).toBeUndefined();
+    const entry = JSON.parse(await readFile(claudeJson, "utf8")).mcpServers.incarnamind;
+    const theirs = await restarted.getAgentLaunch(others?.id ?? "");
+    expect(entry.env[AGENT_TOKEN_ENV] === theirs.env[AGENT_TOKEN_ENV]).toBe(true);
+  }, 60_000);
+
+  it("Undo after a second press that gave Claude Code a new key keeps the connection and the entry just written", async () => {
+    const { restarted, pairing, oldLaunch, folderIds, claudeJson } =
+      await keyUnreadable("claude-code");
+    const again = await restarted.setUpAgent({
+      client: "claude-code",
+      folderIds: [ALL_SHARED_ID],
+      propose: true,
+    });
+    expect(again.pairing.id).toBe(pairing.id);
+    const renewed = await restarted.getAgentLaunch(pairing.id);
+    const written = await readFile(claudeJson, "utf8");
+    expect(written.includes(renewed.env[AGENT_TOKEN_ENV] ?? "-")).toBe(true);
+
+    await restarted.undoAgentSetup(pairing.id);
+    expect((await restarted.getAgents()).pairings).toMatchObject([
+      { id: pairing.id, folderIds, propose: false },
+    ]);
+    expect((await readFile(claudeJson, "utf8")) === written).toBe(true);
+    await expect(legacyAgentClient(oldLaunch)).rejects.toThrow(/no longer connected/);
+    const agent = await legacyAgentClient(renewed);
+    try {
+      await agent.listTools();
+    } finally {
+      await agent.close();
+    }
+  }, 60_000);
+
+  it("install again and a second press of Claude take turns: the install opened last holds the key that works", async () => {
+    const { core, opened, folderIds } = await claudeComputer();
+    const { pairing } = await core.setUpAgent({ client: "claude-desktop", folderIds });
+    const oldLaunch = await core.getAgentLaunch(pairing.id);
+    await callViaLegacyV1(oldLaunch.env[AGENT_SOCKET_ENV] ?? "", oldLaunch.env[AGENT_TOKEN_ENV] ?? "", {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    });
+    expect((await core.getAgents()).shimsOutOfDate).toEqual([pairing.id]);
+
+    await Promise.all([
+      core.setUpAgent({ client: "claude-desktop", folderIds }),
+      core.openAgentInstallAgain(pairing.id),
+    ]);
+    const now = await core.getAgentLaunch(pairing.id);
+    expect(opened).toHaveLength(3);
+    expect((await keyInBundle(opened.at(-1) ?? "")) === now.env[AGENT_TOKEN_ENV]).toBe(true);
+    await expect(legacyAgentClient(oldLaunch)).rejects.toThrow(/no longer connected/);
+    const agent = await legacyAgentClient(now);
+    try {
+      await agent.listTools();
+    } finally {
+      await agent.close();
+    }
   }, 60_000);
 
   it("signs only the matching keyId, and the app refuses forged, reflected, and replayed line 3 proofs", async () => {

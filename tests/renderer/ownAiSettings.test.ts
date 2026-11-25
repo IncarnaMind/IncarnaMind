@@ -461,12 +461,13 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
         },
         disconnectAgent: async (id: string) => {
           done.push(id);
-          return {
-            skillsLeft:
-              id === CLAUDE_CODE.id
-                ? [{ path: "/home/skills/incarnamind", shown: "~/skills/incarnamind" }]
-                : [],
-          };
+          return id === CLAUDE_CODE.id
+            ? { skillsLeft: [{ path: "/home/skills/incarnamind", shown: "~/skills/incarnamind" }] }
+            : {
+                skillsLeft: [],
+                // Its key couldn't be read, and another connection of the app may own the entry.
+                settingsLeft: [{ path: "/home/.cursor/mcp.json", shown: "~/.cursor/mcp.json" }],
+              };
         },
       });
     });
@@ -520,6 +521,9 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
       expect(part("agent-skill-left")?.textContent).toBe(
         "Disconnected Claude Code. Its Skill stays at ~/skills/incarnamind: you changed it.",
       );
+      expect(part("agent-settings-left")?.textContent).toBe(
+        "Disconnected Cursor. Its IncarnaMind settings stay in ~/.cursor/mcp.json: remove them there.",
+      );
     });
 
     test("one connected: no Disconnect all, its row's Disconnect is enough", async () => {
@@ -558,6 +562,10 @@ describe("Settings › AI leads with Your AI (#3645)", () => {
       await press(part("agents-disconnect-all-open"));
       expect(part("agents-disconnect-all-ask")?.textContent).toBe(
         "断开全部 2 个？它们在 IncarnaMind 中写下的内容会保留。全部断开保留",
+      );
+      await press(part("agents-disconnect-all-confirm"));
+      expect(part("agent-settings-left")?.textContent).toBe(
+        "已断开 Cursor。~/.cursor/mcp.json 中仍有 IncarnaMind 的设置，可在该文件中删除。",
       );
     });
   });
