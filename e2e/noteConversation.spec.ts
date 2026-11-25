@@ -15,6 +15,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  openConversationMenu,
   pointAndClick,
   removeDataFolder,
   secondWindow,
@@ -1048,7 +1049,7 @@ test("New conversation, from the conversation's name: one line marks it at the t
     await window.keyboard.press("Enter");
     await stepTo(3);
     await expect(panel.getByTestId("note-column-live")).toBeVisible({ timeout: 20_000 });
-    await pointAndClick(window, panel.getByTestId("conversation-name"));
+    await openConversationMenu(window, panel);
     await expect(panel.getByTestId("conversation-new")).toBeDisabled();
     await window.keyboard.press("Escape");
     await stepTo(99);
@@ -1583,8 +1584,7 @@ async function expectUpward(window: Page, index: number, asked: string) {
   const panel = group.getByTestId("note-ask-panel");
   await expect(panel).toBeVisible();
   await expect(window.getByTestId("note-column")).toHaveCount(0);
-  await pointAndClick(window, group.getByTestId("conversation-name"));
-  const menu = group.getByTestId("conversation-menu");
+  const menu = await openConversationMenu(window, group);
   await expect(menu.getByTestId("conversation-new")).toBeVisible();
   await expect(menu.getByTestId("conversation-move-left")).toHaveCount(0);
   await window.keyboard.press("Escape");
@@ -1612,9 +1612,7 @@ async function expectUpward(window: Page, index: number, asked: string) {
 
 /** The items of the conversation's name menu in `scope`, read with it open; it is closed again. */
 async function conversationMenu(window: Page, scope: Locator): Promise<string[]> {
-  await pointAndClick(window, scope.getByTestId("conversation-name").first());
-  const menu = scope.getByTestId("conversation-menu");
-  await expect(menu.getByRole("menuitem").first()).toBeVisible();
+  const menu = await openConversationMenu(window, scope);
   const items = await menu.getByRole("menuitem").allInnerTexts();
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();

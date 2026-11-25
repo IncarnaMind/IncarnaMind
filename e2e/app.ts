@@ -2938,6 +2938,12 @@ export async function fromConversationMenu(
   scope: Locator,
   item: string,
 ): Promise<void> {
+  const menu = await openConversationMenu(window, scope);
+  await pointAndClick(window, menu.getByTestId(item));
+}
+
+/** Opens the conversation's name menu in `scope` as a person does, and returns it. */
+export async function openConversationMenu(window: Page, scope: Locator): Promise<Locator> {
   const menu = scope.getByTestId("conversation-menu");
   // A press while the box still grows open can land beside the name: pressed again until it opens.
   await expect(async () => {
@@ -2945,9 +2951,9 @@ export async function fromConversationMenu(
       await motionSettled(window);
       await pointAndClick(window, scope.getByTestId("conversation-name").first());
     }
-    await expect(menu.getByTestId(item)).toBeVisible({ timeout: 2000 });
+    await expect(menu.getByRole("menuitem").first()).toBeVisible({ timeout: 2000 });
   }).toPass();
-  await pointAndClick(window, menu.getByTestId(item));
+  return menu;
 }
 
 /**

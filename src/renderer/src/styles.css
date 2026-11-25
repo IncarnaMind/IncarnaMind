@@ -3685,6 +3685,14 @@
       background: none;
       box-shadow: none;
     }
+    /* Marks and counts only, in the tab strip (#3765): the floating badge's steady width, kept so
+       its words changing move nothing, would push the Note's tab and ⋯ out of a narrow group. */
+    .check-badge[data-stable] {
+      min-width: 0;
+    }
+    .check-badge[data-stable] .check-badge-open {
+      flex: none;
+    }
   }
   .check-badge-quiet {
     display: none;
