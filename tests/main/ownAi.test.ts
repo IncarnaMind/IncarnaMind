@@ -5,7 +5,17 @@
  */
 import { spawn as spawnNode } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -770,7 +780,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       ? (JSON.parse(end.reply) as { id: string; answer: Record<string, unknown> }[])
       : [];
 
-  // protects=a question reaches IncarnaMind read as what will happen (the whole command) with each answer Claude Code suggests, in its order; its "don't ask again" sends every one of them back exactly as Claude Code gave it, as its own prompt's choice does, nothing widened or narrowed; fails_when=a question is lost, its command is cut, or a suggestion is sent other than as Claude Code gave it
+  // protects=a question reaches IncarnaMind read as what will happen (the whole command, and the AI's own words for it, as its prompt prints them) with each answer Claude Code suggests, in its order; its "don't ask again" sends every one of them back exactly as Claude Code gave it, as its own prompt's choice does, nothing widened or narrowed; fails_when=a question is lost, its command is cut, or a suggestion is sent other than as Claude Code gave it
   it("passes on the answers Claude Code suggests, and sends them all back as it gave them", async () => {
     useClaude({ run: asking([COMMAND]) });
     const asked: OwnAiAsk[] = [];
@@ -781,7 +791,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     expect(asked).toEqual([
       {
         step: "toolu_1",
-        action: { kind: "command", value: COMMAND.input.command },
+        action: { kind: "command", value: COMMAND.input.command, description: "Count" },
         suggested: [
           {
             kind: "rules",
@@ -910,7 +920,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     ]);
   });
 
-  // protects=each answer Claude Code suggests reads as what it covers, for how long and where it is kept: a rule in plain words where they say exactly what it covers, any other rule as it is; one kept where the card can't say isn't offered, nor any when Claude Code says a lasting answer mustn't be; fails_when=the card says less than an answer does, or offers one Claude Code said not to
+  // protects=each answer Claude Code suggests reads as what it covers, for how long and where it is kept: a rule in plain words where they say exactly what it covers, any other rule as it is; none is offered when one of them can't be read, since the lasting answer applies them all, nor when Claude Code says a lasting answer mustn't be; fails_when=the card says less than an answer does, or offers one Claude Code said not to
   it("reads each answer Claude Code suggests as the card says it", async () => {
     const rules = (destination: string, ...each: Record<string, string>[]) => ({
       type: "addRules",
@@ -937,7 +947,6 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
           rules("localSettings", { toolName: "WebSearch" }),
           rules("localSettings", { toolName: "Bash", ruleContent: "echo ok *" }),
           rules("session", { toolName: "Edit", ruleContent: "/.claude/skills/x/**" }),
-          rules("elsewhere", { toolName: "Bash", ruleContent: "git log:*" }),
           {
             type: "addRules",
             behavior: "deny",
@@ -949,6 +958,10 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         call([rules("localSettings", { toolName: "Bash", ruleContent: "git log:*" })], {
           suppress_always_allow_rule: true,
         }),
+        call([
+          rules("localSettings", { toolName: "Bash", ruleContent: "git log:*" }),
+          rules("elsewhere", { toolName: "Bash", ruleContent: "git log:*" }),
+        ]),
       ]),
     });
     const asked: OwnAiAsk[] = [];
@@ -996,6 +1009,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         { kind: "mode", kept: "everywhere", mode: "plan" },
       ],
       [],
+      [],
     ]);
   });
 
@@ -1042,31 +1056,8 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     }
   });
 
-  // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
-  it("registers a hook that makes every write to Claude Code's own steering files ask", async () => {
-    const calls = [
-      { tool_name: "Write", tool_input: { file_path: "CLAUDE.md", content: "x" } },
-      {
-        tool_name: "Edit",
-        tool_input: { file_path: "/w/CLAUDE.local.md", old_string: "a", new_string: "b" },
-      },
-      { tool_name: "Write", tool_input: { file_path: "/w/.mcp.json", content: "{}" } },
-      {
-        tool_name: "Write",
-        tool_input: { file_path: "/w/.claude/settings.local.json", content: "{}" },
-      },
-      {
-        tool_name: "Write",
-        tool_input: { file_path: "/w/.claude/skills/x/SKILL.md", content: "x" },
-      },
-      {
-        tool_name: "Write",
-        tool_input: { file_path: "/h/.claude/projects/p/memory/MEMORY.md", content: "x" },
-      },
-      { tool_name: "Bash", tool_input: { command: "cp notes.md CLAUDE.md" } },
-      { tool_name: "Write", tool_input: { file_path: "/w/notes.md", content: "x" } },
-      { tool_name: "Bash", tool_input: { command: "echo ok > notes.txt" } },
-    ];
+  /** The hooks a run registers, and its answer to each PreToolUse call, as a fake Claude Code sends them. */
+  async function useHookAnswers(calls: readonly Record<string, unknown>[]) {
     useClaude({
       run: `
         const lines = require("node:readline").createInterface({ input: process.stdin });
@@ -1095,14 +1086,168 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       hooks: { PreToolUse: { matcher: string; onFailure: string }[] };
       answers: { hookSpecificOutput?: { permissionDecision: string } }[];
     };
+    return {
+      hooks,
+      answers: answers.map((each) => each.hookSpecificOutput?.permissionDecision ?? "goes on"),
+    };
+  }
+
+  // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
+  it("registers a hook that makes every write to Claude Code's own steering files ask", async () => {
+    const { hooks, answers } = await useHookAnswers([
+      { tool_name: "Write", tool_input: { file_path: "CLAUDE.md", content: "x" } },
+      {
+        tool_name: "Edit",
+        tool_input: { file_path: "/w/CLAUDE.local.md", old_string: "a", new_string: "b" },
+      },
+      { tool_name: "Write", tool_input: { file_path: "/w/.mcp.json", content: "{}" } },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: "/w/.claude/settings.local.json", content: "{}" },
+      },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: "/w/.claude/skills/x/SKILL.md", content: "x" },
+      },
+      {
+        tool_name: "Write",
+        tool_input: { file_path: "/h/.claude/projects/p/memory/MEMORY.md", content: "x" },
+      },
+      { tool_name: "Bash", tool_input: { command: "cp notes.md CLAUDE.md" } },
+      { tool_name: "Write", tool_input: { file_path: "/w/notes.md", content: "x" } },
+      { tool_name: "Bash", tool_input: { command: "echo ok > notes.txt" } },
+    ]);
     expect(hooks.PreToolUse[0]).toMatchObject({
       matcher: expect.stringContaining("Write"),
       onFailure: "block",
     });
-    expect(answers.map((each) => each.hookSpecificOutput?.permissionDecision ?? "goes on")).toEqual(
-      ["ask", "ask", "ask", "ask", "ask", "ask", "ask", "goes on", "goes on"],
-    );
+    expect(answers).toEqual([
+      "ask",
+      "ask",
+      "ask",
+      "ask",
+      "ask",
+      "ask",
+      "ask",
+      "goes on",
+      "goes on",
+    ]);
   });
+
+  // protects=a steering file is known by its name in any case (macOS's and Windows's disks open claude.md as CLAUDE.md), where a link by another name really leads, in a command whatever quotes or backslashes are in its name, and the User's own servers in .claude.json; a file or command that only looks alike goes on; fails_when=under "Allow all edits" Claude Code writes claude.md, .Claude/settings.local.json, a link to CLAUDE.md or ~/.claude.json, or runs mv draft.md claude.md, unasked
+  it.skipIf(process.platform === "win32")(
+    "knows a steering file in any case, through a link, in a command spelt another way, and the User's own servers",
+    async () => {
+      const work = await realpath(await mkdtemp(join(tmpdir(), "im-steer-")));
+      await writeFile(join(work, "CLAUDE.md"), "Crossing times are HH.MM.\n");
+      await mkdir(join(work, ".claude"));
+      await symlink(join(work, "CLAUDE.md"), join(work, "notes.md"));
+      await symlink(join(work, ".claude"), join(work, "docs"));
+      await symlink("CLAUDE.local.md", join(work, "plan.md"));
+      const cases: [string, Record<string, unknown>, string][] = [
+        [
+          "claude.md in lower case",
+          {
+            tool_name: "Write",
+            tool_input: { file_path: join(work, "claude.md"), content: "x" },
+          },
+          "ask",
+        ],
+        [
+          ".Claude/settings.local.json",
+          {
+            tool_name: "Write",
+            tool_input: {
+              file_path: join(work, ".Claude", "settings.local.json"),
+              content: "{}",
+            },
+          },
+          "ask",
+        ],
+        [
+          "CLAUDE.LOCAL.MD",
+          {
+            tool_name: "Edit",
+            tool_input: {
+              file_path: join(work, "CLAUDE.LOCAL.MD"),
+              old_string: "a",
+              new_string: "b",
+            },
+          },
+          "ask",
+        ],
+        [
+          "notes.md, a link to CLAUDE.md",
+          { tool_name: "Write", tool_input: { file_path: "notes.md", content: "x" }, cwd: work },
+          "ask",
+        ],
+        [
+          "plan.md, a link to CLAUDE.local.md, not there yet",
+          { tool_name: "Write", tool_input: { file_path: "plan.md", content: "x" }, cwd: work },
+          "ask",
+        ],
+        [
+          "docs/settings.json, docs a link to .claude",
+          {
+            tool_name: "Write",
+            tool_input: { file_path: join(work, "docs", "settings.json"), content: "{}" },
+            cwd: work,
+          },
+          "ask",
+        ],
+        [
+          "~/.claude.json",
+          { tool_name: "Write", tool_input: { file_path: "/h/.claude.json", content: "{}" } },
+          "ask",
+        ],
+        [
+          "mv draft.md claude.md",
+          { tool_name: "Bash", tool_input: { command: "mv draft.md claude.md" } },
+          "ask",
+        ],
+        [
+          "quotes inside the name",
+          { tool_name: "Bash", tool_input: { command: 'mv draft.md CLA"UDE".md' } },
+          "ask",
+        ],
+        [
+          "a backslash inside the name",
+          { tool_name: "Bash", tool_input: { command: "cp draft.md CLAUDE\\.md" } },
+          "ask",
+        ],
+        [
+          "a redirect into .claude",
+          { tool_name: "Bash", tool_input: { command: "echo {} >.claude/settings.json" } },
+          "ask",
+        ],
+        [
+          ".claude.json in a command",
+          { tool_name: "Bash", tool_input: { command: "cat servers.json > ~/.claude.json" } },
+          "ask",
+        ],
+        [
+          "notes.md, no link",
+          {
+            tool_name: "Write",
+            tool_input: { file_path: join(work, "crossings.md"), content: "x" },
+            cwd: work,
+          },
+          "goes on",
+        ],
+        [
+          "a .claudeignore",
+          { tool_name: "Bash", tool_input: { command: "touch .claudeignore" } },
+          "goes on",
+        ],
+      ];
+      const { answers } = await useHookAnswers(cases.map(([, call]) => call)).finally(() =>
+        rm(work, { recursive: true, force: true }),
+      );
+      expect(cases.map(([name], index) => [name, answers[index]])).toEqual(
+        cases.map(([name, , said]) => [name, said]),
+      );
+    },
+  );
 
   // protects=IncarnaMind's own Tools never ask the User: their grant decides; fails_when=a call of IncarnaMind's own waits on a card
   it("allows a call of IncarnaMind's own without asking", async () => {
@@ -1183,13 +1328,13 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       {
         kind: "own",
         id: "toolu_1",
-        action: { kind: "command", value: COMMAND.input.command },
+        action: { kind: "command", value: COMMAND.input.command, description: "Count" },
         state: "going",
       },
       {
         kind: "own",
         id: "toolu_1",
-        action: { kind: "command", value: COMMAND.input.command },
+        action: { kind: "command", value: COMMAND.input.command, description: "Count" },
         state: "done",
       },
     ]);

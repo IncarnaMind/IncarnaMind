@@ -3201,6 +3201,14 @@
   .own-ask-content {
     color: var(--color-ink-secondary);
   }
+  /* The AI's own words for its command, as its prompt prints them under it. */
+  .own-ask-description {
+    margin: 0;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--color-ink-secondary);
+    overflow-wrap: anywhere;
+  }
   /* What runs is read in the order it is stored: nothing in it can turn its text around. */
   .own-ask-text,
   .own-ask-text * {
@@ -3249,37 +3257,42 @@
   }
   .own-ask-card .own-ask-actions {
     flex-direction: column;
+    /* One line, so the answers are as wide as the card, not as their one row would be. */
+    flex-wrap: nowrap;
     align-items: stretch;
     gap: 8px;
     min-width: 0;
     padding: 10px 12px 12px 32px;
   }
-  /* One row: Claude Code's "don't ask again" says what it covers where the card has room. */
-  .own-ask-lasting-short {
-    display: none;
-  }
-  @container own-ask (max-width: 470px) {
-    .own-ask-lasting {
-      display: none;
-    }
-    .own-ask-lasting-short {
-      display: inline;
-    }
-  }
   .own-ask-answers {
     display: flex;
     flex-wrap: nowrap;
+    min-width: 0;
     justify-content: flex-end;
     gap: 6px;
+    & .approval-button {
+      flex: none;
+      padding-inline: 10px;
+      white-space: nowrap;
+    }
     & .approval-button--ghost {
       margin-left: 0;
       padding-inline: 8px;
     }
-    & .approval-button {
-      padding-inline: 10px;
-    }
     & .approval-button--primary {
       padding-inline: 12px;
+    }
+    /* Too wide for one row: one under another, full width, every word of each shown. */
+    &[data-stacked] {
+      flex-direction: column;
+      align-items: stretch;
+      & .approval-button {
+        height: auto;
+        min-height: 32px;
+        padding-block: 6px;
+        white-space: normal;
+        text-wrap: pretty;
+      }
     }
   }
   .own-ask-dot {

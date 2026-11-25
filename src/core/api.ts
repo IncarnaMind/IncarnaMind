@@ -13571,6 +13571,8 @@ export interface NoteAction {
   /** For a command: it keeps running in the background, or runs outside the AI's own sandbox. */
   background?: true;
   unsandboxed?: true;
+  /** For a command: what the AI says it does, in its own words, as its own prompt shows them. */
+  description?: string;
 }
 
 /**
@@ -13705,6 +13707,13 @@ export interface NoteModel {
   resolvedModel: string;
   displayName: string;
   description: string;
+}
+
+/** The models a Note's conversation may run on, and the one its last run named (#3653). */
+export interface NoteModels {
+  models: NoteModel[];
+  /** As the run named it, e.g. "claude-haiku-5-5"; null until a run in this conversation has. */
+  ran: string | null;
 }
 
 /**
@@ -16404,7 +16413,7 @@ export interface CoreApi {
    * request's run heard them before its prompt went: looking starts nothing. [] until a request
    * has run since IncarnaMind started, and while none from this Note could run.
    */
-  noteModels(mindId: string): Promise<NoteModel[]>;
+  noteModels(mindId: string): Promise<NoteModels>;
   /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.

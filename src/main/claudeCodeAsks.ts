@@ -5,7 +5,7 @@
  * of its call, and the answers it suggests, each a change to its permissions with where it would
  * keep it. One the User picks goes back exactly as Claude Code gave it.
  */
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readlinkSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { NoteAction, NoteAnswer, NoteKept, NoteRule, NoteSuggested } from "../core/api";
 import { object } from "./agentCommand";
@@ -35,6 +35,24 @@ function realOf(path: string): string | null {
   }
 }
 
+/**
+ * Where `path` leads: links followed, the last one too when what it names isn't there yet, since a
+ * write through it makes that file.
+ */
+function leadsTo(path: string): string | null {
+  let at = path;
+  for (let hops = 0; hops < 40; hops += 1) {
+    let target: string;
+    try {
+      target = readlinkSync(at);
+    } catch {
+      return realOf(at);
+    }
+    at = resolve(dirname(at), target);
+  }
+  return null;
+}
+
 /** `path` from `folder`, when it is inside it; null when it isn't. */
 function within(folder: string, path: string): string | null {
   const from = relative(folder, path);
@@ -52,7 +70,7 @@ function placeOf(path: string, { folders, home }: Places): { value: string; inFo
     const from = within(folder, whole);
     if (from === null) continue;
     // A link inside the folder can lead out of it: there it is named where it really goes.
-    const real = realOf(whole) ?? whole;
+    const real = leadsTo(whole) ?? whole;
     const really = folders.some((each) => within(realOf(each) ?? each, real) !== null);
     return really ? { value: from, inFolder: true } : outside(real);
   }
@@ -99,9 +117,10 @@ export function actionOf(
     return {
       kind: "command",
       value: command,
-      ...(STEERING_NAMES.test(command) && { steers: true }),
+      ...(namesSteering(command) && { steers: true }),
       ...(input.run_in_background === true && { background: true }),
       ...(input.dangerouslyDisableSandbox === true && { unsandboxed: true }),
+      ...(text(input.description).trim() !== "" && { description: text(input.description).trim() }),
     };
   }
   if (name === "Write") {
@@ -114,7 +133,7 @@ export function actionOf(
       ...placeOf(path, places),
       size: { kind: there ? "whole" : "new", count: lines(content) },
       content,
-      ...(steers(path) && { steers: true }),
+      ...(steers(path, places.folders[0] ?? "") && { steers: true }),
     };
   }
   if (name === "Edit" || name === "MultiEdit") {
@@ -126,7 +145,7 @@ export function actionOf(
     return {
       kind: "change",
       ...placeOf(path, places),
-      ...(steers(path) && { steers: true }),
+      ...(steers(path, places.folders[0] ?? "") && { steers: true }),
       size: {
         kind: "changes",
         count: edits.reduce((sum, { from, to }) => sum + Math.max(lines(from), lines(to)), 0),
@@ -196,31 +215,54 @@ export const oursIn = (server: string) => (name: unknown) =>
   typeof name === "string" && (name === `mcp__${server}` || name.startsWith(`mcp__${server}__`));
 
 /**
- * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
- * skills and its memory (under a .claude folder), and the servers of a folder (.mcp.json). Written
- * in the conversation's folder, or in its memory, it steers every later request there.
+ * The files Claude Code reads as its own, by name in lower case: macOS's and Windows's disks open a
+ * file by its name in any case, so claude.md there is CLAUDE.md.
  */
-function steers(path: string): boolean {
-  const name = basename(path);
-  return (
-    name === "CLAUDE.md" ||
-    name === "CLAUDE.local.md" ||
-    name === ".mcp.json" ||
-    path.split(/[\\/]/).includes(".claude")
-  );
+const STEERING_FILES: ReadonlySet<string> = new Set([
+  "claude.md",
+  "claude.local.md",
+  // A folder's servers, and the User's own in their home folder: each a command started next time.
+  ".mcp.json",
+  ".claude.json",
+]);
+
+const steersAsNamed = (path: string) => {
+  const parts = path.split(/[\\/]/).map((part) => part.toLowerCase());
+  return STEERING_FILES.has(parts.at(-1) ?? "") || parts.includes(".claude");
+};
+
+/**
+ * A file Claude Code reads as its own: instructions (CLAUDE.md), settings, hooks, commands, agents,
+ * skills and its memory (under a .claude folder), and servers (.mcp.json, .claude.json). Written in
+ * the conversation's folder, or in its memory, it steers every later request there. Checked as
+ * named and where it really is from `cwd`, since a link by another name can lead to one.
+ */
+function steers(path: string, cwd: string): boolean {
+  if (steersAsNamed(path)) return true;
+  const real = leadsTo(resolve(cwd, path));
+  return real !== null && steersAsNamed(real);
 }
 
-/** A command that names one of those files or folders: it may write one. */
-const STEERING_NAMES = /CLAUDE(?:\.local)?\.md|\.mcp\.json|(?:^|[\s"'=/\\])\.claude(?:$|[\s"'/\\])/;
+const STEERING_NAMES =
+  /claude(?:\.local)?\.md|\.mcp\.json|\.claude\.json|(?:^|[^\w.-])\.claude(?:$|[^\w.-])/i;
+
+/**
+ * A command that names one of those files or folders, in any case and with the quotes and
+ * backslashes a shell takes out of a name taken out first: it may write one. A command that writes
+ * one without naming it, a script or a name it builds, is not seen.
+ */
+const namesSteering = (command: string) => STEERING_NAMES.test(command.replace(/["'\\]/g, ""));
 
 /** The id IncarnaMind's PreToolUse hook is registered under, in `initialize`. */
 export const STEERING_HOOK = "incarnamind-steering";
 
 /**
  * The PreToolUse hook a conversation's run registers (#3653): a write or a change to one of Claude
- * Code's own steering files, by a file tool or by a command that names one, always asks, whatever
- * its mode or the rules it keeps, since a text it read could tell it to write them and every later
- * request would follow it. Hooks run before the mode and the rules; asking takes nothing away.
+ * Code's own steering files, by a file tool or by a command that names one, asks, since a text it
+ * read could tell it to write them and every later request would follow it. Hooks run before the
+ * mode and the rules (measured in its default, acceptEdits, auto and bypassPermissions modes, and
+ * with the User's disableAllHooks); asking takes nothing away. A hook not answered keeps the call
+ * waiting and one answered with an error refuses it, so every call is answered at once.
  */
 export const STEERING_HOOKS = {
   PreToolUse: [
@@ -238,7 +280,9 @@ export function steeringAnswer(input: Record<string, unknown>): Record<string, u
   const given = object(input.tool_input);
   const path = text(given.file_path) || text(given.notebook_path);
   const steering =
-    name === "Bash" ? STEERING_NAMES.test(text(given.command)) : path !== "" && steers(path);
+    name === "Bash"
+      ? namesSteering(text(given.command))
+      : path !== "" && steers(path, text(input.cwd));
   if (!steering) return {};
   return {
     hookSpecificOutput: {
@@ -338,15 +382,19 @@ function suggestedOf(each: Record<string, unknown>, places: Places): NoteSuggest
 
 /**
  * The answers a question suggests, each as Claude Code gave it and as the card says it. None when
- * Claude Code says a lasting answer mustn't be offered for it.
+ * Claude Code says a lasting answer mustn't be offered for it, or when one of them can't be read:
+ * the card's lasting answer applies all of them, and says each.
  */
 function suggestionsOf(request: Record<string, unknown>, places: Places) {
   if (request.suppress_always_allow_rule === true) return [];
   const given = Array.isArray(request.permission_suggestions) ? request.permission_suggestions : [];
-  return given.flatMap((each) => {
+  const read: { said: NoteSuggested; sent: unknown }[] = [];
+  for (const each of given) {
     const said = suggestedOf(object(each), places);
-    return said ? [{ said, sent: each as unknown }] : [];
-  });
+    if (!said) return [];
+    read.push({ said, sent: each });
+  }
+  return read;
 }
 
 /** A question Claude Code asked, read: what it would do, its call's id, and its suggested answers. */

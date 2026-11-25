@@ -196,6 +196,9 @@ function promptOf(
 export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   /** The models the agent offers, as its last run here answered; held in memory only. */
   let listed: readonly OwnAiModel[] | null = null;
+  // The model each conversation's last run named: the User's own setting may name another than the
+  // list's first, which is the agent's general default.
+  const ranOn = new Map<string, string>();
   const { db } = options;
   const running = new Map<
     string,
@@ -634,6 +637,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       }
       if (step.kind === "model") {
         answeredOn = step.model;
+        ranOn.set(conversation.id, step.model);
       } else if (step.kind === "said") {
         // The words of one line grow as they come; a line that doesn't start as the last did is new.
         const last = steps.at(-1);
@@ -1024,13 +1028,16 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     /**
      * The models the agent offers for a request from this Note, as a run here answered before its
-     * prompt went: asking starts nothing. [] until a run has answered, and while no request from
-     * the Note could run (no connection that runs here, no consent, local mode).
+     * prompt went, and the one this Note's conversation last ran on: asking starts nothing. None
+     * until a run has answered, and while no request from the Note could run (no connection that
+     * runs here, no consent, local mode).
      */
-    models(mindId: string): readonly OwnAiModel[] {
+    models(mindId: string): { models: readonly OwnAiModel[]; ran: string | null } {
       const pairing = options.askable(mindId).find(canRun);
-      if (!listed || !pairing || options.heldBack(pairing, mindId)) return [];
-      return listed;
+      if (!listed || !pairing || options.heldBack(pairing, mindId))
+        return { models: [], ran: null };
+      const conversation = conversationOf(mindId, pairing.id);
+      return { models: listed, ran: (conversation && ranOn.get(conversation.id)) ?? null };
     },
 
     /** Deletes the conversations of Notes deleted for good. */

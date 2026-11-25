@@ -9851,7 +9851,8 @@ export function createCore(adapters: CoreAdapters): Core {
     noteModels: async (mindId) => {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      return [...ownAiConversations.models(mindId)];
+      const { models, ran } = ownAiConversations.models(mindId);
+      return { models: [...models], ran };
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),

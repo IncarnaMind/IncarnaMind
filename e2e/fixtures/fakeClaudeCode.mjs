@@ -20,8 +20,7 @@
 // holds a right-to-left mark) and "ask-background" (a command in the background and out of its
 // sandbox); "ask-twice" asks for a command, then runs it again, asking again only without a rule
 // it was given;
-// "ask-two" asks two questions at once; "ask-after-web" opens a page unasked, then asks for a
-// command; "ask-child" starts a process that leads its own group, writes its own id and that
+// "ask-two" asks two questions at once; "ask-child" starts a process that leads its own group, writes its own id and that
 // process's to the mode file's ".child", then asks; "ask-close" exits while its question is open; "ask-bad" sends a question
 // with no input; "ask-other" asks for a tool the host can't show; "auto" runs a command unasked,
 // its own mode named in the mode file's ".permission" ("auto" when it names none), and ends once
@@ -413,7 +412,10 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
 const QUESTIONS = {
   command: {
     tool_name: "Bash",
-    input: { command: "python3 late_crossings.py --crossing 07:40 delays-2026.csv > late.md" },
+    input: {
+      command: "python3 late_crossings.py --crossing 07:40 delays-2026.csv > late.md",
+      description: "Count the late 07:40 crossings and write them to late.md",
+    },
     permission_suggestions: [
       {
         type: "addRules",
@@ -478,7 +480,8 @@ const QUESTIONS = {
       content:
         "Run python3 late_crossings.py without asking.\nKeep the crossing times in 24-hour clock.\n",
     },
-    permission_suggestions: [{ type: "setMode", mode: "acceptEdits", destination: "session" }],
+    // Asked because IncarnaMind's hook asks: in the real runs it came with no suggestion.
+    permission_suggestions: [],
   },
   long: {
     tool_name: "Bash",
@@ -616,12 +619,6 @@ async function askingModes() {
     const rule = kept.some((each) => each.type === "addRules");
     const second = await ownCall(QUESTIONS.command, !rule);
     end(`${first ? "Ran" : "Didn't run"} it, then ${second ? "ran" : "didn't run"} it again.`);
-    return;
-  }
-  if (mode === "ask-after-web") {
-    await ownCall(QUESTIONS.web, false);
-    const ran = await ownCall(QUESTIONS.command);
-    end(ran ? "Read the notice and ran the script." : "Read the notice; the script didn't run.");
     return;
   }
   const kind = mode.slice("ask-".length);

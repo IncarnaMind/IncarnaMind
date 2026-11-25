@@ -1069,11 +1069,12 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
   });
 
-  // protects=looking for the models starts nothing of the User's agent, with or without the consent; the list comes from a request's own run, which asks for it, and shows only while a request from the Note could run; fails_when=the list starts the agent, shows before a run answered it, or outlives the consent or the connection
+  // protects=looking for the models starts nothing of the User's agent, with or without the consent; the list comes from a request's own run, which asks for it, and shows only while a request from the Note could run; the model a Note's last run named is held for that Note alone, so any window shows it and another Note shows none; fails_when=the list starts the agent, shows before a run answered it, or outlives the consent or the connection, or the box names the list's first model for a Note that ran on another
   it("lists the models a request's run heard, and starts nothing to look", async () => {
     let calls = 0;
     const run = runner(async (_agent, request) => {
       request.progress?.({ kind: "models", models: MODELS });
+      request.progress?.({ kind: "model", model: "claude-haiku-5-5" });
       return { kind: "finished", reply: "Done." };
     });
     const counted: OwnAiRunner = {
@@ -1089,20 +1090,24 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     };
     const { core, mindId, claude } = await written(counted);
     await core.revokeConsent("hosted-agents", `agent:${claude.pairing.id}`);
-    expect(await core.noteModels(mindId)).toEqual([]);
+    expect(await core.noteModels(mindId)).toEqual({ models: [], ran: null });
     expect(calls).toBe(0);
     expect(run.runs).toEqual([]);
 
     const given = await written(counted);
     calls = 0;
-    expect(await given.core.noteModels(given.mindId)).toEqual([]);
+    expect(await given.core.noteModels(given.mindId)).toEqual({ models: [], ran: null });
     expect(calls).toBe(0);
     await given.core.askInNote({ mindId: given.mindId, words: "shorter" });
     await given.ended();
     expect(run.runs.at(-1)?.listModels).toBe(true);
-    expect(await given.core.noteModels(given.mindId)).toEqual(MODELS);
+    expect(await given.core.noteModels(given.mindId)).toEqual({
+      models: MODELS,
+      ran: "claude-haiku-5-5",
+    });
+    expect(await given.core.noteModels(given.otherId)).toEqual({ models: MODELS, ran: null });
     await given.core.revokeConsent("hosted-agents", `agent:${given.claude.pairing.id}`);
-    expect(await given.core.noteModels(given.mindId)).toEqual([]);
+    expect(await given.core.noteModels(given.mindId)).toEqual({ models: [], ran: null });
   });
 
   // protects=a reply's Citation is shown as one only when IncarnaMind gave that token to this connection; a made-up token is not; fails_when=a token the agent made up, or one of another connection, reaches the conversation as a Citation
@@ -1189,7 +1194,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       );
     }
     expect(run.runs).toHaveLength(2);
-    expect((await core.noteModels(mindId)).map((each) => each.value)).not.toContain(
+    expect((await core.noteModels(mindId)).models.map((each) => each.value)).not.toContain(
       "haiku\r\ncalc.exe",
     );
   });

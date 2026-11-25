@@ -137,7 +137,16 @@ function Whole({ value, testId, className }: { value: string; testId: string; cl
  */
 function Value({ action }: { action: NoteAction }) {
   if (action.kind === "command" || action.kind === "search") {
-    return <Whole value={action.value} testId="own-ask-value" className="own-ask-value--command" />;
+    return (
+      <>
+        <Whole value={action.value} testId="own-ask-value" className="own-ask-value--command" />
+        {action.description && (
+          <p data-testid="own-ask-description" className="own-ask-description">
+            {visible(action.description)}
+          </p>
+        )}
+      </>
+    );
   }
   const shown = visible(action.value);
   const at = shown.replace(/[?#].*$/, "").search(/[/\\][^/\\]*$/);
@@ -177,75 +186,72 @@ function ruleWords(t: Translate, rule: NoteRule): string {
   return visible(rule.rule);
 }
 
-/**
- * One suggested answer in a few words, ending with where it is kept; with `fit`, what it covers is
- * cut in its middle to that many characters, and in this conversation, where the card is, goes
- * unsaid, for a label that fits beside the other answers.
- */
-function suggestedWords(
-  t: Translate,
-  language: string,
-  suggested: NoteSuggested,
-  fit?: number,
-): string {
-  const kept = fit !== undefined && suggested.kept === "conversation" ? "here" : suggested.kept;
-  const list = (parts: string[]) => {
-    const said = new Intl.ListFormat(language, { type: "conjunction" }).format(parts);
-    return fit === undefined ? said : middle(said, fit);
-  };
+/** One suggested answer in a few words, ending with where it is kept. */
+function suggestedWords(t: Translate, language: string, suggested: NoteSuggested): string {
   if (suggested.kind === "rules") {
-    // A command's start that doesn't fit keeps its first word, as "python3… commands".
-    const rules = suggested.rules.map((rule) =>
-      fit !== undefined && rule.kind === "commands" && rule.start.length > fit - 10
-        ? { ...rule, start: `${rule.start.split(/\s+/)[0] ?? rule.start}…` }
-        : rule,
+    const what = new Intl.ListFormat(language, { type: "conjunction" }).format(
+      suggested.rules.map((rule) => ruleWords(t, rule)),
     );
-    return t(`ownAsk.lasting.rules.${kept}`, {
-      what: list(rules.map((rule) => ruleWords(t, rule))),
-    });
+    return t(`ownAsk.lasting.rules.${suggested.kept}`, { what });
   }
   if (suggested.kind === "mode" && suggested.mode === "acceptEdits") {
-    return t(`ownAsk.lasting.edits.${kept}`);
+    return t(`ownAsk.lasting.edits.${suggested.kept}`);
   }
   if (suggested.kind === "mode") {
-    return t(`ownAsk.lasting.mode.${kept}`, { mode: visible(suggested.mode) });
+    return t(`ownAsk.lasting.mode.${suggested.kept}`, { mode: visible(suggested.mode) });
   }
   if (suggested.kind === "folders") {
-    return t(`ownAsk.lasting.folders.${kept}`, {
-      what: list(
-        suggested.folders.map((folder) =>
-          folder === "" ? t("ownAsk.here.folder") : visible(folder),
-        ),
+    const what = new Intl.ListFormat(language, { type: "conjunction" }).format(
+      suggested.folders.map((folder) =>
+        folder === "" ? t("ownAsk.here.folder") : visible(folder),
       ),
-    });
+    );
+    return t(`ownAsk.lasting.folders.${suggested.kept}`, { what });
   }
-  return t(`ownAsk.lasting.other.${kept}`, { text: visible(suggested.text) });
+  return t(`ownAsk.lasting.other.${suggested.kept}`, { text: visible(suggested.text) });
 }
 
 /** The order Claude Code's own "don't ask again" names what it applies: its rules first. */
 const FIRST: Record<NoteSuggested["kind"], number> = { rules: 0, mode: 1, folders: 2, other: 3 };
 
 /**
- * Claude Code's own "don't ask again", as its button says it: what it mainly does, short enough for
- * one row; and, for the title and a screen reader, everything it applies, whole.
+ * Claude Code's own "don't ask again", as its button says it: everything it applies, each with
+ * where it is kept, never cut, since the User agrees to what it reads.
  */
 function lastingWords(t: Translate, language: string, suggested: readonly NoteSuggested[]) {
-  const ordered = [...suggested].sort((a, b) => FIRST[a.kind] - FIRST[b.kind]);
-  const [main] = ordered;
-  const shortKind = main?.kind === "mode" && main.mode === "acceptEdits" ? "edits" : main?.kind;
-  return {
-    label: main ? suggestedWords(t, language, main, language === "zh-CN" ? 12 : 18) : "",
-    // Where the card is too narrow for that, Claude Code's own first words alone.
-    short: shortKind ? t(`ownAsk.lasting.short.${shortKind}`) : "",
-    whole: ordered.map((each) => suggestedWords(t, language, each)).join(" · "),
-  };
+  return [...suggested]
+    .sort((a, b) => FIRST[a.kind] - FIRST[b.kind])
+    .map((each, index) => {
+      const said = suggestedWords(t, language, each);
+      return index === 0 ? said : `${said.charAt(0).toLocaleLowerCase(language)}${said.slice(1)}`;
+    })
+    .join(t("ownAsk.lasting.then"));
 }
 
-/** Text no longer than `max` characters, cut in its middle so its start and its end both show. */
-function middle(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const head = Math.ceil((max - 1) / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - (max - 1 - head))}`;
+/**
+ * Whether the answers need more than one row: measured as one row, whatever they show now. Then
+ * they stand one under another, as Claude Code lists them.
+ */
+function useStacked(toolbar: RefObject<HTMLDivElement | null>, key: string) {
+  const [stacked, setStacked] = useState(false);
+  useMeasured(
+    toolbar,
+    () => {
+      const element = toolbar.current;
+      if (!element) return;
+      const was = element.dataset.stacked;
+      delete element.dataset.stacked;
+      const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
+      const buttons = [...element.children];
+      const needed =
+        buttons.reduce((sum, each) => sum + each.getBoundingClientRect().width, 0) +
+        gap * Math.max(0, buttons.length - 1);
+      if (was !== undefined) element.dataset.stacked = was;
+      setStacked(needed > element.clientWidth + 0.5);
+    },
+    key,
+  );
+  return stacked;
 }
 
 /**
@@ -267,8 +273,7 @@ export function QuestionCard({
   const t = useT();
   const language = useLanguage();
   const titleId = useId();
-  const ownId = useId();
-  const wholeId = useId();
+  const steersId = useId();
   const { action } = question;
   const [change, setChange] = useState(action.steers === true);
   const details = useRef<HTMLDivElement>(null);
@@ -292,10 +297,14 @@ export function QuestionCard({
     },
     `${question.id}\u0000${all}`,
   );
-  const { answers } = question;
-  const start = Math.max(0, answers.indexOf("deny"));
-  const [at, setAt] = useState(start);
-  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const lasting = lastingWords(t, language, question.suggested);
+  const toolbar = useRef<HTMLDivElement>(null);
+  const stacked = useStacked(toolbar, `${question.id}\u0000${language}\u0000${lasting}`);
+  // On one row Deny comes first and Allow once last, as the app's approval cards put them; one under
+  // another, as Claude Code lists them: Allow once, its "don't ask again", Deny.
+  const answers = stacked ? [...question.answers].reverse() : question.answers;
+  const [at, setAt] = useState<NoteAnswer>("deny");
+  const buttons = useRef(new Map<NoteAnswer, HTMLButtonElement>());
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -303,18 +312,22 @@ export function QuestionCard({
       focusNoteAsk(mindId);
       return;
     }
-    const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    const step =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? 1
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? -1
+          : 0;
     if (step === 0) return;
     event.preventDefault();
-    const next = (at + step + answers.length) % answers.length;
+    const next = answers[(answers.indexOf(at) + step + answers.length) % answers.length] ?? at;
     setAt(next);
-    buttons.current[next]?.focus();
+    buttons.current.get(next)?.focus();
   };
   const answer = (chosen: NoteAnswer) => {
     focusNoteAsk(mindId);
     void answerInNote(mindId, question.id, chosen);
   };
-  const lasting = lastingWords(t, language, question.suggested);
   const runs = [
     ...(action.background ? [t("ownAsk.runs.background")] : []),
     ...(action.unsandboxed ? [t("ownAsk.runs.unsandboxed", { agent })] : []),
@@ -323,7 +336,7 @@ export function QuestionCard({
   return (
     <fieldset
       aria-labelledby={titleId}
-      aria-describedby={ownId}
+      aria-describedby={action.steers ? steersId : undefined}
       data-testid="own-ask-card"
       data-mind-id={mindId}
       data-kind={action.kind}
@@ -336,11 +349,8 @@ export function QuestionCard({
             <Title action={action} />
           </span>
         </p>
-        <p id={ownId} className="approval-explanation">
-          {t("ownAsk.own", { agent })}
-        </p>
         {action.steers && (
-          <p data-testid="own-ask-steers" className="approval-read-text">
+          <p id={steersId} data-testid="own-ask-steers" className="approval-explanation">
             {t("ownAsk.steers", { agent })}
           </p>
         )}
@@ -417,29 +427,31 @@ export function QuestionCard({
       </div>
       <div className="approval-actions own-ask-actions">
         <div
+          ref={toolbar}
           role="toolbar"
           aria-label={t("ownAsk.answers", { agent })}
+          aria-orientation={stacked ? "vertical" : "horizontal"}
           data-testid="own-ask-answers"
+          data-stacked={stacked || undefined}
           onKeyDown={move}
           // Coming back to the answers always lands on Deny, never on the last one pointed at.
           onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAt(start);
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAt("deny");
           }}
           data-count={answers.length}
           className="own-ask-answers"
         >
-          {answers.map((kind, index) => (
+          {answers.map((kind) => (
             <button
               key={kind}
               ref={(element) => {
-                buttons.current[index] = element;
+                if (element) buttons.current.set(kind, element);
+                else buttons.current.delete(kind);
               }}
               type="button"
-              tabIndex={index === at ? 0 : -1}
+              tabIndex={kind === at ? 0 : -1}
               data-testid={`own-ask-${kind}`}
-              aria-describedby={kind === "suggested" ? wholeId : undefined}
-              title={kind === "suggested" ? lasting.whole : undefined}
-              onFocus={() => setAt(index)}
+              onFocus={() => setAt(kind)}
               onClick={() => answer(kind)}
               className={`approval-button ${
                 kind === "once"
@@ -449,22 +461,10 @@ export function QuestionCard({
                     : ""
               }`}
             >
-              {kind === "suggested" ? (
-                <>
-                  <span className="own-ask-lasting">{lasting.label}</span>
-                  <span className="own-ask-lasting-short">{lasting.short}</span>
-                </>
-              ) : (
-                t(`ownAsk.answer.${kind}`)
-              )}
+              {kind === "suggested" ? lasting : t(`ownAsk.answer.${kind}`)}
             </button>
           ))}
         </div>
-        {lasting.whole !== "" && (
-          <span id={wholeId} className="sr-only">
-            {lasting.whole}
-          </span>
-        )}
       </div>
     </fieldset>
   );
@@ -494,7 +494,7 @@ export function useAnnounce(question: NoteQuestion | undefined, agent: string): 
     answers: question.answers
       .map((kind) =>
         kind === "suggested"
-          ? lastingWords(t, language, question.suggested).whole
+          ? lastingWords(t, language, question.suggested)
           : t(`ownAsk.answer.${kind}`),
       )
       .join(language === "zh-CN" ? "、" : ", "),
