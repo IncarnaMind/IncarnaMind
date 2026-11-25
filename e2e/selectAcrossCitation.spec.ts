@@ -1,15 +1,26 @@
+import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
+import type { CoreBridge } from "../src/core/api";
 import {
+  addDocuments,
   createDataFolder,
+  dismissChatSetup,
+  expectReadyDocuments,
+  focusSettled,
   launchApp,
   leaveFirstOpen,
+  newMind,
   openExample,
+  paintOf,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  showEveryCheckResult,
+  tokenColor,
 } from "./app";
 
 /*
@@ -508,4 +519,323 @@ async function centreOf(target: Locator): Promise<[number, number]> {
   const box = await target.boundingBox();
   if (!box) throw new Error("The element isn't on screen.");
   return [box.x + box.width / 2, box.y + box.height / 2];
+}
+
+/*
+ * What a selection covers reads as selected. The browser paints a selection behind text and a
+ * Citation's marker is none, so the marker and the gaps beside it are washed by the stylesheet,
+ * and so is the mark of a sentence the selection covers whole. Read from the window's own pixels:
+ * a row along the selected line shows no page-coloured gap, a bare mark shows the page.
+ */
+
+const SOURCES = {
+  "Strategy review": "# Strategy review\n\nA clear strategy guides every team.\n",
+  "Teams report": "# Teams report\n\nTeams and departments work together.\n",
+} as const;
+
+const SENTENCES = {
+  en: {
+    checked: [
+      "Our plan rests on a clear strategy,",
+      " and on collaboration across teams and departments",
+      ".",
+    ],
+    // Letters past the first Citation that a selection reaches, on the line it stands on.
+    past: 7,
+    another: "Costs fell in the second quarter.",
+    plain: ["Later, the board approved the budget", "."],
+  },
+  "zh-CN": {
+    checked: ["我们的计划建立在清晰的战略之上，", "并依靠各团队和部门之间的协作", "。"],
+    past: 4,
+    another: "第二季度的运营成本有所下降。",
+    plain: ["随后，董事会批准了预算", "。"],
+  },
+} as const;
+
+/** The Note's paragraphs: a checked sentence with Citations, another checked one, and one Citation in plain words. */
+function citedParagraphs(
+  language: "en" | "zh-CN",
+  documents: Record<string, { id: string; name: string; contentHash: string }>,
+) {
+  const words = SENTENCES[language];
+  const cite = (name: keyof typeof SOURCES, quote: string) => {
+    const document = documents[name];
+    if (!document) throw new Error(`${name} wasn't added.`);
+    return {
+      type: "citation",
+      attrs: {
+        documentId: document.id,
+        documentName: document.name,
+        contentHash: document.contentHash,
+        quote,
+        check: "found",
+        checkReason: null,
+      },
+    };
+  };
+  const first = cite("Strategy review", "A clear strategy guides every team.");
+  const second = cite("Teams report", "Teams and departments work together.");
+  const check = (text: string) => ({
+    type: "claimCheck",
+    attrs: {
+      id: randomUUID(),
+      request: "check-1",
+      action: "check-against-documents",
+      state: "supported",
+      text,
+      scope: { folderId: null, widened: false },
+      versions: [],
+      excluded: [],
+      checkedAt: new Date(Date.now() + 60_000).toISOString(),
+    },
+  });
+  const sentence = check(words.checked.join(""));
+  const marked = (node: object) => ({ ...node, marks: [sentence] });
+  const text = (value: string, marks: object[] = []) => ({ type: "text", text: value, marks });
+  return [
+    {
+      type: "paragraph",
+      content: [
+        text(words.checked[0], [sentence]),
+        marked(first),
+        text(words.checked[1], [sentence]),
+        marked(second),
+        marked(first),
+        text(words.checked[2], [sentence]),
+      ],
+    },
+    { type: "paragraph", content: [text(words.another, [check(words.another)])] },
+    {
+      type: "paragraph",
+      content: [text(words.plain[0]), first, text(words.plain[1])],
+    },
+  ];
+}
+
+/** The first paragraph's first line, as points to press and a row to read, in window pixels. */
+const firstLine = (window: Page, past: number) =>
+  window.evaluate((count) => {
+    const paragraph = document.querySelector(
+      '[data-testid="mind-pane"] [data-testid="mind-editor"] > p',
+    );
+    const wrapper = paragraph?.querySelector(".node-citation");
+    if (!paragraph || !wrapper) throw new Error("There is no Citation in the first paragraph.");
+    const texts: Text[] = [];
+    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    for (let each = walker.nextNode(); each; each = walker.nextNode()) {
+      if (
+        each instanceof Text &&
+        each.data.trim() &&
+        !each.parentElement?.closest(".node-citation")
+      ) {
+        texts.push(each);
+      }
+    }
+    const first = texts[0];
+    const last = texts.at(-1);
+    const after = texts.find(
+      (each) => wrapper.compareDocumentPosition(each) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    if (!first || !last || !after)
+      throw new Error("The paragraph has no words around the Citation.");
+    const rectOf = (node: Text, from: number, to: number) => {
+      const range = document.createRange();
+      range.setStart(node, from);
+      range.setEnd(node, to);
+      return range.getBoundingClientRect();
+    };
+    let end = last.data.length;
+    while (end > 0 && /\s/.test(last.data[end - 1] ?? "")) end--;
+    const start = rectOf(first, 0, 1);
+    const reach = rectOf(after, count - 1, count);
+    const finish = rectOf(last, end - 1, end);
+    return {
+      top: start.top,
+      from: { x: start.left + 0.5, y: start.top + start.height / 2 },
+      to: { x: reach.right + 0.5, y: reach.top + reach.height / 2 },
+      end: { x: finish.right + 0.5, y: finish.top + finish.height / 2 },
+    };
+  }, past);
+
+/** The colour of each pixel along a row of the window, as a User sees it: a capture of the row, read back through a canvas. */
+async function rowColours(window: Page, x: number, y: number, width: number): Promise<string[]> {
+  const row = await window.screenshot({
+    clip: { x: Math.ceil(x), y: Math.floor(y), width: Math.floor(width), height: 1 },
+  });
+  return window.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("The capture can't be read.");
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, 1);
+    const colours: string[] = [];
+    for (let at = 0; at < data.length; at += 4) {
+      colours.push(`${data[at]}, ${data[at + 1]}, ${data[at + 2]}`);
+    }
+    return colours;
+  }, row.toString("base64"));
+}
+
+/** The red, green and blue of a computed colour, `rgb(…)` or `color(srgb …)`, from 0 to 255. */
+function channels(colour: string): [number, number, number] {
+  const [red = 0, green = 0, blue = 0] = (colour.match(/\d*\.?\d+/g) ?? []).map(Number);
+  return colour.startsWith("color(") ? [red * 255, green * 255, blue * 255] : [red, green, blue];
+}
+
+/** WCAG's contrast ratio of two computed colours. */
+function contrast(a: string, b: string): number {
+  const luminance = (colour: string) => {
+    const [red, green, blue] = channels(colour).map((value) => {
+      const scaled = value / 255;
+      return scaled <= 0.03928 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * (red ?? 0) + 0.7152 * (green ?? 0) + 0.0722 * (blue ?? 0);
+  };
+  const [light = 0, dark = 0] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+for (const language of ["en", "zh-CN"] as const) {
+  for (const theme of ["light", "dark"] as const) {
+    test(`a Citation inside a selection is washed as its words are, one outside is not, and the sentence's mark goes with it (${language}, ${theme})`, async () => {
+      test.setTimeout(120_000);
+      const words = SENTENCES[language];
+      const sources = await createDataFolder();
+      const { app, window } = await launchApp(dataDir);
+      try {
+        await dismissChatSetup(window);
+        const paths: string[] = [];
+        for (const [name, text] of Object.entries(SOURCES)) {
+          const path = join(sources, `${name}.md`);
+          await writeFile(path, text);
+          paths.push(path);
+        }
+        await addDocuments(window, paths);
+        await expectReadyDocuments(window, paths.length);
+        const documents = await window.evaluate(async () => {
+          const listed = await (
+            globalThis as unknown as { incarnamind: CoreBridge }
+          ).incarnamind.listDocuments();
+          return Object.fromEntries(
+            listed.map((each) => [
+              each.name,
+              { id: each.id, name: each.name, contentHash: each.contentHash },
+            ]),
+          );
+        });
+        await setLanguage(window, language);
+        await window.evaluate(
+          (appearance) =>
+            (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.updateSettings({
+              device: { appearance },
+            }),
+          theme,
+        );
+        await setWindowSize(app, window, 1600, 900);
+        await newMind(window);
+        await editor(window).evaluate(
+          (dom, content) => {
+            (dom as unknown as { editor: Editor }).editor.commands.insertContentAt(0, content);
+          },
+          citedParagraphs(language, documents),
+        );
+        const chips = editor(window).getByTestId("citation-chip");
+        await expect(chips).toHaveCount(4);
+        for (const chip of await chips.all()) {
+          await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
+        }
+        await showEveryCheckResult(window);
+        const marks = window.getByTestId("claim-mark");
+        await expect(marks).toHaveCount(2);
+        await expect(marks.first()).toBeVisible();
+
+        const wash = await tokenColor(window, "--color-selection");
+        const held = await tokenColor(window, "--color-selection-inactive");
+        const [pageRed, pageGreen, pageBlue] = channels(await tokenColor(window, "--color-sheet"));
+        const page = `${pageRed}, ${pageGreen}, ${pageBlue}`;
+        const wrapperOf = (chip: Locator) =>
+          chip.locator("xpath=ancestor::*[contains(@class,'node-citation')][1]");
+        const background = async (target: Locator) => (await paintOf(target)).background;
+        const line = await firstLine(window, words.past);
+        const plain = editor(window).locator("p").filter({ hasText: words.plain[0] });
+        // A click in the last paragraph's empty end, so the next drag starts from a caret.
+        const clear = async () => {
+          const at = await plain.boundingBox();
+          if (!at) throw new Error("The last paragraph isn't on screen.");
+          await window.mouse.click(at.x + at.width - 4, at.y + at.height / 2);
+          await focusSettled(window, editor(window));
+        };
+        const drag = async (to: { x: number; y: number }) => {
+          await clear();
+          await window.mouse.move(line.from.x, line.from.y, { steps: 3 });
+          await window.mouse.down();
+          await window.mouse.move(to.x, to.y, { steps: 12 });
+          await window.mouse.up();
+          await expect(window.getByTestId("selection-menu")).toBeVisible();
+        };
+        /** How many pixels of a row, from the first letter to past the Citation, show the page and not the selection. */
+        const gaps = async (row: number) =>
+          (await rowColours(window, line.from.x + 2, row, line.to.x - line.from.x - 4)).filter(
+            (colour) => colour === page,
+          ).length;
+
+        /** Whether the page shows beside a mark's icon, in its padding: a bare mark does, a washed one doesn't. */
+        const pageBehind = async (mark: Locator) => {
+          const box = await mark.boundingBox();
+          if (!box) throw new Error("The mark isn't on screen.");
+          const beside = await rowColours(window, box.x + 1, box.y + box.height / 2, 2);
+          return beside.every((colour) => colour === page);
+        };
+
+        // Words from the first letter to just past the first Citation.
+        await drag(line.to);
+        expect((await selection(window)).covers, "The selection covers the Citation.").toBe(true);
+        // The wash stands as tall as the line, so a row at the top of the line crosses no gap.
+        await expect
+          .poll(() => gaps(line.top - 2), { message: "The page shows through the selection." })
+          .toBe(0);
+        const chip = chips.first();
+        await expect.poll(() => background(wrapperOf(chip))).toBe(wash);
+        const marker = await paintOf(chip);
+        expect(marker.background).toBe(wash);
+        expect(
+          contrast(marker.color, marker.background),
+          "The Citation's number is readable on the wash.",
+        ).toBeGreaterThanOrEqual(4.5);
+        // A sentence the selection covers in part keeps its mark as it was; a Citation outside it keeps its own.
+        expect(await pageBehind(marks.first())).toBe(true);
+        const outside = chips.last();
+        expect(await background(wrapperOf(outside))).toBe("rgba(0, 0, 0, 0)");
+        expect(await background(outside)).toBe(await tokenColor(window, "--color-chip"));
+
+        // The whole sentence: its mark is washed with it, and the other sentence's is not.
+        await drag(line.end);
+        await expect
+          .poll(() => pageBehind(marks.first()), {
+            message: "The sentence's mark is bare in its selection.",
+          })
+          .toBe(false);
+        expect(await pageBehind(marks.last()), "The other sentence's mark is washed.").toBe(true);
+        expect(await background(marks.first())).toBe(wash);
+        expect(await background(outside)).toBe(await tokenColor(window, "--color-chip"));
+
+        // The Note loses the focus to the assistant's input: the selection stays, in the grey a window not in front draws.
+        await window.getByTestId("composer-input").click();
+        await expect
+          .poll(() => gaps(line.top + 2), { message: "The page shows through the held selection." })
+          .toBe(0);
+        await expect.poll(() => background(wrapperOf(chip))).toBe(held);
+        expect(await background(chip)).toBe(held);
+        expect(await background(marks.first())).toBe(held);
+      } finally {
+        await app.close();
+        await removeDataFolder(sources);
+      }
+    });
+  }
 }
