@@ -1,11 +1,12 @@
 import { DOMParser } from "linkedom";
-import { act, type ComponentType, createElement } from "react";
+import { act, type ComponentType, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /*
- * The line under a whole-Note check counts the sentences it couldn't tell are claims (#2447): a
+ * Under the rows, a whole-Note check counts the sentences it couldn't tell are claims (#2447): a
  * count only, in English and Chinese, with no action of its own; the card's Check runs it again.
+ * The check's own line, at the card's top, says only when and how many it checked (#3756).
  */
 
 vi.mock("../../src/renderer/src/editor/opinionChecks", () => ({ useOpinionChecks: () => [] }));
@@ -13,6 +14,7 @@ vi.mock("../../src/renderer/src/editor/opinionChecks", () => ({ useOpinionChecks
 let root: Root | null = null;
 let container: HTMLElement;
 let CheckedWhen: ComponentType<Record<string, unknown>>;
+let CheckedMore: ComponentType<Record<string, unknown>>;
 
 beforeEach(async () => {
   const document = new DOMParser().parseFromString(
@@ -48,7 +50,7 @@ beforeEach(async () => {
   root = createRoot(container);
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
   const linePath = "../../src/renderer/src/editor/MindCheckLine.tsx";
-  ({ CheckedWhen } = await import(linePath));
+  ({ CheckedWhen, CheckedMore } = await import(linePath));
 });
 
 afterEach(async () => {
@@ -63,26 +65,26 @@ async function lineOf(language: "en" | "zh-CN", unexamined: number) {
   useAppStore.setState((state) => ({
     settings: { ...(state.settings ?? {}), language } as typeof state.settings,
   }));
+  const run = {
+    at: "2026-11-02T21:00:00.000Z",
+    sentences: 2,
+    stop: null,
+    skipped: [],
+    unexamined: [],
+  };
   await act(() =>
     root?.render(
-      createElement(CheckedWhen, {
-        run: {
-          at: "2026-11-02T21:00:00.000Z",
-          sentences: 2,
-          stop: null,
-          skipped: [],
-          unexamined: [],
-        },
-        editor: {},
-        doc: {},
-        mindId: "mind-1",
-        unexamined,
-      }),
+      createElement(
+        Fragment,
+        null,
+        createElement(CheckedWhen, { run }),
+        createElement(CheckedMore, { run, editor: {}, doc: {}, mindId: "mind-1", unexamined }),
+      ),
     ),
   );
-  const line = container.querySelector('[data-testid="health-checked-all"]');
-  if (!line) throw new Error("The line under the check isn't drawn.");
-  return line;
+  if (!container.querySelector('[data-testid="health-checked-all"]'))
+    throw new Error("The check's line isn't drawn.");
+  return container;
 }
 
 describe.each([

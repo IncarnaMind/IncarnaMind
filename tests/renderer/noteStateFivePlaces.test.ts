@@ -13,7 +13,7 @@ import {
   type NoteHealth,
 } from "../../src/renderer/src/editor/healthCounts";
 import {
-  allCheckedHead,
+  cardHead,
   exportStateLine,
   noteStateOf,
   noteStateParts,
@@ -68,7 +68,7 @@ function places(language: "en" | "zh-CN", note: NoteHealth, unread: number) {
     home: noteStateParts(state, t, language, NOW).join(" · "),
     saved: nothingLeft(state) ? [] : noteStateParts(state, t, language, NOW),
     exportLine: exportStateLine(state, note.toCheck.length, t, language),
-    head: summary?.kind === "all" ? allCheckedHead(state, t, language) : null,
+    head: summary?.kind === "all" ? cardHead(state, t, language) : null,
     rows: checkRows(note).map(({ row, places }) => [row, places.length] as const),
     time: formatDateTime(CHECKED_AT, language, { now: NOW }),
   };
@@ -77,8 +77,8 @@ function places(language: "en" | "zh-CN", note: NoteHealth, unread: number) {
 describe.each(["en", "zh-CN"] as const)(
   "One Note's check state in five places (%s)",
   (language) => {
-    // protects=a Note that reads Checked and names a caveat has its card say the badge's line, not "Everything checked"; the Export menu says nothing for it, as for any Checked Note (#3212); fails_when=the head says Everything checked over a caveat the badge names
-    test("a caveat under Checked: the card's head says the badge's line, the Export menu says nothing", () => {
+    // protects=a Note that reads Checked and names a caveat never has its card's head say "Everything checked"; the head says Checked and its time, and leaves the unread files to the card's own line, so they are said once (#3212, #3756); the Export menu says nothing for it, as for any Checked Note; fails_when=the head says Everything checked over a caveat the badge names, or counts the unread files a second time
+    test("a caveat under Checked: the card's head says Checked and its time, the Export menu says nothing", () => {
       const seen = places(
         language,
         health({ checkable: 3, supported: 3, supportedAt: [1, 5, 9], checkedAt: CHECKED_AT }),
@@ -89,7 +89,7 @@ describe.each(["en", "zh-CN"] as const)(
 
       expect(seen.badge).toEqual([checked, caveat]);
       expect(seen.home).toBe(`${checked} · ${caveat}`);
-      expect(seen.head).toBe(`${checked} · ${caveat}`);
+      expect(seen.head).toBe(checked);
       expect(seen.head).not.toBe(seen.t("health.allChecked"));
       expect(seen.exportLine).toBeNull();
       expect(seen.saved).toEqual([checked, caveat]);
