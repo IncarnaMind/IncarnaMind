@@ -36,6 +36,7 @@ import type { UiUsageEvent } from "./usageEvents";
 export type {
   DeckChange,
   DeckCitationRecord,
+  DeckPlaceKind,
   DeckProposal,
   DeckProposalAccepted,
   DeckProposalFitChoice,
@@ -16544,6 +16545,11 @@ export interface CoreApi {
   }): Promise<DeckRestored>;
   /** AI Proposals waiting for the User's confirmation on a deck (#149 part 2). */
   deckProposals(documentId: string): Promise<DeckProposal[]>;
+  /** Unwritten patched deck bytes for live Before/After preview of a waiting Proposal (#149 part 2). */
+  deckProposalPreview(
+    proposalId: string,
+    options?: { fit?: DeckProposalFitChoice },
+  ): Promise<Uint8Array>;
   /** Accepts an AI deck Proposal, preserving hand edits on other shapes and never overwriting the User's own original file (#149 part 2). */
   acceptDeckProposal(
     proposalId: string,
@@ -17413,6 +17419,7 @@ const methods: Record<CoreApiMethod, true> = {
   deckChangeWaiting: true,
   deckRefusal: true,
   deckProposals: true,
+  deckProposalPreview: true,
   acceptDeckProposal: true,
   rejectDeckProposal: true,
   undoDeckProposal: true,

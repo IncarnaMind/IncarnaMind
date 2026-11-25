@@ -335,8 +335,20 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     const realDocId = readRes.documentId;
     const chartShape = readRes.slides[0]?.shapes.find((s) => s.kind === "chart");
     expect(chartShape?.series).toEqual([
-      { index: 0, name: "West", categories: ["Q1", "Q2"], values: [10, 12.5] },
-      { index: 1, name: "East", categories: ["Q1", "Q2"], values: [20, 25] },
+      {
+        index: 0,
+        name: "West",
+        categories: ["Q1", "Q2"],
+        values: [10, 12.5],
+        formatCode: "General",
+      },
+      {
+        index: 1,
+        name: "East",
+        categories: ["Q1", "Q2"],
+        values: [20, 25],
+        formatCode: "General",
+      },
     ]);
 
     const beforeBytes = new Uint8Array(await readFile(deckPath));
@@ -430,11 +442,11 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     const citeToken = cited.citations[0]?.cite ?? "";
 
     const longText =
-      "This is a deliberately very long paragraph that contains far more words than a tiny half-inch PowerPoint text box could possibly hold without overflowing its bounds on slide one.";
+      "South quay holds nineteen boats across two seasonal berths with steady winter freight demand.";
 
     // 1. Shrink-to-fit on a noAutofit box + inline [cite:...] stripped into INCARNAMIND_CITES tag.
     const shrinkPath = join(files, "OverflowShrink.pptx");
-    await writeFile(shrinkPath, multiSlideDeck({ autofit: "none", boxHeightEmu: 228_600 }));
+    await writeFile(shrinkPath, multiSlideDeck({ autofit: "none", boxHeightEmu: 420_000 }));
     const shrinkHanded = structured<{ fileId: string }>(
       await handOver(agent, { path: shrinkPath, folderId: coast.id }),
     );
@@ -465,7 +477,7 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(shrinkProp.hasOverflow).toBe(true);
     expect(shrinkProp.overflow).toHaveLength(1);
     const waitingShrink = (await core.deckProposals(shrinkRead.documentId))[0];
-    expect(waitingShrink?.items[0]?.overflow?.shrinkFit?.fontScale).toBeLessThan(100_000);
+    expect(waitingShrink?.items[0]?.overflow?.shrinkFit?.fontScale).toBeLessThan(1);
     // Inline [cite:...] token must be stripped from visible slide text.
     expect(waitingShrink?.items[0]?.after).not.toContain("[cite:");
 
@@ -569,11 +581,11 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       await agent.callTool({ name: "read_request", arguments: {} }),
     );
     expect(req.request).toContain(readForAsk.documentId);
-    expect(req.request).toContain("slide 1, shape 3 (Summary Box)");
+    expect(req.request).toContain("slide 1, “Summary Box” (shapeId: 3)");
     expect(req.request).toContain("South quay holds 17 boats.");
     expect(req.request).toContain("propose_deck_changes");
 
-    // A read-only pairing can read_deck, but is refused propose_deck_changes.
+    // Another pairing cannot read a deck handed over by writer (S8).
     const reader = await core.connectAgent({
       client: "claude-code",
       name: "Read-only",
@@ -581,10 +593,23 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       propose: false,
     });
     const readOnlyAgent = await connectLegacyAgent(reader.launch);
+    const foreignHandedRead = await readOnlyAgent.callTool({
+      name: "read_deck",
+      arguments: { documentId: readForAsk.documentId },
+    });
+    expect(foreignHandedRead.isError).toBe(true);
+
+    // On a regular shared Folder deck, a read-only pairing can read_deck, but is refused propose_deck_changes.
+    const sharedDeckPath = join(files, "SharedDeck.pptx");
+    await writeFile(sharedDeckPath, multiSlideDeck());
+    const [sharedDeck] = await addAndProcess(core, [sharedDeckPath]);
+    if (!sharedDeck) throw new Error("Shared deck not added.");
+    await core.assignDocumentGroup(sharedDeck.id, coast.id);
+
     const roRead = structured<{ documentId: string; version: string }>(
       await readOnlyAgent.callTool({
         name: "read_deck",
-        arguments: { documentId: readForAsk.documentId },
+        arguments: { documentId: sharedDeck.id },
       }),
     );
     expect(roRead.version).toBeTruthy();
@@ -678,5 +703,396 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     );
     await core.rejectDeckProposal(proposed.proposalId);
     expect(await core.deckProposals(readRes.documentId)).toEqual([]);
+  });
+
+  // protects=M2 inline formatting (bold, hyperlinks, fields, line breaks) survives paragraph edits and untouched paragraphs stay byte-identical; fails_when=inline XML runs or fields are flattened or dropped
+  it("preserves bold, hyperlinks, fields, and line breaks when editing multi-run paragraphs (M2)", async () => {
+    const richBody = `<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" b="1"/><a:t>Keep </a:t></a:r><a:r><a:rPr lang="en-US"><a:hlinkClick r:id="rLink1"/></a:rPr><a:t>link</a:t></a:r><a:br/><a:fld id="{11111111-1111-1111-1111-111111111111}" type="slidenum"><a:t>1</a:t></a:fld></a:p><a:p><a:r><a:rPr lang="en-US" b="1"/><a:t>Revenue: </a:t></a:r><a:r><a:rPr lang="en-US"/><a:t>17 boats</a:t></a:r></a:p></p:txBody>`;
+    const richDeck = new Uint8Array(
+      pptxOf({
+        slides: [
+          {
+            shapes: `<p:sp><p:nvSpPr><p:cNvPr id="3" name="Summary"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="457200" y="914400"/><a:ext cx="6000000" cy="1800000"/></a:xfrm></p:spPr>${richBody}</p:sp>`,
+          },
+        ],
+        parts: [ROOT_RELS],
+      }),
+    );
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "Rich.pptx");
+    await writeFile(deckPath, richDeck);
+    const handed = structured<{ fileId: string }>(
+      await handOver(agent, { path: deckPath, folderId: coast.id }),
+    );
+    const readRes = structured<{ documentId: string; version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: handed.fileId } }),
+    );
+    const proposed = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: readRes.documentId,
+          version: readRes.version,
+          changes: [
+            {
+              kind: "text",
+              slide: 1,
+              shape: "3",
+              paragraphs: ["Keep link\n1", "Revenue: 19 boats"],
+            },
+          ],
+        },
+      }),
+    );
+    // Live preview bytes contain the change before confirming while disk stays untouched.
+    const previewBytes = await core.deckProposalPreview(proposed.proposalId);
+    const previewXml = (await openPackage(previewBytes).readText("ppt/slides/slide1.xml")) ?? "";
+    expect(previewXml).toContain("19 boats");
+    expect(previewXml).toContain('r:id="rLink1"');
+    expect(previewXml).toContain("<a:br");
+    expect(previewXml).toContain("<a:fld");
+    expect(previewXml).toContain('b="1"');
+
+    const accepted = await core.acceptDeckProposal(proposed.proposalId);
+    const slideXml = (await openPackage(accepted.bytes).readText("ppt/slides/slide1.xml")) ?? "";
+    expect(slideXml).toContain('r:id="rLink1"');
+    expect(slideXml).toContain("<a:br");
+    expect(slideXml).toContain("<a:fld");
+    expect(slideXml).toContain('b="1"');
+    expect(slideXml).toContain("19 boats");
+  });
+
+  // protects=M1 sparse chart points align by c:pt/@idx and refuse non-null writes to missing c:pt slots, and M4 preserves the User's own Excel cell note on the same cell (including prefixed comments XML); fails_when=values shift across blank categories or User's cell note is overwritten
+  it("aligns sparse chart points, refuses missing c:pt writes (M1), and preserves User's existing Excel cell notes (M4)", async () => {
+    const existingComments = `${HEAD}<x:comments xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:authors><x:author>Analyst</x:author></x:authors><x:commentList><x:comment ref="B2" authorId="0"><x:text><x:t>Reviewed with CFO</x:t></x:text></x:comment></x:commentList></x:comments>`;
+    const sheet = `${HEAD}<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>10</v></c></row><row r="3"><c r="A3" t="s"><v>3</v></c></row><row r="4"><c r="A4" t="s"><v>4</v></c><c r="B4"><v>30</v></c></row></sheetData></worksheet>`;
+    const workbook = buildZip([
+      {
+        name: "[Content_Types].xml",
+        data: `${HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/></Types>`,
+      },
+      {
+        name: "xl/workbook.xml",
+        data: `${HEAD}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      },
+      {
+        name: "xl/_rels/workbook.xml.rels",
+        data: `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+      },
+      { name: "xl/worksheets/sheet1.xml", data: sheet },
+      {
+        name: "xl/worksheets/_rels/sheet1.xml.rels",
+        data: `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments1.xml"/></Relationships>`,
+      },
+      { name: "xl/comments1.xml", data: existingComments },
+      {
+        name: "xl/sharedStrings.xml",
+        data: `${HEAD}<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t></t></si><si><t>West</t></si><si><t>Q1</t></si><si><t>Q2</t></si><si><t>Q3</t></si></sst>`,
+      },
+    ]);
+    // Note: Q2 (idx="1") is intentionally missing from c:numCache!
+    const chart = `${HEAD}<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:chart><c:plotArea><c:barChart><c:ser><c:idx val="0"/><c:tx><c:strRef><c:f>Sheet1!$B$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>West</c:v></c:pt></c:strCache></c:strRef></c:tx><c:cat><c:strRef><c:f>Sheet1!$A$2:$A$4</c:f><c:strCache><c:ptCount val="3"/><c:pt idx="0"><c:v>Q1</c:v></c:pt><c:pt idx="1"><c:v>Q2</c:v></c:pt><c:pt idx="2"><c:v>Q3</c:v></c:pt></c:strCache></c:strRef></c:cat><c:val><c:numRef><c:f>Sheet1!$B$2:$B$4</c:f><c:numCache><c:formatCode>0.0%</c:formatCode><c:ptCount val="3"/><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="2"><c:v>30</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:barChart></c:plotArea></c:chart><c:externalData r:id="rId1"><c:autoUpdate val="0"/></c:externalData></c:chartSpace>`;
+    const sparseDeck = new Uint8Array(
+      pptxOf({
+        slides: [
+          {
+            shapes: `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Sparse Chart"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="6000000" cy="4000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rChart"/></a:graphicData></a:graphic></p:graphicFrame>`,
+            rels: rel("rChart", "chart", "../charts/chart1.xml"),
+          },
+        ],
+        parts: [
+          ROOT_RELS,
+          { name: "ppt/charts/chart1.xml", data: chart },
+          {
+            name: "ppt/charts/_rels/chart1.xml.rels",
+            data: `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/Microsoft_Excel_Worksheet.xlsx"/></Relationships>`,
+          },
+          { name: "ppt/embeddings/Microsoft_Excel_Worksheet.xlsx", data: workbook },
+        ],
+      }),
+    );
+
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const deckPath = join(files, "Sparse.pptx");
+    await writeFile(deckPath, sparseDeck);
+    const handed = structured<{ fileId: string }>(
+      await handOver(agent, { path: deckPath, folderId: coast.id }),
+    );
+    const searched = structured<{ passages: Array<{ passageId: string }> }>(
+      await agent.callTool({ name: "search", arguments: { query: "south quay 19 boats" } }),
+    );
+    const cited = structured<{ citations: Array<{ cite: string }> }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            { passageId: searched.passages[0]?.passageId, quote: "south quay holds 19 boats" },
+          ],
+        },
+      }),
+    );
+    const citeToken = cited.citations[0]?.cite ?? "";
+
+    const readRes = structured<{
+      documentId: string;
+      version: string;
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          series?: Array<{ values: Array<number | null>; formatCode?: string | null }>;
+        }>;
+      }>;
+    }>(await agent.callTool({ name: "read_deck", arguments: { documentId: handed.fileId } }));
+    const s0 = readRes.slides[0]?.shapes[0]?.series?.[0];
+    // Sparse slot idx=1 must be null, NOT shifted to 30!
+    expect(s0?.values).toEqual([10, null, 30]);
+    expect(s0?.formatCode).toBe("0.0%");
+
+    // Trying to write a non-null value into the missing c:pt slot (idx=1) is refused cleanly.
+    const badMissing = await agent.callTool({
+      name: "propose_deck_changes",
+      arguments: {
+        documentId: readRes.documentId,
+        version: readRes.version,
+        changes: [
+          { kind: "chartSeries", slide: 1, shape: "4", series: "West", values: [11, 22, 33] },
+        ],
+      },
+    });
+    expect(badMissing.isError).toBe(true);
+
+    // Keeping idx=1 as null succeeds and appends the Citation note to B2 WITHOUT wiping "Reviewed with CFO"!
+    const okProp = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: readRes.documentId,
+          version: readRes.version,
+          changes: [
+            {
+              kind: "chartSeries",
+              slide: 1,
+              shape: "4",
+              series: "West",
+              values: [19, null, 35],
+              pointCitations: [{ pointIndex: 0, citations: [citeToken] }],
+            },
+          ],
+        },
+      }),
+    );
+    const accepted = await core.acceptDeckProposal(okProp.proposalId);
+    const wbBytes = (await Deck.open(accepted.bytes).pkg.bytes(
+      "ppt/embeddings/Microsoft_Excel_Worksheet.xlsx",
+    )) as Uint8Array;
+    const notes = await Workbook.open(wbBytes).readNotes("Sheet1");
+    expect(notes.B2).toContain("Reviewed with CFO");
+    expect(notes.B2).toContain("south quay holds 19 boats");
+  });
+
+  // protects=S1 subsequent AI edits reuse one working copy without piling up copies, and S2 Undo refuses if the copy was hand-edited since; fails_when=2nd AI edit creates a second copy or Undo silently wipes a later hand edit
+  it("reuses one working copy on subsequent edits (S1) and refuses Undo after a later hand edit on the copy (S2)", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const userDeckPath = join(files, "Quarterly.pptx");
+    const initial = multiSlideDeck();
+    await writeFile(userDeckPath, initial);
+    const [added] = await addAndProcess(core, [userDeckPath]);
+    if (!added) throw new Error("Deck not added.");
+    await core.assignDocumentGroup(added.id, coast.id);
+
+    const read1 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: added.id } }),
+    );
+    const prop1 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: added.id,
+          version: read1.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["First AI edit"] }],
+        },
+      }),
+    );
+    const acc1 = await core.acceptDeckProposal(prop1.proposalId);
+    expect(acc1.copyCreated).toBe(true);
+    expect(acc1.documentId).not.toBe(added.id);
+
+    // Second AI edit on the working copy reuses it in place (no (2)/(3) pile-up!).
+    const readOrigAgain = structured<{ workingCopyDocumentId: string | null }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: added.id } }),
+    );
+    expect(readOrigAgain.workingCopyDocumentId).toBe(acc1.documentId);
+    const read2 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: acc1.documentId } }),
+    );
+    const prop2 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: acc1.documentId,
+          version: read2.version,
+          changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Second AI edit"] }],
+        },
+      }),
+    );
+    const acc2 = await core.acceptDeckProposal(prop2.proposalId);
+    expect(acc2.copyCreated).toBe(false);
+    expect(acc2.documentId).toBe(acc1.documentId);
+    // Original file on disk STILL untouched!
+    expect(sha256(new Uint8Array(await readFile(userDeckPath)))).toBe(sha256(initial));
+
+    // User hand-edits the working copy -> Undo of acc2 must now be REFUSED (S2)!
+    const hand = await core.editDeck({
+      documentId: acc1.documentId,
+      sittingId: null,
+      shown: acc2.contentHash,
+      viewer: "test-viewer",
+      edits: [
+        {
+          kind: "text",
+          slide: 1,
+          shape: "2",
+          paragraphs: [
+            { source: 0, runs: [{ source: { paragraph: 0, run: 0 }, text: "My copy tweak" }] },
+          ],
+        },
+      ],
+    });
+    expect(hand.kind).toBe("saved");
+    await expect(core.undoDeckProposal(acc2.undoId)).rejects.toThrow(/changed since|undone/i);
+  });
+
+  // protects=M3 out-of-reach Citations are masked in read_deck, S8 moving a handed deck out of shared Folders revokes access, S10 stale-version tells the agent to call read_deck again without leaking paths, and S12 off-slide box coordinates are refused; fails_when=restricted citations leak, moved handed deck stays readable, or off-slide box succeeds
+  it("masks out-of-reach Citations (M3), revokes moved handed decks (S8), gives agent-facing stale wording (S10), and refuses off-slide boxes (S12)", async () => {
+    const { core, coast, writer, files } = await started();
+    const other = await core.createLibraryGroup({ name: "PrivateFolder", description: "" });
+    const fullAgent = await core.connectAgent({
+      client: "claude-code",
+      name: "FullWriter",
+      folderIds: [coast.id, other.id],
+      propose: true,
+    });
+    const fullClient = await connectLegacyAgent(fullAgent.launch);
+    const restrictedClient = await connectLegacyAgent(writer.launch);
+
+    // Add a private Document in `other` (outside `writer`'s reach).
+    const secretPath = join(files, "SecretSource.txt");
+    await writeFile(secretPath, "Project Falcon revenue reached 88 million.");
+    const [secretDoc] = await addAndProcess(core, [secretPath]);
+    if (!secretDoc) throw new Error("Secret doc missing.");
+    await core.assignDocumentGroup(secretDoc.id, other.id);
+
+    // Add a deck in `coast` (shared with both) and attach a Citation from SecretSource via `fullClient`.
+    const deckPath = join(files, "Board.pptx");
+    await writeFile(deckPath, multiSlideDeck());
+    const [boardDeck] = await addAndProcess(core, [deckPath]);
+    if (!boardDeck) throw new Error("Board deck missing.");
+    await core.assignDocumentGroup(boardDeck.id, coast.id);
+
+    const searchSecret = structured<{ passages: Array<{ passageId: string }> }>(
+      await fullClient.callTool({ name: "search", arguments: { query: "Project Falcon 88" } }),
+    );
+    const citeSecret = structured<{ citations: Array<{ cite: string }> }>(
+      await fullClient.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            {
+              passageId: searchSecret.passages[0]?.passageId,
+              quote: "Project Falcon revenue reached 88 million",
+            },
+          ],
+        },
+      }),
+    );
+    const readFull = structured<{ version: string }>(
+      await fullClient.callTool({ name: "read_deck", arguments: { documentId: boardDeck.id } }),
+    );
+    const propCited = structured<{ proposalId: string }>(
+      await fullClient.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: boardDeck.id,
+          version: readFull.version,
+          changes: [
+            {
+              kind: "text",
+              slide: 1,
+              shape: "3",
+              paragraphs: ["Revenue hit 88 million."],
+              citations: [citeSecret.citations[0]?.cite],
+            },
+          ],
+        },
+      }),
+    );
+    const accepted = await core.acceptDeckProposal(propCited.proposalId);
+
+    // Now `restrictedClient` (only reaches `coast`, NOT `other`) reads the copy -> Citation MUST be masked!
+    const readRestricted = structured<{
+      version: string;
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          citations?: Array<{ restricted?: boolean; quote?: string; documentName?: string }>;
+        }>;
+      }>;
+    }>(
+      await restrictedClient.callTool({
+        name: "read_deck",
+        arguments: { documentId: accepted.documentId },
+      }),
+    );
+    const maskedShape = readRestricted.slides[0]?.shapes.find((s) => s.shapeId === "3");
+    expect(maskedShape?.citations?.[0]?.restricted).toBe(true);
+    expect(maskedShape?.citations?.[0]?.quote).toBe("");
+    expect(JSON.stringify(readRestricted)).not.toContain("Project Falcon");
+    expect(JSON.stringify(readRestricted)).not.toContain("SecretSource");
+
+    // S10: Stale version returns an agent-facing "Call read_deck again" error with no file path.
+    const staleRes = await restrictedClient.callTool({
+      name: "propose_deck_changes",
+      arguments: {
+        documentId: accepted.documentId,
+        version: "0000000000000000",
+        changes: [{ kind: "text", slide: 1, shape: "3", paragraphs: ["Stale"] }],
+      },
+    });
+    expect(staleRes.isError).toBe(true);
+    expect(JSON.stringify(staleRes)).toContain("read_deck");
+    expect(JSON.stringify(staleRes)).not.toContain(files);
+
+    // S12: Off-slide box coordinates are refused.
+    const offSlide = await restrictedClient.callTool({
+      name: "propose_deck_changes",
+      arguments: {
+        documentId: accepted.documentId,
+        version: readRestricted.version,
+        changes: [{ kind: "box", slide: 1, shape: "3", box: { x: 50_000, y: 0, w: 100, h: 50 } }],
+      },
+    });
+    expect(offSlide.isError).toBe(true);
+
+    // S8: Handed-over deck moved out of shared Folder is revoked from originating pairing.
+    const movedPath = join(files, "HandedMoved.pptx");
+    await writeFile(movedPath, multiSlideDeck({ autofit: "shrink" }));
+    const handed = structured<{ fileId: string }>(
+      await handOver(restrictedClient, { path: movedPath, folderId: coast.id }),
+    );
+    const beforeMove = structured<{ documentId: string }>(
+      await restrictedClient.callTool({
+        name: "read_deck",
+        arguments: { documentId: handed.fileId },
+      }),
+    );
+    await core.assignDocumentGroup(beforeMove.documentId, other.id);
+    const afterMove = await restrictedClient.callTool({
+      name: "read_deck",
+      arguments: { documentId: handed.fileId },
+    });
+    expect(afterMove.isError).toBe(true);
   });
 });

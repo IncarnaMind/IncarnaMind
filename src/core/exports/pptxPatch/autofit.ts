@@ -165,16 +165,21 @@ export function assessTextFit(
   const naturalHeight = neededHeightPx(shape, paragraphs, innerWidth, 1, 0);
   const overflows = naturalHeight > innerHeight + 0.5;
   if (!overflows) {
+    // Restore 100% scale when shorter text replaces previously shrunk text in a shrink-kind shape.
+    const restoreScale: Extract<TextFit, { kind: "shrink" }> | null =
+      autofit.kind === "shrink" && (autofit.fontScale < 1 - 1e-4 || autofit.lineReduction > 1e-4)
+        ? { kind: "shrink", fontScale: 1, lineReduction: 0 }
+        : null;
     return {
       overflows: false,
       autofitKind: autofit.kind,
-      suggestedFit: null,
+      suggestedFit: restoreScale,
       shrinkFit: null,
       growFit: null,
     };
   }
 
-  let chosen = AUTOFIT_STEPS.at(-1) ?? { fontScale: 0.25, lineReduction: 0.2 };
+  let chosen: { fontScale: number; lineReduction: number } | null = null;
   for (const step of AUTOFIT_STEPS) {
     if (
       neededHeightPx(shape, paragraphs, innerWidth, step.fontScale, step.lineReduction) <=
@@ -184,11 +189,13 @@ export function assessTextFit(
       break;
     }
   }
-  const shrinkFit: Extract<TextFit, { kind: "shrink" }> = {
-    kind: "shrink",
-    fontScale: chosen.fontScale,
-    lineReduction: chosen.lineReduction,
-  };
+  const shrinkFit: Extract<TextFit, { kind: "shrink" }> | null = chosen
+    ? {
+        kind: "shrink",
+        fontScale: chosen.fontScale,
+        lineReduction: chosen.lineReduction,
+      }
+    : null;
   const grownHeight = Math.ceil(naturalHeight + insets.top + insets.bottom + 2);
   const box: ShapeBox = { x: shape.box.x, y: shape.box.y, w: shape.box.w, h: grownHeight };
   const maxBoxHeight = slideSize

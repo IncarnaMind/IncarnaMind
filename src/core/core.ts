@@ -6647,24 +6647,49 @@ export function createCore(adapters: CoreAdapters): Core {
     folderNameOf: (documentId) => basename(dirname(documents.pathEvenDeleted(documentId))),
   });
 
+  const deckUndoDir = join(dataDir, "deck-proposal-undos");
+  // Proposal Undo snapshots don't survive restart; clear any leftover directory from an earlier run.
+  rm(deckUndoDir, { recursive: true, force: true }).catch(() => undefined);
+  const deckUndoPath = (undoId: string): string => {
+    if (!/^[0-9a-f-]+$/i.test(undoId)) {
+      throw new InvalidInputError({ key: "error.deck.proposalUndoMissing" });
+    }
+    return join(deckUndoDir, `${undoId}.pptx`);
+  };
+  const writeDeckTarget = async (
+    place: ReturnType<typeof deckPlaceFor>,
+    documentId: string,
+    nextBytes: Uint8Array,
+  ) => {
+    const written = await place.write(nextBytes);
+    if (written.kind === "changed") {
+      throw new TranslatableError({ key: "error.deck.changed" });
+    }
+    if (written.kind === "unwritable") {
+      throw new TranslatableError({
+        key: `error.deck.unwritable.${written.why}`,
+        values: { name: written.name, folder: written.folder ?? "" },
+      });
+    }
+    deckSittings.endOn(documentId);
+    return { documentId: written.documentId, saved: written.saved };
+  };
+
   const deckProposals = createDeckProposals({
     read: (documentId) => readDeck(documentId),
     isKeptDeck: (documentId) => isKeptDeck(deckPlaces, documentId),
-    writeKeptVersion: async (documentId, baseBytes, nextBytes) => {
-      const place = keptVersion(deckPlaces, documentId, baseBytes);
-      const written = await place.write(nextBytes);
-      if (written.kind === "changed") {
-        throw new TranslatableError({ key: "error.deck.changed" });
+    isLiveDocument: (documentId) => {
+      try {
+        documents.get(documentId);
+        return true;
+      } catch {
+        return false;
       }
-      if (written.kind === "unwritable") {
-        throw new TranslatableError({
-          key: `error.deck.unwritable.${written.why}`,
-          values: { name: written.name, folder: written.folder ?? "" },
-        });
-      }
-      deckSittings.endOn(documentId);
-      return { documentId: written.documentId, saved: written.saved };
     },
+    writeKeptVersion: (documentId, baseBytes, nextBytes) =>
+      writeDeckTarget(keptVersion(deckPlaces, documentId, baseBytes), documentId, nextBytes),
+    writeExistingCopy: (documentId, baseBytes, nextBytes) =>
+      writeDeckTarget(deckPlaceFor(deckPlaces, documentId, baseBytes), documentId, nextBytes),
     saveOwnDeckCopy: async (documentId, nextBytes) => {
       const copy = await copyBeside(deckPlaces, documentId, nextBytes);
       return {
@@ -6680,6 +6705,22 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     removeCopy: async (documentId) => {
       await removeDocuments(deletable([documentId]));
+    },
+    undoStore: {
+      put: async (undoId, bytes) => {
+        mkdirSync(deckUndoDir, { recursive: true });
+        await writeFile(deckUndoPath(undoId), bytes);
+      },
+      get: async (undoId) => {
+        try {
+          return new Uint8Array(await readFile(deckUndoPath(undoId)));
+        } catch {
+          return null;
+        }
+      },
+      del: async (undoId) => {
+        await rm(deckUndoPath(undoId), { force: true }).catch(() => undefined);
+      },
     },
     onChanged: (documentId, proposals) => {
       events.emit("deck.proposals", { documentId, proposals });
@@ -7029,11 +7070,14 @@ export function createCore(adapters: CoreAdapters): Core {
         try {
           const doc = documents.get(docId);
           const handed = handedById ?? handedFiles.holding(doc.id)[0] ?? null;
+          const folder = library.folderOfDocument(doc.id);
           return {
             id: doc.id,
             name: doc.name,
             kind: doc.kind,
-            handed: handed ? { folderId: handed.folderId, pairingId: handed.pairingId } : null,
+            currentFolderIds: folder ? [folder] : [],
+            handed: handed ? { pairingId: handed.pairingId } : null,
+            workingCopyDocumentId: deckProposals.workingCopyOf(doc.id),
           };
         } catch {
           return null;
@@ -10110,6 +10154,8 @@ export function createCore(adapters: CoreAdapters): Core {
       return zip.rewritable ? protectionOf(zip) : "unrewritable";
     },
     deckProposals: async (documentId) => deckProposals.list(documentId),
+    deckProposalPreview: (proposalId, options) =>
+      deckProposals.previewBytes(proposalId, options?.fit),
     acceptDeckProposal: (proposalId, options) =>
       writingDeck(deckProposals.accept(proposalId, options)),
     rejectDeckProposal: async (proposalId) => deckProposals.reject(proposalId),

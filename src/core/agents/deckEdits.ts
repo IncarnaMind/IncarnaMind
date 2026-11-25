@@ -1,17 +1,19 @@
 /**
  * Agent Tools for targeted edits to a PowerPoint deck already in IncarnaMind (#149 part 2):
  * - `read_deck`: reads a `.pptx` Document in the agent's reach as slides, stable shape ids,
- *   text, autofit kinds, table cells, chart series, speaker notes, existing Citation tags, and `version`.
+ *   text, autofit kinds, table cells, chart series (index-aligned with formatCode), speaker notes,
+ *   reach-checked Citation tags, and `version`.
  * - `propose_deck_changes`: validates and queues a Proposal changing only the named shapes,
- *   table cells, speaker notes, or chart series, checking text fit against each shape's autofit
- *   and recording IncarnaMind-minted Citations as shape tags or embedded workbook cell notes.
+ *   table cells, speaker notes, or chart series, re-checking reach and write grant right before
+ *   publication, checking text fit against each shape's autofit, and recording IncarnaMind-minted
+ *   Citations as shape tags or embedded workbook cell notes.
  */
 
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import { formatLocation } from "../../shared/locations";
 import type { AgentToolName, Effect } from "../api";
 import type { DeckProposal, DeckProposalDeps } from "../decks/proposals";
-import { readDeckStructure } from "../decks/readDeck";
+import { type DeckSlideSummary, readDeckStructure } from "../decks/readDeck";
 import { isRecord, NotFoundError, TranslatableError } from "../errors";
 import type { DeckChange, DeckCitationRecord } from "../exports/pptxPatch/deckChanges";
 import type { ShapeBox } from "../exports/pptxPatch/shapeEdit";
@@ -21,6 +23,12 @@ import { AgentRefusedError } from "./refusals";
 
 const READS_DOCUMENTS: Effect = { action: "read", scope: { kind: "documents" } };
 const WRITES_LIBRARY: Effect = { action: "write", scope: { kind: "library" } };
+
+/** Maximum serialized size of `read_deck`'s `slides` payload (#149 S4). */
+export const MAX_READ_DECK_CHARS = 200_000;
+
+/** Hard upper bound on pixel coordinates so EMU conversion stays well inside OOXML limits (#149 S12). */
+const MAX_BOX_PX = 20_000;
 
 export interface ReadDeckToolInput {
   documentId?: unknown;
@@ -38,6 +46,7 @@ export interface DeckDocumentInfo {
   id: string;
   name: string;
   kind: string;
+  workingCopyDocumentId?: string | null;
 }
 
 export interface DeckEditToolContext {
@@ -53,6 +62,8 @@ export interface DeckEditToolContext {
   /** Re-reads the pairing after an await to confirm reach and write grant still stand. */
   recheck(pairingId: string, needsWrite: boolean): AdmittedPairing;
   documentInScope(pairing: AdmittedPairing, documentId: string): DeckDocumentInfo;
+  /** Whether the pairing currently reaches a cited Document's Folder (#149 M3). */
+  reachesDocument(pairing: AdmittedPairing, documentId: string): boolean;
   readDeckBytes(documentId: string): Promise<Uint8Array>;
   resolveCitation(pairing: AdmittedPairing, token: string): AgentCitation | null;
   propose: (input: {
@@ -62,6 +73,7 @@ export interface DeckEditToolContext {
     version: string;
     summary: string;
     changes: readonly DeckChange[];
+    stillAllowed?: () => void;
   }) => Promise<DeckProposal>;
 }
 
@@ -102,11 +114,37 @@ function asBox(value: unknown): ShapeBox {
     !Number.isFinite(w) ||
     !Number.isFinite(h) ||
     w <= 0 ||
-    h <= 0
+    h <= 0 ||
+    Math.abs(x) > MAX_BOX_PX ||
+    Math.abs(y) > MAX_BOX_PX ||
+    w > MAX_BOX_PX ||
+    h > MAX_BOX_PX
   ) {
-    throw new AgentRefusedError("invalid", "box requires finite x, y and positive w, h.");
+    throw new AgentRefusedError(
+      "invalid",
+      "box requires finite x, y and positive w, h within the slide bounds.",
+    );
   }
   return { x, y, w, h };
+}
+
+function validateBoxesInSlide(
+  changes: readonly DeckChange[],
+  slideSize: { width: number; height: number } | null,
+): void {
+  if (!slideSize) return;
+  const maxX = slideSize.width * 1.1;
+  const maxY = slideSize.height * 1.1;
+  for (const change of changes) {
+    if (change.kind !== "box") continue;
+    const { x, y, w, h } = change.box;
+    if (x < -slideSize.width * 0.1 || y < -slideSize.height * 0.1 || x + w > maxX || y + h > maxY) {
+      throw new AgentRefusedError(
+        "invalid",
+        `box on slide ${change.slide} lies outside the slide (${Math.round(slideSize.width)}×${Math.round(slideSize.height)} px).`,
+      );
+    }
+  }
 }
 
 function extractToken(raw: string): string {
@@ -128,6 +166,53 @@ function toDeckCitation(cited: AgentCitation, t: DeckEditToolContext["t"]): Deck
     documentId: cited.documentId,
     passageId: cited.passageId,
   };
+}
+
+/** Masks any Citation tag whose cited Document lies outside this pairing's reach (#149 M3). */
+function maskSlideCitations(
+  slides: readonly DeckSlideSummary[],
+  context: DeckEditToolContext,
+  pairing: AdmittedPairing,
+): DeckSlideSummary[] {
+  const restrictedLabel = context.t("agents.citation.outsideReach");
+  return slides.map((slide) => ({
+    ...slide,
+    shapes: slide.shapes.map((shape) => {
+      if (!shape.citations || shape.citations.length === 0) return shape;
+      const citations: DeckCitationRecord[] = shape.citations.map((cite) => {
+        if (cite.documentId && context.reachesDocument(pairing, cite.documentId)) {
+          return cite;
+        }
+        return {
+          document: restrictedLabel,
+          location: null,
+          quote: "",
+          ...(cite.row !== undefined ? { row: cite.row } : {}),
+          ...(cite.column !== undefined ? { column: cite.column } : {}),
+          restricted: true,
+        };
+      });
+      return { ...shape, citations };
+    }),
+  }));
+}
+
+/** Bounds `read_deck`'s returned slides to `MAX_READ_DECK_CHARS` (#149 S4). */
+function boundReadSlides(slides: readonly DeckSlideSummary[]): {
+  slides: DeckSlideSummary[];
+  truncated: boolean;
+} {
+  const kept: DeckSlideSummary[] = [];
+  let chars = 2;
+  for (const slide of slides) {
+    const size = JSON.stringify(slide).length + 1;
+    if (kept.length > 0 && chars + size > MAX_READ_DECK_CHARS) {
+      return { slides: kept, truncated: true };
+    }
+    kept.push(slide);
+    chars += size;
+  }
+  return { slides: kept, truncated: false };
 }
 
 /**
@@ -204,21 +289,26 @@ function parsePointCitations(
 }
 
 export function createDeckEditTools(context: DeckEditToolContext) {
+  /** Maps internal errors to plain, path-free refusals written for an outside AI (#149 S10). */
   const translateError = async <T>(run: () => Promise<T>): Promise<T> => {
     try {
       return await run();
     } catch (error) {
       if (error instanceof AgentRefusedError) throw error;
       if (error instanceof TranslatableError && error.wording) {
+        if (error.wording.key === "error.deck.proposalStale") {
+          throw new AgentRefusedError(
+            "invalid",
+            "The deck changed since you read it. Call read_deck again and re-propose.",
+          );
+        }
         throw new AgentRefusedError(
           error instanceof NotFoundError ? "not-found" : "invalid",
           context.t(error.wording.key, error.wording.values),
         );
       }
-      if (error instanceof Error) {
-        throw new AgentRefusedError("invalid", error.message);
-      }
-      throw error;
+      console.error("Deck edit tool failed:", error);
+      throw new AgentRefusedError("invalid", context.t("agents.deck.unavailable"));
     }
   };
 
@@ -243,19 +333,34 @@ export function createDeckEditTools(context: DeckEditToolContext) {
           throw new AgentRefusedError("invalid", context.t("agents.deck.notADeck"));
         }
         const bytes = await translateError(() => context.readDeckBytes(doc.id));
-        const after = context.recheck(pairing.id, false);
-        context.documentInScope(after, doc.id);
+        const afterRead = context.recheck(pairing.id, false);
+        context.documentInScope(afterRead, doc.id);
         const { structure } = await translateError(() =>
           readDeckStructure(bytes, slidesFilter ? { slides: slidesFilter } : undefined),
         );
+        // Re-check pairing reach after parsing before returning any slide content (#149 S3).
+        const afterParse = context.recheck(pairing.id, false);
+        const currentDoc = context.documentInScope(afterParse, doc.id);
+        const masked = maskSlideCitations(structure.slides, context, afterParse);
+        const { slides, truncated } = boundReadSlides(masked);
         return {
           summary: doc.name,
-          count: structure.slides.length,
+          count: slides.length,
           documentIds: [doc.id],
           result: {
             documentId: doc.id,
             name: doc.name,
-            ...structure,
+            version: structure.version,
+            slideCount: structure.slideCount,
+            slideSize: structure.slideSize,
+            editable: structure.editable,
+            refusal: structure.refusal,
+            fitChecked: structure.fitChecked,
+            ...(currentDoc.workingCopyDocumentId
+              ? { workingCopyDocumentId: currentDoc.workingCopyDocumentId }
+              : {}),
+            ...(truncated ? { truncated: true } : {}),
+            slides,
           },
         };
       });
@@ -395,7 +500,16 @@ export function createDeckEditTools(context: DeckEditToolContext) {
             );
           });
 
-          // Re-check reach and write grant right before committing the Proposal.
+          // Validate `box` changes against slide dimensions before proposing (#149 S12).
+          if (changes.some((each) => each.kind === "box")) {
+            const bytes = await translateError(() => context.readDeckBytes(doc.id));
+            const { structure } = await translateError(() =>
+              readDeckStructure(bytes, { slides: [] }),
+            );
+            validateBoxesInSlide(changes, structure.slideSize);
+          }
+
+          // Re-check reach and write grant before AND at publication (#149 S3).
           const currentPairing = context.recheck(pairing.id, true);
           context.documentInScope(currentPairing, doc.id);
 
@@ -407,6 +521,10 @@ export function createDeckEditTools(context: DeckEditToolContext) {
               version,
               summary,
               changes,
+              stillAllowed: () => {
+                const latest = context.recheck(pairing.id, true);
+                context.documentInScope(latest, doc.id);
+              },
             }),
           );
 
@@ -422,14 +540,16 @@ export function createDeckEditTools(context: DeckEditToolContext) {
               unchangedSlides: proposal.unchangedSlides,
               totalSlides: proposal.totalSlides,
               hasOverflow: proposal.hasOverflow,
+              ...(proposal.fitUnchecked ? { fitUnchecked: true } : {}),
+              note: "Waiting for the User to confirm in IncarnaMind. Proposals are held in memory and do not survive a restart.",
               overflow: proposal.items
                 .filter((item) => item.overflow !== null)
                 .map((item) => ({
                   slide: item.change.slide,
                   shape: "shape" in item.change ? item.change.shape : null,
-                  shapeName: item.shapeName,
+                  shapeName: item.shapeLabel || item.placeKind,
                   autofitKind: item.overflow?.autofitKind,
-                  note: "Proposed text is longer than the box; the User can shorten it or shrink it to fit.",
+                  note: "Proposed text may not fit its box; the User can shrink, grow, keep as is, or ask you to shorten it.",
                 })),
               ...(unfoundCitations.length > 0 && { unfoundCitations }),
             },

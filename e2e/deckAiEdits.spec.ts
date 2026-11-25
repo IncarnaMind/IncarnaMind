@@ -66,7 +66,7 @@ const DECK = pptxOf({
           id: 4,
           name: "Tight Note",
           txBox: true,
-          spPr: xfrm(457200, 2400000, 2400000, 260000),
+          spPr: xfrm(457200, 2400000, 2800000, 420000),
           body: txBody(
             para([run("Short note.")]),
             `<a:bodyPr wrap="square"><a:noAutofit/></a:bodyPr>`,
@@ -167,12 +167,29 @@ for (const lang of ["en", "zh-CN"] as const) {
       // Test ⌘K command focuses the deck ask input.
       await runFromPalette(
         window,
-        lang === "zh-CN" ? "让 AI 修改这页幻灯片" : "Ask your AI to change this slide",
+        lang === "zh-CN" ? "让 AI 修改这张幻灯片" : "Ask your AI to change this slide",
       );
-      await expect(window.getByTestId("viewer-deck-ask-input")).toBeFocused();
+      const askInput = window.getByTestId("viewer-deck-ask-input");
+      await expect(askInput).toBeFocused();
+
+      // IME composition Enter must not submit early.
+      await askInput.fill("测试");
+      await askInput.evaluate((el) => {
+        el.dispatchEvent(new CompositionEvent("compositionstart", { data: "测试", bubbles: true }));
+        el.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            isComposing: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        el.dispatchEvent(new CompositionEvent("compositionend", { data: "测试", bubbles: true }));
+      });
+      await expect(window.getByTestId("viewer-deck-ask-status")).toHaveCount(0);
 
       // Send a deck edit request from the ask bar.
-      await window.getByTestId("viewer-deck-ask-input").fill("Change 17 to 19 boats");
+      await askInput.fill("Change 17 to 19 boats");
       await window.getByTestId("viewer-deck-ask-send").click();
       await expect(window.getByTestId("viewer-deck-ask-status")).toBeVisible();
 
@@ -215,15 +232,31 @@ for (const lang of ["en", "zh-CN"] as const) {
         });
         expect((propRes.structuredContent as { status: string }).status).toBe("waiting");
 
-        // Review bar shows before/after preview and Confirm button.
+        // Live on-slide After preview renders right on the slide with a subtle outline + Before/After toggle.
         const card = window.getByTestId("viewer-deck-proposal-card");
         await expect(card).toBeVisible();
-        await expect(card.getByTestId("viewer-deck-proposal-before")).toContainText(
-          "South quay holds 17 boats.",
-        );
-        await expect(card.getByTestId("viewer-deck-proposal-after")).toContainText(
+        await expect(window.getByTestId("viewer-slides")).toContainText(
           "South quay holds 19 boats.",
         );
+        await expect(window.getByTestId("viewer-slide-proposal-outline")).toBeVisible();
+        await card.getByTestId("viewer-deck-proposal-toggle").click();
+        await expect(window.getByTestId("viewer-slides")).toContainText(
+          "South quay holds 17 boats.",
+        );
+        await card.getByTestId("viewer-deck-proposal-toggle").click();
+        await expect(window.getByTestId("viewer-slides")).toContainText(
+          "South quay holds 19 boats.",
+        );
+
+        // Collapsible Details expands exact before/after text inside the same box.
+        await card.getByTestId("viewer-deck-proposal-details").click();
+        await expect(window.getByTestId("viewer-deck-proposal-before")).toContainText(
+          "South quay holds 17 boats.",
+        );
+        await expect(window.getByTestId("viewer-deck-proposal-after")).toContainText(
+          "South quay holds 19 boats.",
+        );
+        await card.getByTestId("viewer-deck-proposal-details").click();
         await shot(window, `deck-ai-proposal-1440-${lang}`);
         await setWindowSize(app, window, 900, 700);
         await shot(window, `deck-ai-proposal-900-${lang}`);
@@ -234,9 +267,7 @@ for (const lang of ["en", "zh-CN"] as const) {
         const receipt = window.getByTestId("viewer-deck-receipt");
         await expect(receipt).toBeVisible();
         await expect(receipt).toContainText(
-          lang === "zh-CN"
-            ? "2 页幻灯片原样保留；修改了 1 页。"
-            : "2 slides kept exactly as they were; 1 changed.",
+          lang === "zh-CN" ? /2 张幻灯片原样保留；修改了 1 张/ : /2 slides kept .*1 changed/,
         );
         await shot(window, `deck-ai-receipt-1440-${lang}`);
         await setWindowSize(app, window, 900, 700);
@@ -245,9 +276,10 @@ for (const lang of ["en", "zh-CN"] as const) {
 
         expect(sha256(new Uint8Array(await readFile(deckPath)))).toBe(originalHash);
 
-        // Undo from the receipt restores the prior state.
+        // Undo from the receipt restores the prior state with no spurious "Closed 'Document viewer'" notice.
         await receipt.getByTestId("viewer-deck-receipt-undo").click();
         await expect(receipt).toBeHidden();
+        await expect(window.getByText(/Closed.*Document viewer|已关闭/)).toHaveCount(0);
 
         // Now test overflow on the tight box (shape "4") on the currently open deck.
         const currentDocId = await window.evaluate(async () => {
@@ -272,7 +304,7 @@ for (const lang of ["en", "zh-CN"] as const) {
                 slide: 1,
                 shape: "4",
                 paragraphs: [
-                  "This deliberately long paragraph will not fit inside a narrow quarter-inch text box on slide one without shrinking or shortening.",
+                  "South quay holds nineteen boats across seasonal berths with steady freight.",
                 ],
               },
             ],
@@ -280,6 +312,7 @@ for (const lang of ["en", "zh-CN"] as const) {
         });
         await expect(window.getByTestId("viewer-deck-proposal-overflow")).toBeVisible();
         await expect(window.getByTestId("viewer-deck-proposal-shrink")).toBeVisible();
+        await expect(window.getByTestId("viewer-deck-proposal-keep")).toBeVisible();
         await expect(window.getByTestId("viewer-deck-proposal-shorten")).toBeVisible();
         await shot(window, `deck-ai-overflow-1440-${lang}`);
         await setWindowSize(app, window, 900, 700);

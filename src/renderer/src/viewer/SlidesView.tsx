@@ -55,9 +55,9 @@ import {
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
-import { DeckAskBox, type SelectedDeckShape } from "./slides/DeckAskBox";
+import { DeckAskBox, type DeckAskTrigger, type SelectedDeckShape } from "./slides/DeckAskBox";
 import { DeckLines } from "./slides/DeckLines";
-import { DeckProposalBar } from "./slides/DeckProposalBar";
+import { clearDeckReceipt, useDeckProposals } from "./slides/DeckProposalBar";
 import { type DeckEditing, useDeckEditing } from "./slides/deckEditing";
 import { findInDrawing, pictureParts, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
@@ -153,6 +153,10 @@ export function SlidesView({ document, target }: { document: Document; target: V
   const versionKey = `${document.id}:${document.contentHash}`;
   const [proposed, setProposed] = useState<{ key: string; bytes: Uint8Array } | null>(null);
   const proposedBytes = proposed?.key === versionKey ? proposed.bytes : null;
+  // A hand edit supersedes any earlier AI Proposal receipt on this deck (#149 part 2).
+  useEffect(() => {
+    if (editing.written) clearDeckReceipt(document.id);
+  }, [document.id, editing.written]);
   // What a hand edit or accepted AI proposal wrote is drawn at once, until the viewer reads the file again.
   useEffect(() => {
     const bytes = proposedBytes ?? editing.written;
@@ -252,19 +256,67 @@ function Slides({
   onProposedBytes(bytes: Uint8Array | null): void;
 }) {
   const t = useT();
-  const { slides } = loaded.deck;
-  const { drawing } = loaded;
   const scroller = useRef<HTMLDivElement>(null);
   const settingUp = useSettingUp();
   const [selectedShape, setSelectedShape] = useState<SelectedDeckShape | null>(null);
-  const [shortenTrigger, setShortenTrigger] = useState<{
-    id: number;
-    slide: number;
-    shapeId?: string;
-    shapeName?: string;
-    text?: string;
-    instruction: string;
-  } | null>(null);
+  const [shortenTrigger, setShortenTrigger] = useState<DeckAskTrigger | null>(null);
+  const [previewLoaded, setPreviewLoaded] = useState<Loaded | null>(null);
+  const proposalsState = useDeckProposals({
+    document,
+    onAccepted: (accepted) => {
+      if (accepted.documentId === document.id) onProposedBytes(accepted.bytes);
+    },
+    onUndone: (bytes) => onProposedBytes(bytes),
+  });
+  useEffect(() => {
+    const bytes = proposalsState.previewBytes;
+    if (!bytes) {
+      setPreviewLoaded(null);
+      return;
+    }
+    let live = true;
+    void read(bytes)
+      .then((value) => {
+        if (live) setPreviewLoaded(value);
+      })
+      .catch((err: unknown) => {
+        console.error("Couldn't draw deck proposal preview.", err);
+        if (live) setPreviewLoaded(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [proposalsState.previewBytes]);
+
+  const activeProposal = proposalsState.activeProposal;
+  const showingProposed =
+    activeProposal !== null && proposalsState.previewMode === "after" && previewLoaded !== null;
+  const shownLoaded = showingProposed ? previewLoaded : loaded;
+  const { slides } = shownLoaded.deck;
+  const { drawing } = shownLoaded;
+
+  const { proposedBySlide, proposedNotesSlides, firstProposedSlide } = useMemo(() => {
+    const bySlide = new Map<number, Set<string>>();
+    const notesSlides = new Set<number>();
+    let first: number | null = null;
+    if (activeProposal) {
+      for (const item of activeProposal.items) {
+        if (first === null) first = item.change.slide;
+        if (item.change.kind === "notes") {
+          notesSlides.add(item.change.slide);
+        } else {
+          const set = bySlide.get(item.change.slide) ?? new Set<string>();
+          set.add(item.change.shape);
+          bySlide.set(item.change.slide, set);
+        }
+      }
+    }
+    return {
+      proposedBySlide: bySlide,
+      proposedNotesSlides: notesSlides,
+      firstProposedSlide: first,
+    };
+  }, [activeProposal]);
   useSelectionReader(
     useCallback(
       (range) =>
@@ -496,7 +548,7 @@ function Slides({
         let added = false;
         for (const part of group) {
           if (urls.has(part)) continue;
-          urls.set(part, await imageDataUrl(loaded.bytes, part));
+          urls.set(part, await imageDataUrl(shownLoaded.bytes, part));
           added = true;
           if (cancelled) return;
         }
@@ -507,7 +559,7 @@ function Slides({
     return () => {
       cancelled = true;
     };
-  }, [loaded.bytes, drawing, slides, drawn, target.pageFrom]);
+  }, [shownLoaded.bytes, drawing, slides, drawn, target.pageFrom]);
 
   // A cited page drawn to save it (#133): the cited slides, once their pictures are in.
   const citedFrom = target.pageFrom ?? 1;
@@ -557,7 +609,7 @@ function Slides({
 
   const onScroll = () => {
     const container = scroller.current;
-    if (!container || !outlineOpen) return;
+    if (!container) return;
     const top = container.getBoundingClientRect().top + 48;
     let number: number | null = null;
     for (const [slide, element] of slideElements.current) {
@@ -575,21 +627,34 @@ function Slides({
     prefix: String(slide.number),
   }));
   const pictureClick = useMemo(() => pictureClickHandlers(openDocumentPicture), []);
-  const goTo = (number: number) => {
-    const container = scroller.current;
-    const element = slideElements.current.get(number);
-    if (!container || !element) return;
-    container.scrollTop =
-      element.getBoundingClientRect().top -
-      container.getBoundingClientRect().top +
-      container.scrollTop -
-      padding;
-    setCurrent(number);
-  };
+  const goTo = useCallback(
+    (number: number) => {
+      const container = scroller.current;
+      const element = slideElements.current.get(number);
+      if (!container || !element) return;
+      container.scrollTop =
+        element.getBoundingClientRect().top -
+        container.getBoundingClientRect().top +
+        container.scrollTop -
+        padding;
+      setCurrent(number);
+    },
+    [padding],
+  );
+  const scrolledProposalId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeProposal || firstProposedSlide === null || viewWidth === 0) return;
+    if (scrolledProposalId.current === activeProposal.id) return;
+    scrolledProposalId.current = activeProposal.id;
+    goTo(firstProposedSlide);
+  }, [activeProposal, firstProposedSlide, goTo, viewWidth]);
+
   const setElement = (number: number) => (element: HTMLElement | null) => {
     if (element) slideElements.current.set(number, element);
     else slideElements.current.delete(number);
   };
+
+  const slideColumnWidth = drawing && viewWidth > 0 ? drawing.width * scale : undefined;
 
   return (
     <>
@@ -603,20 +668,6 @@ function Slides({
       />
       <QuoteStepsLine stepper={stepper} />
       {editing ? <DeckLines editing={editing} /> : waitingLine}
-      <DeckProposalBar
-        document={document}
-        onAccepted={(accepted) => {
-          if (accepted.documentId === document.id) onProposedBytes(accepted.bytes);
-        }}
-        onUndone={(bytes) => onProposedBytes(bytes)}
-        onAskShorten={(targetShape) =>
-          setShortenTrigger({
-            id: Date.now(),
-            ...targetShape,
-            instruction: t("viewer.deck.ask.shortenPrompt"),
-          })
-        }
-      />
       {refusal && (
         <p className="viewer-deck-refusal" data-testid="viewer-deck-refusal" data-quote-skip="">
           {t(
@@ -629,77 +680,104 @@ function Slides({
       <QuoteStepContext.Provider value={step}>
         <div className="flex min-h-0 flex-1">
           {outlineOpen && <OutlinePanel entries={outline} current={current} onGo={goTo} />}
-          <div
-            ref={scroller}
-            data-testid="viewer-slides"
-            data-drawn={drawing ? "yes" : "no"}
-            data-quote-tone={quoteTone(target.citation)}
-            onScroll={onScroll}
-            className={`viewer-backdrop min-w-0 flex-1 overflow-auto select-text ${drawing ? "viewer-deck-backdrop" : "viewer-slides-backdrop"}`}
-            style={drawing ? { paddingLeft: padding, paddingRight: gutter } : undefined}
-            {...pictureClick}
-          >
-            {viewWidth > 0 &&
-              slides.map((slide) => {
-                const found = highlight?.slide === slide.number ? highlight : null;
-                const drawnSlide = drawn.get(slide.number);
-                if (!drawing || !drawnSlide || isFailed(drawnSlide)) {
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div
+              ref={scroller}
+              data-testid="viewer-slides"
+              data-drawn={drawing ? "yes" : "no"}
+              data-preview-mode={activeProposal ? proposalsState.previewMode : undefined}
+              data-quote-tone={quoteTone(target.citation)}
+              onScroll={onScroll}
+              className={`viewer-backdrop min-w-0 flex-1 overflow-auto select-text ${drawing ? "viewer-deck-backdrop" : "viewer-slides-backdrop"}`}
+              style={drawing ? { paddingLeft: padding, paddingRight: gutter } : undefined}
+              {...pictureClick}
+            >
+              {viewWidth > 0 &&
+                slides.map((slide) => {
+                  const found = highlight?.slide === slide.number ? highlight : null;
+                  const drawnSlide = drawn.get(slide.number);
+                  if (!drawing || !drawnSlide || isFailed(drawnSlide)) {
+                    return (
+                      <SlideSheet
+                        key={slide.number}
+                        slide={slide}
+                        images={images}
+                        ranges={found && found.where === "outline" ? found.ranges : null}
+                        mark={found ? mark : null}
+                        width={drawing ? drawing.width * scale : undefined}
+                        setElement={setElement(slide.number)}
+                      />
+                    );
+                  }
+                  const notesChanged = proposedNotesSlides.has(slide.number);
+                  // Open where the quote the viewer is on lies in the speaker notes, or when notes are proposed.
+                  const notesOpen =
+                    notesToggled.get(slide.number) ??
+                    (notesChanged ||
+                      found?.where === "notes" ||
+                      (found !== null &&
+                        found.where === "slide" &&
+                        quotesIn([...found.notes.values()].flat()).includes(step)));
                   return (
-                    <SlideSheet
+                    <SlideFrame
                       key={slide.number}
-                      slide={slide}
+                      outline={slide}
+                      slide={drawnSlide}
+                      width={drawing.width}
+                      height={drawing.height}
+                      scale={scale}
                       images={images}
-                      ranges={found && found.where === "outline" ? found.ranges : null}
+                      found={found}
                       mark={found ? mark : null}
-                      width={drawing ? drawing.width * scale : undefined}
+                      markRoom={gutter - MARK_GAP - 8}
+                      notesOpen={notesOpen}
+                      notesChanged={notesChanged}
+                      onNotesToggle={(open) =>
+                        setNotesToggled((before) => new Map(before).set(slide.number, open))
+                      }
+                      onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
                       setElement={setElement(slide.number)}
+                      editing={showingProposed ? null : editing}
+                      proposedShapeIds={proposedBySlide.get(slide.number) ?? null}
+                      onSelectShape={(sel) => {
+                        if (sel) setSelectedShape(sel);
+                        else
+                          setSelectedShape((prev) => (prev?.slide === slide.number ? null : prev));
+                      }}
                     />
                   );
-                }
-                // Open where the quote the viewer is on lies in the speaker notes.
-                const notesOpen =
-                  notesToggled.get(slide.number) ??
-                  (found?.where === "notes" ||
-                    (found !== null &&
-                      found.where === "slide" &&
-                      quotesIn([...found.notes.values()].flat()).includes(step)));
-                return (
-                  <SlideFrame
-                    key={slide.number}
-                    outline={slide}
-                    slide={drawnSlide}
-                    width={drawing.width}
-                    height={drawing.height}
-                    scale={scale}
-                    images={images}
-                    found={found}
-                    mark={found ? mark : null}
-                    markRoom={gutter - MARK_GAP - 8}
-                    notesOpen={notesOpen}
-                    onNotesToggle={(open) =>
-                      setNotesToggled((before) => new Map(before).set(slide.number, open))
-                    }
-                    onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
-                    setElement={setElement(slide.number)}
-                    editing={editing}
-                    onSelectShape={(sel) => {
-                      if (sel) setSelectedShape(sel);
-                      else setSelectedShape((prev) => (prev?.slide === slide.number ? null : prev));
-                    }}
-                  />
-                );
-              })}
+                })}
+            </div>
+            <div
+              className="viewer-deck-foot"
+              data-deck-ask-foot=""
+              style={drawing ? { paddingLeft: padding, paddingRight: gutter } : undefined}
+            >
+              <div
+                className="viewer-deck-foot-inner"
+                style={slideColumnWidth !== undefined ? { width: slideColumnWidth } : undefined}
+              >
+                <DeckAskBox
+                  document={document}
+                  slide={current ?? slides[0]?.number ?? 1}
+                  selection={selectedShape}
+                  onClearSelection={() => setSelectedShape(null)}
+                  proposalsState={proposalsState}
+                  canAsk={!settingUp && refusal === null}
+                  externalTrigger={shortenTrigger}
+                  onAskShorten={(targetShape) =>
+                    setShortenTrigger({
+                      id: Date.now(),
+                      ...targetShape,
+                      instruction: t("viewer.deck.ask.shortenPrompt"),
+                    })
+                  }
+                />
+              </div>
+            </div>
           </div>
         </div>
       </QuoteStepContext.Provider>
-      {!settingUp && refusal === null && (
-        <DeckAskBox
-          document={document}
-          slide={current ?? slides[0]?.number ?? 1}
-          selection={selectedShape}
-          externalTrigger={shortenTrigger}
-        />
-      )}
     </>
   );
 }
@@ -716,10 +794,12 @@ function SlideFrame({
   mark,
   markRoom,
   notesOpen,
+  notesChanged,
   onNotesToggle,
   onAsk,
   setElement,
   editing,
+  proposedShapeIds,
   onSelectShape,
 }: {
   outline: SlideOutline;
@@ -732,10 +812,12 @@ function SlideFrame({
   mark: QuoteMark | null;
   markRoom: number;
   notesOpen: boolean;
+  notesChanged: boolean;
   onNotesToggle(open: boolean): void;
   onAsk?: () => void;
   setElement(element: HTMLElement | null): void;
   editing: DeckEditing | null;
+  proposedShapeIds: ReadonlySet<string> | null;
   onSelectShape?: (selection: SelectedDeckShape | null) => void;
 }) {
   const t = useT();
@@ -802,6 +884,7 @@ function SlideFrame({
               onOverflow={editing.setOverflow}
               onOpenPicture={openDocumentPicture}
               onSelectShape={onSelectShape}
+              proposedShapeIds={proposedShapeIds}
             />
           ) : (
             <SlideCanvas
@@ -810,6 +893,7 @@ function SlideFrame({
               height={height}
               images={images}
               ranges={slideRanges}
+              proposedShapeIds={proposedShapeIds}
             />
           )}
         </div>
@@ -829,7 +913,7 @@ function SlideFrame({
       {outline.notes.length > 0 && (
         <details
           data-testid="viewer-slide-notes"
-          className="viewer-deck-notes"
+          className={`viewer-deck-notes ${notesChanged ? "viewer-deck-notes--proposed" : ""}`}
           open={notesOpen}
           onToggle={(event) => {
             const open = event.currentTarget.open;

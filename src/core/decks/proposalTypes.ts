@@ -13,7 +13,24 @@ export interface DeckCitationRecord {
   quote: string;
   documentId?: string;
   passageId?: string;
+  /** Set for Citations attached to a specific table cell (#149 S7). */
+  row?: number;
+  column?: number;
+  /** True when masked because the reading agent cannot reach the cited Document's Folder (#149 M3). */
+  restricted?: true;
 }
+
+/** Semantic kind of a slide target, formatted through i18n in the interface (#149 #3 / S9). */
+export type DeckPlaceKind =
+  | "title"
+  | "subtitle"
+  | "body"
+  | "footer"
+  | "chart"
+  | "table"
+  | "notes"
+  | "text"
+  | "shape";
 
 /** One targeted edit inside a deck Proposal (#149 part 2). */
 export type DeckChange =
@@ -69,10 +86,23 @@ export interface DeckProposalOverflow {
 
 export interface DeckProposalItem {
   change: DeckChange;
-  shapeName: string;
+  placeKind: DeckPlaceKind;
+  /** Human-readable name (chart/table title, custom name, or text snippet; never an internal index). */
+  shapeLabel: string;
+  /** Optional chart series name (when available) or 1-based index. */
+  seriesName?: string;
+  seriesIndex?: number;
+  /** Optional 1-based table cell coordinates. */
+  cell?: { row: number; column: number };
   before: string;
   after: string;
+  /** Fingerprint of target geometry, autofit, and content at propose time (for stale detection). */
+  targetFingerprint: string;
+  /** Non-overflowing autofit adjustment (e.g. restoring 100% scale on shorter text). */
+  defaultFit: TextFit | null;
   overflow: DeckProposalOverflow | null;
+  /** True when the slide could not be drawn so text fit could not be checked (#149 S6). */
+  fitUnchecked?: true;
 }
 
 export interface DeckProposal {
@@ -87,14 +117,17 @@ export interface DeckProposal {
   changedSlides: number;
   unchangedSlides: number;
   hasOverflow: boolean;
+  fitUnchecked: boolean;
   createdAt: string;
 }
 
 export interface DeckProposalAccepted {
   proposalId: string;
-  /** The Document holding the accepted change (same id for a kept deck, or the new copy's id). */
+  /** The Document holding the accepted change (same id for a kept deck, or the working copy's id). */
   documentId: string;
   originalDocumentId: string;
+  /** True when a brand-new working copy was created beside/for a User's own deck on this accept. */
+  copyCreated: boolean;
   saved: DeckSaved;
   bytes: Uint8Array;
   contentHash: string;
@@ -107,6 +140,8 @@ export interface DeckProposalAccepted {
 export interface DeckProposalUndone {
   undoId: string;
   documentId: string;
+  /** When undoing the very first creation of a working copy, names the removed copy documentId. */
+  removedCopyId: string | null;
   bytes: Uint8Array | null;
   contentHash: string | null;
 }

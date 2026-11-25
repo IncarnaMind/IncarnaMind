@@ -5,14 +5,14 @@
  * slide, and package part remains byte-identical.
  */
 import type { DeckChange, DeckCitationRecord } from "../../decks/proposalTypes";
-import { child, elements, local, walk } from "../../documents/formats/xml";
+import { child, elements, local, walk, type XmlElement } from "../../documents/formats/xml";
 import { openPackage, type ZipArchive } from "../../documents/formats/zip";
 import { PackagePartError } from "../packagePatch/package";
-import { chartPartOfShape, setChartSeriesValues } from "./charts";
+import { chartPartOfShape, setChartSeriesValues, workbookPart } from "./charts";
 import { Deck, PRESENTATION_RELATIONSHIPS } from "./deck";
 import { setCellRuns, setShapeBox, setShapeRuns } from "./edits";
 import { setNotes } from "./notes";
-import type { EditedParagraph } from "./shapeEdit";
+import type { EditedParagraph, EditedRun } from "./shapeEdit";
 import { readShapeTags, setShapeTags, shapesById } from "./shapes";
 
 export type { DeckChange, DeckCitationRecord };
@@ -52,59 +52,211 @@ export function parseShapeCitations(tags: Readonly<Record<string, string>>): Dec
   }
 }
 
-/** Builds `EditedParagraph[]` that preserve the target text body's paragraph & first-run formatting. */
-function editedParagraphsFor(
-  existingParagraphCount: number,
-  paragraphs: readonly string[],
-): EditedParagraph[] {
-  const list = paragraphs.length > 0 ? paragraphs : [""];
-  return list.map((text, index) => {
-    const sourceParagraph = index < existingParagraphCount ? index : null;
-    const lines = text.split("\n");
-    const runs: EditedParagraph["runs"] = [];
-    for (const [lineIdx, line] of lines.entries()) {
-      if (lineIdx > 0) runs.push({ source: null, text: "\n" });
-      if (line !== "" || lines.length === 1) {
-        runs.push({
-          source:
-            lineIdx === 0 && sourceParagraph !== null
-              ? { paragraph: sourceParagraph, run: 0 }
-              : null,
-          text: line,
-        });
-      }
-    }
-    return { source: sourceParagraph, runs };
+const PIECE_NAMES = new Set(["r", "br", "fld"]);
+
+interface ExistingPiece {
+  at: number;
+  kind: "r" | "br" | "fld";
+  text: string;
+}
+
+function piecesOfParagraph(paragraph: XmlElement): ExistingPiece[] {
+  const pieces = elements(paragraph).filter((each) => PIECE_NAMES.has(local(each.name)));
+  return pieces.map((piece, at) => {
+    const kind = local(piece.name) as "r" | "br" | "fld";
+    if (kind === "br") return { at, kind, text: "\n" };
+    const t = child(piece, "t");
+    const text = t ? t.children.filter((each) => typeof each === "string").join("") : "";
+    return { at, kind, text };
   });
 }
 
-async function existingShapeParagraphCount(
+function paragraphsOfTxBody(txBody: XmlElement | undefined): ExistingPiece[][] {
+  if (!txBody) return [];
+  return elements(txBody)
+    .filter((each) => local(each.name) === "p")
+    .map(piecesOfParagraph);
+}
+
+function splitLinesWithSource(text: string, source: EditedRun["source"]): EditedRun[] {
+  if (text === "") return [];
+  const lines = text.split("\n");
+  const out: EditedRun[] = [];
+  for (const [lineIdx, line] of lines.entries()) {
+    if (lineIdx > 0) out.push({ source: null, text: "\n" });
+    if (line !== "") out.push({ source, text: line });
+  }
+  return out;
+}
+
+/**
+ * Maps proposed plain paragraphs onto existing XML runs, fields, and line breaks (#149 M2):
+ * - Unchanged paragraphs keep every piece's source verbatim so `writtenInPlace` keeps their XML byte-for-byte.
+ * - Changed paragraphs keep untouched prefix/suffix pieces (bold, links, slide-number fields, line breaks)
+ *   and place the edited middle inside the run where the change begins.
+ */
+function editedParagraphsFor(
+  existing: readonly ExistingPiece[][],
+  paragraphs: readonly string[],
+): EditedParagraph[] {
+  const list = paragraphs.length > 0 ? paragraphs : [""];
+  const fallbackParagraphIndex = existing.length > 0 ? existing.length - 1 : null;
+  const fallbackRun =
+    fallbackParagraphIndex !== null
+      ? (existing[fallbackParagraphIndex]?.find((piece) => piece.kind === "r") ??
+        existing[fallbackParagraphIndex]?.[0] ??
+        null)
+      : null;
+  const fallbackSource: EditedRun["source"] =
+    fallbackParagraphIndex !== null && fallbackRun
+      ? { paragraph: fallbackParagraphIndex, run: fallbackRun.at }
+      : null;
+  return list.map((newText, index) => {
+    const existingPieces = index < existing.length ? (existing[index] ?? []) : null;
+    if (!existingPieces) {
+      return {
+        source: fallbackParagraphIndex,
+        runs: splitLinesWithSource(newText, fallbackSource),
+      };
+    }
+
+    const shown = existingPieces.filter((piece) => piece.text !== "");
+    const oldText = shown.map((piece) => piece.text).join("");
+    if (newText === oldText) {
+      return {
+        source: index,
+        runs:
+          shown.length > 0
+            ? shown.map((piece) => ({
+                source: { paragraph: index, run: piece.at },
+                text: piece.text,
+              }))
+            : [
+                {
+                  source: existingPieces[0]
+                    ? { paragraph: index, run: existingPieces[0].at }
+                    : null,
+                  text: "",
+                },
+              ],
+      };
+    }
+
+    // Locate longest common prefix and non-overlapping longest common suffix.
+    let prefixLen = 0;
+    const minLen = Math.min(oldText.length, newText.length);
+    while (prefixLen < minLen && oldText[prefixLen] === newText[prefixLen]) prefixLen += 1;
+
+    let suffixLen = 0;
+    while (
+      suffixLen < minLen - prefixLen &&
+      oldText[oldText.length - 1 - suffixLen] === newText[newText.length - 1 - suffixLen]
+    ) {
+      suffixLen += 1;
+    }
+
+    const oldMidStart = prefixLen;
+    const oldMidEnd = oldText.length - suffixLen;
+    const newMid = newText.slice(prefixLen, newText.length - suffixLen);
+
+    // Compute piece spans in oldText.
+    const spans: Array<{ piece: ExistingPiece; start: number; end: number }> = [];
+    let offset = 0;
+    for (const piece of shown) {
+      spans.push({ piece, start: offset, end: offset + piece.text.length });
+      offset += piece.text.length;
+    }
+
+    // Fast path: edit falls strictly inside a single regular run (no newlines added) -> keep in-place!
+    if (!newMid.includes("\n")) {
+      const targetSpan = spans.find(
+        (span) => span.piece.kind === "r" && oldMidStart >= span.start && oldMidEnd <= span.end,
+      );
+      if (targetSpan) {
+        const updatedText =
+          targetSpan.piece.text.slice(0, oldMidStart - targetSpan.start) +
+          newMid +
+          targetSpan.piece.text.slice(oldMidEnd - targetSpan.start);
+        if (updatedText !== "") {
+          return {
+            source: index,
+            runs: spans.map((span) => ({
+              source: { paragraph: index, run: span.piece.at },
+              text: span === targetSpan ? updatedText : span.piece.text,
+            })),
+          };
+        }
+      }
+    }
+
+    // General path: emit untouched prefix pieces, edited middle on nearest regular run, then untouched suffix pieces.
+    const runs: EditedRun[] = [];
+    let midRunSource: EditedRun["source"] = null;
+    for (const span of spans) {
+      if (span.end <= oldMidStart) {
+        runs.push({ source: { paragraph: index, run: span.piece.at }, text: span.piece.text });
+        if (span.piece.kind === "r") midRunSource = { paragraph: index, run: span.piece.at };
+      } else if (span.start < oldMidStart) {
+        const keep = span.piece.text.slice(0, oldMidStart - span.start);
+        if (keep !== "") {
+          runs.push({ source: { paragraph: index, run: span.piece.at }, text: keep });
+        }
+        if (span.piece.kind === "r") midRunSource = { paragraph: index, run: span.piece.at };
+      }
+    }
+    if (!midRunSource) {
+      const overlapping = spans.find(
+        (span) => span.piece.kind === "r" && span.end > oldMidStart && span.start <= oldMidEnd,
+      );
+      const fallback = existingPieces.find((piece) => piece.kind === "r");
+      const chosen = overlapping?.piece ?? fallback;
+      midRunSource = chosen ? { paragraph: index, run: chosen.at } : null;
+    }
+    if (newMid !== "") {
+      runs.push(...splitLinesWithSource(newMid, midRunSource));
+    }
+    for (const span of spans) {
+      if (span.start >= oldMidEnd) {
+        runs.push({ source: { paragraph: index, run: span.piece.at }, text: span.piece.text });
+      } else if (span.end > oldMidEnd) {
+        const keep = span.piece.text.slice(oldMidEnd - span.start);
+        if (keep !== "") {
+          runs.push({ source: { paragraph: index, run: span.piece.at }, text: keep });
+        }
+      }
+    }
+    return {
+      source: index,
+      runs: runs.length > 0 ? runs : [{ source: midRunSource, text: "" }],
+    };
+  });
+}
+
+async function existingShapeParagraphs(
   deck: Deck,
   slidePart: string,
   shapeId: string,
-): Promise<number> {
+): Promise<ExistingPiece[][]> {
   const part = await deck.pkg.part(slidePart);
-  if (!part) return 0;
+  if (!part) return [];
   const shape = shapesById(part.root, shapeId).find((each) => local(each.name) === "sp");
-  const txBody = shape && child(shape, "txBody");
-  return txBody ? elements(txBody).filter((each) => local(each.name) === "p").length : 0;
+  return paragraphsOfTxBody(shape && child(shape, "txBody"));
 }
 
-async function existingCellParagraphCount(
+async function existingCellParagraphs(
   deck: Deck,
   slidePart: string,
   shapeId: string,
   row: number,
   column: number,
-): Promise<number> {
+): Promise<ExistingPiece[][]> {
   const part = await deck.pkg.part(slidePart);
-  if (!part) return 0;
+  if (!part) return [];
   const frame = shapesById(part.root, shapeId).find((each) => local(each.name) === "graphicFrame");
   const table = frame && [...walk(frame)].find((each) => local(each.name) === "tbl");
   const tr = table && elements(table).filter((each) => local(each.name) === "tr")[row];
   const tc = tr && elements(tr).filter((each) => local(each.name) === "tc")[column];
-  const txBody = tc && child(tc, "txBody");
-  return txBody ? elements(txBody).filter((each) => local(each.name) === "p").length : 0;
+  return paragraphsOfTxBody(tc && child(tc, "txBody"));
 }
 
 const sameStored = (a: ZipArchive, b: ZipArchive, name: string) => {
@@ -149,6 +301,13 @@ export async function countChangedSlides(
             differs = true;
             break;
           }
+          if (rel.type === PRESENTATION_RELATIONSHIPS.chart) {
+            const embedded = await workbookPart(deck, rel.target);
+            if (embedded && !sameStored(before, after, embedded)) {
+              differs = true;
+              break;
+            }
+          }
         }
       }
     }
@@ -184,23 +343,24 @@ export async function applyDeckChanges(
       throw new PackagePartError(await deck.presentationPart(), `has no slide ${change.slide}.`);
     }
     if (change.kind === "text") {
-      const count = await existingShapeParagraphCount(deck, slide.part, change.shape);
+      const existing = await existingShapeParagraphs(deck, slide.part, change.shape);
       await setShapeRuns(
         deck,
         slide.part,
         change.shape,
-        editedParagraphsFor(count, change.paragraphs),
+        editedParagraphsFor(existing, change.paragraphs),
         change.fit,
       );
-      if (change.citations && change.citations.length > 0) {
-        const existing = parseShapeCitations(await readShapeTags(deck, slide.part, change.shape));
-        const merged = [...existing, ...change.citations];
+      const nextCitations = change.citations ?? [];
+      const currentTags = await readShapeTags(deck, slide.part, change.shape);
+      const hadCitations = parseShapeCitations(currentTags).length > 0;
+      if (nextCitations.length > 0 || hadCitations) {
         await setShapeTags(deck, slide.part, change.shape, {
-          [CITATION_TAG_NAME]: JSON.stringify(merged),
+          [CITATION_TAG_NAME]: JSON.stringify(nextCitations),
         });
       }
     } else if (change.kind === "cell") {
-      const count = await existingCellParagraphCount(
+      const existing = await existingCellParagraphs(
         deck,
         slide.part,
         change.shape,
@@ -213,11 +373,21 @@ export async function applyDeckChanges(
         change.shape,
         change.row,
         change.column,
-        editedParagraphsFor(count, change.paragraphs),
+        editedParagraphsFor(existing, change.paragraphs),
       );
-      if (change.citations && change.citations.length > 0) {
-        const existing = parseShapeCitations(await readShapeTags(deck, slide.part, change.shape));
-        const merged = [...existing, ...change.citations];
+      const existingCitations = parseShapeCitations(
+        await readShapeTags(deck, slide.part, change.shape),
+      );
+      const otherCells = existingCitations.filter(
+        (each) => each.row !== change.row || each.column !== change.column,
+      );
+      const stamped = (change.citations ?? []).map((each) => ({
+        ...each,
+        row: change.row,
+        column: change.column,
+      }));
+      const merged = [...otherCells, ...stamped];
+      if (merged.length > 0 || existingCitations.length > 0) {
         await setShapeTags(deck, slide.part, change.shape, {
           [CITATION_TAG_NAME]: JSON.stringify(merged),
         });

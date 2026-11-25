@@ -41,6 +41,28 @@ const SINGLE_LINE = 1.2;
  * scale: its background, then each item in z-order, absolutely placed.
  * Text stays text, in spans a quote's highlight can wrap.
  */
+function proposedBoxes(
+  items: readonly Item[],
+  wanted: ReadonlySet<string>,
+  origin = { x: 0, y: 0 },
+): { key: string; box: Box; shapeId: string }[] {
+  const found: { key: string; box: Box; shapeId: string }[] = [];
+  for (const [index, item] of items.entries()) {
+    const abs: Box = {
+      ...item.box,
+      x: origin.x + item.box.x,
+      y: origin.y + item.box.y,
+    };
+    if (item.shapeId && wanted.has(item.shapeId)) {
+      found.push({ key: `${item.shapeId}-${index}`, box: abs, shapeId: item.shapeId });
+    }
+    if (item.kind === "group") {
+      found.push(...proposedBoxes(item.children, wanted, { x: abs.x, y: abs.y }));
+    }
+  }
+  return found;
+}
+
 export function SlideCanvas({
   slide,
   width,
@@ -48,6 +70,7 @@ export function SlideCanvas({
   images,
   ranges,
   editing = null,
+  proposedShapeIds = null,
 }: {
   slide: SlideDrawing;
   width: number;
@@ -56,8 +79,14 @@ export function SlideCanvas({
   ranges: ReadonlyMap<string, TextRange[]> | null;
   /** The text shape open for typing, drawn as the others are, in an editable box. */
   editing?: TextEditing | null;
+  /** Shape ids touched by a waiting AI Proposal, outlined live on the slide (#149 part 2). */
+  proposedShapeIds?: ReadonlySet<string> | null;
 }) {
   const context: Context = { images, ranges, editing };
+  const outlined =
+    proposedShapeIds && proposedShapeIds.size > 0
+      ? proposedBoxes(slide.items, proposedShapeIds)
+      : [];
   return (
     <div
       className="slide-canvas"
@@ -67,6 +96,16 @@ export function SlideCanvas({
       {slide.items.map((item, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a slide's items never reorder
         <ItemView key={index} item={item} path={String(index)} context={context} />
+      ))}
+      {outlined.map((each) => (
+        <div
+          key={each.key}
+          className="slide-proposal-outline"
+          data-testid="viewer-slide-proposal-outline"
+          data-shape-id={each.shapeId}
+          aria-hidden="true"
+          style={boxStyle(each.box)}
+        />
       ))}
     </div>
   );

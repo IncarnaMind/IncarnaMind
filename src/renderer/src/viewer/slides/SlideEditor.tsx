@@ -11,6 +11,7 @@ import type {
   ShapeEdit,
 } from "../../../../core/exports/pptxPatch/shapeEdit";
 import type { TextRange } from "../../../../shared/quoteMatch";
+import { useT } from "../../i18n";
 import { beginChange } from "../../undo";
 import type { SelectedDeckShape } from "./DeckAskBox";
 import type { DeckGesture, Overflow } from "./deckEditing";
@@ -251,6 +252,7 @@ export function SlideEditor({
   onOverflow,
   onOpenPicture,
   onSelectShape,
+  proposedShapeIds = null,
 }: {
   slide: SlideDrawing;
   width: number;
@@ -267,7 +269,10 @@ export function SlideEditor({
   onOpenPicture?: (picture: HTMLImageElement) => void;
   /** Tells the viewer which shape is selected, for AI change requests (#149 part 2). */
   onSelectShape?: (selection: SelectedDeckShape | null) => void;
+  /** Shape ids touched by a waiting AI Proposal, outlined live on the slide (#149 part 2). */
+  proposedShapeIds?: ReadonlySet<string> | null;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
   const [typed, setTyped] = useState<readonly TypedWords[]>([]);
@@ -362,20 +367,26 @@ export function SlideEditor({
           : found.kind === "chart"
             ? found.lines.join("\n")
             : "";
+    const firstLine =
+      text
+        .split("\n")
+        .find((line) => line.trim() !== "")
+        ?.trim() ?? "";
+    const snippet = firstLine.length > 36 ? `${firstLine.slice(0, 35).trimEnd()}…` : firstLine;
     onSelectShapeNow.current({
       slide: slide.number,
       shapeId: found.shapeId,
       shapeName:
         found.kind === "shape" && found.title
-          ? "Title"
+          ? t("viewer.deck.place.title")
           : found.kind === "chart"
-            ? "Chart"
+            ? snippet || t("viewer.deck.place.chart")
             : found.kind === "table"
-              ? "Table"
-              : `#${found.shapeId}`,
+              ? t("viewer.deck.place.table")
+              : snippet || t("viewer.deck.place.text"),
       text,
     });
-  }, [selected, shown.items, slide.number]);
+  }, [selected, shown.items, slide.number, t]);
 
   const moved = useCallback(
     (path: string, box: ShapeBox) => {
@@ -724,6 +735,13 @@ export function SlideEditor({
         if (event.currentTarget.contains(event.relatedTarget)) return;
         // Working elsewhere (a line's action among it) takes the nudges so far as made.
         handOverNudge.current();
+        // Moving focus into the deck's ask box keeps the clicked shape targeted (#149 part 2).
+        if (
+          event.relatedTarget instanceof Element &&
+          event.relatedTarget.closest("[data-deck-ask-foot]")
+        ) {
+          return;
+        }
         // One shape is selected in the deck at a time: working elsewhere lets this one go.
         if (!typing) setSelected(null);
       }}
@@ -779,6 +797,7 @@ export function SlideEditor({
         images={images}
         ranges={ranges}
         editing={editing}
+        proposedShapeIds={proposedShapeIds}
       />
       {!typing && pressable.map(hit)}
       {!typing && edged.map(edge)}

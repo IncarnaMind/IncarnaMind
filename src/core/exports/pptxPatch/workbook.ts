@@ -4,7 +4,14 @@
  * and parts it doesn't change keep their bytes.
  */
 import { deflateRawSync } from "node:zlib";
-import { child, descendants, elements, textOf, type XmlElement } from "../../documents/formats/xml";
+import {
+  child,
+  descendants,
+  elements,
+  local,
+  textOf,
+  type XmlElement,
+} from "../../documents/formats/xml";
 import { openPackage } from "../../documents/formats/zip";
 import { checkWellFormed, PackagePartError, PackageWriter } from "../packagePatch/package";
 import { appendInside, applySplices, endOf, type Splice, startOf } from "../packagePatch/text";
@@ -201,13 +208,16 @@ export class Workbook {
     if (existingCommentsRel) {
       const commentsPart = await this.pkg.part(existingCommentsRel.target);
       if (!commentsPart) throw new PackagePartError(existingCommentsRel.target, "is missing.");
+      const rootName = commentsPart.root.name;
+      const prefix = rootName.includes(":") ? rootName.slice(0, rootName.indexOf(":") + 1) : "";
+      const tag = (localName: string) => `${prefix}${localName}`;
       const authorsEl = child(commentsPart.root, "authors");
       const commentList = child(commentsPart.root, "commentList");
       if (!authorsEl || !commentList) {
         throw new PackagePartError(existingCommentsRel.target, "is malformed.");
       }
       const existingAuthors = elements(authorsEl)
-        .filter((each) => each.name === "author")
+        .filter((each) => local(each.name) === "author")
         .map((each) => textOf(each));
       const newAuthors: string[] = [];
       const authorIndex = (author: string) => {
@@ -220,19 +230,39 @@ export class Workbook {
       };
       const existingByRef = new Map(
         elements(commentList)
-          .filter((each) => each.name === "comment" && each.attrs.ref)
+          .filter((each) => local(each.name) === "comment" && each.attrs.ref)
           .map((each) => [each.attrs.ref as string, each]),
       );
       const splices: Splice[] = [];
       const addedRefs: string[] = [];
       const appendedComments: string[] = [];
       for (const note of notes) {
-        const aid = authorIndex(note.author);
-        const xml = `<comment ref="${note.ref}" authorId="${aid}"><text><r><t xml:space="preserve">${escapeXml(note.text)}</t></r></text></comment>`;
         const prev = existingByRef.get(note.ref);
         if (prev) {
-          splices.push({ from: startOf(prev), to: endOf(prev), text: xml });
+          const prevAuthorId = Number(prev.attrs.authorId);
+          const prevAuthor = Number.isInteger(prevAuthorId)
+            ? (existingAuthors[prevAuthorId] ?? "")
+            : "";
+          if (prevAuthor === note.author) {
+            const aid = authorIndex(note.author);
+            const xml = `<${tag("comment")} ref="${note.ref}" authorId="${aid}"><${tag("text")}><${tag("r")}><${tag("t")} xml:space="preserve">${escapeXml(note.text)}</${tag("t")}></${tag("r")}></${tag("text")}></${tag("comment")}>`;
+            splices.push({ from: startOf(prev), to: endOf(prev), text: xml });
+          } else {
+            // Preserve the User's own note and author, appending or refreshing our Citation line (#149 M4).
+            const prevText = descendants(prev, "t")
+              .map((node) => textOf(node))
+              .join("");
+            const marker = "\n\nIncarnaMind Citation:";
+            const cutAt = prevText.indexOf(marker);
+            const baseText = cutAt >= 0 ? prevText.slice(0, cutAt) : prevText;
+            const combined = baseText.length > 0 ? `${baseText}\n\n${note.text}` : note.text;
+            const keepAid = prev.attrs.authorId ?? String(authorIndex(note.author));
+            const xml = `<${tag("comment")} ref="${note.ref}" authorId="${keepAid}"><${tag("text")}><${tag("r")}><${tag("t")} xml:space="preserve">${escapeXml(combined)}</${tag("t")}></${tag("r")}></${tag("text")}></${tag("comment")}>`;
+            splices.push({ from: startOf(prev), to: endOf(prev), text: xml });
+          }
         } else {
+          const aid = authorIndex(note.author);
+          const xml = `<${tag("comment")} ref="${note.ref}" authorId="${aid}"><${tag("text")}><${tag("r")}><${tag("t")} xml:space="preserve">${escapeXml(note.text)}</${tag("t")}></${tag("r")}></${tag("text")}></${tag("comment")}>`;
           appendedComments.push(xml);
           addedRefs.push(note.ref);
         }
@@ -242,7 +272,9 @@ export class Workbook {
           appendInside(
             commentsPart.text,
             authorsEl,
-            newAuthors.map((author) => `<author>${escapeXml(author)}</author>`).join(""),
+            newAuthors
+              .map((author) => `<${tag("author")}>${escapeXml(author)}</${tag("author")}>`)
+              .join(""),
           ),
         );
       }

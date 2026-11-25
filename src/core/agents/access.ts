@@ -931,12 +931,14 @@ export interface AgentAccessDeps {
     data: Uint8Array,
     asks: boolean,
   ): Promise<WordSaved>;
-  /** Reads a `.pptx` Document's metadata (id, name, kind) for `read_deck` (#149 part 2). */
+  /** Reads a `.pptx` Document's metadata, current Folder placement, and handed-over owner (#149 part 2). */
   deckDocument?(documentId: string): {
     id: string;
     name: string;
     kind: string;
-    handed: { folderId: string | null; pairingId: string } | null;
+    currentFolderIds: readonly string[];
+    handed: { pairingId: string } | null;
+    workingCopyDocumentId?: string | null;
   } | null;
   /** Reads a `.pptx` Document's current bytes for `read_deck` (#149 part 2). */
   readDeckBytes?(documentId: string): Promise<Uint8Array>;
@@ -948,6 +950,7 @@ export interface AgentAccessDeps {
     version: string;
     summary: string;
     changes: readonly import("../exports/pptxPatch/deckChanges").DeckChange[];
+    stillAllowed?: () => void;
   }): Promise<import("../decks/proposals").DeckProposal>;
 }
 
@@ -1489,27 +1492,40 @@ export function documentsForPairing(
 }
 
 /**
- * Resolves a deck (by `documentId` or a handed file's `fileId`) if the pairing reaches it,
- * honoring Matter walls for both source Documents and handed-over decks (#149 part 2).
+ * Resolves a deck (by `documentId` or a handed file's `fileId`) if the pairing reaches it:
+ * - Ordinary source decks follow `documentsForPairing` (honoring Matter walls).
+ * - Handed-over decks are reached ONLY by the pairing that handed them over AND only while
+ *   the Document's current Folder placement stays inside the pairing's reached Folders (#149 S8).
  */
 export function deckReachedByPairing(
   deps: AgentAccessDeps,
   pairing: AdmittedPairing,
   documentId: string,
   reached: ReadonlySet<string> = reachedFolders(deps, pairing),
-): { id: string; name: string; kind: string } | null {
+): { id: string; name: string; kind: string; workingCopyDocumentId?: string | null } | null {
   const doc = deps.deckDocument?.(documentId) ?? null;
   if (!doc) return null;
   if (documentsForPairing(deps, pairing, [...reached], reached).includes(doc.id)) {
-    return { id: doc.id, name: doc.name, kind: doc.kind };
+    return {
+      id: doc.id,
+      name: doc.name,
+      kind: doc.kind,
+      workingCopyDocumentId: doc.workingCopyDocumentId ?? null,
+    };
   }
-  if (!doc.handed) return null;
-  const { folderId, pairingId } = doc.handed;
-  const reachesHanded =
-    folderId !== null
-      ? reached.has(folderId)
-      : reached.has(NOT_IN_A_FOLDER_ID) && (sharesAll(pairing) || pairingId === pairing.id);
-  return reachesHanded ? { id: doc.id, name: doc.name, kind: doc.kind } : null;
+  if (!doc.handed || doc.handed.pairingId !== pairing.id) return null;
+  const placementReached =
+    doc.currentFolderIds.length > 0
+      ? doc.currentFolderIds.every((folderId) => reached.has(folderId))
+      : reached.has(NOT_IN_A_FOLDER_ID);
+  return placementReached
+    ? {
+        id: doc.id,
+        name: doc.name,
+        kind: doc.kind,
+        workingCopyDocumentId: doc.workingCopyDocumentId ?? null,
+      }
+    : null;
 }
 
 /**
@@ -2493,6 +2509,10 @@ export function createAgentAccess(
         throw new AgentRefusedError("invalid", t("agents.deck.notAvailable"));
       }
       return deps.readDeckBytes(documentId);
+    },
+    reachesDocument: (pairing, documentId) => {
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return usable(inScope, documentId);
     },
     resolveCitation: (pairing, token) => {
       const inScope = new Set(scopeOf(pairing, undefined));

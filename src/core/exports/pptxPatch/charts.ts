@@ -17,11 +17,12 @@ import { type Deck, PRESENTATION_RELATIONSHIPS } from "./deck";
 import { shapeById } from "./shapes";
 import { formulaCells, Workbook } from "./workbook";
 
-/** One series' values: its index, name, categories, where the chart's formula points, and the cached points. */
+/** One series' values: its index, name, categories, number format, formula, and cached points. */
 export interface ChartSeries {
   index: number;
   name: string | null;
   categories: string[];
+  formatCode: string | null;
   /** The element holding the numbers: c:val, or c:yVal for a scatter or bubble chart. */
   formula: string | null;
   points: { idx: number; value: number | null }[];
@@ -52,13 +53,22 @@ function categoriesOf(series: XmlElement): string[] {
     child(cat, "c:strLit") ??
     child(cat, "c:numLit");
   if (!cache) return [];
-  return elements(cache)
-    .filter((each) => local(each.name) === "pt")
-    .sort((a, b) => Number(a.attrs.idx) - Number(b.attrs.idx))
-    .map((pt) => {
-      const v = child(pt, "c:v");
-      return v ? textOf(v) : "";
-    });
+  const pts = elements(cache).filter((each) => local(each.name) === "pt");
+  const ptCount = Number(child(cache, "c:ptCount")?.attrs.val) || 0;
+  let maxIdx = ptCount - 1;
+  for (const pt of pts) {
+    const idx = Number(pt.attrs.idx);
+    if (Number.isInteger(idx) && idx > maxIdx) maxIdx = idx;
+  }
+  if (maxIdx < 0) return [];
+  const out = Array<string>(maxIdx + 1).fill("");
+  for (const pt of pts) {
+    const idx = Number(pt.attrs.idx);
+    if (!Number.isInteger(idx) || idx < 0) continue;
+    const v = child(pt, "c:v");
+    out[idx] = v ? textOf(v) : "";
+  }
+  return out;
 }
 
 /** Resolves the chart part targeted by a chart shape (`p:graphicFrame`) on a slide, or null. */
@@ -93,10 +103,12 @@ export async function chartSeries(deck: Deck, chartPart: string): Promise<ChartS
     const numRef = child(values, "c:numRef");
     const cache = numRef && child(numRef, "c:numCache");
     const formula = numRef && child(numRef, "c:f");
+    const formatCodeEl = cache && child(cache, "c:formatCode");
     out.push({
       index: out.length,
       name: seriesNameOf(series),
       categories: categoriesOf(series),
+      formatCode: formatCodeEl ? textOf(formatCodeEl).trim() || null : null,
       formula: formula ? textOf(formula).trim() : null,
       count: Number(cache && child(cache, "c:ptCount")?.attrs.val) || 0,
       points: (cache ? elements(cache).filter((each) => local(each.name) === "pt") : []).map(
@@ -270,32 +282,72 @@ export async function setChartSeriesValues(
     throw new PackagePartError(chartPart, `series ${String(target)} has no numeric reference.`);
   }
   const { sheet, cells: refs } = formulaCells(textOf(formula).trim());
+  const otherSeriesRefs = new Set<string>();
+  for (let i = 0; i < list.length; i++) {
+    if (i === chosenIndex) continue;
+    const otherNumRef = child(list[i]?.values ?? chosen.values, "c:numRef");
+    const otherFormula = otherNumRef && child(otherNumRef, "c:f");
+    if (!otherFormula) continue;
+    try {
+      const parsed = formulaCells(textOf(otherFormula).trim());
+      for (const cellRef of parsed.cells) {
+        otherSeriesRefs.add(`${parsed.sheet}!${cellRef}`.toUpperCase());
+      }
+    } catch {
+      // Unparseable formula on an unrelated series doesn't block this series unless it shares cells.
+    }
+  }
+
   const points = elements(cache).filter((each) => local(each.name) === "pt");
+  const pointByIdx = new Map<number, XmlElement>();
+  for (const point of points) {
+    const idx = Number(point.attrs.idx);
+    if (Number.isInteger(idx) && idx >= 0) pointByIdx.set(idx, point);
+  }
   const splices: Splice[] = [];
   const written = new Map<string, number>();
   const touchedCells: string[] = [];
-  for (const point of points) {
-    const idx = Number(point.attrs.idx);
+  for (let idx = 0; idx < values.length; idx++) {
     const value = values[idx];
-    const v = child(point, "c:v");
+    if (value === undefined || value === null) continue;
+    const point = pointByIdx.get(idx);
+    const v = point && child(point, "c:v");
     const ref = refs[idx];
-    if (value === undefined || value === null || !v || !ref) continue;
+    if (!point || !v || !ref) {
+      throw new PackagePartError(
+        chartPart,
+        `series ${String(target)} has no editable point at index ${idx}.`,
+      );
+    }
+    if (otherSeriesRefs.has(`${sheet}!${ref}`.toUpperCase())) {
+      throw new PackagePartError(
+        chartPart,
+        `cell ${sheet}!${ref} is shared by another series and cannot be changed for ${String(target)} alone.`,
+      );
+    }
     splices.push({ from: startOf(v), to: endOf(v), text: `<c:v>${value}</c:v>` });
     written.set(ref, value);
     touchedCells.push(ref);
   }
 
   const workbook = Workbook.open(bytes);
-  if (written.size > 0) await workbook.writeNumbers(sheet, written);
+  let workbookChanged = false;
+  if (written.size > 0) {
+    await workbook.writeNumbers(sheet, written);
+    workbookChanged = true;
+  }
   if (options?.notes && options.notes.length > 0) {
     const cellNotes = options.notes.flatMap((note) => {
       const ref = refs[note.pointIndex];
       return ref ? [{ ref, author: note.author, text: note.text }] : [];
     });
-    if (cellNotes.length > 0) await workbook.setNotes(sheet, cellNotes);
+    if (cellNotes.length > 0) {
+      await workbook.setNotes(sheet, cellNotes);
+      workbookChanged = true;
+    }
   }
   if (splices.length > 0) deck.pkg.set(chartPart, applySplices(part.text, splices));
-  deck.pkg.set(embedded, await workbook.save());
+  if (workbookChanged) deck.pkg.set(embedded, await workbook.save());
   return {
     seriesIndex: chosenIndex,
     seriesName: seriesNameOf(chosen.series),

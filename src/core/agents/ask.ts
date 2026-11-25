@@ -772,23 +772,33 @@ export function createAgentAsk(options: AgentAskOptions) {
       if ((ask.kind === "organize" || documentId !== undefined) && mindId !== null)
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       const deckEditRequest = (edit: Extract<AgentAsk, { kind: "deck-edit" }>) => {
-        const name = options.nameOf("document", edit.documentId) ?? edit.documentId;
+        const name = options.nameOf("document", edit.documentId);
+        if (!name) throw new NotFoundError({ key: "error.document.notFound" });
         const target = edit.shapeId
           ? edit.shapeName
-            ? `slide ${edit.slide}, shape ${edit.shapeId} (${edit.shapeName})`
-            : `slide ${edit.slide}, shape ${edit.shapeId}`
-          : `slide ${edit.slide}`;
+            ? options.say("agents.ask.deckEdit.targetNamed", {
+                slide: edit.slide,
+                shapeId: edit.shapeId,
+                shape: edit.shapeName,
+              })
+            : options.say("agents.ask.deckEdit.targetShape", {
+                slide: edit.slide,
+                shapeId: edit.shapeId,
+              })
+          : options.say("agents.ask.deckEdit.targetSlide", { slide: edit.slide });
         const line = options.say("agents.ask.line.deckEdit", {
           title: quotedName(name),
           slide: edit.slide,
           instruction: edit.instruction,
         });
         const parts = [
-          `Deck: "${name}" (documentId: ${edit.documentId})`,
-          `Selected target: ${target}`,
-          ...(edit.text ? [`Current text:\n${edit.text}`] : []),
-          `Request: ${edit.instruction}`,
-          "Use read_deck on this documentId and propose_deck_changes targeting only the selected shape or slide; never rebuild or hand over a new file.",
+          options.say("agents.ask.deckEdit.deck", { name, id: edit.documentId }),
+          options.say("agents.ask.deckEdit.target", { target }),
+          ...(edit.text
+            ? [options.say("agents.ask.deckEdit.currentText", { text: edit.text })]
+            : []),
+          options.say("agents.ask.deckEdit.request", { instruction: edit.instruction }),
+          options.say("agents.ask.deckEdit.rule"),
         ];
         return {
           line,
