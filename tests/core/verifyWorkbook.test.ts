@@ -6,12 +6,16 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import type { Core } from "../../src/core";
-import { verificationOf } from "../../src/shared/verification";
+import { type Core, MIND_SETTINGS_FIELD } from "../../src/core";
+import { markedSentences } from "../../src/core/answers/checks/sentences";
+import { claimCheckShown } from "../../src/shared/claimChecks";
+import { verificationOf, writeVerification } from "../../src/shared/verification";
+import { connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, listedSentences, type Plan } from "../helpers/checks";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
+import { type Handed, handOver, started, structured } from "../helpers/handedFiles";
 import { connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel, scriptedModels } from "../helpers/models";
@@ -520,15 +524,15 @@ describe("Verify a workbook", () => {
     ]);
   });
 
-  // protects=a workbook's check hands the whole sheet (section headings, units and notes) to both the sort and the row judge, and a file-check sort never silently drops a row labelled "note" (#3506); fails_when=the sheet is omitted from verification, sort or claim prompts, or a file row labelled "note" is skipped instead of checked
-  test("whole-sheet context reaches both sort and claim checks, and file-check rows sorted as 'note' are still checked (#3506)", async () => {
+  // protects=a workbook's check hands the whole sheet (section headings, units and notes) to both the sort and the row judge (#3506); fails_when=the sheet is omitted from verification, sort or claim prompts
+  test("whole-sheet context reaches both sort and claim checks (#3506)", async () => {
     const { core, path, sortPrompts, checkPrompts } = await setUp(
-      { [RENT]: { verdict: "supported" }, [SALARIES]: { verdict: "supported" } },
+      { [RENT]: { verdict: "supported" } },
       {
         sort: (prompt) => {
           const replies: Record<string, string> = {};
           for (const { number, text } of listedSentences(prompt)) {
-            replies[String(number)] = text === RENT ? "claim" : text === SALARIES ? "note" : "no";
+            replies[String(number)] = text === RENT ? "claim" : "no";
           }
           return JSON.stringify(replies);
         },
@@ -558,6 +562,164 @@ describe("Verify a workbook", () => {
     const joined = checkPrompts.join("\n");
     expect(joined).toContain("<sheet>");
     expect(joined).toContain(RENT);
-    expect(joined).toContain(`<sentence>\n${SALARIES}`);
+    expect(joined).not.toContain(`<sentence>\n${SALARIES}`);
+  });
+
+  // protects=a workbook checked before whole-sheet context was added (no `sheets` held in its Verification) keeps every stored result and is not sent again on open (#3506); fails_when=a pre-upgrade workbook loses standing or re-checks already-checked rows
+  test("a pre-upgrade workbook with no sheets in Verification keeps every result and sends nothing on re-check (#3506)", async () => {
+    const { core, path, checkPrompts } = await setUp({
+      [RENT]: { verdict: "supported", quote: "Rent is 14,000 a year." },
+      [SALARIES]: { verdict: "unsupported" },
+    });
+    const verified = await core.verifyDocument({ path, sheet: "Plan" });
+    if (!verified.ok) throw new Error(`Not verified: ${verified.reason}`);
+    const client = await connectToMind(core, verified.mind.id);
+    const saved = verificationOf(client.doc);
+    if (!saved) throw new Error("Verification missing.");
+    // Strip `sheets` to simulate a workbook verified before #3506.
+    const { sheets: _, ...preUpgrade } = saved;
+    client.doc.transact(() => {
+      writeVerification(client.doc.getMap(MIND_SETTINGS_FIELD), preUpgrade);
+    });
+    await client.settled();
+    expect(verificationOf(client.doc)?.sheets).toBeUndefined();
+
+    await core.findClaims({ requestId: crypto.randomUUID(), mindId: verified.mind.id });
+    await core.verifyClaims({ requestId: crypto.randomUUID(), mindId: verified.mind.id });
+    await client.settled();
+    const callsAfterFirstCheck = checkPrompts.length;
+    expect(callsAfterFirstCheck).toBeGreaterThan(0);
+
+    // Every stored result's judgedWith matches judgedWithNow (no Needs re-check on open).
+    const marks = markedSentences(client.doc.getXmlFragment("blocks"));
+    expect(marks).toHaveLength(2);
+    const { lines } = await core.judgedWithNow(verified.mind.id);
+    const versions = new Map(
+      (await core.listDocuments()).map((each) => [each.id, each.contentHash]),
+    );
+    const shown = marks.map(({ check }) =>
+      claimCheckShown(check, {
+        footing: "not-yet-known",
+        text: check.text,
+        versions,
+        folderId: null,
+        scope: null,
+        judgedWith: () => lines[check.id] ?? null,
+      }),
+    );
+    expect(shown.map((s) => s.state)).toEqual(["supported", "unsupported"]);
+    expect(marks.every(({ check }) => check.judgedWith === lines[check.id])).toBe(true);
+
+    // Checking changed sentences does not re-send either already-checked row because both still stand.
+    await core.checkMind({
+      requestId: crypto.randomUUID(),
+      mindId: verified.mind.id,
+      mode: "changed",
+    });
+    const sentAfter = checkPrompts.slice(callsAfterFirstCheck).join("\n");
+    expect(sentAfter).not.toContain(RENT);
+    expect(sentAfter).not.toContain(SALARIES);
+  });
+
+  // protects=because a workbook row stands on its whole sheet (#3506), handing over a next version with 1 cell changed in a sheet of 5 rows re-checks all 5 rows on that sheet while carrying every row on an unchanged sibling sheet; fails_when=unchanged rows on a modified sheet silently carry stale sheet context or an unchanged sibling sheet is re-checked
+  test("next version with one cell changed re-checks all rows on that sheet and carries an unchanged sheet (#3506)", async () => {
+    const checkCalls: string[] = [];
+    const fiveRowBook = (row5Value: number) => {
+      const book = new WorkbookBuilder();
+      book
+        .sheet("Plan")
+        .text("A1", "Item")
+        .text("B1", "Amount")
+        .text("A2", "Row1")
+        .number("B2", 100)
+        .text("A3", "Row2")
+        .number("B3", 200)
+        .text("A4", "Row3")
+        .number("B4", 300)
+        .text("A5", "Row4")
+        .number("B5", 400)
+        .text("A6", "Row5")
+        .number("B6", row5Value);
+      book
+        .sheet("Sibling")
+        .text("A1", "Item")
+        .text("B1", "Amount")
+        .text("A2", "Keep1")
+        .number("B2", 10)
+        .text("A3", "Keep2")
+        .number("B3", 20);
+      return book;
+    };
+    const plans: Record<string, Plan> = {
+      "Row1 — Amount: 100": { verdict: "supported", quote: "Row1 100." },
+      "Row2 — Amount: 200": { verdict: "supported", quote: "Row2 200." },
+      "Row3 — Amount: 300": { verdict: "supported", quote: "Row3 300." },
+      "Row4 — Amount: 400": { verdict: "supported", quote: "Row4 400." },
+      "Row5 — Amount: 500": { verdict: "supported", quote: "Row5 500 or 555." },
+      "Row5 — Amount: 555": { verdict: "supported", quote: "Row5 500 or 555." },
+      "Keep1 — Amount: 10": { verdict: "supported", quote: "Keep1 10." },
+      "Keep2 — Amount: 20": { verdict: "supported", quote: "Keep2 20." },
+    };
+    const answer = checkGenerate(plans);
+    const model = scriptedModel(
+      (call: ModelCall) => {
+        checkCalls.push(call.prompt);
+        return checkReply(call, plans);
+      },
+      {
+        generate: (call) => {
+          if (call.question === "find-claims") {
+            return {
+              text: JSON.stringify(
+                Object.fromEntries(
+                  listedSentences(call.prompt).map(({ number }) => [number, "claim"]),
+                ),
+              ),
+            };
+          }
+          checkCalls.push(call.prompt);
+          return answer(call);
+        },
+      },
+    );
+    const env = await started([], { model });
+    const srcDir = await createTempDataFolder();
+    const [source] = await addAndProcess(env.core, [
+      await writeSourceFile(
+        srcDir,
+        "Figures.txt",
+        "Row1 100. Row2 200. Row3 300. Row4 400. Row5 500 or 555. Keep1 10. Keep2 20.",
+      ),
+    ]);
+    if (!source) throw new Error("Source not added.");
+    await env.core.assignDocumentGroup(source.id, env.coast.id);
+    const agent = await connectLegacyAgent(env.writer.launch);
+    try {
+      const workDir = await createTempDataFolder();
+      const path = await writeSourceFile(workDir, "Carry.xlsx", fiveRowBook(500).xlsx());
+      const v1 = structured<Handed>(await handOver(agent, { path, folderId: env.coast.id }));
+      expect(v1.status).toBe("checked");
+      const v1Prompts = checkCalls.splice(0);
+      expect(v1Prompts.some((p) => p.includes("Row1 — Amount: 100"))).toBe(true);
+      expect(v1Prompts.some((p) => p.includes("Keep1 — Amount: 10"))).toBe(true);
+
+      // Hand over v2 with ONLY Row5 changed on sheet "Plan" (sheet "Sibling" untouched).
+      await writeSourceFile(workDir, "Carry.xlsx", fiveRowBook(555).xlsx());
+      const v2 = structured<Handed>(await handOver(agent, { path, folderId: env.coast.id }));
+      expect(v2.status).toBe("checked");
+      const v2Sent = new Set(
+        checkCalls.map((p) => p.match(/<sentence>\n([^\n]+)\n<\/sentence>/)?.[1] ?? ""),
+      );
+      // All 5 rows on the changed sheet "Plan" are re-checked (5 of 5), and 0 of 2 on "Sibling".
+      expect(v2Sent.has("Row1 — Amount: 100")).toBe(true);
+      expect(v2Sent.has("Row2 — Amount: 200")).toBe(true);
+      expect(v2Sent.has("Row3 — Amount: 300")).toBe(true);
+      expect(v2Sent.has("Row4 — Amount: 400")).toBe(true);
+      expect(v2Sent.has("Row5 — Amount: 555")).toBe(true);
+      expect(v2Sent.has("Keep1 — Amount: 10")).toBe(false);
+      expect(v2Sent.has("Keep2 — Amount: 20")).toBe(false);
+    } finally {
+      await agent.close();
+    }
   });
 });
