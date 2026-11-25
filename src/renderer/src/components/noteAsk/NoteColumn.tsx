@@ -274,8 +274,14 @@ export function NoteConversationBody({
   useEffect(() => {
     const element = body.current;
     if (!element) return;
+    // Only the User scrolling up leaves the end: content that grows before this hears of a scroll
+    // makes the end look farther, though nothing moved.
+    let was = element.scrollTop;
     const scrolled = () => {
-      atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
+      if (element.scrollHeight - element.scrollTop - element.clientHeight <= 2)
+        atEnd.current = true;
+      else if (element.scrollTop < was - 1) atEnd.current = false;
+      was = element.scrollTop;
     };
     const observer = new ResizeObserver(() => {
       if (atEnd.current) element.scrollTop = element.scrollHeight;
