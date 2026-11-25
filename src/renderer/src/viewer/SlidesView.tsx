@@ -55,7 +55,9 @@ import {
 } from "./quoteSteps";
 import { domSelection, useSelectionReader } from "./selectedText";
 import { putQuoteInComposer } from "./selectionActions";
+import { DeckAskBox, type SelectedDeckShape } from "./slides/DeckAskBox";
 import { DeckLines } from "./slides/DeckLines";
+import { DeckProposalBar } from "./slides/DeckProposalBar";
 import { type DeckEditing, useDeckEditing } from "./slides/deckEditing";
 import { findInDrawing, pictureParts, rangesByKey } from "./slides/pieces";
 import { SlideCanvas } from "./slides/SlideCanvas";
@@ -148,9 +150,12 @@ export function SlidesView({ document, target }: { document: Document; target: V
     document.fileStatus === "available" &&
     refusal === null;
   const [written, setWritten] = useState<Loaded | null>(null);
-  // What a hand edit wrote is drawn at once, until the viewer reads the file it wrote again.
+  const versionKey = `${document.id}:${document.contentHash}`;
+  const [proposed, setProposed] = useState<{ key: string; bytes: Uint8Array } | null>(null);
+  const proposedBytes = proposed?.key === versionKey ? proposed.bytes : null;
+  // What a hand edit or accepted AI proposal wrote is drawn at once, until the viewer reads the file again.
   useEffect(() => {
-    const bytes = editing.written;
+    const bytes = proposedBytes ?? editing.written;
     if (!bytes) {
       setWritten(null);
       return;
@@ -162,7 +167,7 @@ export function SlidesView({ document, target }: { document: Document; target: V
     return () => {
       live = false;
     };
-  }, [editing.written]);
+  }, [editing.written, proposedBytes]);
   // A change that waits keeps its line, and its Save a copy, once the deck can't be edited any more:
   // its file gone or out of reach, or written by another app as a version that is never edited.
   const waitingLine = editing.waiting ? (
@@ -183,6 +188,10 @@ export function SlidesView({ document, target }: { document: Document; target: V
           editing={editable ? editing : null}
           waitingLine={waitingLine}
           refusal={refusal}
+          onProposedBytes={(bytes) => {
+            setProposed(bytes ? { key: versionKey, bytes } : null);
+            if (!bytes) reload();
+          }}
         />
       )}
     />
@@ -228,6 +237,7 @@ function Slides({
   editing,
   waitingLine,
   refusal,
+  onProposedBytes,
 }: {
   loaded: Loaded;
   document: Document;
@@ -238,12 +248,23 @@ function Slides({
   waitingLine: ReactNode;
   /** Why the deck is never edited by hand, said once over its slides. */
   refusal: DeckRefusal | null;
+  /** Draws bytes written by an accepted/undone AI deck Proposal right away. */
+  onProposedBytes(bytes: Uint8Array | null): void;
 }) {
   const t = useT();
   const { slides } = loaded.deck;
   const { drawing } = loaded;
   const scroller = useRef<HTMLDivElement>(null);
   const settingUp = useSettingUp();
+  const [selectedShape, setSelectedShape] = useState<SelectedDeckShape | null>(null);
+  const [shortenTrigger, setShortenTrigger] = useState<{
+    id: number;
+    slide: number;
+    shapeId?: string;
+    shapeName?: string;
+    text?: string;
+    instruction: string;
+  } | null>(null);
   useSelectionReader(
     useCallback(
       (range) =>
@@ -582,6 +603,20 @@ function Slides({
       />
       <QuoteStepsLine stepper={stepper} />
       {editing ? <DeckLines editing={editing} /> : waitingLine}
+      <DeckProposalBar
+        document={document}
+        onAccepted={(accepted) => {
+          if (accepted.documentId === document.id) onProposedBytes(accepted.bytes);
+        }}
+        onUndone={(bytes) => onProposedBytes(bytes)}
+        onAskShorten={(targetShape) =>
+          setShortenTrigger({
+            id: Date.now(),
+            ...targetShape,
+            instruction: t("viewer.deck.ask.shortenPrompt"),
+          })
+        }
+      />
       {refusal && (
         <p className="viewer-deck-refusal" data-testid="viewer-deck-refusal" data-quote-skip="">
           {t(
@@ -647,12 +682,24 @@ function Slides({
                     onAsk={settingUp ? undefined : () => void askSlide(slide.number)}
                     setElement={setElement(slide.number)}
                     editing={editing}
+                    onSelectShape={(sel) => {
+                      if (sel) setSelectedShape(sel);
+                      else setSelectedShape((prev) => (prev?.slide === slide.number ? null : prev));
+                    }}
                   />
                 );
               })}
           </div>
         </div>
       </QuoteStepContext.Provider>
+      {!settingUp && refusal === null && (
+        <DeckAskBox
+          document={document}
+          slide={current ?? slides[0]?.number ?? 1}
+          selection={selectedShape}
+          externalTrigger={shortenTrigger}
+        />
+      )}
     </>
   );
 }
@@ -673,6 +720,7 @@ function SlideFrame({
   onAsk,
   setElement,
   editing,
+  onSelectShape,
 }: {
   outline: SlideOutline;
   slide: SlideDrawing;
@@ -688,6 +736,7 @@ function SlideFrame({
   onAsk?: () => void;
   setElement(element: HTMLElement | null): void;
   editing: DeckEditing | null;
+  onSelectShape?: (selection: SelectedDeckShape | null) => void;
 }) {
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
@@ -752,6 +801,7 @@ function SlideFrame({
               onEdit={editing.edit}
               onOverflow={editing.setOverflow}
               onOpenPicture={openDocumentPicture}
+              onSelectShape={onSelectShape}
             />
           ) : (
             <SlideCanvas

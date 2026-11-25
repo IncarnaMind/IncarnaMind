@@ -134,6 +134,10 @@ interface ViewerActions {
   };
   /** The step through the quotes one chip stands for (`QuoteStepper`), while it shows. */
   quoteSteps: { next(): void; previous(): void };
+  /** Compact ask bar under an open deck (#149 part 2). */
+  deckAsk: { focus(): void };
+  /** Waiting AI deck proposals in an open deck (#149 part 2). */
+  deckProposal: { confirm?: () => void; reject(): void };
 }
 
 const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]> } = {
@@ -143,6 +147,8 @@ const viewerActions: { [K in keyof ViewerActions]: Map<string, ViewerActions[K]>
   transcriptActions: new Map(),
   area: new Map(),
   quoteSteps: new Map(),
+  deckAsk: new Map(),
+  deckProposal: new Map(),
 };
 
 /** The tab a viewer is drawn in: what the handle it lends the commands is filed under. */

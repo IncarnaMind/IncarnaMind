@@ -51,6 +51,7 @@ export const SERVER_INSTRUCTIONS = [
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute).",
   "For a handoff (“About my note … in IncarnaMind”, “Check my note …”, open Document, meeting, flagged sentence or search scope), `read_request` first. It holds the rest. Pass a named Note’s title.",
   "To change a Note, read it with `read_mind` and `named`, then `propose_changes`. In a Note you wrote (`yours` in `list_minds`) your changes apply at once and the User can undo them; in any other they wait for the User.",
+  "To change a PowerPoint deck already in IncarnaMind, read it with `read_deck`, then `propose_deck_changes` targeting only the named shape, cell, speaker notes, or chart series — never rebuild or hand over a new file. Use `hand_over_file` only for a brand-new deck.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
   "To write or summarize in IncarnaMind (report, meeting summary, draft), use `create_mind`, not chat only; answer questions in chat. Page: `publish_canvas`; Note or text as Word: `save_as_word`; file on disk: `hand_over_file`, unasked.",
   "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
@@ -872,6 +873,86 @@ export function createAgentServer(
       annotations: handsOver,
     },
     (input) => answer(() => access.saveAsWord(input)),
+  );
+
+  server.registerTool(
+    tool("read_deck"),
+    {
+      title: "Read a PowerPoint deck",
+      description:
+        "Read a .pptx deck already in IncarnaMind: slides, stable shapeIds, text, autofit, tables, chart series, notes, Citations, and version for propose_deck_changes.",
+      inputSchema: z.object({
+        documentId: z.string(),
+        slides: z.array(z.number().int().min(1)).optional(),
+      }),
+      outputSchema: z.object({
+        documentId: z.string(),
+        name: z.string(),
+        version: z.string(),
+        slideCount: z.number(),
+        slideSize: z.object({ width: z.number(), height: z.number() }).nullable(),
+        editable: z.boolean(),
+        refusal: z.enum(["signed", "final", "protected", "unrewritable"]).nullable(),
+        slides: z.array(z.record(z.string(), z.unknown())),
+      }),
+      annotations: READ_ONLY,
+    },
+    (input) => answer(() => access.readDeck(input)),
+  );
+
+  server.registerTool(
+    tool("propose_deck_changes"),
+    {
+      title: "Propose changes to a deck",
+      description:
+        "Edit only named shapes, table cells, speaker notes, box position/size, or one named chart series in an existing deck; never rebuild or hand_over_file. Pass version from read_deck. Waits for one User confirm with Undo.",
+      inputSchema: z.object({
+        documentId: z.string(),
+        version: z.string(),
+        summary: z.string().optional(),
+        changes: z
+          .array(
+            z.object({
+              kind: z.enum(["text", "cell", "box", "notes", "chartSeries"]),
+              slide: z.number().int().min(1),
+              shape: z.string().optional().describe("shapeId from read_deck."),
+              paragraphs: z.array(z.string()).optional(),
+              row: z.number().int().min(0).optional(),
+              column: z.number().int().min(0).optional(),
+              box: z
+                .object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() })
+                .optional(),
+              series: z.union([z.number().int().min(0), z.string()]).optional(),
+              values: z.array(z.number().nullable()).optional(),
+              citations: z.array(z.string()).optional(),
+              pointCitations: z
+                .array(
+                  z.object({ pointIndex: z.number().int().min(0), citations: z.array(z.string()) }),
+                )
+                .optional(),
+            }),
+          )
+          .min(1),
+      }),
+      outputSchema: z.object({
+        proposalId: z.string(),
+        documentId: z.string(),
+        status: z.literal("waiting"),
+        changedSlides: z.number(),
+        unchangedSlides: z.number(),
+        totalSlides: z.number(),
+        hasOverflow: z.boolean(),
+        overflow: z.array(z.record(z.string(), z.unknown())),
+        unfoundCitations: z.array(z.string()).optional(),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    (input) => answer(() => access.proposeDeckChanges(input)),
   );
 
   server.registerTool(

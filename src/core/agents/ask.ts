@@ -132,7 +132,7 @@ const quoteOf = (asked: AskedSentence, say: Say) =>
 /** The line the User sends, and the request that waits: the Note named by its title, and its id in the request. */
 export function agentRequest(
   note: { title: string; mindId: string } | null,
-  ask: Exclude<AgentAsk, { kind: "organize" | "summary" | "selection" }>,
+  ask: Exclude<AgentAsk, { kind: "organize" | "summary" | "selection" | "deck-edit" }>,
   say: Say,
   meeting?: { transcriptId: string; propose: boolean; writeup?: string | null },
   file?: HandedFileAsked | null,
@@ -438,6 +438,24 @@ function parseAsk(value: unknown): AgentAsk {
       return { kind: "check" };
     case "summary":
       return { kind: "summary", documentId: words(value.documentId) };
+    case "deck-edit": {
+      const slide = value.slide;
+      if (typeof slide !== "number" || !Number.isInteger(slide) || slide < 1) {
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      }
+      const shapeId = said(value.shapeId);
+      const shapeName = said(value.shapeName);
+      const text = said(value.text);
+      return {
+        kind: "deck-edit",
+        documentId: words(value.documentId),
+        slide,
+        ...(shapeId && { shapeId }),
+        ...(shapeName && { shapeName }),
+        ...(text && { text }),
+        instruction: words(value.instruction),
+      };
+    }
     case "fix": {
       const given: unknown[] = Array.isArray(value.sentences) ? value.sentences : [];
       if (given.length === 0 || given.length > MAX_ASKED_SENTENCES) {
@@ -709,7 +727,9 @@ export function createAgentAsk(options: AgentAskOptions) {
     async ask(input: unknown): Promise<AskAgentResult> {
       const { pairingId, mindId, ask, onScreen, scope, openChat } = parseInput(input);
       const documentId =
-        ask.kind === "summary" || ask.kind === "selection" ? ask.documentId : undefined;
+        ask.kind === "summary" || ask.kind === "selection" || ask.kind === "deck-edit"
+          ? ask.documentId
+          : undefined;
       const pairing = options.askable(mindId, documentId).find((each) => each.id === pairingId);
       if (!pairing)
         throw new NotFoundError({
@@ -751,6 +771,36 @@ export function createAgentAsk(options: AgentAskOptions) {
       const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
       if ((ask.kind === "organize" || documentId !== undefined) && mindId !== null)
         throw new InvalidInputError({ key: "error.agent.askRequest" });
+      const deckEditRequest = (edit: Extract<AgentAsk, { kind: "deck-edit" }>) => {
+        const name = options.nameOf("document", edit.documentId) ?? edit.documentId;
+        const target = edit.shapeId
+          ? edit.shapeName
+            ? `slide ${edit.slide}, shape ${edit.shapeId} (${edit.shapeName})`
+            : `slide ${edit.slide}, shape ${edit.shapeId}`
+          : `slide ${edit.slide}`;
+        const line = options.say("agents.ask.line.deckEdit", {
+          title: quotedName(name),
+          slide: edit.slide,
+          instruction: edit.instruction,
+        });
+        const parts = [
+          `Deck: "${name}" (documentId: ${edit.documentId})`,
+          `Selected target: ${target}`,
+          ...(edit.text ? [`Current text:\n${edit.text}`] : []),
+          `Request: ${edit.instruction}`,
+          "Use read_deck on this documentId and propose_deck_changes targeting only the selected shape or slide; never rebuild or hand over a new file.",
+        ];
+        return {
+          line,
+          request: parts.join("\n\n"),
+          named: {
+            open: [edit.documentId],
+            documents: [edit.documentId],
+            folders: [],
+          } as RequestNamed,
+          sentences: [] as { sentence: string; checkId: string | null }[],
+        };
+      };
       const { line, request, named, sentences } =
         ask.kind === "organize"
           ? sortingRequest(pairing, ask.target)
@@ -758,16 +808,18 @@ export function createAgentAsk(options: AgentAskOptions) {
             ? summaryRequest(ask.documentId)
             : ask.kind === "selection"
               ? selectionRequest(pairing, note, ask)
-              : agentRequest(
-                  note,
-                  ask,
-                  options.say,
-                  transcriptId && meetingPairing
-                    ? { transcriptId, propose: meetingPairing.propose, writeup }
-                    : undefined,
-                  note ? options.handedFile(note.mindId) : null,
-                  looking,
-                );
+              : ask.kind === "deck-edit"
+                ? deckEditRequest(ask)
+                : agentRequest(
+                    note,
+                    ask,
+                    options.say,
+                    transcriptId && meetingPairing
+                      ? { transcriptId, propose: meetingPairing.propose, writeup }
+                      : undefined,
+                    note ? options.handedFile(note.mindId) : null,
+                    looking,
+                  );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null || named !== undefined) {
         options.keepRequest({

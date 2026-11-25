@@ -50,6 +50,7 @@ export const EARLIER_SKILL_HASHES: readonly string[] = [
   "77c8932aa3045458d597e3707ad42524ada9cb0e01b1b971d30d6bf692d6ecc1",
   "065e724e5a37797c03c33440b84d19d7e530171e7bb020a250bfcf0f05d9683c",
   "bb1a53a6988c6ea9691d2868f720ac64daadb6638f33c2601e16adb89429acfa",
+  "5a578cd7f45db511d99492d999e0a2f90276190de6dad55f4ef63cfb8e59ed98",
 ];
 
 export const SKILL_MARKDOWN = `---
@@ -110,6 +111,10 @@ For a page to look at, such as a report with pictures or a small dashboard, \`pu
 ## When the User asks for a Word file
 
 For a Word file (.docx) of a Note or of what you write from their Documents, call \`save_as_word\` with the Note's \`mindId\`, or with your Markdown, its \`[cite:…]\` tokens written as for \`create_mind\`, and a \`title\`. IncarnaMind writes the file as its own Export › Word does, each Citation a footnote, saves it in the User's folder for new files (its result's \`saved\` is the path, to tell them), and keeps it in their Library with its check, so don't hand it over as well. Never build a .docx yourself, with a library, a converter or a script. A Word file already on disk goes to \`hand_over_file\`.
+
+## When the User asks to change a deck already in IncarnaMind
+
+To change a PowerPoint deck (.pptx) that is already in IncarnaMind — a title, a figure, a table cell, speaker notes, or one series of a chart — call \`read_deck\` first, then \`propose_deck_changes\` naming only the shapes, cells, notes or chart series to change, with the \`version\` you read. Pass minted \`[cite:…]\` tokens inline or in \`citations\` / \`pointCitations\` for figures from Documents. Never rebuild the deck yourself or hand over a new file for a change to an existing deck; use \`hand_over_file\` only for a brand-new deck.
 
 ## When you made a file for the User: hand it over
 

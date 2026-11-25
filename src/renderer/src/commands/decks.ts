@@ -1,7 +1,9 @@
 import type { KeptDeckStates } from "../../../core/api";
 import { formatDateTime } from "../../../shared/dates";
 import { languageNow } from "../i18n";
+import { useAppStore } from "../store";
 import { putBack, useKeptDecks, versionHere } from "../viewer/slides/deckEditing";
+import { viewerHandleInUse } from "./handles";
 import type { Command, CommandContext } from "./registry";
 import { documentsOf } from "./targets";
 
@@ -52,6 +54,39 @@ export const deckCommands: readonly Command[] = [
     run: (ctx) => {
       const found = keptOf(ctx, "first");
       if (found) putBack(found.document, "first");
+    },
+  },
+  {
+    id: "deck.askAi",
+    label: "viewer.deck.command.askAi",
+    group: "main",
+    when: () => viewerHandleInUse("deckAsk", useAppStore.getState().layout) !== null,
+    reversible: true,
+    assistant: false,
+    run: () => {
+      viewerHandleInUse("deckAsk", useAppStore.getState().layout)?.focus();
+    },
+  },
+  {
+    id: "deck.confirmProposal",
+    label: "viewer.deck.command.confirmProposal",
+    group: "main",
+    when: () => Boolean(viewerHandleInUse("deckProposal", useAppStore.getState().layout)?.confirm),
+    reversible: true,
+    assistant: false,
+    run: () => {
+      viewerHandleInUse("deckProposal", useAppStore.getState().layout)?.confirm?.();
+    },
+  },
+  {
+    id: "deck.rejectProposal",
+    label: "viewer.deck.command.rejectProposal",
+    group: "main",
+    when: () => viewerHandleInUse("deckProposal", useAppStore.getState().layout) !== null,
+    reversible: true,
+    assistant: false,
+    run: () => {
+      viewerHandleInUse("deckProposal", useAppStore.getState().layout)?.reject();
     },
   },
 ];

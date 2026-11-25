@@ -233,8 +233,11 @@ import {
   createNodeDeckFiles,
   type DeckPlaceDeps,
   deckPlaceFor,
+  isKeptDeck,
+  keptVersion,
   restoreKept,
 } from "./decks/places";
+import { createDeckProposals } from "./decks/proposals";
 import { protectionOf } from "./decks/protection";
 import { createDeckSittings } from "./decks/sittings";
 import {
@@ -6644,6 +6647,47 @@ export function createCore(adapters: CoreAdapters): Core {
     folderNameOf: (documentId) => basename(dirname(documents.pathEvenDeleted(documentId))),
   });
 
+  const deckProposals = createDeckProposals({
+    read: (documentId) => readDeck(documentId),
+    isKeptDeck: (documentId) => isKeptDeck(deckPlaces, documentId),
+    writeKeptVersion: async (documentId, baseBytes, nextBytes) => {
+      const place = keptVersion(deckPlaces, documentId, baseBytes);
+      const written = await place.write(nextBytes);
+      if (written.kind === "changed") {
+        throw new TranslatableError({ key: "error.deck.changed" });
+      }
+      if (written.kind === "unwritable") {
+        throw new TranslatableError({
+          key: `error.deck.unwritable.${written.why}`,
+          values: { name: written.name, folder: written.folder ?? "" },
+        });
+      }
+      deckSittings.endOn(documentId);
+      return { documentId: written.documentId, saved: written.saved };
+    },
+    saveOwnDeckCopy: async (documentId, nextBytes) => {
+      const copy = await copyBeside(deckPlaces, documentId, nextBytes);
+      return {
+        documentId: copy.documentId,
+        saved: {
+          kind: "copy",
+          name: copy.file.name,
+          path: copy.file.path,
+          inDefaultFolder: copy.file.inDefaultFolder,
+          beside: copy.beside,
+        },
+      };
+    },
+    removeCopy: async (documentId) => {
+      await removeDocuments(deletable([documentId]));
+    },
+    onChanged: (documentId, proposals) => {
+      events.emit("deck.proposals", { documentId, proposals });
+    },
+    newId: () => crypto.randomUUID(),
+    now,
+  });
+
   /** Hand edits of decks being written now: the host waits for them before it quits. */
   const decksBeingWritten = new Set<Promise<unknown>>();
   const writingDeck = <T>(writing: Promise<T>): Promise<T> => {
@@ -6979,6 +7023,24 @@ export function createCore(adapters: CoreAdapters): Core {
           source.kind === "note" ? folderOfNote(source.mindId) : source.folderId,
           asks,
         ),
+      deckDocument: (id) => {
+        const handedById = handedFiles.get(id);
+        const docId = handedById?.documentId ?? id;
+        try {
+          const doc = documents.get(docId);
+          const handed = handedById ?? handedFiles.holding(doc.id)[0] ?? null;
+          return {
+            id: doc.id,
+            name: doc.name,
+            kind: doc.kind,
+            handed: handed ? { folderId: handed.folderId, pairingId: handed.pairingId } : null,
+          };
+        } catch {
+          return null;
+        }
+      },
+      readDeckBytes: (documentId) => readDeck(documentId),
+      proposeDeckChanges: (input) => deckProposals.propose(input),
       checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
@@ -10047,6 +10109,11 @@ export function createCore(adapters: CoreAdapters): Core {
       const zip = openPackage(await readDeck(documentId));
       return zip.rewritable ? protectionOf(zip) : "unrewritable";
     },
+    deckProposals: async (documentId) => deckProposals.list(documentId),
+    acceptDeckProposal: (proposalId, options) =>
+      writingDeck(deckProposals.accept(proposalId, options)),
+    rejectDeckProposal: async (proposalId) => deckProposals.reject(proposalId),
+    undoDeckProposal: (undoId) => writingDeck(deckProposals.undo(undoId)),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;

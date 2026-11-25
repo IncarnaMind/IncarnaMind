@@ -188,7 +188,7 @@ async function checkHolds(
  * the item's folder, as an agent's are kept), and every write puts the bytes in the Document's own
  * file and reads it again, as a hand-over does.
  */
-function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
+export function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
   const files = filesOf(deps);
   let wrote = hashBytes(base);
   let version: { id: string; number: number; file: string } | null = null;
@@ -489,16 +489,23 @@ export async function copyBeside(
   return { documentId: copyId, file, beside, place: ownFile(deps, copyId, bytes, { kept: true }) };
 }
 
-/** The one place that decides where a sitting on this Document writes. */
-export function deckPlaceFor(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
+/** Whether `documentId` is a deck IncarnaMind keeps in its own handed-over storage (not a User's own file). */
+export function isKeptDeck(deps: DeckPlaceDeps, documentId: string): boolean {
   const { path, linkedFolderId } = deps.document(documentId);
-  // Only an item an agent handed over has versions; any other file, the data folder's copies of
-  // converted decks among them, is written itself, kept first.
-  const handed =
+  return (
     linkedFolderId === null &&
     isInside(deps.dataDir, path) &&
-    deps.handed.holding(documentId).length > 0;
-  return handed ? keptVersion(deps, documentId, base) : ownFile(deps, documentId, base);
+    deps.handed.holding(documentId).length > 0
+  );
+}
+
+/** The one place that decides where a sitting on this Document writes. */
+export function deckPlaceFor(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
+  // Only an item an agent handed over has versions; any other file, the data folder's copies of
+  // converted decks among them, is written itself, kept first.
+  return isKeptDeck(deps, documentId)
+    ? keptVersion(deps, documentId, base)
+    : ownFile(deps, documentId, base);
 }
 
 /**

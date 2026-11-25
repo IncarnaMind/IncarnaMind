@@ -284,3 +284,103 @@
 .viewer-deck-refusal {
   @apply px-6 text-[13px] text-ink-meta;
 }
+/* AI deck Proposals review bar and receipt (#149 part 2). */
+.viewer-deck-proposals {
+  @apply flex flex-col gap-2 px-6 py-2;
+}
+.viewer-deck-proposal-card {
+  @apply flex flex-col gap-2 rounded-lg bg-sheet p-3 text-ui text-ink;
+  border: 1px solid var(--color-rule-strong);
+}
+.viewer-deck-proposal-head {
+  @apply flex flex-wrap items-baseline gap-2;
+}
+.viewer-deck-proposal-title {
+  @apply text-[14px] font-medium text-ink;
+}
+.viewer-deck-proposal-summary {
+  @apply text-[13px] text-ink-secondary;
+}
+.viewer-deck-proposal-items {
+  @apply m-0 flex list-none flex-col gap-2 p-0;
+}
+.viewer-deck-proposal-item {
+  @apply flex flex-col gap-1 rounded-md p-2 text-[13px];
+  background: var(--color-surface);
+  border: 1px solid var(--color-rule);
+}
+.viewer-deck-proposal-where {
+  @apply flex flex-wrap items-center justify-between gap-2 text-ink-meta;
+}
+.viewer-deck-proposal-overflow {
+  @apply font-medium;
+  color: var(--color-warning);
+}
+.viewer-deck-proposal-diff {
+  @apply grid grid-cols-1 gap-1.5 sm:grid-cols-2;
+}
+.viewer-deck-proposal-before,
+.viewer-deck-proposal-after {
+  @apply flex flex-col gap-0.5 rounded px-2 py-1 text-[13px] whitespace-pre-wrap;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-rule);
+}
+.viewer-deck-proposal-label {
+  @apply text-[11px] font-medium text-ink-meta;
+}
+.viewer-deck-proposal-actions {
+  @apply flex flex-wrap items-center gap-2;
+}
+.viewer-deck-proposal-btn {
+  @apply cursor-pointer rounded-md px-3 py-1.5 text-[13px] font-medium text-ink;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-rule-strong);
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+.viewer-deck-proposal-btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-primary);
+  &:hover:not(:disabled) {
+    background: var(--color-accent-strong);
+    border-color: var(--color-accent-strong);
+  }
+}
+.viewer-deck-receipt {
+  @apply flex items-center justify-between gap-3 rounded-md bg-sheet px-3 py-2 text-[13px] text-ink;
+  border: 1px solid var(--color-rule-strong);
+}
+.viewer-deck-proposal-error {
+  @apply rounded-md px-3 py-2 text-[13px];
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+.viewer-deck-ask {
+  @apply flex flex-col gap-1 border-t px-6 py-2.5;
+  border-color: var(--color-rule);
+  background: var(--color-sheet);
+}
+.viewer-deck-ask-form {
+  @apply flex items-center gap-2;
+}
+.viewer-deck-ask-input {
+  @apply min-w-0 flex-1 rounded-md bg-sheet px-3 py-1.5 text-[14px] text-ink;
+  border: 1px solid var(--color-rule-strong);
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+}
+.viewer-deck-ask-status {
+  @apply text-[12px] text-ink-meta;
+}

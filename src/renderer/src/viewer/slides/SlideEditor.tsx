@@ -12,6 +12,7 @@ import type {
 } from "../../../../core/exports/pptxPatch/shapeEdit";
 import type { TextRange } from "../../../../shared/quoteMatch";
 import { beginChange } from "../../undo";
+import type { SelectedDeckShape } from "./DeckAskBox";
 import type { DeckGesture, Overflow } from "./deckEditing";
 import { type TextEditing, typedText } from "./editedText";
 import { SlideCanvas } from "./SlideCanvas";
@@ -249,6 +250,7 @@ export function SlideEditor({
   onEdit,
   onOverflow,
   onOpenPicture,
+  onSelectShape,
 }: {
   slide: SlideDrawing;
   width: number;
@@ -263,6 +265,8 @@ export function SlideEditor({
   onOverflow?: (overflow: Overflow) => void;
   /** Opens a picture on the slide, as a click on one does where the deck can't be edited. */
   onOpenPicture?: (picture: HTMLImageElement) => void;
+  /** Tells the viewer which shape is selected, for AI change requests (#149 part 2). */
+  onSelectShape?: (selection: SelectedDeckShape | null) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
@@ -322,6 +326,56 @@ export function SlideEditor({
     (path: string) => located(slide.items, path)?.item.shapeId ?? null,
     [slide],
   );
+
+  const onSelectShapeNow = useRef(onSelectShape);
+  onSelectShapeNow.current = onSelectShape;
+  useEffect(() => {
+    if (!onSelectShapeNow.current) return;
+    if (!selected) {
+      onSelectShapeNow.current(null);
+      return;
+    }
+    const found = located(shown.items, selected)?.item;
+    if (!found?.shapeId) {
+      onSelectShapeNow.current(null);
+      return;
+    }
+    const text =
+      found.kind === "shape" && found.text
+        ? found.text.paragraphs
+            .map((p) => p.runs.map((r) => (r.lineBreak ? "\n" : r.text)).join(""))
+            .join("\n")
+        : found.kind === "table"
+          ? found.rows
+              .map((row) =>
+                row.cells
+                  .map((c) =>
+                    c.merged
+                      ? ""
+                      : c.text.paragraphs
+                          .map((p) => p.runs.map((r) => (r.lineBreak ? "\n" : r.text)).join(""))
+                          .join(" "),
+                  )
+                  .join("\t"),
+              )
+              .join("\n")
+          : found.kind === "chart"
+            ? found.lines.join("\n")
+            : "";
+    onSelectShapeNow.current({
+      slide: slide.number,
+      shapeId: found.shapeId,
+      shapeName:
+        found.kind === "shape" && found.title
+          ? "Title"
+          : found.kind === "chart"
+            ? "Chart"
+            : found.kind === "table"
+              ? "Table"
+              : `#${found.shapeId}`,
+      text,
+    });
+  }, [selected, shown.items, slide.number]);
 
   const moved = useCallback(
     (path: string, box: ShapeBox) => {
