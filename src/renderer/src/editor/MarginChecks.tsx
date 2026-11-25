@@ -1,4 +1,4 @@
-import type { Transaction } from "@tiptap/pm/state";
+import { AllSelection, TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import type * as Y from "yjs";
@@ -151,6 +151,8 @@ interface Measured {
   claim: ShownClaim | null;
   /** Whether it shows (`markShown`): one that doesn't keeps its place as its card's anchor. */
   shown: boolean;
+  /** Whether the text selection covers the whole sentence, so its mark is drawn selected with it. */
+  selected: boolean;
   /** The vertical middle of the sentence's first line, from the top of the column. */
   middle: number;
   /** The first line's box, from the top of the column. */
@@ -231,6 +233,7 @@ const sameMarks = (a: readonly Mark[], b: readonly Mark[]) =>
       mark.left === other.left &&
       mark.inline === other.inline &&
       mark.shown === other.shown &&
+      mark.selected === other.selected &&
       mark.delay === other.delay &&
       mark.claim?.check === other.claim?.check &&
       mark.claim?.sentence.text === other.claim?.sentence.text
@@ -398,6 +401,10 @@ export function MarginChecks({
       const measured: Measured[] = [];
       const revealing = new Set<string>();
       const everyResult = everyResultShown(editor.state);
+      const { selection } = editor.state;
+      const selecting =
+        !selection.empty &&
+        (selection instanceof TextSelection || selection instanceof AllSelection);
       for (const claim of shownClaims(editor.state)) {
         const state = markOf(claim);
         let coords: SentenceBox | null;
@@ -414,6 +421,8 @@ export function MarginChecks({
           state,
           claim,
           shown: markShown(claim, everyResult),
+          selected:
+            selecting && selection.from <= claim.sentence.from && claim.sentence.to <= selection.to,
           middle: (coords.top + coords.bottom) / 2 - rect.top,
           lineTop: coords.top - rect.top,
           lineBottom: coords.bottom - rect.top,
@@ -441,6 +450,7 @@ export function MarginChecks({
           state: "checking",
           claim: null,
           shown: true,
+          selected: false,
           middle: (coords.top + coords.bottom) / 2 - rect.top,
           lineTop: coords.top - rect.top,
           lineBottom: coords.bottom - rect.top,
@@ -588,6 +598,7 @@ export function MarginChecks({
         }
         inline={mark.inline}
         shown={mark.shown}
+        selected={mark.selected}
         onRevealed={() => {
           reveals.current.delete(`${mark.key}:${mark.state}`);
           setMarks((drawn) =>
