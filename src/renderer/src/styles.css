@@ -2694,8 +2694,18 @@
     }
   }
   .meeting-foot-time {
+    min-width: 2.25rem;
     font-variant-numeric: tabular-nums;
     color: var(--color-ink);
+  }
+  /* One size for the head's buttons: Recording details comes from the bar at 24px. */
+  .meeting-sheet-head .meeting-button {
+    width: 28px;
+    height: 28px;
+    > svg {
+      width: 16px;
+      height: 16px;
+    }
   }
   .meeting-foot-tip {
     position: absolute;
