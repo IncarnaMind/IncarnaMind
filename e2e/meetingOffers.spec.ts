@@ -228,8 +228,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await openAtLogin.click();
     await expect(settings.getByTestId("open-at-login-problem")).toHaveText(
       language === "en"
-        ? `Couldn’t change ${file}, which opens IncarnaMind at login. Check its permissions, or remove it and try again.`
-        : `无法修改 ${file}，登录时由它打开 IncarnaMind。请检查它的权限，或移除它后再试。`,
+        ? `Couldn’t change ${file}, which opens IncarnaMind at login. Check its permissions or remove it.`
+        : `无法修改 ${file}，登录时由它打开 IncarnaMind。请检查它的权限，或移除它。`,
     );
     await expect(openAtLogin).not.toBeChecked();
     await shot(window, `settings-open-at-login-problem-${language}`);
