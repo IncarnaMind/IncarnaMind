@@ -240,12 +240,20 @@ async function pressable(window: Page, badge: Locator, card: Locator | null): Pr
 async function setColumn(window: Page, group: Locator, open: boolean): Promise<void> {
   const toggle = group.getByTestId("note-ask-conversation-toggle");
   const column = window.getByTestId("note-column");
-  const move = group.getByTestId("conversation-move-left");
   if ((await toggle.getAttribute("aria-expanded")) !== String(open)) {
     await toggle.click();
   }
   await expect(toggle).toHaveAttribute("aria-expanded", String(open));
-  if (open && (await column.count()) === 0 && (await move.count()) > 0) await move.click();
+  // The move is in the menu of the conversation's name, where the column has room.
+  if (open && (await column.count()) === 0) {
+    const panel = group.getByTestId("note-ask-panel");
+    await panel.getByTestId("conversation-name").click();
+    const menu = panel.getByTestId("conversation-menu");
+    await expect(menu.getByTestId("conversation-new")).toBeVisible();
+    const move = menu.getByTestId("conversation-move-left");
+    if ((await move.count()) > 0) await move.click();
+    else await window.keyboard.press("Escape");
+  }
   await expect(column.or(group.getByTestId("note-ask-panel"))).toHaveCount(open ? 1 : 0);
   await motionSettled(window);
 }

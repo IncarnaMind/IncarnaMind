@@ -9898,6 +9898,11 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       return ownAiConversations.kept(mindId);
     },
+    startNewNoteConversation: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.startNew(mindId);
+    },
     noteModels: async (mindId) => {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });

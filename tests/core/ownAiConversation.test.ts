@@ -1067,6 +1067,32 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=New conversation keeps every turn and marks the break once, and the next request begins a new conversation with the agent that resumes nothing before it; later requests continue the new one; nothing starts while a request runs (#3765); fails_when=a turn is deleted, the agent resumes the old conversation, or a second press adds a second break
+  it("starts a new conversation after the last turn, keeping every turn", async () => {
+    const run = runner(async () => ({ kind: "finished", reply: "Done." }));
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the plan add" });
+    await ended(1);
+    await core.startNewNoteConversation(mindId);
+    await core.startNewNoteConversation(mindId);
+    expect((await core.noteConversation(mindId)).map((turn) => turn.newAfter)).toEqual([true]);
+    await core.askInNote({ mindId, words: "and when" });
+    await ended(2);
+    await core.askInNote({ mindId, words: "and where" });
+    await ended(3);
+    const [first, anew, next] = run.runs;
+    expect(anew?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+    expect(anew?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
+    expect(next?.conversation).toEqual({ ...anew?.conversation, resume: true });
+    expect(
+      (await core.noteConversation(mindId)).map(({ request, newAfter }) => [request, newAfter]),
+    ).toEqual([
+      ["what does the plan add", true],
+      ["and when", false],
+      ["and where", false],
+    ]);
+  });
+
   // protects=Stop ends the run and leaves the Note as it was; fails_when=a stopped request changes the Note or keeps running
   it("stops on Stop, and leaves the Note as it was", async () => {
     const { core, mindId, client, ended } = await written(runner(untilStopped).adapter);

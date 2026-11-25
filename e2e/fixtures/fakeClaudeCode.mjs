@@ -56,6 +56,16 @@ if (modeFile !== "") {
   const what = args[0] === "-p" ? "run" : args.slice(0, 2).join(" ");
   const asked = args.includes("--model") ? ` --model ${args[args.indexOf("--model") + 1]}` : "";
   appendFileSync(`${modeFile}.starts`, `${what}${asked}\n`);
+  // Each conversation a run continues ("resume <id>") or begins ("new <id>"): one begun remembers
+  // nothing of an earlier one.
+  for (const [flag, kind] of [
+    ["--resume", "resume"],
+    ["--session-id", "new"],
+  ]) {
+    if (args.includes(flag)) {
+      appendFileSync(`${modeFile}.sessions`, `${kind} ${args[args.indexOf(flag) + 1]}\n`);
+    }
+  }
 }
 if (args[0] === "--version") {
   console.log(mode === "too-old" ? "2.0.1 (Claude Code)" : "2.1.330 (Claude Code)");

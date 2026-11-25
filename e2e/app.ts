@@ -2930,6 +2930,19 @@ export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator)
 }
 
 /**
+ * Chooses `item` (its test ID) in the menu of the Note's conversation's name, in `scope`, as a
+ * person does: the name pressed, then the item (#3765).
+ */
+export async function fromConversationMenu(
+  window: Page,
+  scope: Locator,
+  item: string,
+): Promise<void> {
+  await pointAndClick(window, scope.getByTestId("conversation-name").first());
+  await pointAndClick(window, scope.getByTestId("conversation-menu").getByTestId(item));
+}
+
+/**
  * Slides the mouse onto an element, in steps, as a person does, and clicks it:
  * with the left button, or the right to open its menu.
  */

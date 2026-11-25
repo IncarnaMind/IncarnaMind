@@ -21,7 +21,6 @@ import {
   clearNoteAsk,
   focusNoteAsk,
   listen,
-  moveConversation,
   openColumnAt,
   seedRunning,
   selectedForRequest,
@@ -34,14 +33,10 @@ import {
   useNoteColumns,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import {
-  ChevronRightLineIcon,
-  ConversationLineIcon,
-  DockBottomLineIcon,
-  DockLeftLineIcon,
-} from "../lineIcons";
+import { ChevronRightLineIcon, ConversationLineIcon } from "../lineIcons";
 import { useTabPlace } from "../tabs/tabItems";
 import { WindowColumnContext } from "../tabs/windowColumn";
+import { ConversationMenu } from "./ConversationMenu";
 import { type InputCarry, NoteAskInput } from "./NoteAskInput";
 import { NoteAskPill } from "./NoteAskPill";
 import { NoteColumn, NoteConversationBody } from "./NoteColumn";
@@ -105,7 +100,13 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     );
   }, [mindId]);
   const working = ask?.state === "working";
-  const turns = useOpenConversation(mindId, open, `${ask?.turnId ?? ""}:${ask?.state ?? ""}`);
+  // Read again as a new conversation starts, which no request's state shows.
+  const [reads, setReads] = useState(0);
+  const turns = useOpenConversation(
+    mindId,
+    open,
+    `${ask?.turnId ?? ""}:${ask?.state ?? ""}:${reads}`,
+  );
   // Upward, it opens once its turns are read, whole in one step: an empty box growing a moment
   // later would cover what the User had scrolled into view, and a change's bar docked above it.
   const shownOpen = open && (!upward || turns !== null);
@@ -307,7 +308,12 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
           </div>
         ) : upward && shownOpen && turns ? (
           <div data-testid="note-ask-panel" className="note-ask-panel">
-            <PanelHead column={slot !== null} onFold={toggle} />
+            <PanelHead
+              mindId={mindId}
+              column={slot !== null}
+              onFold={toggle}
+              onNew={() => setReads((count) => count + 1)}
+            />
             <NoteConversationBody
               mindId={mindId}
               editor={editor}
@@ -322,7 +328,14 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   );
   if (!upward && open && slot !== null) {
     return createPortal(
-      <NoteColumn mindId={mindId} editor={editor} agent={agent} turns={turns} input={input} />,
+      <NoteColumn
+        mindId={mindId}
+        editor={editor}
+        agent={agent}
+        turns={turns}
+        input={input}
+        onNew={() => setReads((count) => count + 1)}
+      />,
       slot,
     );
   }
@@ -375,62 +388,30 @@ function ConversationHandle({ line, onOpen }: { line: ReactNode; onOpen(): void 
 }
 
 /**
- * The conversation's top row while it is open upward, as the column has one: its name, then the
- * move into the column while the column fits (`column`), and the fold. The turns scroll under the
- * row, never behind its controls (#3765).
+ * The conversation's top row while it is open upward, as the column has one: its name and its
+ * menu. The turns scroll under the row, never behind it (#3765).
  */
-function PanelHead({ column, onFold }: { column: boolean; onFold(): void }) {
-  const t = useT();
+function PanelHead({
+  mindId,
+  column,
+  onFold,
+  onNew,
+}: {
+  mindId: string;
+  column: boolean;
+  onFold(): void;
+  onNew(): void;
+}) {
   return (
     <div data-testid="note-ask-panel-head" className="note-ask-panel-head">
-      <h2 className="note-column-title">{t("noteColumn.title")}</h2>
-      {column && <MoveConversation to="column" className="note-column-icon" />}
-      <button
-        type="button"
-        data-testid="note-ask-fold"
-        aria-expanded="true"
-        aria-label={t("noteAsk.hideConversation")}
-        title={t("noteAsk.hideConversation")}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onFold}
-        className="note-column-icon"
-      >
-        <ChevronRightLineIcon className="size-3.5 rotate-90" />
-      </button>
+      <ConversationMenu
+        mindId={mindId}
+        place="upward"
+        canMove={column}
+        onHide={onFold}
+        onNew={onNew}
+      />
     </div>
-  );
-}
-
-/**
- * Moves the open conversation between its two places (#3677): up from the box at the Note's foot
- * into the window's column, and back. It stays open, and the one input goes with it.
- */
-export function MoveConversation({
-  to,
-  className,
-}: {
-  to: "column" | "upward";
-  className: string;
-}) {
-  const t = useT();
-  const label = t(to === "column" ? "noteColumn.moveLeft" : "noteColumn.moveDown");
-  return (
-    <button
-      type="button"
-      data-testid={to === "column" ? "conversation-move-left" : "conversation-move-down"}
-      aria-label={label}
-      title={label}
-      // The input keeps the focus as it moves with the conversation.
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={() => moveConversation(to)}
-      className={className}
-    >
-      {to === "column" ? (
-        <DockLeftLineIcon className="size-3.5" />
-      ) : (
-        <DockBottomLineIcon className="size-4" />
-      )}
-    </button>
   );
 }
 

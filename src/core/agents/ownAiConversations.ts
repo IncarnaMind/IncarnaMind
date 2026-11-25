@@ -145,6 +145,7 @@ interface TurnRow {
   outcome: NoteTurn["outcome"];
   problem: string | null;
   mode: string | null;
+  new_after: number;
   created_at: string;
 }
 
@@ -883,7 +884,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     let fresh = false;
     let end: Awaited<ReturnType<typeof runOnce>>;
     let { session_id: sessionId } = conversation;
-    if (renewed) {
+    // The User started a new conversation after the turn before this one (#3765).
+    const anew =
+      db.get<{ new_after: number }>(
+        `SELECT new_after FROM own_ai_turns WHERE conversation_id = ? AND id != ? AND deleted_at IS NULL
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+        [conversation.id, turnId],
+      )?.new_after === 1;
+    if (renewed || anew) {
       sessionId = options.newId();
       db.run(
         `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, updated_at = ?
@@ -894,7 +902,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     let listening: ReturnType<typeof setInterval> | undefined;
     try {
       listening = listen();
-      end = await runOnce(!renewed && hasEarlierTurns(conversation.id, turnId), sessionId);
+      end = await runOnce(!renewed && !anew && hasEarlierTurns(conversation.id, turnId), sessionId);
       if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
         // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
         fresh = true;
@@ -975,8 +983,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       );
       if (!latest) return [];
       const rows = db.all<TurnRow>(
-        `SELECT id, request, selection, reply, outcome, problem, mode, created_at FROM own_ai_turns
-         WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
+        `SELECT id, request, selection, reply, outcome, problem, mode, new_after, created_at
+         FROM own_ai_turns WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
         [latest.id],
       );
       const closed = new Map<string, NoteAction[]>();
@@ -1026,7 +1034,29 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         questions: row.outcome === "working" && now?.turnId === row.id ? now.questions() : [],
         closed: closed.get(row.id) ?? [],
         mode: row.mode,
+        newAfter: row.new_after === 1,
       }));
+    },
+
+    /**
+     * Starts a new conversation after the Note's last turn (#3765): every turn stays, and the next
+     * request begins a new one with the AI, which remembers nothing before it. Asked again before
+     * a request, it is the same new conversation; while a request runs, it does nothing.
+     */
+    startNew(mindId: string): void {
+      if (running.has(mindId)) return;
+      const last = db.get<{ id: string }>(
+        `SELECT t.id FROM own_ai_turns t
+         JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
+         WHERE c.mind_id = ? AND t.deleted_at IS NULL
+         ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1`,
+        [mindId],
+      );
+      if (!last) return;
+      db.run("UPDATE own_ai_turns SET new_after = 1, updated_at = ? WHERE id = ?", [
+        options.now(),
+        last.id,
+      ]);
     },
 
     /** Whether the Note has a conversation kept, reading none of its turns. */

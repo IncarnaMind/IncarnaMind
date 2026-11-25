@@ -9413,6 +9413,8 @@ export const en = {
   // Before a request here has named its model: the box names none.
   "noteAsk.modelNone": "Model",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
+  // A new conversation with the AI after the turns so far, which stay; also the line that marks it.
+  "noteColumn.new": "New conversation",
   "noteColumn.moveLeft": "Move to the left",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",

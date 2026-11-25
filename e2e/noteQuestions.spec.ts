@@ -10,6 +10,7 @@ import {
   cutIn,
   dismissChatSetup,
   expectReadyDocuments,
+  fromConversationMenu,
   frontMind,
   launchApp,
   pointAndClick,
@@ -387,7 +388,7 @@ test("what the User's own AI asks shows as a card in the folded box, with Claude
     expect(worked * 1000).toBeLessThanOrEqual(endedAt - sentAt - (answeredAt - shownAt) + 1000);
     await pointAndClick(window, panel.getByTestId("note-column-steps-toggle").last());
     expect(await stepsIn(panel)).toEqual([`Didn’t run ${COMMAND} · denied`]);
-    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
+    await fromConversationMenu(window, panel, "note-ask-fold");
 
     // A card far taller than the box, in a low window: its answers are in view as it opens, and
     // stay in view as the command scrolls under them.
@@ -491,7 +492,7 @@ async function conversationInColumn(app: ElectronApplication, window: Page) {
   await pointAndClick(window, card.getByTestId("own-ask-deny"));
   await ended(window, mindId, before);
   await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
-  await pointAndClick(window, group(window).getByTestId("conversation-move-left"));
+  await fromConversationMenu(window, group(window), "conversation-move-left");
   return { mindId, column: window.getByTestId("note-column") };
 }
 
@@ -918,9 +919,9 @@ test("a question asked with the conversation folded shows whole once the convers
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
     await pointAndClick(window, group(window).getByTestId("note-ask-conversation-toggle"));
-    await pointAndClick(window, group(window).getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, group(window), "conversation-move-left");
     const column = window.getByTestId("note-column");
-    await pointAndClick(window, column.getByTestId("note-column-close"));
+    await fromConversationMenu(window, column, "note-column-close");
     await expect(column).toHaveCount(0);
     // Asked with it folded; read once the window is narrow, where the column isn't drawn: the
     // conversation opens upward from the Note's input.
@@ -993,7 +994,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
       "Claude Code also uses its own tools here, on its own settings. IncarnaMind can’t see or undo them.",
     );
     await shot(window, "card-auto-en");
-    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
+    await fromConversationMenu(window, panel, "note-ask-fold");
 
     // Elsewhere: the Note's tab and its row carry the dot an approval waiting shows.
     before = (await outcomesOf(window, mindId)).length;
@@ -1043,7 +1044,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     expect(await cutIn(stopped.getByTestId("own-step"))).toEqual([]);
     await setWindowSize(app, window, 1440, 900);
     await shot(window, "card-stopped-en");
-    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
+    await fromConversationMenu(window, panel, "note-ask-fold");
 
     // Stopped after it read the Note and then asked: the step says what didn't run, and a line
     // what it had read.
@@ -1059,7 +1060,7 @@ test("a question waiting shows the waiting dot on the Note's tab and row; Stop w
     await expect(readThenStopped.getByTestId("note-column-interrupted")).toHaveText(
       "Stopped. It had read “Harbour notes”.",
     );
-    await pointAndClick(window, panel.getByTestId("note-ask-fold"));
+    await fromConversationMenu(window, panel, "note-ask-fold");
 
     // Closed with a question open.
     await ask(window, "ask-command", "Save the table");

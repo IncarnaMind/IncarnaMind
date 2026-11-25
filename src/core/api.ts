@@ -13563,6 +13563,8 @@ export interface NoteTurn {
    * ask nothing. Null when it named none.
    */
   mode: string | null;
+  /** The User started a new conversation after this turn: the AI remembers nothing before (#3765). */
+  newAfter: boolean;
 }
 
 /**
@@ -16442,6 +16444,11 @@ export interface CoreApi {
   /** Whether the Note has a conversation kept, reading none of it (#3677). */
   noteConversationKept(mindId: string): Promise<boolean>;
   /**
+   * Starts a new conversation after the Note's last turn (#3765): the turns stay, and the next
+   * request begins anew with the AI. Does nothing while a request runs.
+   */
+  startNewNoteConversation(mindId: string): Promise<void>;
+  /**
    * The models the User's own command-line AI offers for a request from this Note (#3677), as a
    * request's run heard them before its prompt went: looking starts nothing. [] until a request
    * has run since IncarnaMind started, and while none from this Note could run.
@@ -17352,6 +17359,7 @@ const methods: Record<CoreApiMethod, true> = {
   noteTurnNow: true,
   noteConversation: true,
   noteConversationKept: true,
+  startNewNoteConversation: true,
   noteModels: true,
   ownAiRunsHere: true,
   handedFileOf: true,

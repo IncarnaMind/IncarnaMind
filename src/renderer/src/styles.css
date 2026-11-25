@@ -2994,13 +2994,30 @@
     height: 44px;
     padding: 0 8px 0 16px;
   }
-  .note-column-title {
-    flex: 1;
+  /* The conversation's name, which opens its menu: its words in line with the turns' start. */
+  .note-conversation-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     min-width: 0;
+    height: 28px;
+    margin-left: -6px;
+    padding: 0 6px;
+    border-radius: 6px;
     font-size: var(--text-ui);
     line-height: 20px;
     font-weight: 600;
     color: var(--color-ink-secondary);
+    outline: none;
+    &:hover,
+    &[aria-expanded="true"] {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
   }
   .note-column-icon {
     display: flex;
@@ -3315,7 +3332,7 @@
    * The newest request sent here starts under the top row, with room under it for its steps and
    * reply, once the turns overflow: the turns above scroll away (NoteConversationBody).
    */
-  :is(.note-ask-panel-body, .note-column-body) > [data-newest] {
+  :is(.note-ask-panel-body, .note-column-body) > :last-child:is([data-newest], [data-new-line]) {
     /* Its least height, never less than its words: it doesn't shrink to the room and spill. */
     flex: none;
     min-height: var(--newest-room, auto);

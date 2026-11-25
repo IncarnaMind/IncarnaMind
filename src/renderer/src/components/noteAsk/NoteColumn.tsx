@@ -19,14 +19,13 @@ import {
 import { useAppStore } from "../../store";
 import {
   ChevronRightLineIcon,
-  CloseLineIcon,
   CopyLineIcon,
   MindLineIcon,
   PencilLineIcon,
   RetryLineIcon,
 } from "../lineIcons";
 import { SidebarToggle } from "../SidebarToggle";
-import { MoveConversation } from "./NoteAsk";
+import { ConversationMenu } from "./ConversationMenu";
 import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
 import { Reply } from "./Reply";
@@ -179,12 +178,15 @@ export function NoteColumn({
   agent,
   turns,
   input,
+  onNew,
 }: {
   mindId: string;
   editor: Editor;
   agent: string;
   turns: readonly NoteTurn[] | null;
   input: ReactNode;
+  /** After a new conversation started: the turns are read again. */
+  onNew(): void;
 }) {
   const t = useT();
   return (
@@ -201,20 +203,13 @@ export function NoteColumn({
     >
       <header className="note-column-head">
         <SidebarToggle place="band" />
-        <h2 className="note-column-title">{t("noteColumn.title")}</h2>
-        <MoveConversation to="upward" className="note-column-icon" />
-        <button
-          type="button"
-          data-testid="note-column-close"
-          aria-label={t("noteColumn.close")}
-          title={t("noteColumn.close")}
-          // The input keeps the focus as it goes back to the Note's foot.
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setColumnOpen(mindId, false)}
-          className="note-column-icon"
-        >
-          <CloseLineIcon className="size-4" />
-        </button>
+        <ConversationMenu
+          mindId={mindId}
+          place="column"
+          canMove
+          onHide={() => setColumnOpen(mindId, false)}
+          onNew={onNew}
+        />
       </header>
       <NoteConversationBody
         mindId={mindId}
@@ -233,17 +228,22 @@ const markScrolled = (element: HTMLElement) =>
   element.toggleAttribute("data-scrolled", element.scrollTop > 0);
 
 /**
- * Gives the newest request sent here the turns' whole height, once they overflow, so at their end
- * it starts under the top row, as a chat moves a request up when it is sent, rather than below the
- * tail of the turn before it (#3765). When every turn fits, they start there already.
+ * Gives the last of the turns the turns' whole height, so at their end it starts under the top
+ * row (#3765): the newest request sent here once they overflow, as a chat moves a request up when
+ * it is sent, rather than below the tail of the turn before it; and a new conversation's line
+ * always, so the new one looks as fresh as a blank one, the earlier turns above it.
  */
 const roomForNewest = (element: HTMLElement) => {
   element.style.removeProperty("--newest-room");
-  if (!element.querySelector(":scope > [data-newest]")) return;
-  if (element.scrollHeight <= element.clientHeight) return;
+  const last = element.lastElementChild;
+  const line = last?.hasAttribute("data-new-line") ?? false;
+  if (!line && !last?.hasAttribute("data-newest")) return;
+  if (!line && element.scrollHeight <= element.clientHeight) return;
   const style = getComputedStyle(element);
+  // Its height once it has grown as far as it may: opened upward, it grows with its turns.
+  const most = Number.parseFloat(style.maxHeight);
   const room =
-    element.clientHeight -
+    (Number.isNaN(most) ? element.clientHeight : Math.max(most, element.clientHeight)) -
     Number.parseFloat(style.paddingTop) -
     Number.parseFloat(style.paddingBottom);
   element.style.setProperty("--newest-room", `${room}px`);
@@ -345,7 +345,7 @@ export function NoteConversationBody({
       {turns?.length === 0 && (
         <p className="note-column-notice">{t("noteAsk.conversationEmpty")}</p>
       )}
-      {turns?.map((turn, index) => (
+      {turns?.map((turn, index) => [
         <Turn
           key={turn.id}
           mindId={mindId}
@@ -371,8 +371,19 @@ export function NoteConversationBody({
               ? ask
               : null
           }
-        />
-      ))}
+        />,
+        // The AI remembers nothing above it (#3765).
+        turn.newAfter && (
+          <p
+            key={`${turn.id}-new`}
+            data-testid="note-conversation-new"
+            data-new-line=""
+            className="note-column-notice"
+          >
+            {t("noteColumn.new")}
+          </p>
+        ),
+      ])}
     </div>
   );
 }
