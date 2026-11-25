@@ -17,7 +17,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
-import type { EmbeddingModelSource } from "../src/core/adapters";
+import type { EmbeddingModelSource, SystemCalendarEvent } from "../src/core/adapters";
 import {
   type AssistantPlace,
   CHOSEN_PROVIDER_FLOWS,
@@ -25,9 +25,11 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
-import type { SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
+import type { FakeSystemCalendar, SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
 import { openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
+import type { BackgroundTestHooks } from "../src/main/backgroundHost";
+import type { FakeCalls } from "../src/main/calls/fakeWatcher";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
@@ -984,6 +986,75 @@ export const notificationsShown = (app: ElectronApplication) =>
       (globalThis as { notificationsShown?: { title: string; body: string }[] })
         .notificationsShown ?? [],
   );
+
+/**
+ * The call apps holding the microphone now, as the system would say, to the fake call watcher of
+ * an app launched with `extraEnv: { INCARNAMIND_TEST_CALLS: "1" }`.
+ */
+export const callsUseMicrophone = (app: ElectronApplication, apps: string[]) =>
+  app.evaluate((_electron, given) => {
+    const calls = (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls;
+    if (!calls) throw new Error("The app isn't watching calls with the fake.");
+    calls.use(given);
+  }, apps);
+
+/** The background's notifications of an offer to take notes or a call's end, as shown now. */
+export const offerNotifications = (app: ElectronApplication) =>
+  app.evaluate(
+    () =>
+      (
+        globalThis as { incarnamindBackground?: BackgroundTestHooks }
+      ).incarnamindBackground?.notifications() ?? [],
+  );
+
+/** Clicks the background's notification of an offer or a call's end: its body, or its `action`th button. */
+export const pressOfferNotification = (
+  app: ElectronApplication,
+  kind: "offer" | "ending",
+  action?: number,
+) =>
+  app.evaluate(
+    (_electron, [which, button]) => {
+      const hooks = (globalThis as { incarnamindBackground?: BackgroundTestHooks })
+        .incarnamindBackground;
+      if (!hooks) throw new Error("The app's background has no test hooks.");
+      hooks.clickNotification(which, button ?? undefined);
+    },
+    [kind, action ?? null] as const,
+  );
+
+/** The ids of the tray's menu items as it would open now: none while the tray isn't shown. */
+export const trayItemIds = (app: ElectronApplication) =>
+  app.evaluate(() => {
+    const tray = (
+      globalThis as { incarnamindBackground?: BackgroundTestHooks }
+    ).incarnamindBackground?.tray();
+    return tray?.shown ? tray.items.flatMap((item) => (item.id ? [item.id] : [])) : [];
+  });
+
+/** Chooses the tray menu's item `id`, as the User would. */
+export const clickTrayItem = (app: ElectronApplication, id: string) =>
+  app.evaluate((_electron, item) => {
+    const hooks = (globalThis as { incarnamindBackground?: BackgroundTestHooks })
+      .incarnamindBackground;
+    if (!hooks) throw new Error("The app's background has no test hooks.");
+    hooks.clickTray(item);
+  }, id);
+
+/** Gives the system calendar's fake these events, and has the core read its calendars again. */
+export async function syncCalendarEvents(
+  app: ElectronApplication,
+  window: Page,
+  events: SystemCalendarEvent[],
+): Promise<void> {
+  await app.evaluate((_electron, upcoming) => {
+    const fake = (globalThis as { incarnamindFakeCalendar?: FakeSystemCalendar })
+      .incarnamindFakeCalendar;
+    if (!fake) throw new Error("The app has no fake calendar.");
+    fake.fixture.events = upcoming;
+  }, events);
+  await (await coreOf(window)).evaluate((core) => core.syncCalendars());
+}
 
 /** Force-quits the app as a crash would: its process killed, nothing saved on the way out. */
 export async function forceQuit(app: ElectronApplication): Promise<void> {

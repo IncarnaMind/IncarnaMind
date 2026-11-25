@@ -11,6 +11,7 @@ import { translateNow } from "./i18n";
 import { currentMindIdOf, currentTabOf } from "./layoutSlice";
 import { fillHeldInEditor, letGoOfUndoneFill, undoFillInEditor } from "./meetingFillSteps";
 import { useAppStore } from "./store";
+import { placeOf } from "./taggingStop";
 import { useUndo } from "./undo";
 
 type AppState = ReturnType<typeof useAppStore.getState>;
@@ -25,8 +26,14 @@ function folderInView(layout: AppState["layout"], minds: AppState["minds"]): str
     return minds.find((each) => each.id === item.mindId)?.folderId ?? null;
   }
   if (item?.kind === "document") {
-    const { documents } = useAppStore.getState();
-    return documents.find((each) => each.id === item.documentId)?.folderId ?? null;
+    // A Document filed by hand is placed in the Library's assignments; a linked folder's file
+    // carries its Folder itself.
+    const { documents, library } = useAppStore.getState();
+    return (
+      placeOf(library, item.documentId) ??
+      documents.find((each) => each.id === item.documentId)?.folderId ??
+      null
+    );
   }
   return null;
 }
