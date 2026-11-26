@@ -10,7 +10,8 @@
 // the Note asked from, from its top when it has no named paragraph and at its end otherwise
 // ("plan", "timetable", "explain" and "summary" answer in Chinese to a request in Chinese);
 // "long" reads the ferry interviews step by step, each step waiting until the number in the mode
-// file's ".step" file reaches it, then answers with Citations; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
+// file's ".step" file reaches it, then answers with Citations; "page" streams its thinking, a read,
+// a quote and a change as partial messages do, held the same way, and writes the change; "lost" finds no conversation to resume, then changes as "change" does; "make" writes
 // a new Note, proposes a change to the Note the mode file's ".other" file names, and makes a page.
 // The init event names the model `--model` asked for, as Claude Code's does, and an `initialize`
 // control request is answered with the models it offers, only in a run started with a Note
@@ -421,6 +422,113 @@ async function run(message) {
         "I left your note as it is; say if you want this summary in it.",
       ].join("\n"),
     });
+    return;
+  }
+  if (prompt.startsWith("In their note") && mode === "page") {
+    // Writes a page from the interviews as Claude Code streams one with partial messages (#3677):
+    // its thinking summarized, a search and a read, the quotes it cites and the change it writes,
+    // each held until the step file reaches the number before it.
+    const part = (event) => say({ type: "stream_event", event });
+    let index = 0;
+    const begin = (name) => {
+      index += 1;
+      part({
+        type: "content_block_start",
+        index,
+        content_block: {
+          type: "tool_use",
+          id: `${name}-${index}`,
+          name: `mcp__incarnamind__${name}`,
+          input: {},
+        },
+      });
+      return index;
+    };
+    const write = (at, json) =>
+      part({
+        type: "content_block_delta",
+        index: at,
+        delta: { type: "input_json_delta", partial_json: json },
+      });
+    const stop = (at) => part({ type: "content_block_stop", index: at });
+    const streamed = async (name, input) => {
+      const at = begin(name);
+      write(at, JSON.stringify(input));
+      stop(at);
+      return (await agent.callTool({ name, arguments: input })).structuredContent;
+    };
+    part({ type: "message_start", message: {} });
+    part({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "thinking", thinking: "" },
+    });
+    await gate(1);
+    part({
+      type: "content_block_delta",
+      index: 0,
+      delta: {
+        type: "thinking_delta",
+        thinking: chinese
+          ? "**比较船员和乘客的说法**\n\n我在看早班渡轮为什么总是晚点。"
+          : "**Comparing what the crew and the passengers said**\n\nI'm working out why the early crossing runs late.",
+      },
+    });
+    await gate(2);
+    part({ type: "content_block_stop", index: 0 });
+    const found = await streamed("search", {
+      query: chinese ? "渡轮 晚点" : "ferry crossing late",
+    });
+    const passages = found?.passages ?? [];
+    const [first, second] = [...new Set(passages.map((each) => each.documentId))];
+    const read = { documentId: first };
+    const reading = begin("read_passages");
+    write(reading, JSON.stringify(read));
+    stop(reading);
+    await gate(3);
+    await agent.callTool({ name: "read_passages", arguments: read });
+    const quoted = passages.find((each) => each.documentId === second) ?? passages[0];
+    const quote = quoted.text.split(/(?<=[.!?。])\s*/)[0].trim();
+    const citing = begin("cite");
+    write(citing, `{"citations":[{"passageId":${JSON.stringify(quoted.passageId)},"quote":`);
+    await gate(4);
+    write(citing, `${JSON.stringify(quote)}}]}`);
+    stop(citing);
+    const cited = await agent.callTool({
+      name: "cite",
+      arguments: { citations: [{ passageId: quoted.passageId, quote }] },
+    });
+    const given = cited.structuredContent?.citations?.[0]?.cite ?? "";
+    const token = given === "" || given.startsWith("[cite:") ? given : `[cite:${given}]`;
+    const { version } = (
+      await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } })
+    ).structuredContent;
+    const line = chinese
+      ? "07:40 的渡轮大多数周都晚开，因为货车要先装船。"
+      : "The 07:40 crossing leaves late most weeks because the freight vans load first.";
+    const change = {
+      mindId,
+      version,
+      changes: [{ paragraph: "¶0+", text: `${line} ${token}`.trim() }],
+    };
+    const whole = JSON.stringify(change);
+    const changing = begin("propose_changes");
+    write(
+      changing,
+      whole.slice(0, whole.indexOf(line) + line.indexOf(chinese ? "，" : " because")),
+    );
+    await gate(5);
+    write(changing, whole.slice(whole.indexOf(line) + line.indexOf(chinese ? "，" : " because")));
+    stop(changing);
+    await agent.callTool({ name: "propose_changes", arguments: change });
+    // Its change is in the Note while it goes on, as a long page's first change is.
+    await gate(6);
+    await agent.close();
+    end(
+      chinese
+        ? "已把早班渡轮晚点的原因写进笔记，并注明了出处。"
+        : "I wrote why the early crossing runs late into the note, with its source.",
+    );
     return;
   }
   if (prompt.startsWith("In their note") && mode === "make") {
