@@ -36,6 +36,8 @@ export interface Contract {
   renumbered: string;
   /** The same words as the file showed them, before the sub-clause was added. */
   before: string;
+  /** The words with the User's edits tracked, as a redline's text writes them: the old number deleted, then the new one. */
+  redline: string;
 }
 
 /** A services contract: clause 2.3 is bookmarked, and 3.1 refers to it by number and page. */
@@ -57,6 +59,7 @@ export const ENGLISH_CONTRACT: Contract = {
   added: "Late fees are capped at the fee itself.",
   renumbered: "interest under clause 2.4 is unpaid",
   before: "interest under clause 2.3 is unpaid",
+  redline: "interest under clause 2.32.4 is unpaid",
 };
 
 /** The same contract in Chinese: 第一条 and （一） under it; （三） of 第二条 is bookmarked. */
@@ -78,6 +81,7 @@ export const CHINESE_CONTRACT: Contract = {
   added: "滞纳金以服务费金额为限。",
   renumbered: "未按第（四）项支付利息",
   before: "未按第（三）项支付利息",
+  redline: "未按第（三）（四）项支付利息",
 };
 
 /**
@@ -91,6 +95,7 @@ export const CHINESE_PAST_NINE: Contract = {
   reference: `${run("未按第")}${field("REF _Ref301 \\r \\h", "（九）")}${run("项支付利息的，任何一方可解除本合同。")}`,
   renumbered: "未按第（十）项支付利息",
   before: "未按第（九）项支付利息",
+  redline: "未按第（九）项支付利息",
 };
 
 export const contractFile = (contract: Contract, reference = contract.reference) =>
