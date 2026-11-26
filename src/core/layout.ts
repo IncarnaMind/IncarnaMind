@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MOST_QUOTES_AT_ONCE } from "../shared/documentViewer";
+import { findOpenTab, oneTabEach, sameTabItem } from "../shared/layoutReveal";
 import { parseCitedArea, parseLocation } from "../shared/locations";
 import {
   type AssistantCorner,
@@ -501,18 +502,8 @@ function readSavedLayout(value: unknown): Layout | null {
 // ---------------------------------------------------------------------------
 // The changes.
 
-const oneTabEach = (item: TabItem): item is { kind: "library" } | { kind: "home" } =>
-  item.kind === "library" || item.kind === "home";
-
-const sameItem = (a: TabItem, b: TabItem): boolean =>
-  a.kind === b.kind &&
-  (a.kind === "mind" || a.kind === "figures"
-    ? a.mindId === (b as typeof a).mindId
-    : a.kind === "document"
-      ? a.documentId === (b as typeof a).documentId
-      : a.kind === "canvas"
-        ? a.canvasId === (b as typeof a).canvasId
-        : true);
+const sameItem = sameTabItem;
+const findOpen = findOpenTab;
 
 function emptyLayout(newId: () => string): Layout {
   const group: LayoutGroup = { id: newId(), tabs: [], activeTabId: null, width: 1 };
@@ -540,16 +531,6 @@ function requireTab(layout: Layout, tabId: string): { group: LayoutGroup; tab: L
     if (tab) return { group, tab };
   }
   throw new InvalidInputError("This window has no such tab.");
-}
-
-/** Where it is open, the focused group first. */
-function findOpen(layout: Layout, item: TabItem): { group: LayoutGroup; tab: LayoutTab } | null {
-  const focused = focusedGroup(layout);
-  for (const group of [focused, ...layout.groups.filter((each) => each !== focused)]) {
-    const tab = group.tabs.find((each) => sameItem(each.item, item));
-    if (tab) return { group, tab };
-  }
-  return null;
 }
 
 /**

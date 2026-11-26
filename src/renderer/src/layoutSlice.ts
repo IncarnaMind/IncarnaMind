@@ -7,6 +7,7 @@ import type {
   TabItem,
   WindowLayout,
 } from "../../core/api";
+import { revealExistingTab } from "../../shared/layoutReveal";
 import { groupsMergedAt } from "./assistantPlace";
 import { core, files } from "./core";
 
@@ -82,12 +83,17 @@ type Get = () => LayoutSlice;
 
 /** How many times the assistant was placed in this window, to tell the latest answer. */
 let placings = 0;
+/** How many layout changes have started, so an older answer never reverts a newer tab switch. */
+let layoutChanges = 0;
 
 export function createLayoutSlice(
   set: Set,
   get: Get,
   report: (error: unknown) => void,
 ): LayoutSlice {
+  /** Last layout confirmed by the core, used to roll back a refused optimistic tab switch. */
+  let confirmed: WindowLayout | null = null;
+  let inFlightOptimistic = 0;
   /**
    * For the core's answer to what is asked now: its assistant is older than a placing made since,
    * which is shown already and kept.
@@ -104,17 +110,32 @@ export function createLayoutSlice(
     renamingTabId: null,
     async loadLayout() {
       const keep = keepPlacingsSince();
-      set({ layout: keep(await core.getLayout(WINDOW_ID)) });
+      const layout = keep(await core.getLayout(WINDOW_ID));
+      confirmed = layout;
+      set({ layout });
     },
     async changeLayout(change, options) {
       const keep = keepPlacingsSince();
+      const previous = get().layout;
+      const fallback = inFlightOptimistic === 0 ? previous : (confirmed ?? previous);
+      const immediate = previous ? revealExistingTab(previous, change) : null;
+      const changeId = ++layoutChanges;
+      if (immediate) {
+        if (inFlightOptimistic === 0) confirmed = previous;
+        inFlightOptimistic += 1;
+        set({ layout: immediate });
+      }
       try {
         const layout = keep(await core.changeLayout(WINDOW_ID, change));
-        set({ layout });
+        confirmed = layout;
+        if (changeId === layoutChanges) set({ layout });
         return layout;
       } catch (error) {
+        if (immediate && fallback && changeId === layoutChanges) set({ layout: keep(fallback) });
         if (!options?.quiet) report(error);
         return null;
+      } finally {
+        if (immediate) inFlightOptimistic -= 1;
       }
     },
     async placeAssistant(asked) {
@@ -128,6 +149,7 @@ export function createLayoutSlice(
       set({ layout: { ...layout, assistant: { ...layout.assistant, ...place } } });
       try {
         const kept = await core.changeLayout(WINDOW_ID, { type: "assistant", place });
+        confirmed = kept;
         // A later move is shown already: its own answer comes next.
         if (placing === placings) set({ layout: kept });
       } catch (error) {
@@ -149,8 +171,9 @@ export function followLayout(set: Set, report: (error: unknown) => void): void {
     // is read afresh. It is applied only if no placing of the assistant started after the event:
     // that placing is shown already, and its own answer brings the core's word.
     const asked = placings;
+    const seenChange = layoutChanges;
     core.getLayout(WINDOW_ID).then((layout) => {
-      if (placings === asked) set({ layout });
+      if (placings === asked && layoutChanges === seenChange) set({ layout });
     }, report);
   });
 }

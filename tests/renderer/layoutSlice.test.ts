@@ -156,3 +156,71 @@ describe("a read of the layout", () => {
     expect(store.getState().layout).toEqual(layoutOf(400, ["a"]));
   });
 });
+
+describe("switching to an already-open tab (#3828)", () => {
+  const twoTabs = (activeTabId: string): WindowLayout => ({
+    groups: [
+      {
+        id: "group",
+        tabs: [
+          {
+            id: "lib",
+            item: { kind: "library" },
+            preview: false,
+            pinned: false,
+            place: null,
+            opened: 0,
+          },
+          {
+            id: "note",
+            item: { kind: "mind", mindId: "m1" },
+            preview: false,
+            pinned: false,
+            place: null,
+            opened: 0,
+          },
+        ],
+        activeTabId,
+        width: 1,
+      },
+    ],
+    focusedGroupId: "group",
+    reopenable: 0,
+    conversationId: null,
+    assistant: { ...DEFAULT_ASSISTANT, width: 320 },
+  });
+
+  test("reveals an already-open Library tab synchronously before the core answers, and reverts to the confirmed layout if refused", async () => {
+    store.setState({ layout: twoTabs("note") });
+
+    const opening = store.getState().changeLayout({
+      type: "open",
+      item: { kind: "library" },
+      where: { in: "place" },
+    });
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
+    answer(0, twoTabs("lib"));
+    await opening;
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
+
+    // Overlapping optimistic switches: if the second refuses while the first is still pending,
+    // rollback restores the last confirmed layout rather than the unconfirmed first switch.
+    store.setState({ layout: twoTabs("note") });
+    const first = store
+      .getState()
+      .changeLayout(
+        { type: "open", item: { kind: "library" }, where: { in: "place" } },
+        { quiet: true },
+      );
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
+    bridge.changeLayout.mockRejectedValueOnce(new Error("refused"));
+    const second = await store
+      .getState()
+      .changeLayout({ type: "show", tabId: "note" }, { quiet: true });
+    expect(second).toBeNull();
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("note");
+    answer(1, twoTabs("lib"));
+    await first;
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("note");
+  });
+});
