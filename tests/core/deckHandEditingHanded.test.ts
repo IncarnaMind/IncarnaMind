@@ -149,12 +149,16 @@ describe("a deck an agent handed over, edited by hand", () => {
     await set.core.close();
   });
 
-  it("no Tool an outside agent can call writes a deck: the hand edits are the window's alone", async () => {
+  it("no Tool an outside agent can call writes a deck directly: deck changes only wait as Proposals", async () => {
     const set = await started();
     const agent = await connectLegacyAgent(set.writer.launch);
     const tools = ((await agent.listTools()).tools ?? []).map((each) => each.name);
     expect(tools.length).toBeGreaterThan(10);
-    expect(tools.filter((name) => /deck|slide|restore|put_back|kept/i.test(name))).toEqual([]);
+    // Only read_deck and propose_deck_changes touch decks (#149 part 2), and neither writes without User confirmation.
+    expect(tools.filter((name) => /deck|slide|restore|put_back|kept/i.test(name)).sort()).toEqual([
+      "propose_deck_changes",
+      "read_deck",
+    ]);
     await set.core.close();
   });
 

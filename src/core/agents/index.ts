@@ -56,6 +56,7 @@ import {
   AgentRefusedError,
   createAgentAccess,
   createCheckRuns,
+  deckReachedByPairing,
   documentsForPairing,
   pairingReaches,
   reachedFolders,
@@ -950,7 +951,10 @@ export function createAgents(options: AgentsOptions) {
             if (mind && !pairingReaches(accessDeps, admitted, mind, reached)) return false;
             return (
               !documentId ||
-              documentsForPairing(accessDeps, admitted, [...reached], reached).includes(documentId)
+              documentsForPairing(accessDeps, admitted, [...reached], reached).includes(
+                documentId,
+              ) ||
+              deckReachedByPairing(accessDeps, admitted, documentId, reached)?.kind === "pptx"
             );
           } catch (error) {
             if (error instanceof AgentRefusedError) return false;

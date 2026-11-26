@@ -493,6 +493,14 @@ export function createDeckSittings(deps: DeckSittingDeps) {
       );
     },
 
+    /** Whether any sitting on `documentId` currently has a hand edit waiting to be saved. */
+    hasWaiting(documentId: string): boolean {
+      for (const sitting of sittings.values()) {
+        if (sitting.documentId === documentId && sitting.waiting) return true;
+      }
+      return false;
+    },
+
     /** Every sitting on a Document ends: it was put back as it was, or changed elsewhere. */
     endOn(documentId: string): void {
       for (const sitting of sittings.values()) {

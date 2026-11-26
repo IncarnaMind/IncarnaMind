@@ -52,11 +52,13 @@ describe("outside agents while IncarnaMind has no AI model of its own", () => {
           "report_check",
           "hand_over_file",
           "save_as_word",
+          "read_deck",
+          "propose_deck_changes",
           "create_mind",
           "run_analysis",
         ]),
       );
-      expect(names).toHaveLength(20);
+      expect(names).toHaveLength(22);
     }
   });
 
@@ -97,6 +99,6 @@ describe("outside agents while IncarnaMind has no AI model of its own", () => {
     const { launch } = await started.core.connectAgent({ name: "Codex", folderIds: [folder.id] });
     const names = await namesOf(await connectLegacyAgent(launch));
     expect(names).toEqual(expect.arrayContaining(NEED_A_MODEL));
-    expect(names).toHaveLength(22);
+    expect(names).toHaveLength(24);
   });
 });

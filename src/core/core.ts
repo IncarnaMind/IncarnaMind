@@ -235,8 +235,12 @@ import {
   createNodeDeckFiles,
   type DeckPlaceDeps,
   deckPlaceFor,
+  isKeptDeck,
+  keptVersion,
+  ownFile,
   restoreKept,
 } from "./decks/places";
+import { createDeckProposals } from "./decks/proposals";
 import { protectionOf } from "./decks/protection";
 import { createDeckSittings } from "./decks/sittings";
 import {
@@ -6683,6 +6687,46 @@ export function createCore(adapters: CoreAdapters): Core {
     }),
     ...adapters.deckFiles,
   };
+  const appDeckWrites = new Map<string, Map<string, Set<string>>>();
+  const recordAppDeckWrite = (documentId: string, fromHash: string, toHash: string) => {
+    if (fromHash === toHash) return;
+    let edges = appDeckWrites.get(documentId);
+    if (!edges) {
+      edges = new Map();
+      appDeckWrites.set(documentId, edges);
+    }
+    let next = edges.get(fromHash);
+    if (!next) {
+      next = new Set();
+      edges.set(fromHash, next);
+    }
+    next.add(toHash);
+    if (edges.size > 64) {
+      const oldest = edges.keys().next().value;
+      if (oldest !== undefined) edges.delete(oldest);
+    }
+  };
+  const isAppOwnDeckChange = (documentId: string, fromHash: string, toHash: string): boolean => {
+    if (fromHash === toHash) return true;
+    const edges = appDeckWrites.get(documentId);
+    if (!edges) return false;
+    const seen = new Set<string>([fromHash]);
+    const queue = [fromHash];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current === undefined) break;
+      const targets = edges.get(current);
+      if (!targets) continue;
+      if (targets.has(toHash)) return true;
+      for (const next of targets) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    return false;
+  };
   const deckPlaces: DeckPlaceDeps = {
     dataDir,
     document: (documentId) => documents.get(documentId),
@@ -6701,6 +6745,7 @@ export function createCore(adapters: CoreAdapters): Core {
     handed: handedFiles,
     kept: keptDecks,
     inHandOverTurn: (run) => handOver.inTurn(run),
+    onWritten: recordAppDeckWrite,
     files: deckFiles,
     platform,
     now,
@@ -6755,6 +6800,88 @@ export function createCore(adapters: CoreAdapters): Core {
     newId: () => crypto.randomUUID(),
     nameOf: (documentId) => basename(documents.pathEvenDeleted(documentId)),
     folderNameOf: (documentId) => basename(dirname(documents.pathEvenDeleted(documentId))),
+  });
+
+  const deckUndoDir = join(dataDir, "deck-proposal-undos");
+  const deckUndoLog = adapters.log ?? silentLogger;
+  const logDeckUndoError = (event: string, error: unknown) => {
+    deckUndoLog.error(event, {
+      folder: basename(deckUndoDir),
+      error: error instanceof Error ? error.name : "unknown",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  };
+  // Proposal Undo snapshots don't survive restart; clear any leftover directory from an earlier run.
+  const deckUndoCleared = rm(deckUndoDir, { recursive: true, force: true }).catch(
+    (error: unknown) => {
+      logDeckUndoError("deck.proposalUndo.clearFailed", error);
+    },
+  );
+  const deckUndoPath = (undoId: string): string => {
+    if (!/^[0-9a-f-]+$/i.test(undoId)) {
+      throw new InvalidInputError({ key: "error.deck.proposalUndoMissing" });
+    }
+    return join(deckUndoDir, `${undoId}.pptx`);
+  };
+  const writeDeckTarget = async (
+    place: ReturnType<typeof deckPlaceFor>,
+    documentId: string,
+    nextBytes: Uint8Array,
+  ) => {
+    const written = await place.write(nextBytes);
+    if (written.kind === "changed") {
+      throw new TranslatableError({ key: "error.deck.changed" });
+    }
+    if (written.kind === "unwritable") {
+      throw new TranslatableError({
+        key: `error.deck.unwritable.${written.why}`,
+        values: { name: written.name, folder: written.folder ?? "" },
+      });
+    }
+    deckSittings.endOn(documentId);
+    return { documentId: written.documentId, saved: written.saved };
+  };
+
+  const deckProposals = createDeckProposals({
+    read: (documentId) => readDeck(documentId),
+    inDocumentTurn: (documentId, run) => deckSittings.inDocumentTurn(documentId, run),
+    isAppOwnChange: isAppOwnDeckChange,
+    hasWaitingEdit: (documentId) => deckSittings.hasWaiting(documentId),
+    writeDeck: (documentId, baseBytes, nextBytes, { keepOriginal }) =>
+      writeDeckTarget(
+        keepOriginal
+          ? deckPlaceFor(deckPlaces, documentId, baseBytes)
+          : isKeptDeck(deckPlaces, documentId)
+            ? keptVersion(deckPlaces, documentId, baseBytes)
+            : ownFile(deckPlaces, documentId, baseBytes, { kept: true, sitting: false }),
+        documentId,
+        nextBytes,
+      ),
+    undoStore: {
+      put: async (undoId, bytes) => {
+        await deckUndoCleared;
+        mkdirSync(deckUndoDir, { recursive: true });
+        await writeFile(deckUndoPath(undoId), bytes);
+      },
+      get: async (undoId) => {
+        try {
+          return new Uint8Array(await readFile(deckUndoPath(undoId)));
+        } catch (error: unknown) {
+          logDeckUndoError("deck.proposalUndo.readFailed", error);
+          return null;
+        }
+      },
+      del: async (undoId) => {
+        await rm(deckUndoPath(undoId), { force: true }).catch((error: unknown) => {
+          logDeckUndoError("deck.proposalUndo.deleteFailed", error);
+        });
+      },
+    },
+    onChanged: (documentId, proposals) => {
+      events.emit("deck.proposals", { documentId, proposals });
+    },
+    newId: () => crypto.randomUUID(),
+    now,
   });
 
   /** Hand edits of decks being written now: the host waits for them before it quits. */
@@ -7092,6 +7219,33 @@ export function createCore(adapters: CoreAdapters): Core {
           source.kind === "note" ? folderOfNote(source.mindId) : source.folderId,
           asks,
         ),
+      deckDocument: (id) => {
+        const handedById = handedFiles.get(id);
+        const docId = handedById?.documentId ?? id;
+        try {
+          const doc = documents.get(docId);
+          const handed = handedById ?? handedFiles.holding(doc.id)[0] ?? null;
+          const folder = library.folderOfDocument(doc.id);
+          return {
+            id: doc.id,
+            name: doc.name,
+            kind: doc.kind,
+            currentFolderIds: folder ? [folder] : [],
+            handed: handed ? { pairingId: handed.pairingId } : null,
+          };
+        } catch (error: unknown) {
+          if (!(error instanceof NotFoundError)) {
+            deckUndoLog.error("deck.agentLookup.failed", {
+              documentId: docId,
+              error: error instanceof Error ? error.name : "unknown",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+          return null;
+        }
+      },
+      readDeckBytes: (documentId) => readDeck(documentId),
+      proposeDeckChanges: (input) => deckProposals.propose(input),
       checksWritten: () => settings.get().user.checkAssistantWrites,
     },
     skillState: (client) => skillFiles.stateFor(client),
@@ -10178,6 +10332,13 @@ export function createCore(adapters: CoreAdapters): Core {
       const zip = openPackage(await readDeck(documentId));
       return zip.rewritable ? protectionOf(zip) : "unrewritable";
     },
+    deckProposals: async (documentId) => deckProposals.list(documentId),
+    deckProposalPreview: (proposalId, options) =>
+      deckProposals.previewBytes(proposalId, options?.fit),
+    acceptDeckProposal: (proposalId, options) =>
+      writingDeck(deckProposals.accept(proposalId, options)),
+    rejectDeckProposal: async (proposalId) => deckProposals.reject(proposalId),
+    undoDeckProposal: (undoId) => writingDeck(deckProposals.undo(undoId)),
     handedFileOf: async (mindId) => {
       const found = handedFiles.ofMind(mindId);
       if (!found) return null;
