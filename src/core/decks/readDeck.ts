@@ -284,6 +284,14 @@ export async function readDeckStructure(
                 };
               })
             : [];
+          const validChartCitations = citations.filter((cite) => {
+            if (cite.pointIndex === undefined) return true;
+            if (cite.seriesIndex === undefined) return false;
+            const matched = series[cite.seriesIndex];
+            if (!matched) return false;
+            if (cite.seriesName !== undefined && matched.name !== cite.seriesName) return false;
+            return cite.pointIndex >= 0 && cite.pointIndex < matched.values.length;
+          });
           shapes.push({
             shapeId: item.shapeId,
             kind: "chart",
@@ -292,7 +300,7 @@ export async function readDeckStructure(
             displayLabel: title ?? humanLabel(name, "chart", ""),
             box,
             series,
-            ...(citations.length > 0 && { citations }),
+            ...(validChartCitations.length > 0 && { citations: validChartCitations }),
           });
         } else if (item.kind === "picture") {
           shapes.push({

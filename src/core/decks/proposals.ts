@@ -207,7 +207,7 @@ function inspectTarget(structure: ReadDeckResult, change: DeckChange): TargetInf
       categories: chosen.categories,
       formula: chosen.formula ?? null,
       values: chosen.values,
-      citations: shape.citations ?? [],
+      citations: (shape.citations ?? []).filter((each) => each.seriesIndex === chosen.index),
     }),
   };
 }

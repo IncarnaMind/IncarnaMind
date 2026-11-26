@@ -187,6 +187,7 @@ function maskSlideCitations(
       if (!baseShape.citations || baseShape.citations.length === 0) return baseShape;
       const citations = baseShape.citations.flatMap<DeckCitationRecord>((cite) => {
         if (!cite.documentId) return [];
+        if (cite.pointIndex !== undefined && cite.seriesIndex === undefined) return [];
         const hydrated = context.lookupCitation?.(cite.documentId, cite.passageId);
         if (context.lookupCitation && !hydrated) return [];
         if (context.reachesDocument(pairing, cite.documentId)) {
@@ -200,6 +201,8 @@ function maskSlideCitations(
               ...(cite.passageId ? { passageId: cite.passageId } : {}),
               ...(cite.row !== undefined ? { row: cite.row } : {}),
               ...(cite.column !== undefined ? { column: cite.column } : {}),
+              ...(cite.seriesIndex !== undefined ? { seriesIndex: cite.seriesIndex } : {}),
+              ...(cite.seriesName !== undefined ? { seriesName: cite.seriesName } : {}),
               ...(cite.pointIndex !== undefined ? { pointIndex: cite.pointIndex } : {}),
             },
           ];
@@ -211,6 +214,8 @@ function maskSlideCitations(
             quote: "",
             ...(cite.row !== undefined ? { row: cite.row } : {}),
             ...(cite.column !== undefined ? { column: cite.column } : {}),
+            ...(cite.seriesIndex !== undefined ? { seriesIndex: cite.seriesIndex } : {}),
+            ...(cite.seriesName !== undefined ? { seriesName: cite.seriesName } : {}),
             ...(cite.pointIndex !== undefined ? { pointIndex: cite.pointIndex } : {}),
             restricted: true as const,
           },

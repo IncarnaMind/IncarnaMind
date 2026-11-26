@@ -16,7 +16,9 @@ export interface DeckCitationRecord {
   /** Set for Citations attached to a specific table cell (#149 S7). */
   row?: number;
   column?: number;
-  /** Set for Citations attached to a specific chart point (#149). */
+  /** Set for Citations attached to a specific chart series point (#149). */
+  seriesIndex?: number;
+  seriesName?: string | null;
   pointIndex?: number;
   /** True when masked because the reading agent cannot reach the cited Document's Folder (#149 M3). */
   restricted?: true;

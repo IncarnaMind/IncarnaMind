@@ -26,6 +26,8 @@ interface StoredShapeCitation {
   passageId?: string;
   row?: number;
   column?: number;
+  seriesIndex?: number;
+  seriesName?: string | null;
   pointIndex?: number;
 }
 
@@ -37,6 +39,8 @@ function toStoredShapeCitation(cite: DeckCitationRecord): StoredShapeCitation[] 
       ...(cite.passageId ? { passageId: cite.passageId } : {}),
       ...(cite.row !== undefined ? { row: cite.row } : {}),
       ...(cite.column !== undefined ? { column: cite.column } : {}),
+      ...(cite.seriesIndex !== undefined ? { seriesIndex: cite.seriesIndex } : {}),
+      ...(cite.seriesName !== undefined ? { seriesName: cite.seriesName } : {}),
       ...(cite.pointIndex !== undefined ? { pointIndex: cite.pointIndex } : {}),
     },
   ];
@@ -61,10 +65,27 @@ export function parseShapeCitations(tags: Readonly<Record<string, string>>): Dec
       const row = typeof rec.row === "number" && Number.isInteger(rec.row) ? rec.row : undefined;
       const column =
         typeof rec.column === "number" && Number.isInteger(rec.column) ? rec.column : undefined;
+      const seriesIndex =
+        typeof rec.seriesIndex === "number" &&
+        Number.isInteger(rec.seriesIndex) &&
+        rec.seriesIndex >= 0
+          ? rec.seriesIndex
+          : undefined;
+      const seriesName =
+        typeof rec.seriesName === "string" || rec.seriesName === null ? rec.seriesName : undefined;
       const pointIndex =
-        typeof rec.pointIndex === "number" && Number.isInteger(rec.pointIndex)
+        typeof rec.pointIndex === "number" &&
+        Number.isInteger(rec.pointIndex) &&
+        rec.pointIndex >= 0
           ? rec.pointIndex
           : undefined;
+      // A chart point Citation without its series cannot be placed on a figure, so leave it out.
+      if (
+        (pointIndex !== undefined && seriesIndex === undefined) ||
+        (seriesIndex !== undefined && pointIndex === undefined)
+      ) {
+        continue;
+      }
       out.push({
         document: "",
         location: null,
@@ -73,6 +94,8 @@ export function parseShapeCitations(tags: Readonly<Record<string, string>>): Dec
         ...(passageId ? { passageId } : {}),
         ...(row !== undefined ? { row } : {}),
         ...(column !== undefined ? { column } : {}),
+        ...(seriesIndex !== undefined ? { seriesIndex } : {}),
+        ...(seriesName !== undefined ? { seriesName } : {}),
         ...(pointIndex !== undefined ? { pointIndex } : {}),
       });
     }
@@ -433,18 +456,28 @@ export async function applyDeckChanges(
       if (!chartPart) {
         throw new PackagePartError(slide.part, `has no chart on shape ${change.shape}.`);
       }
-      await setChartSeriesValues(deck, chartPart, change.series, change.values);
+      const updated = await setChartSeriesValues(deck, chartPart, change.series, change.values);
       if (change.pointCitations && change.pointCitations.length > 0) {
         const existingCitations = parseShapeCitations(
           await readShapeTags(deck, slide.part, change.shape),
         );
         const replacedPoints = new Set(change.pointCitations.map((entry) => entry.pointIndex));
         const otherPoints = existingCitations
-          .filter((each) => each.pointIndex === undefined || !replacedPoints.has(each.pointIndex))
+          .filter(
+            (each) =>
+              each.seriesIndex !== updated.seriesIndex ||
+              each.pointIndex === undefined ||
+              !replacedPoints.has(each.pointIndex),
+          )
           .flatMap(toStoredShapeCitation);
         const stamped = change.pointCitations.flatMap((entry) =>
           entry.citations
-            .map((each) => ({ ...each, pointIndex: entry.pointIndex }))
+            .map((each) => ({
+              ...each,
+              seriesIndex: updated.seriesIndex,
+              seriesName: updated.seriesName,
+              pointIndex: entry.pointIndex,
+            }))
             .flatMap(toStoredShapeCitation),
         );
         const merged = [...otherPoints, ...stamped];

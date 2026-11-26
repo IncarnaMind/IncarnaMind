@@ -438,7 +438,7 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
     expect(dumped).not.toContain("Harbour survey");
     expect(dumped).not.toContain("south quay holds 19 boats");
 
-    // Positive check: pointCitations stored as ids-only + pointIndex on the chart shape's INCARNAMIND_CITES tag.
+    // Positive check: pointCitations stored as ids-only + seriesIndex + seriesName + pointIndex on the chart shape's INCARNAMIND_CITES tag.
     const chartTags = await readShapeTags(reread, "ppt/slides/slide1.xml", "4");
     const storedPointCites = JSON.parse(chartTags[CITATION_TAG_NAME] ?? "[]") as Array<
       Record<string, unknown>
@@ -447,11 +447,13 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       {
         documentId: expect.any(String),
         passageId: passage.passageId,
+        seriesIndex: 1,
+        seriesName: "East",
         pointIndex: 1,
       },
     ]);
 
-    // `read_deck` hydrates the chart shape's ids-only tag from the index with pointIndex intact.
+    // `read_deck` hydrates the chart shape's ids-only tag from the index with series and pointIndex intact.
     const rereadTool = structured<{
       slides: Array<{
         shapes: Array<{
@@ -459,6 +461,8 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
           citations?: Array<{
             document: string;
             quote: string;
+            seriesIndex?: number;
+            seriesName?: string | null;
             pointIndex?: number;
           }>;
         }>;
@@ -469,6 +473,8 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       expect.objectContaining({
         document: "Harbour survey",
         quote: expect.stringContaining("south quay holds 19 boats"),
+        seriesIndex: 1,
+        seriesName: "East",
         pointIndex: 1,
       }),
     ]);
@@ -1001,6 +1007,8 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
       {
         documentId: expect.any(String),
         passageId: searched.passages[0]?.passageId,
+        seriesIndex: 0,
+        seriesName: "West",
         pointIndex: 0,
       },
     ]);
@@ -2020,5 +2028,168 @@ describe("targeted AI edits on existing PowerPoint decks (#149 part 2)", () => {
 
     await inReachAgent.close();
     await outOfReachAgent.close();
+  });
+
+  // protects=chart point Citations are scoped per series (seriesIndex + seriesName + pointIndex), replacing one series' point keeps the other series' Citation on the same pointIndex, series-less point entries are ignored, and reordered/removed series omit stale Citations rather than placing them on the wrong series; fails_when=series overwrite each other's point Citations or mismatched series still surface Citations
+  it("scopes chart point Citations per series and omits stale or series-less entries on read", async () => {
+    const { core, coast, writer, files } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+
+    const surveySearch = structured<{ passages: Array<{ passageId: string; documentId: string }> }>(
+      await agent.callTool({ name: "search", arguments: { query: "south quay 19 boats" } }),
+    );
+    const budgetSearch = structured<{ passages: Array<{ passageId: string; documentId: string }> }>(
+      await agent.callTool({ name: "search", arguments: { query: "Rent for 2026 is 14000" } }),
+    );
+    const surveyPassage = surveySearch.passages[0];
+    const budgetPassage = budgetSearch.passages[0];
+    if (!surveyPassage || !budgetPassage) throw new Error("Expected both indexed passages.");
+
+    const cited = structured<{ citations: Array<{ cite: string }> }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            { passageId: surveyPassage.passageId, quote: "south quay holds 19 boats" },
+            { passageId: budgetPassage.passageId, quote: "Rent for 2026 is 14000" },
+          ],
+        },
+      }),
+    );
+    const surveyCite = cited.citations[0]?.cite ?? "";
+    const budgetCite = cited.citations[1]?.cite ?? "";
+
+    const deckPath = join(files, "TwoSeriesChart.pptx");
+    await writeFile(deckPath, twoSeriesChartDeck());
+    const [doc] = await addAndProcess(core, [deckPath]);
+    if (!doc) throw new Error("Expected deck document.");
+    await core.assignDocumentGroup(doc.id, coast.id);
+
+    // 1. Cite pointIndex 1 on West (series 0) and East (series 1) with Harbour survey.
+    const read1 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const prop1 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: read1.version,
+          changes: [
+            {
+              kind: "chartSeries",
+              slide: 1,
+              shape: "4",
+              series: "West",
+              values: [10, 19],
+              pointCitations: [{ pointIndex: 1, citations: [surveyCite] }],
+            },
+            {
+              kind: "chartSeries",
+              slide: 1,
+              shape: "4",
+              series: "East",
+              values: [20, 24],
+              pointCitations: [{ pointIndex: 1, citations: [surveyCite] }],
+            },
+          ],
+        },
+      }),
+    );
+    await core.acceptDeckProposal(prop1.proposalId);
+
+    // 2. Now update East's pointIndex 1 with Harbour budget notes -> West's pointIndex 1 Citation MUST remain intact!
+    const read2 = structured<{ version: string }>(
+      await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }),
+    );
+    const prop2 = structured<{ proposalId: string }>(
+      await agent.callTool({
+        name: "propose_deck_changes",
+        arguments: {
+          documentId: doc.id,
+          version: read2.version,
+          changes: [
+            {
+              kind: "chartSeries",
+              slide: 1,
+              shape: "4",
+              series: "East",
+              values: [20, 14],
+              pointCitations: [{ pointIndex: 1, citations: [budgetCite] }],
+            },
+          ],
+        },
+      }),
+    );
+    const acc2 = await core.acceptDeckProposal(prop2.proposalId);
+
+    const read3 = structured<{
+      slides: Array<{
+        shapes: Array<{
+          shapeId: string;
+          citations?: Array<{
+            document: string;
+            seriesIndex?: number;
+            seriesName?: string | null;
+            pointIndex?: number;
+          }>;
+        }>;
+      }>;
+    }>(await agent.callTool({ name: "read_deck", arguments: { documentId: doc.id } }));
+    const chart3 = read3.slides[0]?.shapes.find((s) => s.shapeId === "4");
+    expect(chart3?.citations).toEqual([
+      expect.objectContaining({
+        document: "Harbour survey",
+        seriesIndex: 0,
+        seriesName: "West",
+        pointIndex: 1,
+      }),
+      expect.objectContaining({
+        document: "Harbour budget notes",
+        seriesIndex: 1,
+        seriesName: "East",
+        pointIndex: 1,
+      }),
+    ]);
+
+    // 3. A tag entry with pointIndex and NO seriesIndex is omitted on read, and swapping series names in PowerPoint omits mismatched series Citations.
+    const tampered = Deck.open(acc2.bytes);
+    const chartPart = await tampered.pkg.part("ppt/charts/chart1.xml");
+    if (!chartPart) throw new Error("Expected chart1.xml.");
+    // Swap "West" and "East" in chart1.xml so series 0 is now "East" and series 1 is now "West".
+    const swappedXml = chartPart.text
+      .replace("<c:v>West</c:v>", "<c:v>__TMP__</c:v>")
+      .replace("<c:v>East</c:v>", "<c:v>West</c:v>")
+      .replace("<c:v>__TMP__</c:v>", "<c:v>East</c:v>");
+    tampered.pkg.set("ppt/charts/chart1.xml", swappedXml);
+    await setShapeTags(tampered, "ppt/slides/slide1.xml", "4", {
+      [CITATION_TAG_NAME]: JSON.stringify([
+        {
+          documentId: surveyPassage.documentId,
+          passageId: surveyPassage.passageId,
+          seriesIndex: 0,
+          seriesName: "West",
+          pointIndex: 1,
+        },
+        {
+          documentId: budgetPassage.documentId,
+          passageId: budgetPassage.passageId,
+          pointIndex: 0,
+        },
+      ]),
+    });
+    const swappedPath = join(files, "SwappedSeries.pptx");
+    await writeFile(swappedPath, await tampered.save());
+    const [swappedDoc] = await addAndProcess(core, [swappedPath]);
+    if (!swappedDoc) throw new Error("Expected swapped deck.");
+    await core.assignDocumentGroup(swappedDoc.id, coast.id);
+
+    const readSwapped = structured<{
+      slides: Array<{ shapes: Array<{ shapeId: string; citations?: unknown[] }> }>;
+    }>(await agent.callTool({ name: "read_deck", arguments: { documentId: swappedDoc.id } }));
+    const swappedChart = readSwapped.slides[0]?.shapes.find((s) => s.shapeId === "4");
+    expect(swappedChart?.citations).toBeUndefined();
+
+    await agent.close();
   });
 });

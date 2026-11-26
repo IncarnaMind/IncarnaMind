@@ -238,13 +238,17 @@ export class PartRelationships {
     private readonly pkg: PackageWriter,
     private readonly owner: string,
     private readonly part: PartText | null,
-    readonly existing: readonly PartRelationship[],
+    private readonly entries: PartRelationship[],
   ) {
-    for (const each of existing) {
+    for (const each of entries) {
       this.ids.add(each.id);
       const number = /^rId(\d+)$/.exec(each.id)?.[1];
       if (number) this.next = Math.max(this.next, Number(number) + 1);
     }
+  }
+
+  get existing(): readonly PartRelationship[] {
+    return this.entries;
   }
 
   static async read(pkg: PackageWriter, owner: string): Promise<PartRelationships> {
@@ -261,7 +265,7 @@ export class PartRelationships {
 
   /** The first relationship of a type, if the part has one. */
   ofType(type: string): PartRelationship | undefined {
-    return this.existing.find((each) => each.type === type && !each.external);
+    return this.entries.find((each) => each.type === type && !each.external);
   }
 
   /** Adds a relationship and returns its id. `target` is relative to the owner's folder, or a URL. */
@@ -269,6 +273,12 @@ export class PartRelationships {
     let id = `rId${this.next++}`;
     while (this.ids.has(id)) id = `rId${this.next++}`;
     this.ids.add(id);
+    this.entries.push({
+      id,
+      type,
+      external,
+      target: external ? target : resolvePart(this.owner, target),
+    });
     this.added.push(
       `<Relationship Id="${id}" Type="${escapeXml(type)}" Target="${escapeXml(target)}"${external ? ' TargetMode="External"' : ""}/>`,
     );
