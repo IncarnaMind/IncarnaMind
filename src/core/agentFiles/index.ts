@@ -260,18 +260,30 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
 
     /**
      * What a refused hand-over recorded, taken back in one go (#3751): its version, whose number is
-     * free again; the item's Document as it was before, when it added one; and the item itself,
-     * ended, when it made it or no version of it is left.
+     * free again; the item's Document and title as they were before; and the item itself, ended,
+     * when it made it or no version of it is left.
      */
     takeBack(
       fileId: string,
-      input: { versionId: string | null; documentBefore?: string | null; made: boolean },
+      input: {
+        versionId: string | null;
+        documentBefore?: string | null;
+        title?: string;
+        made: boolean;
+      },
     ): void {
       const at = now();
       db.transaction(() => {
         if (input.documentBefore !== undefined) {
           db.run("UPDATE agent_files SET document_id = ?, updated_at = ? WHERE id = ?", [
             input.documentBefore,
+            at,
+            fileId,
+          ]);
+        }
+        if (input.title !== undefined) {
+          db.run("UPDATE agent_files SET title = ?, updated_at = ? WHERE id = ?", [
+            input.title,
             at,
             fileId,
           ]);

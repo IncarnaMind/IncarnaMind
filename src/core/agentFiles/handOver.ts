@@ -97,8 +97,16 @@ export interface HandOverDeps {
   }): Promise<VerifyDocumentResult>;
   checkUnasked(mindId: string, options: UnaskedOptions): Promise<UnaskedCheck>;
   mindTitle(mindId: string): string;
-  /** A Note's name and Folder as they are now; null once it is deleted. */
-  noteAt(mindId: string): { title: string; folderId: string | null } | null;
+  /**
+   * A Note's name, Folder and words as they are now (`words`: a hash of its text as search reads
+   * it, without marks, so a check's results on it leave it as it was); null once it is deleted.
+   */
+  noteAt(mindId: string): { title: string; folderId: string | null; words: string } | null;
+  /**
+   * The start's removal of what the data folder keeps of what was deleted for good, and of the
+   * copies a take-back cut short left: the first job of the hand-overs' turn, before any writes one.
+   */
+  startUp(): Promise<void>;
   nameMind(mindId: string, title: string): void;
   /** Tells the windows the Notes changed: which of them a later version's check now stands for. */
   notesChanged(): void;
@@ -165,9 +173,11 @@ interface Made {
   /** The check's Note it made, as it left it, and the Note before it with its name and the one given. */
   checked: {
     mindId: string;
-    left: Left;
+    left: Left & { words: string };
     renamed: { mindId: string; title: string; as: string } | null;
   } | null;
+  /** The item's title before this version gave it its own. */
+  title: string | null;
 }
 
 const nothingMade = (item: boolean): Made => ({
@@ -178,6 +188,7 @@ const nothingMade = (item: boolean): Made => ({
   rewrote: null,
   linked: null,
   checked: null,
+  title: null,
 });
 
 const NOTHING_TO_UNDO = async (): Promise<void> => {};
@@ -279,6 +290,11 @@ export function createHandOver(deps: HandOverDeps) {
     queue = next.catch(() => undefined);
     return next;
   };
+  inTurn(() => deps.startUp()).catch((error: unknown) =>
+    deps.log.error("handedFile.startUp.failed", {
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
 
   /**
    * Throws unless the item is still there: the User may delete its Document for good while a write
@@ -421,7 +437,12 @@ export function createHandOver(deps: HandOverDeps) {
     }
     if (checked) {
       const now = deps.noteAt(checked.mindId);
-      if (!now || now.title !== checked.left.name || now.folderId !== checked.left.folderId)
+      if (
+        !now ||
+        now.title !== checked.left.name ||
+        now.folderId !== checked.left.folderId ||
+        now.words !== checked.left.words
+      )
         return true;
     }
     return false;
@@ -459,6 +480,7 @@ export function createHandOver(deps: HandOverDeps) {
       store.takeBack(file.id, {
         versionId: version?.id ?? null,
         ...(added && !made.item && { documentBefore: added.before }),
+        ...(made.title !== null && { title: made.title }),
         made: made.item,
       }),
     );
@@ -717,7 +739,11 @@ export function createHandOver(deps: HandOverDeps) {
     const note = deps.noteAt(made.mind.id);
     takes.checked = {
       mindId: made.mind.id,
-      left: { name: note?.title ?? "", folderId: note?.folderId ?? file.folderId },
+      left: {
+        name: note?.title ?? "",
+        folderId: note?.folderId ?? file.folderId,
+        words: note?.words ?? "",
+      },
       renamed: null,
     };
     const before = store
@@ -822,6 +848,7 @@ export function createHandOver(deps: HandOverDeps) {
       takes.copies.push(dirname(join(deps.dataDir, relative)));
       await keep(file, join(deps.dataDir, relative), input.bytes);
       requireReach(input, file);
+      if (known) takes.title = known.title;
       takes.version = store.addVersion(file.id, {
         contentHash,
         size: input.bytes.byteLength,

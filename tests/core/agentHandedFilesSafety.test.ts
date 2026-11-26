@@ -4,7 +4,7 @@
  * is deleted, the app quits before a check ends, a line's heading changes, no model is set up, the
  * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
@@ -255,6 +255,65 @@ describe("a file an outside agent hands over, where a call meets a change", () =
       "v1",
     ]);
     reopened.close();
+  });
+
+  // protects=the start's removal of a taken-back version's copy runs before any hand-over writes one: a hand-over asked for at once after the start, its version taking the freed number, keeps its own copy (#3751); fails_when=the removal chosen before the hand-over deletes the new version's copy
+  it("keeps the copy of a version handed over at once after a start that removes a quit's leftover", async () => {
+    const waiting = await waitingHandOver();
+    const { path, dataDir, restart, writer } = waiting;
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await waiting.handOver());
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const left = join(dataDir, "Handed files", first.fileId, "v2");
+    await mkdir(left, { recursive: true });
+    await writeFile(join(left, "Harbour review.pptx"), DECK);
+    await waiting.core.updateAgent(writer.pairing.id, { folderIds: [waiting.coast.id] });
+
+    const reopened = await restart();
+    await reopened.setAgentsEnabled(true);
+    const next = plainDeck([{ title: "Harbour review" }, { lines: [NORTH, NEVER_CLOSES] }]);
+    await writeFile(path, next);
+    const again = await handOver(await connectLegacyAgent(writer.launch), { path });
+    expect(structured<Handed>(again)).toMatchObject({ fileId: first.fileId, version: 2 });
+    expect(hashBytes(new Uint8Array(readFileSync(join(left, "Harbour review.pptx"))))).toBe(
+      hashBytes(next),
+    );
+    reopened.close();
+  });
+
+  // protects=a hand-over refused after the User wrote in its check Note while the check ran keeps the Note with the User's words, its version and its Document, and nothing is deleted for good (#3751); fails_when=the take-back deletes the Note the User wrote in
+  it("keeps a check Note the User wrote in while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const checkNote = (await core.listMinds()).find(
+      (each) => each.title === en("verify.mindTitle", { name: "Harbour review" }),
+    );
+    if (!checkNote) throw new Error("The check Note wasn't made.");
+    const client = await connectToMind(core, checkNote.id);
+    await client.settled();
+    // A paragraph typed at the Note's end, as the editor writes one.
+    client.doc.transact(() => {
+      const mine = new Y.XmlElement("paragraph");
+      mine.insert(0, [new Y.XmlText("Ask the harbourmaster about the night berths.")]);
+      client.blocks.push([mine]);
+    });
+    await client.settled();
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, document.contentHash, 1);
+    const kept = await core.exportMind(checkNote.id, { format: "markdown" });
+    expect(new TextDecoder().decode(kept.data)).toContain(
+      "Ask the harbourmaster about the night berths.",
+    );
   });
 
   // protects=a version taken back after its refusal names the earlier check Note back only while it has the name the version gave it: a name the User gave it during the wait stays (#3751); fails_when=the take-back writes over the User's name

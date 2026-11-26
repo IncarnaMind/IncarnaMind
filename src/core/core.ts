@@ -396,7 +396,14 @@ import {
   parseMindId,
   parseMindModel,
 } from "./minds";
-import { firstLineOf, NO_MARKS, readBlocks, textStart, theirChangesReading } from "./mindText";
+import {
+  blockText,
+  firstLineOf,
+  NO_MARKS,
+  readBlocks,
+  textStart,
+  theirChangesReading,
+} from "./mindText";
 import { createModelRuntimeFolderNotice } from "./modelRuntimeFolder";
 import { createModelSpend } from "./modelSpend";
 import { newestReads, readNewest } from "./newest";
@@ -4953,10 +4960,6 @@ export function createCore(adapters: CoreAdapters): Core {
     // The app still opens; what is due goes at the next start.
     console.error("Deleting what waited 30 days in Recently deleted failed.", error);
   }
-  documents.dropPurged().catch((error: unknown) => console.error(error));
-  dropTakenBackCopies({ db, dataDir, reportError: (error) => console.error(error) }).catch(
-    (error: unknown) => console.error(error),
-  );
   canvases
     .dropPurged()
     .catch((error: unknown) =>
@@ -6622,6 +6625,13 @@ export function createCore(adapters: CoreAdapters): Core {
       await Promise.all([wordImports.dropPurged(), documents.dropPurged(copies)]);
     },
     readKept: async (path) => new Uint8Array(await readFile(path)),
+    // In the hand-overs' turn: a freed version number's copy and file are written there again.
+    startUp: async () => {
+      await Promise.all([
+        documents.dropPurged().catch((error: unknown) => console.error(error)),
+        dropTakenBackCopies({ db, dataDir, reportError: (error) => console.error(error) }),
+      ]);
+    },
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),
@@ -6630,7 +6640,18 @@ export function createCore(adapters: CoreAdapters): Core {
     mindTitle: (mindId) => minds.get(mindId).title,
     noteAt: (mindId) => {
       const note = minds.list().find((each) => each.id === mindId);
-      return note ? { title: note.title, folderId: note.folderId } : null;
+      if (!note) return null;
+      const words = content.peek(mindId, (blocks) =>
+        blocks
+          .toArray()
+          .map((block) => (block instanceof Y.XmlElement ? blockText(block) : ""))
+          .join("\n"),
+      );
+      return {
+        title: note.title,
+        folderId: note.folderId,
+        words: hashBytes(new TextEncoder().encode(words)),
+      };
     },
     nameMind: (mindId, title) => minds.rename(mindId, title),
     notesChanged: () => mindsChanged(),
