@@ -1616,6 +1616,38 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     ).toMatchObject({ version: 1 });
   });
 
+  // protects=Ask in your agent on the check of a Word file whose Note was deleted asks for the fix under a title that none of the agent's Word files of its own text has in that Folder, so saving as asked never makes another file's next version (#3751); fails_when=the request names the title of the agent's other Word file and saving as asked adds a version to it
+  it("asks for a deleted Note's fix under a title no other Word file of the agent's has there", async () => {
+    const { core, coast, writer } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const draft = structured<Saved>(
+      await save(agent, { title: "Harbour brief", markdown: NORTH, folderId: coast.id }),
+    );
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Harbour brief", markdown: SOUTH, folderId: coast.id },
+      }),
+    );
+    const saved = structured<Saved>(await save(agent, { mindId }));
+    await core.deleteMind(mindId);
+
+    const request = await askToFix(core, writer.pairing.id, agent, saved);
+    expect(request).toContain(
+      `save it with save_as_word, the title “Harbour brief 2”, folderId ${coast.id} and the corrected markdown.`,
+    );
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    expect(await askToFix(core, writer.pairing.id, agent, saved)).toContain(
+      `标题“Harbour brief 2”、folderId ${coast.id}`,
+    );
+    const fixed = structured<Saved>(
+      await save(agent, { title: "Harbour brief 2", markdown: SOUTH_TRUE, folderId: coast.id }),
+    );
+    expect(fixed).toMatchObject({ version: 1 });
+    expect(fixed.fileId).not.toBe(draft.fileId);
+    expect((await core.handedFileOf(draft.mindId ?? ""))?.versions).toHaveLength(1);
+  });
+
   // protects=a Note left where the agent reaches it while its Word file is written is saved as before: in the Library with its check Note, and in the Output location (#3751); fails_when=reading the Note's reach again refuses or loses a file the agent may have
   it("saves a Note's Word file as before when the Note stays in the agent's reach as it is written", async () => {
     const saving = await chartedNoteSaving();

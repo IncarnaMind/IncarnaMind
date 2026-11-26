@@ -309,6 +309,25 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       });
     },
 
+    /**
+     * A version `takeBack` took back from an item that goes on, standing again with the title it
+     * gave the item: the bytes before it couldn't be written back into the item's Document (#3751).
+     */
+    putBack(fileId: string, input: { versionId: string; title: string }): void {
+      const at = now();
+      db.transaction(() => {
+        db.run("UPDATE agent_file_versions SET deleted_at = NULL, updated_at = ? WHERE id = ?", [
+          at,
+          input.versionId,
+        ]);
+        db.run("UPDATE agent_files SET title = ?, updated_at = ? WHERE id = ?", [
+          input.title,
+          at,
+          fileId,
+        ]);
+      });
+    },
+
     /** The Note a version's check is in. */
     setMind(versionId: string, mindId: string): void {
       db.run(

@@ -14,7 +14,7 @@ import type { FoundClaim, HandedCheck, HandOverDone } from "../agents/handedFile
 import { AgentRefusedError } from "../agents/refusals";
 import type { UnaskedCheck, UnaskedOptions } from "../answers/checks/verify";
 import type { Document, HandedFile, VerifyDocumentResult } from "../api";
-import { hashBytes } from "../documents/files";
+import { hashBytes, hashFile } from "../documents/files";
 import { type WrittenFile, writeWholeFile } from "../documents/writeWhole";
 import type { AgentFiles, StoredHandedFile, StoredHandedVersion } from "./index";
 
@@ -44,6 +44,15 @@ export interface HandedMarks {
   judged: number;
 }
 
+/**
+ * A Document as the User shapes it (`HandOverDeps.shapeOf`): its name, and as one text the rest of
+ * what they can set on it, from its Folder to its Tags.
+ */
+export interface DocumentShape {
+  name: string;
+  rest: string;
+}
+
 /** Where a handed-over file is, as the Library sees it (`HandOverDeps.placeOf`). */
 export interface Place {
   linkedFolderId: string | null;
@@ -71,6 +80,7 @@ export interface HandOverDeps {
   document(documentId: string): Document;
   /** Whether the Document is in the Library still, not deleted. */
   liveDocument(documentId: string): boolean;
+  shapeOf(documentId: string): DocumentShape;
   /** Whether another Document holds these bytes; IncarnaMind's own export copies only `withExports`. */
   contentHashInUse(
     contentHash: string,
@@ -98,10 +108,10 @@ export interface HandOverDeps {
   checkUnasked(mindId: string, options: UnaskedOptions): Promise<UnaskedCheck>;
   mindTitle(mindId: string): string;
   /**
-   * A Note's name, Folder and words as they are now (`words`: a hash of its text as search reads
-   * it, without marks, so a check's results on it leave it as it was); null once it is deleted.
+   * A Note's name, Folder and content as they are now (`content`: a hash of all of it but a check's
+   * results, so a check on it leaves it as it was); null once it is deleted.
    */
-  noteAt(mindId: string): { title: string; folderId: string | null; words: string } | null;
+  noteAt(mindId: string): { title: string; folderId: string | null; content: string } | null;
   /**
    * The start's removal of what the data folder keeps of what was deleted for good, and of the
    * copies a take-back cut short left: the first job of the hand-overs' turn, before any writes one.
@@ -136,10 +146,11 @@ const SETTLED: ReadonlySet<UnaskedCheck["kind"]> = new Set(["checked", "nothing"
 /** A set of results by their ids, as one key. */
 const idsKey = (ids: readonly string[]): string => [...ids].sort().join(" ");
 
-/** A Document's or a Note's name and Folder as a hand-over left it, to tell whether the User has touched it since. */
+/** A check Note as a hand-over left it, to tell whether the User has touched it since. */
 interface Left {
   name: string;
   folderId: string | null;
+  content: string;
 }
 
 /**
@@ -153,7 +164,7 @@ interface Made {
   /** What it wrote in "Handed files" that no Document holds: a version's folder, a file. */
   copies: string[];
   /** The Document it added for the version, as it left it, and the item's Document before it. */
-  added: { documentId: string; before: string | null; left: Left } | null;
+  added: { documentId: string; before: string | null; shape: DocumentShape } | null;
   /**
    * The item's own Document it wrote the version into, as it left it: the copy of the bytes it
    * held before and their hash, and its name then.
@@ -163,17 +174,17 @@ interface Made {
     copy: string;
     contentHash: string;
     name: string;
-    left: Left;
+    shape: DocumentShape;
   } | null;
   /**
    * The Linked folder's Document the version is, the agent's own file there, as it was read for the
    * version: never taken back, only looked at for what the User did to it since.
    */
-  linked: { documentId: string; left: Left } | null;
+  linked: { documentId: string; shape: DocumentShape } | null;
   /** The check's Note it made, as it left it, and the Note before it with its name and the one given. */
   checked: {
     mindId: string;
-    left: Left & { words: string };
+    left: Left;
     renamed: { mindId: string; title: string; as: string } | null;
   } | null;
   /** The item's title before this version gave it its own. */
@@ -416,12 +427,26 @@ export function createHandOver(deps: HandOverDeps) {
     undo,
   });
 
+  /** Whether the file holds these bytes now; one that can't be read can't be told to, so doesn't. */
+  async function holds(path: string, contentHash: string): Promise<boolean> {
+    try {
+      return (await hashFile(path)).contentHash === contentHash;
+    } catch (error) {
+      deps.log.warn("handedFile.takeBack.unreadFile", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
   /**
    * Whether anyone built on what a hand-over made since it made it: a later version of the item
    * (a hand edit's, #149, or another call's), or its Document or check Note no longer as it left
-   * them (written, renamed, moved or deleted by the User). Then all of it is theirs, and stays.
+   * them (written, renamed, moved, tagged, annotated or deleted by the User). Then all of it is
+   * theirs, and stays. A Document's file is read as it is: another app may have saved it since
+   * IncarnaMind last read it.
    */
-  const builtOn = (file: StoredHandedFile, made: Made): boolean => {
+  const builtOn = async (file: StoredHandedFile, made: Made): Promise<boolean> => {
     const { version, checked } = made;
     if (version === null) return false;
     if (store.versions(file.id).some((each) => each.number > version.number)) return true;
@@ -429,10 +454,12 @@ export function createHandOver(deps: HandOverDeps) {
     if (document) {
       if (!deps.liveDocument(document.documentId)) return true;
       const now = deps.document(document.documentId);
+      const shape = deps.shapeOf(document.documentId);
       if (
         now.contentHash !== version.contentHash ||
-        now.name !== document.left.name ||
-        deps.filedIn(document.documentId) !== document.left.folderId
+        shape.name !== document.shape.name ||
+        shape.rest !== document.shape.rest ||
+        !(await holds(now.path, version.contentHash))
       )
         return true;
     }
@@ -442,7 +469,7 @@ export function createHandOver(deps: HandOverDeps) {
         !now ||
         now.title !== checked.left.name ||
         now.folderId !== checked.left.folderId ||
-        now.words !== checked.left.words
+        now.content !== checked.left.content
       )
         return true;
     }
@@ -450,41 +477,85 @@ export function createHandOver(deps: HandOverDeps) {
   };
 
   /**
-   * Takes back what a refused hand-over made and no one built on: its records, the earlier check
-   * Note's name, its check Note and the Document it added, the bytes it wrote into the item's
-   * Document, and its copies. Each step stands alone, so one that fails leaves the others done; the
-   * order keeps what a quit leaves part way something the User sees and can delete.
+   * Takes back what a refused hand-over made and no one built on (#3751). What it writes back is
+   * read first, and the records go before anything is removed or written: a step up to there that
+   * fails keeps all of it, as the User would find a hand-over that was built on. Then the bytes it
+   * wrote into the item's Document, the earlier check Note's name, its check Note, the Document it
+   * added and its copies, each standing alone, in an order that keeps what a quit leaves part way
+   * something the User sees and can delete.
    */
   async function takeBack(file: StoredHandedFile, made: Made): Promise<void> {
     const { version, checked, added, rewrote } = made;
-    if (builtOn(file, made)) {
-      deps.log.info("handedFile.takeBack.builtOn", {
+    // The refusal is still the call's answer; what couldn't be taken back is named for the log.
+    const failed = (step: string, error: unknown) =>
+      deps.log.error("handedFile.takeBack.failed", {
         fileId: file.id,
         version: version?.number ?? null,
+        step,
+        message: error instanceof Error ? error.message : String(error),
       });
-      return;
-    }
-    const step = async (name: string, run: () => unknown) => {
-      try {
-        await run();
-      } catch (error) {
-        // The refusal is still the call's answer; what couldn't be taken back is named for the log.
-        deps.log.error("handedFile.takeBack.failed", {
+    let before: Uint8Array | null = null;
+    try {
+      if (await builtOn(file, made)) {
+        deps.log.info("handedFile.takeBack.builtOn", {
           fileId: file.id,
           version: version?.number ?? null,
-          step: name,
-          message: error instanceof Error ? error.message : String(error),
         });
+        return;
       }
-    };
-    await step("records", () =>
+      if (rewrote) before = await deps.readKept(rewrote.copy);
+    } catch (error) {
+      failed("look", error);
+      return;
+    }
+    const title = store.get(file.id)?.title ?? file.title;
+    try {
       store.takeBack(file.id, {
         versionId: version?.id ?? null,
         ...(added && !made.item && { documentBefore: added.before }),
         ...(made.title !== null && { title: made.title }),
         made: made.item,
-      }),
-    );
+      });
+    } catch (error) {
+      failed("records", error);
+      return;
+    }
+    if (rewrote && before && version) {
+      try {
+        const { path } = deps.document(rewrote.documentId);
+        if (!(await holds(path, version.contentHash))) {
+          throw new Error("The Document's file changed after the take-back looked at it.");
+        }
+        await writeWholeFile(path, before, deps.now());
+      } catch (error) {
+        failed("bytes before", error);
+        // The version stands again, so the item's newest version is still what its Document holds.
+        try {
+          store.putBack(file.id, { versionId: version.id, title });
+        } catch (again) {
+          failed("records put back", again);
+        }
+        return;
+      }
+    }
+    const step = async (name: string, run: () => unknown) => {
+      try {
+        await run();
+      } catch (error) {
+        failed(name, error);
+      }
+    };
+    if (rewrote) {
+      await step("read again", async () => {
+        const was = deps.document(rewrote.documentId);
+        await deps.readAgain(was.path);
+        const read = await versionRead(rewrote.documentId, rewrote.contentHash, was);
+        if (read !== true) {
+          deps.log.warn("handedFile.takeBack.unread", { fileId: file.id, why: read });
+        }
+        if (rewrote.shape.name !== rewrote.name) deps.rename(rewrote.documentId, rewrote.name);
+      });
+    }
     const renamed = checked?.renamed;
     if (renamed) {
       await step("earlier note's name", () => {
@@ -501,18 +572,6 @@ export function createHandOver(deps: HandOverDeps) {
       await step("document", () =>
         deps.discard({ documentIds: [added.documentId], mindIds: [], copies: [] }),
       );
-    }
-    if (rewrote) {
-      await step("bytes before", async () => {
-        const was = deps.document(rewrote.documentId);
-        await keep(file, was.path, await deps.readKept(rewrote.copy));
-        await deps.readAgain(was.path);
-        const read = await versionRead(rewrote.documentId, rewrote.contentHash, was);
-        if (read !== true) {
-          deps.log.warn("handedFile.takeBack.unread", { fileId: file.id, why: read });
-        }
-        if (rewrote.left.name !== rewrote.name) deps.rename(rewrote.documentId, rewrote.name);
-      });
     }
     await step("copies", () => deps.discard({ documentIds: [], mindIds: [], copies: made.copies }));
     deps.notesChanged();
@@ -552,12 +611,6 @@ export function createHandOver(deps: HandOverDeps) {
   const liveDocumentOf = (file: StoredHandedFile | null): string | null =>
     file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
 
-  /** A Document's name and Folder now. */
-  const leftOf = (documentId: string): Left => ({
-    name: deps.document(documentId).name,
-    folderId: deps.filedIn(documentId),
-  });
-
   /**
    * What a try cut short made of the item's Document for `version` before it stopped: the Document
    * it added for it, or the bytes it wrote into the item's own, whose version before is the copy.
@@ -576,7 +629,7 @@ export function createHandOver(deps: HandOverDeps) {
       return { added: null, rewrote: null };
     if (basename(document.path) === `file-${version.number}.${file.kind}`) {
       return {
-        added: { documentId: document.id, before: null, left: leftOf(document.id) },
+        added: { documentId: document.id, before: null, shape: deps.shapeOf(document.id) },
         rewrote: null,
       };
     }
@@ -592,7 +645,7 @@ export function createHandOver(deps: HandOverDeps) {
             copy: join(deps.dataDir, held.file),
             contentHash: held.contentHash,
             name: document.name,
-            left: leftOf(document.id),
+            shape: deps.shapeOf(document.id),
           }
         : null,
     };
@@ -681,16 +734,11 @@ export function createHandOver(deps: HandOverDeps) {
       takes.copies.push(path);
       const written = await keep(file, path, input.bytes);
       requireReach(input, file);
-      const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
-      documentId = document.id;
-      takes.added = {
-        documentId,
-        before: file.documentId,
-        left: { name: document.name, folderId: file.folderId },
-      };
+      documentId = deps.addHanded(deps.newId(), input.title, written, file.kind).id;
       deps.setNotCited(documentId);
       if (file.folderId !== null) deps.assign(documentId, file.folderId);
       store.setDocument(file.id, documentId);
+      takes.added = { documentId, before: file.documentId, shape: deps.shapeOf(documentId) };
     } else if (deps.document(documentId).contentHash !== contentHash) {
       const was = deps.document(documentId);
       // A Linked folder's Document is the agent's file itself: it is read again, never written.
@@ -706,14 +754,14 @@ export function createHandOver(deps: HandOverDeps) {
           copy: join(deps.dataDir, held.file),
           contentHash: held.contentHash,
           name: was.name,
-          left: leftOf(documentId),
+          shape: deps.shapeOf(documentId),
         };
       }
       if (own) await keep(file, was.path, input.bytes);
       await deps.readAgain(was.path);
       if (own && deps.document(documentId).name !== input.title)
         deps.rename(documentId, input.title);
-      if (takes.rewrote) takes.rewrote.left = { ...takes.rewrote.left, name: input.title };
+      if (takes.rewrote) takes.rewrote.shape = { ...takes.rewrote.shape, name: input.title };
       const read = await versionRead(documentId, contentHash, was);
       stillThere(file);
       if (read !== true) {
@@ -722,7 +770,7 @@ export function createHandOver(deps: HandOverDeps) {
       }
     }
     if (deps.document(documentId).linkedFolderId !== null) {
-      takes.linked = { documentId, left: leftOf(documentId) };
+      takes.linked = { documentId, shape: deps.shapeOf(documentId) };
     }
     requireReach(input, file);
     const made = await deps.verify({
@@ -743,7 +791,7 @@ export function createHandOver(deps: HandOverDeps) {
       left: {
         name: note?.title ?? "",
         folderId: note?.folderId ?? file.folderId,
-        words: note?.words ?? "",
+        content: note?.content ?? "",
       },
       renamed: null,
     };

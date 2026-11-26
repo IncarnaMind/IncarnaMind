@@ -5,7 +5,7 @@
  * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -25,6 +25,7 @@ import {
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { refuseChangesOf } from "../helpers/failingStorage";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import {
   DECK,
@@ -46,7 +47,7 @@ import { editMind, readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import { plainDeck } from "../helpers/pptx";
-import { paragraph, wordFile } from "../helpers/word";
+import { paragraph, table, wordFile } from "../helpers/word";
 
 const en = translate.bind(null, "en") as (
   key: Parameters<typeof translate>[1],
@@ -387,6 +388,125 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
     if (!document) throw new Error("The deck isn't in the Library.");
     await waiting.keptAll(document.id, hashBytes(next), 2);
+  });
+
+  // protects=a refused hand-over never writes the version before over the Library's copy of the file once another app saved that copy after the hand-over, before IncarnaMind read it again: the copy keeps that app's bytes, and the version and its check Note stay (#3751); fails_when=the take-back trusts the Document's last read and writes the version before over the copy
+  it("keeps the bytes another app saved into the file's copy while a refused hand-over's check ran", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, document, checkNote, asked } = waiting;
+    const theirs = plainDeck([{ title: "Harbour review" }, { lines: [NORTH, NEVER_CLOSES] }]);
+    await writeFile(document.path, theirs);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(theirs));
+    await waiting.keptAll(document.id, document.contentHash, 2);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(checkNote.id);
+  });
+
+  // protects=a refused hand-over whose records can't be taken back takes nothing else back: its version, its check Note, its copy and the bytes it wrote into the Document all stay, and the agent is refused as it would be (#3751); fails_when=the take-back goes on past the records, deleting the check Note and the version's copy or writing the version before back while the version stands
+  it("keeps all of a refused version whose records can't be taken back, and refuses as before", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, dataDir, document, checkNote, first, asked } = waiting;
+    const mend = refuseChangesOf(dataDir, "agent_file_versions", "deleted_at");
+    try {
+      await waiting.refuse();
+      expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+      await waiting.keptAll(document.id, hashBytes(DECK), 2);
+      expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+      expect((await core.listMinds()).map((each) => each.id)).toContain(checkNote.id);
+      expect(readdirSync(join(dataDir, "Handed files", first.fileId)).sort()).toEqual([
+        "file-1.pptx",
+        "v1",
+        "v2",
+      ]);
+    } finally {
+      mend();
+    }
+  });
+
+  // protects=a refused hand-over whose version before can't be read back keeps the whole version, so the item's newest version is what its Document holds (#3751); fails_when=the version is taken back while the Document keeps its bytes, and nothing writes the version before back later
+  it("keeps a refused version whose version before can't be read back", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, dataDir, document, checkNote, first, asked } = waiting;
+    await rm(join(dataDir, "Handed files", first.fileId, "v1"), { recursive: true });
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, hashBytes(DECK), 2);
+    expect((await core.listMinds()).map((each) => each.id)).toContain(checkNote.id);
+  });
+
+  // protects=a refused hand-over whose version before can't be written back into the Document puts its records back and keeps the rest, so the item's newest version is what its Document holds (#3751); fails_when=the version is taken back while the Document keeps its bytes
+  it("keeps a refused version whose version before can't be written back", async () => {
+    const waiting = await secondVersionWaiting();
+    const { core, dataDir, document, checkNote, first, asked } = waiting;
+    const folder = join(dataDir, "Handed files", first.fileId);
+    await chmod(folder, 0o555);
+    try {
+      await waiting.refuse();
+      expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+      await waiting.keptAll(document.id, hashBytes(DECK), 2);
+      expect(hashBytes(new Uint8Array(readFileSync(document.path)))).toBe(hashBytes(DECK));
+      expect((await core.listMinds()).map((each) => each.id)).toContain(checkNote.id);
+    } finally {
+      await chmod(folder, 0o755);
+    }
+  });
+
+  // protects=a hand-over refused after the User tagged its Document while the check ran keeps the Document with the Tag, its version and its check Note, and nothing is deleted for good (#3751); fails_when=the take-back deletes the tagged Document because its bytes, name and Folder are as the call left them
+  it("keeps a Document the User tagged while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    const tag = await core.createTag({ name: "Quay works" });
+    await core.addDocumentTag(document.id, tag.id);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, document.contentHash, 1);
+    const kept = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(kept?.tags.map((each) => each.tagId)).toEqual([tag.id]);
+  });
+
+  // protects=a hand-over refused after the User moved a value into an empty cell of its check Note's table keeps the Note as the User left it, though its words read in the same order (#3751); fails_when=the take-back compares only the Note's words, which skip empty cells, and deletes the Note
+  it("keeps a check Note whose table the User changed while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver({ name: "Harbour review.docx" });
+    const { core, path } = waiting;
+    await writeFile(
+      path,
+      wordFile({ body: [paragraph(OFFICE), table([["North quay", "42", ""]])].join("") }),
+    );
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const checkNote = (await core.listMinds()).find(
+      (each) => each.title === en("verify.mindTitle", { name: "Harbour review" }),
+    );
+    if (!checkNote) throw new Error("The check Note wasn't made.");
+    const client = await connectToMind(core, checkNote.id);
+    await client.settled();
+    // The boats moved one cell along, as the User retypes them there.
+    const [, from, to] = cellsOf(client.blocks).map((cell) => cell.firstChild);
+    const boats = from instanceof Y.XmlElement ? from.firstChild : null;
+    if (!(boats instanceof Y.XmlText) || !(to instanceof Y.XmlElement))
+      throw new Error("The check Note has no row of three cells with the boats in the second.");
+    const empty = to.firstChild;
+    client.doc.transact(() => {
+      boats.delete(0, boats.length);
+      if (empty instanceof Y.XmlText) empty.insert(0, "42");
+      else to.insert(0, [new Y.XmlText("42")]);
+    });
+    await client.settled();
+    expect(cellsOf(client.blocks).map(cellText)).toEqual(["North quay", "", "42"]);
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The Word file isn't in the Library.");
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, document.contentHash, 1);
+    const reopened = await connectToMind(core, checkNote.id);
+    await reopened.settled();
+    expect(cellsOf(reopened.blocks).map(cellText)).toEqual(["North quay", "", "42"]);
   });
 
   // protects=a file handed over into no Folder is checked only against the Documents its agent reaches, so what an unshared Folder's Document says never reaches the agent (#3412 review); fails_when=the check searches every Document and the reply says what a Document beyond the agent's reach states
@@ -1083,4 +1203,54 @@ async function waitingHandOver({ linked = false, name = "Harbour review.pptx" } 
       expect(await core.listDeleted()).toEqual([]);
     },
   };
+}
+
+/**
+ * `waitingHandOver`'s deck handed over once with the north quay alone, then whole and held in its
+ * check: the first version, the Library's Document as the second left it, the second version's
+ * check Note, and the call.
+ */
+async function secondVersionWaiting() {
+  const waiting = await waitingHandOver();
+  const { core, path } = waiting;
+  await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+  const first = structured<Handed>(await waiting.handOver());
+  await writeFile(path, DECK);
+  const asked = waiting.handOver();
+  await waiting.held.at;
+  const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+  const checkNote = (await core.listMinds()).find(
+    (each) =>
+      each.id !== first.mindId && each.title === en("verify.mindTitle", { name: "Harbour review" }),
+  );
+  if (!document || !checkNote) throw new Error("The second version wasn't made.");
+  return { ...waiting, first, asked, document, checkNote };
+}
+
+/** A Note's table cells, in order. */
+function cellsOf(parent: Y.XmlFragment | Y.XmlElement): Y.XmlElement[] {
+  return parent
+    .toArray()
+    .flatMap((child) =>
+      child instanceof Y.XmlElement
+        ? child.nodeName === "tableCell" || child.nodeName === "tableHeader"
+          ? [child]
+          : cellsOf(child)
+        : [],
+    );
+}
+
+/** The words in a part of a Note, without its marks. */
+function cellText(node: Y.XmlElement | Y.XmlText): string {
+  if (node instanceof Y.XmlText) {
+    return (node.toDelta() as { insert: unknown }[])
+      .map((run) => (typeof run.insert === "string" ? run.insert : ""))
+      .join("");
+  }
+  return node
+    .toArray()
+    .map((child) =>
+      child instanceof Y.XmlElement || child instanceof Y.XmlText ? cellText(child) : "",
+    )
+    .join("");
 }

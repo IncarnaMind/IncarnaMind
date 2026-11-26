@@ -59,12 +59,12 @@ import {
 } from "../shared/mindStyle";
 import { missingNumberWords } from "../shared/missingNumbers";
 import { sameName } from "../shared/names";
-import { mindName } from "../shared/naming";
+import { mindName, numberedName } from "../shared/naming";
 import { noteWriterOf, recordNoteWriter } from "../shared/noteWriter";
 import { paperFor } from "../shared/printDocument";
 import { resolveProposals, restoreRevised } from "../shared/proposals";
 import { readableQuoteText } from "../shared/readableQuote";
-import { isPaperOrBook } from "../shared/references";
+import { isPaperOrBook, referenceFieldOrder } from "../shared/references";
 import { RESEARCH_TASK } from "../shared/research";
 import { folderScope, hasSearchScope, NO_SCOPE, type ScopeKind } from "../shared/searchScope";
 import { SPEAKER_ME, SPEAKER_THEM } from "../shared/speakers";
@@ -95,7 +95,7 @@ import { createAgentSetup } from "./agents/setup";
 import { createSkillFiles, NO_SKILL_FILES } from "./agents/skillFiles";
 import { createAgentSorting } from "./agents/sorting";
 import { withTabFences } from "./agents/tabs";
-import { wordItemOf } from "./agents/wordFiles";
+import { textTitleOf, wordItemOf } from "./agents/wordFiles";
 import type { AgentReach } from "./agents/workings";
 import { createAiUse } from "./aiUse";
 import { createAiUseStatement } from "./aiUseStatement";
@@ -397,7 +397,7 @@ import {
   parseMindModel,
 } from "./minds";
 import {
-  blockText,
+  contentWithoutChecks,
   firstLineOf,
   NO_MARKS,
   readBlocks,
@@ -3881,7 +3881,18 @@ export function createCore(adapters: CoreAdapters): Core {
     if (item === null) return { kind: "path", path: file.path };
     if (item.kind === "text") return { kind: "text", folderId };
     const note = minds.list().find((mind) => mind.id === item.mindId);
-    if (!note) return { kind: "deletedNote", folderId };
+    if (!note) {
+      // Saved under a title the agent's own text has there, the fix would be that file's next version.
+      const taken = handedFiles
+        .list()
+        .filter((each) => each.pairingId === file.pairingId)
+        .flatMap((each) => textTitleOf(each.path, file.folderId) ?? []);
+      return {
+        kind: "deletedNote",
+        folderId,
+        title: numberedName(file.title, taken) ?? file.title,
+      };
+    }
     const writer = content.read(item.mindId, (blocks) =>
       blocks.doc ? noteWriterOf(blocks.doc) : null,
     );
@@ -6602,6 +6613,32 @@ export function createCore(adapters: CoreAdapters): Core {
     filedOnArrival: (path) => boundFolderAt(path),
     document: (documentId) => documents.get(documentId),
     liveDocument: (documentId) => documents.getMany([documentId]).length > 0,
+    // What reading the file sets is left out: the Tags automatic tagging gives, the reference fields
+    // read from the file. Everything the User sets is in.
+    shapeOf: (documentId) => {
+      const document = documents.get(documentId);
+      const { reference } = document;
+      return {
+        name: document.name,
+        rest: JSON.stringify({
+          folderId: library.folderOfDocument(documentId),
+          tags: document.tags
+            .filter((tag) => tag.source === "user")
+            .map((tag) => tag.tagId)
+            .sort(),
+          notCited: document.notCited,
+          readHiddenSheets: document.readHiddenSheets,
+          reference: referenceFieldOrder
+            .filter((field) => (reference?.sources[field] ?? "file") !== "file")
+            .map((field) => [field, reference?.fields[field]]),
+          lookedUpAt: reference?.lookedUpAt ?? null,
+          annotations: annotations
+            .list(documentId)
+            .map((each) => each.id)
+            .sort(),
+        }),
+      };
+    },
     contentHashInUse: (hash, except, withExports) =>
       withExports
         ? documents.contentHashInUse(hash, except)
@@ -6651,16 +6688,10 @@ export function createCore(adapters: CoreAdapters): Core {
     noteAt: (mindId) => {
       const note = minds.list().find((each) => each.id === mindId);
       if (!note) return null;
-      const words = content.peek(mindId, (blocks) =>
-        blocks
-          .toArray()
-          .map((block) => (block instanceof Y.XmlElement ? blockText(block) : ""))
-          .join("\n"),
-      );
       return {
         title: note.title,
         folderId: note.folderId,
-        words: hashBytes(new TextEncoder().encode(words)),
+        content: hashBytes(new TextEncoder().encode(content.peek(mindId, contentWithoutChecks))),
       };
     },
     nameMind: (mindId, title) => minds.rename(mindId, title),

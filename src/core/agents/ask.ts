@@ -105,12 +105,13 @@ export interface HandedFileAsked {
    * wrote it from with `save_as_word` (#3751), fixed there and saved again into the same item:
    * `folderId` to save with, null where a save names none to reach it; `own`, the agent wrote the
    * Note, so its fix lands at once rather than waiting for the User. A Note deleted since takes no
-   * fix: its file's text is read from the check's Note, as a text's is.
+   * fix: its file's text is read from the check's Note, as a text's is, and saved as a new file
+   * under `title`, which no other Word file of the agent's own text in that Folder has.
    */
   from:
     | { kind: "path"; path: string }
     | { kind: "note"; mindId: string; own: boolean; folderId: string | null }
-    | { kind: "deletedNote"; folderId: string }
+    | { kind: "deletedNote"; folderId: string; title: string }
     | { kind: "text"; folderId: string };
   /** Where in the file the claim a check result is on stands ("slide 4"); null when unknown. */
   whereOf(checkId: string | null): string | null;
@@ -342,6 +343,7 @@ function fileRequest(
   const folderId = from.kind === "path" ? null : from.folderId;
   const named = {
     title,
+    saveAs: from.kind === "deletedNote" ? quotedName(from.title) : title,
     version: file.version,
     path: from.kind === "path" ? from.path : "",
     // A Note's file is fixed in the Note; a text's, read from the Note its check is in.

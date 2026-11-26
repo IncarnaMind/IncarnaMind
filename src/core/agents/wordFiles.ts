@@ -108,6 +108,16 @@ export function wordItemOf(
   return kind === "text" ? { kind: "text" } : null;
 }
 
+/**
+ * The title of the agent's own text a Word file at `path` was saved from in this Folder (null: Not
+ * in a Folder), which a save of Markdown under that title there makes the next version of; null
+ * for a file of any other.
+ */
+export function textTitleOf(path: string, folderId: string | null): string | null {
+  const start = `${ITEM}text:${folderId ?? NOT_IN_A_FOLDER_ID}:`;
+  return path.startsWith(start) ? path.slice(start.length) : null;
+}
+
 export function createWordFileTool(context: WordFileToolContext) {
   const { t } = context;
 

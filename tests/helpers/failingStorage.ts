@@ -52,6 +52,20 @@ export function refuseWrites(
 }
 
 /**
+ * Makes the database refuse to change one column of a table, as a full disk does, until the
+ * returned function is called: a write of every other column still lands.
+ */
+export function refuseChangesOf(dataDir: string, table: string, column: string) {
+  const db = databaseOf(dataDir);
+  const name = `refuse_${table}_${column}`;
+  db.exec(`CREATE TRIGGER "${name}" BEFORE UPDATE OF "${column}" ON "${table}" BEGIN ${FULL}; END`);
+  return () => {
+    db.exec(`DROP TRIGGER "${name}"`);
+    db.close();
+  };
+}
+
+/**
  * Makes the commit of a transaction that deletes a Mind fail, as a full disk can at COMMIT,
  * until the returned function is called: the deletion leaves a row that breaks a deferred
  * foreign key, which SQLite checks only when it commits.
