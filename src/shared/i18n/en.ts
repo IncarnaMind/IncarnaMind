@@ -9041,10 +9041,11 @@ export const en = {
   "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
-  // A paragraph this run changed or added from the box at the Note's foot, which the window that
-  // asked puts in once the request ends (ADR-0034).
-  "agents.mind.yours": "(your change, made)",
-  "agents.mind.yoursRemoved": "(taken out by your change)",
+  // On the name of a paragraph this run changed or added from the box at the Note's foot, which the
+  // window that asked puts in once the request ends (ADR-0034), or took out: one mark in every
+  // language, as read_mind's description names it (#3753).
+  "agents.mind.yours": "✓",
+  "agents.mind.yoursRemoved": "✗",
   "agents.mind.busy": "(being written)",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",

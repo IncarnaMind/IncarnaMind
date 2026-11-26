@@ -495,15 +495,21 @@ export function namedNote(
     places.push(topOf(element, tops));
   }
   const status = (paragraph: NamedParagraph) => {
-    if (paragraph.yours === "removed") return words.yoursRemoved ?? words.yours;
-    if (paragraph.yours) return words.yours;
-    if (paragraph.held === null) return null;
+    if (paragraph.yours || paragraph.held === null) return null;
     return paragraph.held === "busy" ? words.busy : words.waiting;
   };
+  // This run's own change is marked on its name, the same in every language: as words beside the
+  // paragraph's, in the Note's own language, runs read the mark as words left in the Note (#3753).
+  const named = (paragraph: NamedParagraph) =>
+    paragraph.yours === "removed"
+      ? `${paragraph.name}${words.yoursRemoved ?? words.yours ?? ""}`
+      : paragraph.yours
+        ? `${paragraph.name}${words.yours ?? ""}`
+        : paragraph.name;
   // A paragraph this run takes out reads as taken out, never as words this request keeps.
   const line = (paragraph: NamedParagraph) =>
     [
-      paragraph.name,
+      named(paragraph),
       status(paragraph),
       paragraph.users === null ? null : options.users?.[paragraph.users],
       paragraph.yours === "removed" ? null : paragraph.text,
