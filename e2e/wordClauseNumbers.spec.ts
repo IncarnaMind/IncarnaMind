@@ -218,6 +218,11 @@ test("a heading renamed is renamed in the exported file's contents list, whose p
     "Chapter 1\t2",
     "Chapter 2: Results\t2",
   ]);
+  // The tracked change is the heading's; the entry's words are plain, as WPS draws no insertion
+  // inside an entry.
+  const rejected = rejectedParagraphs(document);
+  expect(rejected).toContain("Chapter 2: Results\t2");
+  expect(rejected).toContain("Chapter 2");
   expect(document).not.toContain("w:dirty");
   expect(unzip(data).get("word/settings.xml")?.toString() ?? "").not.toContain("updateFields");
   await app.close();

@@ -13,8 +13,8 @@
  *   tracked change counts or not;
  * - a table of contents' entry whose heading was renamed: the heading's words, before its page.
  *
- * With the User's edits tracked, a new result is their tracked change, the old one deleted and
- * the new inserted. A REF whose new result can't be known or can't carry a tracked change (a
+ * With the User's edits tracked, a REF's new result is their tracked change, the old one deleted
+ * and the new inserted. A REF whose new result can't be known or can't carry a tracked change (a
  * simple field's, one of several runs) is marked dirty and keeps its result: only those make Word
  * ask whether to update the fields. Page numbers, a PAGEREF's or a table of contents', need Word's
  * layout, and Word works them out at opening before it has laid the pages out (Word for Mac gives
@@ -427,8 +427,7 @@ export function refreshFields(
     splices.push(...(rewrite.length > 0 ? rewrite : markDirty(after.text, field.begin)));
   }
   for (const field of fields) {
-    if (field.type === "TOC")
-      splices.push(...renamedEntries(after.text, field, fields, was, now, track));
+    if (field.type === "TOC") splices.push(...renamedEntries(after.text, field, fields, was, now));
   }
   return splices.length > 0 ? applySplices(after.text, splices) : after.text;
 }
@@ -437,7 +436,9 @@ export function refreshFields(
  * A table of contents' entries whose headings were renamed, given the headings' words: Word shows
  * an entry as the file saved it until the User updates the table, and WPS never updates it. An
  * entry is the heading's words after anything before them (its number), then its page; one whose
- * words don't end with its heading's as the file had them is left as it was.
+ * words don't end with its heading's as the file had them is left as it was. The words are written
+ * plain even with the User's edits tracked: the tracked change is the heading's, and WPS doesn't
+ * draw an insertion inside an entry.
  */
 function renamedEntries(
   text: string,
@@ -445,7 +446,6 @@ function renamedEntries(
   fields: readonly Field[],
   was: Reading,
   now: Reading,
-  track: Track | undefined,
 ): Splice[] {
   const entries = new Map<XmlElement, XmlElement[]>();
   for (const t of toc.result) {
@@ -466,67 +466,30 @@ function renamedEntries(
     const shown = texts.map(textIn);
     const words = shown.join("");
     if (!words.endsWith(then)) continue;
-    // Only what changed is written, so a tracked change shows the words the User changed.
-    let same = 0;
-    while (same < then.length && then[same] === next[same]) same++;
-    const from = words.length - then.length + same;
-    splices.push(...replacedEnd(text, now, texts, shown, from, next.slice(same), track));
+    splices.push(...replacedEnd(text, texts, shown, words.length - then.length, next));
   }
   return splices;
 }
 
-/**
- * Texts' words from `from` on replaced by `words`: written into the first text there, the rest
- * emptied; with the User's edits tracked, their deletion and insertion, when each run there holds
- * only its text, else left as they were.
- */
+/** Texts' words from `from` on replaced by `words`: written into the first text there, the rest emptied. */
 function replacedEnd(
   text: string,
-  reading: Reading,
   texts: readonly XmlElement[],
   shown: readonly string[],
   from: number,
   words: string,
-  track: Track | undefined,
 ): Splice[] {
-  const replaced: { t: XmlElement; kept: string; old: string }[] = [];
   let at = 0;
-  texts.forEach((t, index) => {
+  let first = true;
+  return texts.flatMap((t, index) => {
     const own = shown[index] ?? "";
-    // Words added after all the others go into the last text.
-    if (at + own.length > from || (index === texts.length - 1 && at + own.length === from)) {
-      const cut = Math.max(0, from - at);
-      replaced.push({ t, kept: own.slice(0, cut), old: own.slice(cut) });
-    }
+    const start = at;
     at += own.length;
-  });
-  const [first] = replaced;
-  if (!first) return [];
-  if (!track) {
-    return replaced.flatMap(({ t, kept }, index) =>
-      rewritten(text, [t], index === 0 ? kept + words : kept),
-    );
-  }
-  const runs = replaced.map(({ t }) => reading.parentOf(t));
-  const alone = (run: XmlElement | undefined, t: XmlElement): run is XmlElement =>
-    run?.name === "w:r" && elements(run).every((each) => each === t || each.name === "w:rPr");
-  if (!replaced.every(({ t }, index) => alone(runs[index], t))) return [];
-  const runOf = (run: XmlElement, words: string) => {
-    const rPr = child(run, "w:rPr");
-    const open = text.slice(startOf(run), run.openEnd ?? startOf(run));
-    return `${open}${rPr ? text.slice(startOf(rPr), endOf(rPr)) : ""}<w:t xml:space="preserve">${escapeXml(words)}</w:t></w:r>`;
-  };
-  return replaced.map(({ kept, old }, index) => {
-    const run = runs[index] as XmlElement;
-    const last = index === replaced.length - 1;
-    return {
-      from: startOf(run),
-      to: endOf(run),
-      text:
-        (kept ? runOf(run, kept) : "") +
-        (old ? track(runOf(run, old), "delete") : "") +
-        (last && words ? track(runOf(runs[0] as XmlElement, words), "insert") : ""),
-    };
+    if (at <= from) return [];
+    const kept = own.slice(0, Math.max(0, from - start));
+    const written = first ? kept + words : kept;
+    first = false;
+    return rewritten(text, [t], written);
   });
 }
 

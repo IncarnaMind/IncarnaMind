@@ -707,18 +707,22 @@ describe("a Word file's table of contents after an edit", () => {
     },
   );
 
-  // protects=with the User's edits tracked, a renamed heading's entry is their tracked change: every change accepted it reads the new words, every change rejected the old, its number and page kept as they were; fails_when=the new words are written untracked, or the number or page is touched; no_claim=an entry whose words share a run with its number.
-  test("with the User's edits tracked, an entry's new words are their tracked change", async () => {
+  // protects=with the User's edits tracked, the tracked change is the heading's and its entry reads the new words plain, since WPS draws no insertion inside an entry; its number and page kept as they were; fails_when=the entry carries a tracked change, keeps the old words, or its number or page is touched; no_claim=what the entry says once the User rejects the heading's change, which Word gives back when the User updates the table.
+  test("with the User's edits tracked, an entry's new words are plain and the heading's are tracked", async () => {
     const { data, document } = await exported(
       withContents(["Services", "Fees"], true),
       renamed("Fees", "Fees and costs"),
       true,
     );
-    expect(acceptedParagraphs(document).slice(0, 2)).toEqual([
-      "1\tServices\t2",
-      "2\tFees and costs\t3",
-    ]);
-    expect(rejectedParagraphs(document).slice(0, 2)).toEqual(["1\tServices\t2", "2\tFees\t3"]);
+    const entries = document.match(/<w:p><w:pPr><w:pStyle w:val="TOC1"\/>.*?<\/w:p>/gs) ?? [];
+    expect(entries).toHaveLength(2);
+    expect(entries.join("")).not.toMatch(/<w:(?:ins|del)\b/);
+    expect(acceptedParagraphs(document)).toEqual(
+      expect.arrayContaining(["1\tServices\t2", "2\tFees and costs\t3", "Fees and costs"]),
+    );
+    expect(rejectedParagraphs(document)).toEqual(
+      expect.arrayContaining(["2\tFees and costs\t3", "Fees"]),
+    );
     expect(document).not.toContain("w:dirty");
     expect((await inspectPackage(data)).problems).toEqual([]);
   });
