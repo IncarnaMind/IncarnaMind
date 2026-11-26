@@ -156,10 +156,14 @@ function fitToView(frame: HTMLElement | null) {
   frame.style.setProperty("--selection-menu-room", `${room}px`);
 }
 
+/** The least the menu shrinks to: its field and a row above it (styles.css, `.selection-menu`). */
+const MENU_LEAST = 140;
+
 /**
  * Where the whole menu fits neither below the selection nor above it in the view, the room on the
  * larger side: it shrinks to stand there, its rows scrolling, rather than slide over the words the
- * User is selecting. Null where it fits on one side, or nothing is selected to keep clear of.
+ * User is selecting. Null where it fits on one side, where neither side holds even its least, so
+ * it takes the whole view, or where nothing is selected to keep clear of.
  */
 function besideSelection(frame: HTMLElement, view: Element): number | null {
   const selection = document.getSelection();
@@ -170,7 +174,7 @@ function besideSelection(frame: HTMLElement, view: Element): number | null {
   const within = view.getBoundingClientRect();
   // The 8px offset from the selection, and the 8px padding the slide keeps from the view's edge.
   const larger = Math.max(selected.top - within.top, within.bottom - selected.bottom) - 16;
-  return menu.scrollHeight <= larger ? null : Math.max(larger, 0);
+  return menu.scrollHeight <= larger || larger < MENU_LEAST ? null : larger;
 }
 
 function hideMenu(editor: Editor) {
