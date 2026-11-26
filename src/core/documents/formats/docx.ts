@@ -32,7 +32,7 @@ import {
 import { headingLevelOfStyleName } from "../../../shared/wordStyles";
 import { cellTable, headingRowsOf, isFigure, shiftedDigits } from "../tableCells";
 import { mainRootOf, OfficePackage, partOfType, type Relationships } from "./officePackage";
-import { readStyleTable } from "./wordStyleTable";
+import { readStyleTable, type WordStyleTable } from "./wordStyleTable";
 import { child, elements, local, parseXml, type XmlElement } from "./xml";
 import { openPackage, type ZipArchive } from "./zip";
 
@@ -49,6 +49,21 @@ export function headingLevelOf(style: XmlElement): number | null {
   if (named !== null) return named;
   const outline = child(child(style, "w:pPr") ?? style, "w:outlineLvl")?.attrs["w:val"];
   if (outline !== undefined && Number(outline) < 9) return Number(outline) + 1;
+  return null;
+}
+
+/** A paragraph's heading level: its own outline level wins over its style chain's; level 9 is body text. */
+export function paragraphHeadingLevel(
+  styles: WordStyleTable,
+  styleId: string | null,
+  pPr: XmlElement | undefined,
+): number | null {
+  const outline = pPr && child(pPr, "w:outlineLvl")?.attrs["w:val"];
+  if (outline !== undefined) return Number(outline) < 9 ? Number(outline) + 1 : null;
+  for (const style of styles.chain("paragraph", styleId)) {
+    const level = headingLevelOf(style.element);
+    if (level !== null) return level;
+  }
   return null;
 }
 

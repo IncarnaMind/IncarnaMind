@@ -24,8 +24,8 @@ const NAMESPACES = [
 
 const DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const MAIN_TYPE =
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+const WML = "application/vnd.openxmlformats-officedocument.wordprocessingml";
+const MAIN_TYPE = `${WML}.document.main+xml`;
 
 export const escapeXml = (text: string) =>
   text
@@ -123,6 +123,8 @@ export interface WordFileInput {
   rels?: string;
   /** The main part's content type, if not a .docx's. */
   contentType?: string;
+  /** false: no content type of their own for the other parts, as files made before Word was shown them had. */
+  partContentTypes?: boolean;
   /** More entries in the package. */
   parts?: ZipInput[];
   /** The inside of the body's last w:sectPr, the last section's layout: its header and footer references; `null` writes no w:sectPr at all. */
@@ -135,16 +137,24 @@ export function wordFile(input: WordFileInput): Buffer {
     `<Relationship Id="rIdStyles" Type="${REL}/styles" Target="styles.xml"/>`,
   ];
   const entries: ZipInput[] = [];
-  const add = (name: string, data: string | Buffer) => entries.push({ name, data });
+  // Each part's own content type, as Word writes it: without one Word reports unreadable content.
+  const overrides: string[] = [];
+  const add = (name: string, data: string | Buffer, type?: string) => {
+    entries.push({ name, data });
+    if (type && input.partContentTypes !== false)
+      overrides.push(`<Override PartName="/${name}" ContentType="${WML}.${type}+xml"/>`);
+  };
   add(
     "word/styles.xml",
     `${DECLARATION}<w:styles ${NAMESPACES}>${input.styles ?? STYLES}</w:styles>`,
+    "styles",
   );
   if (input.numbering !== undefined) {
     rels.push(`<Relationship Id="rIdNumbering" Type="${REL}/numbering" Target="numbering.xml"/>`);
     add(
       "word/numbering.xml",
       `${DECLARATION}<w:numbering ${NAMESPACES}>${input.numbering}</w:numbering>`,
+      "numbering",
     );
   }
   if (input.comments !== undefined) {
@@ -152,6 +162,7 @@ export function wordFile(input: WordFileInput): Buffer {
     add(
       "word/comments.xml",
       `${DECLARATION}<w:comments ${NAMESPACES}>${input.comments}</w:comments>`,
+      "comments",
     );
   }
   if (input.footnotes !== undefined) {
@@ -159,6 +170,7 @@ export function wordFile(input: WordFileInput): Buffer {
     add(
       "word/footnotes.xml",
       `${DECLARATION}<w:footnotes ${NAMESPACES}><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${input.footnotes}</w:footnotes>`,
+      "footnotes",
     );
   }
   if (input.endnotes !== undefined) {
@@ -166,6 +178,7 @@ export function wordFile(input: WordFileInput): Buffer {
     add(
       "word/endnotes.xml",
       `${DECLARATION}<w:endnotes ${NAMESPACES}><w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:endnote><w:endnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:endnote>${input.endnotes}</w:endnotes>`,
+      "endnotes",
     );
   }
   if (input.settings !== undefined) {
@@ -173,6 +186,7 @@ export function wordFile(input: WordFileInput): Buffer {
     add(
       "word/settings.xml",
       `${DECLARATION}<w:settings ${NAMESPACES}>${input.settings}</w:settings>`,
+      "settings",
     );
   }
   for (const [kind, parts] of [
@@ -184,7 +198,7 @@ export function wordFile(input: WordFileInput): Buffer {
       const name = `${kind}${index++}.xml`;
       rels.push(`<Relationship Id="${id}" Type="${REL}/${kind}" Target="${name}"/>`);
       const root = kind === "header" ? "w:hdr" : "w:ftr";
-      add(`word/${name}`, `${DECLARATION}<${root} ${NAMESPACES}>${xml}</${root}>`);
+      add(`word/${name}`, `${DECLARATION}<${root} ${NAMESPACES}>${xml}</${root}>`, kind);
     }
   }
   for (const [id, { name, data }] of Object.entries(input.media ?? {})) {
@@ -192,7 +206,7 @@ export function wordFile(input: WordFileInput): Buffer {
     entries.push({ name: `word/${name}`, data });
   }
   if (input.rels) rels.push(input.rels);
-  const override = `<Override PartName="/word/document.xml" ContentType="${input.contentType ?? MAIN_TYPE}"/>`;
+  const override = `<Override PartName="/word/document.xml" ContentType="${input.contentType ?? MAIN_TYPE}"/>${overrides.join("")}`;
   return buildZip([
     {
       name: "[Content_Types].xml",

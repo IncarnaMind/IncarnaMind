@@ -1,5 +1,18 @@
 import { crc32, inflateRawSync } from "node:zlib";
 import { DOMParser, type Element, type Node } from "@xmldom/xmldom";
+import {
+  paragraphNumbers,
+  readWordNumbering,
+} from "../../src/core/documents/formats/wordNumbering";
+import { readStyleTable } from "../../src/core/documents/formats/wordStyleTable";
+import {
+  child,
+  descendants,
+  elements,
+  parseXml,
+  textOf as textOfElement,
+  type XmlElement,
+} from "../../src/core/documents/formats/xml";
 
 /**
  * The files in a ZIP archive (a .docx), by path. Checks each entry's CRC-32
@@ -41,6 +54,21 @@ export function part(files: Map<string, Buffer>, name: string): string {
   const content = files.get(name);
   if (!content) throw new Error(`The package has no ${name}.`);
   return content.toString("utf8");
+}
+
+/** Each paragraph of a .docx with the number Word draws before it: "2.1 The fee…", or its text alone. */
+export function numbersIn(data: Uint8Array): string[] {
+  const files = unzip(data);
+  const styles = readStyleTable(parseXml(part(files, "word/styles.xml")));
+  const numbering = readWordNumbering(
+    files.has("word/numbering.xml") ? parseXml(part(files, "word/numbering.xml")) : undefined,
+    styles,
+  );
+  const paragraphs = descendants(parseXml(part(files, "word/document.xml")), "w:p");
+  return paragraphNumbers(numbering, styles, paragraphs).map((number, index) => {
+    const text = textOfElement(paragraphs[index] ?? { name: "", attrs: {}, children: [] });
+    return number ? `${number.text} ${text}` : text;
+  });
 }
 
 /**
@@ -127,6 +155,68 @@ export function paragraphsOf(xml: string): DocxParagraph[] {
   return paragraphs;
 }
 
+/** One character of a paragraph as Word shows it, and its run's properties. */
+export interface RunCharacter {
+  char: string;
+  /** Each property written out with its attributes sorted, the properties sorted; a tracked format change left out. */
+  format: string[];
+  /** In a field's result, which Word writes, rather than in the paragraph's own text. */
+  field: boolean;
+}
+
+const writtenOut = (element: XmlElement): string =>
+  `${element.name}{${Object.entries(element.attrs)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ")}}[${elements(element).map(writtenOut).join(",")}]`;
+
+const RUN_CHARACTERS: Readonly<Record<string, string>> = {
+  "w:tab": "\t",
+  "w:br": "\n",
+  "w:cr": "\n",
+  "w:noBreakHyphen": "‑",
+  "w:softHyphen": "­",
+};
+const NOT_SHOWN = new Set(["w:p", "w:pPr", "w:del", "w:moveFrom", "w:txbxContent"]);
+
+/**
+ * A paragraph's own characters as Word shows them, each with its run's properties: not a nested
+ * paragraph's (a text box's), nor deleted text. For telling which formatting an edit kept.
+ */
+export function runCharacters(p: XmlElement): RunCharacter[] {
+  const out: RunCharacter[] = [];
+  /** Each complex field open here: whether its result has begun. */
+  const open: boolean[] = [];
+  const visit = (node: XmlElement, simple: boolean) => {
+    for (const each of elements(node)) {
+      if (NOT_SHOWN.has(each.name)) continue;
+      if (each.name !== "w:r") {
+        visit(each, simple || each.name === "w:fldSimple");
+        continue;
+      }
+      const rPr = child(each, "w:rPr");
+      const format = (rPr ? elements(rPr) : [])
+        .filter((property) => property.name !== "w:rPrChange")
+        .map(writtenOut)
+        .sort();
+      for (const inner of elements(each)) {
+        const kind = inner.name === "w:fldChar" ? inner.attrs["w:fldCharType"] : undefined;
+        if (kind === "begin") open.push(false);
+        else if (kind === "separate" && open.length > 0) open[open.length - 1] = true;
+        else if (kind === "end") open.pop();
+        const text =
+          inner.name === "w:t"
+            ? inner.children.filter((piece): piece is string => typeof piece === "string").join("")
+            : RUN_CHARACTERS[inner.name];
+        const field = simple || open.includes(true);
+        for (const char of text ?? "") out.push({ char, format, field });
+      }
+    }
+  };
+  visit(p, false);
+  return out;
+}
+
 /** The text of each footnote in footnotes.xml, by id, leaving out Word's separators. */
 export function footnotesOf(xml: string): Record<string, string> {
   const footnotes: Record<string, string> = {};
@@ -147,15 +237,26 @@ const childElements = (node: Node): Element[] => {
 const named = (node: Node, name: string) =>
   childElements(node).find((each) => each.nodeName === name);
 
-/** A paragraph's text with every change accepted: a footnote's mark as [*], a text box's left out. */
-function acceptedText(paragraph: Element): string {
+/** Every tracked change accepted, or every one rejected: what each drops, and which text it shows. */
+const VIEWS = {
+  accepted: { gone: ["w:del", "w:moveFrom"], text: ["w:t"] },
+  rejected: { gone: ["w:ins", "w:moveTo"], text: ["w:t", "w:delText"] },
+} as const;
+type View = keyof typeof VIEWS;
+
+/** A paragraph's text in a view: a footnote's mark as [*], a text box's left out. */
+function viewText(paragraph: Element, view: View): string {
+  const { gone, text: texts } = VIEWS[view];
   let text = "";
   const visit = (node: Node) => {
     for (const child of childElements(node)) {
       const name = child.nodeName;
-      if (["w:pPr", "w:rPr", "w:del", "w:moveFrom", "w:txbxContent", "mc:Fallback"].includes(name))
+      if (
+        ["w:pPr", "w:rPr", "w:txbxContent", "mc:Fallback"].includes(name) ||
+        (gone as readonly string[]).includes(name)
+      )
         continue;
-      if (name === "w:t") text += child.textContent ?? "";
+      if ((texts as readonly string[]).includes(name)) text += child.textContent ?? "";
       else if (name === "w:tab") text += "\t";
       else if (name === "w:br") text += "\n";
       else if (name === "w:footnoteReference") text += "[*]";
@@ -174,6 +275,16 @@ function acceptedText(paragraph: Element): string {
  * stack of its own: a table can nest thousands deep.
  */
 export function acceptedParagraphs(documentXml: string): string[] {
+  return paragraphsIn(documentXml, "accepted");
+}
+
+/** The body's paragraphs with every tracked change rejected: insertions gone, deletions kept, as `acceptedParagraphs` the other way. */
+export function rejectedParagraphs(documentXml: string): string[] {
+  return paragraphsIn(documentXml, "rejected");
+}
+
+function paragraphsIn(documentXml: string, view: View): string[] {
+  const goneMark = VIEWS[view].gone[0];
   const document = new DOMParser().parseFromString(documentXml, "text/xml");
   const body = document.documentElement && named(document.documentElement, "w:body");
   const lines: string[] = [];
@@ -187,16 +298,16 @@ export function acceptedParagraphs(documentXml: string): string[] {
     const node = stack.pop() as Element;
     if (node.nodeName === "w:p") {
       if (pending && pending.parent !== node.parentNode) flush();
-      const text: string = (pending?.text ?? "") + acceptedText(node);
+      const text: string = (pending?.text ?? "") + viewText(node, view);
       const mark = named(named(node, "w:pPr") ?? node, "w:rPr");
-      const markDeleted = mark?.parentNode?.nodeName === "w:pPr" && named(mark, "w:del");
+      const markGone = mark?.parentNode?.nodeName === "w:pPr" && named(mark, goneMark);
       pending = { text, parent: node.parentNode };
-      if (!markDeleted) flush();
+      if (!markGone) flush();
       continue;
     }
     if (node.nodeName === "w:tr") {
       const trPr = named(node, "w:trPr");
-      if (trPr && named(trPr, "w:del")) continue;
+      if (trPr && named(trPr, goneMark)) continue;
     }
     if (["w:tbl", "w:tr", "w:tc", "w:sdt", "w:sdtContent", "w:customXml"].includes(node.nodeName)) {
       if (node.nodeName === "w:tbl") flush();

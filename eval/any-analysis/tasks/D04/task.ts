@@ -53,6 +53,8 @@ function budget(): Uint8Array {
     ],
   ];
   return wordFile({
+    // The file byte for byte as the kept runs were given it (eval/evidence/2411-any-analysis).
+    partContentTypes: false,
     body: [
       paragraph("Northmere Library refurbishment: budget 2026", { style: "Title" }),
       paragraph(

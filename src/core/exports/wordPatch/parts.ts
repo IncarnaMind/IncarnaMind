@@ -6,7 +6,8 @@
  * export made it.
  */
 import type { NumberingScheme } from "../../../shared/numbering";
-import { child, elements } from "../../documents/formats/xml";
+import { readStyleTable, type WordStyleTable } from "../../documents/formats/wordStyleTable";
+import { child, elements, type XmlElement } from "../../documents/formats/xml";
 import {
   type DocxStyles,
   type DocxTarget,
@@ -92,14 +93,17 @@ export class DocumentStyles {
   private readonly added: string[] = [];
   private readonly chosen = new Map<StyleRole, string>();
   readonly bases: StyleBases;
+  /** The file's styles as the import reads them, for what is numbered through them. */
+  readonly table: WordStyleTable;
 
   private constructor(
     private readonly pkg: PackageWriter,
     private readonly document: string,
     private readonly relationships: PartRelationships,
-    private readonly name: string,
+    readonly name: string,
     private readonly part: PartText | null,
   ) {
+    this.table = readStyleTable(part?.root);
     const defaults: StyleBases = { paragraph: null, character: null, table: null };
     for (const style of part ? elements(part.root) : []) {
       if (style.name !== "w:style") continue;
@@ -236,7 +240,7 @@ export class DocumentNumbering {
     private readonly pkg: PackageWriter,
     private readonly document: string,
     private readonly relationships: PartRelationships,
-    private readonly name: string,
+    readonly name: string,
     private readonly part: PartText | null,
   ) {
     const numbers = (name: string, attribute: string) =>
@@ -256,6 +260,11 @@ export class DocumentNumbering {
     const name = relationships.ofType(RELATIONSHIP_TYPES.numbering)?.target ?? null;
     const part = name ? await pkg.part(name) : null;
     return new DocumentNumbering(pkg, document, relationships, name ?? "word/numbering.xml", part);
+  }
+
+  /** The numbering as the file has it, before any list is added. */
+  get fileRoot(): XmlElement | undefined {
+    return this.part?.root;
   }
 
   /** A new list: its numId, its items at Word level `level` and drawn from `from` of its scheme. Each numbered one starts at `start`. */
