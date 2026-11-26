@@ -23,18 +23,14 @@ export const STOP_AFTER_CALL_MS = 30_000;
 
 /**
  * Whether an offer to take notes may show, by the User's switches in Settings › General (#189):
- * the calendar's before a calendar meeting (#207), a call's when `app` took the microphone. A
- * calendar's waits for Meetings to be set up, the recording notice read on this device; a call's
- * may come before (#3758), and taking it waits for the notice.
+ * the calendar's before a calendar meeting (#207), a call's when `app` took the microphone. Either
+ * may come before the first recording on this device (#3758): taking it records at once.
  */
 export function offerAllowed(
-  device: Pick<
-    DeviceSettings,
-    "meetingNoticeAccepted" | "calendarOffers" | "callOffers" | "callOffersOff"
-  >,
+  device: Pick<DeviceSettings, "calendarOffers" | "callOffers" | "callOffersOff">,
   offer: { kind: "calendar" } | { kind: "call"; app: string },
 ): boolean {
-  if (offer.kind === "calendar") return device.meetingNoticeAccepted && device.calendarOffers;
+  if (offer.kind === "calendar") return device.calendarOffers;
   return device.callOffers && !device.callOffersOff.includes(offer.app);
 }
 

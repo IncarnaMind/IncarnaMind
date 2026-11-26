@@ -1,9 +1,13 @@
 import { isMacOS } from "@tiptap/core";
-import type { ReactNode, Ref } from "react";
-import type { AudioSource, Meeting, MeetingSourceState } from "../../../core/api";
+import type { ReactNode } from "react";
+import type {
+  AudioSource,
+  Meeting,
+  MeetingSaveProblem,
+  MeetingSourceState,
+} from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { shortcutLabel } from "../commands/keymap";
-import { commands } from "../commands/registry";
 import { files } from "../core";
 import { useT } from "../i18n";
 import { helpKeysLabel, useMeetingHelp } from "../meetingHelp";
@@ -16,46 +20,21 @@ import {
   checkTranscriptionKey,
   ROUTE_LABELS,
 } from "../transcriptionServices";
-import { CallEndingLine } from "./CallEndingLine";
-import { CaptureDetailsToggle } from "./CaptureDetails";
-import {
-  BookmarkLineIcon,
-  FloatLineIcon,
-  PauseLineIcon,
-  ResumeLineIcon,
-  StopLineIcon,
-} from "./lineIcons";
-import { BarMore } from "./meetings/BarMore";
+import { FloatLineIcon, PauseLineIcon, ResumeLineIcon, StopLineIcon } from "./lineIcons";
 import { LevelBars } from "./meetings/LevelBars";
-import { MeetingTemplatePicker } from "./meetings/MeetingTemplatePicker";
-import { MicrophoneButton } from "./meetings/MicrophoneButton";
-import { ViewSwitch } from "./meetings/ViewSwitch";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
-import { SharedScreenLine } from "./SharedScreenLine";
 import { TranscriptLines } from "./TranscriptLines";
-import { useTabPlace } from "./tabs/tabItems";
 
 /**
- * The meeting bar, while the Mind's Meeting records or is paused: at the top
- * of the Mind, under its title, and kept in view as the notes scroll (the
- * owner's direction of 2026-10-11, in place of DESIGN.md's bar in the
- * composer). Its controls, the shared screen's line (ADR-0031), then a line
- * for each thing about the recording the User should know, then whatever the
- * Mind adds (its audio, once paused).
+ * A voice memo's bar while it records or is paused, at the top of its Note, kept in view as the
+ * notes scroll: its controls, then a line for each thing about the recording the User should
+ * know, then whatever the Note adds (its audio, once paused). A recorded call has its control at
+ * the Note's foot instead (`meetings/MeetingFoot.tsx`, #3762).
  */
-export function MeetingBar({
-  meeting,
-  children,
-  ref,
-}: {
-  meeting: Meeting;
-  children?: ReactNode;
-  ref?: Ref<HTMLElement>;
-}) {
+export function MeetingBar({ meeting, children }: { meeting: Meeting; children?: ReactNode }) {
   const t = useT();
   return (
     <section
-      ref={ref}
       data-testid="meeting-bar"
       data-status={meeting.status}
       data-kind={meeting.kind}
@@ -63,9 +42,7 @@ export function MeetingBar({
       className="meeting-bar"
     >
       <MeetingControls meeting={meeting} />
-      <SharedScreenLine meeting={meeting} />
       <MeetingLines meeting={meeting} />
-      <CallEndingLine meeting={meeting} />
       <TranscriptLines meeting={meeting} over />
       {children}
     </section>
@@ -82,23 +59,18 @@ export function MeetingBarRoom({ meeting }: { meeting: Meeting }) {
 }
 
 /**
- * The live-recording dot (red, the one red outside Citation checks; grey
- * while paused), "Recording 24:16" (or "Paused"), Pause my mic, Pause or
- * Resume and Stop, then Notes | Transcript with the level bars. ⌘⇧P is the
- * "meeting.pauseResume" command's (../commands/meetings). A voice memo's reads
- * "Voice memo 00:42" with its level bars, and Pause and Stop only: it has no call's parts (#1568).
+ * The live-recording dot (red, the one red outside Citation checks; grey while paused), "Voice
+ * memo 00:42" (or "Paused") with its level bars, Pause or Resume, and Stop: a memo has no call's
+ * parts (#1568). ⌘⇧P is the "meeting.pauseResume" command's (../commands/meetings).
  */
 function MeetingControls({ meeting }: { meeting: Meeting }) {
   const t = useT();
-  const tabId = useTabPlace()?.tabId;
   const time = clockTime(useMeetingTime(meeting));
   const { pause, resume, stop } = useMeetings.getState();
   const recording = meeting.status === "recording";
   const waiting = isWaitingForPermission(meeting);
-  const memo = meeting.kind === "memo";
   const toggle = () => void (recording ? pause(meeting.id) : resume(meeting.id));
   const shortcut = shortcutLabel("meeting.pauseResume");
-  const markShortcut = shortcutLabel("meeting.mark");
 
   return (
     <div data-testid="meeting-controls" className="meeting-controls">
@@ -115,9 +87,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
               ? "meetings.bar.waiting"
               : !recording
                 ? "meetings.bar.paused"
-                : memo
-                  ? "memos.bar.recording"
-                  : "meetings.bar.recording",
+                : "memos.bar.recording",
           )}
         </span>
         {!waiting && (
@@ -125,15 +95,8 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
             {time}
           </span>
         )}
-        {memo && <LevelBars meeting={meeting} />}
+        <LevelBars meeting={meeting} />
       </span>
-      {!memo && (
-        <MicrophoneButton
-          meeting={meeting}
-          testId="meeting-mic"
-          className="meeting-button meeting-button--icon"
-        />
-      )}
       <button
         type="button"
         data-testid={recording ? "meeting-pause" : "meeting-resume"}
@@ -159,36 +122,12 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         <StopLineIcon className="size-3.5" />
         <span className="meeting-button-word">{t("meetings.bar.stop")}</span>
       </button>
-      {!memo && (
-        <>
-          <button
-            type="button"
-            data-testid="meeting-mark"
-            data-fold="mark"
-            disabled={!recording}
-            aria-label={t("meetings.mark.title", { shortcut: markShortcut })}
-            title={t(recording ? "meetings.mark.title" : "meetings.command.markPaused", {
-              shortcut: markShortcut,
-            })}
-            onClick={() => void commands.run("meeting.mark")}
-            className="meeting-button meeting-button--words"
-          >
-            <BookmarkLineIcon className="size-3.5" />
-            <span className="meeting-button-word">{t("meetings.mark")}</span>
-          </button>
-          <CallHelpToggle />
-          <CaptureDetailsToggle meeting={meeting} />
-          <MeetingTemplatePicker meeting={meeting} />
-          {tabId && <ViewSwitch meeting={meeting} tabId={tabId} />}
-          <BarMore meeting={meeting} />
-        </>
-      )}
     </div>
   );
 }
 
 /** Call help (通话助手): shows or hides the floating panel for this Meeting, as ⌘K and its shortcut do. */
-function CallHelpToggle() {
+export function CallHelpToggle() {
   const t = useT();
   const shown = useMeetingHelp((state) => state.panel.shown);
   const keys = useAppStore((state) => helpKeysLabel("panel", state.settings));
@@ -208,7 +147,7 @@ function CallHelpToggle() {
       onClick={() => files.showMeetingPanel(!shown)}
       className="meeting-button meeting-button--words"
     >
-      <FloatLineIcon className="size-3.5" />
+      <FloatLineIcon className="size-4" />
       <span className="meeting-button-word">{t("meetings.callHelp")}</span>
     </button>
   );
@@ -216,9 +155,12 @@ function CallHelpToggle() {
 
 /**
  * What the User should know about the recording, a line each: its health, a cut, a gap, and
- * transcription back on this computer after the cloud service stopped (#141).
+ * transcription back on this computer after the cloud service stopped (#141). `cards`: over a
+ * call's control with its sheet folded, each a card of its own, only the lines that can't wait for
+ * the sheet: what failed, audio not saved, the cut, the computer's sound, and the steps its
+ * settings asked for. The control's own card says the microphone's.
  */
-function MeetingLines({ meeting }: { meeting: Meeting }) {
+export function MeetingLines({ meeting, cards = false }: { meeting: Meeting; cards?: boolean }) {
   const t = useT();
   const problem = useMeetings((state) => state.problems[meeting.id]);
   const gapsSeen = useMeetings((state) => state.gapsSeen[meeting.id] ?? 0);
@@ -233,10 +175,7 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
 
   if (problem) lines.push({ key: "problem", text: problem });
   if (meeting.saveError) {
-    lines.push({
-      key: "save",
-      text: t("meetings.line.saveFailed", { message: meeting.saveError }),
-    });
+    lines.push({ key: "save", text: t(SAVE_FAILED[meeting.saveError]) });
   }
   if (meeting.status === "paused" && meeting.pausedBy === "interrupted") {
     lines.push({
@@ -319,38 +258,53 @@ function MeetingLines({ meeting }: { meeting: Meeting }) {
     });
   }
 
-  return (
-    <>
-      {lines.map((line) => (
-        <ProblemLine
-          key={line.key}
-          testId={`meeting-line-${line.key}`}
-          role={STATUS_LINES.has(line.key) ? "status" : "alert"}
-          className="meeting-line"
-          action={line.action}
-        >
-          {line.text}
-        </ProblemLine>
-      ))}
-      {inPlace && (
-        <ProblemLine
-          testId="meeting-line-guide"
-          role="status"
-          className="meeting-line"
-          action={{
-            label: t("move.dismiss"),
-            testId: "meeting-line-guide-close",
-            onClick: () => files.closePermissionGuide(),
-          }}
-        >
-          {inPlace.status === "granted"
-            ? t(`meetings.guide.done.${inPlace.source}`)
-            : t("meetings.guide.inline", { where: t(`meetings.guide.where.${inPlace.source}`) })}
-        </ProblemLine>
-      )}
-    </>
-  );
+  const shown = lines
+    .filter((line) => !cards || FOLDED_LINES.has(line.key))
+    .map((line) => (
+      <ProblemLine
+        key={line.key}
+        testId={`meeting-line-${line.key}`}
+        role={STATUS_LINES.has(line.key) ? "status" : "alert"}
+        className="meeting-line"
+        action={line.action}
+      >
+        {line.text}
+      </ProblemLine>
+    ));
+  if (inPlace) {
+    shown.push(
+      <ProblemLine
+        key="guide"
+        testId="meeting-line-guide"
+        role="status"
+        className="meeting-line"
+        action={{
+          label: t("move.dismiss"),
+          testId: "meeting-line-guide-close",
+          onClick: () => files.closePermissionGuide(),
+        }}
+      >
+        {inPlace.status === "granted"
+          ? t(`meetings.guide.done.${inPlace.source}`)
+          : t("meetings.guide.inline", { where: t(`meetings.guide.where.${inPlace.source}`) })}
+      </ProblemLine>,
+    );
+  }
+  if (!cards) return shown;
+  return shown.map((line) => (
+    <div key={line.key} className="meeting-foot-card">
+      {line}
+    </div>
+  ));
 }
+
+const FOLDED_LINES: ReadonlySet<string> = new Set(["problem", "save", "interrupted", "system"]);
+
+const SAVE_FAILED: Record<MeetingSaveProblem, MessageKey> = {
+  full: "meetings.line.saveFailed.full",
+  denied: "meetings.line.saveFailed.denied",
+  error: "meetings.line.saveFailed.error",
+};
 
 const STATUS_LINES: ReadonlySet<string> = new Set([
   "gap",

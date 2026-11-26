@@ -118,6 +118,7 @@ import {
   JudgedAnswerContext,
   MindIdContext,
   RegenerateAnswerContext,
+  ReplyCitationOpensContext,
   SignOffsContext,
   useCitedOrigin,
 } from "./mindContext";
@@ -220,6 +221,7 @@ export function CitationView({
   const mindId = useContext(MindIdContext);
   const regenerateHere = useContext(RegenerateAnswerContext);
   const judgedAnswer = useContext(JudgedAnswerContext);
+  const replyOpens = useContext(ReplyCitationOpensContext);
   const attributes = node.attrs as CitationAttributes;
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
@@ -370,10 +372,39 @@ export function CitationView({
    * Opens the cited place, or the Document; amber when opened anyway after "not found".
    * From the card, a preview of the Document already open is kept.
    */
+  /** Whether the reply it is in opened it, at `quote` over these Units. */
+  const openedByReply = (
+    documentId: string,
+    quote: string | null,
+    pages: { pageFrom: number | null; pageTo: number | null },
+    check: CitationCheck,
+  ): boolean => {
+    if (!replyOpens) return false;
+    const units = {
+      ...(pages.pageFrom !== null && { pageFrom: pages.pageFrom }),
+      ...(pages.pageTo !== null && { pageTo: pages.pageTo }),
+    };
+    // With the Citation's own place, so the sheet says so when that place is gone.
+    return replyOpens({
+      documentId,
+      ...(quote !== null && { quote }),
+      ...units,
+      citation: {
+        check,
+        origin,
+        ...(attributes.contentHash !== null && { contentHash: attributes.contentHash }),
+        ...(attributes.location && { location: attributes.location }),
+        ...units,
+      },
+      request: 0,
+    });
+  };
+
   const openCited = (withQuote: boolean, keep = false) => {
     const documentId = state.documentId ?? attributes.documentId;
     if (!documentId || onScreen) return;
     recordUsage({ event: "citation_opened", fields: { check: state.check } });
+    if (openedByReply(documentId, attributes.quote, attributes, state.check)) return;
     // The version it was made from, at its own place (#2159); the bar's action opens the current one.
     openCitedPlace(
       { ...attributes, documentId },
@@ -401,11 +432,15 @@ export function CitationView({
     // One place may run over several Units (a long section's parts): open over all of them.
     const froms = groupLooks.flatMap((member) => member.pageFrom ?? []);
     const tos = groupLooks.flatMap((member) => member.pageTo ?? member.pageFrom ?? []);
+    const quote = at?.quote ?? groupLooks[0]?.quote ?? attributes.quote;
+    const pages =
+      froms.length > 0 ? { pageFrom: Math.min(...froms), pageTo: Math.max(...tos) } : attributes;
+    if (openedByReply(documentId, quote, pages, shownCheck)) return;
     openCitedPlace(
       {
         ...attributes,
         documentId,
-        quote: at?.quote ?? groupLooks[0]?.quote ?? attributes.quote,
+        quote,
         ...(froms.length > 0 && { pageFrom: Math.min(...froms), pageTo: Math.max(...tos) }),
       },
       {

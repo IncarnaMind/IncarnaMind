@@ -17,7 +17,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import * as Y from "yjs";
-import type { EmbeddingModelSource } from "../src/core/adapters";
+import type { EmbeddingModelSource, SystemCalendarEvent } from "../src/core/adapters";
 import {
   type AssistantPlace,
   CHOSEN_PROVIDER_FLOWS,
@@ -25,10 +25,12 @@ import {
   type ExportFormat,
   type SaveChatProviderInput,
 } from "../src/core/api";
-import type { SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
+import type { FakeSystemCalendar, SystemCalendarFixture } from "../src/core/calendars/fakeSystem";
 import { migrate, openDatabase } from "../src/core/storage";
 import type { FakeTranscriberOptions } from "../src/core/transcription/fake";
 import { ensureWorkspace } from "../src/core/workspace";
+import type { BackgroundTestHooks } from "../src/main/backgroundHost";
+import type { FakeCalls } from "../src/main/calls/fakeWatcher";
 import { LOG_FILE } from "../src/main/log";
 import { EVENT_CHANNEL } from "../src/shared/bridge";
 import type { DocumentLocation } from "../src/shared/documentViewer";
@@ -855,62 +857,63 @@ export async function pressHelp(panel: Page, name: string): Promise<Locator> {
   return suggestion;
 }
 
-export async function expectBarOneRow(bar: Locator): Promise<void> {
+/**
+ * The Transcript sheet's foot holds every control of the recording on one row, inside the sheet,
+ * none of its words cut (#3762): while it records, Pause my mic, Pause or Resume, Mark, Shared
+ * screen, Call help and ⋯; after Stop, Resume and Review speakers.
+ */
+export async function expectSheetFootOneRow(sheet: Locator): Promise<void> {
   await expect
     .poll(() =>
-      bar.evaluate((element) => {
-        const controls = element.querySelector<HTMLElement>('[data-testid="meeting-controls"]');
-        if (!controls) throw new Error("The bar has no controls.");
+      sheet.evaluate((element) => {
+        const foot = element.querySelector<HTMLElement>('[data-testid="meeting-sheet-foot"]');
+        if (!foot) throw new Error("The sheet has no foot.");
         const shown = (id: string) => {
-          const found = element.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+          const found = foot.querySelector<HTMLElement>(`[data-testid="${id}"]`);
           return found !== null && found.offsetParent !== null;
         };
-        const row = parseFloat(
-          getComputedStyle(document.documentElement).getPropertyValue("--meeting-bar-row"),
-        );
-        const frame = controls.getBoundingClientRect();
-        const seen = [...controls.children].filter(
-          (each): each is HTMLElement => each instanceof HTMLElement && each.offsetParent !== null,
+        const frame = foot.getBoundingClientRect();
+        const sheetBox = element.getBoundingClientRect();
+        const seen = [...foot.children].filter(
+          (each): each is HTMLElement =>
+            each instanceof HTMLElement &&
+            each.offsetParent !== null &&
+            each.getBoundingClientRect().width > 0,
         );
         const middle = (each: Element) => {
           const box = each.getBoundingClientRect();
           return box.top + box.height / 2;
         };
-        const buttons = [...element.querySelectorAll<HTMLElement>(".meeting-button")].filter(
+        const buttons = [...foot.querySelectorAll<HTMLElement>("button")].filter(
           (each) => each.offsetParent !== null,
         );
+        const live = element.hasAttribute("data-live");
         return {
-          rowHeight: Math.abs(frame.height - row) < 1,
           oneRow: seen.every(
             (each) =>
-              Math.abs(middle(each) - middle(controls)) < 2 &&
+              Math.abs(middle(each) - middle(foot)) < 2 &&
               each.getBoundingClientRect().right <= frame.right + 1,
           ),
-          kept:
-            ["meeting-dot", "meeting-time", "meeting-mic", "meeting-stop", "meeting-views"].every(
-              shown,
-            ) &&
-            (shown("meeting-pause") || shown("meeting-resume")),
-          fits: element.scrollWidth <= element.clientWidth + 1,
+          kept: live
+            ? [
+                "meeting-sheet-mic",
+                "meeting-sheet-mark",
+                "meeting-sheet-screen",
+                "meeting-call-help",
+                "meeting-sheet-more",
+              ].every(shown) &&
+              (shown("meeting-sheet-pause") || shown("meeting-sheet-resume"))
+            : ["meeting-sheet-resume-meeting", "meeting-sheet-review-speakers"].every(shown),
+          fits: foot.scrollWidth <= foot.clientWidth + 1 && frame.right <= sheetBox.right + 1,
           cut: buttons.some((button) =>
             [button, ...button.querySelectorAll("span")].some(
               (each) => each.scrollWidth > each.clientWidth + 1,
             ),
           ),
-          foldedHaveMore:
-            ["meeting-mark", "meeting-call-help", "meeting-details-toggle"].every(shown) ||
-            shown("meeting-more"),
         };
       }),
     )
-    .toEqual({
-      rowHeight: true,
-      oneRow: true,
-      kept: true,
-      fits: true,
-      cut: false,
-      foldedHaveMore: true,
-    });
+    .toEqual({ oneRow: true, kept: true, fits: true, cut: false });
 }
 
 export const panelOpen = (app: ElectronApplication) =>
@@ -984,6 +987,75 @@ export const notificationsShown = (app: ElectronApplication) =>
       (globalThis as { notificationsShown?: { title: string; body: string }[] })
         .notificationsShown ?? [],
   );
+
+/**
+ * The call apps holding the microphone now, as the system would say, to the fake call watcher of
+ * an app launched with `extraEnv: { INCARNAMIND_TEST_CALLS: "1" }`.
+ */
+export const callsUseMicrophone = (app: ElectronApplication, apps: string[]) =>
+  app.evaluate((_electron, given) => {
+    const calls = (globalThis as { incarnamindFakeCalls?: FakeCalls }).incarnamindFakeCalls;
+    if (!calls) throw new Error("The app isn't watching calls with the fake.");
+    calls.use(given);
+  }, apps);
+
+/** The background's notifications of an offer to take notes or a call's end, as shown now. */
+export const offerNotifications = (app: ElectronApplication) =>
+  app.evaluate(
+    () =>
+      (
+        globalThis as { incarnamindBackground?: BackgroundTestHooks }
+      ).incarnamindBackground?.notifications() ?? [],
+  );
+
+/** Clicks the background's notification of an offer or a call's end: its body, or its `action`th button. */
+export const pressOfferNotification = (
+  app: ElectronApplication,
+  kind: "offer" | "ending",
+  action?: number,
+) =>
+  app.evaluate(
+    (_electron, [which, button]) => {
+      const hooks = (globalThis as { incarnamindBackground?: BackgroundTestHooks })
+        .incarnamindBackground;
+      if (!hooks) throw new Error("The app's background has no test hooks.");
+      hooks.clickNotification(which, button ?? undefined);
+    },
+    [kind, action ?? null] as const,
+  );
+
+/** The ids of the tray's menu items as it would open now: none while the tray isn't shown. */
+export const trayItemIds = (app: ElectronApplication) =>
+  app.evaluate(() => {
+    const tray = (
+      globalThis as { incarnamindBackground?: BackgroundTestHooks }
+    ).incarnamindBackground?.tray();
+    return tray?.shown ? tray.items.flatMap((item) => (item.id ? [item.id] : [])) : [];
+  });
+
+/** Chooses the tray menu's item `id`, as the User would. */
+export const clickTrayItem = (app: ElectronApplication, id: string) =>
+  app.evaluate((_electron, item) => {
+    const hooks = (globalThis as { incarnamindBackground?: BackgroundTestHooks })
+      .incarnamindBackground;
+    if (!hooks) throw new Error("The app's background has no test hooks.");
+    hooks.clickTray(item);
+  }, id);
+
+/** Gives the system calendar's fake these events, and has the core read its calendars again. */
+export async function syncCalendarEvents(
+  app: ElectronApplication,
+  window: Page,
+  events: SystemCalendarEvent[],
+): Promise<void> {
+  await app.evaluate((_electron, upcoming) => {
+    const fake = (globalThis as { incarnamindFakeCalendar?: FakeSystemCalendar })
+      .incarnamindFakeCalendar;
+    if (!fake) throw new Error("The app has no fake calendar.");
+    fake.fixture.events = upcoming;
+  }, events);
+  await (await coreOf(window)).evaluate((core) => core.syncCalendars());
+}
 
 /** Force-quits the app as a crash would: its process killed, nothing saved on the way out. */
 export async function forceQuit(app: ElectronApplication): Promise<void> {
@@ -1570,26 +1642,45 @@ export async function closeSettings(window: Page): Promise<void> {
   await expect(settings).toBeHidden();
 }
 
-/** The + menu's "Record a meeting": a new Mind with the start block. */
+/**
+ * The + menu's "Record a meeting": a new Note recording at once, the first time too (#3762). The
+ * meeting's control at the Note's foot.
+ */
 export async function recordMeeting(window: Page): Promise<Locator> {
   const plus = window.getByTestId("plus-menu");
   await plus.hover();
   await plus.click();
   await window.getByTestId("plus-record-meeting").click();
-  const start = window.getByTestId("meeting-start");
-  await expect(start).toBeVisible();
-  return start;
+  const control = window.getByTestId("meeting-foot");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  return control;
 }
 
-/** The + menu's "Record a meeting" once the recording notice is read: recording at once, in one action. */
-export async function recordMeetingNow(window: Page): Promise<Locator> {
-  const plus = window.getByTestId("plus-menu");
-  await plus.hover();
-  await plus.click();
-  await window.getByTestId("plus-record-meeting").click();
-  const bar = window.getByTestId("meeting-bar");
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  return bar;
+/** The meeting's Transcript sheet, raised from its control's chevron (#3762). */
+export async function openMeetingSheet(window: Page): Promise<Locator> {
+  const sheet = window.getByTestId("meeting-sheet");
+  if (await sheet.isVisible()) return sheet;
+  await pointAndClick(window, window.getByTestId("meeting-foot-transcript"));
+  await expect(sheet).toBeVisible();
+  return sheet;
+}
+
+/** Stop at the meeting's control: the control stays, saying Transcript (#3762). */
+export async function stopMeeting(window: Page): Promise<Locator> {
+  const control = window.getByTestId("meeting-foot");
+  await pointAndClick(window, control.getByTestId("meeting-foot-stop"));
+  await expect(control).toHaveAttribute("data-status", "stopped");
+  return control;
+}
+
+/** The Transcript sheet with its recording details shown: the audio's line too, once not recording. */
+export async function openMeetingDetails(window: Page): Promise<Locator> {
+  const sheet = await openMeetingSheet(window);
+  const toggle = sheet.getByTestId("meeting-details-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await pointAndClick(window, toggle);
+  const details = sheet.getByTestId("meeting-sheet-details");
+  await expect(details).toBeVisible();
+  return details;
 }
 
 /** Waits until a recording meeting's Transcript has its first finished line. */
@@ -1605,17 +1696,6 @@ export async function firstTranscriptLine(window: Page, timeout = 20_000): Promi
       { timeout },
     )
     .toBe(true);
-}
-
-/**
- * After the first fill on a computer, the stopped call's chip opens its popover by itself, once,
- * leaving the focus where it was (#2527): Esc closes it.
- */
-export async function closeFirstFillPopover(window: Page): Promise<void> {
-  const menu = window.getByTestId("meeting-view-menu");
-  await expect(menu).toBeVisible();
-  await window.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
 }
 
 /** Waits until a stopped meeting's Transcript is saved: its page says nothing of it (#2527). */
@@ -1634,20 +1714,16 @@ export async function transcriptSaved(window: Page, timeout = 30_000): Promise<v
 }
 
 /**
- * The recording bar's Transcript view, then its "Open beside" once the Transcript has a line: the
- * live Transcript in a tab of the next group, and the meeting's page back on its notes (#138).
+ * The Transcript sheet, then its "Open beside" once the Transcript has a line: the live Transcript
+ * in a tab of the next group, and the sheet folded back to the notes (#138, #3762).
  */
-export async function openTranscriptBeside(
-  window: Page,
-  bar: Locator,
-  timeout = 20_000,
-): Promise<void> {
+export async function openTranscriptBeside(window: Page, timeout = 20_000): Promise<void> {
   await firstTranscriptLine(window, timeout);
-  await pointAndClick(window, bar.getByTestId("meeting-views").locator("label").nth(1));
-  const beside = window.getByTestId("meeting-transcript-beside");
+  const sheet = await openMeetingSheet(window);
+  const beside = sheet.getByTestId("meeting-sheet-beside");
   await expect(beside).toBeEnabled();
   await pointAndClick(window, beside);
-  await expect(window.getByTestId("meeting-note-transcript")).toHaveCount(0);
+  await expect(sheet).toBeHidden();
   await expect(window.getByTestId("viewer-transcript")).toBeVisible();
 }
 
@@ -1655,30 +1731,16 @@ export async function openTranscriptBeside(
 export const turnOf = (line: Locator): Locator => line.locator("xpath=ancestor::*[@data-turn][1]");
 
 /**
- * On the first recording's sheet, chooses this computer where the sheet still asks where the
- * audio is transcribed (#3305): a cloud service is picked first there, and the tests' engine is
- * on this computer.
+ * Starts recording from a Meeting's start block, where a Note shows one (a calendar event's, or
+ * one whose start failed): the meeting's control at the Note's foot, recording.
  */
-export async function transcribeHere(notice: Locator): Promise<void> {
-  await expect(notice).toBeVisible();
-  const here = notice.locator('[data-testid="setup-transcription"][data-value="local"] input');
-  if ((await here.count()) > 0) await here.check();
-}
-
-/** Starts recording from the start block; the first time, through the one-time notice. */
-export async function startRecording(window: Page, start: Locator, { notice = false } = {}) {
+export async function startRecording(window: Page, start: Locator): Promise<Locator> {
   const record = start.getByTestId("meeting-start-record");
   await record.hover();
   await record.click();
-  if (notice) {
-    const dialog = window.getByTestId("meeting-notice");
-    await transcribeHere(dialog);
-    await dialog.getByTestId("meeting-notice-start").click();
-    await expect(dialog).toBeHidden();
-  }
-  const bar = window.getByTestId("meeting-bar");
-  await expect(bar).toHaveAttribute("data-status", "recording");
-  return bar;
+  const control = window.getByTestId("meeting-foot");
+  await expect(control).toHaveAttribute("data-status", "recording");
+  return control;
 }
 
 /** Opens Settings from the sidebar, on its Privacy page. */

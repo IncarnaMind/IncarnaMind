@@ -10,7 +10,7 @@
  */
 import { act, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import type { CitationLocation, Document } from "../../src/core/api";
+import type { CitationLocation, Document, Meeting } from "../../src/core/api";
 import type { ViewerTarget } from "../../src/renderer/src/store";
 import { mountViewerDom } from "../helpers/viewerDom";
 
@@ -196,6 +196,74 @@ async function openAt(format: Format, language: Language, unit: number, version:
   await settled();
 }
 
+/**
+ * A stopped call's Transcript in the sheet over its Note (#3762), which draws no header of its own,
+ * opened by a reply's Citation to a Unit, as the reply's chip opens it.
+ */
+async function openInSheet(language: Language, unit: number, quote: string | null = QUOTE) {
+  file = FILES.transcript;
+  const document = documentOf("transcript");
+  const meeting = {
+    id: "meeting-1",
+    mindId: "note-1",
+    kind: "meeting",
+    status: "stopped",
+    recordedMs: 8000,
+    transcript: { documentId: document.id, lines: 2, state: "saved", partials: [] },
+    audio: { kept: false, expiresAt: null, deletedAt: null, keptUntilDeleted: false },
+    gaps: [],
+    sources: { microphone: "recording", system: "recording" },
+  } as unknown as Meeting;
+  const { useAppStore } = await import("../../src/renderer/src/store");
+  const { useMeetings } = await import("../../src/renderer/src/meetings");
+  await act(() => {
+    useAppStore.setState({
+      status: { kind: "ready" },
+      documents: [document],
+      settings: { language, device: {} } as never,
+    });
+    useMeetings.setState({ meetings: [meeting] });
+  });
+  const transcriptPath = "../../src/renderer/src/viewer/TranscriptView.tsx";
+  const headerPath = "../../src/renderer/src/viewer/ViewerHeader.tsx";
+  const { MeetingTranscriptView } = await import(transcriptPath);
+  const { ViewerFrameContext } = await import(headerPath);
+  const target: ViewerTarget = {
+    documentId: document.id,
+    request: 1,
+    ...(quote !== null && { quote }),
+    pageFrom: unit,
+    pageTo: unit,
+    citation: {
+      check: "found",
+      origin: "note",
+      contentHash: "hash-1",
+      location: PLACES.transcript.location,
+      pageFrom: unit,
+      pageTo: unit,
+    },
+  };
+  const frame = {
+    document,
+    target,
+    tabId: "tab-1",
+    embedded: true,
+    preview: false,
+    keep: () => undefined,
+  };
+  await act(() => mounted.root.render(null));
+  await act(() =>
+    mounted.root.render(
+      createElement(
+        ViewerFrameContext.Provider,
+        { value: frame },
+        createElement(MeetingTranscriptView, { meeting, document, target, bare: true }),
+      ),
+    ),
+  );
+  await settled();
+}
+
 const said = () =>
   mounted.container.querySelector('[data-testid="viewer-citation-changed"]')?.textContent ?? null;
 const washed = () =>
@@ -261,5 +329,19 @@ describe("a Citation whose cited place is gone (#2984)", () => {
         expect(said()).not.toContain(PLACE_LINE[language]);
       });
     }
+  }
+
+  for (const language of ["en", "zh-CN"] as const) {
+    // protects=in a stopped call's Transcript sheet, which draws no header, a reply's Citation whose place is gone says so in the sheet, in the chip's words, and one whose place is there says nothing (#3762); fails_when=the sheet opens at a gone place without a word, or says a place is gone that is there; no_claim=the wash, which this DOM can't draw and the spec holds.
+    test(`a call's sheet, ${language}: a Citation whose place is gone says so in the sheet; one whose place is there says nothing`, async () => {
+      const place = PLACES.transcript;
+      await openInSheet(language, place.gone);
+      expect(mounted.container.querySelector('[data-testid="viewer-header"]')).toBeNull();
+      expect(said()).toBe(GONE[language](place.words[language]));
+
+      // This DOM has no Range to wash a quote at a place that is there: the place alone is asked.
+      await openInSheet(language, place.here, null);
+      expect(said()).toBeNull();
+    });
   }
 });

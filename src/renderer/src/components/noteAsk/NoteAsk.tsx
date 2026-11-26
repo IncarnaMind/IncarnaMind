@@ -255,11 +255,14 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       const target = event.target;
       if (!(target instanceof Node) || foot.current?.contains(target)) return;
       // A menu's popover; Show conversation at the Note's top right, which folds it itself: folding
-      // here first would have its press open it again; and a change's bar, which stands above the
-      // box: folding would move it from under the press.
+      // here first would have its press open it again; and what stands above or beside the box, a
+      // change's bar, a meeting's control and the cards over it: folding would move it from under
+      // the press.
       if (
         target instanceof Element &&
-        target.closest("[popover], [data-conversation-toggle], .change-bar")
+        target.closest(
+          "[popover], [data-conversation-toggle], [data-beside-conversation], .change-bar",
+        )
       )
         return;
       setColumnOpen(mindId, false);

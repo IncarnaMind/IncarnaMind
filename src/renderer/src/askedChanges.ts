@@ -497,6 +497,7 @@ function applyCore(
       applyArrived(editor, each.mindId, each.requests, each.facts, {
         application,
         retainHeadless: headless !== undefined,
+        turn: each.answerId,
       });
       each.application = each.applied ? null : refOf(application);
     };
@@ -509,6 +510,7 @@ function applyCore(
   applyArrived(editor, each.mindId, each.requests, each.facts, {
     application,
     retainHeadless: headless !== undefined,
+    turn: each.answerId,
   });
   each.application = each.applied ? null : refOf(application);
 }
@@ -634,7 +636,9 @@ export async function applyTurn(
     application: null,
   };
   asked.set(keyOf(turnId, row.mindId), each);
-  if (applyArrived(editor, row.mindId, requests, facts) === "held") setOutcome(each, "held");
+  if (applyArrived(editor, row.mindId, requests, facts, { turn: turnId }) === "held") {
+    setOutcome(each, "held");
+  }
 }
 
 async function recover(each: Asked, editor: Editor): Promise<void> {

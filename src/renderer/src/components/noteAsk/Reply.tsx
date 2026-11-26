@@ -7,7 +7,9 @@ import { checklistLabel } from "../../editor/checklistLabel";
 import { CitationGlue, withCitationGlue } from "../../editor/citationGlue";
 import { CitationNumbers } from "../../editor/citationNumbers";
 import { CopyCitations } from "../../editor/copyCitations";
+import { ReplyCitationOpensContext } from "../../editor/mindContext";
 import { noteExtensions } from "../../editor/noteSchema";
+import { showCitedInTranscript } from "../meetings/MeetingFoot";
 
 /** A Citation redraws when it changes, and when its number does, as in a Note. */
 const citationView = ReactNodeViewRenderer(CitationView, {
@@ -34,8 +36,9 @@ const PROPS = {
 /**
  * A reply of the User's own AI as it wrote it, drawn by a Note's own schema and node views, read
  * only: its paragraphs, lists and bold, and each Citation IncarnaMind gave its connection the
- * Note's own chip, whose card shows its quote and opens its Document there (#3677, #3765). Text
- * can be selected in it to copy.
+ * Note's own chip, whose card shows its quote and opens its Document there (#3677, #3765), a
+ * meeting's Transcript in the sheet over that meeting's Note (#3762). Text can be selected in it
+ * to copy.
  */
 export function Reply({ text, citations }: { text: string; citations: readonly NoteCitation[] }) {
   const shown = useRef(JSON.stringify([text, citations]));
@@ -61,5 +64,9 @@ export function Reply({ text, citations }: { text: string; citations: readonly N
     shown.current = next;
     editor.commands.setContent(docOf(text, citations), { emitUpdate: false });
   }, [editor, text, citations]);
-  return <EditorContent editor={editor} />;
+  return (
+    <ReplyCitationOpensContext.Provider value={showCitedInTranscript}>
+      <EditorContent editor={editor} />
+    </ReplyCitationOpensContext.Provider>
+  );
 }

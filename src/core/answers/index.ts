@@ -359,6 +359,7 @@ import {
   type LiveTranscript,
   listenedTokens,
   newestWithin,
+  unconfirmedText,
   withBeforeQuestion,
   withTranscript,
 } from "./liveTranscript";
@@ -1701,6 +1702,10 @@ export function createAnswers(options: AnswersOptions) {
     let sentDocuments: Set<string> | null = null;
     /** The Documents the live transcript came from: the "listened" step names them. */
     const transcripts = new Set<string>();
+    /** The call's speech went with the Question: its lines, or only the words not yet final. */
+    const heardTheCall = () =>
+      transcripts.size > 0 ||
+      contextReasons.some((each) => each.via === "read" && each.source === "transcript");
     // An Answer inside another flow (a comparison's cell, a check's sentence) is that flow's step.
     const flow: AnswerFlow = help
       ? "call-help"
@@ -1871,7 +1876,7 @@ export function createAnswers(options: AnswersOptions) {
           sent: {
             documents: [...(sentDocuments ?? [])],
             ...(screenUse && { sharedScreen: screenUse }),
-            ...(heard && transcripts.size > 0 && { transcript: true as const }),
+            ...(heard && heardTheCall() && { transcript: true as const }),
           },
         }),
         ...(pressed && { pressed }),
@@ -2647,7 +2652,7 @@ export function createAnswers(options: AnswersOptions) {
           checked,
           ask: asked,
           readTitles,
-        } = await commands.check(toolCallId, input, tainted || transcripts.size > 0);
+        } = await commands.check(toolCallId, input, tainted || heardTheCall());
         if (!asked) return null;
         const approval: Extract<ToolCallToApprove, { tool: "run_command" }> = {
           ...place,
@@ -3000,11 +3005,18 @@ export function createAnswers(options: AnswersOptions) {
             contextReasons.push({ via: "read", source: "shared-screen" });
             textOrigin ??= "shared-screen";
           }
-          if (kept.length) {
+          const unconfirmed = unconfirmedText(heard.unconfirmed);
+          // The words still being transcribed are the others' speech as much as a confirmed line.
+          if (kept.length || unconfirmed) {
             contextReasons.push({ via: "read", source: "transcript" });
             textOrigin ??= "transcript";
           }
-          messages = withTranscript(messages, session.show(kept), session.showScreens(screens));
+          messages = withTranscript(
+            messages,
+            session.show(kept),
+            session.showScreens(screens),
+            unconfirmed,
+          );
         }
         const hasEarlierTurns = messages.length > 1;
         if (heard && hasEarlierTurns) {

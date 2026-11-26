@@ -23,7 +23,6 @@ import { SetupPage } from "./components/firstRun/SetupPage";
 import { HistoryView } from "./components/history/HistoryView";
 import { InfoPanel } from "./components/InfoPanel";
 import { DocumentMoveTo } from "./components/library/DocumentMoveTo";
-import { MeetingNoticeDialog } from "./components/MeetingNoticeDialog";
 import { MindStyleHost } from "./components/MindStyle";
 import { PanelBoundary } from "./components/PanelBoundary";
 import { Peek } from "./components/Peek";
@@ -365,7 +364,6 @@ function Workspace() {
           <MindStyleHost />
           {/* Open after the dialog that triggered the request, so they show on top of it. */}
           <ConsentDialog />
-          <MeetingNoticeDialog />
           <SharedScreenPicker />
           <FileWriteDialog />
         </PanelBoundary>

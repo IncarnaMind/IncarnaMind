@@ -14,10 +14,11 @@ import {
   openMoreMenu,
   pointAndClick,
   pointAt,
-  recordMeetingNow,
+  recordMeeting,
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  stopMeeting,
   transcriptSaved,
 } from "./app";
 
@@ -61,15 +62,11 @@ async function transcriptRows(window: Page, row: Locator, menu: Locator): Promis
 
 /** Records a meeting in a new Note until it has lines, stops it, and waits for its Transcript to be read. */
 async function recordAndStop(window: Page): Promise<{ meeting: Meeting; title: string }> {
-  await window.evaluate(async () => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    await bridge.updateSettings({ device: { meetingNoticeAccepted: true } });
-  });
-  await recordMeetingNow(window);
+  await recordMeeting(window);
   await expect
     .poll(async () => (await meetings(window))[0]?.transcript?.lines ?? 0, { timeout: 30_000 })
     .toBeGreaterThan(1);
-  await window.getByTestId("meeting-stop").click();
+  await stopMeeting(window);
   await transcriptSaved(window);
   const [meeting] = await meetings(window);
   if (!meeting?.transcript?.documentId) throw new Error("The meeting has no Transcript.");

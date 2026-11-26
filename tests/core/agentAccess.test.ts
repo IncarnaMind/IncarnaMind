@@ -814,8 +814,32 @@ for (const language of ["en", "zh-CN"] as const) {
           quote,
           changed: true,
         });
-        // Found, it is the Citation a Note would hold, with the Document's place (#3765).
+        // Found, it is the Citation a Note would hold, with the Document's place (#3765): where the
+        // quote is now, for the window to open the Transcript at its line (#3762).
         expect(now?.citation?.quote ?? null).toBe(check === "found" ? quote : null);
+        expect(
+          now?.citation
+            ? {
+                documentId: now.citation.documentId,
+                passageId: now.citation.passageId,
+                contentHash: now.citation.contentHash,
+                pageFrom: now.citation.pageFrom,
+                pageTo: now.citation.pageTo,
+                location: now.citation.location,
+              }
+            : null,
+        ).toEqual(
+          check === "found"
+            ? {
+                documentId: "tides",
+                passageId: "review",
+                contentHash: "v2",
+                pageFrom: 1,
+                pageTo: 1,
+                location: expect.objectContaining({ kind: "time" }),
+              }
+            : null,
+        );
       },
     );
 

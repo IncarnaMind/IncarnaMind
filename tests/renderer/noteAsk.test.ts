@@ -64,6 +64,7 @@ const {
   seedRunning,
   selectedForRequest,
   sendUnsent,
+  turnApplied,
   useNoteAsks,
 } = await import("../../src/renderer/src/ownAiInNote");
 const { useNotices } = await import("../../src/renderer/src/notices");
@@ -149,6 +150,38 @@ describe("the input at a Note's foot (#3627)", () => {
     await askInNote("m1", { words: "shorter", quote: "", selection: null });
     tell(event({ state: "landed", reply: "Shorter.", fresh: true }));
     expect(useNotices.getState().confirmation).toMatchObject({ message: "noteAsk.fresh" });
+  });
+
+  // protects=what reads the Notes after a turn, such as Write notes' Check, waits until every Note the turn changed is applied, even when one of them fails, and the failure is said (#3762); fails_when=the first Note's failure lets the wait end while another Note's changes are still being applied, or the failure goes unsaid
+  test("waits for every Note's changes, one failing or not, before the turn counts as applied", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    const later = Promise.withResolvers<undefined>();
+    applyTurn
+      .mockImplementationOnce(async () => {
+        throw new Error("This note couldn’t be changed.");
+      })
+      .mockImplementationOnce(() => later.promise);
+    tell(
+      event({
+        state: "landed",
+        applied: [
+          { mindId: "m1", request: "r1", changed: 1, added: 0, tables: 0 },
+          { mindId: "m2", request: "r2", changed: 1, added: 0, tables: 0 },
+        ],
+      }),
+    );
+    await vi.waitFor(() => expect(applyTurn).toHaveBeenCalledTimes(2));
+    let done = false;
+    void turnApplied("t1").then(() => {
+      done = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(done).toBe(false);
+    later.resolve(undefined);
+    await vi.waitFor(() => expect(done).toBe(true));
+    expect(useNotices.getState().errors).toEqual([
+      expect.objectContaining({ message: "This note couldn’t be changed." }),
+    ]);
   });
 
   // protects=a request another window sent shows its line here but applies only there; fails_when=two windows apply one turn's changes

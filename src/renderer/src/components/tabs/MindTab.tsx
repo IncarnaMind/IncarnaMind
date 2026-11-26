@@ -1,6 +1,6 @@
 import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { isWordFile, isWordType } from "../../../../shared/wordFileTypes";
+import { useAskedState } from "../../askedChanges";
 import { files } from "../../core";
 import { useDropTarget } from "../../dragDrop";
 import {
@@ -11,9 +11,8 @@ import {
 } from "../../editor/mindContext";
 import { useT } from "../../i18n";
 import { assistantTabOf } from "../../layoutSlice";
-import { useMeetingOf } from "../../meetings";
-import { hasMeetingViews, useMeetingNoteView } from "../../meetingViews";
 import { useWritingProperties } from "../../mindStyles";
+import { useNoteAsks } from "../../ownAiInNote";
 import { useHiddenForOwnAi, useOwnAiOnly } from "../../ownAiPanel";
 import { useQuietAssistant } from "../../quietAssistant";
 import { useReviewPanes, useRoomBeside } from "../../reviewPane";
@@ -28,10 +27,9 @@ import { useIsExample } from "../GettingStarted";
 import { PlusLineIcon } from "../lineIcons";
 import { MakeSkillCard } from "../MakeSkillCard";
 import { MeetingInMind } from "../MeetingInMind";
-import { MeetingTranscriptInNote } from "../MeetingTranscriptInNote";
-import { MeetingViewChip } from "../MeetingViewChip";
 import { MindEditor } from "../MindEditor";
 import { EventBar } from "../meetings/EventBar";
+import { MeetingFoot, MeetingSheet, useMeetingFootShown } from "../meetings/MeetingFoot";
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
@@ -61,10 +59,6 @@ export function MindTab({ mindId }: { mindId: string }) {
   const tabId = place?.tabId;
   // Its own controls, in the strip that shows it (#3765).
   const placed = useNoteControls((state) => (tabId ? state.byTab[tabId] : undefined));
-  const meeting = useMeetingOf(mindId);
-  const view = useMeetingNoteView(tabId, mindId);
-  const hasViews = hasMeetingViews(meeting);
-  const transcriptShown = hasViews && !!tabId && view === "transcript";
   const band = useUndoPillBands((state) => undoBandFor(state.bands, place?.groupId));
   const merged = useGroupsMerged();
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
@@ -73,15 +67,21 @@ export function MindTab({ mindId }: { mindId: string }) {
   const quiet = useQuietAssistant();
   const ownAiOnly = useOwnAiOnly();
   const hiddenForOwnAi = useHiddenForOwnAi();
+  const meetingFoot = useMeetingFootShown(mindId);
   // The page fades out above the Ask pill a quiet assistant floats over it. Above the way to ask at
-  // the Note's own foot, the foot fades it, and only while something stands there (styles.css).
-  const floatingPill = quiet && !hiddenForOwnAi;
+  // the Note's own foot, the foot fades it, and only while something stands there (styles.css). A
+  // call's control at the foot puts the pill away (AskPill).
+  const floatingPill = quiet && !hiddenForOwnAi && !meetingFoot;
   // The Ask pill stands at the middle of all the groups, where a group's foot may be (#2527).
   const besidePill = useAppStore(
     (state) => floatingPill && !merged && (state.layout?.groups.length ?? 0) > 1,
   );
   const review = useReviewShown(mindId);
-  const reviewShown = transcriptShown ? "closed" : review.shown;
+  // The finished change is said once (#3762): where the Note's conversation shows its Undo, the
+  // page draws no line of that change's own.
+  const askTurn = useNoteAsks((state) => state.byMind[mindId]?.turnId ?? "");
+  const askUndo = useAskedState(askTurn, mindId) === "can-undo";
+  const reviewShown = review.shown;
   if (!mind) return null;
 
   return (
@@ -93,7 +93,11 @@ export function MindTab({ mindId }: { mindId: string }) {
       >
         <div ref={setOutlineButton} className="note-outline-button-slot" />
         <div ref={setOutline} className="contents" />
-        <div className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col">
+        <div
+          data-ask-undo={askUndo ? askTurn : undefined}
+          className="mind-tab-page relative flex min-h-0 min-w-0 flex-grow flex-col"
+        >
+          {askUndo && <style>{`${saidInConversation(askTurn)}{display:none}`}</style>}
           {/* The page's own corners and foot stand above the input at its foot (#3627). */}
           <div className="relative flex min-h-0 flex-grow flex-col">
             {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target, in the capture phase because the note's own handlers accept every drag over the text; "Import a Word file…" does it without dragging. */}
@@ -105,12 +109,7 @@ export function MindTab({ mindId }: { mindId: string }) {
               onDragOverCapture={wordDrop.props.onDragOver}
               onDragLeave={wordDrop.props.onDragLeave}
               onDropCapture={wordDrop.props.onDrop}
-              style={{
-                ...(band > 0 && { marginBottom: band }),
-                // Hidden in place, not taken out of the layout: the notes keep their scroll and
-                // their cursor for when the User comes back to them (#138).
-                ...(transcriptShown && { visibility: "hidden", position: "absolute", inset: 0 }),
-              }}
+              style={band > 0 ? { marginBottom: band } : undefined}
               className={`mind-scroller min-h-0 flex-grow overflow-auto ${wordDrop.over ? `rounded-lg ${dropIntoClass}` : ""}`}
             >
               {/* Every text in it starts at one edge (styles.css, `.mind-column`). */}
@@ -158,42 +157,45 @@ export function MindTab({ mindId }: { mindId: string }) {
                 className="ask-pill-fade"
               />
             </div>
-            {transcriptShown && <MeetingTranscriptInNote meeting={meeting} tabId={tabId} />}
-            {placed?.controls &&
-              hasViews &&
-              tabId &&
-              meeting.status === "stopped" &&
-              createPortal(<MeetingViewChip meeting={meeting} tabId={tabId} />, placed.controls)}
-            <div
-              className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}
-              style={transcriptShown ? { display: "none" } : undefined}
-            >
+            {/* A meeting's one place is its control at the foot and the sheet it raises (#3762). */}
+            {meetingFoot && <MeetingSheet mindId={mind.id} />}
+            <div className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}>
               <div ref={setCount} className="mind-foot-count" />
               <div ref={setBadge} className="mind-foot-badge" />
             </div>
           </div>
           {/* The input where the User asks their own AI to change the Note stays at the page's foot (#3627). */}
           <div
-            className="note-ask-foot"
-            style={transcriptShown ? { display: "none" } : { paddingRight: scrollbar }}
+            className={`note-ask-foot ${meetingFoot ? "note-ask-foot--meeting" : ""}`}
+            style={{ paddingRight: scrollbar }}
           >
-            <div ref={setAsk} className="mind-measure" />
+            {meetingFoot ? (
+              <div className="mind-measure meeting-foot-row">
+                <MeetingFoot mindId={mind.id} />
+                <div ref={setAsk} className="meeting-foot-ask" />
+              </div>
+            ) : (
+              <div ref={setAsk} className="mind-measure" />
+            )}
             {!isExample && <NoteFootAsk mindId={mind.id} />}
           </div>
         </div>
         <div ref={review.setSlot} data-shown={reviewShown} className="review-slot" />
       </div>
       {/* The Compare Documents sheet docks here, in the column's measure, below the note. */}
-      <div
-        ref={setSheetSlot}
-        className="compare-sheet-dock"
-        style={transcriptShown ? { display: "none" } : undefined}
-      />
-      <div className="contents" style={transcriptShown ? { display: "none" } : undefined}>
-        <ExportResultLine mindId={mind.id} />
-      </div>
+      <div ref={setSheetSlot} className="compare-sheet-dock" />
+      <ExportResultLine mindId={mind.id} />
     </div>
   );
+}
+
+/**
+ * The page's line of the change a Note's conversation can undo, which the conversation says with
+ * its Undo: only that change's, so another change's line keeps its own controls.
+ */
+export function saidInConversation(turnId: string): string {
+  const turn = CSS.escape(turnId);
+  return `.mind-tab-page[data-ask-undo="${turn}"] .mind-editor [data-testid="applied-line"][data-turn="${turn}"]`;
 }
 
 /**

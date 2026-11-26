@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { ChatModelChoice, CitedOrigin, FigureScheduleRow } from "../../../core/api";
 import type { SignOffRecord } from "../../../shared/signOffs";
+import type { ViewerTarget } from "../store";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
 export const MindIdContext = createContext<string | null>(null);
@@ -39,6 +40,15 @@ export const AssistantFoldedContext = createContext<boolean | null>(null);
 /** The origin of a page opened from this component: the assistant it is drawn in, else the Note. */
 export const useCitedOrigin = (): CitedOrigin =>
   useContext(AssistantFoldedContext) === null ? "note" : "assistant";
+
+/**
+ * In a reply of the User's own AI at a Note's foot, what opens a Citation before a Note's own way
+ * does: a meeting's Transcript in the sheet over that meeting's Note (#3762). True when it opened
+ * it; null outside a reply.
+ */
+export const ReplyCitationOpensContext = createContext<((cited: ViewerTarget) => boolean) | null>(
+  null,
+);
 
 /**
  * Whether an editor holds one Answer's Blocks alone, as the assistant's does:
