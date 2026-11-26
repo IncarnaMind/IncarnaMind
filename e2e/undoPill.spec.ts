@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import { GROUP_MIN_WIDTH } from "../src/renderer/src/assistantPlace";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -451,7 +452,7 @@ test("with groups merged, the band follows the page the focus moves to, not the 
 });
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`${language}: at 1,600 px of three narrow groups, a long rename's pill keeps every page it reaches clear of its text`, async () => {
+  test(`${language}: in three narrow groups, a long rename's pill keeps every page it reaches clear of its text`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir);
     try {
@@ -475,8 +476,21 @@ for (const language of ["en", "zh-CN"] as const) {
         const divider = window.getByTestId("group-divider").nth(index);
         await divider.focus();
         for (let press = 0; press < 30; press++) await window.keyboard.press("Shift+ArrowLeft");
-        await expect.poll(() => divider.getAttribute("aria-valuenow")).toBe("230");
+        // At the least width a group takes, the first's with the sidebar's button before its tabs.
+        const least = await divider.getAttribute("aria-valuemin");
+        expect(Number(least)).toBeGreaterThanOrEqual(GROUP_MIN_WIDTH);
+        await expect.poll(() => divider.getAttribute("aria-valuenow")).toBe(least);
       }
+      // The second group wider than its least width, so its tab keeps its title as the window
+      // narrows; narrowed, the groups keep their shares, and the first, with the sidebar's button
+      // and on macOS the traffic lights before its tabs, ends at 300px, narrower than the pill.
+      await window.getByTestId("group-divider").nth(1).focus();
+      for (let press = 0; press < 3; press++) await window.keyboard.press("Shift+ArrowRight");
+      await motionSettled(window);
+      const shared = (await boxOf(window.getByTestId("tab-groups"))).width;
+      const firstWidth = (await boxOf(groups.nth(0))).width;
+      await setWindowSize(app, window, Math.floor(1600 - shared * (1 - 300 / firstWidth)), 900);
+      await expect.poll(async () => (await boxOf(groups.nth(0))).width).toBeLessThanOrEqual(301);
 
       const second = groups.nth(1);
       await second.getByTestId("mind-tab").click();

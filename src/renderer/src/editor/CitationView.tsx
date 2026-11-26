@@ -118,6 +118,7 @@ import {
   JudgedAnswerContext,
   MindIdContext,
   RegenerateAnswerContext,
+  ReplyCitationOpensContext,
   SignOffsContext,
   useCitedOrigin,
 } from "./mindContext";
@@ -220,6 +221,7 @@ export function CitationView({
   const mindId = useContext(MindIdContext);
   const regenerateHere = useContext(RegenerateAnswerContext);
   const judgedAnswer = useContext(JudgedAnswerContext);
+  const replyOpens = useContext(ReplyCitationOpensContext);
   const attributes = node.attrs as CitationAttributes;
   const documents = useAppStore((state) =>
     state.status.kind === "ready" ? state.documents : null,
@@ -366,6 +368,48 @@ export function CitationView({
     };
   }, [hold, dropPointer, pointer, clearPeek]);
 
+  /** Whether the reply it is in opened it, at `quote` over these Units. */
+  const openedByReply = (
+    documentId: string,
+    quote: string | null,
+    pages: { pageFrom: number | null; pageTo: number | null },
+    check: CitationCheck,
+  ): boolean => {
+    if (!replyOpens) return false;
+    const units = {
+      ...(pages.pageFrom !== null && { pageFrom: pages.pageFrom }),
+      ...(pages.pageTo !== null && { pageTo: pages.pageTo }),
+    };
+    // With the Citation's own place, so the sheet says so when that place is gone.
+    return replyOpens({
+      documentId,
+      ...(quote !== null && { quote }),
+      ...units,
+      citation: {
+        check,
+        origin,
+        ...(attributes.contentHash !== null && { contentHash: attributes.contentHash }),
+        ...(attributes.location && { location: attributes.location }),
+        ...units,
+      },
+      request: 0,
+    });
+  };
+
+  /** Where a chip standing for several Citations opens: at `at`'s quote or the first's, over all their Units. */
+  const groupPlaceOf = (at: CitationLook | null) => {
+    // One place may run over several Units (a long section's parts): open over all of them.
+    const froms = groupLooks.flatMap((member) => member.pageFrom ?? []);
+    const tos = groupLooks.flatMap((member) => member.pageTo ?? member.pageFrom ?? []);
+    return {
+      quote: at?.quote ?? groupLooks[0]?.quote ?? attributes.quote,
+      pages:
+        froms.length > 0
+          ? { pageFrom: Math.min(...froms), pageTo: Math.max(...tos) }
+          : { pageFrom: attributes.pageFrom, pageTo: attributes.pageTo },
+    };
+  };
+
   /**
    * Opens the cited place, or the Document; amber when opened anyway after "not found".
    * From the card, a preview of the Document already open is kept.
@@ -374,6 +418,7 @@ export function CitationView({
     const documentId = state.documentId ?? attributes.documentId;
     if (!documentId || onScreen) return;
     recordUsage({ event: "citation_opened", fields: { check: state.check } });
+    if (openedByReply(documentId, attributes.quote, attributes, state.check)) return;
     // The version it was made from, at its own place (#2159); the bar's action opens the current one.
     openCitedPlace(
       { ...attributes, documentId },
@@ -398,16 +443,10 @@ export function CitationView({
     const documentId = state.documentId ?? attributes.documentId;
     if (!documentId || onScreen) return;
     recordUsage({ event: "citation_opened", fields: { check: shownCheck } });
-    // One place may run over several Units (a long section's parts): open over all of them.
-    const froms = groupLooks.flatMap((member) => member.pageFrom ?? []);
-    const tos = groupLooks.flatMap((member) => member.pageTo ?? member.pageFrom ?? []);
+    const { quote, pages } = groupPlaceOf(at);
+    if (openedByReply(documentId, quote, pages, shownCheck)) return;
     openCitedPlace(
-      {
-        ...attributes,
-        documentId,
-        quote: at?.quote ?? groupLooks[0]?.quote ?? attributes.quote,
-        ...(froms.length > 0 && { pageFrom: Math.min(...froms), pageTo: Math.max(...tos) }),
-      },
+      { ...attributes, documentId, quote, ...pages },
       {
         origin,
         check: shownCheck,
@@ -454,7 +493,23 @@ export function CitationView({
 
   const onClick = () => {
     setPinned(true);
-    if (groupsMerged()) return;
+    if (groupsMerged()) {
+      // The sheet a reply opens a meeting's Transcript in lies over the Note, which needs no group
+      // beside it (#3762).
+      const documentId = state.documentId ?? attributes.documentId;
+      const opens =
+        many || showsQuote || state.reason === "document-removed" || state.check !== "not-found";
+      const shown = many ? groupPlaceOf(null) : { quote: attributes.quote, pages: attributes };
+      const check = many ? shownCheck : state.check;
+      if (
+        documentId &&
+        !onScreen &&
+        opens &&
+        openedByReply(documentId, shown.quote, shown.pages, check)
+      )
+        recordUsage({ event: "citation_opened", fields: { check } });
+      return;
+    }
     if (many) openGroup(false);
     else if (showsQuote) openCited(true);
     // A deleted Document: the viewer shows the stored quote with "Document removed".

@@ -35,6 +35,12 @@
 // inputs, "ask-tool-long" for a tool and an input whose names have no place to break,
 // "ask-change-long" for a change of twenty lines, and "ask-after-read" reads the Note first, then
 // asks as "ask-command" does.
+// A request sent while one runs (#3765) waits, as Claude Code holds it, and is echoed back as it is
+// taken when the run was given --replay-user-messages; with nothing else said, it runs as the next
+// turn once the reply before has ended. "queue-step" takes one at each of its steps, as Claude Code
+// does between tool calls: it says it looks at the note, takes what was sent at step 1, reads the
+// note, takes what was sent at step 2, then answers the last request taken; "queue-turn" says it
+// writes its answer and answers at step 1, takes the next at step 2 and answers that at step 3.
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -56,6 +62,16 @@ if (modeFile !== "") {
   const what = args[0] === "-p" ? "run" : args.slice(0, 2).join(" ");
   const asked = args.includes("--model") ? ` --model ${args[args.indexOf("--model") + 1]}` : "";
   appendFileSync(`${modeFile}.starts`, `${what}${asked}\n`);
+  // Each conversation a run continues ("resume <id>") or begins ("new <id>"): one begun remembers
+  // nothing of an earlier one.
+  for (const [flag, kind] of [
+    ["--resume", "resume"],
+    ["--session-id", "new"],
+  ]) {
+    if (args.includes(flag)) {
+      appendFileSync(`${modeFile}.sessions`, `${kind} ${args[args.indexOf(flag) + 1]}\n`);
+    }
+  }
 }
 if (args[0] === "--version") {
   console.log(mode === "too-old" ? "2.0.1 (Claude Code)" : "2.1.330 (Claude Code)");
@@ -110,7 +126,13 @@ const gate = async (n) => {
 
 /** A Note's conversation, with its own abilities: the host answers its questions (#3653). */
 const own = args[args.indexOf("--permission-prompt-tool") + 1] === "stdio";
-const permission = readOr(`${modeFile}.permission`, mode === "auto" ? "auto" : "default");
+// The mode chosen by IncarnaMind's input starts the run (#3765); else the User's own settings.
+const chosenMode = args.includes("--permission-mode")
+  ? args[args.indexOf("--permission-mode") + 1]
+  : undefined;
+let permission =
+  chosenMode ?? readOr(`${modeFile}.permission`, mode === "auto" ? "auto" : "default");
+if (own && modeFile !== "") appendFileSync(`${modeFile}.modes`, `start ${permission}\n`);
 const answered = new Map();
 let questionsAsked = 0;
 /** Asks the host as Claude Code does, and resolves with its answer. */
@@ -128,6 +150,20 @@ const ask = (request) =>
 const kept = [];
 /** Whether the request was asked in Chinese: the AI then says its own words in Chinese. */
 let chinese = false;
+
+const replay = args.includes("--replay-user-messages");
+/** Requests sent while one runs, not taken yet, oldest first; and the turns this process ran. */
+const pending = [];
+let busy = false;
+let turns = 0;
+/** A request as it is taken: echoed back, as Claude Code does with --replay-user-messages. */
+const take = (message) => {
+  if (replay) say({ type: "user", message: message.message, isReplay: true });
+};
+/** What the User typed, from a request's prompt. */
+const askedIn = (prompt) => prompt.match(/the User asks: (.*)/)?.[1] ?? "";
+const answerTo = (words) =>
+  /\p{Script=Han}/u.test(words) ? `已回答：${words}` : `Answered: ${words}`;
 
 createInterface({ input: process.stdin }).on("line", async (line) => {
   const message = JSON.parse(line);
@@ -147,9 +183,10 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
         own &&
         args.includes("--append-system-prompt-file") &&
         args[args.indexOf("--allowedTools") + 1] === "mcp__incarnamind" &&
-        !["--restricted", "--strict-mcp-config", "--permission-mode", "--setting-sources"].some(
-          (flag) => args.includes(flag),
+        !["--restricted", "--strict-mcp-config", "--setting-sources"].some((flag) =>
+          args.includes(flag),
         ) &&
+        (chosenMode === undefined || ["default", "auto"].includes(chosenMode)) &&
         process.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS === undefined;
       say({
         type: "control_response",
@@ -169,6 +206,30 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       });
       return;
     }
+    if (message.request?.subtype === "set_permission_mode") {
+      // As Claude Code 2.1.331 answers: the mode now in effect, said again as a status; auto mode
+      // refused where the mode file's ".noauto" says the User's settings turn it off.
+      const asked = message.request.mode;
+      appendFileSync(`${modeFile}.modes`, `set ${asked}\n`);
+      if (asked === "auto" && readOr(`${modeFile}.noauto`, "") !== "") {
+        say({
+          type: "control_response",
+          response: {
+            subtype: "error",
+            request_id: message.request_id,
+            error: "auto_mode_settings: auto mode is turned off in your settings",
+          },
+        });
+        return;
+      }
+      permission = asked;
+      say({
+        type: "control_response",
+        response: { subtype: "success", request_id: message.request_id, response: { mode: asked } },
+      });
+      say({ type: "system", subtype: "status", session_id: "fake-session", permissionMode: asked });
+      return;
+    }
     say({
       type: "control_response",
       response: {
@@ -183,11 +244,27 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
   if (message.type !== "user") return;
-  chinese = /\p{Script=Han}/u.test(String(message.message?.content ?? ""));
   if (mode === "lost" && args.includes("--resume")) {
     say({ type: "result", subtype: "error_during_execution", is_error: true });
     process.exit(1);
   }
+  if (busy) {
+    pending.push(message);
+    return;
+  }
+  busy = true;
+  for (let next = message; next; next = pending.shift()) {
+    turns += 1;
+    if (mode === "queue-turn" && turns > 1) await gate(2 * turns - 2);
+    take(next);
+    await run(next);
+  }
+  busy = false;
+});
+
+/** One turn: a request as Claude Code runs it, until its result. */
+async function run(message) {
+  chinese = /\p{Script=Han}/u.test(String(message.message?.content ?? ""));
   const agent = new Client({ name: "fake-claude-code", version: "1.0.0" });
   await agent.connect(new StdioClientTransport({ ...serverOf(), stderr: "pipe" }));
   const { tools } = await agent.listTools();
@@ -220,12 +297,13 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
   if (mode === "wait") {
-    // Says what it is about to do, as the instructions ask, then works on until it is stopped.
+    // Says what it is about to do, as the instructions ask, then works on until it is stopped,
+    // taking nothing sent meanwhile.
     say({
       type: "assistant",
       message: { content: [{ type: "text", text: "Looking at your note" }] },
     });
-    return;
+    await new Promise(() => {});
   }
   if (mode === "limit") {
     say({ type: "system", subtype: "api_retry", error: "rate_limit", attempt: 1 });
@@ -247,6 +325,31 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   };
   const sayText = (text) =>
     say({ type: "assistant", message: { content: [{ type: "text", text }] } });
+  if (prompt.startsWith("In their note") && mode === "queue-step") {
+    let asked = askedIn(prompt);
+    const takeSent = () => {
+      for (const each of pending.splice(0)) {
+        take(each);
+        asked = askedIn(String(each.message?.content ?? ""));
+      }
+    };
+    sayText(chinese ? "先看看你的笔记。" : "Looking at your note first.");
+    await gate(1);
+    takeSent();
+    await use("read_mind", { mindId, named: true });
+    await gate(2);
+    takeSent();
+    await agent.close();
+    end(answerTo(asked));
+    return;
+  }
+  if (prompt.startsWith("In their note") && mode === "queue-turn") {
+    sayText(chinese ? "正在写回答。" : "Writing the answer.");
+    await gate(2 * turns - 1);
+    await agent.close();
+    end(answerTo(askedIn(prompt)));
+    return;
+  }
   // Search gives Passages, not Citations: each Passage is cited by a quote copied from its text,
   // as an agent cites one. A Passage whose quote isn't found has none.
   const citesOf = async (passages) => {
@@ -514,7 +617,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   });
   await agent.close();
   say({ type: "result", subtype: "success", is_error: false, result: "Checked." });
-});
+}
 
 /**
  * What Claude Code's own tools would do in the folder it runs in, for the asking modes, each with

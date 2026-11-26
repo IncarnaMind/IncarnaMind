@@ -203,6 +203,10 @@ test("empty states and Settings › AI offer Install Claude Code, Cancel restore
   await setLanguage(window, "en");
   await setWindowSize(app, window, 1440, 900);
 
+  // The Checks card hangs from the strip over the Note (#3765): its control closes it, as a person
+  // closes it to reach what lies under it.
+  await window.getByTestId("check-badge-open").click();
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
   // Pressing Install Claude Code on the one-line readiness bar opens Settings › AI beside the
   // disclosure rather than downloading without showing it first.
   await readiness.getByTestId("readiness-install-claude-code").click();

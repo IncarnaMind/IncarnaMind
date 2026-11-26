@@ -1080,6 +1080,32 @@
   .tab-strip-spacer {
     flex: 1 1 auto;
   }
+  /*
+   * A Note's own controls, in one row with its tab (#3765): its check, comments and Show
+   * conversation, on the strip's centre line as Export and Split, in the strip's own colours.
+   */
+  .tab-strip-note {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 28px;
+    margin: 0 2px 4px;
+    &:empty {
+      display: none;
+    }
+    .note-head-badge {
+      margin-right: 2px;
+    }
+    .note-conversation-button {
+      color: var(--color-ink-strong);
+      &:hover,
+      &[aria-expanded="true"] {
+        background: var(--color-tab-hover);
+        color: var(--color-ink);
+      }
+    }
+  }
   /* The Tasks chip (#126; DESIGN.md, Finding Tasks): a pill in the band while a Task runs or needs the User. */
   .tasks-chip {
     display: flex;
@@ -1152,6 +1178,21 @@
   }
   .tab-strip:where([data-fit="split"], [data-fit="cut"]) .tab-split {
     display: none;
+  }
+  /* Tight: the shown tab keeps its least width and the ⋯ stays (#3765). */
+  .tab-strip[data-tight] :is(.tab-export, .note-conversation-button) {
+    display: none;
+  }
+  /* Short of the shown tab's icon and ✕, the Note's controls give up their room from the left,
+     the check's last: its room overflows at its start, so its Stop stays in view (#3765). */
+  .tab-strip[data-tight] .tab-strip-note {
+    justify-content: flex-end;
+    max-width: var(--note-controls-room, none);
+    overflow: hidden;
+    > :not(.note-head-badge) {
+      min-width: 0;
+      overflow: hidden;
+    }
   }
   /* A narrow group keeps Split in its ⋯ menu. */
   @container group (width < 420px) {
@@ -1559,19 +1600,6 @@
     gap: 6px;
   }
 
-  /* On the sheet, so the notes scrolled under it don't show through its chip and buttons. */
-  .mind-menu-slot {
-    position: absolute;
-    z-index: 11;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    border-radius: 6px;
-    background: var(--color-sheet);
-  }
-
   /*
    * The reviewing pane (#697; the board Final-10-Redlines): beside the page,
    * inside the Mind's tab; under a 760px Mind, folded to its button, which
@@ -1790,27 +1818,6 @@
     &[aria-expanded="true"] {
       background: var(--color-hover);
       color: var(--color-ink);
-    }
-    &:focus-visible {
-      outline: 2px solid var(--color-accent);
-      outline-offset: 1px;
-    }
-  }
-  .page-menu-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    color: var(--color-ink-meta);
-    outline: none;
-
-    &:hover,
-    &:focus-visible,
-    &[aria-expanded="true"] {
-      background: var(--color-hover);
-      color: var(--color-ink-secondary);
     }
     &:focus-visible {
       outline: 2px solid var(--color-accent);
@@ -3188,6 +3195,15 @@
       flex: 0 0 100%;
       max-width: 100%;
     }
+    /* With the mode beside the model the words take a row too, the controls under them (#3765). */
+    .note-ask-row:has([data-testid="note-ask-mode-choice"]) {
+      .note-ask-input-text {
+        flex: 0 0 100%;
+      }
+      :is([data-testid="note-ask-model"], [data-testid="note-ask-model-only"]) {
+        margin-left: auto;
+      }
+    }
   }
   .note-ask-round {
     display: flex;
@@ -3354,13 +3370,30 @@
     height: 44px;
     padding: 0 8px 0 16px;
   }
-  .note-column-title {
-    flex: 1;
+  /* The conversation's name, which opens its menu: its words in line with the turns' start. */
+  .note-conversation-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     min-width: 0;
+    height: 28px;
+    margin-left: -6px;
+    padding: 0 6px;
+    border-radius: 6px;
     font-size: var(--text-ui);
     line-height: 20px;
     font-weight: 600;
     color: var(--color-ink-secondary);
+    outline: none;
+    &:hover,
+    &[aria-expanded="true"] {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 1px;
+    }
   }
   .note-column-icon {
     display: flex;
@@ -3401,6 +3434,56 @@
     font-size: var(--text-ui);
     line-height: 20px;
     color: var(--color-ink);
+  }
+  .note-column-sent {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .note-column-sent-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 16px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    /* Unseen until the request is pointed at or holds the focus, yet reachable by Tab. */
+    opacity: 0;
+    .note-column-icon {
+      margin-block: -6px;
+    }
+  }
+  .note-column-sent:is(:hover, :focus-within) .note-column-sent-actions {
+    opacity: 1;
+  }
+  .note-column-sent-time {
+    margin-right: 6px;
+  }
+  /* A request sent while another ran (#3765): waiting for its AI to take it, or never sent. */
+  .note-column-sent-state {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 16px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-ink-meta);
+    .note-ask-dots,
+    .note-column-sent-word {
+      margin-right: 6px;
+    }
+    .note-column-icon {
+      margin-block: -6px;
+    }
+    /* While it waits, its Copy shows as a sent request's actions do. */
+    &[data-waiting] .note-column-icon {
+      opacity: 0;
+    }
+  }
+  .note-column-sent:is(:hover, :focus-within) .note-column-sent-state .note-column-icon {
+    opacity: 1;
   }
   .note-column-bubble-quote {
     margin-bottom: 2px;
@@ -3508,10 +3591,10 @@
   /* What the AI made or changed, beside the Note in front: a card that opens it. */
   .note-column-made-card {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    gap: 10px;
     width: 100%;
-    padding: 8px 12px;
+    padding: 8px 10px;
     border: 1px solid var(--color-rule);
     border-radius: 8px;
     background: var(--color-sheet);
@@ -3519,6 +3602,30 @@
     &:hover {
       background: var(--color-hover);
     }
+  }
+  .note-column-made-icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--color-accent-wash);
+    color: var(--color-accent);
+  }
+  .note-column-made-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .note-column-made-open {
+    flex: none;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--color-accent);
   }
   .note-column-made-title {
     max-width: 100%;
@@ -3537,6 +3644,8 @@
   }
   /* A file the AI saved: Open and Show at its row's end, as the card itself presses nothing. */
   .note-column-saved {
+    flex-direction: column;
+    align-items: stretch;
     gap: 4px;
     &:hover {
       background: var(--color-sheet);
@@ -3615,30 +3724,35 @@
       0 -32px 16px var(--color-sheet);
   }
   .note-ask-panel {
-    --note-ask-tools: 32px;
     position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    /* About half the Note's visible height at the window sizes the app opens at. */
-    max-height: 40vh;
     border-bottom: 1px solid var(--color-rule);
-    &:has(> .note-ask-panel-tools > :nth-child(2)) {
-      --note-ask-tools: 62px;
-    }
+  }
+  /* The column's top row, inside the box: its name at the words' start, its controls at Send's end. */
+  .note-ask-panel-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 36px;
+    padding: 6px var(--note-ask-end) 0 var(--note-ask-start);
   }
   .note-ask-panel-body {
     /*
-     * 12px above the first request and under the last reply's copy-and-model line, which keeps its
-     * 16px while Copy's 28px pressable square reaches past it.
+     * 8px under the top row, as in the column; 12px under the last reply's copy-and-model line,
+     * which keeps its 16px while Copy's 28px pressable square reaches past it.
      */
-    --scroll-head: 12px;
+    --scroll-head: 8px;
     --scroll-foot: 12px;
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: 16px;
     min-height: 0;
+    /* About half the Note's visible height at the window sizes the app opens at, under the top row. */
+    max-height: 40vh;
     overflow: auto;
     padding: var(--scroll-head) var(--note-ask-end) var(--scroll-foot) var(--note-ask-start);
     .note-column-reply-foot {
@@ -3647,22 +3761,22 @@
     .note-column-reply-foot .note-column-icon {
       margin-block: -6px;
     }
-    /* The first request stops short of the controls beside it. */
-    > .note-column-notice:first-child,
-    > .note-column-turn:first-child > :first-child {
-      max-width: min(85%, calc(100% - var(--note-ask-tools)));
-      margin-right: var(--note-ask-tools);
+    /* Scrolled, the lines going up fade out at the top row's edge, never cut by it. */
+    &[data-scrolled] {
+      mask-image: linear-gradient(to bottom, transparent, #000 20px);
     }
   }
-  /* Level with the first request's one line: its 12px from the top and its 36px height. */
-  .note-ask-panel-tools {
-    position: absolute;
-    top: 16px;
-    right: var(--note-ask-end);
-    display: flex;
-    gap: 2px;
-    border-radius: 6px;
-    background: var(--color-sheet);
+  /*
+   * The newest request sent here starts under the top row, with room under it for its steps and
+   * reply, once the turns overflow: the turns above scroll away (NoteConversationBody).
+   */
+  :is(.note-ask-panel-body, .note-column-body) > :last-child:is([data-newest], [data-new-line]) {
+    /* Its least height, never less than its words: it doesn't shrink to the room and spill. */
+    flex: none;
+    min-height: var(--newest-room, auto);
+  }
+  .note-column-body[data-scrolled] {
+    mask-image: linear-gradient(to bottom, transparent, #000 20px);
   }
   .own-ask-panel .note-ask-panel-body {
     --scroll-head: 10px;
@@ -3944,14 +4058,49 @@
    */
   .note-head-badge {
     display: flex;
+    flex: none;
     align-items: center;
     margin-right: 4px;
+    /* The control fills its room in every state, so its edges never move as its words change. */
+    .check-badge-place {
+      display: flex;
+      flex: 1 1 auto;
+    }
     .check-badge {
+      flex: 1 1 auto;
+      gap: 2px;
       height: 28px;
       padding: 0;
       background: none;
       box-shadow: none;
     }
+    .check-badge-open {
+      flex: 1 1 auto;
+      justify-content: flex-end;
+    }
+    /* Running: the dot, the part checked and Stop, as a square; the dot stays where it starts. */
+    .check-badge-open:has(.check-badge-running) {
+      justify-content: flex-start;
+    }
+    .check-badge-share {
+      font-variant-numeric: tabular-nums;
+    }
+    .check-badge-stop {
+      justify-content: center;
+      width: 22px;
+      padding: 0;
+      color: var(--color-ink-secondary);
+      &:hover {
+        color: var(--color-ink);
+      }
+    }
+  }
+  /* One room for the check in every state, sized for its widest marks and for its run at "100%"
+     with Stop in any system's figures, so a check starting or ending never fits the strip again;
+     the marks keep to its right edge, by the Note's other controls (#2519). */
+  .note-head-badge:has(.check-badge) {
+    justify-content: flex-end;
+    min-width: 88px;
   }
   .check-badge-quiet {
     display: none;
@@ -10165,22 +10314,6 @@
     color: var(--color-ink-meta);
   }
 
-  /* The recording bar reaches into the page controls' gutters in a narrow pane. */
-  @container mind (width < 808px) {
-    .meeting-bar {
-      top: 48px;
-    }
-  }
-  /*
-   * With Show conversation and the check badge among them, the page's controls reach the bar in a
-   * wider pane too, as a Note beside its conversation is (#3759).
-   */
-  @container mind (width < 1000px) {
-    .mind-tab-page:has([data-conversation-toggle]) .meeting-bar {
-      top: 48px;
-    }
-  }
-
   /* The margins narrow, from 56px and 48px to 40px each at 760px, with the measure kept at 680px. */
   @container mind (width < 784px) {
     .mind-measure {
@@ -15009,8 +15142,9 @@ body.assistant-dragging * {
 .comments-count {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   height: 28px;
-  padding: 0 8px;
+  padding: 0 6px;
   border-radius: 6px;
   color: var(--color-ink-meta);
   font-family: var(--font-sans);

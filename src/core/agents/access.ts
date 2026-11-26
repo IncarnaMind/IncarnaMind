@@ -112,7 +112,7 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
-import type { AskedChecks, RunGrant, SelectedInBlock } from "./askedChecks";
+import type { AskedChecks, CallHears, RunGrant, SelectedInBlock } from "./askedChecks";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -267,15 +267,6 @@ export interface AgentCheckedCitation {
   quote: string | null;
   /** The Document changed since it was cited: it was checked against its text now. */
   changed: boolean;
-}
-
-/** A token checked again for the window (`citationsNow`), with where its quote stands now. */
-export interface AgentCitationNow extends AgentCheckedCitation {
-  /** Found: its Document and the place in it the quote is at now, as a Citation names it. */
-  at: Pick<
-    Citation,
-    "documentId" | "passageId" | "contentHash" | "pageFrom" | "pageTo" | "location"
-  > | null;
 }
 
 export interface AgentCheckResult {
@@ -610,10 +601,13 @@ export interface AgentAccess {
   checkCitations(input: AgentCheckInput): Promise<AgentCheckResult>;
   /**
    * Tokens IncarnaMind gave this connection, each checked against its Document as it is now, as a
-   * change to a Note checks one; it records nothing, being no call of the agent's (#3677). A token
-   * is read in its Document again only once that Document's content changed.
+   * change to a Note checks one, with the Citation a Note would hold where its quote is found there;
+   * it records nothing, being no call of the agent's (#3677). A token is read in its Document again
+   * only once that Document's content changed.
    */
-  citationsNow(tokens: readonly string[]): AgentCitationNow[];
+  citationsNow(
+    tokens: readonly string[],
+  ): { report: AgentCheckedCitation; citation: Citation | null }[];
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -1785,9 +1779,11 @@ export function createAgentAccess(
     tool: AgentToolName,
     summary: string,
     effects: Effect[],
-    run: (pairing: AdmittedPairing) => Promise<Done<T>> | Done<T>,
+    run: (pairing: AdmittedPairing, hears: CallHears | null) => Promise<Done<T>> | Done<T>,
   ): Promise<T> {
     const started = deps.clock();
+    // A conversation's run hears the rest of a call it started through what it gave as it started.
+    let hears: CallHears | null = null;
     const record = (
       outcome: AgentActivity["outcome"],
       rest: Partial<AgentActivity>,
@@ -1811,7 +1807,9 @@ export function createAgentAccess(
       } catch (error) {
         deps.reportError(error);
       }
-      if (grant?.kind === "conversation") grant.called?.({ ...activity, ...(saved && { saved }) });
+      const heard = { ...activity, ...(saved && { saved }) };
+      if (hears) hears.called(heard);
+      else if (grant?.kind === "conversation") grant.called?.(heard);
     };
     let pairing: AdmittedPairing;
     try {
@@ -1829,9 +1827,9 @@ export function createAgentAccess(
       }
       throw error;
     }
-    const ended = grant?.kind === "conversation" ? grant.calling?.(tool) : undefined;
+    hears = (grant?.kind === "conversation" && grant.calling?.(tool)) || null;
     try {
-      const done = await run(pairing);
+      const done = await run(pairing, hears);
       record(
         "done",
         {
@@ -1853,7 +1851,7 @@ export function createAgentAccess(
       record("failed", { problem: "failed" });
       throw new AgentRefusedError("failed", t("agents.problem.failed"));
     } finally {
-      ended?.();
+      hears?.ended();
     }
   }
 
@@ -2182,11 +2180,12 @@ export function createAgentAccess(
     live: readonly LiveDocument[],
     token: string,
     recheck: (kept: AgentCitation) => CitationRecheck = recheckKept,
-  ): { cited: CitedToken | null; report: AgentCheckedCitation } => {
+  ): { cited: CitedToken | null; report: AgentCheckedCitation; found: Citation | null } => {
     const kept = deps.citations.find(pairing.id, token);
     if (!kept || !usable(inScope, kept.documentId)) {
       return {
         cited: null,
+        found: null,
         report: {
           cite: citeTag(token),
           check: "unknown",
@@ -2224,6 +2223,7 @@ export function createAgentAccess(
         attributes,
         citable: !deps.notCited(kept.passageId),
       },
+      found,
       report: {
         cite: citeTag(token),
         check,
@@ -3169,20 +3169,8 @@ export function createAgentAccess(
         return now;
       };
       return tokens.map((token) => {
-        const { cited, report } = checkToken(pairing, inScope, live, token, recheck);
-        const kept = cited ? deps.citations.find(pairing.id, token) : null;
-        const found = kept && report.check === "found" ? foundNow(kept, recheck(kept)) : null;
-        return {
-          ...report,
-          at: found && {
-            documentId: found.documentId,
-            passageId: found.passageId,
-            contentHash: found.contentHash,
-            pageFrom: found.pageFrom,
-            pageTo: found.pageTo,
-            location: found.location,
-          },
-        };
+        const { report, found } = checkToken(pairing, inScope, live, token, recheck);
+        return { report, citation: found };
       });
     },
 
@@ -3588,7 +3576,8 @@ export function createAgentAccess(
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       const known = deps.minds().find((mind) => mind.id === mindId);
-      return call("propose_changes", known ? mindName(known) : "", effects, async (admitted) => {
+      const named = known ? mindName(known) : "";
+      return call("propose_changes", named, effects, async (admitted, hears) => {
         if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
@@ -3598,6 +3587,12 @@ export function createAgentAccess(
           throw new AgentRefusedError("invalid", t("agents.propose.version"));
         }
         const asked = parseChanges(input?.changes, t);
+        // The request this call was made for, as it is now: the AI may take one sent meanwhile
+        // while the pictures are read, which moves the run on to that request's words (#3765).
+        const madeFor =
+          grant?.kind === "conversation" && grant.front.mindId === mind.id
+            ? { ...grant.front }
+            : null;
         const visuals = await visualsFor(
           asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
@@ -3617,10 +3612,7 @@ export function createAgentAccess(
         const own = wrote(pairing, mind.id);
         // The Note the User asked from at its foot takes the change at once, as an edit asked of
         // the assistant does; with words selected, only a change inside them (ADR-0034).
-        const front =
-          grant?.kind === "conversation" && grant.front.mindId === mind.id && !own
-            ? grant.front
-            : null;
+        const front = own ? null : madeFor;
         let askedHere = false;
         const naming = namingOf(own);
         const key = versionKey(pairing, mind.id);
@@ -3658,7 +3650,10 @@ export function createAgentAccess(
               t("agents.propose.ownOutsideSelection", { paragraph: overOwn[0] }),
             );
           }
-          const before = countedBy(blocks, ownPending);
+          // What the request itself applied: the run's other requests' changes, though they read as
+          // in, are theirs to count and to take back (#3765).
+          const requestOwn = hears?.own ?? ownPending;
+          const before = countedBy(blocks, requestOwn);
           const proposed = proposeNamed(blocks, note, placed, {
             request,
             made: {
@@ -3673,16 +3668,19 @@ export function createAgentAccess(
             visuals,
             newId: deps.newId,
             ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
-            ...(askedHere && { own: ownPending }),
+            ...(askedHere && { own: requestOwn }),
           });
           const kinds = changeKinds(blocks, mine);
           if (own) decideProposals(blocks, mine, "accept");
-          if (askedHere) ownPending.add(request);
+          if (askedHere) {
+            ownPending.add(request);
+            requestOwn.add(request);
+          }
           // The line adds up what each change reports: this one reports what it moved the count of
           // the run's changes still waiting here by, read before and after it in this one write,
           // so one that rewrites or takes out its own is never counted twice, and one the window
           // applied meanwhile is never counted against it.
-          const after = countedBy(blocks, ownPending);
+          const after = countedBy(blocks, requestOwn);
           const moved = askedHere
             ? {
                 changed: after.changed - before.changed,
@@ -3713,10 +3711,9 @@ export function createAgentAccess(
         }
         deps.versions.set(key, written.now.version);
         // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
-        const ownFront =
-          own && grant?.kind === "conversation" && grant.front.mindId === mind.id && step !== null;
-        if ((askedHere || ownFront) && grant?.kind === "conversation") {
-          grant.asked?.({
+        const ownFront = own && madeFor !== null && step !== null;
+        if ((askedHere || ownFront) && hears) {
+          hears.asked({
             mindId: mind.id,
             request,
             ...(written.moved ?? countsOf(written.kinds)),

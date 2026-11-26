@@ -821,6 +821,7 @@ const turnOf = (request: string, at: string, outcome: NoteTurn["outcome"] = "lan
     questions: [],
     closed: [],
     mode: null,
+    newAfter: false,
   }) as NoteTurn;
 
 /** A stopped call whose notes the User's own AI writes, as Stop leaves it. */

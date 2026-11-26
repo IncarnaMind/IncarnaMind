@@ -822,26 +822,41 @@ for (const language of ["en", "zh-CN"] as const) {
             throw new Error("A reply's Citation is looked at without admitting a call.");
           },
         });
-        expect(access.citationsNow([cite.slice("[cite:".length, -1)])[0]).toEqual({
+        const [now] = access.citationsNow([cite.slice("[cite:".length, -1)]);
+        expect(now?.report).toEqual({
           cite,
           check,
           document: "Review",
           location: label,
           quote,
           changed: true,
-          // Found: where the quote is now, for the window to open the Transcript at its line (#3762).
-          at:
-            check === "found"
-              ? {
-                  documentId: "tides",
-                  passageId: "review",
-                  contentHash: "v2",
-                  pageFrom: 1,
-                  pageTo: 1,
-                  location: expect.objectContaining({ kind: "time" }),
-                }
-              : null,
         });
+        // Found, it is the Citation a Note would hold, with the Document's place (#3765): where the
+        // quote is now, for the window to open the Transcript at its line (#3762).
+        expect(now?.citation?.quote ?? null).toBe(check === "found" ? quote : null);
+        expect(
+          now?.citation
+            ? {
+                documentId: now.citation.documentId,
+                passageId: now.citation.passageId,
+                contentHash: now.citation.contentHash,
+                pageFrom: now.citation.pageFrom,
+                pageTo: now.citation.pageTo,
+                location: now.citation.location,
+              }
+            : null,
+        ).toEqual(
+          check === "found"
+            ? {
+                documentId: "tides",
+                passageId: "review",
+                contentHash: "v2",
+                pageFrom: 1,
+                pageTo: 1,
+                location: expect.objectContaining({ kind: "time" }),
+              }
+            : null,
+        );
       },
     );
 

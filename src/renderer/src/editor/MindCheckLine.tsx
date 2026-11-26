@@ -134,16 +134,18 @@ export function useMindCheckProgress(editor: Editor, requestId: string | null) {
   });
 }
 
-/** What a running check is doing, with its progress: "Checking 12 of 24", or the action's own words. */
-export function RunningText({
-  editor,
-  mindId,
-  testId = "badge-progress",
-}: {
-  editor: Editor;
-  mindId: string;
-  testId?: string;
-}) {
+/** A running check: what it is doing, in words, and how much of it is done once that is counted. */
+export interface RunningCheck {
+  /** "Checking 12 of 24", "Finding the sentences to check…", or the action's own words. */
+  words: string;
+  /** The words drawn as the badge's progress (`badge-progress`), or plain, as an action's own. */
+  kind: "progress" | "limited" | "plain";
+  /** The part checked, from 0 to 1; null until the sentences to check are counted. */
+  share: number | null;
+}
+
+/** What the Note's running check is doing, with its progress; null while none runs. */
+export function useRunningCheck(editor: Editor, mindId: string): RunningCheck | null {
   const t = useT();
   const language = useLanguage();
   const running = useChecks((state) => state.running[mindId]);
@@ -157,19 +159,33 @@ export function RunningText({
   if (!running) return null;
   // While its requests wait on the model's rate limit, the line says when they resume (#2944).
   if (limitedUntil) {
-    return (
-      <span data-testid={testId}>
-        {t("status.rateLimited", { time: formatDateTime(limitedUntil, language) })}
-      </span>
-    );
+    return {
+      words: t("status.rateLimited", { time: formatDateTime(limitedUntil, language) }),
+      kind: "limited",
+      share: null,
+    };
   }
-  if (running.action !== "whole-mind") return <>{t(`checks.running.${running.action}`)}</>;
+  if (running.action !== "whole-mind") {
+    return { words: t(`checks.running.${running.action}`), kind: "plain", share: null };
+  }
+  if (progress.total === 0) return { words: t("verify.finding"), kind: "progress", share: null };
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  return {
+    words: t("badge.checking", { done: format(progress.done), total: format(progress.total) }),
+    kind: "progress",
+    share: progress.done / progress.total,
+  };
+}
+
+/** A running check's words, as the badge draws them. */
+export function RunningText({ run }: { run: RunningCheck }) {
+  if (run.kind === "plain") return <>{run.words}</>;
   return (
-    <span data-testid={testId} className="tabular-nums">
-      {progress.total === 0
-        ? t("verify.finding")
-        : t("badge.checking", { done: format(progress.done), total: format(progress.total) })}
+    <span
+      data-testid="badge-progress"
+      className={run.kind === "progress" ? "tabular-nums" : undefined}
+    >
+      {run.words}
     </span>
   );
 }

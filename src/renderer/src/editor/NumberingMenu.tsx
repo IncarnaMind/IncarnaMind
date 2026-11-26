@@ -1,5 +1,4 @@
 import type { VirtualElement } from "@floating-ui/dom";
-import { isMacOS } from "@tiptap/core";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { useEffect, useRef, useState } from "react";
 import type { MessageKey } from "../../../shared/i18n";
@@ -11,9 +10,8 @@ import {
 import { keysHere } from "../commands/keymap";
 import { ChevronIcon } from "../components/icons";
 import { CheckLineIcon } from "../components/lineIcons";
-import { files } from "../core";
 import { useT } from "../i18n";
-import { useNotices } from "../notices";
+import { type ClipboardEdit, clipboardEdit, clipboardEdits } from "./clipboardItems";
 import { caretAnchor } from "./LinkField";
 import { keepSelection, submenuOpensOnRight, useMenuKeys } from "./menuKeys";
 import {
@@ -215,21 +213,11 @@ export function ListMenu({ editor }: { editor: Editor }) {
     );
   }
 
-  const copyLabel = isMacOS() ? "menu.copy" : "menu.copy.other";
-  const clipboard = (command: "cut" | "copy" | "paste") => {
-    // Focused at once, not a frame later as Tiptap's focus does: each acts where the focus is.
-    editor.view.focus();
-    if (command === "paste") files.paste();
-    else if (!document.execCommand(command)) {
-      useNotices.getState().showError(new Error(t("menu.clipboardFailed")));
-    }
+  const clipboard = (edit: ClipboardEdit) => {
+    clipboardEdit(editor, edit, t("menu.clipboardFailed"));
     setOpen(null);
   };
-  const edits = [
-    { id: "cut", label: t("menu.cut"), keys: "CmdOrCtrl+X", on: selected },
-    { id: "copy", label: t(copyLabel), keys: "CmdOrCtrl+C", on: selected },
-    { id: "paste", label: t("menu.paste"), keys: "CmdOrCtrl+V", on: true },
-  ] as const;
+  const edits = clipboardEdits(selected);
   const toggleSchemes = (button: HTMLElement, focus: boolean) =>
     setOpen((now) =>
       now?.kind === "item" ? { ...now, submenu: now.submenu ? null : button, focus } : now,
@@ -267,7 +255,7 @@ export function ListMenu({ editor }: { editor: Editor }) {
             }}
             className="editor-menu-item"
           >
-            <span className="min-w-0 flex-1 truncate">{edit.label}</span>
+            <span className="min-w-0 flex-1 truncate">{t(edit.label)}</span>
             <span className="editor-menu-shortcut">{keysHere(edit.keys)}</span>
           </button>
         ))}
