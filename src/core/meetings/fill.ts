@@ -841,7 +841,11 @@ export function createMeetingFill(options: MeetingFillOptions) {
   }): Promise<readonly MeetingOverview[]> {
     const { meetingId, overviews, passages, transcriptId, route, signal, context } = input;
     if (overviews.length < 2) return overviews;
-    const cited = new Set(overviews.map((overview) => overview.citations[0]?.attrs?.passageId));
+    const cited = new Set(
+      overviews.flatMap((overview) =>
+        overview.citations.map((citation) => citation.attrs?.passageId),
+      ),
+    );
     const shown = passages.filter((passage) => cited.has(passage.passageId));
     const size = shown.reduce((sum, passage) => sum + estimateTokens(passage.text), 0);
     if (shown.length === 0 || size > partTokens(route)) {
