@@ -284,17 +284,18 @@ export function createHandOver(deps: HandOverDeps) {
   const { store } = deps;
   /** Each check started, by its Note, while this run of IncarnaMind lasts. */
   const runs = new Map<string, CheckRun>();
-  let queue: Promise<unknown> = Promise.resolve();
+  // The turn starts with the start-up's clean-up, called now: it reads what it removes before the
+  // core can close, and every hand-over and hand edit waits for it.
+  let queue: Promise<unknown> = deps.startUp().catch((error: unknown) =>
+    deps.log.error("handedFile.startUp.failed", {
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
   const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
     const next = queue.then(run);
     queue = next.catch(() => undefined);
     return next;
   };
-  inTurn(() => deps.startUp()).catch((error: unknown) =>
-    deps.log.error("handedFile.startUp.failed", {
-      message: error instanceof Error ? error.message : String(error),
-    }),
-  );
 
   /**
    * Throws unless the item is still there: the User may delete its Document for good while a write

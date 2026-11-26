@@ -6629,7 +6629,12 @@ export function createCore(adapters: CoreAdapters): Core {
     startUp: async () => {
       await Promise.all([
         documents.dropPurged().catch((error: unknown) => console.error(error)),
-        dropTakenBackCopies({ db, dataDir, reportError: (error) => console.error(error) }),
+        dropTakenBackCopies({
+          db,
+          dataDir,
+          signal: lifetime.signal,
+          reportError: (error) => console.error(error),
+        }),
       ]);
     },
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),

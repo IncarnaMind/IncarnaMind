@@ -5,7 +5,7 @@
  * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,7 @@ import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { PNG } from "../helpers/citedPages";
+import { startCore } from "../helpers/core";
 import {
   addAndProcess,
   linkWithoutFolder,
@@ -255,6 +256,31 @@ describe("a file an outside agent hands over, where a call meets a change", () =
       "v1",
     ]);
     reopened.close();
+  });
+
+  // protects=a core closed as it starts leaves the closed storage and a quit's leftover alone: its start-up clean-up logs nothing and removes nothing (#3751); fails_when=the clean-up reads the closed database, or removes the leftover after the core closed
+  it("closed as it starts, leaves a taken-back version's leftover and the closed storage alone", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path, dataDir } = waiting;
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await waiting.handOver());
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    const left = join(dataDir, "Handed files", first.fileId, "v2");
+    await mkdir(left, { recursive: true });
+    await writeFile(join(left, "Harbour review.pptx"), DECK);
+    await core.close();
+
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    startCore(dataDir).close();
+    // Work on files that was started takes several round trips to the disk: this takes more.
+    for (let hop = 0; hop < 100; hop++) await stat(dataDir);
+    expect(errors).not.toHaveBeenCalled();
+    expect(existsSync(left)).toBe(true);
+    errors.mockRestore();
   });
 
   // protects=the start's removal of a taken-back version's copy runs before any hand-over writes one: a hand-over asked for at once after the start, its version taking the freed number, keeps its own copy (#3751); fails_when=the removal chosen before the hand-over deletes the new version's copy
