@@ -901,4 +901,31 @@ describe("a Mind imported before gets its look once", () => {
       { look_version: null },
     ]);
   });
+
+  test("a package that breaks on the Document's own words logs why without them", async () => {
+    const { dataDir, core, mindId, client } = await imported(resumeFile());
+    withoutLook(client, dataDir, mindId);
+    await client.settled();
+    const sha256 = wordFileOf(client.doc)?.sha256;
+    core.close();
+    // A "<" the file left unescaped: the reader takes the words after it for a closing tag.
+    await writeFile(
+      join(dataDir, WORD_PACKAGES_FOLDER, `${sha256}.docx`),
+      wordFile({
+        body: "<w:p><w:r><w:t>Fees</Kestrel Fabrications pays 40,000 on signing></w:t></w:r></w:p>",
+      }),
+    );
+
+    const { log, entries } = recordingLog();
+    const restarted = startCore(dataDir, { log });
+    await vi.waitFor(() =>
+      expect(entries).toContainEqual({
+        level: "error",
+        event: "word.look.failed",
+        fields: { mindId, error: "WordRefusedError", reason: "damaged" },
+      }),
+    );
+    expect(JSON.stringify(entries)).not.toMatch(/Kestrel|40,000/);
+    restarted.close();
+  });
 });

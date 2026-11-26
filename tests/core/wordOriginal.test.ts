@@ -148,8 +148,12 @@ describe("the original as a Document", () => {
     expect(await core.listDocuments()).toEqual([]);
     expect(errors).toContainEqual({
       event: "word.import.originalNotAdded",
-      fields: { file: "Supply agreement.docx", error: expect.stringMatching(/\S/) },
+      fields: expect.objectContaining({
+        mindId: result.mind.id,
+        error: expect.stringMatching(/\S/),
+      }),
     });
+    expect(JSON.stringify(errors)).not.toContain("Supply agreement");
 
     expect(await core.addWordOriginal(result.mind.id, path)).toBe(true);
     const client = await connectToMind(core, result.mind.id);

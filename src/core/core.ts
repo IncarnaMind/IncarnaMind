@@ -515,7 +515,7 @@ import { createUsageData } from "./usageData";
 import { addedCounts, trackUsage } from "./usageTracking";
 import { createWindowCommands } from "./windowCommands";
 import { createWindowPresence, type HostWindow } from "./windowPresence";
-import { createWordImports } from "./wordImports";
+import { createWordImports, wordErrorFields } from "./wordImports";
 import { ensureWorkspace } from "./workspace";
 import { createWorkWall } from "./workWall";
 
@@ -4739,12 +4739,11 @@ export function createCore(adapters: CoreAdapters): Core {
   });
   wordImports.resume();
   wordImports.dropPurged().catch((error: unknown) => console.error(error));
-  wordImports.addLooks().catch((error: unknown) =>
-    (adapters.log ?? silentLogger).error("word.look.failed", {
-      error: error instanceof Error ? error.name : "unknown",
-      message: error instanceof Error ? error.message : String(error),
-    }),
-  );
+  wordImports
+    .addLooks()
+    .catch((error: unknown) =>
+      (adapters.log ?? silentLogger).error("word.look.failed", wordErrorFields(error)),
+    );
 
   const recentlyDeleted = createRecentlyDeleted({
     db,
