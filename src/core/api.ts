@@ -1,4 +1,10 @@
 import type { NodeJSON } from "../shared/blockJson";
+import type {
+  DeckProposal,
+  DeckProposalAccepted,
+  DeckProposalFitChoice,
+  DeckProposalUndone,
+} from "./decks/proposalTypes";
 import type { ShapeEdit } from "./exports/pptxPatch/shapeEdit";
 import type {
   AssignmentChange,
@@ -27,6 +33,17 @@ import type { Localized } from "./providers/catalog/types";
 import type { TagKind } from "./tags/kinds";
 import type { UiUsageEvent } from "./usageEvents";
 
+export type {
+  DeckChange,
+  DeckCitationRecord,
+  DeckPlaceKind,
+  DeckProposal,
+  DeckProposalAccepted,
+  DeckProposalFitChoice,
+  DeckProposalItem,
+  DeckProposalOverflow,
+  DeckProposalUndone,
+} from "./decks/proposalTypes";
 export type {
   AssignmentChange,
   AssignmentState,
@@ -13207,6 +13224,8 @@ export const AGENT_TOOLS = [
   "read_request",
   "hand_over_file",
   "save_as_word",
+  "read_deck",
+  "propose_deck_changes",
 ] as const;
 
 /**
@@ -13417,6 +13436,15 @@ export type AgentAsk =
   | { kind: "question"; text: string }
   | { kind: "note" }
   | { kind: "check" }
+  | {
+      kind: "deck-edit";
+      documentId: string;
+      slide: number;
+      shapeId?: string;
+      shapeName?: string;
+      text?: string;
+      instruction: string;
+    }
   | AskedSelection;
 
 export interface AskAgentInput {
@@ -16560,6 +16588,22 @@ export interface CoreApi {
     keptId: string;
     shown: string;
   }): Promise<DeckRestored>;
+  /** AI Proposals waiting for the User's confirmation on a deck (#149 part 2). */
+  deckProposals(documentId: string): Promise<DeckProposal[]>;
+  /** Unwritten patched deck bytes for live Before/After preview of a waiting Proposal (#149 part 2). */
+  deckProposalPreview(
+    proposalId: string,
+    options?: { fit?: DeckProposalFitChoice },
+  ): Promise<Uint8Array>;
+  /** Accepts an AI deck Proposal, preserving hand edits on other shapes and keeping the original before writing (#149 part 2). */
+  acceptDeckProposal(
+    proposalId: string,
+    options?: { fit?: DeckProposalFitChoice },
+  ): Promise<DeckProposalAccepted>;
+  /** Dismisses an AI deck Proposal without changing the deck (#149 part 2). */
+  rejectDeckProposal(proposalId: string): Promise<boolean>;
+  /** Undoes an accepted AI deck Proposal (#149 part 2). */
+  undoDeckProposal(undoId: string): Promise<DeckProposalUndone>;
   /** The live Canvases (#3406), newest first. */
   listCanvases(): Promise<Canvas[]>;
   /**
@@ -16643,6 +16687,8 @@ export interface CoreEvents {
   "edits.ask": EditAsk;
   /** Changes storage refused wait in memory, or (null) all of them are stored now (#1119). */
   "minds.unsaved": UnsavedChanges | null;
+  /** A deck's waiting AI Proposals changed (#149 part 2). */
+  "deck.proposals": { documentId: string; proposals: DeckProposal[] };
   /** A Mind's Checkpoints changed: one was saved, kept for good, or thinned out. Read `listCheckpoints` again. */
   "checkpoints.changed": { mindId: string };
   /**
@@ -17412,6 +17458,11 @@ const methods: Record<CoreApiMethod, true> = {
   retryDeckEdit: true,
   deckChangeWaiting: true,
   deckRefusal: true,
+  deckProposals: true,
+  deckProposalPreview: true,
+  acceptDeckProposal: true,
+  rejectDeckProposal: true,
+  undoDeckProposal: true,
   listCanvases: true,
   showCanvas: true,
   listCanvasVersions: true,

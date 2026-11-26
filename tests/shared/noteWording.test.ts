@@ -149,6 +149,7 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "share.page.notes",
   "tags.kind.meetingNotes",
   "tags.kind.meetingNotes.description",
+  "viewer.deck.place.notes",
   "viewer.slide.notes",
   "wordImport.keptChange.content",
 ];

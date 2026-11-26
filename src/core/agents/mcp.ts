@@ -875,6 +875,54 @@ export function createAgentServer(
   );
 
   server.registerTool(
+    tool("read_deck"),
+    {
+      title: "Read a deck",
+      description:
+        "Read an existing .pptx deck: slides, shapeIds, text, tables, chart series, notes, Citations, and version.",
+      inputSchema: z.object({
+        documentId: z.string(),
+        slides: z.array(z.number()).optional(),
+      }),
+      outputSchema: z.looseObject({}),
+      annotations: READ_ONLY,
+    },
+    (input) => answer(() => access.readDeck(input)),
+  );
+
+  server.registerTool(
+    tool("propose_deck_changes"),
+    {
+      title: "Propose deck changes",
+      description:
+        "Propose deck edits (waits for Confirm; never rebuild or hand_over_file); pass version from read_deck. Kinds: text(shape,paragraphs), cell(shape,row,column,paragraphs), notes(paragraphs), box(shape,box:{x,y,w,h}), chartSeries(shape,series,values); optional citations/pointCitations.",
+      inputSchema: z.object({
+        documentId: z.string(),
+        version: z.string(),
+        summary: z.string().optional(),
+        changes: z
+          .array(
+            z.looseObject({
+              kind: z.enum(["text", "cell", "box", "notes", "chartSeries"]),
+              slide: z.number(),
+              shape: z.string().optional(),
+              paragraphs: z.array(z.string()).optional(),
+            }),
+          )
+          .min(1),
+      }),
+      outputSchema: z.looseObject({}),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    (input) => answer(() => access.proposeDeckChanges(input)),
+  );
+
+  server.registerTool(
     tool("read_request"),
     {
       title: "Read the User's request",

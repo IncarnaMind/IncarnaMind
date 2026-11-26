@@ -116,7 +116,7 @@ Code confirms that every quote a verdict rests on is on its page. "Quote found" 
 
 ## Privacy
 
-You don't need an account. IncarnaMind reads your files where they are and changes one only when you edit a deck in it by hand, keeping the file as it was first, and a question sends only what it needs to the model you picked.
+You don't need an account. IncarnaMind reads your files where they are and changes a file of yours only when you edit it by hand or confirm a change your AI proposes, keeping the file as it was first so you can put it back in one step; a question sends only what it needs to the model you picked.
 
 | What | Where it goes |
 |---|---|
@@ -140,7 +140,7 @@ Where a provider offers the choice, IncarnaMind asks it not to keep your request
 - **Which AI can I use?** Connect an agent you already use, such as [Claude Code](docs/claude-code.md); [docs/agents.md](docs/agents.md) lists the others. Or set up a model in IncarnaMind: sign in with ChatGPT Plus or Pro, or use your own key from OpenAI, Anthropic, Google, DeepSeek, Qwen, SiliconFlow, OpenRouter, Kimi, GLM, Mistral, xAI or any OpenAI-compatible server.
 - **Does it work offline?** Reading files and search do. Answers and checks need a model: a cloud one, or a local one through Ollama, which is slower.
 - **Can I use it on client documents?** Your files stay on your computer, and only the model you chose and the services you allow receive anything. Read the [client data statement](docs/client-data-statement.md) first.
-- **Will it change my files?** No. It writes only to its own data folder and to the files you export.
+- **Will it change my files?** Only when you edit a deck in it by hand or confirm a change your AI proposes. Before writing, it keeps the file as it was so you can put it back in one step. Everything else goes only to its own data folder and the files you export.
 - **How do I back up?** Copy the data folder. It holds your Notes, the search index and your settings.
 
 </details>
