@@ -65,6 +65,7 @@ The words from `CONTEXT.md`, then the ones the interaction rules bring in. Where
 | Source pack | PDF 引用页面合集 | The export of a Note's cited pages. |
 | Web page to share | 可分享的网页 | The export a reader opens in a browser, each Citation's quote a click away: "可分享的网页（.html）". A template puts no space around `{format}`: the space comes only beside a Latin name ("导出为 PDF", "导出为可分享的网页（.html）"). |
 | Footnote | 脚注 | As Word, WPS and Feishu. "插入脚注", "脚注 3". |
+| Endnote | 尾注 | As Word and WPS. "尾注 i"; the heading over the endnotes after the text is 尾注 too. |
 | Reference record | 引用信息 | The "Cite as" panel's title too. Its fields: 类型、标题、作者、日期、期刊（出处）、卷、期、页码、出版者、DOI、网址、语言. |
 | Needs details (a reference record) | 信息待补充 | |
 | Look up (a reference record) | 查询 | "按 DOI 从 Crossref 补全空白字段". |
