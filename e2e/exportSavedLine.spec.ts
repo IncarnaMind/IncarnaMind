@@ -139,7 +139,10 @@ for (const beside of [false, true]) {
         await expect(window.getByTestId("tab-group")).toHaveCount(2);
       }
       for (const title of [WITH_COMMENT, PLAIN, CHINESE]) {
-        await pointAndClick(window, tabs.filter({ hasText: title.slice(0, 12) }));
+        const tab = tabs.filter({ hasText: title.slice(0, 12) });
+        await pointAndClick(window, tab);
+        // Export is pressed once, as soon as the tab shows: the strip has fitted it by then (#3765).
+        await expect(tab).toHaveAttribute("aria-selected", "true");
         await exportFromMenu(window, "docx");
         await expect(done).toContainText(".docx", { timeout: 30_000 });
         const name = basename((await done.getAttribute("title")) ?? "");

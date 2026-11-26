@@ -1,6 +1,7 @@
 import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type { Editor } from "@tiptap/core";
 import type { CoreBridge, Meeting } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
@@ -11,6 +12,7 @@ import {
   boxRight,
   createDataFolder,
   dismissChatSetup,
+  fromConversationMenu,
   launchApp,
   openMeetingSheet,
   pointAndClick,
@@ -189,7 +191,7 @@ async function askedIntoColumn(language: Language) {
   await pointAndClick(window, window.getByTestId("note-ask-handle-toggle"));
   const panel = window.getByTestId("note-ask-panel");
   await expect(panel).toBeVisible();
-  await pointAndClick(window, panel.getByTestId("conversation-move-left"));
+  await fromConversationMenu(window, panel, "conversation-move-left");
   const column = window.getByTestId("note-column");
   await expect(column).toBeVisible();
   return { ...launch, control, column, panel };
@@ -206,10 +208,23 @@ const uncovered = (target: Locator) =>
     );
   });
 
-/** The words a Citation chip in a reply quotes, as its title says them. */
+/**
+ * The words a Citation chip in a reply quotes, from its Citation in the reply, which is drawn as a
+ * Note is (#3765): the reply's Citations in order, as its chips are.
+ */
 async function quoteOf(chip: Locator): Promise<string> {
-  const title = (await chip.getAttribute("title")) ?? "";
-  return title.slice(title.lastIndexOf("“") + 1, title.lastIndexOf("”"));
+  return chip.evaluate((element) => {
+    const text = element.closest(".ProseMirror");
+    const editor = (text as unknown as { editor?: Editor } | null)?.editor;
+    const citation = element.closest('[data-testid="citation"]');
+    if (!text || !editor || !citation) return "";
+    const at = [...text.querySelectorAll('[data-testid="citation"]')].indexOf(citation);
+    const quotes: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "citation") quotes.push(String(node.attrs.quote));
+    });
+    return quotes[at] ?? "";
+  });
 }
 
 /** The sheet is up at the cited line: its words washed as a found quote, in view in its body. */
@@ -285,7 +300,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       // In the window's column: the reply stays beside the sheet.
       const reply = column.getByTestId("note-column-reply").last();
-      const chip = reply.locator(".citation-marker[data-token]").first();
+      const chip = reply.getByTestId("citation-chip").first();
       await expect(chip).toBeVisible();
       const quote = await quoteOf(chip);
       expect(quote).toContain(words.cited);
@@ -304,7 +319,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await setWindowSize(app, window, 900, 900);
       await expect(panel).toBeVisible();
       await expect(column).toHaveCount(0);
-      const upward = panel.locator(".citation-marker[data-token]").first();
+      const upward = panel.getByTestId("citation-chip").first();
       await expect(upward).toBeVisible();
       expect(await quoteOf(upward)).toBe(quote);
       await pointAndClick(window, upward);

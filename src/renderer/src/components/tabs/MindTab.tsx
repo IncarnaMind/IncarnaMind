@@ -33,6 +33,7 @@ import { MeetingFoot, MeetingSheet, useMeetingFootShown } from "../meetings/Meet
 import { ChatReadinessNotice } from "../providers/ChatReadinessNotice";
 import { dropIntoClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
+import { useNoteControls } from "./noteControls";
 import { useTabPlace } from "./tabItems";
 
 /**
@@ -45,7 +46,6 @@ export function MindTab({ mindId }: { mindId: string }) {
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const isExample = useIsExample(mindId);
   const [top, setTop] = useState<HTMLElement | null>(null);
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [count, setCount] = useState<HTMLElement | null>(null);
   const [badge, setBadge] = useState<HTMLElement | null>(null);
   const [ask, setAsk] = useState<HTMLElement | null>(null);
@@ -57,6 +57,8 @@ export function MindTab({ mindId }: { mindId: string }) {
   const assistantSlot = useContext(ComposerDockContext);
   const place = useTabPlace();
   const tabId = place?.tabId;
+  // Its own controls, in the strip that shows it (#3765).
+  const placed = useNoteControls((state) => (tabId ? state.byTab[tabId] : undefined));
   const band = useUndoPillBands((state) => undoBandFor(state.bands, place?.groupId));
   const merged = useGroupsMerged();
   const read = useAppStore((state) => assistantTabOf(state.layout, merged)?.id === tabId);
@@ -129,7 +131,8 @@ export function MindTab({ mindId }: { mindId: string }) {
                     <PageSlotsContext.Provider
                       value={{
                         top,
-                        menu,
+                        menu: placed?.controls ?? null,
+                        more: placed?.more ?? null,
                         count,
                         badge,
                         review: review.slot,
@@ -156,9 +159,6 @@ export function MindTab({ mindId }: { mindId: string }) {
             </div>
             {/* A meeting's one place is its control at the foot and the sheet it raises (#3762). */}
             {meetingFoot && <MeetingSheet mindId={mind.id} />}
-            <div className="mind-menu-slot">
-              <div ref={setMenu} className="flex items-center gap-1" />
-            </div>
             <div className={`mind-foot-slot ${besidePill ? "mind-foot-slot--over-pill" : ""}`}>
               <div ref={setCount} className="mind-foot-count" />
               <div ref={setBadge} className="mind-foot-badge" />

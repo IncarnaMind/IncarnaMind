@@ -127,10 +127,10 @@ export function citationPageOpened(layout: WindowLayout, origin: CitedOrigin): v
   if (origin !== "note") return;
   const app = useAppStore.getState();
   const place = app.layout?.assistant;
-  const cardWidth = useCardWidth.getState().width;
+  const { width: cardWidth, groups, lead } = useCardWidth.getState();
   if (!place || place.folded || cardWidth === null || quietAssistantNow()) return;
   if (!isSide(shownDock(place, window.innerWidth))) return;
-  if (groupsMergedAt(window.innerWidth, cardWidth)) return;
+  if (groupsMergedAt(window.innerWidth, cardWidth, groups, lead)) return;
   const pair = notePagePair(layout);
   if (pair === null) return;
   const widths = splitWidths(layout, pair, cardWidth);
@@ -188,7 +188,12 @@ export function useAssistantYields({
       pair !== null &&
       side &&
       room > 0 &&
-      !groupsMergedAt(window.innerWidth, card) &&
+      !groupsMergedAt(
+        window.innerWidth,
+        card,
+        layout.groups.length,
+        useCardWidth.getState().lead,
+      ) &&
       splitWidths(layout, pair, card).note >= NOTE_MIN;
     if (pair === null || fits) {
       yielded = false;

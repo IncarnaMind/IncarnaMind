@@ -614,6 +614,16 @@ export function ChevronUpLineIcon(props: IconProps) {
 }
 
 /** The assistant and its conversations: a speech bubble. */
+/** A Note's comments: the conversation's balloon with lines of writing in it. */
+export function CommentLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M5 4.5h14a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2h-7.5L7 20.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z" />
+      <path d="M7.5 9h9M7.5 12.5h6" />
+    </LineIcon>
+  );
+}
+
 export function ChatLineIcon(props: IconProps) {
   return (
     <LineIcon {...props}>
@@ -649,6 +659,16 @@ export function RestoreLineIcon(props: IconProps) {
     <LineIcon {...props}>
       <path d="M4 12a8 8 0 1 0 2.3-5.6" />
       <path d="M4 4v4h4" />
+    </LineIcon>
+  );
+}
+
+/** Send again: an arrow going round once more. */
+export function RetryLineIcon(props: IconProps) {
+  return (
+    <LineIcon {...props}>
+      <path d="M20 12a8 8 0 1 1-2.3-5.6" />
+      <path d="M20 4v4h-4" />
     </LineIcon>
   );
 }

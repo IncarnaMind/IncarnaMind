@@ -1,16 +1,22 @@
 import type { Editor } from "@tiptap/react";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AgentSavedFile, NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
+import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
 import { files } from "../../core";
+import { AskArrowIcon } from "../../editor/icons";
 import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
-import { useT } from "../../i18n";
+import { useLanguage, useT } from "../../i18n";
 import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
 import {
-  askInNote,
+  askAgainInNote,
+  discardInNote,
+  editRequest,
   firstWordsOf,
+  isGoing,
   type NoteAsk,
   type NoteTrail,
+  sendUnsent,
   setColumnOpen,
   useNoteAsks,
   useNoteColumns,
@@ -18,12 +24,21 @@ import {
   withoutCitations,
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { ChevronRightLineIcon, CloseLineIcon, CopyLineIcon } from "../lineIcons";
+import {
+  ChevronRightLineIcon,
+  CopyLineIcon,
+  DocumentLineIcon,
+  MindLineIcon,
+  PencilLineIcon,
+  RetryLineIcon,
+  TrashLineIcon,
+} from "../lineIcons";
 import { ProblemLine } from "../ProblemLine";
 import { SidebarToggle } from "../SidebarToggle";
-import { MoveConversation } from "./NoteAsk";
-import { EndAction, FailureLine, Reply, useWaitingInNote } from "./NoteAskPill";
+import { ConversationMenu } from "./ConversationMenu";
+import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
 import { ASKS_NOTHING, OwnStepText, QuestionCard, useAnnounce, WaitingLine } from "./OwnAsk";
+import { Reply } from "./Reply";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -175,12 +190,15 @@ export function NoteColumn({
   agent,
   turns,
   input,
+  onNew,
 }: {
   mindId: string;
   editor: Editor;
   agent: string;
   turns: readonly NoteTurn[] | null;
   input: ReactNode;
+  /** After a new conversation started: the turns are read again. */
+  onNew(): void;
 }) {
   const t = useT();
   return (
@@ -197,20 +215,13 @@ export function NoteColumn({
     >
       <header className="note-column-head">
         <SidebarToggle place="band" />
-        <h2 className="note-column-title">{t("noteColumn.title")}</h2>
-        <MoveConversation to="upward" className="note-column-icon" />
-        <button
-          type="button"
-          data-testid="note-column-close"
-          aria-label={t("noteColumn.close")}
-          title={t("noteColumn.close")}
-          // The input keeps the focus as it goes back to the Note's foot.
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setColumnOpen(mindId, false)}
-          className="note-column-icon"
-        >
-          <CloseLineIcon className="size-4" />
-        </button>
+        <ConversationMenu
+          mindId={mindId}
+          place="column"
+          canMove
+          onHide={() => setColumnOpen(mindId, false)}
+          onNew={onNew}
+        />
       </header>
       <NoteConversationBody
         mindId={mindId}
@@ -223,6 +234,32 @@ export function NoteColumn({
     </aside>
   );
 }
+
+/** Marks the turns scrolled past their start, where their top fades out (styles.css). */
+const markScrolled = (element: HTMLElement) =>
+  element.toggleAttribute("data-scrolled", element.scrollTop > 0);
+
+/**
+ * Gives the last of the turns the turns' whole height, so at their end it starts under the top
+ * row (#3765): the newest request sent here once they overflow, as a chat moves a request up when
+ * it is sent, rather than below the tail of the turn before it; and a new conversation's line
+ * always, so the new one looks as fresh as a blank one, the earlier turns above it.
+ */
+const roomForNewest = (element: HTMLElement) => {
+  element.style.removeProperty("--newest-room");
+  const last = element.lastElementChild;
+  const line = last?.hasAttribute("data-new-line") ?? false;
+  if (!line && !last?.hasAttribute("data-newest")) return;
+  if (!line && element.scrollHeight <= element.clientHeight) return;
+  const style = getComputedStyle(element);
+  // Its height once it has grown as far as it may: opened upward, it grows with its turns.
+  const most = Number.parseFloat(style.maxHeight);
+  const room =
+    (Number.isNaN(most) ? element.clientHeight : Math.max(most, element.clientHeight)) -
+    Number.parseFloat(style.paddingTop) -
+    Number.parseFloat(style.paddingBottom);
+  element.style.setProperty("--newest-room", `${room}px`);
+};
 
 /**
  * The conversation's turns, `turns` as read while it is open (null until then), newest in view,
@@ -246,7 +283,13 @@ export function NoteConversationBody({
   const waiting = useWaitingInNote(editor);
   const ask = useNoteAsks((state) => state.byMind[mindId]);
   const working = ask?.state === "working";
+  const going = isGoing(ask);
   const trails = useNoteTrails((state) => state.byTurn);
+  // The last request that ran: a request sent meanwhile may stand after it, waiting or never sent.
+  const ranAt =
+    turns
+      ?.map((turn) => turn.outcome !== "waiting" && turn.outcome !== "unsent")
+      .lastIndexOf(true) ?? -1;
   const at = useNoteColumns((state) => state.at[mindId] ?? null);
   const body = useRef<HTMLDivElement>(null);
   // Once in the conversation, above the first step the AI took with a tool of its own, a line says
@@ -273,8 +316,10 @@ export function NoteConversationBody({
       ? element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(at)}"]`)
       : null;
     atEnd.current = !turn;
+    roomForNewest(element);
     if (turn) element.scrollTop = turn.offsetTop - 8;
     else element.scrollTop = element.scrollHeight;
+    markScrolled(element);
   }, [turns, trails, waiting, at, ask?.questions]);
 
   // With the newest in view, it stays in view in the same frame as anything above it grows or
@@ -292,8 +337,10 @@ export function NoteConversationBody({
         atEnd.current = true;
       else if (element.scrollTop < was - 1) atEnd.current = false;
       was = element.scrollTop;
+      markScrolled(element);
     };
     const observer = new ResizeObserver(() => {
+      roomForNewest(element);
       if (atEnd.current) element.scrollTop = element.scrollHeight;
     });
     observer.observe(element);
@@ -316,33 +363,40 @@ export function NoteConversationBody({
       {turns?.length === 0 && (
         <p className="note-column-notice">{t("noteAsk.conversationEmpty")}</p>
       )}
-      {turns?.map((turn, index) => (
+      {turns?.map((turn, index) => [
         <Turn
           key={turn.id}
           mindId={mindId}
           turn={turn}
           trail={trails[turn.id]}
           agent={agent}
-          questions={
-            index === turns.length - 1 && working && ask?.turnId === turn.id
-              ? ask.questions
-              : turn.questions
-          }
+          questions={working && ask?.turnId === turn.id ? ask.questions : turn.questions}
           first={turn.id === firstOwn}
           modeLine={turn.id === modeTurn}
+          newest={
+            index === turns.length - 1 &&
+            (ask?.turnId === turn.id || (ask?.queued.includes(turn.id) ?? false))
+          }
           // The reply's one action, Accept all or Undo, is under the last reply, as the line's is.
           accept={
-            index === turns.length - 1 && !working && ask && ask.turnId === turn.id ? (
+            index === ranAt && !going && ask && ask.turnId === turn.id ? (
               <EndAction ask={ask} mindId={mindId} editor={editor} named />
             ) : null
           }
-          failed={
-            index === turns.length - 1 && ask?.state === "failed" && ask.turnId === turn.id
-              ? ask
-              : null
-          }
-        />
-      ))}
+          failed={index === ranAt && ask?.state === "failed" && ask.turnId === turn.id ? ask : null}
+        />,
+        // The AI carries none of the turns above it (#3765).
+        turn.newAfter && (
+          <p
+            key={`${turn.id}-new`}
+            data-testid="note-conversation-new"
+            data-new-line=""
+            className="note-column-notice"
+          >
+            {t("noteColumn.new")}
+          </p>
+        ),
+      ])}
     </div>
   );
 }
@@ -355,6 +409,7 @@ function Turn({
   questions,
   first,
   modeLine,
+  newest,
   accept,
   failed,
 }: {
@@ -365,6 +420,8 @@ function Turn({
   questions: readonly NoteQuestion[];
   first: boolean;
   modeLine: boolean;
+  /** The last turn, and the request sent from this window: it starts under the top row. */
+  newest: boolean;
   accept: ReactNode;
   /** The request, while this turn is its newest and failed: its line has the one thing to do. */
   failed: NoteAsk | null;
@@ -382,16 +439,30 @@ function Turn({
   const stopSaid =
     steps.some((step) => step.kind === "own" && step.by === "stopped") && readOf(steps, t) === null;
   return (
-    <div data-testid="note-column-turn" data-turn-id={turn.id} className="note-column-turn">
+    <div
+      data-testid="note-column-turn"
+      data-turn-id={turn.id}
+      data-newest={newest || undefined}
+      className="note-column-turn"
+    >
       {trail?.fresh && <p className="note-column-notice">{t("noteAsk.fresh")}</p>}
       {trail?.renewed && (
         <p data-testid="note-column-renewed" className="note-column-notice">
           {t("noteAsk.renewed", { agent })}
         </p>
       )}
-      <div className="note-column-bubble">
-        {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
-        <p>{turn.request}</p>
+      <div className="note-column-sent">
+        <div className="note-column-bubble">
+          {turn.quote !== "" && <p className="note-column-bubble-quote">“{turn.quote}”</p>}
+          <p>{turn.request}</p>
+        </div>
+        {state === "waiting" ? (
+          <Waiting words={turn.request} />
+        ) : state === "unsent" ? (
+          <NotSent mindId={mindId} turn={turn} />
+        ) : (
+          <SentActions mindId={mindId} turn={turn} />
+        )}
       </div>
       {modeLine && (
         <p data-testid="own-mode" className="note-column-notice">
@@ -426,14 +497,7 @@ function Turn({
               ))}
           </ol>
         )}
-      {(state === "stopped" || state === "failed") && made.length > 0 && (
-        <div className="note-column-made">
-          {made.map((step, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
-            <MadeCard key={index} step={step} />
-          ))}
-        </div>
-      )}
+      {(state === "stopped" || state === "failed") && <MadeCards steps={made} />}
       {state === "stopped" &&
         !stopSaid &&
         (turn.closed.length > 0 && !trail ? (
@@ -449,7 +513,7 @@ function Turn({
                     type="button"
                     data-testid="own-ask-again"
                     onClick={() =>
-                      void askInNote(mindId, {
+                      void askAgainInNote(mindId, {
                         words: turn.request,
                         quote: "",
                         selection: null,
@@ -498,14 +562,13 @@ function Turn({
               aria-hidden="true"
             />
           </button>
-          {open ? (
+          {open && (
             <ol className="note-column-list">
               {steps.map((step, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
                 <li key={index} className="note-column-step-item">
                   {first && step === steps.find(unasked) && <FirstOwnLine agent={agent} />}
                   <StepLine step={step} going={false} />
-                  {madeKind(step) && <MadeCard step={step} />}
                 </li>
               ))}
               {trail.model && (
@@ -517,21 +580,15 @@ function Turn({
                 </li>
               )}
             </ol>
-          ) : (
-            made.length > 0 && (
-              <div className="note-column-made">
-                {made.map((step, index) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
-                  <MadeCard key={index} step={step} />
-                ))}
-              </div>
-            )
           )}
         </div>
       )}
+      {/* What it made, under the reply's words, or under its steps when it wrote none. */}
+      {state === "landed" && turn.reply === "" && <MadeCards steps={made} />}
       {state === "landed" && turn.reply !== "" && (
         <div data-testid="note-column-reply" className="note-column-reply">
           <Reply text={turn.reply} citations={turn.citations} />
+          <MadeCards steps={made} />
           <div className="note-column-reply-foot">
             <span className="note-column-reply-meta">
               <button
@@ -558,6 +615,134 @@ function Turn({
   );
 }
 
+/**
+ * Under a sent request, shown while it is pointed at or holds the focus (#3765): when it was sent,
+ * then Send again, Edit and Copy. Send again is there for a request on the whole Note: the words
+ * another was about can't be selected again for it, as Ask again has it; while a run goes it goes
+ * into that run. Edit puts the words back in the input to change and send as a new request.
+ */
+function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
+  const t = useT();
+  const language = useLanguage();
+  const report = useAppStore.getState().reportError;
+  return (
+    <div data-testid="note-column-sent-actions" className="note-column-sent-actions">
+      <span className="note-column-sent-time">{formatDateTime(turn.at, language)}</span>
+      {turn.quote === "" && (
+        <button
+          type="button"
+          data-testid="note-column-send-again"
+          aria-label={t("noteColumn.sendAgain")}
+          title={t("noteColumn.sendAgain")}
+          onClick={() =>
+            void askAgainInNote(mindId, { words: turn.request, quote: "", selection: null }).catch(
+              report,
+            )
+          }
+          className="note-column-icon"
+        >
+          <RetryLineIcon className="size-3.5" />
+        </button>
+      )}
+      <EditRequest mindId={mindId} words={turn.request} />
+      <CopyRequest words={turn.request} />
+    </div>
+  );
+}
+
+/** Puts a request's words back in the input, to change and send as a new request. */
+function EditRequest({ mindId, words }: { mindId: string; words: string }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid="note-column-edit"
+      aria-label={t("noteColumn.edit")}
+      title={t("noteColumn.edit")}
+      onClick={() => editRequest(mindId, words)}
+      className="note-column-icon"
+    >
+      <PencilLineIcon className="size-3.5" />
+    </button>
+  );
+}
+
+function CopyRequest({ words }: { words: string }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      data-testid="note-column-copy-request"
+      aria-label={t("noteColumn.copy")}
+      title={t("noteColumn.copy")}
+      onClick={() =>
+        void navigator.clipboard.writeText(words).catch(useAppStore.getState().reportError)
+      }
+      className="note-column-icon"
+    >
+      <CopyLineIcon className="size-3.5" />
+    </button>
+  );
+}
+
+/**
+ * Under a request sent while another ran, until its AI takes it (#3765). Copy is all it offers:
+ * the AI has it already, so it can't be changed or taken back.
+ */
+function Waiting({ words }: { words: string }) {
+  const t = useT();
+  return (
+    <div data-testid="note-column-waiting" className="note-column-sent-state" data-waiting="">
+      <span aria-hidden="true" className="note-ask-dots">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span role="status" className="note-column-sent-word">
+        {t("noteColumn.waiting")}
+      </span>
+      <CopyRequest words={words} />
+    </div>
+  );
+}
+
+/**
+ * Under a request sent while another ran whose run ended before its AI took it (#3765): it never
+ * reached the AI. Send asks it as a new request, in its place; Edit gives it back to the input;
+ * Discard removes it.
+ */
+function NotSent({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
+  const t = useT();
+  const report = useAppStore.getState().reportError;
+  return (
+    <div data-testid="note-column-not-sent" className="note-column-sent-state">
+      <span className="note-column-sent-word">{t("noteColumn.notSent")}</span>
+      <button
+        type="button"
+        data-testid="note-column-send"
+        aria-label={t("noteAsk.send")}
+        title={t("noteAsk.send")}
+        onClick={() => void sendUnsent(mindId, turn).catch(report)}
+        className="note-column-icon"
+      >
+        <AskArrowIcon className="size-3" />
+      </button>
+      <EditRequest mindId={mindId} words={turn.request} />
+      <CopyRequest words={turn.request} />
+      <button
+        type="button"
+        data-testid="note-column-discard"
+        aria-label={t("noteColumn.discard")}
+        title={t("noteColumn.discard")}
+        onClick={() => void discardInNote(mindId, turn.id).catch(report)}
+        className="note-column-icon"
+      >
+        <TrashLineIcon className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
 const madeKind = (step: NoteStep): "note" | "changed" | "file" | null => {
   if (step.kind !== "call" || !MAKES.has(step.tool) || step.done === false) return null;
   if (step.tool === "create_mind") return "note";
@@ -565,6 +750,19 @@ const madeKind = (step: NoteStep): "note" | "changed" | "file" | null => {
   if (step.tool === "save_as_word" && step.file) return "file";
   return null;
 };
+
+/** What a reply made or changed, other than the Note in front, a card each. */
+function MadeCards({ steps }: { steps: readonly NoteStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div className="note-column-made">
+      {steps.map((step, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: steps never reorder
+        <MadeCard key={index} step={step} />
+      ))}
+    </div>
+  );
+}
 
 /** A file the AI saved for the User (#3751): opened or shown, as a file Export saved is. */
 function SavedFileCard({ file }: { file: AgentSavedFile }) {
@@ -580,6 +778,9 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
   return (
     <div data-testid="note-column-saved" className="note-column-made-card note-column-saved">
       <div className="note-column-saved-row">
+        <span className="note-column-made-icon" aria-hidden="true">
+          <DocumentLineIcon kind="docx" className="size-[18px]" />
+        </span>
         <span className="note-column-saved-what">
           <span className="note-column-made-title" title={file.name}>
             {file.name}
@@ -616,7 +817,7 @@ function SavedFileCard({ file }: { file: AgentSavedFile }) {
   );
 }
 
-/** What the AI made or changed, other than the Note in front: a press opens it. */
+/** A card for what the AI made or changed: its kind's icon, its name and kind; a press opens it. */
 function MadeCard({ step }: { step: NoteStep }) {
   const t = useT();
   const kind = madeKind(step);
@@ -640,8 +841,14 @@ function MadeCard({ step }: { step: NoteStep }) {
       }}
       className="note-column-made-card"
     >
-      <span className="note-column-made-title">{step.summary}</span>
-      <span className="note-column-made-kind">{what}</span>
+      <span className="note-column-made-icon" aria-hidden="true">
+        <MindLineIcon className="size-[18px]" />
+      </span>
+      <span className="note-column-made-text">
+        <span className="note-column-made-title">{step.summary}</span>
+        <span className="note-column-made-kind">{what}</span>
+      </span>
+      <span className="note-column-made-open">{t("noteColumn.made.open")}</span>
     </button>
   );
 }

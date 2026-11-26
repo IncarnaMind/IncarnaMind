@@ -55,7 +55,11 @@ test.afterEach(async () => {
   await removeDataFolder(sources);
 });
 
-const checkedAt = new Date(Date.now() + 60_000).toISOString();
+/**
+ * When the marks say they were checked: after the test's Document was added, however long the
+ * file has run, or the card would say a Document was added since the check.
+ */
+let checkedAt = "";
 const mark = (id: string, state: string, text: string, extra: Record<string, unknown> = {}) => ({
   type: "claimCheck",
   attrs: {
@@ -173,6 +177,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await setLanguage(window, language);
         await setWindowSize(app, window, width, 900);
         await addDocuments(window, [join(sources, "Tides.pdf")]);
+        checkedAt = new Date(Date.now() + 60_000).toISOString();
         await newMind(window);
         // A badge at a page's foot, as a Note without its controls at the top has it: the card is
         // placed above it.
@@ -200,6 +205,9 @@ for (const language of ["en", "zh-CN"] as const) {
         if (placement === "above")
           expect(rest.card[1] + rest.card[3]).toBeLessThanOrEqual(anchor[1] + 0.5);
         else expect(rest.card[1]).toBeGreaterThanOrEqual(anchor[1] + anchor[3] - 0.5);
+        // Off the card, beside it: the pointer left on what opened it would be under the card as it
+        // grows, and the User's touch ends the wait, so this would ask of a card the pointer held.
+        await window.mouse.move(rest.card[0] - 60, 900 - 40);
         await still("before");
 
         await watch(window);
