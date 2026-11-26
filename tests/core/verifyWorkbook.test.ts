@@ -7,6 +7,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { type Core, MIND_SETTINGS_FIELD } from "../../src/core";
+import { FIND_WORKBOOK_CLAIMS_INSTRUCTIONS } from "../../src/core/answers/checks/claims";
 import { markedSentences } from "../../src/core/answers/checks/sentences";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { verificationOf, writeVerification } from "../../src/shared/verification";
@@ -54,6 +55,7 @@ async function setUp(
 ) {
   const sorted: string[][] = [];
   const sortPrompts: string[] = [];
+  const sortSystems: string[] = [];
   const checkPrompts: string[] = [];
   const answer = checkGenerate(plans);
   const model = scriptedModel(
@@ -65,6 +67,7 @@ async function setUp(
       generate: (call) => {
         if (call.question === "find-claims") {
           sortPrompts.push(call.prompt);
+          sortSystems.push(call.system);
           sorted.push(listedSentences(call.prompt).map(({ text }) => text));
           const custom = options?.sort?.(call.prompt);
           if (custom !== undefined) return { text: custom };
@@ -82,7 +85,7 @@ async function setUp(
     await writeSourceFile(sources, "Costs.md", "# Costs\n\nRent is 14,000 a year.\n"),
   ]);
   const path = await writeSourceFile(sources, "Budget.xlsx", planWorkbook().xlsx());
-  return { core, path, sorted, sortPrompts, checkPrompts, sources };
+  return { core, path, sorted, sortPrompts, sortSystems, checkPrompts, sources };
 }
 
 async function tableOf(core: Core, mindId: string) {
@@ -526,7 +529,7 @@ describe("Verify a workbook", () => {
 
   // protects=a workbook's check hands the whole sheet (section headings, units and notes) to both the sort and the row judge (#3506); fails_when=the sheet is omitted from verification, sort or claim prompts
   test("whole-sheet context reaches both sort and claim checks (#3506)", async () => {
-    const { core, path, sortPrompts, checkPrompts } = await setUp(
+    const { core, path, sortPrompts, sortSystems, checkPrompts } = await setUp(
       { [RENT]: { verdict: "supported" } },
       {
         sort: (prompt) => {
@@ -551,6 +554,8 @@ describe("Verify a workbook", () => {
       mindId: verified.mind.id,
     });
     expect(found).toMatchObject({ kind: "found" });
+    expect(sortSystems[0]).toBe(FIND_WORKBOOK_CLAIMS_INSTRUCTIONS);
+    expect(sortSystems[0]).toContain("A row of a workbook's sheet");
     expect(sortPrompts.join("\n")).toContain('"sheets"');
     expect(sortPrompts.join("\n")).toContain("Row 2: Rent | 14000 | 14000");
 

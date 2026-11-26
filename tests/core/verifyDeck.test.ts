@@ -5,6 +5,7 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import type { VerifyClaimsInput } from "../../src/core";
+import { FIND_CLAIMS_INSTRUCTIONS } from "../../src/core/answers/checks/claims";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { textOriginOf } from "../../src/shared/textOrigins";
@@ -455,6 +456,7 @@ describe("Verify a deck", () => {
         says: "Harbour survey gives 423,300 passengers, not 243,300.",
       },
     };
+    const sortSystems: string[] = [];
     const generate = checkGenerate(plans);
     const model = scriptedModel(
       (call) => {
@@ -463,7 +465,10 @@ describe("Verify a deck", () => {
       },
       {
         generate: (call: GenerateCall) => {
-          if (call.question === "find-claims") sorts.push(call.prompt);
+          if (call.question === "find-claims") {
+            sorts.push(call.prompt);
+            sortSystems.push(call.system);
+          }
           return generate(call);
         },
       },
@@ -536,6 +541,8 @@ describe("Verify a deck", () => {
     expect(verificationOf(client.doc)?.slides).toEqual({ "1": slide });
 
     await core.findClaims(request(result.mind.id));
+    expect(sortSystems[0]).toBe(FIND_CLAIMS_INSTRUCTIONS);
+    expect(sortSystems[0]).not.toContain("A row of a workbook's sheet");
     const sorted = JSON.parse(sorts[0] ?? "{}") as {
       slides?: Record<string, string>;
       sentences?: { text: string; slide?: number }[];
