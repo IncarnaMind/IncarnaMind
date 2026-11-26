@@ -9,7 +9,8 @@
  *
  * The Tools are few and their descriptions short, because each agent turn
  * carries their definitions; `search`, `ask` and `read_request` are marked to
- * load at once where a client defers Tools. Their names fit every client's
+ * load at once where a client defers Tools, and `create_mind` to wait where it
+ * loads the rest at once. Their names fit every client's
  * rules (letters, digits and underscores; Kiro allows no others). Each result is typed
  * (`outputSchema`), with the same JSON as text for clients that read only text.
  * A refusal comes back as a Tool error in plain words, which the agent can
@@ -151,6 +152,13 @@ const READ_ONLY = {
 
 /** Claude Code defers MCP Tools until searched for; these load at once, saving the agent a turn. */
 const ALWAYS_LOAD = { "anthropic/alwaysLoad": true } as const;
+
+/**
+ * Stays behind the tool search where a client loads the rest at once, as a Note's conversation
+ * does (#3753): asked from a Note to write a page there, Haiku 5.5 with this Tool in view made a
+ * new Note instead in 2 of 10 real runs, and in none with it deferred.
+ */
+const SEARCHED_FOR = { "anthropic/alwaysLoad": false } as const;
 
 /** A result an agent reads: typed, and the same JSON as text. */
 function ok(result: object): CallToolResult {
@@ -553,6 +561,7 @@ export function createAgentServer(
         idempotentHint: false,
         openWorldHint: false,
       },
+      _meta: SEARCHED_FOR,
     },
     (input) => answer(() => access.createMind(input)),
   );
