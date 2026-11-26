@@ -16,6 +16,8 @@ import { isNameMisheard } from "./sounds";
 const CONTEXT_TOKENS = 64;
 
 const HAN = /\p{Script=Han}/gu;
+const HAS_HAN = /\p{Script=Han}/u;
+const HAN_CHAR = /^\p{Script=Han}$/u;
 
 /** About how many tokens a word takes, erring high: a Han character is one, about three letters another. */
 function tokensOf(word: string): number {
@@ -118,6 +120,8 @@ function changeCost(a: string, b: string): number {
   if (x === y) return 0;
   const word = WORDLIKE.test(a);
   if (word !== WORDLIKE.test(b)) return 3;
+  // Two different Han characters pair (1.8 < 2) so a misheard Chinese name lines up unit for unit.
+  if (HAN_CHAR.test(a) && HAN_CHAR.test(b)) return 1.8;
   return word ? Math.min(2, 4 * unlike(x, y)) : 1;
 }
 
@@ -230,31 +234,49 @@ export function toldKeys(words: readonly string[]): Set<string> {
   return new Set(words.flatMap((word) => [fold(word), ...partsOf(word)]));
 }
 
+const isHanName = (word: string): boolean => {
+  const units = unitsOf(word).filter((unit) => WORDLIKE.test(unit));
+  return units.length >= 2 && units.every((unit) => HAN_CHAR.test(unit));
+};
+
 /**
  * Whether the heard words are `word` misheard, to be written as it: not the word already, whatever
  * its case, and not another told name or part of one (Sara when Sarah is told too, Daniel when
- * Danielle West is), which the sound can't tell from a mishearing.
+ * Danielle West is, 张伟 when 张薇 is), which the sound can't tell from a mishearing.
  */
 function mends(heard: readonly string[], word: string, told: ReadonlySet<string>): boolean {
   const said = unitsOf(word).filter((unit) => WORDLIKE.test(unit));
   if (heard.map(fold).join("") === said.map(fold).join("")) return false;
   const own = new Set(partsOf(word));
   const isOther = (key: string) => told.has(key) && !own.has(key);
-  if (isOther(heard.map(fold).join(" ")) || heard.some((unit) => isOther(fold(unit)))) {
+  if (
+    isOther(heard.map(fold).join(" ")) ||
+    isOther(heard.map(fold).join("")) ||
+    heard.some((unit) => isOther(fold(unit)))
+  ) {
     return false;
+  }
+  if (isHanName(word)) {
+    return heard.length === said.length && heard.every((unit) => HAN_CHAR.test(unit));
   }
   return isNameMisheard(heard, word);
 }
 
 /**
  * Whether the plain text holds words a told name could mend, by the same test the merge makes: a
- * stretch without any is read only once.
+ * stretch without any is read only once. A Chinese stretch with Han agenda words not yet written
+ * verbatim is read again with hotwords so Qwen3-ASR's own prompt can supply the agenda spelling
+ * (#1031).
  */
 export function mayMend(plain: string, words: readonly string[]): boolean {
   if (words.length === 0) return false;
+  if (HAS_HAN.test(plain) && words.some((word) => isHanName(word) && !plain.includes(word))) {
+    return true;
+  }
   const told = toldKeys(words);
   const heard = unitsOf(plain).filter((unit) => WORDLIKE.test(unit));
   for (const { word } of namesAndParts(words)) {
+    if (isHanName(word)) continue;
     const longest = word.split(/\s+/u).length + 2;
     for (let start = 0; start < heard.length; start++) {
       for (let end = start + 1; end <= Math.min(heard.length, start + longest); end++) {
@@ -278,12 +300,16 @@ export function withToldWords(plain: string, told: string, words: readonly strin
   const toldUnits = unitsOf(told);
   // The plain unit each told unit lines up with, or -1 where the plain text has none.
   const linedUp: number[] = [];
+  let sameWords = 0;
   let i = 0;
   for (const step of alignUnits(plainUnits, toldUnits)) {
+    const plainUnit = plainUnits[i];
+    if (step === "same" && plainUnit && WORDLIKE.test(plainUnit)) sameWords++;
     if (step === "plainOnly") i++;
     else if (step === "toldOnly") linedUp.push(-1);
     else linedUp.push(i++);
   }
+  const plainWordCount = plainUnits.filter((unit) => WORDLIKE.test(unit)).length;
   const keys = toldKeys(words);
   const swaps: { from: number; to: number; units: string[] }[] = [];
   for (const { first, last, word } of writtenAt(toldUnits, namesAndParts(words))) {
@@ -294,6 +320,11 @@ export function withToldWords(plain: string, told: string, words: readonly strin
     const from = Math.min(...aligned);
     const to = Math.max(...aligned);
     const heard = plainUnits.slice(from, to + 1).filter((unit) => WORDLIKE.test(unit));
+    if (isHanName(word)) {
+      const saidLength = unitsOf(word).filter((unit) => WORDLIKE.test(unit)).length;
+      if (aligned.length !== saidLength || to - from + 1 !== saidLength) continue;
+      if (plainWordCount > saidLength && sameWords === 0) continue;
+    }
     if (!mends(heard, word, keys)) continue;
     if (swaps.some((swap) => swap.from <= to && from <= swap.to)) continue;
     swaps.push({ from, to, units: unitsOf(word) });
