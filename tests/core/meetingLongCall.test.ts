@@ -90,6 +90,7 @@ async function filledCall(
     first,
     typed,
     unanswered,
+    overviewCitations = 1,
   }: {
     stopsInFrame?: boolean;
     cloud?: boolean;
@@ -101,6 +102,7 @@ async function filledCall(
     first?: number;
     typed?: readonly string[];
     unanswered?: (answered: number) => string;
+    overviewCitations?: 1 | 2;
   } = {},
 ) {
   const call = (await readFile(CALL, "utf8")).trim().split("\n").slice(0, first);
@@ -195,9 +197,11 @@ async function filledCall(
           "",
           "### OVERVIEW",
           "```json",
-          '{"citations":[1]}',
+          overviewCitations === 2 ? '{"citations":[1,2]}' : '{"citations":[1]}',
           "```",
-          `${OVERVIEW}, point ${part} [^1].`,
+          overviewCitations === 2
+            ? `${OVERVIEW}, point ${part} [^1][^2].`
+            : `${OVERVIEW}, point ${part} [^1].`,
           "### END OVERVIEW",
           ...(part === stopped ? ["", ...unfinished] : []),
         ].join("\n"),
@@ -232,8 +236,33 @@ async function filledCall(
     open.add(part);
     answeredAs.set(part, answeredAsks);
     most = Math.max(most, open.size);
+    const secondCue =
+      overviewCitations === 2 ? cues.find((cue) => cue.passage !== passage) : undefined;
+    const secondLocation = secondCue ? /^\[([^\]]+)\]/.exec(secondCue.line)?.[1] : undefined;
+    const secondQuote = secondCue
+      ? secondCue.line.replace(/^\[[^\]]+\] /, "").split(/(?<=[.?!]) /)[0]
+      : undefined;
     return {
-      calls: [{ tool: "cite", input: { citations: [{ marker: 1, passage, quote, location }] } }],
+      calls: [
+        {
+          tool: "cite",
+          input: {
+            citations: [
+              { marker: 1, passage, quote, location },
+              ...(secondCue && secondLocation && secondQuote
+                ? [
+                    {
+                      marker: 2,
+                      passage: secondCue.passage,
+                      quote: secondQuote,
+                      location: secondLocation,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        },
+      ],
     };
   });
   const { core, capture, clock } = await transcribingCore(await createTempDataFolder(), {
@@ -568,4 +597,18 @@ test("a service's model reads a twenty-minute call as two even parts from the st
   const local = await filledCall(null, { first: 120 });
   expect(local.settled).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
   expect(local.asks.map((ask) => ask.lines)).toEqual([local.call]);
+});
+
+// protects=the whole-call Summary request receives every Passage cited by each part's overview, not only its first citation (#3156); fails_when=a second Passage cited in a part's overview is dropped before wholeCall asks for the whole-call Summary
+test("the whole-call Summary request shows every Passage each part's overview cites", async () => {
+  const { asks, summaries, settled } = await filledCall(null, {
+    cloud: true,
+    first: 120,
+    overviewCitations: 2,
+  });
+  expect(settled).toMatchObject({ state: "filled", unfinishedParts: 0, problem: null });
+  const answered = asks.filter((ask) => !ask.cut);
+  expect(answered).toHaveLength(2);
+  expect(summaries).toHaveLength(1);
+  expect(summaries[0]?.passages).toBe(answered.length * 2);
 });
