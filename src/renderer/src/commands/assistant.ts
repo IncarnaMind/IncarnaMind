@@ -119,7 +119,7 @@ function askOrEdit(): void {
  */
 function noAiConnect(): (() => void) | null {
   if (!noModel() || agentsToAsk(null).length > 0) return null;
-  if (!quietAssistantNow() && !folded()) return null;
+  if (!quietAssistantNow()) return null;
   const note = noteHandle.current;
   const noteTarget = note && !note.editor.isDestroyed ? noteConnectOf(note.mindId) : null;
   if (noteTarget) {

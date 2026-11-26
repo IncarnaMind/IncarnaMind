@@ -3,6 +3,7 @@ import type { Document } from "../../core/api";
 import { useCanvases } from "./canvases";
 import { useFirstOpen } from "./firstOpen";
 import { isListedDocument } from "./meetingTranscript";
+import { firstOpenOf } from "./nudges";
 import {
   type AppState,
   allExamples,
@@ -82,6 +83,7 @@ export const ownsATag = (state: Pick<AppState, "documents" | "examples" | "other
  * first open without rearranging the sidebar into Library and Documents (#3819).
  */
 export function useOnlyExamples(): boolean {
+  const firstOpenSteps = useAppStore((state) => firstOpenOf(state.settings?.device.gettingStarted));
   const hasOwnDocuments = useAppStore((state) =>
     state.documents.some((each) => isOwnDocument(each, allExamples(state))),
   );
@@ -98,7 +100,14 @@ export function useOnlyExamples(): boolean {
     return hasMind || state.documents.some((each) => isExampleDocument(each, made));
   });
   const hasCanvases = useCanvases((state) => state.canvases.length > 0);
-  return !hasOwnDocuments && !hasOwnNote && !hasOwnFolders && !hasCanvases && hasExample;
+  return (
+    firstOpenSteps &&
+    !hasOwnDocuments &&
+    !hasOwnNote &&
+    !hasOwnFolders &&
+    !hasCanvases &&
+    hasExample
+  );
 }
 
 /**
