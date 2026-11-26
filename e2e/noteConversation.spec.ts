@@ -10,10 +10,12 @@ import {
   cutIn,
   dismissChatSetup,
   expectReadyDocuments,
+  fromConversationMenu,
   frontMind,
   launchApp,
   motionSettled,
   newMind,
+  openConversationMenu,
   pointAndClick,
   removeDataFolder,
   secondWindow,
@@ -203,22 +205,24 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       "A second ramp at Kestrel Bay, in 2027, so the vans and the foot passengers can board at once.",
     );
 
-    // Upward: the same box grows over the Note's foot, as tall as the conversation needs and no
-    // taller than 40% of the window, the reply never again in a row of its own. The move to the
-    // left and the fold stand at its top right, level with the first request, taking no row; the
-    // conversation ends 12px above the input.
+    // Upward: the same box grows over the Note's foot, as tall as the conversation needs, its turns
+    // no taller than 40% of the window, the reply never again in a row of its own. Its top row is the
+    // conversation's name with the move to the left and the fold at its end, and the turns start
+    // under it, never behind them (#3765); the conversation ends 12px above the input.
     await pointAndClick(window, handle);
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("note-column-turn")).toHaveCount(1);
     await expect(box.getByTestId("note-ask-pill")).toHaveCount(0);
     await expect(box.getByTestId("note-ask-top")).toHaveCount(0);
-    expect((await panel.boundingBox())?.height ?? 999).toBeLessThanOrEqual(900 * 0.4 + 1);
-    const aside = panel.getByTestId("conversation-move-left");
-    await expect(aside).toHaveAttribute("aria-label", "Move to the left");
-    await expect(panel.getByTestId("note-ask-fold")).toHaveAttribute(
-      "aria-label",
+    expect(
+      (await panel.getByTestId("note-conversation-body").boundingBox())?.height ?? 999,
+    ).toBeLessThanOrEqual(900 * 0.4 + 1);
+    // Its top row is its name, whose menu holds what the row's icons did (#3765).
+    expect(await conversationMenu(window, panel)).toEqual([
+      "New conversation",
+      "Move to the left",
       "Hide conversation",
-    );
+    ]);
     await expectPanelEdges(group);
     await shot(window, "conversation-upward-en");
 
@@ -226,7 +230,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     // tab area's full height, holds the conversation and the one input, the words and the focus kept.
     await pointAndClick(window, input);
     await window.keyboard.type("Who asked for a sec");
-    await pointAndClick(window, aside);
+    await fromConversationMenu(window, panel, "conversation-move-left");
     await expect(column).toBeVisible();
     await expect(panel).toHaveCount(0);
     await expect(window.getByTestId("note-ask-input")).toHaveCount(1);
@@ -236,12 +240,16 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     await expect(column.getByTestId("note-column-turn")).toHaveCount(1);
     const [columnBox, groupBox] = [await column.boundingBox(), await group.boundingBox()];
     expect(Math.abs((columnBox?.y ?? 0) - (groupBox?.y ?? 99))).toBeLessThanOrEqual(1);
-    const down = column.getByTestId("conversation-move-down");
-    await expect(down).toHaveAttribute("aria-label", "Move back under the note");
+    expect(await conversationMenu(window, column)).toEqual([
+      "New conversation",
+      "Move back under the note",
+      "Hide conversation",
+    ]);
+    await pointAndClick(window, inColumn);
     await shot(window, "conversation-column-en");
 
     // And back: upward and open again, the words and the focus kept.
-    await pointAndClick(window, down);
+    await fromConversationMenu(window, column, "conversation-move-down");
     await expect(panel).toBeVisible();
     await expect(column).toHaveCount(0);
     await expect(input).toHaveValue("Who asked for a sec");
@@ -261,7 +269,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
       timeout: 20_000,
     });
     await shot(window, "conversation-running-upward-en");
-    await pointAndClick(window, aside);
+    await fromConversationMenu(window, panel, "conversation-move-left");
     await expect(column.getByTestId("note-column-live")).toContainText("Ferry interview");
     await expect(column.getByTestId("note-ask-stop")).toBeVisible();
     await shot(window, "conversation-running-column-en");
@@ -275,23 +283,17 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     // In Chinese, the controls say so in Chinese; in a window too narrow for the column the
     // conversation opens upward in the box, with no move to a column that can't stand there.
     await setLanguage(window, "zh-CN");
-    await expect(column.getByTestId("conversation-move-down")).toHaveAttribute(
-      "aria-label",
-      "移回笔记下方",
-    );
+    expect(await conversationMenu(window, column)).toEqual(["新对话", "移回笔记下方", "隐藏对话"]);
     await shot(window, "conversation-column-zh-CN");
     await setWindowSize(app, window, 900, 760);
     await expect(panel).toBeVisible();
     await expect(window.getByTestId("note-column")).toHaveCount(0);
-    await expect(group.getByTestId("conversation-move-left")).toHaveCount(0);
+    expect(await conversationMenu(window, panel)).toEqual(["新对话", "隐藏对话"]);
     await expectPanelEdges(group);
     await shot(window, "conversation-narrow-zh-CN");
     await setWindowSize(app, window, 1440, 900);
-    await pointAndClick(window, column.getByTestId("conversation-move-down"));
-    await expect(group.getByTestId("conversation-move-left")).toHaveAttribute(
-      "aria-label",
-      "移到左侧",
-    );
+    await fromConversationMenu(window, column, "conversation-move-down");
+    expect(await conversationMenu(window, panel)).toEqual(["新对话", "移到左侧", "隐藏对话"]);
     await expectPanelEdges(group);
     await expect(badge).toHaveAccessibleName("核对结果：3 句未核对");
     await shot(window, "conversation-upward-zh-CN");
@@ -411,14 +413,24 @@ test("a Chinese IME composition open as the conversation moves ends in its new p
     await window.keyboard.type("规划加了什么？");
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
+    // The conversation's place set to the column, then hidden: Show conversation moves the input
+    // between the Note's foot and the column, keeping the keyboard in it.
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await fromConversationMenu(
+      window,
+      group.getByTestId("note-ask-panel"),
+      "conversation-move-left",
+    );
+    const show = group.getByTestId("note-ask-conversation-toggle");
+    await pointAndClick(window, show);
+    await expect(window.getByTestId("note-column")).toHaveCount(0);
     await pointAndClick(window, input);
     await window.keyboard.type("坡道");
     // The IME as Chromium hears it: letters composing, then the characters they end as.
     const ime = await window.context().newCDPSession(window);
     await ime.send("Input.imeSetComposition", { text: "gang", selectionStart: 4, selectionEnd: 4 });
     await expect(input).toHaveValue("坡道gang");
-    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await pointAndClick(window, show);
     await expect(window.getByTestId("note-column")).toBeVisible();
     await expect(input).toBeFocused();
     await expect(input).toHaveValue("坡道");
@@ -428,10 +440,8 @@ test("a Chinese IME composition open as the conversation moves ends in its new p
     await window.keyboard.press("ArrowLeft");
     await ime.send("Input.imeSetComposition", { text: "kou", selectionStart: 3, selectionEnd: 3 });
     await expect(input).toHaveValue("坡道kou港");
-    await pointAndClick(
-      window,
-      window.getByTestId("note-column").getByTestId("conversation-move-down"),
-    );
+    await pointAndClick(window, show);
+    await expect(window.getByTestId("note-column")).toHaveCount(0);
     await expect(input).toBeFocused();
     await expect(input).toHaveValue("坡道港");
     expect(await input.evaluate((area: HTMLTextAreaElement) => area.selectionStart)).toBe(2);
@@ -566,10 +576,12 @@ test("a request that can't start says why where the User typed, whole, with the 
     await nextRun("too-old");
     await send("Make it shorter");
     await shownWhole(tooOld);
+    // The words it didn't send stay in the input, to send again.
+    await expect(input).toHaveValue("Make it shorter");
     await shot(window, "conversation-problem-upward-en");
     // In the window's column, at its foot; in the narrow window, where the column isn't drawn,
     // above the input of the conversation open upward again, in Chinese.
-    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, group, "conversation-move-left");
     await expect(column).toBeVisible();
     await shownWhole(tooOld);
     await shot(window, "conversation-problem-column-en");
@@ -581,7 +593,7 @@ test("a request that can't start says why where the User typed, whole, with the 
     await shot(window, "conversation-problem-upward-zh-CN");
     // Folded, at both widths: it wraps, never cut.
     await setLanguage(window, "en");
-    await pointAndClick(window, group.getByTestId("note-ask-fold"));
+    await fromConversationMenu(window, group, "note-ask-fold");
     await expect(group.getByTestId("note-ask-panel")).toHaveCount(0);
     await shownWhole(tooOld);
     await shot(window, "conversation-problem-folded-en");
@@ -609,6 +621,7 @@ test("a request that can't start says why where the User typed, whole, with the 
     await expect(secondColumn).toBeVisible();
     await nextRun("change");
     before = (await outcomesOf(window, mindId)).length;
+    await input.fill("");
     await send("Put it in capitals");
     await ended(window, mindId, before);
     const last = secondColumn.getByTestId("note-column-turn").last();
@@ -627,6 +640,691 @@ test("a request that can't start says why where the User typed, whole, with the 
     );
     await expect(frontMind(second)).toContainText(P2.toUpperCase());
     await second.close();
+  } finally {
+    await app.close();
+  }
+});
+
+test("a sent quote leaves the input, a request that can't start keeps the words typed, and a line that says why is whole, names no terminal and has its action, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 900, 760);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const quote = group.getByTestId("note-ask-quote");
+    const problem = group.getByTestId("note-ask-problem");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    // The last word of the first paragraph, selected with the mouse.
+    const selectLastWord = () =>
+      slideSelect(window, frontMind(window).locator("p").first(), "weekdays.");
+
+    // The quote goes with the words; the same words selected anew bring it back.
+    await selectLastWord();
+    await expect(quote).toContainText("weekdays.");
+    await nextRun("plan");
+    let before = (await outcomesOf(window, mindId)).length;
+    await send("What does this mean?");
+    await expect(input).toHaveValue("");
+    await expect(quote).toHaveCount(0);
+    await ended(window, mindId, before);
+    await expect(quote).toHaveCount(0);
+    await selectLastWord();
+    await expect(quote).toContainText("weekdays.");
+
+    // Signed out: nothing is sent, the words stay, and the line has Sign in, in both languages.
+    await nextRun("signed-out");
+    await send("Make it shorter");
+    const signIn = group.getByTestId("note-ask-sign-in");
+    await expect(problem).toContainText("Claude Code isn’t signed in on this computer.");
+    await expect(problem).not.toContainText("terminal");
+    await expect(signIn).toHaveText("Sign in");
+    await expect(input).toHaveValue("Make it shorter");
+    await expect(quote).toContainText("weekdays.");
+    expect(await cutIn(problem)).toEqual([]);
+    await shot(window, "problem-signed-out-900-en");
+    await setLanguage(window, "zh-CN");
+    await expect(problem).toContainText("Claude Code 尚未在这台电脑上登录。");
+    await expect(problem).not.toContainText("终端");
+    await expect(signIn).toHaveText("登录");
+    expect(await cutIn(problem)).toEqual([]);
+    await shot(window, "problem-signed-out-900-zh-CN");
+    await setLanguage(window, "en");
+
+    // A run that stops part way says so in one line, and Try again sends it again.
+    await input.fill("");
+    await nextRun("limit");
+    before = (await outcomesOf(window, mindId)).length;
+    await send("Summarise the note");
+    await ended(window, mindId, before);
+    await expect(problem).toContainText(
+      "Claude Code stopped: your Claude plan or API key has reached its limit.",
+    );
+    await expect(group.getByTestId("note-ask-try-again")).toHaveText("Try again");
+    expect(await cutIn(problem)).toEqual([]);
+    await nextRun("plan");
+    before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-try-again"));
+    await ended(window, mindId, before);
+    await expect(problem).toHaveCount(0);
+    const turns = await window.evaluate(async (id) => {
+      const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+      return (await bridge.noteConversation(id)).map((turn) => turn.request);
+    }, mindId);
+    expect(turns.at(-1)).toBe("Summarise the note");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a sent request shows when it was sent, Send again, Edit and Copy while it is pointed at: Copy takes its words, Edit gives them back to the input to change, Send again asks them anew and starts under the top row, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 900, 760);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const asked = "What does the harbour plan add?";
+    let before = (await outcomesOf(window, mindId)).length;
+    await nextRun("plan");
+    await pointAndClick(window, input);
+    await window.keyboard.type(asked);
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    // The newest request: the one in view under the top row.
+    const sent = panel.locator(".note-column-sent").last();
+    const actions = sent.getByTestId("note-column-sent-actions");
+    const pointAt = async () => {
+      const box = await sent.locator(".note-column-bubble").boundingBox();
+      if (!box) throw new Error("The request isn't shown.");
+      await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
+    };
+
+    // Unseen until pointed at; then when it was sent, and three actions, each named.
+    await window.mouse.move(4, 4);
+    await expect(actions).toHaveCSS("opacity", "0");
+    await pointAt();
+    await expect(actions).toHaveCSS("opacity", "1");
+    await expect(actions.locator(".note-column-sent-time")).toHaveText(/^\d{1,2}:\d{2}/);
+    await expect(actions.getByTestId("note-column-send-again")).toHaveAttribute(
+      "aria-label",
+      "Send again",
+    );
+    await expect(actions.getByTestId("note-column-edit")).toHaveAttribute("aria-label", "Edit");
+    await expect(actions.getByTestId("note-column-copy-request")).toHaveAttribute(
+      "aria-label",
+      "Copy",
+    );
+
+    // Copy takes the words as they were sent.
+    await pointAndClick(window, actions.getByTestId("note-column-copy-request"));
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(asked);
+
+    // Edit gives them back to the input, the keyboard at their end, to change and send anew.
+    await pointAndClick(window, actions.getByTestId("note-column-edit"));
+    await expect(input).toHaveValue(asked);
+    await expect(input).toBeFocused();
+    await window.keyboard.type(" And when?");
+    await expect(input).toHaveValue(`${asked} And when?`);
+    // Words typed since stay as they are: Edit leaves a draft be.
+    await input.fill("And the fares?");
+    await pointAt();
+    await pointAndClick(window, actions.getByTestId("note-column-edit"));
+    await expect(input).toHaveValue("And the fares?");
+    await input.fill("");
+
+    // Send again asks the same words as a new request.
+    before = (await outcomesOf(window, mindId)).length;
+    await nextRun("plan");
+    await pointAt();
+    await pointAndClick(window, actions.getByTestId("note-column-send-again"));
+    await ended(window, mindId, before);
+    await expect(panel.locator(".note-column-bubble")).toHaveText([asked, asked]);
+    // The turns overflow the box: the new request starts 8px under the top row, the one before
+    // scrolled away above it, rather than its tail left between them.
+    const placed = await panel.evaluate((element) => {
+      const head = element.querySelector('[data-testid="note-ask-panel-head"]');
+      const turns = Array.from(element.querySelectorAll('[data-testid="note-column-turn"]'));
+      const [older, newest] = [turns.at(-2), turns.at(-1)];
+      if (!head || !older || !newest) return null;
+      const under = head.getBoundingClientRect().bottom;
+      return {
+        newest: newest.getBoundingClientRect().top - under,
+        older: older.getBoundingClientRect().bottom - under,
+      };
+    });
+    expect(Math.abs((placed?.newest ?? 0) - 8)).toBeLessThanOrEqual(1);
+    expect(placed?.older ?? 1).toBeLessThanOrEqual(0);
+
+    await setLanguage(window, "zh-CN");
+    await pointAt();
+    await expect(actions.getByTestId("note-column-send-again")).toHaveAttribute(
+      "aria-label",
+      "再次发送",
+    );
+    await expect(actions.getByTestId("note-column-edit")).toHaveAttribute("aria-label", "编辑");
+    await expect(actions.getByTestId("note-column-copy-request")).toHaveAttribute(
+      "aria-label",
+      "拷贝",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+/** The requests the conversation shows, in order, by their words. */
+const requestsIn = (scope: Locator) => scope.locator(".note-column-bubble");
+
+test("while a run goes the input's round button is Stop with nothing typed and Send with words; a request sent then goes into the run, shows at once as sent with Waiting and Copy only, and once its AI takes it at its next step it is a sent request with the reply its own, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const stop = group.getByTestId("note-ask-stop");
+    const send = group.getByTestId("note-ask-send");
+    const panel = group.getByTestId("note-ask-panel");
+    const first = "Summarise the note";
+    const later = "Also list the dates";
+    await stepTo(0);
+    await nextRun("queue-step");
+    await pointAndClick(window, input);
+    await window.keyboard.type(first);
+    await window.keyboard.press("Enter");
+
+    // The input works while it runs: Stop while it is empty, Send once words are typed.
+    await expect(stop).toBeVisible();
+    await expect(send).toHaveCount(0);
+    await window.keyboard.type(later);
+    await expect(send).toBeEnabled();
+    await expect(stop).toHaveCount(0);
+    await setLanguage(window, "zh-CN");
+    await expect(send).toHaveAttribute("aria-label", "发送");
+    await setLanguage(window, "en");
+    await input.fill("");
+    await expect(stop).toBeVisible();
+    await expect(send).toHaveCount(0);
+
+    // Return sends it into the run at once: the conversation opens on it, sent and waiting.
+    await window.keyboard.type(later);
+    await window.keyboard.press("Enter");
+    await expect(input).toHaveValue("");
+    await expect(stop).toBeVisible();
+    await expect(requestsIn(panel)).toHaveText([first, later]);
+    const sent = panel.getByTestId("note-column-turn").last();
+    const waiting = sent.getByTestId("note-column-waiting");
+    await expect(waiting).toHaveText("Waiting");
+    await expect(waiting.locator(".note-ask-dots")).toBeVisible();
+    expect(await outcomesOf(window, mindId)).toEqual(["working", "waiting"]);
+    // Copy is all it offers: its AI has it already.
+    await expect(sent.getByTestId("note-column-edit")).toHaveCount(0);
+    await expect(sent.getByTestId("note-column-send-again")).toHaveCount(0);
+    await pointAndClick(window, sent.getByTestId("note-column-copy-request"));
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(later);
+    await setLanguage(window, "zh-CN");
+    await expect(waiting).toHaveText("等待中");
+    await setLanguage(window, "en");
+    await shot(window, "conversation-waiting-en");
+
+    // Taken at the AI's next step: an ordinary sent request, working; the one before ends with
+    // its steps and no reply of its own.
+    await stepTo(1);
+    await expect(waiting).toHaveCount(0);
+    await expect(sent.getByTestId("note-column-sent-actions")).toBeAttached();
+    const earlier = panel.getByTestId("note-column-turn").first();
+    await expect(earlier.getByTestId("note-column-steps-toggle")).toBeVisible();
+    await expect(earlier.getByTestId("note-column-reply")).toHaveCount(0);
+    await stepTo(2);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed"]);
+    await expect(sent.getByTestId("note-column-reply")).toContainText(`Answered: ${later}`);
+    await expect(earlier.getByTestId("note-column-reply")).toHaveCount(0);
+    await expect(stop).toHaveCount(0);
+    await expect(send).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test("a request sent while the AI writes a plain reply waits through it, the reply staying the one before's, then is answered as the next turn under its own request, in Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    await setLanguage(window, "zh-CN");
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const first = "港口计划增加了什么？";
+    const later = "什么时候建？";
+    await stepTo(0);
+    await nextRun("queue-turn");
+    await pointAndClick(window, input);
+    await window.keyboard.type(first);
+    await window.keyboard.press("Enter");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await window.keyboard.type(later);
+    await window.keyboard.press("Enter");
+    const [earlier, sent] = [
+      panel.getByTestId("note-column-turn").first(),
+      panel.getByTestId("note-column-turn").last(),
+    ];
+    await expect(requestsIn(panel)).toHaveText([first, later]);
+    await expect(sent.getByTestId("note-column-waiting")).toHaveText("等待中");
+
+    // The reply ends first, and is the earlier request's; the later one still waits, and Stop
+    // still stops the run.
+    await stepTo(1);
+    await expect(earlier.getByTestId("note-column-reply")).toContainText(`已回答：${first}`);
+    await expect(sent.getByTestId("note-column-waiting")).toHaveText("等待中");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    expect(await outcomesOf(window, mindId)).toEqual(["landed", "waiting"]);
+
+    // Then the AI takes it as the next turn of the same run, and its reply is its own.
+    await stepTo(2);
+    await expect(sent.getByTestId("note-column-waiting")).toHaveCount(0);
+    await expect(sent.getByTestId("note-column-live")).toContainText("正在写回答。");
+    await stepTo(3);
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["landed", "landed"]);
+    await expect(sent.getByTestId("note-column-reply")).toContainText(`已回答：${later}`);
+    await expect(earlier.getByTestId("note-column-reply")).not.toContainText(later);
+    expect((await starts()).filter((each) => each.startsWith("run"))).toHaveLength(1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("Stop with a request its AI hasn't taken stops the whole run and leaves that request Not sent, with Send, Edit, Copy and Discard; Esc stops too, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const send = async (words: string) => {
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+    };
+    const later = "And add a title";
+    await nextRun("wait");
+    await send("Make it shorter");
+    await expect(group.getByTestId("note-ask-pill-text")).toHaveText("Looking at your note");
+    await send(later);
+    const unsent = panel.getByTestId("note-column-turn").last();
+    await expect(unsent.getByTestId("note-column-waiting")).toBeVisible();
+    await pointAndClick(window, group.getByTestId("note-ask-stop"));
+    await expect.poll(() => outcomesOf(window, mindId)).toEqual(["stopped", "unsent"]);
+
+    const notSent = unsent.getByTestId("note-column-not-sent");
+    await expect(notSent.locator(".note-column-sent-word")).toHaveText("Not sent");
+    await expect(panel.getByTestId("note-column-turn").first()).toContainText("Stopped");
+    const labels = () =>
+      Promise.all(
+        ["send", "edit", "copy-request", "discard"].map((id) =>
+          notSent.getByTestId(`note-column-${id}`).getAttribute("aria-label"),
+        ),
+      );
+    expect(await labels()).toEqual(["Send", "Edit", "Copy", "Discard"]);
+    await shot(window, "conversation-not-sent-en");
+    await setLanguage(window, "zh-CN");
+    await expect(notSent.locator(".note-column-sent-word")).toHaveText("未发送");
+    await expect.poll(labels).toEqual(["发送", "编辑", "拷贝", "舍弃"]);
+    await setLanguage(window, "en");
+
+    // Copy takes its words; Edit gives them back to the input.
+    await pointAndClick(window, notSent.getByTestId("note-column-copy-request"));
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(later);
+    await pointAndClick(window, notSent.getByTestId("note-column-edit"));
+    await expect(input).toHaveValue(later);
+    await expect(input).toBeFocused();
+    await input.fill("");
+
+    // Send asks it as a new request, in its place.
+    await nextRun("plan");
+    await pointAndClick(window, notSent.getByTestId("note-column-send"));
+    await expect
+      .poll(() => outcomesOf(window, mindId), { timeout: 30_000 })
+      .toEqual(["stopped", "landed"]);
+    await expect(requestsIn(panel)).toHaveText(["Make it shorter", later]);
+    await expect(panel.getByTestId("note-column-reply").last()).toContainText(
+      "A second ramp at Kestrel Bay",
+    );
+    await expect(panel.getByTestId("note-column-not-sent")).toHaveCount(0);
+
+    // Esc stops a run with a request waiting in it as Stop does; Discard removes that request.
+    await nextRun("wait");
+    await send("Once more");
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await window.keyboard.type("Never mind");
+    await window.keyboard.press("Enter");
+    await expect(panel.getByTestId("note-column-waiting")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect
+      .poll(() => outcomesOf(window, mindId))
+      .toEqual(["stopped", "landed", "stopped", "unsent"]);
+    await pointAndClick(window, panel.getByTestId("note-column-discard"));
+    await expect(requestsIn(panel)).toHaveText(["Make it shorter", later, "Once more"]);
+    expect(await outcomesOf(window, mindId)).toEqual(["stopped", "landed", "stopped"]);
+  } finally {
+    await app.close();
+  }
+});
+
+test("New conversation, from the conversation's name: one line marks it at the top, the turns above stay, the AI begins anew with none of the turns above it, greyed while a request runs, kept after a restart, in English and Chinese", async () => {
+  let { app, window } = await launched();
+  let mindId = "";
+  const sessions = () =>
+    readFile(join(bin, "mode.sessions"), "utf8").then((text) => text.trim().split("\n"));
+  try {
+    await setWindowSize(app, window, 900, 760);
+    mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const panel = group.getByTestId("note-ask-panel");
+    const send = async (words: string, mode: string) => {
+      const before = (await outcomesOf(window, mindId)).length;
+      await nextRun(mode);
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+      await ended(window, mindId, before);
+    };
+    await send("What does the harbour plan add?", "plan");
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    await expect(panel).toBeVisible();
+
+    // Greyed while a request runs, as Send again is.
+    await stepTo(0);
+    await nextRun("long");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, input);
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await stepTo(3);
+    await expect(panel.getByTestId("note-column-live")).toBeVisible({ timeout: 20_000 });
+    await openConversationMenu(window, panel);
+    await expect(panel.getByTestId("conversation-new")).toBeDisabled();
+    await window.keyboard.press("Escape");
+    await stepTo(99);
+    await ended(window, mindId, before);
+
+    // Pressed: one line under the top row, the keyboard in the input; pressed again, still one.
+    await fromConversationMenu(window, panel, "conversation-new");
+    const line = panel.getByTestId("note-conversation-new");
+    await expect(line).toHaveText("New conversation");
+    await expect(input).toBeFocused();
+    await expect
+      .poll(async () => {
+        const [head, at] = [
+          await panel.getByTestId("note-ask-panel-head").boundingBox(),
+          await line.boundingBox(),
+        ];
+        return Math.round((at?.y ?? 0) - ((head?.y ?? 0) + (head?.height ?? 0)));
+      })
+      .toBe(8);
+    await fromConversationMenu(window, panel, "conversation-new");
+    await expect(line).toHaveCount(1);
+
+    // The next request begins a new conversation with the AI: it resumes none of the earlier one.
+    await send("And when does it open?", "plan");
+    const [first, ...rest] = await sessions();
+    expect(first).toMatch(/^new /);
+    expect(rest.slice(0, -1).every((each) => each === `resume ${first?.slice(4)}`)).toBe(true);
+    expect(rest.at(-1)).toMatch(/^new /);
+    expect(rest.at(-1)).not.toBe(first);
+    await expect(panel.locator(".note-column-bubble")).toHaveText([
+      "What does the harbour plan add?",
+      "Summarise the ferry interviews",
+      "And when does it open?",
+    ]);
+  } finally {
+    await app.close();
+  }
+
+  // After a restart the turns above the line and the line are still there.
+  ({ app, window } = await launched());
+  try {
+    await setWindowSize(app, window, 900, 760);
+    await dismissChatSetup(window);
+    await open(window, mindId);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    const panel = group.getByTestId("note-ask-panel");
+    await expect(panel.locator(".note-column-bubble")).toHaveCount(3);
+    await expect(panel.getByTestId("note-conversation-new")).toHaveCount(1);
+    await setLanguage(window, "zh-CN");
+    await expect(panel.getByTestId("note-conversation-new")).toHaveText("新对话");
+  } finally {
+    await app.close();
+  }
+});
+
+test("the mode by the input names the User's own setting for the AI, offers Asks first and On its own with a sentence each, starts the next request in the one chosen, switches a running request at its next step, says why the AI refused, and goes back to the User's setting, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  const modes = () =>
+    readFile(join(bin, "mode.modes"), "utf8").then((text) => text.trim().split("\n"));
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const input = group.getByTestId("note-ask-input");
+    const pill = group.getByTestId("note-ask-mode-choice");
+    const menu = group.getByTestId("note-ask-modes");
+    const send = async (words: string, mode: string, wait = true) => {
+      const before = (await outcomesOf(window, mindId)).length;
+      await nextRun(mode);
+      await pointAndClick(window, input);
+      await window.keyboard.type(words);
+      await window.keyboard.press("Enter");
+      if (wait) await ended(window, mindId, before);
+    };
+    const choose = async (item: string) => {
+      await pointAndClick(window, pill);
+      await pointAndClick(window, menu.getByTestId(item));
+    };
+
+    // Nothing until a request has named the AI's mode; then the User's own, by the model.
+    await expect(pill).toHaveCount(0);
+    await send("What does the harbour plan add?", "plan");
+    await expect(pill).toHaveText("Asks first");
+    await pointAndClick(window, pill);
+    await expect(menu.locator("p").first()).toHaveText("Before Claude Code acts");
+    await expect(menu.getByRole("menuitemradio")).toHaveText([
+      "Asks firstAsks you first, except to read.",
+      "On its ownActs without asking; a safety check blocks what looks risky.",
+    ]);
+    await expect(menu.getByTestId("note-ask-mode-default")).toHaveAttribute("aria-checked", "true");
+    await window.keyboard.press("Escape");
+
+    // Chosen, the next request starts in it, and the User's setting is offered back.
+    await choose("note-ask-mode-auto");
+    await expect(pill).toHaveText("On its own");
+    await send("When does it open?", "plan");
+    expect((await modes()).at(-1)).toBe("start auto");
+
+    // The User's own setting is a third mode: back to it, the pill names it as itself.
+    await writeFile(join(bin, "mode.permission"), "acceptEdits");
+    await choose("note-ask-mode-yours");
+    await send("And the fares?", "plan");
+    expect((await modes()).at(-1)).toBe("start acceptEdits");
+    await expect(pill).toHaveText("Edits on its own");
+    await pointAndClick(window, pill);
+    await expect(menu.getByTestId("note-ask-mode-yours")).toHaveAttribute("aria-checked", "true");
+    await expect(menu.getByTestId("note-ask-mode-yours")).toContainText(
+      "Edits on its own · Your setting",
+    );
+    await window.keyboard.press("Escape");
+
+    // While a request runs: the AI takes the mode chosen at once; one it refuses says why.
+    await stepTo(0);
+    const before = (await outcomesOf(window, mindId)).length;
+    await send("Summarise the ferry interviews", "long", false);
+    await stepTo(3);
+    await expect(group.getByTestId("note-ask-stop")).toBeVisible();
+    await expect(pill).toHaveText("Edits on its own");
+    await choose("note-ask-mode-default");
+    await expect(pill).toHaveText("Asks first");
+    expect((await modes()).at(-1)).toBe("set default");
+    await writeFile(join(bin, "mode.noauto"), "1");
+    await choose("note-ask-mode-auto");
+    expect((await modes()).at(-1)).toBe("set auto");
+    await expect(pill).toHaveText("Asks first");
+    await pointAndClick(window, pill);
+    await expect(menu.getByTestId("note-ask-mode-auto")).toContainText(
+      "Turned off in your Claude Code settings.",
+    );
+    await window.keyboard.press("Escape");
+    await stepTo(99);
+    await ended(window, mindId, before);
+    // What the pill shows is what the next request starts in.
+    await expect(pill).toHaveText("Asks first");
+    await send("And the timetable?", "plan");
+    expect((await modes()).at(-1)).toBe("start default");
+
+    await setLanguage(window, "zh-CN");
+    await expect(pill).toHaveText("先询问");
+    await pointAndClick(window, pill);
+    await expect(menu.locator("p").first()).toHaveText("Claude Code 行动前");
+    await expect(menu.getByTestId("note-ask-mode-auto")).toContainText(
+      "你的 Claude Code 设置里关闭了此项。",
+    );
+    await window.keyboard.press("Escape");
+  } finally {
+    await app.close();
+  }
+});
+
+test("what a reply made shows under its words, a card each with its kind's icon in a soft tile, its name, its kind and Open, and a press opens it, in English and Chinese", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    // In the Folder the connection may read and propose in, beside the Harbour notes.
+    const folderId = await window.evaluate(
+      async (id) =>
+        (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds()).find(
+          (mind) => mind.id === id,
+        )?.folderId ?? null,
+      mindId,
+    );
+    const timetable = await writeNote(
+      window,
+      "Ferry timetable",
+      [{ text: "The 07:40 crossing leaves at 07:40." }],
+      { folderId },
+    );
+    await writeFile(join(bin, "mode.other"), timetable);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    const panel = group.getByTestId("note-ask-panel");
+    const before = (await outcomesOf(window, mindId)).length;
+    await nextRun("make");
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Write up the delays");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+    await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
+    const reply = panel.getByTestId("note-column-reply").last();
+    const cards = reply.getByTestId("note-column-made");
+    await expect(cards).toHaveCount(2);
+
+    // Under the reply's words, each card its kind's icon in a soft tile at its left, then its name
+    // with its kind under it, and Open.
+    const [words, first] = [
+      await reply.getByTestId("note-ask-reply").boundingBox(),
+      await cards.first().boundingBox(),
+    ];
+    expect((first?.y ?? 0) - ((words?.y ?? 0) + (words?.height ?? 0))).toBeGreaterThanOrEqual(0);
+    const made = cards.first();
+    await expect(made.locator(".note-column-made-title")).toHaveText(
+      "Ferry delays: what the interviews say",
+    );
+    await expect(made.locator(".note-column-made-kind")).toHaveText("Note");
+    await expect(made.locator(".note-column-made-open")).toHaveText("Open");
+    await expect(cards.nth(1).locator(".note-column-made-title")).toHaveText("Ferry timetable");
+    await expect(cards.nth(1).locator(".note-column-made-kind")).toHaveText("1 change waits");
+    const tile = made.locator(".note-column-made-icon");
+    expect(await tile.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(
+      "rgba(0, 0, 0, 0)",
+    );
+    const [tileBox, titleBox] = [
+      await tile.boundingBox(),
+      await made.locator(".note-column-made-title").boundingBox(),
+    ];
+    expect((tileBox?.x ?? 99) + (tileBox?.width ?? 0)).toBeLessThanOrEqual(titleBox?.x ?? 0);
+
+    await setLanguage(window, "zh-CN");
+    await expect(made.locator(".note-column-made-kind")).toHaveText("笔记");
+    await expect(made.locator(".note-column-made-open")).toHaveText("打开");
+    await expect(cards.nth(1).locator(".note-column-made-kind")).toHaveText("1 处修改等你确认");
+
+    // A press opens what it made.
+    await pointAndClick(window, made);
+    await expect(
+      window
+        .locator('[data-testid="tab-group"][data-focused] [role="tab"][aria-selected="true"]')
+        .first(),
+    ).toContainText("Ferry delays");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a Citation in a reply shows its quote on hover and opens its Document there, as one in the Note does; scrolled, the conversation open upward fades out under its controls, never cut by the box's edge", async () => {
+  const { app, window } = await launched();
+  try {
+    await setWindowSize(app, window, 1440, 900);
+    const mindId = await harbourNote(window);
+    const group = window.locator('[data-testid="tab-group"][data-focused]');
+    await stepTo(99);
+    await nextRun("long");
+    const before = (await outcomesOf(window, mindId)).length;
+    await pointAndClick(window, group.getByTestId("note-ask-input"));
+    await window.keyboard.type("Summarise the ferry interviews");
+    await window.keyboard.press("Enter");
+    await ended(window, mindId, before);
+
+    // Open, the reply's chips are the Note's own.
+    await showConversation(window, 0, true);
+    const reply = window.getByTestId("note-ask-reply").last();
+    const chip = reply.locator(".citation-marker").first();
+    await expect(chip).toBeVisible();
+    await chip.hover();
+    const card = window.getByTestId("citation-card");
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("Ferry interview");
+    await shot(window, "reply-citation-card-1440-en");
+    await pointAndClick(window, chip);
+    await expect(window.getByTestId("viewer-title")).toContainText("Ferry interview");
+    await expect(
+      window.getByTestId("viewer").locator("[data-quote-highlight]").first(),
+    ).toBeVisible();
+    await shot(window, "reply-citation-opened-1440-en");
+
+    // At 900 the conversation opens upward, at its end: scrolled, its top fades out.
+    await setWindowSize(app, window, 900, 760);
+    const panel = window.getByTestId("note-ask-panel");
+    await expect(panel).toBeVisible();
+    const body = panel.getByTestId("note-conversation-body");
+    const masked = () => body.evaluate((element) => getComputedStyle(element).maskImage);
+    await expect.poll(() => body.evaluate((element) => element.scrollTop > 0)).toBe(true);
+    await expect.poll(masked).not.toBe("none");
+    await shot(window, "upward-scrolled-900-en");
+    await body.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect.poll(masked).toBe("none");
   } finally {
     await app.close();
   }
@@ -669,9 +1367,9 @@ test("pressed in the column's place, the line above the input opens the conversa
     await ended(window, mindId, before);
     // The conversation's place is the column; closed, the line stands above the input.
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
-    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, group, "conversation-move-left");
     const column = window.getByTestId("note-column");
-    await pointAndClick(window, column.getByTestId("note-column-close"));
+    await fromConversationMenu(window, column, "note-column-close");
     await expect(column).toHaveCount(0);
     await pointAndClick(window, group.getByTestId("note-ask-pill-open"));
     const reply = column.getByTestId("note-column-turn").last().getByTestId("note-column-reply");
@@ -746,7 +1444,7 @@ test("the conversation moved to the column opens there again after a restart", a
     await window.keyboard.press("Enter");
     await ended(window, mindId, before);
     await pointAndClick(window, group.getByTestId("note-ask-handle-toggle"));
-    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, group, "conversation-move-left");
     await expect(window.getByTestId("note-column")).toBeVisible();
   } finally {
     await app.close();
@@ -883,15 +1581,19 @@ async function showConversation(window: Page, index: number, open: boolean) {
 
 /**
  * Where the column doesn't fit, the conversation is open upward in the box at the foot of the Note
- * in group `index`, as wide as its text and under 40% of the window's height, showing `asked`, with
- * no column and no move to one.
+ * in group `index`, as wide as its text, its turns under 40% of the window's height, showing
+ * `asked`, with no column and no move to one.
  */
 async function expectUpward(window: Page, index: number, asked: string) {
   const group = window.getByTestId("tab-group").nth(index);
   const panel = group.getByTestId("note-ask-panel");
   await expect(panel).toBeVisible();
   await expect(window.getByTestId("note-column")).toHaveCount(0);
-  await expect(group.getByTestId("conversation-move-left")).toHaveCount(0);
+  const menu = await openConversationMenu(window, group);
+  await expect(menu.getByTestId("conversation-new")).toBeVisible();
+  await expect(menu.getByTestId("conversation-move-left")).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
   await expect(panel.getByTestId("note-column-turn").first()).toContainText(asked);
   // The groups take their new widths as the column leaves: the box and the text settle together.
   await motionSettled(window);
@@ -908,60 +1610,78 @@ async function expectUpward(window: Page, index: number, asked: string) {
     })
     .toBeLessThanOrEqual(1);
   const height = await window.evaluate(() => globalThis.innerHeight);
-  expect((await boxOf(panel)).height).toBeLessThanOrEqual(height * 0.4 + 1);
+  expect((await boxOf(panel.getByTestId("note-conversation-body"))).height).toBeLessThanOrEqual(
+    height * 0.4 + 1,
+  );
+}
+
+/** The items of the conversation's name menu in `scope`, read with it open; it is closed again. */
+async function conversationMenu(window: Page, scope: Locator): Promise<string[]> {
+  const menu = await openConversationMenu(window, scope);
+  const items = await menu.getByRole("menuitem").allInnerTexts();
+  await window.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  return items;
 }
 
 /**
- * The conversation open upward in `group`'s box keeps 12px above its first request and under its
- * last reply; its controls stand level with the first request at the box's right end, and they
- * and the request stay inside the box's rounded corner.
+ * The conversation open upward in `group`'s box has a top row of its own: its name, which holds
+ * its menu, at the words' start, inside the box's rounded corner. The turns start
+ * 8px under that row, never behind it, and end 12px above the input; the newest one sent here
+ * starts under the row at their end (#3765).
  */
 async function expectPanelEdges(group: Locator) {
   const edges = await group.evaluate((element) => {
     const panel = element.querySelector('[data-testid="note-ask-panel"]');
+    const head = panel?.querySelector('[data-testid="note-ask-panel-head"]');
     const body = panel?.querySelector<HTMLElement>('[data-testid="note-conversation-body"]');
     const box = element.querySelector('[data-testid="note-ask-box"]');
     const row = element.querySelector('[data-testid="note-ask-row"]');
-    if (!panel || !body || !box || !row) return null;
+    const button = head?.querySelector('[data-testid="conversation-name"]');
+    const name = button?.querySelector("span")?.getBoundingClientRect();
+    if (!panel || !head || !body || !box || !row || !button || !name) return null;
+    const top = head.getBoundingClientRect();
     body.scrollTop = 0;
     const bubble = panel.querySelector(".note-column-bubble")?.getBoundingClientRect();
-    const tools = Array.from(panel.querySelectorAll(".note-ask-panel-tools > button")).map(
-      (button) => button.getBoundingClientRect(),
-    );
-    const above = bubble ? bubble.top - body.getBoundingClientRect().top : null;
+    const above = bubble ? bubble.top - top.bottom : null;
     body.scrollTop = body.scrollHeight;
-    // What the last reply shows last: its copy-and-model line, or its one action.
     const turn = Array.from(body.querySelectorAll('[data-testid="note-column-turn"]')).at(-1);
-    const last = Array.from(turn?.children ?? [])
-      .map((child) => child.getBoundingClientRect())
-      .filter((rect) => rect.height > 0)
-      .at(-1);
+    // What the last reply shows last: its copy-and-model line, or its one action; the newest turn
+    // sent here, given the turns' height, ends at their end.
+    const last = turn?.hasAttribute("data-newest")
+      ? turn.getBoundingClientRect()
+      : Array.from(turn?.children ?? [])
+          .map((child) => child.getBoundingClientRect())
+          .filter((rect) => rect.height > 0)
+          .at(-1);
+    // Taller than the turns' height, it shows its end instead.
+    const room = Number.parseFloat(body.style.getPropertyValue("--newest-room"));
+    const newest =
+      turn?.hasAttribute("data-newest") && turn.getBoundingClientRect().height <= room + 1
+        ? turn.getBoundingClientRect().top - top.bottom
+        : 8;
+    // Its left corner rounds as its right one does.
     const frame = box.getBoundingClientRect();
-    const radius = Number.parseFloat(getComputedStyle(box).borderTopRightRadius);
-    const inside = (rect: DOMRect) => {
-      const [dx, dy] = [frame.right - rect.right, rect.top - frame.top];
-      return dx >= radius || dy >= radius || Math.hypot(radius - dx, radius - dy) <= radius - 1;
-    };
+    const radius = Number.parseFloat(getComputedStyle(box).borderTopLeftRadius);
+    const pressable = button.getBoundingClientRect();
+    const [dx, dy] = [pressable.left - frame.left, pressable.top - frame.top];
+    const rowBox = row.getBoundingClientRect();
     if (!bubble || !last || above === null) return null;
     return {
       above,
+      newest,
       under: body.getBoundingClientRect().bottom - last.bottom,
-      level: Math.max(
-        ...tools.map((rect) =>
-          Math.abs(rect.top + rect.height / 2 - (bubble.top + bubble.height / 2)),
-        ),
-      ),
-      beside: tools.every((rect) => rect.left >= bubble.right),
-      end: Math.abs(row.getBoundingClientRect().right - 10 - (tools.at(-1)?.right ?? 0)),
-      inside: [bubble, ...tools].every(inside),
+      apart: top.bottom <= body.getBoundingClientRect().top + 0.5,
+      start: Math.abs(name.left - (rowBox.left + 18)),
+      inside: dx >= radius || dy >= radius || Math.hypot(radius - dx, radius - dy) <= radius - 1,
     };
   });
   expect(edges).not.toBeNull();
-  expect(Math.abs((edges?.above ?? 0) - 12)).toBeLessThanOrEqual(1);
+  expect(Math.abs((edges?.above ?? 0) - 8)).toBeLessThanOrEqual(1);
+  expect(Math.abs((edges?.newest ?? 0) - 8)).toBeLessThanOrEqual(1);
   expect(Math.abs((edges?.under ?? 0) - 12)).toBeLessThanOrEqual(1);
-  expect(edges?.level).toBeLessThanOrEqual(1);
-  expect(edges?.beside).toBe(true);
-  expect(edges?.end).toBeLessThanOrEqual(1);
+  expect(edges?.apart).toBe(true);
+  expect(edges?.start).toBeLessThanOrEqual(1);
   expect(edges?.inside).toBe(true);
 }
 
@@ -987,7 +1707,7 @@ test("the conversation is one column left of every group, and follows the Note i
     // A Note alone: Show conversation opens it upward; moved to the left, it is the column.
     await arrange(window, [note(harbour)]);
     await showConversation(window, 0, true);
-    await pointAndClick(window, window.getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, window.locator("body"), "conversation-move-left");
     await expectColumnBeside(window, HARBOUR_ASKED);
 
     // A Note at the left and a Document at the right: the two stay side by side, the column left of
@@ -1030,7 +1750,7 @@ test("the conversation is one column left of every group, and follows the Note i
     await expectReadable(window, 0);
     await expectWholeToolbar(window, 1);
     expect(await kept()).toEqual(stored);
-    await pointAndClick(window, window.getByTestId("note-column-close"));
+    await fromConversationMenu(window, window.locator("body"), "note-column-close");
     await expect(window.getByTestId("note-column")).toHaveCount(0);
     expect(await kept()).toEqual(stored);
     const share = (stored[0] ?? 0) / ((stored[0] ?? 0) + (stored[1] ?? 0));
@@ -1057,7 +1777,7 @@ test("the conversation is one column left of every group, and follows the Note i
     await expectColumnBeside(window, TIMETABLE_ASKED);
     await pressIn(window, 0);
     await expectColumnBeside(window, HARBOUR_ASKED);
-    await pointAndClick(window, window.getByTestId("note-column-close"));
+    await fromConversationMenu(window, window.locator("body"), "note-column-close");
     await expect(window.getByTestId("note-column")).toHaveCount(0);
     // Closed, the box at the Note's foot says how to see it again, in words.
     await expect(
@@ -1099,7 +1819,7 @@ test("where the column doesn't fit beside the groups, measured on the tab area, 
     const document: TabItem = { kind: "document", documentId };
     await arrange(window, [note(harbour)]);
     await showConversation(window, 0, true);
-    await pointAndClick(window, window.getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, window.locator("body"), "conversation-move-left");
     await expectColumnBeside(window, HARBOUR_ASKED);
 
     // At 1440 a Note and a Document can't both keep their room beside the column: upward; with
@@ -1349,6 +2069,24 @@ test("at 900 px a waiting change's bar stands whole above the Note's input, with
     await expect(card).toBeVisible({ timeout: 20_000 });
     await dockedAbove("a question asked under the bar");
     await shot(window, "change-bar-question-900-en");
+    // While it runs, the line of changes waiting shows, under the tab strip that holds the Note's
+    // own controls (#3765), its Reject all pressable.
+    const waitingLine = group.getByTestId("proposals-bar");
+    await expect(waitingLine).toBeVisible();
+    const [line, controls] = [
+      await boxOf(waitingLine),
+      await boxOf(group.getByTestId("note-controls")),
+    ];
+    expect(line.y).toBeGreaterThanOrEqual(controls.y + controls.height);
+    const rejectAll = waitingLine.getByRole("button").last();
+    expect(
+      await rejectAll.evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        return button.contains(
+          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2),
+        );
+      }),
+    ).toBe(true);
     await pointAndClick(window, card.getByTestId("own-ask-deny"));
     await ended(window, mindId, asked);
     await expect(card).toHaveCount(0);
@@ -1431,7 +2169,7 @@ test("the input at a Note's foot stands on the text's edges, wide, narrow and be
     // With the conversation in the window's column, the Note's own foot holds nothing: the Note
     // runs to the page's bottom edge, and nothing fades.
     await showConversation(window, 0, true);
-    await pointAndClick(window, group.getByTestId("conversation-move-left"));
+    await fromConversationMenu(window, group, "conversation-move-left");
     await expect(window.getByTestId("note-column")).toBeVisible();
     await expect(fade).toBeHidden();
     const [scrolled, tabPage] = [

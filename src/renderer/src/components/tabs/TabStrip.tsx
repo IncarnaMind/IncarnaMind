@@ -2,6 +2,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type RefObject,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -22,6 +23,7 @@ import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { SidebarToggle } from "../SidebarToggle";
 import { TasksChip } from "../TasksChip";
 import { ExportMenu } from "./ExportMenu";
+import { placeNoteControls } from "./noteControls";
 import { ShowAllTabs } from "./ShowAllTabs";
 import { GroupMenu, StripButton } from "./TabMenus";
 import { splitToTheRight } from "./tabActions";
@@ -65,6 +67,19 @@ export function TabStrip({
 
   const spacer = useRef<HTMLSpanElement>(null);
   const hidden = useTabStripFit(strip, list, spacer, shownId ?? null, tabIds);
+  // The Note shown here puts its own controls in the strip (./noteControls).
+  const controls = useCallback(
+    (element: HTMLElement | null) => {
+      if (shownId) placeNoteControls(shownId, "controls", element);
+    },
+    [shownId],
+  );
+  const more = useCallback(
+    (element: HTMLElement | null) => {
+      if (shownId) placeNoteControls(shownId, "more", element);
+    },
+    [shownId],
+  );
 
   /** Arrow keys, Home and End move to another tab of the strip and show it, as in any tab list. */
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -137,6 +152,9 @@ export function TabStrip({
       <ShowAllTabs tabs={tabs} shownId={shownId} hidden={hidden} />
       <span ref={spacer} className="tab-strip-spacer" />
       {last && <TasksChip />}
+      {shown?.item.kind === "mind" && (
+        <span ref={controls} data-testid="note-controls" className="tab-strip-note" />
+      )}
       {/* A viewer pane has no Export and no split; Export is the Note's (#2868). */}
       {shown?.item.kind === "mind" && <ExportMenu mindId={shown.item.mindId} />}
       {!merged && shown?.item.kind === "mind" && (
@@ -150,9 +168,10 @@ export function TabStrip({
           </StripButton>
         </span>
       )}
-      {/* A group of one Note takes its ⋯ from the page's, so the pane shows one (#2868). A
-          merged strip holds every group's tabs, so its ⋯ stays. */}
-      {!(!merged && group.tabs.length === 1 && group.tabs[0]?.item.kind === "mind") && (
+      {/* A Note shown has one ⋯, its own, which holds the group's items too (#2868, #3765). */}
+      {shown?.item.kind === "mind" ? (
+        <span ref={more} className="contents" />
+      ) : (
         <GroupMenu groupId={group.id} merged={merged} />
       )}
     </header>

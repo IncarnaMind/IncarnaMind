@@ -16,6 +16,7 @@ import {
   acceptPlainTextKeys,
   createDataFolder,
   dismissChatSetup,
+  fromConversationMenu,
   launchApp,
   motionSettled,
   removeDataFolder,
@@ -297,7 +298,11 @@ async function askIntoColumn(window: Page, bin: string) {
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("note-ask-pill-open")).toBeVisible({ timeout: 60_000 });
   await window.getByTestId("note-ask-handle-toggle").click();
-  await window.getByTestId("conversation-move-left").click();
+  await fromConversationMenu(
+    window,
+    window.getByTestId("note-ask-panel"),
+    "conversation-move-left",
+  );
   await expect(window.getByTestId("note-column")).toBeVisible();
 }
 
@@ -499,7 +504,11 @@ test(`meeting stills, ${LANG}`, async () => {
             .isVisible()
             .catch(() => false)
         )
-          await window.getByTestId("conversation-move-down").click();
+          await fromConversationMenu(
+            window,
+            window.getByTestId("note-column"),
+            "conversation-move-down",
+          );
         await expect(panel).toBeVisible();
       };
       await still("d2-reply", WIDTHS, openUpward);
@@ -511,7 +520,7 @@ test(`meeting stills, ${LANG}`, async () => {
       await window.getByTestId("meeting-sheet-hide").click();
       await still("d4-narrow-conversation", [900], openUpward);
       // Folded to its line again, as a person leaves it before Stop.
-      if (await panel.isVisible()) await window.getByTestId("note-ask-fold").click();
+      if (await panel.isVisible()) await fromConversationMenu(window, panel, "note-ask-fold");
       await expect(panel).toBeHidden();
     });
 
@@ -953,7 +962,11 @@ test(`meeting with the conversation at the left, ${LANG}`, async () => {
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("note-ask-pill-open")).toBeVisible({ timeout: 60_000 });
     await window.getByTestId("note-ask-handle-toggle").click();
-    await window.getByTestId("conversation-move-left").click();
+    await fromConversationMenu(
+      window,
+      window.getByTestId("note-ask-panel"),
+      "conversation-move-left",
+    );
     await expect(window.getByTestId("note-column")).toBeVisible();
     await still("h1-column-recording", COLUMN_WIDTHS);
 

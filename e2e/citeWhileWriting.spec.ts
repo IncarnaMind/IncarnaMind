@@ -577,7 +577,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await open("sidebar");
       await window.keyboard.press("Escape");
       await expect(picker).toHaveCount(0);
-      expect(await window.evaluate(() => getSelection()?.toString())).toBe("s");
+      // The editor puts its selection back a moment after the palette closes.
+      await expect.poll(() => window.evaluate(() => getSelection()?.toString())).toBe("s");
       await window.keyboard.press("ArrowRight");
 
       await open();

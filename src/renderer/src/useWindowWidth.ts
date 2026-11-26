@@ -28,5 +28,7 @@ export function useWindowSize(): { width: number; height: number } {
 export function useGroupsMerged(): boolean {
   const windowWidth = useWindowWidth();
   // Only a change of the answer draws again, not every pixel the card is resized by.
-  return useCardWidth((state) => groupsMergedAt(windowWidth, state.width));
+  return useCardWidth((state) =>
+    groupsMergedAt(windowWidth, state.width, state.groups, state.lead),
+  );
 }

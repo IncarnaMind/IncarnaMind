@@ -1307,16 +1307,20 @@ function MindEditorView({
               <div ref={setHeadSlot} data-testid="note-head-badge" className="note-head-badge" />
               <CommentsButton editor={editor} mindId={mindId} doc={doc} />
               {!readOnly && <NoteConversationButton mindId={mindId} />}
-              <PageMenu
-                editor={editor}
-                doc={doc}
-                mindId={mindId}
-                verification={verification}
-                readOnly={readOnly}
-                revealEditor={revealEditor}
-              />
             </>,
             slots.menu,
+          )}
+        {slots.more &&
+          createPortal(
+            <PageMenu
+              editor={editor}
+              doc={doc}
+              mindId={mindId}
+              verification={verification}
+              readOnly={readOnly}
+              revealEditor={revealEditor}
+            />,
+            slots.more,
           )}
         {slots.review &&
           reviewing &&
@@ -1341,6 +1345,7 @@ function MindEditorView({
               mindId={mindId}
               verification={verification}
               quiet={firstOpen && isExample}
+              inStrip={headSlot !== null}
             />,
             badgeTarget,
           )}

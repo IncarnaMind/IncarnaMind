@@ -360,6 +360,22 @@ export function setMotionPreference(next: MotionPreference): void {
 /** How many animations are running, leaving copies included: the tests wait for none. */
 export const motionRunning = (): number => running.size + pending;
 
+/** What waits for every animation here to settle (`afterMotion`). */
+const atRest = new Set<() => void>();
+
+/**
+ * Calls `then` once the animations running now have settled; returns how to stop waiting, or null
+ * when none runs. A box moving by transform gives its rects scaled until then, and nothing is laid
+ * out again at its end.
+ */
+export function afterMotion(then: () => void): (() => void) | null {
+  if (running.size === 0) return null;
+  atRest.add(then);
+  return () => {
+    atRest.delete(then);
+  };
+}
+
 /** Plays every animation at this speed (0.25: four times slower), for tests and recordings. */
 export function setMotionSpeed(next: number): void {
   speed = next;
@@ -408,6 +424,11 @@ function track(controls: AnimationPlaybackControlsWithThen, done: () => void): v
     ended = true;
     running.delete(controls);
     done();
+    if (running.size > 0) return;
+    for (const waiting of [...atRest]) {
+      atRest.delete(waiting);
+      waiting();
+    }
   };
   running.set(controls, end);
   // An animation stopped by a newer one may never settle its promise: the ceiling ends it then.

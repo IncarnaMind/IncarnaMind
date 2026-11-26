@@ -30,11 +30,12 @@ import { fileStatusLabel } from "../linkedFolders";
 import { useMindStylePanel } from "../mindStylePanel";
 import { useReviewables, useReviewPanes } from "../reviewPane";
 import { allExamples, useAppStore } from "../store";
+import { useGroupsMerged } from "../useWindowWidth";
 import { openDocumentBeside } from "../verify";
 import { EveryResultSwitch } from "./EveryResultSwitch";
 import { LookMenuItems } from "./LookMenu";
 import { MindSourceFoot } from "./MindSourceFoot";
-import { MindCounts } from "./WordCount";
+import { CountShownSwitch, MindCountsLine } from "./WordCount";
 import { openOriginalAtCaret, useWordFile, wordFileTooltip } from "./WordOrigin";
 
 /**
@@ -68,11 +69,12 @@ export function PageMenu({
   const mind = useAppStore((state) => state.minds.find((each) => each.id === mindId));
   const name = (mind && mindName(mind)) || t("mind.untitled");
   const tabId = useTabPlace()?.tabId;
-  // A group of one Note: the page's ⋯ is its pane's, and its strip has none (#2868).
-  const soloGroupId = useAppStore((state) => {
-    const group = state.layout?.groups.find((each) => each.tabs.some((tab) => tab.id === tabId));
-    return group?.tabs.length === 1 ? group.id : null;
-  });
+  // The Note's ⋯ is its strip's one ⋯, with the group's items too (#2868, #3765).
+  const groupId = useAppStore(
+    (state) =>
+      state.layout?.groups.find((each) => each.tabs.some((tab) => tab.id === tabId))?.id ?? null,
+  );
+  const merged = useGroupsMerged();
   const holder = useRef<HTMLSpanElement>(null);
   const [moving, setMoving] = useState<HTMLElement | null>(null);
   const button = () =>
@@ -105,7 +107,7 @@ export function PageMenu({
         label={t("mind.more", { title: name })}
         testId="page"
         align="end"
-        className="page-menu-button"
+        className="tab-strip-button"
         here={{
           // Once the menu has closed and given the focus back, so the field or the picker keeps it.
           ...(tabId && {
@@ -116,8 +118,10 @@ export function PageMenu({
         }}
         // The Mind is open on this page: nothing to open, and Style is below.
         without={["mind.open", "mind.openTab"]}
+        // Its counts first, a grey line (#3765).
+        first={() => <MindCountsLine editor={editor} />}
         more={
-          readOnly && !origin && !otherExamples && !soloGroupId
+          readOnly && !origin && !otherExamples && !groupId
             ? undefined
             : (close) => (
                 <>
@@ -249,10 +253,10 @@ export function PageMenu({
                       )}
                     </>
                   )}
-                  {soloGroupId && (
+                  {groupId && (
                     <>
                       <div className={menuRuleClass} />
-                      <GroupMenuItems groupId={soloGroupId} merged={false} close={close} />
+                      <GroupMenuItems groupId={groupId} merged={merged} close={close} />
                     </>
                   )}
                 </>
@@ -303,7 +307,7 @@ export function PageMenu({
                 })}
               </p>
             )}
-            <MindCounts editor={editor} doc={doc} switchable={!readOnly} />
+            {!readOnly && <CountShownSwitch doc={doc} />}
             {!readOnly && (
               <div className="page-menu-foot">
                 <EveryResultSwitch doc={doc} inMenu testId="page-every-result" />

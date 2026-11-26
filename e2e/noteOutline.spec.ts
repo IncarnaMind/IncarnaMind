@@ -123,7 +123,8 @@ test("a Note's outline opens beside its page by mouse and keyboard, follows the 
     await expect(window.getByTestId("outline-button")).toBeVisible();
     expect(await paletteOffers(window, "mind.outline", "outline")).toBe(1);
 
-    // A Note with headings: the button at the top left of its tab, level with the ⋯; closed at first.
+    // A Note with headings: the button at the top left of its page, under the strip that holds the
+    // ⋯ (#3765); closed at first.
     const editor = await openNote(window, REPORT.en.title);
     const button = window.getByTestId("outline-button");
     const outline = window.getByTestId("outline");
@@ -134,7 +135,7 @@ test("a Note's outline opens beside its page by mouse and keyboard, follows the 
     const menuBox = await window.getByTestId("page-menu").boundingBox();
     const textBox = await editor.locator("h1").boundingBox();
     if (!buttonBox || !menuBox || !textBox) throw new Error("The page isn't drawn.");
-    expect(Math.abs(buttonBox.y - menuBox.y)).toBeLessThanOrEqual(1);
+    expect(buttonBox.y).toBeGreaterThanOrEqual(menuBox.y + menuBox.height);
     expect(buttonBox.x).toBeLessThan(textBox.x);
     expect(buttonBox.y + buttonBox.height).toBeLessThan(textBox.y);
     await still(window, "note-outline-closed");
