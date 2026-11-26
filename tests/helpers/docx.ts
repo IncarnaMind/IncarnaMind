@@ -237,15 +237,26 @@ const childElements = (node: Node): Element[] => {
 const named = (node: Node, name: string) =>
   childElements(node).find((each) => each.nodeName === name);
 
-/** A paragraph's text with every change accepted: a footnote's mark as [*], a text box's left out. */
-function acceptedText(paragraph: Element): string {
+/** Every tracked change accepted, or every one rejected: what each drops, and which text it shows. */
+const VIEWS = {
+  accepted: { gone: ["w:del", "w:moveFrom"], text: ["w:t"] },
+  rejected: { gone: ["w:ins", "w:moveTo"], text: ["w:t", "w:delText"] },
+} as const;
+type View = keyof typeof VIEWS;
+
+/** A paragraph's text in a view: a footnote's mark as [*], a text box's left out. */
+function viewText(paragraph: Element, view: View): string {
+  const { gone, text: texts } = VIEWS[view];
   let text = "";
   const visit = (node: Node) => {
     for (const child of childElements(node)) {
       const name = child.nodeName;
-      if (["w:pPr", "w:rPr", "w:del", "w:moveFrom", "w:txbxContent", "mc:Fallback"].includes(name))
+      if (
+        ["w:pPr", "w:rPr", "w:txbxContent", "mc:Fallback"].includes(name) ||
+        (gone as readonly string[]).includes(name)
+      )
         continue;
-      if (name === "w:t") text += child.textContent ?? "";
+      if ((texts as readonly string[]).includes(name)) text += child.textContent ?? "";
       else if (name === "w:tab") text += "\t";
       else if (name === "w:br") text += "\n";
       else if (name === "w:footnoteReference") text += "[*]";
@@ -264,6 +275,16 @@ function acceptedText(paragraph: Element): string {
  * stack of its own: a table can nest thousands deep.
  */
 export function acceptedParagraphs(documentXml: string): string[] {
+  return paragraphsIn(documentXml, "accepted");
+}
+
+/** The body's paragraphs with every tracked change rejected: insertions gone, deletions kept, as `acceptedParagraphs` the other way. */
+export function rejectedParagraphs(documentXml: string): string[] {
+  return paragraphsIn(documentXml, "rejected");
+}
+
+function paragraphsIn(documentXml: string, view: View): string[] {
+  const goneMark = VIEWS[view].gone[0];
   const document = new DOMParser().parseFromString(documentXml, "text/xml");
   const body = document.documentElement && named(document.documentElement, "w:body");
   const lines: string[] = [];
@@ -277,16 +298,16 @@ export function acceptedParagraphs(documentXml: string): string[] {
     const node = stack.pop() as Element;
     if (node.nodeName === "w:p") {
       if (pending && pending.parent !== node.parentNode) flush();
-      const text: string = (pending?.text ?? "") + acceptedText(node);
+      const text: string = (pending?.text ?? "") + viewText(node, view);
       const mark = named(named(node, "w:pPr") ?? node, "w:rPr");
-      const markDeleted = mark?.parentNode?.nodeName === "w:pPr" && named(mark, "w:del");
+      const markGone = mark?.parentNode?.nodeName === "w:pPr" && named(mark, goneMark);
       pending = { text, parent: node.parentNode };
-      if (!markDeleted) flush();
+      if (!markGone) flush();
       continue;
     }
     if (node.nodeName === "w:tr") {
       const trPr = named(node, "w:trPr");
-      if (trPr && named(trPr, "w:del")) continue;
+      if (trPr && named(trPr, goneMark)) continue;
     }
     if (["w:tbl", "w:tr", "w:tc", "w:sdt", "w:sdtContent", "w:customXml"].includes(node.nodeName)) {
       if (node.nodeName === "w:tbl") flush();

@@ -34,6 +34,8 @@ export interface Contract {
   added: string;
   /** The referring clause's words as Word shows them once its REF shows the new number. */
   renumbered: string;
+  /** The same words as the file showed them, before the sub-clause was added. */
+  before: string;
 }
 
 /** A services contract: clause 2.3 is bookmarked, and 3.1 refers to it by number and page. */
@@ -54,6 +56,7 @@ export const ENGLISH_CONTRACT: Contract = {
   after: "Fees are due within 30 days of the invoice.",
   added: "Late fees are capped at the fee itself.",
   renumbered: "interest under clause 2.4 is unpaid",
+  before: "interest under clause 2.3 is unpaid",
 };
 
 /** The same contract in Chinese: 第一条 and （一） under it; （三） of 第二条 is bookmarked. */
@@ -74,6 +77,7 @@ export const CHINESE_CONTRACT: Contract = {
   after: "服务费应在发票开具后三十日内支付。",
   added: "滞纳金以服务费金额为限。",
   renumbered: "未按第（四）项支付利息",
+  before: "未按第（三）项支付利息",
 };
 
 /**
@@ -86,6 +90,7 @@ export const CHINESE_PAST_NINE: Contract = {
   numbering: clauseNumbering(["chineseCounting", "第%1条"], ["chineseCounting", "（%2）"], 7),
   reference: `${run("未按第")}${field("REF _Ref301 \\r \\h", "（九）")}${run("项支付利息的，任何一方可解除本合同。")}`,
   renumbered: "未按第（十）项支付利息",
+  before: "未按第（九）项支付利息",
 };
 
 export const contractFile = (contract: Contract, reference = contract.reference) =>

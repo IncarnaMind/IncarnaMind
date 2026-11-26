@@ -12,11 +12,13 @@
  * A REF's result is written again when it can be known, as a viewer that doesn't refresh fields
  * shows it (LibreOffice is one): the file's result was its bookmark's number (or text) as the file
  * had it, written in one of the ways Word writes it, and that way gives one number now whether a
- * paragraph deleted as a tracked change counts or not. A page can't be known without laying the
+ * paragraph deleted as a tracked change counts or not. With the User's edits tracked, the new
+ * result is their tracked change, the old one deleted and the new inserted; a result that can't
+ * carry one (a simple field's, one of several runs) is marked and kept. A page can't be known without laying the
  * document out, so a PAGEREF's page and a table of contents' entries are left to Word. Fields in
  * headers, footers and notes, and a field locked against updating, are left as they are.
  */
-import { headingLevelOf } from "../../documents/formats/docx";
+import { paragraphHeadingLevel } from "../../documents/formats/docx";
 import {
   levelText,
   type ParagraphNumber,
@@ -24,7 +26,14 @@ import {
   type WordNumbering,
 } from "../../documents/formats/wordNumbering";
 import type { WordStyleTable } from "../../documents/formats/wordStyleTable";
-import { child, descendants, parseXml, walk, type XmlElement } from "../../documents/formats/xml";
+import {
+  child,
+  descendants,
+  elements,
+  parseXml,
+  walk,
+  type XmlElement,
+} from "../../documents/formats/xml";
 import {
   applySplices,
   endOf,
@@ -194,6 +203,23 @@ class Reading {
     return end ? endOf(end) : null;
   }
 
+  parentOf(element: XmlElement): XmlElement | undefined {
+    return this.parents.get(element);
+  }
+
+  /** Where a bookmark starts in the part's text; null for one it hasn't. */
+  startOfBookmark(name: string): number | null {
+    const start = this.starts.get(name);
+    return start ? startOf(start) : null;
+  }
+
+  /** What a bookmark holds in the part's text, from its start to its end; null for one without both. */
+  rangeOf(name: string): [number, number] | null {
+    const start = this.starts.get(name);
+    const end = this.ends.get(name);
+    return start && end ? [endOf(start), startOf(end)] : null;
+  }
+
   private paragraphAround(element: XmlElement): XmlElement | null {
     for (let at = this.parents.get(element); at; at = this.parents.get(at)) {
       if (at.name === "w:p") return at;
@@ -261,18 +287,9 @@ class Reading {
     let end = 0;
     for (const p of this.paragraphs) {
       const pPr = child(p, "w:pPr");
-      const outline = pPr && child(pPr, "w:outlineLvl")?.attrs["w:val"];
       const styleId =
         (pPr && child(pPr, "w:pStyle")?.attrs["w:val"]) ?? this.part.styles.defaultOf("paragraph");
-      const level =
-        outline !== undefined
-          ? Number(outline) < 9
-            ? Number(outline) + 1
-            : null
-          : (this.part.styles
-              .chain("paragraph", styleId)
-              .map((style) => headingLevelOf(style.element))
-              .find((each) => each !== null) ?? null);
+      const level = paragraphHeadingLevel(this.part.styles, styleId, pPr);
       if (level === null) continue;
       list.push(`${level} ${descendants(p, "w:t").map(textIn).join("")}`);
       end = endOf(p);
@@ -337,11 +354,13 @@ function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): W
 
 /**
  * The main part after the change, its fields marked dirty where the change can have altered
- * their results, and REF results written again where the new one can be known.
+ * their results, and REF results written again where the new one can be known: as the User's
+ * tracked change when `track` is given, since their edits are tracked.
  */
 export function refreshFields(
   before: FieldsPart & { root: XmlElement },
   after: FieldsPart,
+  track?: Track,
 ): string {
   if (before.text === after.text) return after.text;
   let changedAt = 0;
@@ -375,7 +394,7 @@ export function refreshFields(
     return headings;
   };
 
-  const splices: Splice[] = [];
+  const decided: { field: Field; dirty: boolean; written: string | null }[] = [];
   for (const field of fields) {
     const shown = field.result.map(textIn).join("");
     let dirty = false;
@@ -394,15 +413,85 @@ export function refreshFields(
       dirty = then === null || next === null || then !== next;
       if (dirty && then !== null && next !== null && shown === then) written = next;
     }
-    if (!dirty) continue;
-    splices.push(...markDirty(after.text, field.begin));
+    if (field.bookmark !== null && field.switches.has("p")) {
+      // A REF's or PAGEREF's `\p` says "above" or "below": it changes when the field and its bookmark change places.
+      const earlierField = earlier().get(field);
+      const thenAt = was.startOfBookmark(field.bookmark);
+      const nowAt = now.startOfBookmark(field.bookmark);
+      dirty ||=
+        !earlierField ||
+        thenAt === null ||
+        nowAt === null ||
+        startOf(earlierField.begin) > thenAt !== startOf(field.begin) > nowAt;
+      written = null;
+    }
     const formatted = [...field.switches].some(
       (each) => each.startsWith("*") && !PLAIN_FORMATS.has(each.slice(1)),
     );
-    if (written !== null && !formatted && !field.nested)
-      splices.push(...rewritten(field.result, written));
+    if (formatted || field.nested) written = null;
+    decided.push({ field, dirty, written });
+  }
+  // A REF to words that hold another field written again here reads that field's old result: it
+  // is marked for Word, and keeps its own.
+  const writtenAt = decided.flatMap((each) =>
+    each.written === null ? [] : [startOf(each.field.begin)],
+  );
+  for (const each of decided) {
+    const { type, bookmark, switches } = each.field;
+    const words = type === "REF" && !NUMBER_SWITCHES.some((one) => switches.has(one));
+    const range = words && bookmark ? now.rangeOf(bookmark) : null;
+    if (range && writtenAt.some((at) => at > range[0] && at < range[1])) {
+      each.dirty = true;
+      each.written = null;
+    }
+  }
+
+  const splices: Splice[] = [];
+  for (const { field, dirty, written } of decided) {
+    if (!dirty) continue;
+    splices.push(...markDirty(after.text, field.begin));
+    if (written === null) continue;
+    splices.push(
+      ...(track
+        ? trackedRewrite(after.text, now, field, written, track)
+        : rewritten(after.text, field.result, written)),
+    );
   }
   return splices.length > 0 ? applySplices(after.text, splices) : after.text;
+}
+
+/** How an export with the User's edits tracked writes their change: `xml` as a tracked insertion or deletion. */
+export type Track = (xml: string, kind: "insert" | "delete") => string;
+
+/**
+ * A result written again as the User's tracked change, as Word writes a field it updates with
+ * changes tracked: the old result deleted, the new one inserted in its run's formatting. Only a
+ * complex field's result that is one run of text right in its paragraph can carry it; any other
+ * is left as it was, marked for Word to refresh.
+ */
+function trackedRewrite(
+  text: string,
+  reading: Reading,
+  field: Field,
+  written: string,
+  track: Track,
+): Splice[] {
+  const [t] = field.result;
+  const run = t && reading.parentOf(t);
+  if (field.begin.name !== "w:fldChar" || field.result.length !== 1 || !t || !run) return [];
+  if (run.name !== "w:r" || reading.parentOf(run)?.name !== "w:p") return [];
+  if (!elements(run).every((each) => each === t || each.name === "w:rPr")) return [];
+  const rPr = child(run, "w:rPr");
+  const open = text.slice(startOf(run), run.openEnd ?? startOf(run));
+  const inserted = `${open}${rPr ? text.slice(startOf(rPr), endOf(rPr)) : ""}<w:t xml:space="preserve">${escapeXml(written)}</w:t></w:r>`;
+  const deleted = text.slice(startOf(run), endOf(run));
+  return [
+    {
+      from: startOf(run),
+      to: endOf(run),
+      text: `${track(deleted, "delete")}${track(inserted, "insert")}`,
+    },
+  ];
 }
 
 /**
@@ -504,12 +593,23 @@ function markDirty(text: string, begin: XmlElement): Splice[] {
   return [{ from: startOf(begin), to: startOf(begin) + tag.length, text: marked }];
 }
 
-/** A result's text written again: all of it in its first text, in that run's formatting; the others emptied. */
-function rewritten(result: readonly XmlElement[], text: string): Splice[] {
+/**
+ * A result's text written again: all of it in its first text, in that run's formatting, its
+ * spaces kept; the others emptied.
+ */
+function rewritten(text: string, result: readonly XmlElement[], written: string): Splice[] {
   if (result.length === 0 || result.some(selfClosing)) return [];
-  return result.map((element, at) => ({
-    from: element.openEnd ?? startOf(element),
-    to: endOf(element) - `</${element.name}>`.length,
-    text: at === 0 ? escapeXml(text) : "",
-  }));
+  return result.flatMap((element, at) => {
+    const open = element.openEnd ?? startOf(element);
+    const close = text.lastIndexOf("<", endOf(element) - 1);
+    const splices: Splice[] = [{ from: open, to: close, text: at === 0 ? escapeXml(written) : "" }];
+    const tag = text.slice(startOf(element), open);
+    if (at === 0 && /^\s|\s$/.test(written) && !/\sxml:space\s*=/.test(tag))
+      splices.push({
+        from: startOf(element),
+        to: open,
+        text: tag.replace(/\s*>$/, ' xml:space="preserve">'),
+      });
+    return splices;
+  });
 }

@@ -9,7 +9,7 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { numbersIn, part, unzip } from "../helpers/docx";
+import { acceptedParagraphs, numbersIn, part, rejectedParagraphs, unzip } from "../helpers/docx";
 import { editMind } from "../helpers/minds";
 import { escapeXml, field, paragraph, run, STYLES, wordFile } from "../helpers/word";
 import {
@@ -279,6 +279,72 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
+  // protects=a level whose format is "none" is counted as Word counts it, so the levels under it start again: with Heading 1 unnumbered and Heading 2 numbered "%2.", a Heading 2 added above the first Heading 1 leaves Scope "2" under it, so a `\n` REF to Scope keeps "2", unmarked; fails_when=the REF is written "3", the number Scope would have if the unnumbered heading weren't counted; no_claim=what the Note draws.
+  test("a level that draws no number is still counted", async () => {
+    const heading = (level: number) =>
+      `<w:style w:type="paragraph" w:styleId="Heading${level}"><w:name w:val="heading ${level}"/><w:basedOn w:val="Normal"/><w:pPr><w:numPr><w:numId w:val="1"/></w:numPr><w:outlineLvl w:val="${level - 1}"/></w:pPr></w:style>`;
+    const styles = `${STYLES.replace(/<w:style w:type="paragraph" w:styleId="Heading[12]">.*?<\/w:style>/g, "")}${heading(1)}${heading(2)}`;
+    const level = (ilvl: number, format: string, text: string, style: string) =>
+      `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:pStyle w:val="${style}"/><w:lvlText w:val="${text}"/></w:lvl>`;
+    const bytes = wordFile({
+      styles,
+      numbering: `<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="multilevel"/>${level(0, "none", "", "Heading1")}${level(1, "decimal", "%2.", "Heading2")}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`,
+      body: [
+        paragraph(run("Introduction"), { style: "Heading1" }),
+        paragraph(run("Purpose"), { style: "Heading2" }),
+        `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:bookmarkStart w:id="6" w:name="_Ref600"/>${run("Scope")}<w:bookmarkEnd w:id="6"/></w:p>`,
+        paragraph(run("Terms"), { style: "Heading1" }),
+        paragraph(run("Fees"), { style: "Heading2" }),
+        paragraph(
+          `${run("The fees follow section ")}${field("REF _Ref600 \\n \\h", "2")}${run(".")}`,
+        ),
+      ].join(""),
+    });
+    const { document } = await exported(bytes, (blocks) => [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Summary" }] },
+      ...blocks,
+    ]);
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref600 \\n \\h", result: "2", dirty: false },
+    ]);
+  });
+
+  // protects=a `\p` REF says "above" or "below" its bookmark, so when the User moves its paragraph past the bookmark it is asked to refresh, its result kept for Word; fails_when=it isn't marked; no_claim=the words Word writes.
+  test("a `\\p` REF moved past its bookmark is marked", async () => {
+    const reference = paragraph(
+      `${run("The interest clause is ")}${field("REF _Ref201 \\p \\h", "below")}${run(".")}`,
+    );
+    const bytes = wordFile({
+      styles: STYLES,
+      numbering: ENGLISH_CONTRACT.numbering,
+      body: `${reference}${ENGLISH_CONTRACT.body(run("Either party may end this agreement."))}`,
+    });
+    const { document } = await exported(bytes, (blocks) => {
+      const at = blocks.findIndex((each) => textOf(each).startsWith("The interest clause is"));
+      const moved = blocks[at];
+      return moved ? [...blocks.slice(0, at), ...blocks.slice(at + 1), moved] : blocks;
+    });
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\p \\h", result: "below", dirty: true },
+    ]);
+  });
+
+  // protects=a REF to words that hold another REF written again in the same export reads that REF's old number, so it is marked for Word and keeps its result rather than staying unmarked beside a stale copy; fails_when=it isn't marked or is rewritten; no_claim=what Word writes for it.
+  test("a REF to words that hold a renumbered REF is marked", async () => {
+    const quoted = `<w:p><w:bookmarkStart w:id="8" w:name="_Ref800"/>${run("interest under clause ")}${field("REF _Ref201 \\r \\h", "2.3")}<w:bookmarkEnd w:id="8"/></w:p>`;
+    const contract: Contract = {
+      ...ENGLISH_CONTRACT,
+      body: (words) =>
+        `${ENGLISH_CONTRACT.body(words)}${quoted}${paragraph(`${run("As said: ")}${field("REF _Ref800 \\h", "interest under clause 2.3")}`)}`,
+      reference: run("Either party may end this agreement."),
+    };
+    const { document } = await exported(contractFile(contract), renumber(contract));
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: true },
+      { instruction: "REF _Ref800 \\h", result: "interest under clause 2.3", dirty: true },
+    ]);
+  });
+
   // protects=a simple field holding another, both naming a renumbered clause: each text of a result is the innermost field's, so the inner one gets the new number, and the outer one is only asked to refresh, rather than both writing the same text and the export failing; fails_when=the export throws, the inner result keeps 2.3, or either field isn't marked; no_claim=what Word shows in the outer field.
   test("a simple field inside another is renumbered, the outer one only marked", async () => {
     const inner = `<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${run("2.3")}</w:fldSimple>`;
@@ -311,16 +377,37 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
-  // protects=with the User's edits tracked, a sub-clause added above the referred one is a tracked insertion, which counts whether the change is shown or accepted: the REF gets the new number, as a viewer that doesn't refresh fields shows it; fails_when=it keeps 2.3 or isn't marked; no_claim=the tracked changes themselves, which the review tests cover.
-  test("with the User's edits tracked, a clause added above is renumbered too", async () => {
-    const { data, document } = await exported(
-      contractFile(ENGLISH_CONTRACT),
+  // protects=with the User's edits tracked, the REF's new number is the User's own tracked change beside the sub-clause they added: every change accepted, the referring clause says 2.4 / （四）; every change rejected, it says 2.3 / （三） with no trace of the new number, in English and Chinese; fails_when=the new number is written untracked, so rejecting the added clause leaves 2.4, or the REF isn't marked; no_claim=what Word writes when it refreshes it.
+  test.each([
+    ["English", ENGLISH_CONTRACT, "2.4"],
+    ["Chinese", CHINESE_CONTRACT, "（四）"],
+  ] as const)(
+    "%s: with the User's edits tracked, the new number is their tracked change",
+    async (_language, contract, number) => {
+      const { data, document } = await exported(contractFile(contract), renumber(contract), true);
+      const [ref] = fieldsOf(document);
+      expect(ref).toMatchObject({ result: number, dirty: true });
+      const accepted = acceptedParagraphs(document).join("\n");
+      const rejected = rejectedParagraphs(document).join("\n");
+      expect(accepted).toContain(contract.renumbered);
+      expect(rejected).toContain(contract.before);
+      expect(rejected).not.toContain(number);
+      expect(rejected).not.toContain(contract.added);
+      expect((await inspectPackage(data)).problems).toEqual([]);
+    },
+  );
+
+  // protects=with the User's edits tracked, a simple field's result can't hold a tracked change in its place, so its REF is marked and keeps the file's 2.3 rather than an untracked 2.4; fails_when=its result is rewritten or it isn't marked; no_claim=what Word writes when it refreshes it.
+  test("with the User's edits tracked, a simple REF is marked and keeps its result", async () => {
+    const reference = `${run("Either party may end this agreement under clause ")}${simple("REF _Ref201 \\r \\h", "2.3")}${run(".")}`;
+    const { document } = await exported(
+      contractFile(ENGLISH_CONTRACT, reference),
       renumber(ENGLISH_CONTRACT),
       true,
     );
-    const [ref] = fieldsOf(document);
-    expect(ref).toMatchObject({ result: "2.4", dirty: true });
-    expect((await inspectPackage(data)).problems).toEqual([]);
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\r \\h", result: "2.3", dirty: true },
+    ]);
   });
 
   // protects=a sub-clause deleted above the referred one renumbers it (2.2) when the deletion is made, but with the User's edits tracked the deleted clause still counts until the change is accepted: the REF is asked to refresh and keeps the file's 2.3, never a number one of the two views would show wrong; fails_when=the untracked export keeps 2.3, or the tracked one is rewritten or not marked; no_claim=what Word shows once it refreshes.

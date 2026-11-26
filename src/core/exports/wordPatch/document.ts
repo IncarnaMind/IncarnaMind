@@ -987,7 +987,7 @@ export class DocumentPatch {
     basePPr: string,
   ): { pPr: string; rPr: string } {
     const { styles } = this.input;
-    const level = headingLevelOf(counterpart.node);
+    const level = noteHeadingLevel(counterpart.node);
     let properties: Properties;
     let rPr = "";
     let formatBefore: ParagraphFormat = {};
@@ -1155,7 +1155,7 @@ export class DocumentPatch {
    * no heading): its outline level or heading style, and its own numbering as many levels.
    */
   private relevel(properties: Properties, based: Based, level: number | null): void {
-    const was = headingLevelOf(based.counterpart.node);
+    const was = noteHeadingLevel(based.counterpart.node);
     if (level === was) return;
     const direct = properties.has("w:outlineLvl");
     if (level !== null && direct && was !== null) {
@@ -1181,7 +1181,7 @@ export class DocumentPatch {
     const around = [...this.order.slice(0, at).reverse(), ...this.order.slice(at + 1)];
     for (const each of around) {
       const based = each.key ? this.based.get(each.key) : undefined;
-      if (based?.element.name === "w:p" && headingLevelOf(each.node) === level) return based;
+      if (based?.element.name === "w:p" && noteHeadingLevel(each.node) === level) return based;
     }
     return null;
   }
@@ -1682,7 +1682,7 @@ const isHeaderRow = (row: NodeJSON) =>
   (row.content ?? []).every((cell) => cell.type === "tableHeader");
 
 /** A heading's level, 1 to 6, as the export writes it; null for any other Block. */
-const headingLevelOf = (node: NodeJSON): number | null =>
+const noteHeadingLevel = (node: NodeJSON): number | null =>
   node.type === "heading" ? Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6) : null;
 
 /**

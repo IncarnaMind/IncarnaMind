@@ -416,8 +416,9 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
 
     // Every other paragraph and table of the body is as it was, in order, and so is everything
     // before the body: the root's namespaces, mc:Ignorable among them, are never pruned. The one
-    // difference allowed is a field the edit can have changed marked for Word to refresh (#746):
-    // a table of contents, or a page reference, after the edit.
+    // difference allowed is the mark (w:dirty) on a TOC, REF or PAGEREF field the edit can have
+    // changed, which asks Word to refresh it (#746); a field whose result was written again is in
+    // a paragraph the edit holds or fails here.
     const main = new TextDecoder().decode(exported.get(pkg.part));
     const head = (xml: string) => xml.slice(0, xml.search(/<(?:[\w.-]+:)?body[\s>]/));
     if (head(main) !== head(new TextDecoder().decode(original.get(pkg.part)))) {

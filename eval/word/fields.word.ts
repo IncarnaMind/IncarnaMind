@@ -3,7 +3,8 @@
  * (#746). The invented contract of `tests/helpers/wordContracts.ts`, in English and Chinese, is
  * imported as a Note, a sub-clause added above the one its REF names, and exported, as it is and
  * with the User's edits tracked; LibreOffice opens each export and saves its text, in which the
- * referring clause must show the new number. LibreOffice shows a field's result as the file saved
+ * referring clause must show the new number: in the tracked one, with every change accepted, and
+ * the old one with every change rejected. LibreOffice shows a field's result as the file saved
  * it, and doesn't read the mark that asks Word to work a field out again, so this checks the
  * number the export writes: what any viewer that doesn't refresh fields shows. Whether Word works
  * out again each field marked dirty is the manual check: with INCARNAMIND_WORD_PDFS set to a
@@ -27,7 +28,7 @@ import {
   ENGLISH_CONTRACT,
 } from "../../tests/helpers/wordContracts";
 import { importWordBytes } from "../../tests/helpers/wordMinds";
-import { convertFile, findLibreOffice } from "./libreoffice";
+import { acceptAllChanges, convertFile, findLibreOffice, rejectAllChanges } from "./libreoffice";
 
 const soffice = findLibreOffice();
 const required = process.env.INCARNAMIND_WORD_REQUIRE_LIBREOFFICE === "1";
@@ -84,7 +85,18 @@ describe("a renumbered clause's cross-reference opens in LibreOffice with the ne
           if (keep) await convertFile(soffice, path, "pdf", ".pdf", join(keep, `${name}.pdf`));
           const text = await convertFile(soffice, path, "txt:Text (encoded):UTF8", ".txt");
           expect(text.opened, text.problem).toBe(true);
-          expect(text.data?.toString("utf8"), name).toContain(contract.renumbered);
+          if (data === plain) {
+            expect(text.data?.toString("utf8"), name).toContain(contract.renumbered);
+            continue;
+          }
+          // The new number is the User's tracked change beside the sub-clause they added.
+          const accepted = await acceptAllChanges(soffice, path);
+          const rejected = await rejectAllChanges(soffice, path);
+          if ("problem" in accepted) throw new Error(`LibreOffice: ${accepted.problem}`);
+          if ("problem" in rejected) throw new Error(`LibreOffice: ${rejected.problem}`);
+          expect(accepted.text, `${name}, every change accepted`).toContain(contract.renumbered);
+          expect(rejected.text, `${name}, every change rejected`).toContain(contract.before);
+          expect(rejected.text, `${name}, every change rejected`).not.toContain(contract.added);
         }
       } finally {
         rmSync(folder, { recursive: true, force: true });

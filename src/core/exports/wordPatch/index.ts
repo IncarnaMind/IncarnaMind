@@ -80,7 +80,7 @@ import {
   pageNumberFooter,
   watermarkHeader,
 } from "../wordFurniture";
-import { Review, type ReviewChoices } from "../wordReview";
+import { Review, type ReviewChoices, trackInline } from "../wordReview";
 import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
 import { DocumentPatch } from "./document";
@@ -529,6 +529,12 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
         numbering: readWordNumbering((await writer.part(numbering.name))?.root, writtenStyles),
         styles: writtenStyles,
       },
+      input.review.trackAs === null
+        ? undefined
+        : (xml, kind) => {
+            const tracking = review.user(kind);
+            return tracking ? trackInline(xml, tracking, target.ids) : xml;
+          },
     );
     if (refreshed !== text) writer.set(pkg.part, refreshed);
   }

@@ -367,6 +367,26 @@ describe("Word's numbering rules, as the shared reader counts a file", () => {
     ]);
   });
 
+  // protects=a paragraph whose style is based on another, each linked to a level, is numbered at the level linked to its own style, the nearest in its chain, not at the first level whose style is anywhere in it; fails_when=the sub-clause is numbered "2." at the first level; no_claim=a paragraph with an ilvl of its own, which wins.
+  test("a level linked to a style is the nearest style's", () => {
+    const bytes = wordFile({
+      styles: `${style("Article", numPr(1))}<w:style w:type="paragraph" w:styleId="Section"><w:name w:val="Section"/><w:basedOn w:val="Article"/></w:style>${STYLES}`,
+      numbering:
+        definition([
+          ["decimal@Article", "%1."],
+          ["decimal@Section", "%1.%2"],
+        ]) + num(1, 0),
+      body: [
+        paragraph(run("Services"), { style: "Article" }),
+        paragraph(run("The studio designs the packaging."), { style: "Section" }),
+      ].join(""),
+    });
+    expect(numbersIn(new Uint8Array(bytes))).toEqual([
+      "1. Services",
+      "1.1 The studio designs the packaging.",
+    ]);
+  });
+
   // protects=a restart level a list's override gives is ignored, as Word ignores it (MS-OI29500, lvlRestart), so the level starts again under the next item; fails_when=the second sub-clause is numbered 2.2; no_claim=an override's start, which counts.
   test("a restart level in a list's override is ignored", () => {
     const override = `<w:num w:numId="1"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="1">${level(1, "decimal", "%1.%2", '<w:lvlRestart w:val="0"/>')}</w:lvlOverride></w:num>`;

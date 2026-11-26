@@ -3,8 +3,9 @@
  * a paragraph is numbered at, through its own numbering, else its style chain's, its level from
  * its own, its style chain's or the level that names its style; and the number Word draws before
  * it, counted in document order, the lists of one definition counting on together and a list's
- * start override starting it again. The import's lists and the export's cross-references read it
- * the same way. Pure.
+ * start override starting it again. The export reads it for the list and level a new paragraph
+ * takes and for the numbers its cross-references show. The import keeps its own reading until
+ * the Notes it has stored can be brought along (#746). Pure.
  */
 import { wordNumberText } from "../../../shared/numbering";
 import type { WordStyleTable } from "./wordStyleTable";
@@ -68,6 +69,12 @@ function readLevel(lvl: XmlElement): Partial<WordListLevel> {
   };
 }
 
+/** A level's `w:ilvl`, 0 to 8 as Word numbers them; null for any other. */
+function levelNumber(element: XmlElement): number | null {
+  const at = Number(element.attrs["w:ilvl"] ?? 0);
+  return Number.isInteger(at) && at >= 0 && at <= DEEPEST ? at : null;
+}
+
 /** The `w:numPr` a style's own paragraph properties hold. */
 const numPrOf = (style: XmlElement) => child(child(style, "w:pPr") ?? style, "w:numPr");
 
@@ -84,8 +91,10 @@ export function readWordNumbering(
       if (id === undefined) continue;
       const levels = new Map<number, WordListLevel>();
       for (const lvl of elements(element).filter((each) => each.name === "w:lvl")) {
+        const at = levelNumber(lvl);
+        if (at === null) continue;
         const level = readLevel(lvl);
-        levels.set(Number(lvl.attrs["w:ilvl"] ?? 0), {
+        levels.set(at, {
           format: level.format ?? "decimal",
           start: level.start ?? 1,
           text: level.text ?? "",
@@ -103,11 +112,13 @@ export function readWordNumbering(
       if (id === undefined || abstract === undefined) continue;
       const overrides = new Map<number, Partial<WordListLevel>>();
       for (const override of elements(element).filter((each) => each.name === "w:lvlOverride")) {
+        const at = levelNumber(override);
+        if (at === null) continue;
         const lvl = child(override, "w:lvl");
         const start = child(override, "w:startOverride")?.attrs["w:val"];
         // Word ignores a restart level an override's level gives (MS-OI29500, lvlRestart).
         const { restart: _ignored, ...level } = lvl ? readLevel(lvl) : {};
-        overrides.set(Number(override.attrs["w:ilvl"] ?? 0), {
+        overrides.set(at, {
           ...level,
           ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
         });
@@ -160,13 +171,10 @@ export function paragraphList(
       ? null
       : Number(value);
   };
-  const linked = [...(numbering.abstracts.get(num.abstract) ?? [])].find(([, level]) =>
-    chain.some((style) => style.id === level.style),
-  )?.[0];
   const level =
     levelOf(own) ??
     chain.map((style) => levelOf(style.numPr)).find((each) => each !== null) ??
-    linked ??
+    linkedLevel(numbering, num.abstract, chain) ??
     0;
   return {
     numId,
@@ -174,6 +182,20 @@ export function paragraphList(
     level: Math.min(DEEPEST, Math.max(0, level)),
     own: ownNumId !== undefined,
   };
+}
+
+/** The level of a definition that names a style of the chain (`w:pStyle`), the nearest style first. */
+function linkedLevel(
+  numbering: WordNumbering,
+  abstract: string,
+  chain: readonly { id: string }[],
+): number | null {
+  const levels = [...(numbering.abstracts.get(abstract) ?? [])];
+  for (const style of chain) {
+    const found = levels.find(([, level]) => level.style === style.id);
+    if (found) return found[0];
+  }
+  return null;
 }
 
 /** As `paragraphList`, for a paragraph element: its style, or the default paragraph style. */
@@ -284,8 +306,10 @@ export function paragraphNumbers(
   const counter = new WordListCounter(numbering);
   return paragraphs.map((p) => {
     const list = listOfParagraph(numbering, styles, p);
-    if (!list || levelOf(numbering, list.numId, list.level).format === "none") return null;
+    if (!list) return null;
+    // Word counts a level whose format is "none", so the levels under it start again; it draws nothing.
     const numbers = counter.count(list);
+    if (levelOf(numbering, list.numId, list.level).format === "none") return null;
     return { list, numbers, text: levelText(numbering, list.numId, list.level, numbers) };
   });
 }
