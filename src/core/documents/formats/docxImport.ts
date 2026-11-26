@@ -77,6 +77,13 @@ import {
 } from "./docxPackage";
 import { dataUrlOf, imageTypeOf } from "./images";
 import { type Relationship, relationshipOfType, relationshipsOf } from "./officePackage";
+import {
+  levelOf,
+  paragraphList,
+  readWordNumbering,
+  WordListCounter,
+  type WordNumbering,
+} from "./wordNumbering";
 import { readStyleTable, type WordStyleTable } from "./wordStyleTable";
 import {
   child,
@@ -278,107 +285,21 @@ export const decodePart = (bytes: Uint8Array): string =>
 // ---------------------------------------------------------------------------
 // Parts the document refers to
 
-interface ParagraphStyle {
-  level: number | null;
-  numId: string | null;
-  ilvl: number | null;
-}
-
 interface Styles {
   table: WordStyleTable;
-  paragraph: Map<string, ParagraphStyle>;
+  /** Each paragraph style's heading level, if it is a heading's. */
+  levels: Map<string, number | null>;
   /** The style of a paragraph that names none. */
   defaultId: string | null;
 }
 
 function readStyles(xml: string | undefined): Styles {
   const table = readStyleTable(xml ? parseXml(xml) : undefined);
-  const paragraph = new Map<string, ParagraphStyle>();
+  const levels = new Map<string, number | null>();
   for (const style of table.styles) {
-    if (style.type !== "paragraph") continue;
-    const numPr = child(child(style.element, "w:pPr") ?? style.element, "w:numPr");
-    const ilvl = numPr && child(numPr, "w:ilvl")?.attrs["w:val"];
-    paragraph.set(style.id, {
-      level: headingLevelOf(style.element),
-      numId: (numPr && child(numPr, "w:numId")?.attrs["w:val"]) ?? null,
-      ilvl: ilvl === undefined || ilvl === null ? null : Number(ilvl),
-    });
+    if (style.type === "paragraph") levels.set(style.id, headingLevelOf(style.element));
   }
-  return { table, paragraph, defaultId: table.defaultOf("paragraph") };
-}
-
-const styleChain = (styles: Styles, id: string | null): ParagraphStyle[] =>
-  styles.table.chain("paragraph", id).flatMap((style) => styles.paragraph.get(style.id) ?? []);
-
-interface ListLevel {
-  format: string;
-  start: number;
-  /** Its number's text, "%1." or "(%2)": the scheme it is written in (#1419). */
-  text: string;
-}
-
-interface Numbering {
-  /** abstractNumId → level → its format and start. */
-  abstracts: Map<string, Map<number, ListLevel>>;
-  /** numId → its abstract numbering and its overrides by level. */
-  nums: Map<string, { abstract: string; overrides: Map<number, Partial<ListLevel>> }>;
-}
-
-function readLevel(lvl: XmlElement): Partial<ListLevel> {
-  const format = child(lvl, "w:numFmt")?.attrs["w:val"];
-  const start = child(lvl, "w:start")?.attrs["w:val"];
-  const text = child(lvl, "w:lvlText")?.attrs["w:val"];
-  return {
-    ...(format !== undefined && { format }),
-    ...(text !== undefined && { text }),
-    ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
-  };
-}
-
-function readNumbering(xml: string | undefined, styles: Styles): Numbering {
-  const abstracts = new Map<string, Map<number, ListLevel>>();
-  const nums: Numbering["nums"] = new Map();
-  const styleLinks = new Map<string, string>();
-  for (const element of xml ? elements(parseXml(xml)) : []) {
-    if (element.name === "w:abstractNum") {
-      const id = element.attrs["w:abstractNumId"];
-      if (id === undefined) continue;
-      const levels = new Map<number, ListLevel>();
-      for (const lvl of elements(element).filter((each) => each.name === "w:lvl")) {
-        const level = readLevel(lvl);
-        levels.set(Number(lvl.attrs["w:ilvl"] ?? 0), {
-          format: level.format ?? "decimal",
-          start: level.start ?? 1,
-          text: level.text ?? "",
-        });
-      }
-      abstracts.set(id, levels);
-      const link = child(element, "w:numStyleLink")?.attrs["w:val"];
-      if (link) styleLinks.set(id, link);
-    } else if (element.name === "w:num") {
-      const id = element.attrs["w:numId"];
-      const abstract = child(element, "w:abstractNumId")?.attrs["w:val"];
-      if (id === undefined || abstract === undefined) continue;
-      const overrides = new Map<number, Partial<ListLevel>>();
-      for (const override of elements(element).filter((each) => each.name === "w:lvlOverride")) {
-        const lvl = child(override, "w:lvl");
-        const start = child(override, "w:startOverride")?.attrs["w:val"];
-        overrides.set(Number(override.attrs["w:ilvl"] ?? 0), {
-          ...(lvl ? readLevel(lvl) : {}),
-          ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
-        });
-      }
-      nums.set(id, { abstract, overrides });
-    }
-  }
-  // A numbering that only links to a style's: its levels are the style's numbering's.
-  for (const [abstract, styleId] of styleLinks) {
-    const numId = styleChain(styles, styleId).find((style) => style.numId)?.numId;
-    const linked = numId ? nums.get(numId)?.abstract : undefined;
-    const levels = linked ? abstracts.get(linked) : undefined;
-    if (levels && (abstracts.get(abstract)?.size ?? 0) === 0) abstracts.set(abstract, levels);
-  }
-  return { abstracts, nums };
+  return { table, levels, defaultId: table.defaultOf("paragraph") };
 }
 
 /** A comment's author, date and text, and its place in the file (#328). */
@@ -848,9 +769,7 @@ class Reader {
   /** The content of the paragraph read last, which takes marks no paragraph follows. */
   private lastContent: NodeJSON[] | null = null;
   private readonly noteNumbers = { footnote: 0, endnote: 0 };
-  /** abstractNumId → the number each level has reached; numIds seen, for their start overrides. */
-  private readonly counters = new Map<string, number[]>();
-  private readonly numIdsSeen = new Set<string>();
+  private readonly counter: WordListCounter;
   /** Someone's changes read as Proposals, by request (#108). */
   private readonly changes = new Map<string, WordChangeRequest>();
   /**
@@ -871,7 +790,7 @@ class Reader {
     private readonly document: XmlElement,
     private readonly rels: Map<string, Relationship>,
     private readonly styles: Styles,
-    private readonly numbering: Numbering,
+    private readonly numbering: WordNumbering,
     /** Each comment's own id, by the file's `w:id` (#328): the mark on its words names it. */
     private readonly commentIds: Map<string, string>,
     /** Its comments, with their threads and resolved state (#328). */
@@ -898,6 +817,7 @@ class Reader {
       comments: review.comments,
       sections: 0,
     };
+    this.counter = new WordListCounter(numbering);
     this.numberElements(document);
   }
 
@@ -921,7 +841,10 @@ class Reader {
     const stylesXml = await read("/styles");
     const numberingXml = await read("/numbering");
     const styles = readStyles(stylesXml);
-    const numbering = readNumbering(numberingXml, styles);
+    const numbering = readWordNumbering(
+      numberingXml ? parseXml(numberingXml) : undefined,
+      styles.table,
+    );
     const themeXml = await read("/theme");
     const settingsXml = await read("/settings");
     const lookReader = () =>
@@ -1452,61 +1375,30 @@ class Reader {
   private headingLevel(styleId: string | null, pPr: XmlElement | undefined): number | null {
     const outline = pPr && child(pPr, "w:outlineLvl")?.attrs["w:val"];
     if (outline !== undefined) return Number(outline) < 9 ? Number(outline) + 1 : null;
-    for (const style of styleChain(this.styles, styleId)) {
-      if (style.level !== null) return style.level;
+    for (const style of this.styles.table.chain("paragraph", styleId)) {
+      const level = this.styles.levels.get(style.id) ?? null;
+      if (level !== null) return level;
     }
     return null;
   }
 
-  /** The list a paragraph is an item of, through its own numbering or its style's; null for none. */
+  /**
+   * The list a paragraph is numbered in, read as Word reads it (./wordNumbering), counted in
+   * document order; null for none. A numbered heading is counted too, so the items under it
+   * start again as Word's do, though the heading isn't a list's item.
+   */
   private listOf(styleId: string | null, pPr: XmlElement | undefined): ListInfo | null {
-    const own = pPr && child(pPr, "w:numPr");
-    const chain = styleChain(this.styles, styleId);
-    const numId =
-      (own && child(own, "w:numId")?.attrs["w:val"]) ??
-      chain.find((style) => style.numId !== null)?.numId ??
-      null;
-    if (numId === null || numId === "0") return null;
-    const ownLevel = own && child(own, "w:ilvl")?.attrs["w:val"];
-    const level = Math.min(
-      8,
-      Math.max(
-        0,
-        ownLevel !== undefined && ownLevel !== null
-          ? Number(ownLevel)
-          : (chain.find((style) => style.ilvl !== null)?.ilvl ?? 0),
-      ),
-    );
-    const num = this.numbering.nums.get(numId);
-    if (!num) return null;
-    const base = this.numbering.abstracts.get(num.abstract)?.get(level);
-    const override = num.overrides.get(level);
-    const format = override?.format ?? base?.format ?? "decimal";
+    const list = paragraphList(this.numbering, this.styles.table, pPr, styleId);
+    if (!list) return null;
+    const { format } = levelOf(this.numbering, list.numId, list.level);
     if (format === "none") return null;
-
-    const start = (at: number) =>
-      num.overrides.get(at)?.start ??
-      this.numbering.abstracts.get(num.abstract)?.get(at)?.start ??
-      1;
-    let counters = this.counters.get(num.abstract);
-    if (!counters) {
-      counters = Array.from({ length: 9 }, (_, at) => start(at) - 1);
-      this.counters.set(num.abstract, counters);
-    }
-    if (!this.numIdsSeen.has(numId)) {
-      this.numIdsSeen.add(numId);
-      for (const [at, value] of num.overrides) {
-        if (value.start !== undefined) counters[at] = value.start - 1;
-      }
-    }
-    counters[level] = (counters[level] ?? 0) + 1;
-    for (let deeper = level + 1; deeper < 9; deeper++) counters[deeper] = start(deeper) - 1;
+    const numbers = this.counter.count(list);
     return {
-      abstract: num.abstract,
-      numId,
-      level,
+      abstract: list.abstract,
+      numId: list.numId,
+      level: list.level,
       ordered: format !== "bullet",
-      number: counters[level] ?? 1,
+      number: numbers[list.level] ?? 1,
     };
   }
 
@@ -1529,7 +1421,8 @@ class Reader {
     const pPr = child(p, "w:pPr");
     const styleId = (pPr && child(pPr, "w:pStyle")?.attrs["w:val"]) ?? this.styles.defaultId;
     const level = this.headingLevel(styleId, pPr);
-    const list = level === null ? this.listOf(styleId, pPr) : null;
+    const numbered = this.listOf(styleId, pPr);
+    const list = level === null ? numbered : null;
     this.paragraphLook = this.look.paragraph(p, this.tableLook);
     const node =
       level === null

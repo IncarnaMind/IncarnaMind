@@ -1,5 +1,6 @@
 import { crc32, inflateRawSync } from "node:zlib";
 import { DOMParser, type Element, type Node } from "@xmldom/xmldom";
+import { child, elements, type XmlElement } from "../../src/core/documents/formats/xml";
 
 /**
  * The files in a ZIP archive (a .docx), by path. Checks each entry's CRC-32
@@ -125,6 +126,59 @@ export function paragraphsOf(xml: string): DocxParagraph[] {
     paragraphs.push(paragraph);
   }
   return paragraphs;
+}
+
+/** One character of a paragraph as Word shows it, and its run's properties. */
+export interface RunCharacter {
+  char: string;
+  /** Each property written out with its attributes sorted, the properties sorted; a tracked format change left out. */
+  format: string[];
+}
+
+const writtenOut = (element: XmlElement): string =>
+  `${element.name}{${Object.entries(element.attrs)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join(" ")}}[${elements(element).map(writtenOut).join(",")}]`;
+
+const RUN_CHARACTERS: Readonly<Record<string, string>> = {
+  "w:tab": "\t",
+  "w:br": "\n",
+  "w:cr": "\n",
+  "w:noBreakHyphen": "‑",
+  "w:softHyphen": "­",
+};
+const NOT_SHOWN = new Set(["w:p", "w:pPr", "w:del", "w:moveFrom", "w:txbxContent"]);
+
+/**
+ * A paragraph's own characters as Word shows them, each with its run's properties: not a nested
+ * paragraph's (a text box's), nor deleted text. For telling which formatting an edit kept.
+ */
+export function runCharacters(p: XmlElement): RunCharacter[] {
+  const out: RunCharacter[] = [];
+  const visit = (node: XmlElement) => {
+    for (const each of elements(node)) {
+      if (NOT_SHOWN.has(each.name)) continue;
+      if (each.name !== "w:r") {
+        visit(each);
+        continue;
+      }
+      const rPr = child(each, "w:rPr");
+      const format = (rPr ? elements(rPr) : [])
+        .filter((property) => property.name !== "w:rPrChange")
+        .map(writtenOut)
+        .sort();
+      for (const inner of elements(each)) {
+        const text =
+          inner.name === "w:t"
+            ? inner.children.filter((piece): piece is string => typeof piece === "string").join("")
+            : RUN_CHARACTERS[inner.name];
+        for (const char of text ?? "") out.push({ char, format });
+      }
+    }
+  };
+  visit(p);
+  return out;
 }
 
 /** The text of each footnote in footnotes.xml, by id, leaving out Word's separators. */

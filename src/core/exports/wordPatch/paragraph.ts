@@ -506,6 +506,11 @@ export interface ParagraphInput {
   pPrChanged: boolean;
   /** Run properties for text with no character before or after it to take its formatting from. */
   fallbackRun: string;
+  /**
+   * For a new paragraph, the imported character each of its characters is, where Enter carried
+   * it out of an imported paragraph: it keeps that character's run and formatting.
+   */
+  carried?: readonly (Token | null)[];
   /** Where the paragraph is written: the namespaces in scope there. */
   scope: Namespaces;
   /**
@@ -623,7 +628,7 @@ export function writeParagraph(
       homeOf[y] = lastPiece;
       if (!lastPiece) waiting.push(y);
       if (isText(current[y])) {
-        formatRun[y] = replacing ?? previousRun;
+        formatRun[y] = input.carried?.[y]?.run ?? replacing ?? previousRun;
         previousRun = formatRun[y] ?? previousRun;
       }
       continue;
@@ -887,8 +892,8 @@ class RunWriter {
     private readonly scope: Namespaces,
     private readonly paragraph: XmlElement | null,
   ) {
-    for (const token of input.base?.tokens ?? []) {
-      if (token.kind === "char" && token.run && !this.importedMarks.has(token.run)) {
+    for (const token of [...(input.base?.tokens ?? []), ...(input.carried ?? [])]) {
+      if (token?.kind === "char" && token.run && !this.importedMarks.has(token.run)) {
         this.importedMarks.set(token.run, token.marks);
       }
     }

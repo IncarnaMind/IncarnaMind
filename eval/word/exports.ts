@@ -415,21 +415,26 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
       return { ok: false, detail: `left out ${missing.join(", ")}`, exported: result.data };
 
     // Every other paragraph and table of the body is as it was, in order, and so is everything
-    // before the body: the root's namespaces, mc:Ignorable among them, are never pruned.
+    // before the body: the root's namespaces, mc:Ignorable among them, are never pruned. The one
+    // difference allowed is a field the edit can have changed marked for Word to refresh (#746):
+    // a table of contents, or a page reference, after the edit.
     const main = new TextDecoder().decode(exported.get(pkg.part));
     const head = (xml: string) => xml.slice(0, xml.search(/<(?:[\w.-]+:)?body[\s>]/));
     if (head(main) !== head(new TextDecoder().decode(original.get(pkg.part)))) {
       return { ok: false, detail: "the document's start changed", exported: result.data };
     }
+    const unmarked = (xml: string) => xml.replace(/ w:dirty="true"/g, "");
+    const comparable = unmarked(main);
     let at = 0;
     let kept = 0;
     for (const piece of await bodyPieces(bytes, edited)) {
       if (piece.holdsEdit) continue;
-      const found = main.indexOf(piece.xml, at);
+      const xml = unmarked(piece.xml);
+      const found = comparable.indexOf(xml, at);
       if (found < 0) {
         return { ok: false, detail: `${piece.place} isn't as it was`, exported: result.data };
       }
-      at = found + piece.xml.length;
+      at = found + xml.length;
       kept++;
     }
 

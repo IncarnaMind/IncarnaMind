@@ -120,6 +120,49 @@ const COUNTING: Record<
   chineseCounting: { write: chinese, pattern: "[一二三四五六七八九十]{1,3}", read: fromChinese },
 };
 
+const CHINESE_LEGAL = "零壹贰叁肆伍陆柒捌玖";
+const HEAVENLY_STEMS = "甲乙丙丁戊己庚辛壬癸";
+
+/**
+ * A number as Word writes it in a list's number format (`w:numFmt`), or null where how Word
+ * writes it isn't certain: a format this doesn't know, or a number past those its formats agree
+ * on. Chinese counting from 10 is one: ECMA-376 17.18.59 writes 10 as "一○" in
+ * chineseCountingThousand and gives no example past 4 in chineseCounting.
+ */
+export function wordNumberText(format: string, n: number): string | null {
+  if (!Number.isInteger(n) || n < 1) return null;
+  switch (format) {
+    case "decimal":
+      return String(n);
+    case "decimalZero":
+      return n < 10 ? `0${n}` : String(n);
+    case "decimalFullWidth":
+      return String(n).replace(/\d/g, (digit) => String.fromCharCode(0xff10 + Number(digit)));
+    case "decimalEnclosedCircle":
+      return n <= 20 ? String.fromCharCode(0x245f + n) : null;
+    case "lowerRoman":
+      return n <= ROMAN_LIMIT ? roman(n) : null;
+    case "upperRoman":
+      return n <= ROMAN_LIMIT ? roman(n).toUpperCase() : null;
+    case "lowerLetter":
+      return n <= 26 ? letters(n) : null;
+    case "upperLetter":
+      return n <= 26 ? letters(n).toUpperCase() : null;
+    case "chineseCounting":
+    case "chineseCountingThousand":
+      return n < 10 ? chinese(n) : null;
+    case "taiwaneseCounting":
+    case "japaneseCounting":
+      return n < 100 ? chinese(n) : null;
+    case "chineseLegalSimplified":
+      return n < 10 ? (CHINESE_LEGAL[n] ?? null) : null;
+    case "ideographTraditional":
+      return HEAVENLY_STEMS[n - 1] ?? null;
+    default:
+      return null;
+  }
+}
+
 /** Its text has "%" where the number goes. */
 interface LevelFormat {
   format: WordNumberFormat;
