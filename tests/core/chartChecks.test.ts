@@ -112,7 +112,9 @@ test("each value of a chart goes to its check with its row's label and its serie
     { label: "A", context: "Revenue / 收入\nA\n2024" },
     { label: "A", context: "Revenue / 收入\nA\n2025" },
   ]);
-  const prompt = claimPrompt({ ...checkText(sentence), language: "en" });
+  const checked = checkText(sentence);
+  expect(checked.context).toBe("Revenue / 收入\nA\n2024");
+  const prompt = claimPrompt({ ...checked, language: "en" });
   const sent = JSON.parse(/<sentence>\n(.*)\n<\/sentence>/s.exec(prompt)?.[1] ?? "{}");
   expect(sent.title).toBe("Revenue / 收入");
   expect(
