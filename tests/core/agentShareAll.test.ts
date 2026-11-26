@@ -402,7 +402,7 @@ describe("the line that says the User has more than the agent was given (#3544)"
 
   // protects=the example can be asked in, as a Note of the User's own can, and the connection asked there reads it then, and no other (#3791); fails_when=the example's input has no AI to ask, the AI asked can't read the example it was asked in, or a connection never asked there reads the examples
   it("lends an example to the connection the User asks in it, and to no other", async () => {
-    const { core, connect } = await fresh({ examples: true });
+    const { core, connect, folder } = await fresh({ examples: true });
     const made = await core.createExamples();
     const exampleDocuments = await vi.waitFor(
       async () => {
@@ -437,6 +437,18 @@ describe("the line that says the User has more than the agent was given (#3544)"
     expect(await readsExamples(asked.agent)).toBe(true);
     expect((await readExample(other.agent)).isError).toBe(true);
     expect(await readsExamples(other.agent)).toBe(false);
+
+    // Filed behind a work wall, the example is the wall's alone: no connection given all is asked
+    // there or reads it, the one asked in it before included.
+    const vault = await folder("Vault", { keepInside: true });
+    await core.moveToFolder({
+      mindIds: [mindId],
+      documentIds: exampleDocuments,
+      folderId: vault.id,
+    });
+    expect(await core.listAgentsToAsk(mindId)).toEqual([]);
+    expect((await readExample(asked.agent)).isError).toBe(true);
+    expect(await readsExamples(asked.agent)).toBe(false);
   });
 
   // protects=a file an agent handed over is no source for another agent, and counts for nothing outside its share: an agent given all isn't told there is more because of it (#3492, #3544); fails_when=the handed-over file, held back from every other agent, makes them send the User to Settings

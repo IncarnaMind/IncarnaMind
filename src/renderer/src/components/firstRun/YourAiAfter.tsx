@@ -73,6 +73,7 @@ export function YourAiAfter({
   const [connecting, setConnecting] = useState(0);
   const handedOff = useRef(false);
   const moved = useRef(false);
+  const undone = useRef(new Set<string>());
   const connectWithChoice = async (client: AgentClient) => {
     setConnecting((count) => count + 1);
     try {
@@ -142,7 +143,12 @@ export function YourAiAfter({
     setUndoing(true);
     try {
       if (installs) await cancelClaudeCodeInstall();
-      for (const each of done) if ("pairingId" in each) await core.undoAgentSetup(each.pairingId);
+      // An Undo that failed part way is pressed again: what it already took back is gone.
+      for (const each of done) {
+        if (!("pairingId" in each) || undone.current.has(each.pairingId)) continue;
+        await core.undoAgentSetup(each.pairingId);
+        undone.current.add(each.pairingId);
+      }
       onUndo();
     } catch (error) {
       reportError(error);

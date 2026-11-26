@@ -932,14 +932,19 @@ export function createAgents(options: AgentsOptions) {
     /**
      * The agents the User can ask about this Note now (#3373): each would be let in, and reads it
      * as `read_mind` does; with no Note, each that would be let in. The one connected or used
-     * last comes first. Any of them in an example, which asking there lends it (#3791).
+     * last comes first. Any of them in an example outside every work wall, which asking there
+     * lends it (#3791).
      */
     askable(mindId: string | null, documentId?: string): AgentPairing[] {
       if (listenProblem !== null) return [];
       const found =
         mindId === null ? null : options.access.minds().find((each) => each.id === mindId);
       if (found === undefined) return [];
-      const mind = found && options.access.exampleNotes().includes(found.id) ? null : found;
+      const lent =
+        found !== null &&
+        options.access.exampleNotes().includes(found.id) &&
+        (found.folderId === null || options.access.wallOf(found.folderId) === null);
+      const mind = lent ? null : found;
       const latest = (pairing: AgentPairing) =>
         pairing.lastUsedAt !== null && pairing.lastUsedAt > pairing.createdAt
           ? pairing.lastUsedAt
