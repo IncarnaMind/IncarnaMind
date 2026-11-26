@@ -3522,6 +3522,21 @@ export function createAgentAccess(
           askedHere =
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
+          // A change that waits for the User never takes back this run's own, which applies: rejected,
+          // it would leave neither.
+          const overOwn = askedHere
+            ? []
+            : placed.flatMap((change) =>
+                change.kind === "add" || note.paragraphs[change.at]?.yours === undefined
+                  ? []
+                  : [note.paragraphs[change.at]?.name ?? ""],
+              );
+          if (overOwn[0] !== undefined) {
+            throw new AgentRefusedError(
+              "waiting",
+              t("agents.propose.ownOutsideSelection", { paragraph: overOwn[0] }),
+            );
+          }
           const before = countedBy(blocks, ownPending);
           const proposed = proposeNamed(blocks, note, placed, {
             request,
@@ -3537,7 +3552,7 @@ export function createAgentAccess(
             visuals,
             newId: deps.newId,
             ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
-            own: ownPending,
+            ...(askedHere && { own: ownPending }),
           });
           const kinds = changeKinds(blocks, mine);
           if (own) decideProposals(blocks, mine, "accept");

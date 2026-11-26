@@ -1374,16 +1374,19 @@ function closeOwn(
 /**
  * Takes this run's own changes out of a paragraph of the Note, and off the Blocks it is in that
  * take it out with them, so the change that replaces them is written over the User's words.
+ * Returns whether it took any out.
  */
 function takeBackOwnIn(
   blocks: Y.XmlFragment,
   element: Y.XmlElement,
   own: ReadonlySet<string>,
-): void {
+): boolean {
+  let took = false;
   for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
     const proposal = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
     if (proposal?.kind === "delete" && own.has(proposal.request)) {
       at.removeAttribute(PROPOSAL_ATTRIBUTE);
+      took = true;
     }
   }
   const inside = new Set(
@@ -1392,6 +1395,7 @@ function takeBackOwnIn(
       .map((ref) => ref.id),
   );
   if (inside.size > 0) resolveProposals(blocks, (ref) => inside.has(ref.id), "reject");
+  return took || inside.size > 0;
 }
 
 /**
@@ -1414,14 +1418,18 @@ function writeNamed(
     const elements = new Map(
       namedBlocks(blocks).map(({ element }) => [element.getAttribute(BLOCK_ID_ATTRIBUTE), element]),
     );
+    let tookBack = false;
     for (const change of changes) {
       if (change.kind === "add") continue;
       const paragraph = note.paragraphs[change.at];
       if (paragraph?.yours !== "changed" && paragraph?.yours !== "removed") continue;
       const element = elements.get(paragraph.blockId);
-      if (element) takeBackOwnIn(blocks, element, own);
+      if (element && takeBackOwnIn(blocks, element, own)) tookBack = true;
     }
     wrote = writeChanges(blocks, note, changes, options);
+    // Written back as the User had it, a paragraph holds no new Proposal, yet taking the earlier
+    // change out is what reaches the Note.
+    if (tookBack && !wrote.changed && !refusalOf(wrote)) wrote = { ...wrote, changed: true };
     return wrote;
   } finally {
     closeOwn(blocks, opened, options.request, wrote && !refusalOf(wrote) ? "accept" : "reject");

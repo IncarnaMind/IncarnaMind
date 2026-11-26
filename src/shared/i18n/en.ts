@@ -9060,6 +9060,8 @@ export const en = {
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
+  "agents.propose.ownOutsideSelection":
+    "{paragraph} has your change from this request to the words the User selected, in the note once the request ends. A change beyond those words waits for the User, so it can’t replace yours there: change only the selected words, in a call of its own.",
   "agents.propose.firstAdd":
     "¶+ adds after the change before it: name a paragraph first, or write at the top of the note, as into an empty one, with ¶0+.",
   "agents.propose.firstWaiting":

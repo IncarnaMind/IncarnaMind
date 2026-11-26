@@ -8467,6 +8467,8 @@ export const zhCN = {
   "agents.propose.version": "给出 read_mind 加 named 时返回的 version。",
   "agents.propose.outsideSelection":
     "它在笔记里等用户确认：改动超出了用户选中的文字。只改这些文字的修改单独调用一次，就会直接生效。",
+  "agents.propose.ownOutsideSelection":
+    "{paragraph} 已有你在本次请求中对用户选中文字的修改，请求结束后写入笔记。超出这些文字的修改要等用户确认，不能替换它：只改选中的文字，单独调用一次。",
   "agents.propose.firstAdd":
     "¶+ 会添加在上一处修改之后，先写明一个段落；要写在笔记开头（空笔记也一样），请用 ¶0+。",
   "agents.propose.firstWaiting": "首批段落已在等待确认。请等用户处理后再建议添加。",

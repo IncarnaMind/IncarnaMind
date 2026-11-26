@@ -1371,6 +1371,96 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=a later change of the same request that writes a User's paragraph back as they had it takes the earlier change there out of the Note, though it makes no Proposal of its own, and the line counts nothing changed; fails_when=the earlier change stays and the window applies words the request took back
+  it("writes a paragraph back as the User had it, and no earlier change of the request stays", async () => {
+    let again: { status: string; markdown: string } | undefined;
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = async () =>
+        structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        ).version;
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: await named(),
+          changes: [{ paragraph: "¶2", text: "Fares fell." }],
+        },
+      });
+      again = structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: await named(),
+            changes: [{ paragraph: "¶2", text: FARES }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "say fares fell, then leave them as they were" });
+    const end = await ended();
+    expect(again?.status).toBe("applied");
+    expect(again?.markdown).toContain(`¶2 ${FARES}`);
+    expect(again?.markdown).not.toContain("Fares fell.");
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+    expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(0);
+  });
+
+  // protects=with words selected, a later change of the same request that goes beyond them, so would wait for the User, is refused where the request's own change to the selected words is, in words that say why, and that change still applies; fails_when=the change that would wait takes the applied one back, so rejecting it leaves neither
+  it("refuses a change beyond the selection over its own change to the selected words", async () => {
+    let refused = "";
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = async () =>
+        structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        ).version;
+      structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: await named(),
+            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+          },
+        }),
+      );
+      refused = refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: await named(),
+            changes: [{ paragraph: "¶2", text: "Fares fell by a tenth." }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended, selectionOf } = await written(run.adapter);
+    await core.askInNote({
+      mindId,
+      words: "say it as a tenth",
+      selection: selectionOf(1, "ten percent"),
+    });
+    const end = await ended();
+    expect(refused).toBe(
+      translate("en", "agents.propose.ownOutsideSelection", { paragraph: "¶2" }),
+    );
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, "Fares rose by a tenth."]);
+  });
+
   // protects=a later request writing into an empty Note while an earlier request's notes still wait there for the User, its run stopped, is refused as before, and the waiting notes stay once; fails_when=the later request reads the earlier one's notes as its own and writes beside them
   it("refuses a later request's first paragraphs while an earlier one's wait in an empty Note", async () => {
     const wrote = gate();
