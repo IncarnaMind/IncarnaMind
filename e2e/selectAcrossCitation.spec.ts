@@ -58,6 +58,9 @@ const selection = (window: Page) =>
 async function shiftClick(window: Page, x: number, y: number): Promise<void> {
   await window.keyboard.down("Shift");
   try {
+    // Up from the line below, as a hand comes to it: passing over a Citation on the way opens its
+    // card, which in a short window can lie over the place pressed.
+    await window.mouse.move(x, y + 28);
     await window.mouse.move(x, y, { steps: 4 });
     await window.mouse.down();
     await window.mouse.up();

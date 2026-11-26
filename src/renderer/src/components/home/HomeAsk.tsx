@@ -2,6 +2,7 @@ import { type KeyboardEvent, useState } from "react";
 import {
   askFirstAgent,
   useAgentsToAskRead,
+  useNoModel,
   useOwnAiRunsHere,
   useReadAgentsToAsk,
 } from "../../askYourAi";
@@ -20,13 +21,15 @@ import { buttonStyle } from "../ui";
 
 /**
  * Home's one input and its three ways to start (#3791): asking there starts a Note and asks the
- * User's own AI in it, as its own input does; with no AI app connected, one line says to connect
- * one. Add files…, Link a folder… and New note sit under it.
+ * User's own AI in it, as its own input does; with no AI app connected and no model set up, one
+ * line says to connect one (with a model, Home's next step asks it). Add files…, Link a folder…
+ * and New note sit under it.
  */
 export function HomeAsk() {
   const t = useT();
   useReadAgentsToAsk(null);
   const agents = useAgentsToAskRead(null);
+  const noModel = useNoModel();
   const runsHere = useOwnAiRunsHere();
   const pickDocuments = useAppStore((state) => state.pickDocuments);
   const addLinkedFolder = useAppStore((state) => state.addLinkedFolder);
@@ -91,7 +94,7 @@ export function HomeAsk() {
             <AskArrowIcon className="size-3" />
           </button>
         </div>
-      ) : (
+      ) : !noModel ? null : (
         <ProblemLine
           role="status"
           testId="home-ask-no-ai"

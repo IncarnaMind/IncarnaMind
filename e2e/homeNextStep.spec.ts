@@ -95,7 +95,10 @@ for (const language of ["en", "zh-CN"] as const)
         await chooseOutputLocation(window, sources);
         await goHome(window);
         await picture(window, `home-next-initial-${language}-${width}`);
-        await expect(await shown(window, "add")).toHaveText(t("home.next.add"));
+        // Adding files is Home's own button under its input, not a next step (#3791).
+        const addFiles = window.getByTestId("home-add-files");
+        await expect(addFiles).toHaveText(t("startGuide.documents.addFiles"));
+        await expect(row(window)).toHaveCount(0);
         // A first launch reads the example's Documents before its ready Answer can be asked.
         const core = await coreOf(window);
         await expect
@@ -106,7 +109,7 @@ for (const language of ["en", "zh-CN"] as const)
           )
           .toBe(true);
         await core.evaluate((each) => each.askExampleReadyQuestion());
-        await expect(await shown(window, "add")).toHaveText(t("home.next.add"));
+        await expect(row(window)).toHaveCount(0);
         await window.getByTestId("mind-tab").first().click();
         await exportFromMenu(window, "markdown");
         await expect(window.getByTestId("export-done")).toBeVisible();
@@ -116,7 +119,7 @@ for (const language of ["en", "zh-CN"] as const)
         const path = join(sources, "Tides.pdf");
         await writeFile(path, TIDES);
         await interceptOpenDialog(app, path);
-        await keyboard(await shown(window, "add"));
+        await keyboard(addFiles);
         await expect
           .poll(async () =>
             (await coreOf(window)).evaluate(async (core) =>
