@@ -47,18 +47,37 @@ function lastStringField(json: string, field: string): string | null {
   return stringSoFar(json.slice(last.index + last[0].length));
 }
 
-/** The paragraph a call that writes into a Note is writing now, as far as it has come; null for none. */
+/** Fewer characters than this of a paragraph or sentence just begun say nothing yet ("On"). */
+const SAYS_FROM = 12;
+
+/**
+ * The paragraph a call that writes into a Note is writing now, as far as it has come, once it says
+ * something; until then the one before it; null for none.
+ */
 export function writingNow(tool: string, json: string): string | null {
   const field = TEXT_FIELD[tool];
   if (!field) return null;
   const text = lastStringField(json, field);
   if (text === null) return null;
-  return (
-    text
-      .split("\n")
-      .map((line) => line.trim())
-      .findLast((line) => line !== "") ?? null
-  );
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  const last = lines.at(-1);
+  if (last === undefined) return null;
+  return last.length >= SAYS_FROM ? last : (lines.at(-2) ?? null);
+}
+
+/**
+ * Words being written, up to where they say something: all of them once the sentence or paragraph
+ * being written has a few words, else up to the end of the one before; null for none yet.
+ */
+export function sayingNow(text: string): string | null {
+  const ends = [...text.matchAll(/[.!?]["”’)）」]*\s+|[。！？]["”’)）」]*|\n\s*\n/g)];
+  const last = ends.at(-1);
+  const end = last ? last.index + last[0].length : 0;
+  if (text.length - end >= SAYS_FROM) return text;
+  return end > 0 ? text.slice(0, end).trimEnd() : null;
 }
 
 /** The Passage of the last quote a call that quotes has named whole so far; null for none. */

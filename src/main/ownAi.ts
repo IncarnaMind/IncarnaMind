@@ -17,7 +17,7 @@ import { ClaudeCodeHookError, ClaudeCodeIsolationError, runClaudeCodeTurn } from
 import { actionOf, allowed, oursIn, type Places, questionOf, REFUSED } from "./claudeCodeAsks";
 import { codexStatus, findCodex, runCodex, sweepCodexRuns } from "./codex";
 import { modelsIn } from "./ownAiModels";
-import { quotingNow, writingNow } from "./streamedInput";
+import { quotingNow, sayingNow, writingNow } from "./streamedInput";
 
 /** Restricted mode, which the run rests on, came in Claude Code 2.1.248. */
 export const LOWEST_CLAUDE_CODE = "2.1.248";
@@ -358,6 +358,7 @@ export function createOwnAi({
       // Each call of IncarnaMind's server whose input is streaming, by its block in the message.
       const writing = new Map<number, { name: string; json: string; told: string; at: number }>();
       let thought = "";
+      let thoughtTold = "";
       let thoughtAt = 0;
       const heardPart = (event: Record<string, unknown>) => {
         const block = object(event.content_block);
@@ -366,13 +367,14 @@ export function createOwnAi({
         if (event.type === "message_start") writing.clear();
         if (event.type === "content_block_start" && block.type === "tool_use" && ours(block.name)) {
           const name = String(block.name).slice(`mcp__${SERVER}__`.length);
-          writing.set(index, { name, json: "", told: "", at: 0 });
+          writing.set(index, { name, json: "", told: "", at: Number.NEGATIVE_INFINITY });
           request.progress?.({ kind: "tool", name });
         } else if (event.type === "content_block_start" && block.type === "text") {
           written = "";
         } else if (event.type === "content_block_start" && block.type === "thinking") {
           thought = "";
-          thoughtAt = 0;
+          thoughtTold = "";
+          thoughtAt = Number.NEGATIVE_INFINITY;
           request.progress?.({ kind: "thinking", text: "" });
         } else if (event.type === "content_block_stop") {
           const call = writing.get(index);
@@ -383,8 +385,11 @@ export function createOwnAi({
           if (delta.thinking === "") return;
           thought = `${thought}${delta.thinking}`.slice(-MAX_THOUGHT_CHARS);
           if (performance.now() - thoughtAt < SAY_EVERY_MS) return;
+          const saying = sayingNow(thought);
+          if (saying === null || saying === thoughtTold) return;
           thoughtAt = performance.now();
-          request.progress?.({ kind: "thinking", text: thought });
+          thoughtTold = saying;
+          request.progress?.({ kind: "thinking", text: saying });
         } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
           const call = writing.get(index);
           if (!call || call.json.length > MAX_RUN_BYTES) return;
