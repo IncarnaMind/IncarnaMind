@@ -202,7 +202,19 @@ registerMenu("block", [
   "block.delete",
 ]);
 
-registerMenu("check", ["check.anyway", "check.useDocumentWording", "check.findSources"]);
+registerMenu("check", [
+  "table.openCalculation",
+  "table.convertToText",
+  "figure.open",
+  "figure.copyFormula",
+  "figure.signOff",
+  "figure.signOffRemove",
+  "figure.convertToText",
+  "figure.remove",
+  "check.anyway",
+  "check.useDocumentWording",
+  "check.findSources",
+]);
 
 registerMenu("citation", [
   "citation.open",
