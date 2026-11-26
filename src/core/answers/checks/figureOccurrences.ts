@@ -327,6 +327,34 @@ function tableContext(element: Y.XmlElement, layouts: Map<Y.XmlElement, TableLay
 }
 
 /**
+ * The table context a Note table cell's check reads (#3825): its caption, column header row,
+ * section, current row, and which cell is checked. Separate from `figure.context` so stored
+ * figure staleness hashes stay unchanged.
+ */
+export function tableCellContext(element: Y.XmlElement, cellText: string): string | null {
+  const table = tableContext(element, new Map());
+  if (!table || table.place.header) return null;
+  const placed = table.layout.rows[table.place.row];
+  const headerRow = placed?.columnLabels.some(Boolean)
+    ? `| ${placed.columnLabels.map((label) => label.replace(/\n+/g, " / ")).join(" | ")} |`
+    : "";
+  const currentRow = placed?.rowText ? `| ${placed.rowText} |` : "";
+  const rowName = [placed?.section, table.place.rowLabel].filter(Boolean).join(" · ");
+  const colName = table.place.columnLabel.replace(/\n+/g, " / ");
+  const where = [rowName, colName].filter(Boolean).join(", ");
+  const cellLine = where ? `Cell (${where}): ${cellText}` : `Cell: ${cellText}`;
+  return [
+    table.layout.caption ? `Table: ${table.layout.caption}` : "",
+    headerRow,
+    placed?.section ? `Section: ${placed.section}` : "",
+    currentRow,
+    cellLine,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
  * A figure's id and the context its check rests on are its own sentence's
  * (and, in a table, its row's and column's headings), so editing another
  * sentence of the paragraph leaves its result standing, as a sentence's own

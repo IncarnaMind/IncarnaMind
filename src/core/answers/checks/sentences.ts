@@ -61,6 +61,7 @@ import {
   figuresInMind,
   headingAbove,
   readAbove,
+  tableCellContext,
   withAboveNow,
 } from "./figureOccurrences";
 
@@ -235,10 +236,9 @@ export function checkText(sentence: SelectedSentence): {
   const worked = (sentence.figures ?? []).filter(
     (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
   );
-  // A table cell's words alone don't say what its figure is; its row and column headings do.
-  const around =
-    (sentence.figures?.[0]?.label !== undefined ? sentence.figures[0]?.context : undefined) ??
-    wordsOf(sentence.element);
+  // A table cell's words alone don't say what its figure is; its table's header row and cell labels do (#3825).
+  const words = wordsOf(sentence.element);
+  const around = tableCellContext(sentence.element, words) ?? words;
   return {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),

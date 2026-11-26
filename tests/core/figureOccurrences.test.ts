@@ -2,7 +2,12 @@ import { expect, onTestFinished, test } from "vitest";
 import * as Y from "yjs";
 import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind, figuresInSentence } from "../../src/core/answers/checks/figureOccurrences";
-import { type SelectedSentence, textOf } from "../../src/core/answers/checks/sentences";
+import {
+  checkText,
+  figuresByBlock,
+  type SelectedSentence,
+  textOf,
+} from "../../src/core/answers/checks/sentences";
 import { CALCULATED_FIGURE_NODE, CHART_NODE } from "../../src/core/api";
 import type { NodeJSON } from "../../src/shared/blockJson";
 import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
@@ -468,3 +473,64 @@ test.each([
     expect(figure?.reading.ambiguous.map((each) => each.kind)).toEqual(["scale"]);
   },
 );
+
+// protects=table cell checkText supplies the header row (including Unit columns) and cell labels while keeping figure.context unchanged for staleness hashes (#3825); fails_when=header row or cell labels are omitted or figure.context changes
+test("table cell checkText includes the header row and cell labels without changing figure.context (#3825)", () => {
+  const cell = (id: string, value: string, header = false): NodeJSON => ({
+    type: header ? "tableHeader" : "tableCell",
+    content: [paragraph(id, text(value))],
+  });
+  const blocks = stored(
+    paragraph("intro", text("Budget notes.")),
+    paragraph("cap", text("Revenue and cost")),
+    {
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        {
+          type: "tableRow",
+          content: [
+            cell("h0", "Item", true),
+            cell("h1", "2024", true),
+            cell("h2", "2025", true),
+            cell("h3", "Unit", true),
+          ],
+        },
+        {
+          type: "tableRow",
+          content: [
+            cell("r1c0", "Cost"),
+            cell("r1c1", "70"),
+            cell("r1c2", "78"),
+            cell("r1c3", "million tonnes"),
+          ],
+        },
+      ],
+    },
+  );
+  const byBlock = figuresByBlock(blocks);
+  const figure = byBlock.get("r1c1")?.[0];
+  expect(figure?.context).toBe("2024\nCost | 70 | 78 | million tonnes\nRevenue and cost\n70");
+
+  const table = blocks.toArray()[2];
+  if (!(table instanceof Y.XmlElement)) throw new Error("Missing table");
+  const row = table.toArray()[1];
+  if (!(row instanceof Y.XmlElement)) throw new Error("Missing row");
+  const cellEl = row.toArray()[1];
+  if (!(cellEl instanceof Y.XmlElement)) throw new Error("Missing cell");
+  const p = cellEl.toArray()[0];
+  if (!(p instanceof Y.XmlElement)) throw new Error("Missing paragraph");
+  const checked = checkText({ ...selected(p), figures: byBlock.get("r1c1") ?? [] });
+  expect(checked.claim).toBe("70");
+  expect(checked.context).toBe(
+    [
+      "Budget notes.",
+      [
+        "Table: Revenue and cost",
+        "| Item | 2024 | 2025 | Unit |",
+        "| Cost | 70 | 78 | million tonnes |",
+        "Cell (Cost, 2024): 70",
+      ].join("\n"),
+    ].join("\n\n"),
+  );
+});
