@@ -53,6 +53,28 @@ async function writesNotes(agent: Agent, mindId: string) {
   );
 }
 
+/**
+ * Write notes that puts its first notes right in the same press, before the window applies them:
+ * the line naming an owner nobody named is rewritten under the name the notes read it by.
+ */
+async function correctsItsNotes(agent: Agent, mindId: string) {
+  await writesNotes(agent, mindId);
+  const read = structured<{ markdown: string; version: string }>(
+    await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+  );
+  const wrong = read.markdown.split("\n").find((line) => line.includes(OWNER));
+  structured(
+    await agent.callTool({
+      name: "propose_changes",
+      arguments: {
+        mindId,
+        version: read.version,
+        changes: [{ paragraph: wrong?.match(/¶\d+/)?.[0] ?? "¶9", text: SAID[0] }],
+      },
+    }),
+  );
+}
+
 /** The Check: the sentences it is given, judged as scripted, handed back. */
 async function checks(agent: Agent, mindId: string) {
   const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
@@ -168,6 +190,91 @@ describe("Write notes, then its Check, on the User's own AI (#3762)", { timeout:
       // "not found" shows as Not supported; a sentence with nothing to check carries no mark.
       expect(marks).toEqual([[OWNER, "unsupported"]]);
       expect(prompts).toHaveLength(2);
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=Write notes that corrects, in a second change of the same press, the owner its first notes named wrongly in the empty Note: nothing is refused, the window applies the notes with the line as it was said, once, and the Check of the same press is given that line and never the wrong one; fails_when=the second change is refused while the first notes wait (#3762), so the wrong line lands for the Check to mark; no_claim=whether a real model corrects itself, which a real-model run shows.
+  test("a second change in the same press corrects the notes before they are applied", async () => {
+    let given: string[] = [];
+    const ownAi: OwnAiRunner = {
+      installed: async () => true,
+      status: async () => ({ kind: "ready" }),
+      purge: async () => true,
+      async run(request: RunRequest) {
+        request.started?.();
+        const agent = await connectLegacyAgent(request.server);
+        const mindId = request.prompt.match(/mindId: ([^)]+)\)/)?.[1] ?? "";
+        if (!request.tools?.includes("report_check")) {
+          await correctsItsNotes(agent, mindId);
+          return { kind: "finished", reply: "" };
+        }
+        const task = structured<{ task: string; sentences: { n: number; text: string }[] }>(
+          await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
+        );
+        given = task.sentences.map((each) => each.text);
+        structured(
+          await agent.callTool({
+            name: "report_check",
+            arguments: {
+              mindId,
+              task: task.task,
+              results: task.sentences.map(({ n }) => ({ n, verdict: "nothing to check" })),
+            },
+          }),
+        );
+        return { kind: "finished", reply: "" };
+      },
+    };
+    const started = await startLiveAgentMeeting(vi.fn<Summarize>(), false, SAID, "claude-code", {
+      ownAi,
+    });
+    const { core, meeting, pairing } = started;
+    try {
+      await core.updateAgent(pairing.id, { propose: true });
+      await core.updateSettings({ user: { language: "zh-CN" } });
+      started.push(5000);
+      await until(core, meeting.id, (state) => state.lines >= 2);
+      await core.stopMeeting(meeting.id);
+      await vi.waitFor(async () => {
+        const now = (await core.listMeetings()).find((each) => each.id === meeting.id);
+        expect(now?.fill?.state).toBe("own-ai");
+      });
+      const turns: NoteTurnEvent[] = [];
+      core.on("agents.noteTurn", (turn) => turns.push(turn));
+      await core.askInNote({
+        mindId: meeting.mindId,
+        words: translate("zh-CN", "meetings.foot.writeNotesRequest"),
+      });
+      const end = await vi.waitFor(() => {
+        const ended = turns.find((turn) => turn.state !== "working");
+        if (!ended) throw new Error("Still writing.");
+        return ended;
+      });
+      expect(end.state).toBe("landed");
+      expect(end.steps.filter((step) => step.kind === "call" && step.done === false)).toEqual([]);
+      await core.applyAskedChanges({
+        answerId: end.turnId,
+        mindId: meeting.mindId,
+        requests: end.applied.map((change) => change.request),
+      });
+      const client = await connectToMind(core, meeting.mindId);
+      await client.settled();
+      const lines: string[] = [];
+      readMind(client).descendants((node) => {
+        if (!node.isTextblock) return true;
+        lines.push(node.textContent);
+        return false;
+      });
+      expect(lines).toEqual(["待办", SAID[0], ROOM]);
+
+      const ends: OwnAiCheckEnd[] = [];
+      core.on("agents.ownCheck", (each) => ends.push(each));
+      expect(await core.checkWithOwnAi(meeting.mindId)).toMatchObject({ kind: "started" });
+      await vi.waitFor(() => expect(ends).toHaveLength(1));
+      expect(given).toEqual(expect.arrayContaining([SAID[0], ROOM]));
+      expect(given).not.toContain(OWNER);
     } finally {
       core.close();
     }
