@@ -8,9 +8,17 @@
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
+import { descendants, parseXml, textOf as xmlText } from "../../src/core/documents/formats/xml";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { acceptedParagraphs, numbersIn, part, rejectedParagraphs, unzip } from "../helpers/docx";
-import { editMind } from "../helpers/minds";
+import {
+  acceptedParagraphs,
+  fieldsOf,
+  numbersIn,
+  part,
+  rejectedParagraphs,
+  unzip,
+} from "../helpers/docx";
+import { editMind, readMind } from "../helpers/minds";
 import { escapeXml, field, paragraph, run, STYLES, wordFile } from "../helpers/word";
 import {
   addItemAfter,
@@ -37,48 +45,78 @@ const LANGUAGES = [
 const textOf = (node: JSONContent): string =>
   node.text ?? (node.content ?? []).map(textOf).join("");
 
-/** Each field of a part, complex or simple: its instruction, the result it shows, and whether Word is asked to refresh it. */
-function fieldsOf(xml: string): { instruction: string; result: string; dirty: boolean }[] {
-  const texts = (from: string, tag: string) =>
-    [...from.matchAll(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "g"))].map((m) => m[1]).join("");
-  const fields: { at: number; instruction: string; result: string; dirty: boolean }[] = [];
-  for (const found of xml.matchAll(
-    /<w:fldChar w:fldCharType="begin"([^>]*)\/>(.*?)<w:fldChar w:fldCharType="separate"\/>(.*?)<w:fldChar w:fldCharType="end"\/>/g,
-  )) {
-    fields.push({
-      at: found.index,
-      instruction: texts(found[2] ?? "", "w:instrText").trim(),
-      result: texts(found[3] ?? "", "w:t"),
-      dirty: /w:dirty="(?:true|1)"/.test(found[1] ?? ""),
-    });
-  }
-  for (const found of xml.matchAll(/<w:fldSimple w:instr="([^"]*)"([^>]*)>(.*?)<\/w:fldSimple>/g)) {
-    fields.push({
-      at: found.index,
-      instruction: (found[1] ?? "").trim(),
-      result: texts(found[3] ?? "", "w:t"),
-      dirty: /w:dirty="(?:true|1)"/.test(found[2] ?? ""),
-    });
-  }
-  return fields.sort((a, b) => a.at - b.at).map(({ at: _at, ...each }) => each);
-}
+type Edit = (blocks: JSONContent[]) => JSONContent[];
 
-async function exported(
-  bytes: Buffer,
-  edit: (blocks: JSONContent[]) => JSONContent[],
-  trackChanges = false,
-) {
+async function exported(bytes: Buffer, edit: Edit | readonly Edit[], trackChanges = false) {
   const dataDir = await createTempDataFolder();
   const core = startCore(dataDir);
   const { mindId, client } = await importWordBytes(core, dataDir, bytes, { origin: "own" });
-  editMind(client, edit);
+  for (const each of typeof edit === "function" ? [edit] : edit) editMind(client, each);
   await client.settled();
   const data = (await core.exportMind(mindId, { format: "docx", trackChanges })).data;
-  return { data, document: part(unzip(data), "word/document.xml") };
+  const paragraphs: JSONContent[] = [];
+  const visit = (node: JSONContent) => {
+    if (node.type === "paragraph") paragraphs.push(node);
+    for (const each of node.content ?? []) visit(each);
+  };
+  for (const block of readMind(client).toJSON().content ?? []) visit(block);
+  return { data, document: part(unzip(data), "word/document.xml"), paragraphs };
 }
 
 const fieldsIn = (bytes: Buffer) => fieldsOf(part(unzip(bytes), "word/document.xml"));
 const renumber = (contract: Contract) => addItemAfter(contract.after, contract.added);
+
+/**
+ * The item whose text is `before` split as Enter after words typed at its start splits it: the
+ * item keeps its id, and so where it came from in the file, and holds the new words (or none);
+ * its own words go on in a new item after it, with an id of its own. `id` is the item's.
+ */
+function typedBefore(before: string, typed: string) {
+  let id: unknown;
+  const itemAt = (content: readonly JSONContent[]) =>
+    content.findIndex(
+      (each) => each.type === "listItem" && textOf(each.content?.[0] ?? {}) === before,
+    );
+  const copiedAfter: Edit = (blocks) => {
+    const visit = (node: JSONContent): JSONContent => {
+      const content = node.content ?? [];
+      const at = itemAt(content);
+      if (at < 0) return { ...node, content: content.map(visit) };
+      const item = content[at] as JSONContent;
+      const [paragraph, ...rest] = item.content ?? [];
+      const { id: own, ...attrs } = paragraph?.attrs ?? {};
+      id = own;
+      const copy = {
+        ...item,
+        content: [{ ...paragraph, attrs, content: paragraph?.content }, ...rest],
+      };
+      return { ...node, content: [...content.slice(0, at + 1), copy, ...content.slice(at + 1)] };
+    };
+    return blocks.map(visit);
+  };
+  const typedIn: Edit = (blocks) => {
+    const visit = (node: JSONContent): JSONContent => {
+      const content = node.content ?? [];
+      const at = itemAt(content);
+      if (at < 0) return { ...node, content: content.map(visit) };
+      const item = content[at] as JSONContent;
+      const [paragraph, ...rest] = item.content ?? [];
+      const words = typed ? [{ type: "text", text: typed }] : [];
+      const head = { ...item, content: [{ ...paragraph, content: words }, ...rest] };
+      return { ...node, content: [...content.slice(0, at), head, ...content.slice(at + 1)] };
+    };
+    return blocks.map(visit);
+  };
+  return { edits: [copiedAfter, typedIn], id: () => id };
+}
+
+/** The text of the paragraph a bookmark starts in, every change accepted; null when none has it. */
+function bookmarkedText(document: string, name: string): string | null {
+  const paragraph = descendants(parseXml(document), "w:p").find((each) =>
+    descendants(each, "w:bookmarkStart").some((mark) => mark.attrs["w:name"] === name),
+  );
+  return paragraph ? descendants(paragraph, "w:t").map(xmlText).join("") : null;
+}
 
 describe("a Word file's cross-references after its clauses are renumbered", () => {
   // protects=a sub-clause added above the bookmarked one gives a REF to it the new number, written and so not marked, while the PAGEREF to it, whose page needs Word's layout, is asked to refresh, in English and Chinese; fails_when=the REF still shows 2.3 or （三）, or is marked though written, or the PAGEREF isn't marked, or the package has a problem Word's repair prompt is about; no_claim=what Word shows after it refreshes, which is the manual check.
@@ -93,6 +131,58 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
       expect(ref).toMatchObject({ result: number, dirty: false });
       expect(ref?.instruction).toMatch(/^REF _Ref\d+ \\r \\h$/);
       expect(pageRef).toMatchObject({ result: "1", dirty: true });
+      expect((await inspectPackage(data)).problems).toEqual([]);
+    },
+  );
+
+  // protects=when the Block of the clause a REF names keeps its place in the Note but holds new words, or none, and the clause's own words and bookmark go on in a new Block after it, the file has a new clause before it, as in Word: the clause's paragraph with its bookmark is now 2.4 / （四）, so the REF shows the new number, written; tracked, the clause's words are neither struck out nor inserted again, in English and Chinese; fails_when=the bookmark goes with the new words, the REF keeps 2.3 / （三）, or the tracked file deletes and inserts the clause's words; no_claim=a clause split in its middle, whose start stays where it was, or where the editor puts the bookmark, which tests/renderer/wordMarkerKeys.test.ts holds.
+  test.each([
+    [
+      "English",
+      "words typed, then Enter",
+      ENGLISH_CONTRACT,
+      "_Ref201",
+      "2.4",
+      "Late fees are capped at the fee itself.",
+      false,
+    ],
+    ["English", "Enter alone, tracked", ENGLISH_CONTRACT, "_Ref201", "2.4", "", true],
+    [
+      "Chinese",
+      "words typed, then Enter, tracked",
+      CHINESE_CONTRACT,
+      "_Ref301",
+      "（四）",
+      "滞纳金以服务费金额为限。",
+      true,
+    ],
+    ["Chinese", "Enter alone", CHINESE_CONTRACT, "_Ref301", "（四）", "", false],
+  ] as const)(
+    "%s: a clause added at the start of the one a REF names (%s)",
+    async (_language, _how, contract, name, number, typed, tracked) => {
+      const bytes = contractFile(contract);
+      const words = bookmarkedText(part(unzip(bytes), "word/document.xml"), name) ?? "";
+      const split = typedBefore(words, typed);
+      const { data, document, paragraphs } = await exported(bytes, split.edits, tracked);
+      const at = paragraphs.findIndex((each) => textOf(each) === words);
+      expect(paragraphs[at - 1]?.attrs?.id).toBe(split.id());
+      expect(paragraphs[at]?.attrs?.id).not.toBe(split.id());
+
+      expect(bookmarkedText(document, name)).toBe(words);
+      const [ref, pageRef] = fieldsOf(document);
+      expect(ref).toMatchObject({ result: number, dirty: false });
+      expect(pageRef).toMatchObject({ dirty: true });
+      expect(acceptedParagraphs(document)).toEqual(
+        expect.arrayContaining([...(typed ? [typed] : []), words]),
+      );
+      if (tracked) {
+        // Only the REF's old number is struck out: the clause's own words stay as they were.
+        const struck = [...document.matchAll(/<w:delText[^>]*>([^<]*)<\/w:delText>/g)];
+        expect(struck.map((each) => each[1])).toEqual([
+          contract === ENGLISH_CONTRACT ? "2.3" : "（三）",
+        ]);
+        expect(rejectedParagraphs(document).join("\n")).toContain(contract.before);
+      }
       expect((await inspectPackage(data)).problems).toEqual([]);
     },
   );

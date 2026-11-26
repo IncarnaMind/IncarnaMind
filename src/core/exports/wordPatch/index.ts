@@ -33,6 +33,7 @@ import {
   WORD_ATOM_NODE,
   type WordExportLoss,
   type WordExportReport,
+  type WordSource,
 } from "../../api";
 import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/formats/docxImport";
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
@@ -173,6 +174,17 @@ function commentLosses(
     }));
 }
 
+/** A Block's words, without what it holds besides text. */
+const textIn = (node: NodeJSON): string =>
+  node.type === "text" ? (node.text ?? "") : (node.content ?? []).map(textIn).join("");
+
+/** How many characters two texts begin with alike. */
+function sharedStart(a: string, b: string): number {
+  let at = 0;
+  while (at < a.length && at < b.length && a[at] === b[at]) at++;
+  return at;
+}
+
 /** Content types IncarnaMind knows a Word package to have: a part of any other is listed as unknown. */
 const KNOWN_TYPES = [
   /^application\/vnd\.openxmlformats-/,
@@ -198,7 +210,9 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     .flatMap((each) => (each instanceof Y.XmlElement ? [mindJson(each, yOf, reading)] : []))
     .filter((each): each is NodeJSON => each !== null);
 
+  const startMoved = new Map<NodeJSON, WordSource | null>();
   const sourceOf = (node: NodeJSON) => {
+    if (startMoved.has(node)) return startMoved.get(node) ?? null;
     const id = node.attrs?.id;
     return typeof id === "string" ? wordSourceOf(doc, id) : null;
   };
@@ -212,6 +226,42 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
     return fits ? source.n : null;
   };
   const importedByPlace = nodesByPlace(base.structure);
+  /**
+   * Words typed at the start of an imported paragraph and then Enter leave its Block, and with
+   * it where it came from, holding the new words, and move the paragraph's own words into a new
+   * Block after it. In Word the paragraph goes on where its own words start, so its XML is
+   * written there, and the words before it are a new paragraph: not the paragraph's words struck
+   * out and the new ones written over them (#746).
+   */
+  const moveStarts = (counterparts: readonly Counterpart[]) => {
+    counterparts.forEach((head, index) => {
+      if (head.kind === "table" && head.key !== null) {
+        for (const row of head.node.content ?? []) {
+          for (const cell of row.content ?? [])
+            moveStarts(counterpartsOf(cell.content ?? [], currentKey, reading));
+        }
+        return;
+      }
+      const imported = head.key === null ? undefined : importedByPlace.get(head.key);
+      if (head.kind !== "paragraph" || !imported) return;
+      const was = textIn(imported);
+      let longest = sharedStart(was, textIn(head.node));
+      let start: Counterpart | null = null;
+      for (let at = index + 1; at < counterparts.length; at++) {
+        const next = counterparts[at];
+        if (!next || next.key !== null || next.kind !== "paragraph") break;
+        const shared = sharedStart(was, textIn(next.node));
+        if (shared > longest) {
+          longest = shared;
+          start = next;
+        }
+      }
+      if (!start) return;
+      startMoved.set(start.node, sourceOf(head.node));
+      startMoved.set(head.node, null);
+    });
+  };
+  moveStarts(counterpartsOf(current, currentKey, reading));
   /**
    * Resolving a change on a node within a Block, such as a line break someone removed, leaves
    * the Block's fingerprint as it was (#858). An import from before changes were read made
