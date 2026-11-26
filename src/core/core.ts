@@ -6599,7 +6599,7 @@ export function createCore(adapters: CoreAdapters): Core {
       unconfirmed: now.transcript?.partials ?? [],
     };
   };
-  /** A Note's meeting while it records or is paused, as a request at the Note's foot tells it. */
+  /** A Note's meeting, while recording/paused or once stopped with a Transcript (#3762, #3156). */
   const liveMeetingOf = (mindId: string): OwnAiLiveMeeting | null => {
     const meeting = meetings
       .list()
@@ -6607,14 +6607,17 @@ export function createCore(adapters: CoreAdapters): Core {
         (each) =>
           each.kind === "meeting" &&
           each.mindId === mindId &&
-          (each.status === "recording" || each.status === "paused"),
+          (each.status === "recording" || each.status === "paused" || each.status === "stopped"),
       );
     if (!meeting) return null;
     const documentId = meeting.transcript?.documentId ?? null;
+    if (meeting.status === "stopped" && !documentId) return null;
     const [transcript] = documentId ? documents.getMany([documentId]) : [];
     return {
       transcript: transcript ? displayName(transcript) : null,
-      unconfirmed: meeting.transcript?.partials ?? [],
+      ...(documentId && { documentId }),
+      ...(meeting.status === "stopped" && { stopped: true }),
+      unconfirmed: meeting.status === "stopped" ? [] : (meeting.transcript?.partials ?? []),
     };
   };
 

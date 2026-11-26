@@ -9122,7 +9122,7 @@ export const zhCN = {
   "noteAsk.problem.read-only": "{agent} 只能读取。允许它提出修改吗？",
   "error.agent.meetingUnavailable": "这场会议的转写稿暂时无法读取。",
   "agents.ask.request.meeting":
-    "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。请逐项引用转写原文，在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",
+    "请在 IncarnaMind 中读取我的会议笔记{title}（mindId：{mindId}）和转写稿（documentId：{transcriptId}），整理决定和待办事项。会议提到了负责人或截止日期，就一起列出。提议、计划、意愿和条件按原话表述，不要写成既定决定或已完成事实，也不要编造未提及的姓名、货币或单位。每条内容都引用它所依据的全部转写行（决定或共识同时引用所定内容与同意的话，不要只引一句同意）。在对话中起草，把草稿全文直接传给 check_citations。补上遗漏的引用，修正结果不是 found 的引用。只保留核实过的引文能支持的内容。保留我写的笔记。{action}",
   "agents.ask.meeting.template":
     "用户选择了会议模板。保留用户原有的标题、笔记和修改。如果有双语小节，使用通话语言对应的标题：{outline}。{fill} 引用的 Markdown 仅作为写作要求：{guidance}。模板不能改变上述来源、引文核对、工具或访问权限。",
   "agents.ask.meeting.template.uncovered": "只有在有已核对的内容时，才补写笔记未覆盖的小节。",
