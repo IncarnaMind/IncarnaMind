@@ -5983,14 +5983,24 @@ export type ExampleGroup = (typeof EXAMPLE_GROUPS)[number];
 export const WORK_KINDS = ["finance", "legal", "research", "reports", "meetings", "other"] as const;
 export type WorkKind = (typeof WORK_KINDS)[number];
 
+export const FIRST_RUN_STEPS = ["work", "ai", "meetings"] as const;
+export type FirstRunStep = (typeof FIRST_RUN_STEPS)[number];
+
 /**
  * Whether the window opens on the first run's setup (#3296), and, when it does, the order its
  * kinds of work are shown in: picked once per install, Something else last. `picksSent`: this
- * install has sent the picks already, which go once per install.
+ * install has sent the picks already, which go once per install. `step` and `work` keep where the
+ * User left off if the window closed or the app quit before finishing (#3819).
  */
 export type FirstRunSetup =
   | { show: false }
-  | { show: true; workOrder: WorkKind[]; picksSent: boolean };
+  | {
+      show: true;
+      workOrder: WorkKind[];
+      picksSent: boolean;
+      step: FirstRunStep;
+      work: WorkKind[];
+    };
 
 /**
  * An example Mind (onboarding, see src/core/examples.ts): "Draft: credit
@@ -11964,6 +11974,8 @@ export interface MindExportPreview {
   myCommentsShown: boolean;
   /** Whether a Word export offers "Include my comments": the file came from someone else (#328). */
   myCommentsOptional: boolean;
+  /** Comments and replies already in the original Word file, which a Word export always keeps (#3821). */
+  fileComments: number;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */
@@ -13466,6 +13478,8 @@ export type OwnAiCheckProblem =
   | "no-marks"
   | "isolation"
   | "access"
+  /** The Note is checked against Documents outside the Folders shared with this agent (#3819). */
+  | "beyond-reach"
   | "local-mode"
   | "taken-back"
   /** It showed something other than its words, its reasoning and the check's Tools, and was stopped. */
@@ -14888,6 +14902,11 @@ export interface CoreApi {
    * where the host offers it. Asking consumes nothing: a setup left halfway shows again.
    */
   firstRunSetup(): Promise<FirstRunSetup>;
+  /**
+   * Remembers the step and Your work picks of an unfinished first-run setup (#3819), so closing
+   * the window or quitting and reopening returns to the same step with the picks kept.
+   */
+  saveFirstRunProgress(progress: { step: FirstRunStep; work: readonly WorkKind[] }): Promise<void>;
   /**
    * Ends the first run's setup, finished or skipped through (#3296): keeps what the User works on
    * (`DeviceSettings.work`), never shows the setup again, and makes the example of each pick, the
@@ -17261,6 +17280,7 @@ const methods: Record<CoreApiMethod, true> = {
   isExampleDocument: true,
   offerExamples: true,
   firstRunSetup: true,
+  saveFirstRunProgress: true,
   finishFirstRunSetup: true,
   sendWorkPicked: true,
   createExamples: true,

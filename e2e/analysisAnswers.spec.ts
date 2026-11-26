@@ -14,6 +14,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMind,
+  noteCheck,
   openSteps,
   pointAndClick,
   pointAt,
@@ -351,12 +352,12 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // Check, as the User presses it: the totals are the Analysis's, never claims to look for.
       await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
-      const badge = window.getByTestId("check-badge");
+      const badge = noteCheck(window);
       await expect(badge).toBeVisible({ timeout: 30_000 });
-      await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 120_000 });
+      await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 120_000 });
       // The Note holds only the table, which its run vouches for: Check sends none of its cells,
-      // says so once, in the card, in the Note's language (#2831), and the badge rests on ✓ with
-      // nothing washed.
+      // says so once, in the card, in the Note's language (#2831), and the Note's Check rests on
+      // Checked with nothing washed.
       const checks = window.getByTestId("check-card");
       await expect(checks.getByTestId("checks-problem")).toContainText(
         translate(language, "checks.problem.no-claims"),
@@ -366,9 +367,9 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(editor.locator(".claim-wash")).toHaveCount(0);
       await expect(marker).toHaveAttribute("data-state", "supported");
       await pointAndClick(window, checks.getByTestId("checks-problem-close"));
-      // The card hangs from the strip over the Note's text (#3765): its control closes it, as a
-      // person closes it to reach the table's marker under it.
-      await pointAndClick(window, window.getByTestId("check-badge-open"));
+      // The card hangs from the strip over the Note's text (#3765): the Note's Check, which opened
+      // it, closes it, as a person closes it to reach the table's marker under it.
+      await pointAndClick(window, badge);
       await expect(checks).toHaveCount(0);
 
       // Its card says how each column was worked out, in the figure card's words.

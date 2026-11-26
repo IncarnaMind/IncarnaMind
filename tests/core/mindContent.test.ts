@@ -232,4 +232,54 @@ describe("Mind content", () => {
     await expect(core.readMindContents("mind" as never)).rejects.toThrow(InvalidInputError);
     await expect(core.readMindContents([42] as never)).rejects.toThrow(InvalidInputError);
   });
+
+  test("readMindContents matches table figures and footing for closed and open Notes, and skips table work when none exist", async () => {
+    const core = startCore(await createTempDataFolder());
+    const prose = await core.createMind({ title: "Prose Only" });
+    const withTable = await core.createMind({ title: "With Table" });
+
+    await core.applyMindUpdate(prose.id, paragraphUpdate("Revenue was 120 million in 2025."));
+    const tableDoc = new Y.Doc();
+    const frag = tableDoc.getXmlFragment(MIND_CONTENT_FIELD);
+    const table = new Y.XmlElement("table");
+    table.setAttribute("id", "tbl-1");
+    const makeRow = (cells: readonly string[], header = false) => {
+      const row = new Y.XmlElement("tableRow");
+      for (const [index, text] of cells.entries()) {
+        const cell = new Y.XmlElement(header ? "tableHeader" : "tableCell");
+        const p = new Y.XmlElement("paragraph");
+        p.setAttribute("id", `${header ? "h" : "c"}-${text}-${index}`);
+        p.insert(0, [new Y.XmlText(text)]);
+        cell.push([p]);
+        row.push([cell]);
+      }
+      return row;
+    };
+    table.push([
+      makeRow(["Item", "Amount"], true),
+      makeRow(["A", "10"]),
+      makeRow(["B", "20"]),
+      makeRow(["Total", "30"]),
+    ]);
+    frag.push([table]);
+    const tableUpdate = Y.encodeStateAsUpdate(tableDoc);
+    tableDoc.destroy();
+
+    await core.applyMindUpdate(withTable.id, tableUpdate);
+
+    // Loaded (open) Notes first.
+    const openSnaps = await core.readMindContents([prose.id, withTable.id]);
+    expect(openSnaps[0]?.cellFigures).toEqual([]);
+    expect(openSnaps[0]?.footing).toEqual([]);
+    expect(openSnaps[1]?.cellFigures.length).toBeGreaterThan(0);
+
+    // Closed (read from storage in one decode) must produce identical cellFigures and footing.
+    await core.closeMind(prose.id);
+    await core.closeMind(withTable.id);
+    const closedSnaps = await core.readMindContents([prose.id, withTable.id]);
+    expect(closedSnaps[0]?.cellFigures).toEqual([]);
+    expect(closedSnaps[0]?.footing).toEqual([]);
+    expect(closedSnaps[1]?.cellFigures).toEqual(openSnaps[1]?.cellFigures);
+    expect(closedSnaps[1]?.footing).toEqual(openSnaps[1]?.footing);
+  });
 });

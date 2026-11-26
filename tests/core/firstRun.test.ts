@@ -91,6 +91,37 @@ describe("the first run's setup: when it shows (#3296)", { timeout: 30_000 }, ()
     expect((await again.getSettings()).device).toMatchObject({ setupFinished: false, work: [] });
   });
 
+  test("step and work picks saved before closing are kept on reopen, and cleared on finish (#3819)", async () => {
+    const dataDir = await createTempDataFolder();
+    const first = startOn(dataDir);
+    const initial = await first.firstRunSetup();
+    expect(initial).toMatchObject({ show: true, step: "work", work: [] });
+    await first.saveFirstRunProgress({ step: "ai", work: ["legal", "meetings"] });
+    expect(await first.firstRunSetup()).toMatchObject({
+      show: true,
+      step: "ai",
+      work: ["legal", "meetings"],
+    });
+    for (const bad of [
+      { step: "unknown" as never, work: [] },
+      { step: "ai" as const, work: ["legal", "legal"] as never },
+      { step: "ai" as const, work: ["tax"] as never },
+    ]) {
+      await expect(first.saveFirstRunProgress(bad)).rejects.toThrow(InvalidInputError);
+    }
+    first.close();
+
+    const reopened = startOn(dataDir);
+    expect(await reopened.firstRunSetup()).toMatchObject({
+      show: true,
+      step: "ai",
+      work: ["legal", "meetings"],
+    });
+    await reopened.finishFirstRunSetup(["legal", "meetings"]);
+    expect(await reopened.firstRunSetup()).toEqual({ show: false });
+    reopened.close();
+  });
+
   test("it never shows once finished, nor on a profile with a Note, opened before, or offered the examples", async () => {
     const finished = await fresh();
     await finished.core.finishFirstRunSetup([]);

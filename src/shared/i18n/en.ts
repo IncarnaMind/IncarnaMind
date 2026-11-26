@@ -1756,12 +1756,6 @@ export const en = {
   "checks.row.cantCheck.one": "1 can’t be checked",
   "checks.row.cantCheck": "{count} can’t be checked",
   "health.label": "Checks",
-  "health.notFound.one": "1 Citation not found",
-  "health.notFound": "{count} Citations not found",
-  "health.needLook.one": "1 sentence needs a look",
-  "health.needLook": "{count} sentences need a look",
-  "health.contradicted.one": "1 sentence contradicted",
-  "health.contradicted": "{count} sentences contradicted",
   "health.toCheck.one": "1 sentence not checked yet",
   "health.toCheck": "{count} sentences not checked yet",
   "health.tableCells": "{count} table cells",
@@ -1781,8 +1775,6 @@ export const en = {
   "health.state.look": "{count} need a look",
   "health.state.checked": "Checked {time}",
   "health.state.checked.noTime": "Checked",
-  "health.state.notYetCited.one": "1 not yet cited",
-  "health.state.notYetCited": "{count} not yet cited",
   "health.state.canBeCited.one": "1 can be cited",
   "health.state.canBeCited": "{count} can be cited",
   "health.state.notRecalculated.one": "1 figure not recalculated",
@@ -1799,11 +1791,10 @@ export const en = {
   "health.kept": "{count} kept as written",
   "health.keptCharts.one": "1 chart kept as your view",
   "health.keptCharts": "{count} charts kept as your view",
-  "badge.label": "{label}: {parts}",
   "badge.next": "Next",
-  "badge.toCheck": "not checked yet",
-  "badge.checked": "{count} checked",
   "badge.checking": "Checking {done} of {total}",
+  "checkButton.checking": "Checking… {done} of {total}",
+  "checkButton.checking.uncounted": "Checking…",
   "badge.command.keywords":
     "checks citations health contradicted unsupported claims sentences badge claims and citations",
   "health.checkedAll.one": "Checked 1 sentence, {when}",
@@ -1880,11 +1871,8 @@ export const en = {
   "mindCheck.declined": "The check didn’t run: you chose Not now on the note.",
   "mindCheck.closed": "The check didn’t run: the question on the note was closed.",
   "mindCheck.every": "Check every sentence again",
-  "mindCheck.again": "Check again",
   "mindCheck.changed.none": "Nothing changed",
   "mindCheck.unchanged": "Nothing changed since {when}",
-  "mindCheck.changed.one": "1 sentence not checked yet",
-  "mindCheck.changed": "{count} sentences not checked yet",
   "mindCheck.command.keywords":
     "check this note all whole draft before sending claims sentences verify citations figures contradictions",
   "mindCheck.command.purpose":
@@ -3511,23 +3499,40 @@ export const en = {
   "setupPage.agents.failed": "Couldn\u2019t list the agents on this computer",
   "setupPage.agent.found": "On this computer",
   "setupPage.agent.connected": "{agent} is connected",
-  // First run's Your AI, one list of the AI apps found here (#3791).
+  // First run's Your AI, one list of the AI apps found here (#3791, #3819).
   "setupPage.ai.lead.found": "Connect the AI app you already use.",
-  "setupPage.ai.lead.none": "IncarnaMind works with an AI app you have.",
+  "setupPage.ai.lead.none": "IncarnaMind uses your own AI app.",
   "setupPage.ai.moreFound": "{count} more found",
   "setupPage.ai.another": "Another app…",
   "setupPage.ai.another.title": "Another app",
   "setupPage.ai.consent.one":
-    "It can read all your Documents and notes. What it reads goes to its AI model.",
+    "{agent} can read all your Documents and notes, sending what it reads to {agent}’s AI model.",
+  "setupPage.ai.consent.one.write":
+    "{agent} can read all your Documents and notes, write notes and propose changes, sending what it reads to {agent}’s AI model.",
   "setupPage.ai.consent.many":
-    "They can read all your Documents and notes. What each reads goes to its AI model.",
+    "{agents} can read all your Documents and notes, sending what they read to their AI models.",
+  "setupPage.ai.consent.many.write":
+    "{agents} can read all your Documents and notes, write notes and propose changes, sending what they read to their AI models.",
+  "setupPage.ai.details.reads.one":
+    "{agent} can read every Folder you have—including Folders and notes you add later—along with meetings, Transcripts and Canvases inside them. Folders set to stay separate aren’t included, and examples are only read after you ask or run Check in one.",
+  "setupPage.ai.details.reads.many":
+    "{agents} can read every Folder you have—including Folders and notes you add later—along with meetings, Transcripts and Canvases inside them. Folders set to stay separate aren’t included, and examples are only read after you ask or run Check in one.",
+  "setupPage.ai.details.where.one":
+    "IncarnaMind can run local calculations over spreadsheets, CSVs and counts on this computer and send only the results. Everything {agent} reads goes to {agent}’s AI service under its terms; some plans may train on it. When you ask {agent} to organize Documents, it reads their opening text and existing Tags; suggestions always wait for you.",
+  "setupPage.ai.details.where.many":
+    "IncarnaMind can run local calculations over spreadsheets, CSVs and counts on this computer and send only the results. Everything each app reads goes to its AI service under that service’s terms; some plans may train on it. When you ask one to organize Documents, it reads their opening text and existing Tags; suggestions always wait for you.",
+  "setupPage.ai.details.technical": "Technical details",
+  "setupPage.ai.details.metadata":
+    "Listing sends each Folder’s name, internal id and place in the tree; each Document’s name, kind and internal id; each note’s name, internal id and last-change time (plus meeting start time); each Canvas’s title, internal id, version, last-change time, HTML and file sizes; and Tag names and internal ids when organizing.",
   "setupPage.ai.connect": "Connect",
   "setupPage.ai.connected": "Connected",
   "setupPage.ai.alsoInstalls": "Also downloads Claude Code from Anthropic, so you can ask here",
   "setupPage.ai.install": "Install",
   "setupPage.ai.install.line": "Downloads from Anthropic into your user folder.",
-  "setupPage.ai.install.installing": "Installing…",
-  "setupPage.ai.install.signIn": "Sign in in your browser",
+  "setupPage.ai.install.starting": "Starting download…",
+  "setupPage.ai.install.downloading": "Downloading from Anthropic…",
+  "setupPage.ai.install.installing": "Installing into your user folder…",
+  "setupPage.ai.install.signIn": "Finish signing in with your browser",
   "setupPage.ai.install.notYet": "Not signed in yet",
   "setupPage.ai.install.stopped": "Not installed",
   "setupPage.ai.install.sends":
@@ -5759,6 +5764,11 @@ export const en = {
   "export.myComments.leftOut.one": "Your comment was left out",
   "export.myComments.leftOut.other": "Your {count} comments were left out",
   "export.myComments.include": "Include them",
+  "export.fileComments.hint.one": "1 comment from the Word file stays in the exported file.",
+  "export.fileComments.hint.other":
+    "{count} comments from the Word file stay in the exported file.",
+  "export.fileComments.one": "Kept 1 comment from the Word file",
+  "export.fileComments.other": "Kept {count} comments from the Word file",
   "export.checkComments": "{count} check comments",
   "export.checkComments.off": "Check comments off",
   "export.checkComments.ask":
@@ -9394,6 +9404,8 @@ export const en = {
   "agents.ownCheck.problem.isolation":
     "A hook or plugin your organization set stops {agent} here. Ask in {agent} instead.",
   "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
+  "agents.ownCheck.problem.beyond-reach":
+    "This note checks against Documents {agent} can’t read. Check its Folders in Settings.",
   "agents.ownCheck.problem.local-mode":
     "{agent} stopped: “Keep everything on this computer” is on.",
   "agents.ownCheck.problem.taken-back":
@@ -9674,6 +9686,8 @@ export const en = {
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",
   "noteAsk.problem.access": "{agent} can no longer read this note, so it stopped.",
+  "noteAsk.problem.beyond-reach":
+    "This note checks against Documents {agent} can’t read. Check its Folders in Settings.",
   "noteAsk.problem.local-mode": "{agent} stopped: “Keep everything on this computer” is on.",
   "noteAsk.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",

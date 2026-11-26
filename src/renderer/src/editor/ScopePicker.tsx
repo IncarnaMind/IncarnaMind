@@ -164,15 +164,16 @@ export const ScopePicker = Extension.create({
               return renderer?.ref?.onKeyDown(event) ?? false;
             },
             onExit(props) {
-              // An "@" a command typed for the User goes with the picker, and the words typed
-              // after it, unless a choice already took them out for its chip.
+              // Tear down the picker overlay before restoring the Note's selection so unmount
+              // cannot disturb focus, then remove a command-typed "@" and restore any selection.
               stopKeys?.();
-              takeTypedTrigger(props.editor, props.range.to, cancelled);
+              const wasCancelled = cancelled;
               cancelled = false;
               unmount?.();
               renderer?.destroy();
               renderer = null;
               unmount = null;
+              takeTypedTrigger(props.editor, props.range.to, wasCancelled);
             },
           };
         },

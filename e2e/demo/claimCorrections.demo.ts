@@ -17,6 +17,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -32,7 +33,7 @@ const CAPTIONS = {
   app: "Built app — correct from the Documents",
   card: "Change only the contradicted part",
   applied: "AI text, its Citation and one Undo",
-  badge: "The same correction from the badge",
+  checks: "The same correction from the Checks card",
   proto: "Interactive prototype — the same flow",
   protoCard: "Change to 38.6%",
   protoBadge: "Correct 1 from the Documents",
@@ -137,7 +138,7 @@ async function captureCard(window: Page, name: string) {
   await window.screenshot({ path: join(OUT, `${name}.png`) });
 }
 
-test("captures the built card, badge and corrected sentence", async () => {
+test("captures the built card, Checks card and corrected sentence", async () => {
   const language = process.env.CORRECTION_LANGUAGE === "zh-CN" ? "zh-CN" : "en";
   const width = Number(process.env.CORRECTION_WIDTH ?? 1440);
   const baseline = process.env.CORRECTION_BASELINE === "1";
@@ -158,9 +159,9 @@ test("captures the built card, badge and corrected sentence", async () => {
       await expect(window.getByTestId("claim-correct")).toHaveCount(0);
       await window.keyboard.press("Escape");
     }
-    const badge = await checkCard(window);
-    await captureCard(window, `${prefix}-badge-${language}-${width}`);
-    if (baseline) await expect(badge.getByTestId("badge-correct-contradictions")).toHaveCount(0);
+    const checks = await checkCard(window);
+    await captureCard(window, `${prefix}-checks-${language}-${width}`);
+    if (baseline) await expect(checks.getByTestId("badge-correct-contradictions")).toHaveCount(0);
     await expect(editor).toBeVisible();
   } finally {
     await app.close();
@@ -189,8 +190,8 @@ test("records the built correction flow", async () => {
     await hand.hold(1600);
     await hand.click(window.getByTestId("undo-action"));
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
-    await hand.click(window.getByTestId("check-badge-open"));
-    hand.caption(CAPTIONS.badge);
+    await hand.click(noteCheck(window));
+    hand.caption(CAPTIONS.checks);
     await hand.hold(1000);
     await hand.click(window.getByTestId("badge-correct-contradictions"));
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");

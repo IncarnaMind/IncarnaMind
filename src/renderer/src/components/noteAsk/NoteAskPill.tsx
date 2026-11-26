@@ -10,6 +10,7 @@ type Translate = ReturnType<typeof useT>;
 import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
 import { openClaudeCodeSignIn } from "../../claudeCodeInstall";
+import { CheckOnLine } from "../../editor/CheckButton";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
@@ -374,7 +375,8 @@ export function FailureLine({
 /**
  * The one thing to do next, at the line's end: Accept all while its changes wait in the Note; else
  * open the Note it wrote, or left changes waiting in, unless the line names it already; else Undo,
- * while what it changed here can still be undone. In a meeting's My notes, which hides the AI's
+ * while what it changed here can still be undone, with the Note's Check beside it (#3794), where
+ * the User is looking. In a meeting's My notes, which hides the AI's
  * lines, the change is in Notes, and the one thing is to show it there (#3762).
  */
 export function EndAction({
@@ -439,9 +441,12 @@ export function EndAction({
       </button>
     );
   }
-  // The finished change is said once, here: the page draws no line of its own (#3762).
+  // The finished change is said once, here: the page draws no line of its own (#3762). The Check
+  // comes before Undo: it shows once the Note's sentences are counted, a moment after the line, and
+  // there it takes the room of the words before it, never moving Undo from under the pointer.
   return (
     <>
+      <CheckOnLine mindId={mindId} />
       <button
         type="button"
         data-testid="note-ask-undo"

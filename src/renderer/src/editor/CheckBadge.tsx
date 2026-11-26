@@ -13,20 +13,16 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type * as Y from "yjs";
-import { formatDateTime } from "../../../shared/dates";
 import type { Verification } from "../../../shared/verification";
 import { stopBackgroundCheck, useAskedAgent } from "../askedAgent";
 import { askToCheck, useAgentsToAsk, useNoModel, useReadAgentsToAsk } from "../askYourAi";
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
-import { EstimateMeta } from "../components/EstimateSource";
-import { StopLineIcon } from "../components/lineIcons";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useScrollFade } from "../components/useScrollFade";
 import { useContradictions } from "../contradictions";
 import { correctableCount, correctContradictions } from "../correctionFixes";
-import type { EstimateLine } from "../cost";
 import { useEdits } from "../editWithAi";
 import { fixableClaims, fixSentences } from "../fixSentence";
 import { useHandedFile } from "../handedFiles";
@@ -35,23 +31,27 @@ import { frontTabOfMind } from "../layoutSlice";
 import {
   cardClosed,
   type Planned,
-  startCheck,
-  startCheckUnpriced,
+  startCheckAsking,
   useMindCheck,
   useMindCheckRun,
 } from "../mindCheck";
-import { useFade } from "../motion";
-import { checkedCaveat, type NoteState, noteStateOf, noteStateParts } from "../noteState";
+import { noteStateOf } from "../noteState";
 import { useAppStore } from "../store";
 import { useCheckUnread } from "../unreadFiles";
 import { useGroupsMerged } from "../useWindowWidth";
-import { checkClaims, stopVerify } from "../verify";
+import { checkClaims, findClaims, stopVerify } from "../verify";
 import { useWatchAddedDocuments } from "./AddedDocumentsLine";
 import { AskAgentAllButton, useAskAll } from "./AskAgentAll";
-import { type Badge, type BadgeInput, badgeOf, caveatMarks } from "./badgeState";
+import {
+  CheckButton,
+  setCheckCardFrom,
+  useCheckCardFrom,
+  useShareCheckButton,
+} from "./CheckButton";
 import { CheckFasterLine } from "./CheckFasterLine";
 import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
-import { checkTitle, useCheckEstimate, useCheckThisMindPlan } from "./changedSentences";
+import { useCheckThisMindPlan } from "./changedSentences";
+import { type CheckButtonView, checkButtonOf, verifyButtonOf } from "./checkButtonState";
 import {
   bodyIsEmpty,
   CARD_MARGIN,
@@ -60,12 +60,10 @@ import {
   SETTLE_AT_MOST_MS,
   SETTLE_MS,
 } from "./checkCardHold";
-import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
 import { EveryResultSwitch } from "./EveryResultSwitch";
-import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
-import { MindCheckAsk, MindUnchanged, RunningText, useRunningCheck } from "./MindCheckLine";
-import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
+import { MindCheckAsk, MindUnchanged, useRunningCheck } from "./MindCheckLine";
+import { HealthCard, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useEveryCheckResult } from "./useEveryCheckResult";
 import { useVerificationBrief } from "./VerifyBrief";
@@ -73,54 +71,42 @@ import { useVerifyState, VerifyAsk, VerifyCard, verifyDone } from "./VerifyLine"
 import { shownPhase } from "./verifyPhase";
 
 /**
- * What a check the User started checked, from the render its run ends in
- * (`count` then) until they next type: changes from the core, such as the
- * marks it writes, don't count.
+ * Whether a run ended since the User last typed: on while `busy`, and from the render it ends in
+ * until they next type; changes from the core, such as the marks it writes, don't count.
  */
-function useJustChecked<Run>(
-  editor: Editor,
-  run: Run | null,
-  count: (finished: Run) => number,
-): number | null {
-  const [last, setLast] = useState(run);
-  const [checked, setChecked] = useState<number | null>(null);
-  if (run !== last) {
-    setLast(run);
-    // A check that marked nothing still finished: its badge keeps the width it had while running
-    // until the User types, as a check that marked some does (#2519).
-    setChecked(run === null && last !== null ? count(last) : null);
+function useJustChecked(editor: Editor, busy: boolean): boolean {
+  const [last, setLast] = useState(busy);
+  const [ended, setEnded] = useState(false);
+  if (busy !== last) {
+    setLast(busy);
+    setEnded(!busy);
   }
   useEffect(() => {
-    if (checked === null) return;
+    if (!ended) return;
     const typed = ({ transaction }: { transaction: Editor["state"]["tr"] }) => {
       if (transaction.docChanged && !transaction.getMeta(ySyncPluginKey)?.isChangeOrigin) {
-        setChecked(null);
+        setEnded(false);
       }
     };
     editor.on("transaction", typed);
     return () => {
       editor.off("transaction", typed);
     };
-  }, [editor, checked]);
-  return checked;
+  }, [editor, ended]);
+  return ended;
 }
 
 /**
- * The check badge at the bottom right of a Note's page (#909; the boards
- * Page-Clean-Badge-*): the margin marks' counts, and the claims no check
- * has looked at, "≠ 1 · ! 1 · 3 to check"; "Checking 12 of 24 · Stop" while
- * a check runs; "✓ 24 checked" after a check the User started, until they
- * type. Nothing when there's nothing to check. Its card opens on a click,
- * from ⌘K, and by itself for a question before a paid run.
+ * The Note's check (#3794): its Check button in the Note's row of controls, which checks in one
+ * press while sentences wait, says how far a run has got, with Stop, and then what the check
+ * found, opening the Checks card of results. The card also opens from ⌘K, and by itself for a
+ * question before a paid run or a problem with a check the User started.
  */
 export function CheckBadge(props: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   verification: Verification | null;
-  quiet: boolean;
-  /** In the Note's tab strip, where it has one room in every state (#3765). */
-  inStrip: boolean;
 }) {
   return props.verification ? (
     <VerifyBadge {...props} verification={props.verification} />
@@ -142,86 +128,69 @@ function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
   return { checkedAll, ...useHealth(editor, skipped, unexamined, doc, running) };
 }
 
-function MindBadge({
-  editor,
-  doc,
-  mindId,
-  quiet,
-  inStrip,
-}: {
-  editor: Editor;
-  doc: Y.Doc;
-  mindId: string;
-  quiet: boolean;
-  inStrip: boolean;
-}) {
+function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId: string }) {
+  const t = useT();
+  const language = useLanguage();
   const running = useChecks((state) => state.running[mindId]);
   const run = useRunningCheck(editor, mindId);
-  // The User's own AI asked to check the Note: the badge says how that goes until its marks land (#3587).
+  // The User's own AI asked to check the Note: the button says how that goes until its marks land (#3587).
   const asked = useAskedAgent({ kind: "check", mindId });
-  // Counted again as the AI's marks land, as at a run's end, so the badge says what it marked.
-  const { checkedAll, health, counted } = useMindHealth(
-    editor,
-    doc,
-    running !== undefined || asked !== null,
-  );
+  const backgroundRun = asked?.asked.background === true && asked.asked.state === "working";
+  // Counted again as the AI's marks land, as at a run's end, so the button says what it marked.
+  const { health, counted } = useMindHealth(editor, doc, running !== undefined || asked !== null);
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
   useWatchAddedDocuments(editor, mindId);
-  // A check that finished keeps the badge's one width until the User types, as a running one
-  // does; what it marked is the Note's resting state's to say (#2519).
-  const justChecked = useJustChecked(editor, running ?? null, () => 0);
+  const justChecked = useJustChecked(editor, running !== undefined || backgroundRun);
   const problem = useChecks((state) => state.problems[mindId] !== undefined);
   const askingMind = useMindCheck((state) => state.asking[mindId] !== undefined);
   const askingContradictions = useContradictions((state) => state.asking[mindId] !== undefined);
   const place = useCardPlace(mindId);
   const open = useChecks((state) => state.cardOpen[place] === true);
-  // Planned only while the card is open: the estimate is what the card shows before a press.
+  // Planned only while the card is open: it says when nothing changed since the last check.
   const planned = useCheckThisMindPlan(doc, mindId, running !== undefined || !open);
-  const { line: estimate, state: estimateState } = useCheckEstimate(mindId, open ? planned : null);
   const state = noteStateOf(health, unread.length, narrowUnread.length);
-  // Read with the badge, not with the card: the card keeps the height it opens with.
+  // Read with the button, not with the card: the card keeps the height it opens with.
   const checkDecision = useCheckDecision();
-  const input: BadgeInput = {
-    marks: {
-      contradicted: health.contradicted.length,
-      unsupported: health.unsupported.length,
-      notFound: health.notFound.length,
+  // A run on the User's own AI that ends in a failure says why in the card, as a problem does.
+  const askedFailed = asked?.asked.state === "failed";
+  const waiting = askingMind || askingContradictions || problem || askedFailed;
+  const view = checkButtonOf(
+    {
+      state,
+      running: run
+        ? { words: run.words, done: run.done, total: run.total }
+        : backgroundRun && asked
+          ? { words: asked.words, done: 0, total: 0 }
+          : null,
+      asked:
+        asked && !backgroundRun
+          ? { short: asked.short, words: asked.words, failed: askedFailed }
+          : null,
+      waiting,
+      justChecked,
     },
-    checkable: health.checkable,
-    toCheck: health.toCheck.length,
-    running: running !== undefined || asked !== null,
-    asking: askingMind || askingContradictions,
-    problem,
-    checked: justChecked,
-    quiet,
-  };
+    t,
+    language,
+  );
   return (
     <BadgeFrame
       mindId={mindId}
-      badge={badgeOf(input)}
-      state={input.running ? null : state}
+      view={view}
       counted={counted}
-      ask={input.asking || problem}
-      // A problem lands in a card that opened with less, as a Check pressed in it leaves one: the
-      // card takes its height again then, so the line is not left below its fold (#3533).
+      ask={waiting}
+      // A problem lands in a card that opened with less, as a Check pressed with it open leaves
+      // one: the card takes its height again then, so the line is not left below its fold (#3533).
       holdKey={problem ? "problem" : asked ? "asked" : "plain"}
-      inStrip={inStrip}
-      running={
-        run ? (
-          <RunningText run={run} />
-        ) : (
-          asked && (
-            <span data-testid="badge-asked" data-state={asked.asked.state} title={asked.words}>
-              {asked.short}
-            </span>
-          )
-        )
+      onCheck={() => void startCheckAsking(mindId)}
+      onStop={
+        running
+          ? () => stopCheck(mindId)
+          : backgroundRun
+            ? () => void stopBackgroundCheck(mindId)
+            : null
       }
-      runWords={run?.words ?? asked?.words ?? null}
-      share={run?.share ?? null}
-      onStop={running ? () => stopCheck(mindId) : null}
       actions={
         <CheckActions
           editor={editor}
@@ -229,11 +198,6 @@ function MindBadge({
           mindId={mindId}
           askingMind={askingMind}
           planned={planned}
-          estimate={estimate}
-          estimateState={estimateState}
-          settled={
-            checkedAll !== null && health.toCheck.length === 0 && health.checking.length === 0
-          }
         />
       }
     >
@@ -251,25 +215,23 @@ function MindBadge({
   );
 }
 
+/**
+ * The card's foot, which the held, scrolling body never hides: the question before a paid run,
+ * the line that says nothing changed since the last check, the one press that fixes what the
+ * check found, and Stop while a run goes. The Check itself is the Note's button (#3794).
+ */
 export function CheckActions({
   editor,
   doc,
   mindId,
   askingMind,
   planned,
-  estimate,
-  estimateState,
-  settled = false,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   askingMind: boolean;
   planned: Planned | null;
-  estimate: EstimateLine | null;
-  estimateState: CheckEstimateView["state"];
-  /** The Note has a whole check and no sentence left to check: what the plan says, before it lands. */
-  settled?: boolean;
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
@@ -278,40 +240,9 @@ export function CheckActions({
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
   const language = useLanguage();
-  // The price line stays as it was through a run and until a new estimate replaces it, so the
-  // foot never goes blank and keeps its height until the card closes.
-  const [lastPrice, setLastPrice] = useState<EstimateLine | null>(estimate);
-  useEffect(() => {
-    if (!running && estimate) setLastPrice(estimate);
-  }, [estimate, running]);
-  const price = estimate ?? lastPrice;
-  // While the User's own AI is asked to check, the card's line says how that goes and asks again
-  // itself: a second Check here would ask once more (#3587). A run in the background is stopped
-  // where Check was, as a run on a model is (#3756).
+  // A run in the background on the User's own AI is stopped here as a run on a model is (#3756).
   const askedNow = useAskedAgent({ kind: "check", mindId });
-  const asked = askedNow !== null;
   const backgroundRun = askedNow?.asked.background === true && askedNow.asked.state === "working";
-  const stoppable = running || backgroundRun;
-  // The press disables Check and the focus falls to the page: it goes to Stop, so a keyboard User
-  // can stop the run, and back to Check when the run ends. A focus somewhere else, such as the
-  // composer being typed in, stays where the User put it.
-  const checkPress = useRef<HTMLButtonElement>(null);
-  const stopPress = useRef<HTMLButtonElement>(null);
-  const wasStoppable = useRef(stoppable);
-  useLayoutEffect(() => {
-    if (wasStoppable.current === stoppable) return;
-    wasStoppable.current = stoppable;
-    const active = document.activeElement;
-    const lost =
-      !(active instanceof HTMLElement) ||
-      active === document.body ||
-      !active.isConnected ||
-      active === checkPress.current ||
-      active.matches(":disabled");
-    if (!lost) return;
-    if (stoppable) stopPress.current?.focus();
-    else checkPress.current?.focus();
-  }, [stoppable]);
   const correctable = useEditorState({
     editor,
     selector: ({ editor: current }) => correctableCount(current),
@@ -322,110 +253,80 @@ export function CheckActions({
   });
   const askAll = useAskAll(editor, mindId, true);
   const noModel = useNoModel();
-  // With no AI to check with, the card's line offers what sets one up: a Check would ask again.
-  // Once a model is set up, the line it left behind gives way to Check again.
-  const notReady = useChecks((state) => state.problems[mindId]?.kind === "not-ready") && noModel;
-  const pressHidden = running || asked || notReady;
-  // Check keeps its room under Stop while a run goes; where the card's line offers the next step,
-  // there is no Check to keep room for.
-  const pressRoom = !notReady && (!asked || backgroundRun);
   // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
   const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
-  // Nothing changed since the last check: checking again is a quiet choice, never the card's lead.
-  const nothingNew = planned === null ? settled : planned.plan.kind === "unchanged";
-  const again = !pressHidden && nothingNew;
-  if (askingMind) return <MindCheckAsk mindId={mindId} />;
-  if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
+  // While the card's line offers to install or connect an AI, that is its lead (#3794).
+  const connectLeads = useChecks((state) => state.problems[mindId]?.kind === "not-ready");
+  if (askingMind)
+    return (
+      <CardFoot>
+        <MindCheckAsk mindId={mindId} />
+      </CardFoot>
+    );
+  if (askingContradictions)
+    return (
+      <CardFoot>
+        <ContradictionAsk doc={doc} mindId={mindId} />
+      </CardFoot>
+    );
   const unchangedPlan = unchanged && planned?.plan.kind === "unchanged" ? planned.plan : null;
   // A foot with nothing in it would be an empty band under the card's line (#3756).
-  if (!pressRoom && !running && fixes === 0 && !askAll && !price && unchangedPlan === null) {
-    return null;
-  }
+  if (!running && !backgroundRun && fixes === 0 && !askAll && unchangedPlan === null) return null;
   return (
-    <>
+    <CardFoot>
       {unchangedPlan && <MindUnchanged mindId={mindId} since={unchangedPlan.since} />}
-      {price && (
-        <div className="check-card-estimate">
-          <EstimateMeta testId="check-estimate" line={price} />
-        </div>
-      )}
-      <div className="check-card-actions">
-        {noModel && fixes > 0 && (
-          <button
-            type="button"
-            data-testid="badge-correct-contradictions"
-            disabled={running || editing}
-            className={buttonStyle("primary", "sm")}
-            onClick={() => {
-              if (correctContradictions(editor, mindId, doc) === 0) return;
-              setCheckCardOpen(place, false);
-              requestAnimationFrame(() => {
-                if (!editor.isDestroyed) editor.view.focus();
-              });
-            }}
-          >
-            {t("claim.correction.badge", {
-              count: new Intl.NumberFormat(language).format(correctable),
-            })}
-          </button>
-        )}
-        {!noModel && fixes > 0 && (
-          <button
-            type="button"
-            data-testid="badge-fix-sentences"
-            disabled={running || editing}
-            className={buttonStyle("primary", "sm")}
-            onClick={() => {
-              setCheckCardOpen(place, false);
-              void fixSentences(editor, mindId, doc);
-            }}
-          >
-            {t("claim.fix.badge", { count: new Intl.NumberFormat(language).format(fixable) })}
-          </button>
-        )}
-        {askAll && (
-          <AskAgentAllButton
-            editor={editor}
-            mindId={mindId}
-            ask={askAll}
-            primary={askLeads}
-            disabled={running || editing}
-            onAsked={() => setCheckCardOpen(place, false)}
-          />
-        )}
-        <div className="check-card-press">
-          {pressRoom && (
+      {(fixes > 0 || askAll || running || backgroundRun) && (
+        <div className="check-card-actions">
+          {noModel && fixes > 0 && (
             <button
-              ref={checkPress}
               type="button"
-              data-testid="badge-check-mind"
-              data-hidden={pressHidden ? "" : undefined}
-              aria-hidden={pressHidden || undefined}
-              disabled={pressHidden}
-              title={planned === null ? undefined : checkTitle(t, planned)}
-              className={
-                again
-                  ? "check-card-link"
-                  : buttonStyle(fixes > 0 || askLeads ? "secondary" : "primary", "sm")
-              }
-              onClick={() =>
-                void (checkPressOf(estimateState) === "ask"
-                  ? startCheckUnpriced(mindId)
-                  : startCheck(mindId, planned ?? undefined))
-              }
+              data-testid="badge-correct-contradictions"
+              disabled={running || editing}
+              className={buttonStyle(connectLeads ? "secondary" : "primary", "sm")}
+              onClick={() => {
+                if (correctContradictions(editor, mindId, doc) === 0) return;
+                setCheckCardOpen(place, false);
+                requestAnimationFrame(() => {
+                  if (!editor.isDestroyed) editor.view.focus();
+                });
+              }}
             >
-              {t(again ? "mindCheck.again" : "mindCheck.command")}
+              {t("claim.correction.badge", {
+                count: new Intl.NumberFormat(language).format(correctable),
+              })}
             </button>
           )}
-          {/* The badge above says what the run is doing: the card keeps only its Stop. */}
+          {!noModel && fixes > 0 && (
+            <button
+              type="button"
+              data-testid="badge-fix-sentences"
+              disabled={running || editing}
+              className={buttonStyle("primary", "sm")}
+              onClick={() => {
+                setCheckCardOpen(place, false);
+                void fixSentences(editor, mindId, doc);
+              }}
+            >
+              {t("claim.fix.badge", { count: new Intl.NumberFormat(language).format(fixable) })}
+            </button>
+          )}
+          {askAll && (
+            <AskAgentAllButton
+              editor={editor}
+              mindId={mindId}
+              ask={askAll}
+              primary={askLeads}
+              disabled={running || editing}
+              onAsked={() => setCheckCardOpen(place, false)}
+            />
+          )}
           {(running || backgroundRun) && (
             <div data-testid="card-foot-progress" className="check-card-progress">
               <button
-                ref={stopPress}
                 type="button"
                 data-testid={running ? "card-foot-stop" : "checks-asked-stop"}
-                className="check-badge-stop"
+                className="check-card-stop"
                 onClick={() => void (running ? stopCheck(mindId) : stopBackgroundCheck(mindId))}
               >
                 {t("checks.stop")}
@@ -433,6 +334,18 @@ export function CheckActions({
             </div>
           )}
         </div>
+      )}
+    </CardFoot>
+  );
+}
+
+/** The card's foot under its scrolling body, drawn only when something stands in it. */
+function CardFoot({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <div className="check-card-sep" />
+      <div data-testid="check-card-foot" className="check-card-end">
+        {children}
       </div>
     </>
   );
@@ -443,15 +356,11 @@ function VerifyBadge({
   doc,
   mindId,
   verification,
-  quiet,
-  inStrip,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   verification: Verification;
-  quiet: boolean;
-  inStrip: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -469,12 +378,10 @@ function VerifyBadge({
     kept && kept.sortedText === verification.sortedText ? "brief" : asked ? "asked" : "plain";
   const { rows, marked, checking } = state.marks;
   const phase = shownPhase(state.running, marked);
-  const checked = useJustChecked(editor, state.running, () => (state.problem ? 0 : marked));
-  const toCheck = state.asking
-    ? state.total
-    : state.claims === null && marked === 0
-      ? health.toCheck.length
-      : 0;
+  const justChecked = useJustChecked(editor, state.running !== null || backgroundRun);
+  // No claims found yet, with no model to find them: the sentences the User's own AI would check.
+  const unfound = state.claims === null && marked === 0 ? health.toCheck.length : 0;
+  const toCheck = state.asking ? state.total : unfound;
   // A file an agent handed over is fixed by that agent: everything its check flagged, in one request.
   const handed = useHandedFile(mindId, doc) !== null;
   const askAll = useAskAll(editor, mindId, false);
@@ -490,54 +397,53 @@ function VerifyBadge({
     done: format(marked - checking),
     total: format(marked),
   });
-  const input: BadgeInput = {
-    marks: {
+  const waiting = state.asking || state.finding || state.problem || nothing;
+  const view = verifyButtonOf(
+    {
+      running:
+        phase === "finding"
+          ? { words: t("verify.finding"), done: 0, total: 0 }
+          : phase === "checking"
+            ? { words: progress, done: marked - checking, total: marked }
+            : backgroundRun && asked
+              ? { words: asked.words, done: 0, total: 0 }
+              : null,
+      asked:
+        asked && !backgroundRun
+          ? { short: asked.short, words: asked.words, failed: asked.asked.state === "failed" }
+          : null,
+      waiting,
+      justChecked,
+      toCheck,
+      marked,
       // A formula whose saved result differs needs a look as the card counts it (#3278, #3493).
-      contradicted: rows.contradicted.length + (verification.workbook?.differs.length ?? 0),
-      unsupported: rows.unsupported.length,
+      look:
+        rows.contradicted.length +
+        rows.unsupported.length +
+        (verification.workbook?.differs.length ?? 0),
       notChecked: rows.notChecked.length,
-      notYetCited: rows.notYetCited.length,
     },
-    checkable: Math.max(state.total, health.checkable),
-    toCheck,
-    running: state.running !== null || asked !== null,
-    asking: state.asking,
-    problem: state.problem || nothing,
-    checked: state.running ? null : checked,
-    quiet,
+    t,
+    language,
+  );
+  // One press checks, as the card's question does, unless the card asks it with a price; claims
+  // not found yet are found first with a model, or checked by the User's own AI without one.
+  const check = () => {
+    if (state.asking) {
+      if (state.estimate === null) void checkClaims(mindId, doc);
+      else setCheckCardOpen(place, true);
+    } else if (!noModel) void findClaims(mindId, doc);
+    else if (agents.length > 0) void askToCheck(mindId);
+    else setCheckCardOpen(place, true);
   };
   return (
     <BadgeFrame
       mindId={mindId}
-      badge={badgeOf(input)}
-      state={null}
+      view={view}
       counted={counted}
-      ask={input.asking || state.finding || input.problem}
+      ask={waiting}
       holdKey={holdKey}
-      inStrip={inStrip}
-      running={
-        phase === "finding" ? (
-          t("verify.finding")
-        ) : phase === "checking" ? (
-          <span data-testid="badge-progress" className="tabular-nums">
-            {progress}
-          </span>
-        ) : (
-          asked && (
-            <span data-testid="badge-asked" data-state={asked.asked.state} title={asked.words}>
-              {asked.short}
-            </span>
-          )
-        )
-      }
-      runWords={
-        phase === "finding"
-          ? t("verify.finding")
-          : phase === "checking"
-            ? progress
-            : (asked?.words ?? null)
-      }
-      share={phase === "checking" && marked > 0 ? (marked - checking) / marked : null}
+      onCheck={check}
       onStop={
         state.running !== null
           ? () => stopVerify(mindId)
@@ -550,26 +456,30 @@ function VerifyBadge({
         holdKey === "brief" &&
         state.outcome?.kind !== "no-documents" &&
         state.outcome?.kind !== "nothing" ? (
-          <VerifyAsk
-            mindId={mindId}
-            doc={doc}
-            total={state.total}
-            estimate={state.estimate}
-            onNotNow={() => setCheckCardOpen(place, false)}
-          />
+          <CardFoot>
+            <VerifyAsk
+              mindId={mindId}
+              doc={doc}
+              total={state.total}
+              estimate={state.estimate}
+              onNotNow={() => setCheckCardOpen(place, false)}
+            />
+          </CardFoot>
         ) : (
           handed &&
           askAll && (
-            <div className="check-card-actions">
-              <AskAgentAllButton
-                editor={editor}
-                mindId={mindId}
-                ask={askAll}
-                primary
-                disabled={state.running !== null || backgroundRun}
-                onAsked={() => setCheckCardOpen(place, false)}
-              />
-            </div>
+            <CardFoot>
+              <div className="check-card-actions">
+                <AskAgentAllButton
+                  editor={editor}
+                  mindId={mindId}
+                  ask={askAll}
+                  primary
+                  disabled={state.running !== null || backgroundRun}
+                  onAsked={() => setCheckCardOpen(place, false)}
+                />
+              </div>
+            </CardFoot>
           )
         )
       }
@@ -579,7 +489,7 @@ function VerifyBadge({
             <button
               type="button"
               data-testid="checks-asked-stop"
-              className="check-badge-stop"
+              className="check-card-stop"
               onClick={() => void stopBackgroundCheck(mindId)}
             >
               {t("checks.stop")}
@@ -626,45 +536,36 @@ function noteHasTab(mindId: string): boolean {
 }
 
 /**
- * The badge and its card. The card opens by itself when `ask` turns on: a
- * question before a paid run, or a problem with a check the User started.
- * With no badge, an empty anchor in its place keeps the card where it opens.
+ * The Check button and its card. The card opens by itself when `ask` turns on: a question before
+ * a paid run, or a problem with a check the User started. With no button, an empty anchor in its
+ * place keeps the card where it opens. Pressed on the line above the Note's input, the card opens
+ * from there instead.
  */
 function BadgeFrame({
   mindId,
-  badge,
-  state,
+  view,
   counted,
   ask,
   holdKey,
-  inStrip,
-  running,
-  runWords,
-  share,
+  onCheck,
   onStop,
   foot,
   actions,
   children,
 }: {
   mindId: string;
-  badge: Badge | null;
-  /** A Mind's resting state (D266); null for a Verify run, which shows its own marks. */
-  state: NoteState | null;
+  view: CheckButtonView | null;
   /** Whether the Note's health the card counts is counted from the Note as it is now. */
   counted(): boolean;
   ask: boolean;
   /** When it changes, the card takes the height of what is in it now, as at its first paint. */
   holdKey?: string;
-  inStrip: boolean;
-  running: ReactNode;
-  /** What `running` says, in words: the badge's tooltip while a run is on. */
-  runWords: string | null;
-  /** The part of the run checked, from 0 to 1, once counted. */
-  share: number | null;
-  /** Null for what runs elsewhere, such as the User's own AI checking: nothing here can stop it. */
+  /** The press while sentences wait: the Note's one Check. */
+  onCheck(): void;
+  /** Null for what runs elsewhere, such as the User's own AI asked by its link: nothing here can stop it. */
   onStop: (() => void) | null;
   foot?: ReactNode;
-  /** The card's press and its price line, in a fixed foot the held, scrolling body never hides. */
+  /** The card's foot, which the held, scrolling body never hides. */
   actions?: ReactNode;
   children: ReactNode;
 }) {
@@ -677,9 +578,11 @@ function BadgeFrame({
     (state) => tab === undefined || frontTabOfMind(state.layout, mindId, merged)?.id === tab,
   );
   const open = useChecks((state) => state.cardOpen[place] === true);
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  // From a badge at the Note's top right (#3677) the card opens down, hanging from its top edge;
-  // from one at a page's foot it opens up, hanging from its foot.
+  const [home, setHome] = useState<HTMLElement | null>(null);
+  const from = useCheckCardFrom((state) => state.byPlace[place]);
+  const anchor = from?.isConnected ? from : home;
+  // From the button at the Note's top right (#3677) the card opens down, hanging from its top
+  // edge; from the line above the Note's input it opens up, hanging from its foot.
   const fromTop = anchor !== null && anchor.getBoundingClientRect().top < window.innerHeight / 2;
   // The card takes its first paint's height, so what lands later never moves what is above it;
   // content beyond that room scrolls, and the next open fits the result (#2313).
@@ -694,6 +597,7 @@ function BadgeFrame({
   useLayoutEffect(() => {
     if (!open) {
       setHeldHeight(null);
+      setCheckCardFrom(place, null);
       return;
     }
     if (heldHeight !== null) return;
@@ -704,9 +608,9 @@ function BadgeFrame({
       return;
     }
     // A card that opened with nothing in it has nothing to move: what lands in it sets its height,
-    // once, when it has stopped landing (#2313). Hanging from its foot under its badge it keeps
-    // the body it had at once, so what lands never covers the badge; opening down from a badge at
-    // the Note's top right (#3677), its foot goes down instead.
+    // once, when it has stopped landing (#2313). Hanging from its foot it keeps the body it had at
+    // once, so what lands never covers what it hangs from; opening down from the button at the
+    // Note's top right (#3677), its foot goes down instead.
     const content = element.firstElementChild;
     if (!content || !anchor) return;
     const rest = element.offsetHeight;
@@ -750,7 +654,7 @@ function BadgeFrame({
       card?.removeEventListener("pointerenter", touched);
       card?.removeEventListener("focusin", touched);
     };
-  }, [open, heldHeight, anchor, fromTop, counted]);
+  }, [open, heldHeight, anchor, fromTop, counted, place]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -764,38 +668,44 @@ function BadgeFrame({
     [place, mindId],
   );
   const close = (how: "escape" | "outside") => {
-    // Closed from inside, the card would leave the focus nowhere: it goes back to the badge.
+    // Closed from inside, the card would leave the focus nowhere: it goes back to the button.
     if (how === "escape" && document.activeElement?.closest(".check-card")) {
       (anchor?.querySelector("button") ?? anchor)?.focus();
     }
-    // A click into the page keeps the question for the badge to reopen; Esc closes it.
+    // A click into the page keeps the question for the button to reopen; Esc closes it.
     cardClosed(mindId, how);
     setCheckCardOpen(place, false);
   };
-  // The card is placed from this box's right edge, which the badge growing left never moves, so
-  // the run's wider badge leaves the card where it was (#1312, #2313).
+  /** The card, from where it was pressed: pressed again there, it closes, as its × does. */
+  const toggle = (pressed: HTMLElement) => {
+    const elsewhere = home !== null && !home.contains(pressed) ? pressed : null;
+    if (open && (from ?? null) === elsewhere) {
+      cardClosed(mindId, "toggle");
+      setCheckCardOpen(place, false);
+      return;
+    }
+    setCheckCardFrom(place, elsewhere);
+    setCheckCardOpen(place, true);
+  };
+  const press = (pressed: HTMLElement) => {
+    if (view?.kind === "check") onCheck();
+    else toggle(pressed);
+  };
+  useShareCheckButton(place, view && { view, stoppable: onStop !== null }, press, onStop);
+  // The card is placed from this box's right edge, which the button growing left never moves, so
+  // a run's wider button leaves the card where it was (#1312, #2313).
   return (
-    <div ref={setAnchor} className="check-badge-place">
-      {badge ? (
-        <BadgePill
-          badge={badge}
-          state={state}
-          open={open}
-          inStrip={inStrip}
-          running={running}
-          runWords={runWords}
-          share={share}
-          // In the strip its room is the same in every state, so it holds no width of its own (#2519).
-          stable={!inStrip && (badge.running || badge.checked !== null)}
-          onToggle={() => {
-            // The badge closes the card as its × does: the question closes with it.
-            if (open) cardClosed(mindId, "toggle");
-            setCheckCardOpen(place, !open);
-          }}
+    <div ref={setHome} className="note-check-frame">
+      {view ? (
+        <CheckButton
+          view={view}
+          open={open && !from}
+          place="strip"
+          onPress={press}
           onStop={onStop}
         />
       ) : (
-        <span className="check-badge-anchor" />
+        <span className="note-check-anchor" />
       )}
       {open && anchor && (
         <Popover
@@ -824,14 +734,7 @@ function BadgeFrame({
               )}
             </div>
           </div>
-          {actions && (
-            <>
-              <div className="check-card-sep" />
-              <div data-testid="check-card-foot" className="check-card-end">
-                {actions}
-              </div>
-            </>
-          )}
+          {actions}
         </Popover>
       )}
     </div>
@@ -851,7 +754,7 @@ function stepThroughCard(event: KeyboardEvent<HTMLDivElement>) {
   buttons[next]?.focus();
 }
 
-// Above the badge, and never taller than the room above it: its rows scroll instead.
+// Beside its button, and never taller than the room it opens into: its rows scroll instead.
 const placing = () => [
   offset(8),
   flip({ padding: CARD_MARGIN }),
@@ -863,286 +766,3 @@ const placing = () => [
     },
   }),
 ];
-
-/** The state's mark, as the margin draws the worst thing it found (D266). */
-function StateMark({ state }: { state: NoteState }) {
-  switch (state.mark) {
-    case "checked":
-      return <CheckMarkIcon check="found" className="mind-health-icon" />;
-    case "contradicted":
-      return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
-    case "unsupported":
-      return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
-    case "notFound":
-      return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
-    case "recheck":
-      return <ClaimMarkIcon state="needs-recheck" className="mind-health-icon" />;
-    case "notChecked":
-      return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
-    case "notYetCited":
-      return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
-  }
-}
-
-/**
- * The resting state as a mark and its count, as the badge shows it with the Note's own controls
- * (#3677): "○ 3" to check, each problem's mark and count ("≠ 1 · ! 1"), "✓ 24" checked. A checked
- * Note with something left rests on that, never on the ✓: its words stay its name.
- */
-function QuietCount({
-  state,
-  badge,
-  format,
-}: {
-  state: NoteState;
-  badge: Badge;
-  format(value: number): string;
-}) {
-  if (state.kind === "needs-look" && badge.marks.length > 0) {
-    return (
-      <span className="check-badge-quiet">
-        {badge.marks.map(({ part, count }) => (
-          <span key={part} className="check-badge-mark" data-part={part}>
-            <PartMark part={part} />
-            {format(count)}
-          </span>
-        ))}
-      </span>
-    );
-  }
-  const left = caveatMarks(state);
-  if (left.length > 0) {
-    return (
-      <span className="check-badge-quiet">
-        {state.kind === "not-yet-cited" && (
-          <span className="check-badge-mark" data-part="notYetCited">
-            <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />
-            {format(state.canBeCited)}
-          </span>
-        )}
-        {left.map((each) => (
-          <span key={each.state} className="check-badge-mark" data-part={each.state}>
-            <ClaimMarkIcon state={each.state} className="mind-health-icon" />
-            {format(each.count)}
-          </span>
-        ))}
-      </span>
-    );
-  }
-  const count =
-    state.kind === "not-checked"
-      ? state.notRecalculated > 0
-        ? state.notRecalculated
-        : state.toCheck
-      : state.kind === "not-yet-cited"
-        ? state.canBeCited
-        : state.kind === "checked"
-          ? state.checkable
-          : state.look;
-  return count > 0 ? <span className="check-badge-quiet">{format(count)}</span> : null;
-}
-
-function BadgePill({
-  badge,
-  state,
-  open,
-  inStrip,
-  running,
-  runWords,
-  share,
-  stable,
-  onToggle,
-  onStop,
-}: {
-  badge: Badge;
-  state: NoteState | null;
-  open: boolean;
-  inStrip: boolean;
-  running: ReactNode;
-  runWords: string | null;
-  share: number | null;
-  /** It keeps one width while a run is on or a finished check shows; opening the card leaves it. */
-  stable: boolean;
-  onToggle(): void;
-  onStop: (() => void) | null;
-}) {
-  const t = useT();
-  const language = useLanguage();
-  const ref = useRef<HTMLDivElement>(null);
-  useFade(ref);
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  const parts: ReactNode[] = [];
-  const resting = state === null ? null : noteStateParts(state, t, language);
-  const said = resting ?? [
-    ...badge.marks.map(({ part, count }) => partLabel(t, part, count, format(count))),
-    ...(badge.toCheck > 0
-      ? [
-          t(badge.toCheck === 1 ? "health.toCheck.one" : "health.toCheck", {
-            count: format(badge.toCheck),
-          }),
-        ]
-      : []),
-    ...(badge.checked !== null && badge.checked > 0
-      ? [t("badge.checked", { count: format(badge.checked) })]
-      : []),
-  ];
-  const label =
-    said.length > 0
-      ? t("badge.label", {
-          label: t("health.label"),
-          parts: new Intl.ListFormat(language, { type: "conjunction" }).format(said),
-        })
-      : t("health.label");
-  const runs = badge.running && Boolean(running);
-  if (runs && inStrip) {
-    // Its room holds the dot, "100%" and Stop alike, so the run's words, which have no bounded
-    // width, are its name and tooltip rather than drawn: nothing in the strip moves (#2519).
-    parts.push(
-      <span key="running" className="check-badge-running">
-        <span className="check-badge-dot" aria-hidden="true" />
-        {share !== null && (
-          <span aria-hidden="true" className="check-badge-share">
-            {new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 }).format(
-              Math.floor(share * 100) / 100,
-            )}
-          </span>
-        )}
-        <span className="sr-only">{running}</span>
-      </span>,
-    );
-  } else if (runs) {
-    parts.push(
-      <span key="running" className="check-badge-running">
-        <span className="check-badge-dot" aria-hidden="true" />
-        {running}
-      </span>,
-    );
-  } else if (state && resting) {
-    parts.push(
-      <span
-        key="state"
-        className="check-badge-mark"
-        data-part={state.mark}
-        data-tone={state.tone}
-        data-quiet-marks={
-          (state.kind === "needs-look" && badge.marks.length > 0) || caveatMarks(state).length > 0
-            ? ""
-            : undefined
-        }
-      >
-        <StateMark state={state} />
-        <span className="check-badge-words">{resting[0]}</span>
-        {state.kind === "needs-look" && (
-          <span className="check-badge-short">
-            {format(state.look > 0 ? state.look : state.unread)}
-          </span>
-        )}
-        {state.kind === "not-yet-cited" && (
-          <span className="check-badge-short">{format(state.canBeCited)}</span>
-        )}
-        {state.kind === "checked" && state.checkedAt !== null && (
-          <span className="check-badge-short">{formatDateTime(state.checkedAt, language)}</span>
-        )}
-        {/* Under 400 px the full words are hidden, so what is left is said in its short form. */}
-        {state.kind === "checked" && checkedCaveat(state, t, format) && (
-          <span className="check-badge-short check-badge-short-caveat">
-            {" · "}
-            {checkedCaveat(state, t, format)}
-          </span>
-        )}
-        {resting.slice(1).map((part) => (
-          <span key={part} className="check-badge-more">
-            <span className="check-badge-sep" aria-hidden="true">
-              ·
-            </span>
-            <span className="check-badge-unread">{part}</span>
-          </span>
-        ))}
-      </span>,
-    );
-    parts.push(<QuietCount key="quiet" state={state} badge={badge} format={format} />);
-  } else {
-    for (const { part, count } of badge.marks) {
-      parts.push(
-        <span key={part} className="check-badge-mark" data-part={part}>
-          <PartMark part={part} />
-          {format(count)}
-        </span>,
-      );
-    }
-    if (badge.toCheck > 0) {
-      parts.push(
-        <span key="to-check" className="check-badge-mark" data-part="toCheck">
-          {format(badge.toCheck)}
-          <span className="check-badge-words">{t("badge.toCheck")}</span>
-        </span>,
-      );
-    }
-    if (parts.length === 0 && badge.checked !== null && badge.checked > 0) {
-      parts.push(
-        <span key="checked" className="check-badge-mark" data-part="checked">
-          <CheckMarkIcon check="found" className="mind-health-icon" />
-          {t("badge.checked", { count: format(badge.checked) })}
-        </span>,
-      );
-    }
-    if (parts.length === 0) {
-      parts.push(
-        <span key="label" className="check-badge-mark">
-          <ClaimMarkIcon state="not-checked" className="mind-health-icon" />
-          <span className="check-badge-words">{t("health.label")}</span>
-        </span>,
-      );
-    }
-  }
-  return (
-    <div
-      ref={ref}
-      className="check-badge"
-      data-testid="check-badge"
-      data-state={state?.kind}
-      data-tone={state?.tone}
-      data-stable={stable ? "" : undefined}
-    >
-      <button
-        type="button"
-        data-testid="check-badge-open"
-        className="check-badge-open"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={runs ? undefined : label}
-        title={runs ? (inStrip ? (runWords ?? undefined) : undefined) : label}
-        onClick={onToggle}
-      >
-        {parts}
-      </button>
-      {runs && onStop && inStrip && (
-        <button
-          type="button"
-          data-testid="badge-stop"
-          className="check-badge-stop"
-          aria-label={t("checks.stop")}
-          title={t("checks.stop")}
-          onClick={onStop}
-        >
-          <StopLineIcon className="size-3.5" />
-        </button>
-      )}
-      {runs && onStop && !inStrip && (
-        <>
-          <span className="check-badge-sep" aria-hidden="true">
-            ·
-          </span>
-          <button
-            type="button"
-            data-testid="badge-stop"
-            className="check-badge-stop"
-            onClick={onStop}
-          >
-            {t("checks.stop")}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}

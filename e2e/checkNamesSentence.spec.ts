@@ -17,6 +17,7 @@ import {
   openCardMenu,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   sizeMind,
@@ -271,7 +272,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
       if (kind === "not-checked") {
         // A claim not checked keeps its quiet grey ring (#3358), and its card opens from the
-        // badge's row for it too.
+        // Checks card's row for it too.
         await expect(mark).toBeVisible();
         await expect(mark.locator("svg")).toHaveCount(1);
         await pointAndClick(window, (await checkCard(window)).getByTestId("health-toCheck"));
@@ -386,7 +387,7 @@ for (const language of ["en", "zh-CN"] as const) {
       element.scrollTop = 0;
     });
     const unsupported = paragraphOf(words.unsupported);
-    // Clear of the page's top and of the fade and the badge at its foot.
+    // Clear of the page's top and of the fade at its foot.
     const inView = async () => {
       const [view, target] = await Promise.all([box(scroller), box(unsupported)]);
       return target.y >= view.y + 64 && target.y + target.height <= view.y + view.height - 64;
@@ -405,8 +406,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card).toHaveCount(0);
     await expect(outlined).toHaveCount(0);
 
-    await window.getByTestId("check-badge-open").focus();
-    await window.keyboard.press("Enter");
+    // Sentences wait here, so the Note's button would check: ⌘K's Checks opens the card.
+    await runCommand(window, "mind.checks", language === "en" ? "Checks" : "核对结果");
     await expect(health).toBeVisible();
     await health.getByTestId("health-look").focus();
     await window.keyboard.press("Enter");

@@ -5,7 +5,7 @@ import type { MessageKey } from "../../../shared/i18n";
 import { addAnswer } from "../addToNote";
 import { copyAnswer, notesToAdd } from "../answerEditors";
 import { useAnswers } from "../answers";
-import { askOnPill } from "../askYourAi";
+import { agentsToAsk, askOnPill, noModel } from "../askYourAi";
 import { shownDock } from "../assistantPlace";
 import { useComposer } from "../composer";
 import {
@@ -27,6 +27,7 @@ import { removedModelNow } from "../modelInUse";
 import { requestModelMenu } from "../modelMenu";
 import { focusNoteAsk, noteAskShownNow } from "../ownAiInNote";
 import { hiddenForOwnAiNow, ownAiPillNow } from "../ownAiPanel";
+import { quietAssistantNow } from "../quietAssistant";
 import { exampleMindIds, useAppStore } from "../store";
 import {
   assistantHandle,
@@ -93,6 +94,11 @@ function askOrEdit(): void {
     own();
     return;
   }
+  const connect = noAiConnect();
+  if (connect) {
+    connect();
+    return;
+  }
   const viewer = viewerHandleInUse("selection", useAppStore.getState().layout);
   if (viewer?.ask) {
     viewer.ask();
@@ -104,6 +110,32 @@ function askOrEdit(): void {
     if (note.editor.view.hasFocus()) startEditing(note.editor, note.mindId);
   }
   focusComposer();
+}
+
+/**
+ * ⌘J with no model set up and no AI app connected (#3819): leads to the same "Connect your AI"
+ * line shown at the example Note's foot or on Home instead of opening the model-setup panel. A
+ * profile that already has a model set up is unchanged.
+ */
+function noAiConnect(): (() => void) | null {
+  if (!noModel() || agentsToAsk(null).length > 0) return null;
+  if (!quietAssistantNow()) return null;
+  const note = noteHandle.current;
+  const noteTarget = note && !note.editor.isDestroyed ? noteConnectOf(note.mindId) : null;
+  if (noteTarget) {
+    return () => {
+      noteTarget.scrollIntoView({ block: "nearest" });
+      noteTarget.focus(RING);
+    };
+  }
+  const homeTarget = document.querySelector<HTMLElement>('[data-testid="home-ask-connect"]');
+  if (homeTarget && homeTarget.offsetParent !== null) {
+    return () => {
+      homeTarget.scrollIntoView({ block: "nearest" });
+      homeTarget.focus(RING);
+    };
+  }
+  return () => store().openSettings("ai");
 }
 
 /**
@@ -143,9 +175,11 @@ const RING: FocusOptions & { focusVisible: boolean } = { focusVisible: true };
 
 /** The first action at the foot of a Note none of the User's AIs reads (Move to…, Settings or Connect). */
 const noteConnectOf = (mindId: string): HTMLElement | null => {
-  const foot = `[data-testid="note-foot-ask"][data-mind-id="${CSS.escape(mindId)}"]`;
+  const id = CSS.escape(mindId);
+  const foot = `[data-testid="note-foot-ask"][data-mind-id="${id}"]`;
+  const example = `.example-line[data-mind-id="${id}"]`;
   return document.querySelector<HTMLElement>(
-    `${foot} [data-testid="note-ask-connect"], ${foot} [data-testid="note-ask-move"], ${foot} [data-testid="note-ask-settings"]`,
+    `${foot} [data-testid="note-ask-connect"], ${example} [data-testid="note-ask-connect"], ${foot} [data-testid="note-ask-move"], ${foot} [data-testid="note-ask-settings"]`,
   );
 };
 
@@ -266,7 +300,7 @@ export const assistantCommands: readonly Command[] = [
     group: "main",
     top: 10,
     reversible: true,
-    when: () => isThere() || ownAiAsk() !== null,
+    when: () => isThere() || ownAiAsk() !== null || noAiConnect() !== null,
     run: askOrEdit,
   },
   {

@@ -14,6 +14,7 @@ import {
   interceptOpenDialog,
   launchApp,
   motionSettled,
+  noteCheck,
   openCardMenu,
   openExportOptions,
   openPageMenu,
@@ -31,7 +32,7 @@ import {
 /*
  * Verify (#97): "Check someone else’s file…" in the + menu takes a PDF someone else
  * wrote, or a Word file (#110). It opens beside the Mind made of its text, whose claims are found;
- * the check badge's card checks them, and each gets a mark in the margin.
+ * the Checks card, or the Note's Check button, checks them, and each gets a mark in the margin.
  * The scripted model (src/main/fakeChat/) takes every sentence but
  * thanks for a claim, finds one supported when it shares three words with a
  * line of a Document, contradicted when it also has a number the line
@@ -128,7 +129,7 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   await verifyFromPlusMenu(window, "Check someone else’s file…");
 
   await expect(frontMindName(window)).toHaveText("Checking: Harbour report");
-  // The question opens the badge's card by itself.
+  // The question opens the Checks card by itself.
   const ask = window.getByTestId("check-card").getByTestId("verify-ask");
   await expect(ask).toBeVisible();
   const card = await checkCard(window);
@@ -142,9 +143,11 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   const check = ask.getByTestId("verify-check");
   await expect(check).toHaveText("Check 4 claims");
   await expect(ask).toContainText("Check it against your Documents?");
-  await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Checks: 4 sentences not checked yet",
-  );
+  // The Note's Check counts its claims, as its card's question does.
+  const button = noteCheck(window);
+  await expect(button).toHaveAttribute("data-state", "check");
+  await expect(button.locator(".note-check-count")).toHaveText("4");
+  await expect(button).toHaveAttribute("title", "Check 4 claims");
   // A model on this computer costs nothing: no estimate.
   await expect(ask.getByTestId("verify-estimate")).toHaveCount(0);
   await screenshot(window, "verify-start-en");
@@ -160,6 +163,8 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   // Need a look is only what the checks found; the claim no model checked is a row of its own.
   const done = card.getByTestId("verify-done");
   await expect(done).toContainText("Checked 3 of 4 claims · 2 need a look");
+  await expect(button).toHaveAttribute("data-state", "look");
+  await expect(button.locator(".note-check-words")).toHaveText("2 need a look");
   await verifyRows(window);
   await expect(done.getByTestId("verify-contradicted")).toContainText("1 contradicted");
   await expect(done.getByTestId("verify-unsupported")).toContainText("1 unsupported");
@@ -223,8 +228,8 @@ test("Verify a PDF: its Mind opens beside it, its claims are checked, and the co
   expect(await paletteOffers(window, "check.chooseCitation", "Choose the Citation")).toBe(0);
 
   // Editing a claim makes its check need a re-check, as Check against Documents' do: a row of its own.
-  // The card opens down from the badge at the Note's top right, over its first lines (#3677): it
-  // closes first.
+  // The card opens down from the Check button at the Note's top right, over its first lines
+  // (#3677): it closes first.
   await window.keyboard.press("Escape");
   await expect(window.getByTestId("check-card")).toHaveCount(0);
   const first = editor.locator(":scope > p").nth(1);
@@ -470,11 +475,11 @@ test("In Chinese and a narrow window: the same, in Chinese", async () => {
   const card = await checkCard(window);
   await expect(card).toContainText("要对照你的文档核对吗？");
   await expect(card.getByTestId("verify-check")).toHaveText("核对 4 条说法");
-  // The card keeps to the Mind's side: its right edge at the badge's, the PDF's tab beside it.
+  // The card keeps to the Mind's side: its right edge at the Check button's, the PDF's tab beside it.
   const cardBox = await card.boundingBox();
-  const badgeBox = await window.getByTestId("check-badge").boundingBox();
+  const buttonBox = await noteCheck(window).boundingBox();
   expect((cardBox?.x ?? 0) + (cardBox?.width ?? 0)).toBeLessThanOrEqual(
-    (badgeBox?.x ?? 0) + (badgeBox?.width ?? 0) + 1,
+    (buttonBox?.x ?? 0) + (buttonBox?.width ?? 0) + 1,
   );
   await screenshot(window, "verify-start-zh-narrow");
 

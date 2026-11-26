@@ -404,6 +404,95 @@ export function noteStateUnreadWords(
 
 let schema: ReturnType<typeof getSchema> | undefined;
 
+const yieldRendererTurn = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+const YIELD_BYTES = 100_000;
+
+interface ParsedNote {
+  doc: Y.Doc;
+  root: ReturnType<typeof yXmlFragmentToProseMirrorRootNode>;
+  scope: ReturnType<typeof mindScopeOf>;
+  skipped: ReadonlySet<string>;
+  omitted: ReturnType<typeof opinionSentenceRanges>;
+  filedAnswers: ReadonlySet<string>;
+  footing: ReadonlyMap<string, Omit<FigureFootingNow, "id">>;
+  figurePlaces: ReturnType<typeof figurePlacesOf>;
+}
+
+function parseNote(
+  doc: Y.Doc,
+  root: ReturnType<typeof yXmlFragmentToProseMirrorRootNode>,
+  cellFigures: readonly CellFigurePlace[],
+  footing: readonly FigureFootingNow[],
+): ParsedNote {
+  const origins = allOrigins(doc);
+  const filedAnswers = new Set<string>();
+  root.forEach((block) => {
+    const id = block.attrs[BLOCK_ID_ATTRIBUTE];
+    const reference = typeof id === "string" ? origins.get(id)?.from : undefined;
+    if (reference?.artifactKind === "conversation" && reference.anchor.kind === "message") {
+      filedAnswers.add(reference.anchor.messageId);
+    }
+  });
+  return {
+    doc,
+    root,
+    scope: mindScopeOf(doc),
+    skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
+    omitted: opinionSentenceRanges(root, doc),
+    filedAnswers,
+    footing: new Map(footing.map(({ id, ...live }) => [id, live])),
+    figurePlaces: figurePlacesOf(cellFigures),
+  };
+}
+
+function evaluateParsedNote(
+  parsed: ParsedNote,
+  {
+    documents,
+    keptCitationTexts,
+    folderId,
+    keptInside = null,
+  }: {
+    documents: readonly LiveDocument[] | null;
+    keptCitationTexts: readonly KeptCitationText[];
+    folderId: string | null;
+    keptInside?: ((documentId: string) => string | null) | null;
+  },
+): NoteReading {
+  const { claims, kept } = claimsOf(parsed.root, {
+    footing: parsed.footing,
+    versions:
+      documents === null
+        ? null
+        : new Map(documents.map((document) => [document.id, document.contentHash])),
+    folderId,
+    scope: parsed.scope,
+    figurePlaces: parsed.figurePlaces,
+    keptInside,
+  });
+  const health = noteHealth(parsed.root, {
+    claims,
+    kept,
+    skipped: parsed.skipped,
+    omitted: parsed.omitted,
+    citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
+    tableShown: (table) =>
+      tableShownIn(parsed.doc, table.toJSON(), "en", liveVersions(documents), keptInside),
+    tableKept: (table) => keptBinding(parsed.doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
+  });
+  const requests = new Set(
+    claims.map((claim) => claim.check.request).filter((request) => request !== ""),
+  );
+  const unread = checkUnreadOf(parsed.doc, requests).length;
+  const narrowUnread = checkUnreadOf(parsed.doc, narrowRequestsOf(claims)).length;
+  return {
+    health,
+    state: noteStateOf(health, unread, narrowUnread),
+    filedAnswers: parsed.filedAnswers,
+  };
+}
+
 /**
  * A Mind's health and state from its Yjs document, as the editor reads them, for Home's rows
  * and the Export menu, and the Answers its live Blocks hold: a Block deleted since keeps its
@@ -432,46 +521,12 @@ export function readNoteState({
 }): { health: NoteHealth; state: NoteState | null; filedAnswers: ReadonlySet<string> } {
   schema ??= getSchema(noteExtensions());
   const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
-  const { claims, kept } = claimsOf(root, {
-    footing: new Map(footing.map(({ id, ...live }) => [id, live])),
-    versions:
-      documents === null
-        ? null
-        : new Map(documents.map((document) => [document.id, document.contentHash])),
+  return evaluateParsedNote(parseNote(doc, root, cellFigures, footing), {
+    documents,
+    keptCitationTexts,
     folderId,
-    scope: mindScopeOf(doc),
-    figurePlaces: figurePlacesOf(cellFigures),
     keptInside,
   });
-  const health = noteHealth(root, {
-    claims,
-    kept,
-    skipped: new Set(mindCheckOf(doc)?.skipped ?? []),
-    omitted: opinionSentenceRanges(root, doc),
-    citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
-    tableShown: (table) =>
-      tableShownIn(doc, table.toJSON(), "en", liveVersions(documents), keptInside),
-    tableKept: (table) => keptBinding(doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
-  });
-  const requests = new Set(
-    claims.map((claim) => claim.check.request).filter((request) => request !== ""),
-  );
-  const unread = checkUnreadOf(doc, requests).length;
-  const narrowUnread = checkUnreadOf(doc, narrowRequestsOf(claims)).length;
-  const origins = allOrigins(doc);
-  const filedAnswers = new Set<string>();
-  root.forEach((block) => {
-    const id = block.attrs[BLOCK_ID_ATTRIBUTE];
-    const reference = typeof id === "string" ? origins.get(id)?.from : undefined;
-    if (reference?.artifactKind === "conversation" && reference.anchor.kind === "message") {
-      filedAnswers.add(reference.anchor.messageId);
-    }
-  });
-  return {
-    health,
-    state: noteStateOf(health, unread, narrowUnread),
-    filedAnswers,
-  };
 }
 
 /**
@@ -527,23 +582,124 @@ export const nothingLeft = (state: NoteState | null): boolean =>
     state.notRecalculated === 0 &&
     state.needsCheck === 0);
 
+export interface HomeReadingContext {
+  documents: Parameters<typeof readNoteState>[0]["documents"];
+  keptCitationTexts: Parameters<typeof readNoteState>[0]["keptCitationTexts"];
+  library: Parameters<typeof keptInsideName>[0];
+  folderId: string | null;
+}
+
+/**
+ * A decoded `MindContentSnapshot` kept in memory so Home can re-evaluate a Note's state when
+ * Documents, kept citations or the Library change without decoding its Yjs document again (#3822).
+ */
+export interface DecodedHomeSnapshot {
+  readonly doc: Y.Doc;
+  readonly hasTables: boolean;
+  read(context: HomeReadingContext, yieldTurn?: () => Promise<void>): Promise<NoteReading>;
+  readSync(context: HomeReadingContext): NoteReading;
+  dispose(): void;
+}
+
+/**
+ * Decodes a Mind snapshot once, yielding between heavy steps on long Notes so the renderer stays
+ * responsive (#3822). Call `dispose()` when the snapshot is replaced or no longer needed.
+ */
+export async function decodeHomeSnapshot(
+  snapshot: Pick<MindContentSnapshot, "state" | "cellFigures" | "footing">,
+  yieldTurn: () => Promise<void> = yieldRendererTurn,
+): Promise<DecodedHomeSnapshot> {
+  const heavy = snapshot.state.byteLength >= YIELD_BYTES;
+  const doc = new Y.Doc();
+  let disposed = false;
+  try {
+    Y.applyUpdate(doc, snapshot.state);
+    if (heavy) await yieldTurn();
+    schema ??= getSchema(noteExtensions());
+    const root = yXmlFragmentToProseMirrorRootNode(doc.getXmlFragment(MIND_CONTENT_FIELD), schema);
+    if (heavy) await yieldTurn();
+    const parsed = parseNote(doc, root, snapshot.cellFigures, snapshot.footing);
+    if (heavy) await yieldTurn();
+    const hasTables = snapshot.cellFigures.length > 0 || snapshot.footing.length > 0;
+    const readSync = ({
+      documents,
+      keptCitationTexts,
+      library,
+      folderId,
+    }: HomeReadingContext): NoteReading =>
+      evaluateParsedNote(parsed, {
+        documents,
+        keptCitationTexts,
+        folderId,
+        keptInside: (documentId) => keptInsideName(library, documentId, folderId),
+      });
+    const read = async (
+      { documents, keptCitationTexts, library, folderId }: HomeReadingContext,
+      turn: () => Promise<void> = yieldTurn,
+    ): Promise<NoteReading> => {
+      const keptInside = (documentId: string) => keptInsideName(library, documentId, folderId);
+      const { claims, kept } = claimsOf(parsed.root, {
+        footing: parsed.footing,
+        versions:
+          documents === null
+            ? null
+            : new Map(documents.map((document) => [document.id, document.contentHash])),
+        folderId,
+        scope: parsed.scope,
+        figurePlaces: parsed.figurePlaces,
+        keptInside,
+      });
+      if (heavy) await turn();
+      const health = noteHealth(parsed.root, {
+        claims,
+        kept,
+        skipped: parsed.skipped,
+        omitted: parsed.omitted,
+        citationCheck: (attributes) =>
+          citationState(attributes, documents, keptCitationTexts).check,
+        tableShown: (table) =>
+          tableShownIn(parsed.doc, table.toJSON(), "en", liveVersions(documents), keptInside),
+        tableKept: (table) =>
+          keptBinding(parsed.doc, table.attrs[ANALYSIS_TABLE_ATTRIBUTE]) !== null,
+      });
+      const requests = new Set(
+        claims.map((claim) => claim.check.request).filter((request) => request !== ""),
+      );
+      const unread = checkUnreadOf(parsed.doc, requests).length;
+      const narrowUnread = checkUnreadOf(parsed.doc, narrowRequestsOf(claims)).length;
+      return {
+        health,
+        state: noteStateOf(health, unread, narrowUnread),
+        filedAnswers: parsed.filedAnswers,
+      };
+    };
+    return {
+      doc,
+      hasTables,
+      read,
+      readSync,
+      dispose() {
+        if (disposed) return;
+        disposed = true;
+        doc.destroy();
+      },
+    };
+  } catch (error) {
+    if (!disposed) {
+      disposed = true;
+      doc.destroy();
+    }
+    throw error;
+  }
+}
+
 /**
  * One Note's reading as Home's rows show it, from its stored content: behind a walled Folder the
  * Note is outside, what a Document inside it backs counts for nothing (#2378).
  */
 export function homeReading(
   snapshot: Pick<MindContentSnapshot, "state" | "cellFigures" | "footing">,
-  {
-    documents,
-    keptCitationTexts,
-    library,
-    folderId,
-  }: {
-    documents: Parameters<typeof readNoteState>[0]["documents"];
-    keptCitationTexts: Parameters<typeof readNoteState>[0]["keptCitationTexts"];
-    library: Parameters<typeof keptInsideName>[0];
-    folderId: string | null;
-  },
+  { documents, keptCitationTexts, library, folderId }: HomeReadingContext,
 ): NoteReading {
   const doc = new Y.Doc();
   try {

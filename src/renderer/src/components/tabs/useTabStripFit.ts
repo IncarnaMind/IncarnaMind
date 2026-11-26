@@ -21,9 +21,9 @@ export const SHOW_ALL_PX = 32;
 // The shown tab's least width, `.tab-list[data-squeezed]` in styles.css.
 const SHOWN_LEAST_PX = 132;
 
-// What the Note's controls keep however tight the strip: the check's Stop and the room's end
-// margin, `.note-head-badge` in styles.css.
-const CHECK_KEPT_PX = 24;
+// What the Check keeps of its room however tight the strip: its end, where its number or its 24px
+// Stop is, and its 2px margin (`.tab-strip[data-tight] .tab-strip-note` in styles.css).
+const CHECK_KEPT_PX = 26;
 
 /** The shown tab without its name: its icon, its ✕ and their padding. */
 function chromeOf(tab: HTMLElement): number {
@@ -63,12 +63,14 @@ function nameBoxOf(tab: HTMLElement): { left: number; right: number } | null {
  * A strip too full for its tabs makes room in steps, each only while the one before isn't
  * enough, and takes them back in reverse when the room returns (`data-fit` in styles.css):
  * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends and
- * the shown tab narrowed to its least width. Short even of that, the strip is tight
- * (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
- * Note's input holds, leave it; the shown tab goes under its least width down to its icon and ✕;
- * and only then the Note's other controls give up their room from the left, the check's last and
- * its Stop never. The shown tab and the ⋯ never leave (#3765). Returns how many tabs it hides, so
- * the strip can offer them in a list (#2244).
+ * the shown tab narrowed to its least width. Short even of that, the Note's Check gives up its
+ * word, keeping its mark and number (`data-check-compact`, #3794); short still, the strip is
+ * tight (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
+ * Note's input holds, leave it, and only then the shown tab goes under its least width down to
+ * its icon and ✕. Short even of those, the Note's other controls give up their room, and then the
+ * Check its start, keeping its end, where its number or its Stop is. The shown tab, the Check and
+ * the ⋯ never leave (#3765). Returns how many tabs it hides, so the strip can offer them in a
+ * list (#2244).
  */
 export function useTabStripFit(
   strip: RefObject<HTMLElement | null>,
@@ -132,30 +134,65 @@ export function useTabStripFit(
         element.style.removeProperty("--tab-room");
         // Each step is taken only while the tabs' own extent, never the strip's `scrollWidth` (the
         // shown tab's feet reach past it, and always read as overflow), still doesn't fit.
-        band.removeAttribute("data-fit");
         delete band.dataset.tight;
+        delete band.dataset.checkCompact;
+        delete band.dataset.checkUnheld;
         const controls = band.querySelector<HTMLElement>('[data-testid="note-controls"]');
         controls?.style.removeProperty("--note-controls-room");
-        // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
-        const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
-        if (!fits()) {
-          band.dataset.fit = "label";
-          if (!fits()) band.dataset.fit = "split";
-        }
         const lead = shown === 0 ? START_GAP : 0;
         const least = SHOWN_LEAST_PX + END_GAP + lead;
+        // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
         // Short of the shown tab's least width, the strip is tight: Export and the conversation's
         // button leave it (styles.css).
-        if (shown >= 0 && roomNow() - taken < least) band.dataset.tight = "";
+        const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
+        const short = () => {
+          band.removeAttribute("data-fit");
+          if (!fits()) {
+            band.dataset.fit = "label";
+            if (!fits()) band.dataset.fit = "split";
+          }
+          return shown >= 0 && roomNow() - taken < least;
+        };
+        let tight = short();
+        // The room a run's words took, held after it ends until the User types so nothing moves,
+        // never costs the row a control: short of it, it is given back first (#3794).
+        if (tight && controls?.querySelector(".note-check[style]:not([data-running])")) {
+          band.dataset.checkUnheld = "";
+          tight = short();
+        }
+        const check = controls?.querySelector<HTMLElement>(".note-head-badge:has(.note-check)");
+        // Short still, the Check gives up its word, after Export's and before Export leaves the
+        // row or the shown tab goes under its least width (#3794).
+        if (tight && check) {
+          band.dataset.checkCompact = "";
+          tight = short();
+        }
+        if (tight) band.dataset.tight = "";
+        // The Check's whole box with its margins, rounded up, so none of it is cut while the
+        // Note's other controls give up theirs.
+        const checkRoom = () => {
+          if (!check) return 0;
+          const style = getComputedStyle(check);
+          return Math.ceil(
+            check.getBoundingClientRect().width +
+              Number.parseFloat(style.marginLeft) +
+              Number.parseFloat(style.marginRight),
+          );
+        };
+        const others = () =>
+          tight && controls ? Math.max(0, controls.scrollWidth - checkRoom()) : 0;
         const free = roomNow() - taken;
         // The shown tab then gives up its name down to its icon and ✕, and only short of those do
-        // the Note's controls give up their room, all but the check's Stop.
+        // the Note's other controls give up their room (#3765).
         const shownTab = tabs[shown];
         const floor = shownTab ? chromeOf(shownTab) + END_GAP + lead : 0;
-        const whole = band.dataset.tight !== undefined && controls ? controls.scrollWidth : 0;
-        const kept = controls?.querySelector(".check-badge") ? CHECK_KEPT_PX : 0;
-        const held = Math.max(0, whole - kept);
-        const room = free >= floor ? free : Math.min(free + held, floor);
+        const whole = tight && controls ? controls.scrollWidth : 0;
+        const held = others();
+        let room = free >= floor ? free : Math.min(free + held, floor);
+        // Short even of the tab's icon and ✕, the Check gives up its start too, never its end.
+        if (check && room < floor) {
+          room = Math.min(free + held + Math.max(0, checkRoom() - CHECK_KEPT_PX), floor);
+        }
         if (controls && room > free) {
           controls.style.setProperty("--note-controls-room", `${whole - (room - free)}px`);
         }

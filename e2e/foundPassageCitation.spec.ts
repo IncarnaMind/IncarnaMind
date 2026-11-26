@@ -6,6 +6,7 @@ import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
   checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   focusSettled,
@@ -13,6 +14,7 @@ import {
   markShownFor,
   motionSettled,
   newMind,
+  noteCheck,
   openCardMenu,
   pointAndClick,
   removeDataFolder,
@@ -25,8 +27,8 @@ import {
  * A sentence whose check found a Passage its Citation doesn't hold reads Supported, not yet cited
  * (#3019): the check writes nothing into the User's Note, the card is the Supported card with the
  * grey ring and its own line, which shows on the page with every result (#3358), the check card
- * has one row of what can be cited with Add all on it, in view as the check ends, and the badge
- * names them. Add as Citation on the card or Add all on the
+ * has one row of what can be cited with Add all on it, in view as the check ends, and the Check
+ * button names them. Add as Citation on the card or Add all on the
  * row shows the ✓ at once, each one Undo, changing the Note and nothing else, and the Citation
  * added says the check found it. The scripted model (src/main/fakeChat/checks.ts) backs a sentence
  * with the line of a Document that shares the most words with it, and finds unsupported one that
@@ -53,14 +55,14 @@ const WORDS = {
     line: "This passage backs the sentence, but the sentence doesn’t cite it yet.",
     row: "2 can be cited",
     addAll: "Add all",
-    badge: "2 can be cited",
+    button: "2 can be cited",
     found: "Found by a check of this sentence",
     mixed: {
       look: "1 needs a look",
       supported: "1 supported",
       waiting: "1 can be cited",
     },
-    mixedBadge: "1 needs a look",
+    mixedButton: "1 needs a look",
     add: "Add",
   },
   "zh-CN": {
@@ -68,10 +70,10 @@ const WORDS = {
     line: "这个段落支持这句话，但尚未添加为引用。",
     row: "2 句可添加引用",
     addAll: "全部添加",
-    badge: "2 句可添加引用",
+    button: "2 句可添加引用",
     found: "核对这句话时找到",
     mixed: { look: "1 句需要留意", supported: "1 句有依据", waiting: "1 句可添加引用" },
-    mixedBadge: "需要留意 1 处",
+    mixedButton: "需要留意 1 处",
     add: "添加",
   },
 } as const;
@@ -201,10 +203,11 @@ async function shownInBody(panel: Locator, row: Locator) {
     .toBe("inside");
 }
 
-/** Check in the check card, which stays open while the check runs and after it ends. */
+/** The Note's Check pressed with the check card open, which stays open while the check runs and after it ends. */
 async function checkFromCard(window: Page) {
   const card = await checkCard(window);
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
+  await checkNote(window);
+  await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check");
   await expect(card.getByTestId("card-foot-stop")).toHaveCount(0, { timeout: 30_000 });
   return card;
 }
@@ -245,11 +248,12 @@ for (const [language, width] of [
     await expect(panel.getByTestId("health-supported")).toHaveCount(0);
     await screenshot(window, `${language}-panel`);
     await window.keyboard.press("Escape");
-    const badge = window.getByTestId("check-badge");
-    await expect(badge).toHaveAttribute("data-state", "not-yet-cited");
-    await expect(badge).toContainText(words.badge);
+    const button = noteCheck(window);
+    await expect(button).toHaveAttribute("data-state", "said");
+    await expect(button.locator(".note-check-words")).toContainText(words.button);
+    await expect(button).toHaveAttribute("title", words.button);
     await screenshot(window, `${language}-page`);
-    await screenshot(window, `${language}-badge`, badge);
+    await screenshot(window, `${language}-button`, button);
 
     // One at a time: Add as Citation on the card, the ✓ at once, and Undo takes it back.
     await markShownFor(window, marks(window).nth(0));
@@ -304,7 +308,7 @@ for (const [language, width] of [
     await app.close();
   });
 
-  test(`a Note with a ✓, a sentence that needs a look and one not yet cited shows a row each, and its badge says what presses most (${language}, ${width}px)`, async () => {
+  test(`a Note with a ✓, a sentence that needs a look and one not yet cited shows a row each, and its Check button says what presses most (${language}, ${width}px)`, async () => {
     test.setTimeout(180_000);
     const words = WORDS[language];
     const opened = await launched();
@@ -324,7 +328,8 @@ for (const [language, width] of [
     await expect(panel.getByTestId("health-toCheck")).toHaveCount(0);
     await screenshot(window, `${language}-mixed`);
     await window.keyboard.press("Escape");
-    await expect(window.getByTestId("check-badge")).toContainText(words.mixedBadge);
+    await expect(noteCheck(window)).toHaveAttribute("data-state", "look");
+    await expect(noteCheck(window).locator(".note-check-words")).toContainText(words.mixedButton);
     await app.close();
   });
   test(`a check that ends with nothing left shows its summary in the card it opened with (${language}, ${width}px)`, async () => {
@@ -361,7 +366,8 @@ for (const language of ["en", "zh-CN"] as const) {
       const panel = await checkCard(window);
       const before = await panel.boundingBox();
       if (!before) throw new Error("The card isn't drawn.");
-      await pointAndClick(window, panel.getByTestId("badge-check-mind"));
+      await checkNote(window);
+      await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check");
       await expect(panel.getByTestId("card-foot-stop")).toHaveCount(0, { timeout: 30_000 });
       const row = panel.getByTestId("health-notYetCited");
       await expect(row).toContainText(words.row);

@@ -95,6 +95,8 @@ export function takeTypedTrigger(editor: Editor, to: number, cancelled: boolean)
   if (!editor.state.doc.textBetween(waiting.from, end).startsWith(waiting.text)) return;
   const tr = editor.state.tr.delete(waiting.from, end);
   if (cancelled) {
+    // ProseMirror skips selectionToDOM when the editor lacks focus, so focus before dispatching.
+    editor.view.focus();
     const resolve = (pos: number) => tr.doc.resolve(Math.min(pos, tr.doc.content.size));
     tr.setSelection(TextSelection.between(resolve(waiting.anchor), resolve(waiting.head)));
   }

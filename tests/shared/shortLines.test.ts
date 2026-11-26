@@ -62,7 +62,7 @@ const EXCEPTIONS: readonly Exception[] = [
   {
     why: "Says what leaves the computer, to whom and when: ADR-0022 keeps every fact, and only repetition goes",
     pattern:
-      /^(consent\.data|privacy\.traffic|providers\.sends|status\.sends|agents\.connect\b|agents\.connectAll\.(body|reads))/,
+      /^(consent\.data|privacy\.traffic|providers\.sends|status\.sends|agents\.connect\b|agents\.connectAll\.(body|reads)|setupPage\.ai\.consent\.)/,
   },
   {
     why: "Says what leaves the computer, to whom and when: ADR-0022 keeps every fact, and only repetition goes",
@@ -104,7 +104,7 @@ const EXCEPTIONS: readonly Exception[] = [
   },
   {
     why: "Behind Details, which holds the longer explanation a line leaves out",
-    pattern: /\.details$/,
+    pattern: /\.details$|^setupPage\.ai\.details\./,
   },
   {
     why: "A Built-in Skill's whole description, behind Details; its line is the `.short` key",

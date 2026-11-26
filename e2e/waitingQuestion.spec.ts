@@ -269,7 +269,9 @@ const NORTHWIND_QUESTION = "Where does the Northwind lease for the Harbour Road 
 /** The Question typed in the Note that is open, with no model set: the setup card comes up. */
 async function askInOpenNote(window: Page, question: string): Promise<void> {
   await window.getByTestId("mind-editor").focus();
-  await window.keyboard.press("ControlOrMeta+j");
+  // With no AI app connected, ⌘J leads to Connect your AI (#3819); ⇧⌘O opens the built-in assistant.
+  await window.keyboard.press("Shift+ControlOrMeta+o");
+  await expect(window.getByTestId("composer-input")).toBeFocused();
   await window.keyboard.type(question);
   await window.keyboard.press("Enter");
   await expect(window.getByTestId("model-setup")).toBeVisible();

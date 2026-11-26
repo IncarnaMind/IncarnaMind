@@ -557,18 +557,24 @@ function stateOf(
   });
   // A folded Mind draws each mark at its sentence's end, in the text, so the fold's 40px gutter
   // stays the text's: the sentence's last word or Citation marker keeps the mark's room in its own
-  // box, exactly its own width plus 4px, so the room never makes a line of its own.
+  // box, its width plus 4px before it — and 4px after it too when the next sentence follows without
+  // a space (Chinese full-width punctuation, #3819), so the mark never sits against the next word.
   const roomsOf = inline
-    ? claims.flatMap((claim) =>
-        !markShown(claim, everyResult)
-          ? []
-          : [
-              Decoration.inline(claim.sentence.to - 1, claim.sentence.to, {
-                class: INLINE_ROOM,
-                style: `padding-right: ${(rooms.get(claim.check.id) ?? 0) + INLINE_GAP}px`,
-              }),
-            ],
-      )
+    ? claims.flatMap((claim) => {
+        if (!markShown(claim, everyResult)) return [];
+        const resolved = doc.resolve(claim.sentence.to);
+        const after =
+          resolved.parentOffset < resolved.parent.content.size
+            ? doc.textBetween(claim.sentence.to, claim.sentence.to + 1, "", "")
+            : "";
+        const trailing = after !== "" && !/\s/u.test(after) ? INLINE_GAP : 0;
+        return [
+          Decoration.inline(claim.sentence.to - 1, claim.sentence.to, {
+            class: INLINE_ROOM,
+            style: `padding-right: ${(rooms.get(claim.check.id) ?? 0) + INLINE_GAP + trailing}px`,
+          }),
+        ];
+      })
     : [];
   return {
     context,

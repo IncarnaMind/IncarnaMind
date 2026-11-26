@@ -1381,8 +1381,9 @@ export async function busyOllama() {
  */
 export async function askFirstQuestion(window: Page): Promise<Locator> {
   await newMind(window);
-  await window.getByTestId("mind-editor").focus();
-  await window.keyboard.press("ControlOrMeta+j");
+  const input = window.getByTestId("composer-input");
+  if (!(await input.isVisible())) await window.keyboard.press("ControlOrMeta+Shift+O");
+  await input.click();
   await window.keyboard.type("What is in my Documents?");
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");
@@ -2620,13 +2621,11 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
 
 /** How long a Document may take to open before the viewer says it couldn't (15 seconds), so a test needn't wait that long. */
 export async function setViewerOpenLimitMs(window: Page, ms: number): Promise<void> {
-  await window.evaluate(
-    (value) =>
-      (
-        globalThis as { incarnamindTestHooks?: TestHooks }
-      ).incarnamindTestHooks?.setViewerOpenLimitMs(value),
-    ms,
-  );
+  await window.evaluate((value) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("The app has no test hooks.");
+    hooks.setViewerOpenLimitMs(value);
+  }, ms);
 }
 
 /** How the latest Answer's wait showed as it ran: joined on its step's row, or alone on the second. */
@@ -3111,8 +3110,34 @@ export async function verifyRows(window: Page): Promise<Locator> {
 }
 
 /**
- * A Mind's check badge card (#909): open already, as a question opens it,
- * or opened as a person opens it: from the badge, or from ⌘K while no badge shows.
+ * The Note's Check button (#3794) in the tab strip of the Note in front, or of the strip in
+ * `scope`: "Check 2" while sentences wait, then "Checking… 1 of 2", then what the check found.
+ */
+export function noteCheck(scope: Page | Locator): Locator {
+  return scope.getByTestId("note-check-place").getByTestId("note-check").first();
+}
+
+/** The same Check on the line above the Note's input that says what the User's AI just wrote. */
+export function noteCheckOnLine(scope: Page | Locator): Locator {
+  return scope.getByTestId("note-check-line").getByTestId("note-check").first();
+}
+
+/**
+ * Checks the Note in front, as a person does: one press on its Check button while it reads
+ * "Check N" (#3794). It returns once the press is made; the run's end is the spec's to wait for.
+ */
+export async function checkNote(window: Page, scope: Page | Locator = window): Promise<void> {
+  const button = noteCheck(scope);
+  await expect(button).toHaveAttribute("data-state", "check");
+  await motionSettled(window);
+  await pointAndClick(window, button);
+}
+
+/**
+ * A Mind's Checks card (#909): open already, as a question opens it, or opened from ⌘K's Checks
+ * once a run in `scope` has ended. Not from the Check button while its Note is in front: its press
+ * checks whenever sentences wait, and the count a change makes lands a moment later, so the button
+ * can turn to Check under the pointer.
  */
 export async function checkCard(
   window: Page,
@@ -3121,33 +3146,45 @@ export async function checkCard(
 ): Promise<Locator> {
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
-    const badge = scope.getByTestId("check-badge-open").first();
-    if (await badge.isVisible()) {
-      // "Checking 2 of 2 · Stop" shrinks to the counts as a check ends: aim once it has.
-      await expect(scope.getByTestId("badge-stop")).toHaveCount(0, { timeout: stopTimeout });
-      await motionSettled(window);
-      // The counts are worked out a moment after a change, and the badge can narrow under the pointer: aim again.
-      await expect(async () => {
-        if (!(await card.isVisible())) await pointAndClick(window, badge);
-        await expect(card).toBeVisible({ timeout: 1000 });
-      }).toPass();
-    } else {
-      const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      // The card's old name still finds its command, now named Checks (#2831).
-      await window.keyboard.press("ControlOrMeta+k");
-      await expect(window.getByTestId("palette-search")).toBeFocused();
-      await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
+    await expect(scope.getByTestId("note-check-stop")).toHaveCount(0, { timeout: stopTimeout });
+    const mindInFront = window.locator(
+      '[data-testid="tab-group"][data-focused] [data-testid="mind-tab"][aria-selected="true"]',
+    );
+    // ⌘K's Checks is the Note's in front of the focused group: with something else there, the
+    // Note's own tab is pressed first, as a person goes back to the Note.
+    if ((await mindInFront.count()) === 0) {
       await pointAndClick(
         window,
         window
-          .getByTestId("palette-item")
-          .filter({ hasText: chinese ? "核对结果" : "Checks" })
+          .locator(
+            '[data-testid="tab-group"]:has([data-testid="note-check-place"]) [data-testid="mind-tab"][aria-selected="true"]',
+          )
           .first(),
       );
+      await expect(mindInFront).toHaveCount(1);
     }
+    // ⌘K over text selected in a Note adds a link: the caret goes to the selection's end first.
+    const selected = await window.evaluate(() => {
+      const selection = document.getSelection();
+      const editable = document.activeElement?.closest('[contenteditable="true"]');
+      return selection !== null && !selection.isCollapsed && editable != null;
+    });
+    if (selected) await window.keyboard.press("ArrowRight");
+    const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
+    // The card's old name still finds its command, now named Checks (#2831).
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
+    await pointAndClick(
+      window,
+      window
+        .getByTestId("palette-item")
+        .filter({ hasText: chinese ? "核对结果" : "Checks" })
+        .first(),
+    );
   }
   await expect(card).toBeVisible();
-  // It grows from the badge: a click while it moves could land on the page behind.
+  // It grows from the Check button: a click while it moves could land on the page behind.
   await motionSettled(window);
   return card;
 }

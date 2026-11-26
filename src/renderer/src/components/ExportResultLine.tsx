@@ -5,7 +5,13 @@ import { saveFailureReason } from "../../../shared/systemReasons";
 import { core, files } from "../core";
 import { CheckStateIcon } from "../editor/icons";
 import { useDismissOnEscape } from "../escapeDismiss";
-import { checkComments, myCommentsPart, trackedChanges, unmarkedChecks } from "../exportChecks";
+import {
+  checkComments,
+  fileCommentsPart,
+  myCommentsPart,
+  trackedChanges,
+  unmarkedChecks,
+} from "../exportChecks";
 import { useExportDialog } from "../exportDialog";
 import {
   COMPARISON_CSV,
@@ -440,6 +446,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
   const comments = checkComments(result.checks, t, othersWord(result));
   const mine =
     result.format === "docx" ? myCommentsPart(result.myComments, result.myCommentsShown, t) : null;
+  const fromFile = result.format === "docx" ? fileCommentsPart(result.fileComments, t) : null;
   const parts: SavedWithFile = [
     ...chosen.map((text) => ({ testId: "export-chosen", text })),
     ...withFile,
@@ -475,6 +482,7 @@ function SavedSentence({ result, withFile }: { result: SavedResult; withFile: Sa
           },
         ]
       : []),
+    ...(fromFile ? [{ testId: "export-file-comments", text: fromFile }] : []),
   ];
   // Only Word and PDF have a choice to change: a Word file always has the marking, a Numbered PDF
   // the place of its Citations. Markdown, HTML, a share page and a source pack have neither.

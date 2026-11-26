@@ -42,7 +42,7 @@ import {
  * password-protected PDF and a scan, besides a file that reads. "3 files
  * couldn't be read · Show" lists each with its reason, and the Library shows
  * each file with the same reason. An export says nothing about them; its
- * Saved line counts them with Show, which opens the check badge's card.
+ * Saved line counts them with Show, which opens the Checks card.
  * Nothing shows when everything was read. English and Chinese. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
@@ -308,9 +308,9 @@ for (const language of ["en", "zh-CN"] as const) {
       window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     await expect(window.getByTestId("claim-mark")).not.toHaveAttribute("data-check", "checking");
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
 
-    // The badge's card says so, under its rows.
+    // The Checks card, opened from the Note's Check button, says so, under its rows.
     const card = await checkCard(window);
     await expect(unread).toContainText(WORDS[language].count);
     await expect(unread.getByTestId("unread-file")).toHaveCount(0);
@@ -493,7 +493,7 @@ for (const language of ["en", "zh-CN"] as const) {
           .getByTestId("selection-action-check-against-documents"),
       );
       await expect(window.getByTestId("claim-mark")).not.toHaveAttribute("data-check", "checking");
-      await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
 
       await setOutputLocation(window, out);
 

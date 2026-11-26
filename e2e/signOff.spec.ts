@@ -16,6 +16,7 @@ import {
   leaveFirstOpen,
   motionSettled,
   newMind,
+  noteCheck,
   openExample,
   pointAndClick,
   removeDataFolder,
@@ -353,8 +354,15 @@ for (const language of ["en", "zh-CN"] as const) {
           folderIds: [folder.id],
         });
       });
+      // The Note's Check says so where it stands, with no card in the way (#3794); its card, opened
+      // from ⌘K, has the line and the way to ask again.
+      await tieOut(
+        noteCheck(window).filter({
+          hasText: t("agents.asked.short.asked", { agent: "Claude Code" }),
+        }),
+      );
       const asked = window.getByTestId("checks-asked");
-      await tieOut(asked);
+      await checkCard(window);
       await expect(asked).toHaveText(t("agents.asked.opened", { agent: "Claude Code" }));
       await expect(window.getByTestId("checks-asked-line-ask")).toHaveText(t("agents.asked.again"));
       await expect(window.getByTestId("checks-asked-set-up")).toHaveCount(0);

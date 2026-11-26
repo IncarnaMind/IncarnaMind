@@ -388,11 +388,12 @@ export function createExports(deps: ExportsDependencies) {
     // even when the file names no author, and is never the User's (#328).
     const userMessage = (message: CommentMessage) =>
       message.word === undefined && message.author === null;
+    const fileMessage = (message: CommentMessage) => message.word !== undefined;
     const mine = (message: CommentMessage) =>
       message.word === undefined && (message.author === null || message.author === INCARNAMIND);
-    const myComments = comments
-      .flatMap((root) => [root, ...root.replies])
-      .filter(userMessage).length;
+    const messages = comments.flatMap((root) => [root, ...root.replies]);
+    const myComments = messages.filter(userMessage).length;
+    const fileComments = messages.filter(fileMessage).length;
     const myCommentsShown = format !== "docx" || (options.includeMyComments ?? !someoneElses);
     const writtenComments =
       format === "docx" && !myCommentsShown
@@ -438,6 +439,7 @@ export function createExports(deps: ExportsDependencies) {
       myComments,
       myCommentsShown,
       myCommentsOptional: someoneElses,
+      fileComments,
     };
     const failed = new Map<string, FailedSentence>();
     for (const { sentence } of piecesOf(blocks)) if (sentence) failed.set(sentence.id, sentence);

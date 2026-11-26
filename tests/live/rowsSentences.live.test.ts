@@ -319,7 +319,7 @@ async function checkDataset(
 }
 
 describe("sentences about a data file's rows", () => {
-  test.skipIf(KEY === undefined)(
+  test.skipIf(KEY === undefined || !OUT)(
     "each sentence and its wrong twin, checked once",
     { timeout: 3_600_000 },
     async () => {

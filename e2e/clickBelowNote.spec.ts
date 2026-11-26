@@ -69,14 +69,8 @@ async function clickBelowNote(
   const last = await blocks(editor).last().boundingBox();
   const box = await editor.boundingBox();
   if (!last || !box) throw new Error("The Mind isn't visible.");
-  let x = box.x + box.width * across;
+  const x = box.x + box.width * across;
   const y = (under === "block" ? last.y + last.height : box.y + box.height) + 24;
-  // The check badge sits in the page's bottom right corner: a click on it opens its card, so aim beside it.
-  const shown = window.locator('[data-testid="check-badge"]:visible');
-  const badge = (await shown.count()) > 0 ? await shown.first().boundingBox() : null;
-  if (badge && x >= badge.x - 8 && y >= badge.y - 8 && y <= badge.y + badge.height + 8) {
-    x = badge.x - 12;
-  }
   const found = await editor.evaluate(
     (dom, point) => {
       const element = document.elementFromPoint(point.x, point.y);

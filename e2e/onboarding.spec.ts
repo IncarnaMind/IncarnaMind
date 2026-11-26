@@ -409,7 +409,8 @@ test("on a fresh install, a first checked Citation from the User's own file take
         hasText: "Harbour notes",
       }),
     ).toHaveCount(1);
-    await step("⌘J", () => window.keyboard.press("ControlOrMeta+j"));
+    // With no AI app connected, ⌘J leads to Connect your AI (#3819); ⇧⌘O opens the assistant for the built-in model flow.
+    await step("⇧⌘O", () => window.keyboard.press("Shift+ControlOrMeta+o"));
     await expect(window.getByTestId("composer-input")).toBeFocused();
     await step("type the Question", () =>
       window.keyboard.type("When does the harbour master publish the tide tables?"),

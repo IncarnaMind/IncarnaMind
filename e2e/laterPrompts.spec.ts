@@ -57,7 +57,6 @@ for (const language of ["en", "zh-CN"] as const) {
 
       ({ app, window } = await launchApp(dataDir, { examples: false, fakeChat: true }));
       await setWindowSize(app, window, 1600, 800);
-      await newMind(window);
       await expect(window.getByTestId("start-connect-app")).toBeVisible();
       await window.getByTestId("start-connect-app").click();
       await expect(window.getByTestId("settings")).toHaveAttribute("data-page", "connectors");

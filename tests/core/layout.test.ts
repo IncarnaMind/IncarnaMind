@@ -10,6 +10,7 @@ import {
   type WindowLayout,
 } from "../../src/core";
 import { openDatabase } from "../../src/core/storage";
+import { revealExistingTab } from "../../src/shared/layoutReveal";
 import { createTempDataFolder, manualClock, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 
@@ -1124,4 +1125,24 @@ test("a Figure schedule behind the Note is moved beside it rather than replacing
   });
   expect(tabOf(layout, note).group.activeTabId).toBe(origin.tab.id);
   expect(tabOf(layout, schedule).group.id).not.toBe(origin.group.id);
+});
+
+test("revealExistingTab matches the core layout change for show and single-tab open in place (#3828)", async () => {
+  const { mind, change } = await setUp();
+  const note = await mind("Notes");
+  await change({ type: "open", item: { kind: "library" } });
+  await change({ type: "open", item: { kind: "home" } });
+  let before = await change({ type: "open", item: note });
+  const noteTabId = tabOf(before, note).tab.id;
+
+  for (const step of [
+    { type: "open", item: { kind: "library" }, where: { in: "place" } } as const,
+    { type: "open", item: { kind: "home" }, where: { in: "place" } } as const,
+    { type: "show", tabId: noteTabId } as const,
+  ]) {
+    const predicted = revealExistingTab(before, step);
+    const actual = await change(step);
+    expect(predicted).toEqual(actual);
+    before = actual;
+  }
 });

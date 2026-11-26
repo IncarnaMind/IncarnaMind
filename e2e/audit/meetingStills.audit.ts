@@ -19,6 +19,7 @@ import {
   fromConversationMenu,
   launchApp,
   motionSettled,
+  noteCheck,
   removeDataFolder,
   runCommand,
   setLanguage,
@@ -577,13 +578,11 @@ test(`meeting stills, ${LANG}`, async () => {
       await editor.click();
       await runCommand(window, "mind.check", WORDS.check);
       await expect
-        .poll(
-          async () =>
-            (await window.getByTestId("check-badge-open").first().getAttribute("aria-label")) ?? "",
-          { timeout: 90_000 },
-        )
+        .poll(async () => (await noteCheck(window).getAttribute("title")) ?? "", {
+          timeout: 90_000,
+        })
         .toMatch(/look|留意/)
-        .catch(() => log.push("the check badge never named a sentence to look at"));
+        .catch(() => log.push("the Check button never named a sentence to look at"));
       await window.waitForTimeout(2000);
       await editor.evaluate((el) => (el as HTMLElement).blur());
       const closeCard = async () => {
@@ -1043,13 +1042,9 @@ test(`meeting with the conversation at the left, ${LANG}`, async () => {
     await editor.click();
     await runCommand(window, "mind.check", WORDS.check);
     await expect
-      .poll(
-        async () =>
-          (await window.getByTestId("check-badge-open").first().getAttribute("aria-label")) ?? "",
-        { timeout: 90_000 },
-      )
+      .poll(async () => (await noteCheck(window).getAttribute("title")) ?? "", { timeout: 90_000 })
       .toMatch(/look|留意/)
-      .catch(() => log.push("the check badge never named a sentence to look at"));
+      .catch(() => log.push("the Check button never named a sentence to look at"));
     await editor.evaluate((el) => (el as HTMLElement).blur());
     await still("h6-column-checked", COLUMN_WIDTHS, async () => {
       if (
