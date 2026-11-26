@@ -29,6 +29,7 @@ import {
   serverUnknownPairingLine,
 } from "../../shared/agentSocket";
 import { DOCUMENT_KINDS } from "../../shared/libraryFacts";
+import { STATED_UNITS, UNITS_RULE } from "../answers/checks/prompt";
 import type { AgentToolName } from "../api";
 import {
   type AgentAccess,
@@ -634,6 +635,7 @@ export function createAgentServer(
           z.object({
             n: z.number().int(),
             verdict: z.enum(OWN_VERDICT_WORDS),
+            units: z.enum(STATED_UNITS).optional().describe(UNITS_RULE),
             cites: z.array(z.string()).optional().describe("The [cite:…] it rests on."),
             otherwise: z
               .array(z.string())

@@ -1009,4 +1009,157 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
     await client.settled();
     for (const span of claimSpans(readMind(client))) expect(span.check.change).toBeUndefined();
   });
+
+  // protects=report_check lowers Supported to Unsupported when the judge's own units word is unstated or another (#3806), keeps Supported on same/none/omitted, keeps Not checked ahead of lowering when no quote confirms it, and never changes non-Supported verdicts; fails_when=Supported stands on unstated/another, Not checked turns into Unsupported, or non-Supported verdicts are altered
+  it("lowers Supported when report_check names units unstated or another, fails open, and keeps Not checked first", async () => {
+    const { core, agent, mindId } = await paired();
+    const given = await task(agent, mindId);
+    expect(given.how).toContain("`units`");
+    expect(given.how).toContain("same, none, another, or unstated");
+    const twice = await cited(agent, "Spring tides happen twice a month");
+    const largest = await cited(agent, "The range of a spring tide is the largest of the month.");
+    const reported = structured<Reported>(
+      await report(agent, mindId, given.task, [
+        {
+          n: 1,
+          verdict: "supported",
+          units: "unstated",
+          cites: [twice],
+          explanation: "Tides happen twice a month.",
+        },
+        {
+          n: 2,
+          verdict: "supported",
+          units: "another",
+          cites: [largest],
+          explanation: "Largest of the month.",
+        },
+        {
+          n: 3,
+          verdict: "supported",
+          units: "unstated",
+          explanation: "No citation given.",
+        },
+        {
+          n: 4,
+          verdict: "contradicted",
+          units: "unstated",
+          cites: [twice],
+          explanation: "Contradicted stays contradicted.",
+        },
+      ]),
+    );
+    expect(reported.unconfirmed).toEqual([3]);
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const checks = new Map(
+      claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check]),
+    );
+    expect(checks.get(SPRING)?.state).toBe("unsupported");
+    expect(checks.get(SPRING)?.unsupported).toMatchObject({
+      kind: "units",
+      units: "unstated",
+      found: true,
+      reason: "The quote doesn’t state the currency, unit or scale for this figure.",
+    });
+    expect(checks.get(SPRING)?.parts?.[0]?.evidence.map((e) => e.quote)).toEqual([
+      "Spring tides happen twice a month",
+    ]);
+    expect(checks.get(NEAP)?.state).toBe("unsupported");
+    expect(checks.get(NEAP)?.unsupported).toMatchObject({
+      kind: "units",
+      units: "another",
+      found: true,
+      reason: "The quote gives another currency, unit or scale for this figure.",
+    });
+    // No Citation: Not checked wins ahead of units lowering.
+    expect(checks.get(PENGUINS)?.state).toBe("not-checked");
+    expect(checks.get(PENGUINS)?.reason).toBe("no-evidence");
+    // Non-Supported verdict is never altered by units.
+    expect(checks.get(SOURCES)?.state).toBe("contradicted");
+
+    // Failing open: same, none, and omitted units leave Supported standing.
+    const again = structured<Task>(
+      await agent.callTool({ name: "check_mind_yourself", arguments: { mindId, again: true } }),
+    );
+    await report(agent, mindId, again.task, [
+      { n: 1, verdict: "supported", units: "same", cites: [twice], explanation: "Same units." },
+      { n: 2, verdict: "supported", units: "none", cites: [largest], explanation: "No units." },
+      { n: 3, verdict: "supported", cites: [twice], explanation: "Units omitted." },
+      { n: 4, verdict: "nothing to check" },
+    ]);
+    await client.settled();
+    const after = new Map(
+      claimSpans(readMind(client)).map((span) => [span.sentence.text, span.check]),
+    );
+    expect(after.get(SPRING)?.state).toBe("supported");
+    expect(after.get(NEAP)?.state).toBe("supported");
+    expect(after.get(PENGUINS)?.state).toBe("supported");
+  });
+
+  // protects=report_check lowers a worked-out Supported result when units is unstated or another while keeping its workedOut line (#3806); fails_when=a worked-out Supported result skips the units guard or drops its working
+  it("lowers a worked-out Supported result when report_check names units unstated", async () => {
+    const { core, agent, coast } = await paired();
+    const sources = await createSourceFolder();
+    const [sheet] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Bare.md", "North 40.\n\nSouth 60.\n"),
+    ]);
+    if (!sheet) throw new Error("Bare wasn't added.");
+    await core.assignDocumentGroup(sheet.id, coast.id);
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Worked units", markdown: "Combined total was £100m." },
+      }),
+    );
+    const given = await task(agent, mindId);
+    const { passages } = structured<{ passages: { passageId: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "North 40 South 60" } }),
+    );
+    const { citations } = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: {
+          citations: [
+            { passageId: passages[0]?.passageId, quote: "North 40." },
+            { passageId: passages[0]?.passageId, quote: "South 60." },
+          ],
+        },
+      }),
+    );
+    const northCite = citations[0]?.cite ?? "";
+    const southCite = citations[1]?.cite ?? "";
+    expect(northCite).toBeTruthy();
+    expect(southCite).toBeTruthy();
+    await report(agent, mindId, given.task, [
+      {
+        n: 1,
+        verdict: "supported",
+        units: "unstated",
+        working: {
+          inputs: [
+            { name: "north", value: 40, cite: northCite },
+            { name: "south", value: 60, cite: southCite },
+          ],
+          expression: "north + south",
+          figure: "£100m",
+        },
+        explanation: "40 + 60 = 100.",
+      },
+    ]);
+    const client = await connectToMind(core, mindId);
+    await client.settled();
+    const span = claimSpans(readMind(client))[0];
+    expect(span?.check.state).toBe("unsupported");
+    expect(span?.check.unsupported).toMatchObject({
+      kind: "units",
+      units: "unstated",
+      found: true,
+    });
+    expect(span?.check.parts?.[0]?.workedOut).toContain("100");
+    expect(span?.check.parts?.[0]?.evidence.map((e) => e.quote)).toEqual([
+      "North 40.",
+      "South 60.",
+    ]);
+  });
 });

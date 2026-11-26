@@ -93,8 +93,8 @@ const VERDICTS = [
   "own view",
 ] as const;
 
-/** Shared Units classification rule for both the reply form and the cite tool schema (#3806). */
-const UNITS_RULE =
+/** Shared Units classification rule for the reply form, the cite tool schema and report_check (#3806). */
+export const UNITS_RULE =
   '"none" when neither the sentence nor its heading or unit line states a currency, unit or scale; "same" when the Passages state the same currency, unit and scale for those figures — including the same amount written at another scale or in a unit it converts to exactly, or a figure worked out from amounts whose units the Passages state; "another" when the Passages state a different currency, unit or scale (not an exact conversion); "unstated" only when the Passages you have read, including table headers and unit lines, never state one for that figure or state one only for another table.';
 
 const reply = (language: Language) =>

@@ -26,13 +26,16 @@ import {
   type UnsupportedReason,
 } from "../../api";
 import type { EvidenceScope } from "../../documents/evidence";
+import type { Language } from "../../language";
 import type { MindContent } from "../../mindContent";
+import { loweredByUnits } from "./claimCheck";
 import {
   cellHeadings,
   type FigureOccurrence,
   inValueCell,
   type TableLayout,
 } from "./figureOccurrences";
+import type { StatedUnits } from "./prompt";
 import {
   checkText,
   everySentence,
@@ -73,6 +76,8 @@ export interface JudgedSentence {
   /** The sentence's number in the task. */
   n: number;
   verdict: JudgedVerdict;
+  /** Whether the Passages state the same currency, unit and scale as the sentence for its figures (#3806). */
+  units?: StatedUnits;
   /** The Citations the agent rests it on, each found in its Document now. */
   evidence: readonly Citation[];
   /**
@@ -175,6 +180,7 @@ export interface JudgedOutsideOptions {
   citedOutside(documentId: string): boolean;
   /** Throws unless the Mind exists and this version may write to it. */
   requireMind(mindId: string): void;
+  language(): Language;
   withResult(
     check: ClaimCheckAttributes,
     result: ClaimCheckResult,
@@ -434,9 +440,10 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
               (citesItself.has(citation.documentId) && options.citedOutside(citation.documentId)),
           );
           const values = sentence.element.nodeName === CHART_NODE ? (sentence.figures ?? []) : null;
+          const language = options.language();
           const result = worked
-            ? workedResult(each, worked, evidence, sentence.said.length, values)
-            : reportedResult(each, evidence, sentence.said.length, values);
+            ? workedResult(each, worked, evidence, sentence.said.length, values, language)
+            : reportedResult(each, evidence, sentence.said.length, values, language);
           if (result.verdict === "not-checked") unconfirmed.push(each.n);
           const mark: ClaimCheckAttributes = {
             id: randomUUID(),
@@ -527,10 +534,11 @@ function workedResult(
   cited: readonly Citation[],
   length: number,
   values: readonly FigureOccurrence[] | null,
+  language: Language,
 ): ClaimCheckResult {
   const { verdict } = judged;
   if (verdict !== "supported" && verdict !== "contradicted") {
-    const result = resultOf(judged, cited);
+    const result = resultOf(judged, cited, language);
     return onChartValues(
       worked.ok && result.verdict !== "not-checked"
         ? {
@@ -553,19 +561,34 @@ function workedResult(
   const { evidence, working, workedOut, versions } = worked.backing;
   const [first, ...more] = evidence;
   if (!first) return unchecked("no-evidence", null);
-  const result: ClaimCheckResult = {
-    verdict,
-    evidence: first,
-    says: judged.explanation,
-    unsupported: null,
-    calculation: null,
-    ...(working && { working }),
-    workedOut,
-    citedCaseUnchecked: false,
-    citedCaseFound: false,
-    versions: [...versions],
-    excluded: [],
-  };
+  const lowered = verdict === "supported" ? loweredByUnits(judged.units, language, first) : null;
+  const result: ClaimCheckResult = lowered
+    ? {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: lowered,
+        calculation: null,
+        ...(working && { working }),
+        workedOut,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        versions: [...versions],
+        excluded: [],
+      }
+    : {
+        verdict,
+        evidence: first,
+        says: judged.explanation,
+        unsupported: null,
+        calculation: null,
+        ...(working && { working }),
+        workedOut,
+        citedCaseUnchecked: false,
+        citedCaseFound: false,
+        versions: [...versions],
+        excluded: [],
+      };
   // Each input of a calculation is shown on its card, as the check's own quotes are.
   return more.length === 0
     ? onChartValues(result, values)
@@ -573,7 +596,7 @@ function workedResult(
         partWithResult(
           { kind: "fact", span: { start: 0, end: length } },
           onChartValues(result, values),
-          more,
+          lowered ? evidence : more,
         ),
       ]);
 }
@@ -590,8 +613,9 @@ function reportedResult(
   evidence: readonly Citation[],
   length: number,
   values: readonly FigureOccurrence[] | null,
+  language: Language,
 ): ClaimCheckResult {
-  const result = onChartValues(resultOf(judged, evidence), values);
+  const result = onChartValues(resultOf(judged, evidence, language), values);
   if (result.verdict === "not-checked" || evidence.length === 0) return result;
   const ownView = judged.verdict === "own-view";
   if (evidence.length === 1 && (result.verdict !== "unsupported" || ownView)) return result;
@@ -633,8 +657,9 @@ function onEachValue(
 }
 
 function resultOf(
-  { verdict, explanation }: JudgedSentence,
+  { verdict, units, explanation }: JudgedSentence,
   evidence: readonly Citation[],
+  language: Language,
 ): ClaimCheckResult {
   const [quoted] = evidence;
   const read = {
@@ -650,6 +675,16 @@ function resultOf(
   if (verdict === "supported" || verdict === "contradicted") {
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
     if (!quoted) return { verdict: "not-checked", reason: "no-evidence", detail: null, ...read };
+    const lowered = verdict === "supported" ? loweredByUnits(units, language, quoted) : null;
+    if (lowered) {
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: lowered,
+        ...judgment,
+      };
+    }
     return { verdict, evidence: quoted, says: explanation, unsupported: null, ...judgment };
   }
   return {

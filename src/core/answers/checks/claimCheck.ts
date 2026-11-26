@@ -32,6 +32,7 @@ import type {
   Document,
   ProviderError,
   ThirdPartyReason,
+  UnsupportedReason,
 } from "../../api";
 import type { Evidence, EvidenceScope } from "../../documents/evidence";
 import type { Language } from "../../language";
@@ -62,8 +63,33 @@ import {
   type ReadVerdict,
   readsAsRefusal,
   readVerdict,
+  type StatedUnits,
 } from "./prompt";
 import type { BatchCall } from "./sentenceBatch";
+
+/**
+ * Lowers a Supported verdict to Unsupported when the judge's own Units word says the Passages
+ * never state a currency, unit or scale for those figures or state another (#3806).
+ */
+export function loweredByUnits(
+  units: StatedUnits | undefined,
+  language: Language,
+  quoted: Citation | undefined,
+): UnsupportedReason | null {
+  if (units !== "unstated" && units !== "another") return null;
+  return {
+    kind: "units",
+    units,
+    reason: translate(
+      language,
+      units === "another" ? "claim.unsupported.unitsDiffer" : "claim.unsupported.unitsNotGiven",
+    ),
+    covered: null,
+    uncovered: null,
+    found: true,
+    ...(quoted && { quoted }),
+  };
+}
 
 export interface ClaimCheckDependencies {
   /** The interface language: what a check's sentence is written in. */
@@ -490,25 +516,14 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
     if (!evidence && !restsOnOwnFigure(read)) return notChecked("no-evidence");
-    if (read.verdict === "supported" && (read.units === "unstated" || read.units === "another")) {
+    const lowered =
+      read.verdict === "supported" ? loweredByUnits(read.units, language, evidence) : null;
+    if (lowered) {
       return {
         verdict: "unsupported",
         evidence: null,
         says: null,
-        unsupported: {
-          kind: "units",
-          units: read.units,
-          reason: translate(
-            language,
-            read.units === "another"
-              ? "claim.unsupported.unitsDiffer"
-              : "claim.unsupported.unitsNotGiven",
-          ),
-          covered: null,
-          uncovered: null,
-          found: true as const,
-          ...(evidence && { quoted: evidence }),
-        },
+        unsupported: lowered,
         calculation: null,
         ...(working && { working }),
         ...court.citedCase(null),

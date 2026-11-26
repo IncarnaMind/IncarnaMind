@@ -1367,6 +1367,7 @@ export function createChecks(options: ChecksOptions) {
     citedOutside: (documentId) =>
       (options.documents.live([documentId])[0]?.citedBy ?? null) !== null,
     requireMind: options.requireMind,
+    language: options.language,
     withResult: noteResult,
     retainEvidence,
     now: options.now,

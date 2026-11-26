@@ -70,6 +70,7 @@ import type {
   NotJudgedReason,
 } from "../answers/checks/judgedOutside";
 import type { NotAskedReason, OutsideCheck } from "../answers/checks/mindCheck";
+import { STATED_UNITS } from "../answers/checks/prompt";
 import type { AnswerDocuments } from "../answers/citations";
 import type { Citing } from "../answers/citing";
 import { matchingTerms } from "../answers/citing";
@@ -522,6 +523,7 @@ export interface AgentReportInput {
   results: {
     n: number;
     verdict: string;
+    units?: string;
     cites?: string[];
     /** The id of a run IncarnaMind made for this agent in this check (#3363). */
     run?: string;
@@ -3953,6 +3955,9 @@ export function createAgentAccess(
           if (!isRecord(each) || typeof each.n !== "number" || !Number.isInteger(each.n)) return [];
           const verdict = OWN_VERDICTS[each.verdict as OwnVerdict];
           if (verdict === undefined) return [];
+          const statedUnits =
+            typeof each.units === "string" ? each.units.trim().toLowerCase() : undefined;
+          const units = STATED_UNITS.find((word) => word === statedUnits);
           const tokens = (given: unknown): Citation[] =>
             (Array.isArray(given) ? given : []).flatMap((cite: unknown) =>
               typeof cite === "string" ? (citationOfToken(cite) ?? []) : [],
@@ -3983,6 +3988,7 @@ export function createAgentAccess(
             {
               n: each.n,
               verdict,
+              ...(units && { units }),
               evidence: cited,
               ...(run !== undefined && { worked: run }),
               explanation:
