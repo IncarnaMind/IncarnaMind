@@ -8,12 +8,12 @@ import { translate } from "../src/shared/i18n";
 import { installAgent } from "../tests/helpers/agentInstalls";
 import {
   acceptPlainTextKeys,
+  checkNote,
   createDataFolder,
   frontMindName,
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
-  leaveFirstOpen,
   newMind,
   removeDataFolder,
   setWindowSize,
@@ -492,13 +492,8 @@ test("every Your work answer opens an example with one contradicted mark, foot l
         )
         .toBe(true);
 
-      // End quiet first open so the Note's Check badge is shown, then press Check: marks land on
-      // Claude Code without a beyond-reach refusal.
-      await leaveFirstOpen(window);
-      if (!(await window.getByTestId("check-card").isVisible())) {
-        await window.getByTestId("check-badge-open").click();
-      }
-      await window.getByTestId("badge-check-mind").click();
+      // Press Check on the example Note: marks land on Claude Code without a beyond-reach refusal.
+      await checkNote(window);
       await expect
         .poll(
           () => window.locator('[data-testid="claim-mark"][data-check="unsupported"]').count(),

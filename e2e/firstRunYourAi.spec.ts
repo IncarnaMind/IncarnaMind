@@ -17,6 +17,7 @@ import {
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
+  noteCheck,
   pathsOpened,
   pointAndClick,
   removeDataFolder,
@@ -281,8 +282,8 @@ for (const language of LANGUAGES) {
       { timeout: 30_000 },
     );
     expect(await urlsOpened(running())).toEqual([]);
-    // That first ask in the example ends the quiet check margin without rearranging the sidebar (#3819).
-    await expect(window.getByTestId("check-badge")).toBeVisible();
+    // That first ask in the example keeps the Check button visible without rearranging the sidebar (#3819).
+    await expect(noteCheck(window)).toBeVisible();
     await expect(library).toHaveCount(0);
   });
 
