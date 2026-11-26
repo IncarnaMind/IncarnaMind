@@ -134,6 +134,44 @@ export const ARMS: readonly Arm[] = [
     notesLinesRepeated: true,
   },
   {
+    id: "notes-single-cite",
+    label: "a call's notes asked for with the singular citation wording as on main before #3156",
+    request: (params) => ({
+      ...params,
+      prompt: params.prompt.map((message) =>
+        message.role === "user"
+          ? {
+              ...message,
+              content: message.content.map((part) =>
+                part.type === "text"
+                  ? {
+                      ...part,
+                      text: part.text
+                        .replace(
+                          '{"citations":[2,3,4,5]}\n```\n<What the call was about.> [^2][^3] <What came out of it.> [^4][^5]',
+                          '{"citations":[2,3]}\n```\n<What the call was about.> [^2] <What came out of it.> [^3]',
+                        )
+                        .replace(
+                          "- Every sentence and bullet ends with a citation marker for every transcript line it draws on (such as [^1][^2]): every figure, date, owner, speaker, condition and agreement the sentence states must appear in its cited lines together. Keep offers, suggestions, plans, wishes and conditions as spoken — never write a suggestion, someone coming to mind, or a speaker checking with someone else as a settled decision or another person's action. For a decision or agreement, cite what was agreed and, when on another line, the line that agrees to it — never a bare yes alone. Never add “no deadline”, “没有约定时间”, “unanswered” or “未得到回答” unless a cited line says so.",
+                          "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
+                        )
+                        .replace(
+                          " Each overview sentence must mention ONLY topics or outcomes explicitly present in the lines it cites — never list extra topics beyond its citations.",
+                          "",
+                        )
+                        .replace(
+                          "- citations lists every marker in the overview.",
+                          "- A sentence that draws on several transcript lines ends with a marker for each of them. citations lists every marker.",
+                        ),
+                    }
+                  : part,
+              ),
+            }
+          : message,
+      ),
+    }),
+  },
+  {
     id: "notes-low-effort",
     label:
       "every DeepSeek request that thinks does so at reasoning_effort low, one level down from its default high: in the meeting-notes set, the fill's requests and the claims' checks (#2773)",

@@ -107,9 +107,9 @@ export function callLanguage(passages: readonly { text: string }[]): CallLanguag
 const OVERVIEW_FRAME = [
   "### OVERVIEW",
   "```json",
-  '{"citations":[2,3]}',
+  '{"citations":[2,3,4,5]}',
   "```",
-  "<What the call was about.> [^2] <What came out of it.> [^3]",
+  "<What the call was about.> [^2][^3] <What came out of it.> [^4][^5]",
   "### END OVERVIEW",
 ];
 
@@ -119,7 +119,7 @@ const QUOTE_RULES = [
 ];
 
 const rules = (spoken: CallLanguage | null, named: boolean) => [
-  "- Every sentence and bullet ends with its citation marker, citing the transcript line it comes from.",
+  "- Every sentence and bullet ends with a citation marker for every transcript line it draws on (such as [^1][^2]): every figure, date, owner, speaker, condition and agreement the sentence states must appear in its cited lines together. Keep offers, suggestions, plans, wishes and conditions as spoken — never write a suggestion, someone coming to mind, or a speaker checking with someone else as a settled decision or another person's action. For a decision or agreement, cite what was agreed and, when on another line, the line that agrees to it — never a bare yes alone. Never add “no deadline”, “没有约定时间”, “unanswered” or “未得到回答” unless a cited line says so.",
   "- Write only what the transcript says. Leave out what it doesn't.",
   spoken
     ? `- Write in ${spoken}, the language of the call.`
@@ -213,7 +213,7 @@ export function notesContext(
     "<One complete fact, including its actual owner and deadline if said.> [^1]",
     `### END ${prefix}1`,
     "- Keep metadata inside its closed json fence; Citation markers appear only in the ordinary paragraph outside it. citations lists every marker required by that paragraph. No extra keys, nested headings, code or extra paragraphs in a fact. Close every frame with its matching END heading.",
-    "Always include one separately cited overview: two or three short sentences on what the call was about and what came out of it, naming outcomes in general words (a venue was chosen, not which one), never the figures, dates or owners the notes below give, and not commentary about these notes. A filled-out agenda line is not a substitute. Use this closed frame:",
+    "Always include one separately cited overview: two or three short sentences on what the call was about and what came out of it, naming outcomes in general words (a venue was chosen, not which one), never the figures, dates or owners the notes below give, and not commentary about these notes. Each overview sentence must mention ONLY topics or outcomes explicitly present in the lines it cites — never list extra topics beyond its citations. A filled-out agenda line is not a substitute. Use this closed frame:",
     ...OVERVIEW_FRAME,
     ...(history?.facts.length
       ? [
@@ -261,10 +261,10 @@ export function summaryContext(
 ): QuestionContext {
   const framing = [
     callIntro,
-    "The call was long, so its notes were written part by part, and the transcript above holds only lines the parts' overviews cite. Those overviews are below, in the call's order. From them write one overview of the whole call: two or three short sentences on what the call was about and what came out of it, naming outcomes in general words (a venue was chosen, not which one), never figures, dates or owners, and not commentary about the notes or their parts.",
+    "The call was long, so its notes were written part by part, and the transcript above holds only lines the parts' overviews cite. Those overviews are below, in the call's order. From them write one overview of the whole call: two or three short sentences on what the call was about and what came out of it, naming outcomes in general words (a venue was chosen, not which one), never figures, dates or owners, and not commentary about the notes or their parts. Each overview sentence must mention ONLY topics or outcomes explicitly present in the lines it cites — never list extra topics beyond its citations.",
     "Reply with this one closed frame and no fact frames:",
     ...OVERVIEW_FRAME,
-    "- A sentence that draws on several transcript lines ends with a marker for each of them. citations lists every marker.",
+    "- citations lists every marker in the overview.",
     ...rules(spoken, named),
     ...QUOTE_RULES,
     "",

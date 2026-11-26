@@ -323,7 +323,12 @@ test("the whole call's Summary is asked for from the parts' overviews, in order,
   expect(prompt).toContain("### OVERVIEW");
   expect(prompt).toContain("### END OVERVIEW");
   expect(prompt).not.toContain("### FACT");
-  expect(prompt).toContain("ends with a marker for each of them");
+  expect(prompt).toContain("ends with a citation marker for every transcript line it draws on");
+  expect(prompt).toContain("Keep offers, suggestions, plans, wishes and conditions as spoken");
+  expect(prompt).toContain(
+    "Each overview sentence must mention ONLY topics or outcomes explicitly present in the lines it cites",
+  );
+  expect(prompt).toContain('{"citations":[2,3,4,5]}');
   expect(prompt).toContain("Write in Chinese, the language of the call.");
   expect(prompt).toContain("Me is always {{me}}");
   expect(prompt).toContain("call cite once with a record for every marker");
