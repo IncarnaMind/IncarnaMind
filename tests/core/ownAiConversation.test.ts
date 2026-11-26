@@ -552,6 +552,29 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=a request starts no sign-in check before its run: a signed-out Claude Code ends the run as signed out, which the line says as it said before, with its record kept (#3677); fails_when=a request runs the sign-in check first, or a run that ends signed out reads as any other failure
+  it("leaves the sign-in to the run, which ends as signed out when it isn't", async () => {
+    const asked: unknown[] = [];
+    const run = runner(async () => ({ kind: "failed", reason: "signed-out" }));
+    run.adapter.status = async (_client, options) => {
+      asked.push(options);
+      return { kind: "ready" };
+    };
+    const { core, mindId, ended } = await written(run.adapter);
+    await expect(
+      core.askInNote({ mindId, words: "shorten the first paragraph" }),
+    ).resolves.toMatchObject({
+      kind: "started",
+    });
+    expect(await ended()).toMatchObject({ state: "failed", problem: "signed-out" });
+    expect(asked).toEqual([{ signIn: false }]);
+    expect((await core.noteConversation(mindId)).at(-1)).toMatchObject({
+      request: "shorten the first paragraph",
+      outcome: "failed",
+      problem: "signed-out",
+    });
+  });
+
   // protects=the line above the input shows no internal wording: a line of the AI's that names a Tool, an id, one of the Tools' id names or a path isn't what it shows, nor a tool of the AI's own known only by its name, and every request asks for plain words in the User's language (#3762); fails_when=the User reads "read_mind", a mindId or "ToolSearch" while the AI works
   it("keeps Tool names and ids off the line while it works", async () => {
     const run = runner(async (_agent, request) => {

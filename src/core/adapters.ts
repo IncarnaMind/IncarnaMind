@@ -1847,7 +1847,11 @@ export interface OwnAiModel {
 export interface OwnAiRunner {
   /** Whether the agent's command is on this computer, found without starting anything of it. */
   installed(client: OwnAiClient): Promise<boolean>;
-  status(client: OwnAiClient): Promise<OwnAiStatus>;
+  /**
+   * Whether the agent can run here. `signIn: false` leaves its sign-in to the run itself, which
+   * fails as signed out with no model call when it isn't.
+   */
+  status(client: OwnAiClient, options?: { signIn?: boolean }): Promise<OwnAiStatus>;
   /**
    * One run, resolved when it ends. `server`: IncarnaMind's server as the agent starts it, with a
    * grant; `tools`: the only ones of it the agent may call, or all of them; `instructions`:

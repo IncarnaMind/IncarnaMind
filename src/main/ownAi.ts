@@ -7,7 +7,7 @@
  * IncarnaMind's server with a grant, given only to that run, inside a folder of its own that goes
  * when the run ends; nothing of the run is kept.
  */
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { OwnAiEnd, OwnAiFailure, OwnAiRunner, OwnAiStatus } from "../core/adapters";
@@ -58,6 +58,17 @@ const HEARD_EVERY_MS = 1_000;
 const SAY_EVERY_MS = 1_000;
 /** As much of the AI's thinking as its latest heading or sentence needs. */
 const MAX_THOUGHT_CHARS = 4000;
+
+/** An executable as it is on disk (its real path, size and time), or null when it can't be read. */
+async function identityOf(executable: string): Promise<string | null> {
+  try {
+    const real = await realpath(executable);
+    const { size, mtimeMs } = await stat(real);
+    return `${real}\u0000${size}\u0000${mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
 
 /** A call's input once it is written whole, or null for one that isn't an object. */
 function parsedInput(json: string): Record<string, unknown> | null {
@@ -192,6 +203,9 @@ export function createOwnAi({
     );
   }
   const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
+  // The executable whose version last passed: it is asked again only once Claude Code is replaced,
+  // as an update does, so a request needn't start it first (#3677).
+  let versionPassed: string | null = null;
 
   return {
     async installed(client) {
@@ -220,20 +234,25 @@ export function createOwnAi({
       return purged.code === 0 || (purged.code === 1 && NOTHING_TO_PURGE.test(purged.out));
     },
 
-    async status(client): Promise<OwnAiStatus> {
+    async status(client, { signIn = true } = {}): Promise<OwnAiStatus> {
       if (client === "codex") {
         const path = await codex();
         return path === null ? { kind: "missing" } : codexStatus(path);
       }
       if (command === null) return { kind: "missing" };
       const executable = (await resolveCommand(command)) ?? command;
-      const version = await short(executable, ["--version"]);
-      if (version.kind === "no-answer") return { kind: "unknown" };
-      if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
-      const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
-      if (!found || older(found, LOWEST_CLAUDE_CODE)) {
-        return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
+      const identity = await identityOf(executable);
+      if (identity === null || identity !== versionPassed) {
+        const version = await short(executable, ["--version"]);
+        if (version.kind === "no-answer") return { kind: "unknown" };
+        if (version.kind === "absent" || version.code !== 0) return { kind: "missing" };
+        const found = version.out.match(/\d+\.\d+\.\d+/)?.[0];
+        if (!found || older(found, LOWEST_CLAUDE_CODE)) {
+          return { kind: "too-old", found: found ?? "", lowest: LOWEST_CLAUDE_CODE };
+        }
+        versionPassed = identity;
       }
+      if (!signIn) return { kind: "ready" };
       // 0 signed in, 1 not: anything else says nothing about the sign-in.
       const signedIn = await short(executable, ["auth", "status"]);
       if (signedIn.kind === "exited" && signedIn.code === 0) return { kind: "ready" };

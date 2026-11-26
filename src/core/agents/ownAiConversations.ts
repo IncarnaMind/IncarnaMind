@@ -552,7 +552,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     if (!(await runner.installed("claude-code"))) return { kind: "link" };
     // Nothing of the User's agent is started, its `--version` included, before the consent.
     if (!(await options.consented(pairing))) return { kind: "link" };
-    const status = await runner.status("claude-code");
+    // A signed-out Claude Code ends the run itself, as signed out, before any model call.
+    const status = await runner.status("claude-code", { signIn: false });
     if (status.kind === "missing" || status.kind === "unsupported") return { kind: "link" };
     if (status.kind === "signed-out") return { kind: "problem", pairing, problem: "signed-out" };
     if (status.kind === "unknown") return { kind: "problem", pairing, problem: "no-answer" };
