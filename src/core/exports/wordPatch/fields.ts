@@ -14,7 +14,7 @@
  * had it, written in one of the ways Word writes it, and that way gives one number now whether a
  * paragraph deleted as a tracked change counts or not. A page can't be known without laying the
  * document out, so a PAGEREF's page and a table of contents' entries are left to Word. Fields in
- * headers, footers and notes are left as they are.
+ * headers, footers and notes, and a field locked against updating, are left as they are.
  */
 import { headingLevelOf } from "../../documents/formats/docx";
 import {
@@ -98,6 +98,8 @@ function fieldsIn(root: XmlElement): Field[] {
   const read: Read[] = [];
   const simple = new Map<XmlElement, Read>();
   const open: Read[] = [];
+  /** Fields locked against updating (`w:fldLock`): Word keeps their results as they are, and so does this. */
+  const locked = new Set<XmlElement>();
   /** The field whose result an element is in: the innermost of the simple field around it and the open one. */
   const ownerOf = (element: XmlElement): Read | undefined => {
     let around: Read | undefined;
@@ -110,6 +112,10 @@ function fieldsIn(root: XmlElement): Field[] {
   for (const element of walk(root)) {
     const top = open.at(-1);
     const kind = element.name === "w:fldChar" ? element.attrs["w:fldCharType"] : undefined;
+    if (kind === "begin" || element.name === "w:fldSimple") {
+      const lock = element.attrs["w:fldLock"];
+      if (lock !== undefined && !["false", "0", "off"].includes(lock)) locked.add(element);
+    }
     if (element.name === "w:fldSimple" || kind === "begin") {
       const outer = ownerOf(element);
       if (outer) outer.nested = true;
@@ -135,7 +141,7 @@ function fieldsIn(root: XmlElement): Field[] {
     }
   }
   return read.flatMap((each) => {
-    const field = each.ended ? fieldOf(each) : null;
+    const field = each.ended && !locked.has(each.begin) ? fieldOf(each) : null;
     return field ? [field] : [];
   });
 }
@@ -277,6 +283,9 @@ class Reading {
 
 /** A paragraph's number in each way Word writes it in a cross-reference; null where one can't be written. */
 type Ways = (string | null)[];
+
+/** Which of `numberWays` a switch can show: its own level's text (with its period trimmed), or the full context. */
+const WAYS = { own: [0, 1], full: [2, 3], any: [0, 1, 2, 3] } as const;
 
 /** A paragraph's number with every paragraph counted, and with tracked deletions accepted. */
 type Counted = [ParagraphNumber | null, ParagraphNumber | null];
@@ -459,8 +468,14 @@ function numberResult(
         (at) => sharedLevels(then[at], thenFrom[at]) === sharedLevels(next[at], nowFrom[at]),
       );
   }
-  const way = thenWays[0].findIndex(
-    (_, at) => result !== "" && thenWays.some((ways) => ways[at] === result),
+  // `\w` writes the number in full context, `\n` without; ways that tie can part when the level changes.
+  const kinds = field.switches.has("w") ? WAYS.full : field.switches.has("n") ? WAYS.own : WAYS.any;
+  const way =
+    kinds.find((at) => result !== "" && thenWays.some((ways) => ways[at] === result)) ?? -1;
+  const sameLevel = counts.every(
+    (at) =>
+      then[at]?.list.abstract === next[at]?.list.abstract &&
+      then[at]?.list.level === next[at]?.list.level,
   );
   if (way < 0) {
     const changed = counts.some(
@@ -472,7 +487,7 @@ function numberResult(
   const all = nowWays[0][way] ?? null;
   const accepted = nowWays[1][way] ?? null;
   const dirty = !placed || all !== thenWays[0][way] || accepted !== thenWays[1][way];
-  const known = dirty && placed && all !== null && all === accepted && all !== result;
+  const known = dirty && placed && sameLevel && all !== null && all === accepted && all !== result;
   return { dirty, written: known ? all : null };
 }
 

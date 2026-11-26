@@ -238,6 +238,47 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
+  // protects=a field locked against updating (w:fldLock) keeps the result the file saved and isn't marked, as Word keeps it; fails_when=its result is rewritten or it is marked dirty; no_claim=unlocking it, which is the User's in Word.
+  test("a locked REF keeps its result", async () => {
+    const reference = `${run("Either party may end this agreement under clause ")}${simple("REF _Ref201 \\r \\h", "2.3").replace(' ">', ' " w:fldLock="true">')}${run(".")}`;
+    const { document } = await exported(
+      contractFile(ENGLISH_CONTRACT, reference),
+      renumber(ENGLISH_CONTRACT),
+    );
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\r \\h", result: "2.3", dirty: false },
+    ]);
+  });
+
+  // protects=a `\w` REF shows its paragraph's number in full context: when the clause heading it names becomes a sub-heading, a lettered "(b)" under clause 1, the export doesn't write the sub-heading's own "(b)" over the file's "2" but asks Word to refresh, keeping "2"; fails_when=it writes "(b)" or isn't marked; no_claim=how Word writes the full context.
+  test("a `\\w` REF whose clause becomes a sub-clause is marked, its result kept", async () => {
+    const heading = `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:bookmarkStart w:id="5" w:name="_Ref500"/>${run("Fees")}<w:bookmarkEnd w:id="5"/></w:p>`;
+    const contract: Contract = {
+      ...ENGLISH_CONTRACT,
+      numbering: clauseNumbering(["decimal", "%1."], ["lowerLetter", "(%2)"]),
+      body: (words) =>
+        [
+          clause("Services"),
+          sub("Brightwater Studio designs the packaging Alder & Finch Ltd orders."),
+          heading,
+          sub("Alder & Finch Ltd pays the fee each month."),
+          clause("Termination"),
+          sub(words),
+        ].join(""),
+      reference: `${run("Either party may end this agreement under clause ")}${field("REF _Ref500 \\w \\h", "2")}${run(".")}`,
+    };
+    const { document } = await exported(contractFile(contract), (blocks) =>
+      blocks.map((block) =>
+        block.type === "heading" && textOf(block) === "Fees"
+          ? { ...block, attrs: { ...block.attrs, level: 2 } }
+          : block,
+      ),
+    );
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref500 \\w \\h", result: "2", dirty: true },
+    ]);
+  });
+
   // protects=a simple field holding another, both naming a renumbered clause: each text of a result is the innermost field's, so the inner one gets the new number, and the outer one is only asked to refresh, rather than both writing the same text and the export failing; fails_when=the export throws, the inner result keeps 2.3, or either field isn't marked; no_claim=what Word shows in the outer field.
   test("a simple field inside another is renumbered, the outer one only marked", async () => {
     const inner = `<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${run("2.3")}</w:fldSimple>`;

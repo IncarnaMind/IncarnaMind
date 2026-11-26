@@ -60,9 +60,11 @@ function readLevel(lvl: XmlElement): Partial<WordListLevel> {
     ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
     ...(style !== undefined && { style }),
     ...(legal !== undefined && { legal }),
+    // Word takes a restart level from 0 to 7 only (MS-OI29500, lvlRestart).
     ...(restart !== undefined &&
       Number.isInteger(Number(restart)) &&
-      Number(restart) >= 0 && { restart: Number(restart) }),
+      Number(restart) >= 0 &&
+      Number(restart) <= 7 && { restart: Number(restart) }),
   };
 }
 
@@ -103,8 +105,10 @@ export function readWordNumbering(
       for (const override of elements(element).filter((each) => each.name === "w:lvlOverride")) {
         const lvl = child(override, "w:lvl");
         const start = child(override, "w:startOverride")?.attrs["w:val"];
+        // Word ignores a restart level an override's level gives (MS-OI29500, lvlRestart).
+        const { restart: _ignored, ...level } = lvl ? readLevel(lvl) : {};
         overrides.set(Number(override.attrs["w:ilvl"] ?? 0), {
-          ...(lvl ? readLevel(lvl) : {}),
+          ...level,
           ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
         });
       }

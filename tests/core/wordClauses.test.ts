@@ -341,9 +341,9 @@ describe("a contract's numbered clauses after an edit", () => {
 });
 
 describe("Word's numbering rules, as the shared reader counts a file", () => {
-  const fileWith = (levels: string) =>
+  const fileWith = (levels: string, list = num(1, 0)) =>
     wordFile({
-      numbering: `<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="multilevel"/>${levels}</w:abstractNum>${num(1, 0)}`,
+      numbering: `<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="multilevel"/>${levels}</w:abstractNum>${list}`,
       body: [
         paragraph("Services", { numId: 1, ilvl: 0 }),
         paragraph("The studio designs the packaging.", { numId: 1, ilvl: 1 }),
@@ -365,6 +365,13 @@ describe("Word's numbering rules, as the shared reader counts a file", () => {
       "2. Fees",
       "2.2 The fee is due each month.",
     ]);
+  });
+
+  // protects=a restart level a list's override gives is ignored, as Word ignores it (MS-OI29500, lvlRestart), so the level starts again under the next item; fails_when=the second sub-clause is numbered 2.2; no_claim=an override's start, which counts.
+  test("a restart level in a list's override is ignored", () => {
+    const override = `<w:num w:numId="1"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="1">${level(1, "decimal", "%1.%2", '<w:lvlRestart w:val="0"/>')}</w:lvlOverride></w:num>`;
+    const bytes = fileWith(level(0, "decimal", "%1.") + level(1, "decimal", "%1.%2"), override);
+    expect(numbersIn(new Uint8Array(bytes))[3]).toBe("2.1 The fee is due each month.");
   });
 
   // protects=legal numbering (w:isLgl) writes every level of the number in Arabic numerals, the level's own too, and w:isLgl w:val="0" leaves the levels' own formats; fails_when=the sub-clause is written 1.a under legal numbering, or 1.1 with it off; no_claim=levels with a bullet or no number.
