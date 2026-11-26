@@ -250,7 +250,7 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       );
     },
 
-    setDocument(fileId: string, documentId: string | null): void {
+    setDocument(fileId: string, documentId: string): void {
       db.run("UPDATE agent_files SET document_id = ?, updated_at = ? WHERE id = ?", [
         documentId,
         now(),
@@ -258,28 +258,42 @@ export function createAgentFiles(options: { db: Database; now(): string; newId()
       ]);
     },
 
-    /** A version a refused hand-over made, taken back (#3751): its number is free again. */
-    dropVersion(versionId: string): void {
-      const at = now();
-      db.run(
-        "UPDATE agent_file_versions SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-        [at, at, versionId],
-      );
-    },
-
-    /** An item a refused hand-over made, ended with its versions (#3751). */
-    end(fileId: string): void {
+    /**
+     * What a refused hand-over recorded, taken back in one go (#3751): its version, whose number is
+     * free again; the item's Document as it was before, when it added one; and the item itself,
+     * ended, when it made it or no version of it is left.
+     */
+    takeBack(
+      fileId: string,
+      input: { versionId: string | null; documentBefore?: string | null; made: boolean },
+    ): void {
       const at = now();
       db.transaction(() => {
-        db.run(
-          `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
-           WHERE file_id = ? AND deleted_at IS NULL`,
-          [at, at, fileId],
-        );
-        db.run(
-          "UPDATE agent_files SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-          [at, at, fileId],
-        );
+        if (input.documentBefore !== undefined) {
+          db.run("UPDATE agent_files SET document_id = ?, updated_at = ? WHERE id = ?", [
+            input.documentBefore,
+            at,
+            fileId,
+          ]);
+        }
+        if (input.versionId !== null) {
+          db.run(
+            `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
+             WHERE id = ? AND deleted_at IS NULL`,
+            [at, at, input.versionId],
+          );
+        }
+        if (input.made || versions(fileId).length === 0) {
+          db.run(
+            `UPDATE agent_file_versions SET deleted_at = ?, updated_at = ?
+             WHERE file_id = ? AND deleted_at IS NULL`,
+            [at, at, fileId],
+          );
+          db.run(
+            "UPDATE agent_files SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            [at, at, fileId],
+          );
+        }
       });
     },
 

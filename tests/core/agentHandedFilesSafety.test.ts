@@ -4,19 +4,26 @@
  * is deleted, the app quits before a check ends, a line's heading changes, no model is set up, the
  * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { NOT_IN_A_FOLDER_ID } from "../../src/core/api";
+import { hashBytes } from "../../src/core/documents/files";
 import { claimSpans, claimsOf } from "../../src/renderer/src/editor/claimChecks";
 import { translate } from "../../src/shared/i18n";
 import { buildAgentShim, connectLegacyAgent } from "../helpers/agents";
 import { checkGenerate, checkReply, isCheckRun, type Plan, sentenceOf } from "../helpers/checks";
 import { PNG } from "../helpers/citedPages";
-import { addAndProcess, waitForProcessing, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  linkWithoutFolder,
+  waitForDocuments,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { WorkbookBuilder } from "../helpers/financeWorkbooks";
 import {
   DECK,
@@ -38,6 +45,7 @@ import { editMind, readMind } from "../helpers/minds";
 import { type ModelCall, scriptedModel } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 import { plainDeck } from "../helpers/pptx";
+import { paragraph, wordFile } from "../helpers/word";
 
 const en = translate.bind(null, "en") as (
   key: Parameters<typeof translate>[1],
@@ -181,6 +189,119 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     const again = structured<Handed>(await handOver(agent, { path }));
     expect(again).toMatchObject({ fileId: first.fileId, version: 2, status: "checked" });
     expect(again.mindId).not.toBeNull();
+  });
+
+  // protects=a hand-over refused after the User edited its deck by hand while its check ran keeps the User's edit: the Document, both versions and the check Note stay theirs, and nothing goes to Recently deleted or is deleted for good (#3751, #149); fails_when=the refusal ends the item, deletes the Document, or writes back over the hand edit
+  it("keeps a hand edit made to the deck while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    const edit = await core.editDeck({
+      documentId: document.id,
+      sittingId: null,
+      shown: document.contentHash,
+      edits: [{ kind: "box", slide: 2, shape: "3", box: { x: 60, y: 115, w: 840, h: 126 } }],
+    });
+    if (edit.kind !== "saved") throw new Error(`Not saved: ${edit.why}`);
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, hashBytes(edit.bytes), 2);
+  });
+
+  // protects=a hand-over refused after the User's own app changed the agent's Word file in its Linked folder while the check ran keeps the change: the Document holds it, the version and the check Note stay, nothing goes to Recently deleted or is deleted for good (#3751); fails_when=the refusal ends the item or deletes the check Note of a file the User changed since
+  it("keeps the User's change to a Word file in its Linked folder made while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver({ linked: true, name: "Harbour review.docx" });
+    const { core, path } = waiting;
+    await writeFile(path, wordFile({ body: paragraph(OFFICE) }));
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The Word file isn't in the Library.");
+    const changed = wordFile({ body: [paragraph(OFFICE), paragraph(NORTH)].join("") });
+    await writeFile(path, changed);
+    await core.reconcileDocuments();
+    await waitForDocuments(core, (all) =>
+      expect(all.find((each) => each.id === document.id)?.contentHash).toBe(hashBytes(changed)),
+    );
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    await waiting.keptAll(document.id, hashBytes(changed), 1);
+  });
+
+  // protects=the copy of a version taken back that a quit left in the data folder before the take-back's last step is removed at the next start, and the item's own copies stay (#3751); fails_when=the copy stays where nothing shows it or can remove it, or the start removes a copy a version that stands holds
+  it("removes at the next start the copy of a version taken back that a quit left", async () => {
+    const waiting = await waitingHandOver();
+    const { path, dataDir, restart } = waiting;
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await waiting.handOver());
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    // As a quit before the take-back's last step leaves it: the version's record gone, its copy not.
+    const left = join(dataDir, "Handed files", first.fileId, "v2");
+    await mkdir(left, { recursive: true });
+    await writeFile(join(left, "Harbour review.pptx"), DECK);
+
+    const reopened = await restart();
+    await vi.waitFor(() => expect(existsSync(left)).toBe(false));
+    expect(readdirSync(join(dataDir, "Handed files", first.fileId)).sort()).toEqual([
+      "file-1.pptx",
+      "v1",
+    ]);
+    reopened.close();
+  });
+
+  // protects=a version taken back after its refusal names the earlier check Note back only while it has the name the version gave it: a name the User gave it during the wait stays (#3751); fails_when=the take-back writes over the User's name
+  it("keeps a name the User gave the earlier check Note while a refused version's check ran", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await waiting.handOver());
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    await core.renameMind(first.mindId ?? "", "Quay deck, first look");
+    await waiting.refuse();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect((await core.listMinds()).map((each) => each.title)).toContain("Quay deck, first look");
+    expect(
+      (await core.handedFileOf(first.mindId ?? ""))?.versions.map((each) => each.number),
+    ).toEqual([1]);
+  });
+
+  // protects=a hand-over refused after another connection of the same agent made the item's next version while its check ran keeps that version, its Document and both check Notes, and nothing goes to Recently deleted or is deleted for good (#3751); fails_when=the refusal ends the item with the other call's version in it
+  it("keeps the next version another call made while a refused hand-over's check ran", async () => {
+    const waiting = await waitingHandOver();
+    const { core, path } = waiting;
+    await writeFile(path, DECK);
+    const asked = waiting.handOver();
+    await waiting.held.at;
+    const checkNote = (await core.listMinds()).find(
+      (each) => each.title === en("verify.mindTitle", { name: "Harbour review" }),
+    );
+    if (!checkNote) throw new Error("The check Note wasn't made.");
+    const next = plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]);
+    await writeFile(path, next);
+    // The other call records its version, then waits for the first call's check to end.
+    const other = handOver(await connectLegacyAgent(waiting.writer.launch), { path });
+    await vi.waitFor(async () =>
+      expect((await core.handedFileOf(checkNote.id))?.versions).toHaveLength(2),
+    );
+    // The first call alone is refused: its check Note is moved where the agent doesn't reach.
+    const board = await core.createLibraryGroup({ name: "Board only", description: "" });
+    await core.moveToFolder({ mindIds: [checkNote.id], folderId: board.id });
+    waiting.held.open();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect(structured<Handed>(await other)).toMatchObject({ version: 2 });
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document) throw new Error("The deck isn't in the Library.");
+    await waiting.keptAll(document.id, hashBytes(next), 2);
   });
 
   // protects=a file handed over into no Folder is checked only against the Documents its agent reaches, so what an unshared Folder's Document says never reaches the agent (#3412 review); fails_when=the check searches every Document and the reply says what a Document beyond the agent's reach states
@@ -824,3 +945,57 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     expect(await page()).toEqual(["needs-recheck", "contradicted", "unsupported"]);
   });
 });
+
+/**
+ * "Harbour review" handed over into Coast and held while its check checks the office's line
+ * (`held`), in a Linked folder or not; `refuse` takes Coast from the agent and lets the check end;
+ * `keptAll` says nothing of it was taken back: the Document holds `contentHash`, the item has its
+ * versions up to `versions` with a check Note, and nothing went to Recently deleted.
+ */
+async function waitingHandOver({ linked = false, name = "Harbour review.pptx" } = {}) {
+  const held = gate();
+  let holding = true;
+  const plans: Record<string, Plan> = {
+    ...PLANS,
+    [OFFICE]: {
+      ...PLANS[OFFICE],
+      reply: (call: ModelCall) => {
+        const reply = checkReply(call, PLANS);
+        if (!holding) return reply;
+        holding = false;
+        return { ...reply, pause: { after: 0, until: held.shut, reached: held.reached } };
+      },
+    },
+  };
+  const set = await started([], { plans, folders: ["Other"] });
+  const { core, coast, writer, files, more } = set;
+  if (linked) {
+    await linkWithoutFolder(core, files);
+    await core.updateAgent(writer.pairing.id, { folderIds: [coast.id, NOT_IN_A_FOLDER_ID] });
+  }
+  const agent = await connectLegacyAgent(writer.launch);
+  const path = join(files, name);
+  return {
+    ...set,
+    path,
+    held,
+    handOver: () => handOver(agent, { path, folderId: coast.id }),
+    refuse: async () => {
+      await core.updateAgent(writer.pairing.id, { folderIds: more.map((each) => each.id) });
+      held.open();
+    },
+    keptAll: async (documentId: string, contentHash: string | null, versions: number) => {
+      const document = (await core.listDocuments()).find((each) => each.id === documentId);
+      expect(document?.contentHash).toBe(contentHash);
+      const checks = (await core.listMinds()).filter((each) =>
+        each.title.endsWith(": Harbour review"),
+      );
+      expect(checks.length).toBeGreaterThan(0);
+      const item = await core.handedFileOf(checks[0]?.id ?? "");
+      expect(item?.versions.map((each) => each.number)).toEqual(
+        Array.from({ length: versions }, (_, at) => at + 1),
+      );
+      expect(await core.listDeleted()).toEqual([]);
+    },
+  };
+}

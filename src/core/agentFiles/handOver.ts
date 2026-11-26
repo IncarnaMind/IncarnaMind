@@ -7,7 +7,7 @@
  * only when nothing need be asked of the User, and one verify run goes at a time, so a check the
  * User is running is waited for.
  */
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { MessageKey, MessageParams } from "../../shared/i18n/types";
 import type { Logger } from "../adapters";
 import type { FoundClaim, HandedCheck, HandOverDone } from "../agents/handedFiles";
@@ -97,6 +97,8 @@ export interface HandOverDeps {
   }): Promise<VerifyDocumentResult>;
   checkUnasked(mindId: string, options: UnaskedOptions): Promise<UnaskedCheck>;
   mindTitle(mindId: string): string;
+  /** A Note's name and Folder as they are now; null once it is deleted. */
+  noteAt(mindId: string): { title: string; folderId: string | null } | null;
   nameMind(mindId: string, title: string): void;
   /** Tells the windows the Notes changed: which of them a later version's check now stands for. */
   notesChanged(): void;
@@ -126,6 +128,12 @@ const SETTLED: ReadonlySet<UnaskedCheck["kind"]> = new Set(["checked", "nothing"
 /** A set of results by their ids, as one key. */
 const idsKey = (ids: readonly string[]): string => [...ids].sort().join(" ");
 
+/** A Document's or a Note's name and Folder as a hand-over left it, to tell whether the User has touched it since. */
+interface Left {
+  name: string;
+  folderId: string | null;
+}
+
 /**
  * What one hand-over made so far, so a refusal part way takes all of it back (#3751): a refused
  * call keeps nothing, as one refused at its start does, and leaves nothing no one can see.
@@ -136,12 +144,30 @@ interface Made {
   version: StoredHandedVersion | null;
   /** What it wrote in "Handed files" that no Document holds: a version's folder, a file. */
   copies: string[];
-  /** The Document it added for the version, and the item's Document before it. */
-  added: { documentId: string; before: string | null } | null;
-  /** The item's own Document it wrote the version into, and the copy of the bytes it held. */
-  rewrote: { documentId: string; copy: string; contentHash: string; name: string } | null;
-  /** The check's Note it made, and the Note before it with the name it had. */
-  checked: { mindId: string; renamed: { mindId: string; title: string } | null } | null;
+  /** The Document it added for the version, as it left it, and the item's Document before it. */
+  added: { documentId: string; before: string | null; left: Left } | null;
+  /**
+   * The item's own Document it wrote the version into, as it left it: the copy of the bytes it
+   * held before and their hash, and its name then.
+   */
+  rewrote: {
+    documentId: string;
+    copy: string;
+    contentHash: string;
+    name: string;
+    left: Left;
+  } | null;
+  /**
+   * The Linked folder's Document the version is, the agent's own file there, as it was read for the
+   * version: never taken back, only looked at for what the User did to it since.
+   */
+  linked: { documentId: string; left: Left } | null;
+  /** The check's Note it made, as it left it, and the Note before it with its name and the one given. */
+  checked: {
+    mindId: string;
+    left: Left;
+    renamed: { mindId: string; title: string; as: string } | null;
+  } | null;
 }
 
 const nothingMade = (item: boolean): Made => ({
@@ -150,6 +176,7 @@ const nothingMade = (item: boolean): Made => ({
   copies: [],
   added: null,
   rewrote: null,
+  linked: null,
   checked: null,
 });
 
@@ -373,44 +400,99 @@ export function createHandOver(deps: HandOverDeps) {
   });
 
   /**
-   * Takes back what a refused hand-over made: the check's Note and the Document it added, the
-   * bytes it wrote into the item's Document, its version, the item if it made it, and its copies.
-   * What the User did meanwhile stays: a Document a hand edit has written since keeps it (#149).
+   * Whether anyone built on what a hand-over made since it made it: a later version of the item
+   * (a hand edit's, #149, or another call's), or its Document or check Note no longer as it left
+   * them (written, renamed, moved or deleted by the User). Then all of it is theirs, and stays.
+   */
+  const builtOn = (file: StoredHandedFile, made: Made): boolean => {
+    const { version, checked } = made;
+    if (version === null) return false;
+    if (store.versions(file.id).some((each) => each.number > version.number)) return true;
+    const document = made.added ?? made.rewrote ?? made.linked;
+    if (document) {
+      if (!deps.liveDocument(document.documentId)) return true;
+      const now = deps.document(document.documentId);
+      if (
+        now.contentHash !== version.contentHash ||
+        now.name !== document.left.name ||
+        deps.filedIn(document.documentId) !== document.left.folderId
+      )
+        return true;
+    }
+    if (checked) {
+      const now = deps.noteAt(checked.mindId);
+      if (!now || now.title !== checked.left.name || now.folderId !== checked.left.folderId)
+        return true;
+    }
+    return false;
+  };
+
+  /**
+   * Takes back what a refused hand-over made and no one built on: its records, the earlier check
+   * Note's name, its check Note and the Document it added, the bytes it wrote into the item's
+   * Document, and its copies. Each step stands alone, so one that fails leaves the others done; the
+   * order keeps what a quit leaves part way something the User sees and can delete.
    */
   async function takeBack(file: StoredHandedFile, made: Made): Promise<void> {
     const { version, checked, added, rewrote } = made;
-    try {
-      if (checked?.renamed) deps.nameMind(checked.renamed.mindId, checked.renamed.title);
-      if (
-        rewrote &&
-        version &&
-        deps.liveDocument(rewrote.documentId) &&
-        deps.document(rewrote.documentId).contentHash === version.contentHash
-      ) {
+    if (builtOn(file, made)) {
+      deps.log.info("handedFile.takeBack.builtOn", {
+        fileId: file.id,
+        version: version?.number ?? null,
+      });
+      return;
+    }
+    const step = async (name: string, run: () => unknown) => {
+      try {
+        await run();
+      } catch (error) {
+        // The refusal is still the call's answer; what couldn't be taken back is named for the log.
+        deps.log.error("handedFile.takeBack.failed", {
+          fileId: file.id,
+          version: version?.number ?? null,
+          step: name,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+    await step("records", () =>
+      store.takeBack(file.id, {
+        versionId: version?.id ?? null,
+        ...(added && !made.item && { documentBefore: added.before }),
+        made: made.item,
+      }),
+    );
+    const renamed = checked?.renamed;
+    if (renamed) {
+      await step("earlier note's name", () => {
+        if (deps.noteAt(renamed.mindId)?.title === renamed.as)
+          deps.nameMind(renamed.mindId, renamed.title);
+      });
+    }
+    if (checked) {
+      await step("check note", () =>
+        deps.discard({ documentIds: [], mindIds: [checked.mindId], copies: [] }),
+      );
+    }
+    if (added) {
+      await step("document", () =>
+        deps.discard({ documentIds: [added.documentId], mindIds: [], copies: [] }),
+      );
+    }
+    if (rewrote) {
+      await step("bytes before", async () => {
         const was = deps.document(rewrote.documentId);
         await keep(file, was.path, await deps.readKept(rewrote.copy));
         await deps.readAgain(was.path);
-        await versionRead(rewrote.documentId, rewrote.contentHash, was);
-        if (deps.document(rewrote.documentId).name !== rewrote.name)
-          deps.rename(rewrote.documentId, rewrote.name);
-      }
-      if (added && !made.item) store.setDocument(file.id, added.before);
-      if (version) store.dropVersion(version.id);
-      if (made.item || store.versions(file.id).length === 0) store.end(file.id);
-      await deps.discard({
-        documentIds: added ? [added.documentId] : [],
-        mindIds: checked ? [checked.mindId] : [],
-        copies: made.copies,
-      });
-      deps.notesChanged();
-    } catch (error) {
-      // The refusal is still the call's answer; what couldn't be taken back is named for the log.
-      deps.log.error("handedFile.takeBack.failed", {
-        fileId: file.id,
-        version: version?.number ?? null,
-        message: error instanceof Error ? error.message : String(error),
+        const read = await versionRead(rewrote.documentId, rewrote.contentHash, was);
+        if (read !== true) {
+          deps.log.warn("handedFile.takeBack.unread", { fileId: file.id, why: read });
+        }
+        if (rewrote.left.name !== rewrote.name) deps.rename(rewrote.documentId, rewrote.name);
       });
     }
+    await step("copies", () => deps.discard({ documentIds: [], mindIds: [], copies: made.copies }));
+    deps.notesChanged();
   }
 
   /**
@@ -446,6 +528,52 @@ export function createHandOver(deps: HandOverDeps) {
   /** The item's Document, while the Library holds it: null when it has none, or the User deleted it. */
   const liveDocumentOf = (file: StoredHandedFile | null): string | null =>
     file?.documentId && deps.liveDocument(file.documentId) ? file.documentId : null;
+
+  /** A Document's name and Folder now. */
+  const leftOf = (documentId: string): Left => ({
+    name: deps.document(documentId).name,
+    folderId: deps.filedIn(documentId),
+  });
+
+  /**
+   * What a try cut short made of the item's Document for `version` before it stopped: the Document
+   * it added for it, or the bytes it wrote into the item's own, whose version before is the copy.
+   */
+  const madeBefore = (
+    file: StoredHandedFile,
+    version: StoredHandedVersion,
+  ): Pick<Made, "added" | "rewrote"> => {
+    const documentId = liveDocumentOf(file);
+    const document = documentId === null ? null : deps.document(documentId);
+    if (
+      !document ||
+      document.contentHash !== version.contentHash ||
+      document.linkedFolderId !== null
+    )
+      return { added: null, rewrote: null };
+    if (basename(document.path) === `file-${version.number}.${file.kind}`) {
+      return {
+        added: { documentId: document.id, before: null, left: leftOf(document.id) },
+        rewrote: null,
+      };
+    }
+    const held = store
+      .versions(file.id)
+      .filter((each) => each.number < version.number)
+      .at(-1);
+    return {
+      added: null,
+      rewrote: held
+        ? {
+            documentId: document.id,
+            copy: join(deps.dataDir, held.file),
+            contentHash: held.contentHash,
+            name: document.name,
+            left: leftOf(document.id),
+          }
+        : null,
+    };
+  };
 
   /**
    * Refuses unless the agent reaches, as the User grants it now, the Folder the call named, the
@@ -532,7 +660,11 @@ export function createHandOver(deps: HandOverDeps) {
       requireReach(input, file);
       const document = deps.addHanded(deps.newId(), input.title, written, file.kind);
       documentId = document.id;
-      takes.added = { documentId, before: file.documentId };
+      takes.added = {
+        documentId,
+        before: file.documentId,
+        left: { name: document.name, folderId: file.folderId },
+      };
       deps.setNotCited(documentId);
       if (file.folderId !== null) deps.assign(documentId, file.folderId);
       store.setDocument(file.id, documentId);
@@ -551,18 +683,23 @@ export function createHandOver(deps: HandOverDeps) {
           copy: join(deps.dataDir, held.file),
           contentHash: held.contentHash,
           name: was.name,
+          left: leftOf(documentId),
         };
       }
       if (own) await keep(file, was.path, input.bytes);
       await deps.readAgain(was.path);
       if (own && deps.document(documentId).name !== input.title)
         deps.rename(documentId, input.title);
+      if (takes.rewrote) takes.rewrote.left = { ...takes.rewrote.left, name: input.title };
       const read = await versionRead(documentId, contentHash, was);
       stillThere(file);
       if (read !== true) {
         store.setUnread(version.id, read);
         return doneOf(file, { ...version, unread: read });
       }
+    }
+    if (deps.document(documentId).linkedFolderId !== null) {
+      takes.linked = { documentId, left: leftOf(documentId) };
     }
     requireReach(input, file);
     const made = await deps.verify({
@@ -577,7 +714,12 @@ export function createHandOver(deps: HandOverDeps) {
       return doneOf(file, { ...version, unread: words });
     }
     store.setMind(version.id, made.mind.id);
-    takes.checked = { mindId: made.mind.id, renamed: null };
+    const note = deps.noteAt(made.mind.id);
+    takes.checked = {
+      mindId: made.mind.id,
+      left: { name: note?.title ?? "", folderId: note?.folderId ?? file.folderId },
+      renamed: null,
+    };
     const before = store
       .versions(file.id)
       .filter((each) => each.number < version.number && each.mindId !== null)
@@ -590,11 +732,9 @@ export function createHandOver(deps: HandOverDeps) {
       input.reachesNote(before.mindId) &&
       deps.mindTitle(before.mindId) === named
     ) {
-      deps.nameMind(
-        before.mindId,
-        deps.say("verify.handed.mindTitle", { name: file.title, version: before.number }),
-      );
-      takes.checked.renamed = { mindId: before.mindId, title: named };
+      const as = deps.say("verify.handed.mindTitle", { name: file.title, version: before.number });
+      deps.nameMind(before.mindId, as);
+      takes.checked.renamed = { mindId: before.mindId, title: named, as };
     }
     deps.notesChanged();
     deps.recordWriter(made.mind.id, { agent: input.agent, pairingId: input.pairingId });
@@ -637,11 +777,13 @@ export function createHandOver(deps: HandOverDeps) {
     const newest = known ? store.versions(known.id).at(-1) : undefined;
     if (known && newest && newest.contentHash === contentHash) {
       if (newest.mindId !== null || newest.unread !== null) return doneOf(known, newest);
-      // A version a failure cut short goes on here, and is this call's to take back if refused.
+      // A version a failure cut short goes on here, and is this call's to take back if refused,
+      // with what the try before made of its Document.
       const takes: Made = {
         ...nothingMade(false),
         version: newest,
         copies: [dirname(join(deps.dataDir, newest.file))],
+        ...madeBefore(known, newest),
       };
       return taking(known, takes, () => complete(known, newest, input, contentHash, reach, takes));
     }

@@ -76,6 +76,7 @@ import { logActivity, silentLogger } from "./activityLog";
 import type { CoreAdapters } from "./adapters";
 import { createAgentFiles, type StoredHandedFile } from "./agentFiles";
 import { createHandOver, type HandedMarks, handedCopyAt } from "./agentFiles/handOver";
+import { dropTakenBackCopies } from "./agentFiles/kept";
 import {
   agentSocketPath,
   createAgents,
@@ -4953,6 +4954,9 @@ export function createCore(adapters: CoreAdapters): Core {
     console.error("Deleting what waited 30 days in Recently deleted failed.", error);
   }
   documents.dropPurged().catch((error: unknown) => console.error(error));
+  dropTakenBackCopies({ db, dataDir, reportError: (error) => console.error(error) }).catch(
+    (error: unknown) => console.error(error),
+  );
   canvases
     .dropPurged()
     .catch((error: unknown) =>
@@ -6624,6 +6628,10 @@ export function createCore(adapters: CoreAdapters): Core {
     verify: (input) => inFlow("verify", () => checks.verifyLibraryDocument(input)),
     checkUnasked: (mindId, options) => inFlow("verify", () => checks.checkUnasked(mindId, options)),
     mindTitle: (mindId) => minds.get(mindId).title,
+    noteAt: (mindId) => {
+      const note = minds.list().find((each) => each.id === mindId);
+      return note ? { title: note.title, folderId: note.folderId } : null;
+    },
     nameMind: (mindId, title) => minds.rename(mindId, title),
     notesChanged: () => mindsChanged(),
     recordWriter: (mindId, writer) =>

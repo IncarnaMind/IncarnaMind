@@ -493,10 +493,12 @@ export function createOutputFiles(options: OutputFilesOptions) {
       // As a save refuses it: a link put in the chosen Output location's place leads elsewhere.
       if (chosen !== null && !isInside(chosen, folder)) return null;
       // The names the folder holds, so the look goes past one deleted since ("Tides.docx" gone,
-      // "Tides 2.docx" the file saved before) without trying every name a save could take.
-      let there: Set<string>;
+      // "Tides 2.docx" the file saved before) without trying every name a save could take. Matched
+      // as a folder that ignores case and composition matches them, as macOS and Windows do.
+      const key = (each: string) => each.normalize("NFC").toLowerCase();
+      let there: Map<string, string>;
       try {
-        there = new Set((await readdir(folder)).map((each) => each.normalize("NFC")));
+        there = new Map((await readdir(folder)).map((each) => [key(each), each]));
       } catch (error) {
         // A folder it may not list holds no file it can tell is the one saved: the save says why.
         options.log.warn("output.alreadySaved", { code: codeOf(error) ?? String(error) });
@@ -504,8 +506,9 @@ export function createOutputFiles(options: OutputFilesOptions) {
       }
       const wanted = fingerprintOf(bytes);
       for (const candidate of nameCandidates(fileNameOf(name))) {
-        if (!there.has(candidate.normalize("NFC"))) continue;
-        const path = join(folder, candidate);
+        const listed = there.get(key(candidate));
+        if (listed === undefined) continue;
+        const path = join(folder, listed);
         let held: Uint8Array;
         try {
           // A link or a folder under the name is a name taken, as a save takes it, never a file it saved.
@@ -522,7 +525,7 @@ export function createOutputFiles(options: OutputFilesOptions) {
         if (fingerprintOf(held) !== wanted) continue;
         const made = {
           path,
-          name: candidate,
+          name: listed,
           folder,
           defaulted: false,
           inDefaultFolder: await isDefaultFolder(folder),
