@@ -2,21 +2,22 @@
  * The main document's TOC, REF and PAGEREF fields after an export changed it (#746). A field's
  * result is what Word last worked out. ECMA-376 (`w:dirty`) asks an application to work a field
  * marked dirty out again as it reads the file, and a viewer that doesn't shows the result as
- * saved. So each field whose result the change can have altered is marked dirty:
+ * saved. A field whose result the change can have altered is one:
  *
  * - a REF, when its bookmark's paragraph number (`\r`, `\n`, `\w`) or its bookmark's text changed,
  *   or for `\r` the levels that number shares with where the REF stands in that numbering;
  * - a PAGEREF, when anything at or before its bookmark changed, which can move its page;
  * - a TOC, when the headings changed, or anything before the last of them.
  *
- * A REF's result is written again when it can be known, as a viewer that doesn't refresh fields
- * shows it (LibreOffice is one): the file's result was its bookmark's number (or text) as the file
- * had it, written in one of the ways Word writes it, and that way gives one number now whether a
- * paragraph deleted as a tracked change counts or not. With the User's edits tracked, the new
- * result is their tracked change, the old one deleted and the new inserted; a result that can't
- * carry one (a simple field's, one of several runs) is marked and kept. A page can't be known without laying the
- * document out, so a PAGEREF's page and a table of contents' entries are left to Word. Fields in
- * headers, footers and notes, and a field locked against updating, are left as they are.
+ * Its result is written again when it can be known, as a viewer that doesn't refresh fields shows
+ * it (LibreOffice and WPS are such): the file's result was its bookmark's number (or text) as the
+ * file had it, written in one of the ways Word writes it, and that way gives one number now
+ * whether a paragraph deleted as a tracked change counts or not. With the User's edits tracked,
+ * the new result is their tracked change, the old one deleted and the new inserted. Any other is
+ * marked dirty and kept: a result that can't carry a tracked change (a simple field's, one of
+ * several runs), a PAGEREF's page and a table of contents' entries, which need Word's layout.
+ * Only those make Word ask whether to update the fields. Fields in headers, footers and notes, and
+ * a field locked against updating, are left as they are.
  */
 import { paragraphHeadingLevel } from "../../documents/formats/docx";
 import {
@@ -359,9 +360,9 @@ function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): W
 }
 
 /**
- * The main part after the change, its fields marked dirty where the change can have altered
- * their results, and REF results written again where the new one can be known: as the User's
- * tracked change when `track` is given, since their edits are tracked.
+ * The main part after the change: each field whose result the change can have altered written
+ * again where the new result can be known (as the User's tracked change when `track` is given,
+ * since their edits are tracked), else marked dirty.
  */
 export function refreshFields(
   before: FieldsPart & { root: XmlElement },
@@ -455,13 +456,15 @@ export function refreshFields(
   const splices: Splice[] = [];
   for (const { field, dirty, written } of decided) {
     if (!dirty) continue;
-    splices.push(...markDirty(after.text, field.begin));
-    if (written === null) continue;
-    splices.push(
-      ...(track
-        ? trackedRewrite(after.text, now, field, written, track)
-        : rewritten(after.text, field.result, written)),
-    );
+    const rewrite =
+      written === null
+        ? []
+        : track
+          ? trackedRewrite(after.text, now, field, written, track)
+          : rewritten(after.text, field.result, written);
+    // Only a field left as it was is marked: Word asks whether to update the fields of a file
+    // that has one, and a result written here is already right.
+    splices.push(...(rewrite.length > 0 ? rewrite : markDirty(after.text, field.begin)));
   }
   return splices.length > 0 ? applySplices(after.text, splices) : after.text;
 }

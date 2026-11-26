@@ -86,16 +86,16 @@ export const CHINESE_CONTRACT: Contract = {
 
 /**
  * The Chinese contract with 第二条's sub-clauses from （七）, so the bookmarked one is （九） and
- * becomes （十）: a number whose writing in Word's Chinese counting isn't certain, so the export
- * keeps the file's （九） and marks the REF for Word to work out.
+ * becomes （十）, as Word saves it: a `\r` REF from 第三条 shows the number with its clause,
+ * "第二条（九）", since the two share no level, and a `\n` REF shows "（九）".
  */
 export const CHINESE_PAST_NINE: Contract = {
   ...CHINESE_CONTRACT,
   numbering: clauseNumbering(["chineseCounting", "第%1条"], ["chineseCounting", "（%2）"], 7),
-  reference: `${run("未按第")}${field("REF _Ref301 \\r \\h", "（九）")}${run("项支付利息的，任何一方可解除本合同。")}`,
-  renumbered: "未按第（十）项支付利息",
-  before: "未按第（九）项支付利息",
-  redline: "未按第（九）项支付利息",
+  reference: `${run("未按")}${field("REF _Ref301 \\r \\h", "第二条（九）")}${run("项支付利息的，任何一方可解除本合同；利息按第")}${field("REF _Ref301 \\n \\h", "（九）")}${run("项计收。")}`,
+  renumbered: "未按第二条（十）项支付利息",
+  before: "未按第二条（九）项支付利息",
+  redline: "未按第二条（九）第二条（十）项支付利息",
 };
 
 export const contractFile = (contract: Contract, reference = contract.reference) =>

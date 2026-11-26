@@ -81,7 +81,7 @@ const fieldsIn = (bytes: Buffer) => fieldsOf(part(unzip(bytes), "word/document.x
 const renumber = (contract: Contract) => addItemAfter(contract.after, contract.added);
 
 describe("a Word file's cross-references after its clauses are renumbered", () => {
-  // protects=a sub-clause added above the bookmarked one gives a REF to it the new number as its shown result, and asks Word to refresh the REF and the PAGEREF to it, in English and Chinese; fails_when=the REF still shows 2.3 or （三）, or either field isn't marked to refresh, or the package has a problem Word's repair prompt is about; no_claim=what Word shows after it refreshes, which is the manual check.
+  // protects=a sub-clause added above the bookmarked one gives a REF to it the new number, written and so not marked, while the PAGEREF to it, whose page needs Word's layout, is asked to refresh, in English and Chinese; fails_when=the REF still shows 2.3 or （三）, or is marked though written, or the PAGEREF isn't marked, or the package has a problem Word's repair prompt is about; no_claim=what Word shows after it refreshes, which is the manual check.
   test.each([
     ["English", ENGLISH_CONTRACT, "2.4"],
     ["Chinese", CHINESE_CONTRACT, "（四）"],
@@ -90,10 +90,33 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     async (_language, contract, number) => {
       const { data, document } = await exported(contractFile(contract), renumber(contract));
       const [ref, pageRef] = fieldsOf(document);
-      expect(ref).toMatchObject({ result: number, dirty: true });
+      expect(ref).toMatchObject({ result: number, dirty: false });
       expect(ref?.instruction).toMatch(/^REF _Ref\d+ \\r \\h$/);
       expect(pageRef).toMatchObject({ result: "1", dirty: true });
       expect((await inspectPackage(data)).problems).toEqual([]);
+    },
+  );
+
+  // protects=a file whose only changed field is a REF the export writes holds no w:dirty at all, so Word opens it without asking whether to update its fields, in English and Chinese; fails_when=any field is marked, or the REF keeps its old number; no_claim=a file with a page reference, whose page only Word can know.
+  test.each([
+    [
+      "English",
+      ENGLISH_CONTRACT,
+      run("Either party may end this agreement if interest under clause "),
+      "2.3",
+      "2.4",
+    ],
+    ["Chinese", CHINESE_CONTRACT, run("未按第"), "（三）", "（四）"],
+  ] as const)(
+    "%s: a file whose REF is written asks Word nothing",
+    async (_language, contract, words, old, number) => {
+      const ref = contract === ENGLISH_CONTRACT ? "_Ref201" : "_Ref301";
+      const reference = `${words}${field(`REF ${ref} \\r \\h`, old)}${run(".")}`;
+      const { document } = await exported(contractFile(contract, reference), renumber(contract));
+      expect(document).not.toContain("w:dirty");
+      expect(fieldsOf(document)).toEqual([
+        { instruction: `REF ${ref} \\r \\h`, result: number, dirty: false },
+      ]);
     },
   );
 
@@ -122,15 +145,15 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     },
   );
 
-  // protects=a simple field (w:fldSimple) is marked and given its new number as a complex one is; fails_when=it keeps 2.3 or isn't marked dirty; no_claim=a simple field's own formatting switches.
-  test("a simple REF field is marked and renumbered too", async () => {
+  // protects=a simple field (w:fldSimple) is given its new number as a complex one is, and as it is written it isn't marked; fails_when=it keeps 2.3 or is marked; no_claim=a simple field's own formatting switches.
+  test("a simple REF field is renumbered too", async () => {
     const reference = `${run("Either party may end this agreement under clause ")}${simple("REF _Ref201 \\r \\h", "2.3")}${run(".")}`;
     const { document } = await exported(
       contractFile(ENGLISH_CONTRACT, reference),
       renumber(ENGLISH_CONTRACT),
     );
     expect(fieldsOf(document)).toEqual([
-      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: true },
+      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: false },
     ]);
   });
 
@@ -156,7 +179,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     async (tracked) => {
       const { document } = await exported(topLevel("2"), addAbove, tracked);
       expect(fieldsOf(document)).toEqual([
-        { instruction: "REF _Ref900 \\w \\h", result: "3", dirty: true },
+        { instruction: "REF _Ref900 \\w \\h", result: "3", dirty: false },
       ]);
       if (!tracked) return;
       expect(acceptedParagraphs(document).join("\n")).toContain("covered by paragraph 3.");
@@ -186,27 +209,47 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
-  // protects=a Chinese sub-clause renumbered from （九） to （十）, a number whose writing in Word's Chinese counting isn't certain, is asked to refresh and keeps （九） rather than a guess; fails_when=its result is rewritten, or it isn't marked; no_claim=what Word writes when it refreshes it.
-  test("a REF whose new number can't be written for certain is marked and keeps its result", async () => {
-    const { document } = await exported(
-      contractFile(CHINESE_PAST_NINE),
-      renumber(CHINESE_PAST_NINE),
-    );
-    expect(fieldsOf(document)).toEqual([
-      { instruction: "REF _Ref301 \\r \\h", result: "（九）", dirty: true },
-    ]);
-  });
+  // protects=the contract as Word saves it when 第二条's sub-clauses run past nine: a `\r` REF from 第三条 shows "第二条（九）", the number with its clause, since the two share no level, and a `\n` REF shows "（九）"; a sub-clause added above makes them "第二条（十）" and "（十）", written and not marked, plain and with the edits tracked (accepted reads the new numbers, rejected the old); fails_when=either keeps （九）, is marked though written, or the tracked export's rejected view reads （十）; no_claim=numbers from 100, which stay unwritten.
+  test.each([false, true])(
+    "Chinese: REFs to a sub-clause going from （九） to （十） (tracked: %s)",
+    async (tracked) => {
+      const { document } = await exported(
+        contractFile(CHINESE_PAST_NINE),
+        renumber(CHINESE_PAST_NINE),
+        tracked,
+      );
+      expect(fieldsOf(document)).toEqual([
+        { instruction: "REF _Ref301 \\r \\h", result: "第二条（十）", dirty: false },
+        { instruction: "REF _Ref301 \\n \\h", result: "（十）", dirty: false },
+      ]);
+      if (!tracked) return;
+      const accepted = acceptedParagraphs(document).join("\n");
+      const rejected = rejectedParagraphs(document).join("\n");
+      expect(accepted).toContain(CHINESE_PAST_NINE.renumbered);
+      expect(accepted).toContain("利息按第（十）项计收");
+      expect(rejected).toContain(CHINESE_PAST_NINE.before);
+      expect(rejected).toContain("利息按第（九）项计收");
+      expect(rejected).not.toContain("（十）");
+    },
+  );
 
-  // protects=a REF whose number goes from （十） to （十一）, neither of which Word's Chinese counting is certain to write so, is still asked to refresh, its result kept; fails_when=it isn't marked because no written form of either number could be compared; no_claim=what Word writes when it refreshes it.
-  test("a REF whose number changes where neither number can be written is marked", async () => {
+  // protects=a REF whose number goes past 99, where Word's Chinese counting isn't certain (九十九 to 一百, or 一百 to 一百〇一, neither written), is asked to refresh and keeps the file's result rather than a guess; fails_when=its result is rewritten, or it isn't marked because no written form could be compared; no_claim=what Word writes when it refreshes it.
+  test.each([
+    [97, "（九十九）"],
+    [98, "（一百）"],
+  ] as const)("a REF whose new number is 100 or more is marked (from %i)", async (start, shown) => {
     const contract: Contract = {
       ...CHINESE_CONTRACT,
-      numbering: clauseNumbering(["chineseCounting", "第%1条"], ["chineseCounting", "（%2）"], 8),
-      reference: `${run("未按第")}${field("REF _Ref301 \\r \\h", "（十）")}${run("项支付利息的，任何一方可解除本合同。")}`,
+      numbering: clauseNumbering(
+        ["chineseCounting", "第%1条"],
+        ["chineseCounting", "（%2）"],
+        start,
+      ),
+      reference: `${run("未按第")}${field("REF _Ref301 \\n \\h", shown)}${run("项支付利息的，任何一方可解除本合同。")}`,
     };
     const { document } = await exported(contractFile(contract), renumber(contract));
     expect(fieldsOf(document)).toEqual([
-      { instruction: "REF _Ref301 \\r \\h", result: "（十）", dirty: true },
+      { instruction: "REF _Ref301 \\n \\h", result: shown, dirty: true },
     ]);
   });
 
@@ -380,12 +423,12 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     };
     const { document } = await exported(contractFile(contract), renumber(contract));
     expect(fieldsOf(document)).toEqual([
-      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: true },
+      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: false },
       { instruction: "REF _Ref800 \\h", result: "interest under clause 2.3", dirty: true },
     ]);
   });
 
-  // protects=a simple field holding another, both naming a renumbered clause: each text of a result is the innermost field's, so the inner one gets the new number, and the outer one is only asked to refresh, rather than both writing the same text and the export failing; fails_when=the export throws, the inner result keeps 2.3, or either field isn't marked; no_claim=what Word shows in the outer field.
+  // protects=a simple field holding another, both naming a renumbered clause: each text of a result is the innermost field's, so the inner one gets the new number and, written, isn't marked, and the outer one is only asked to refresh, rather than both writing the same text and the export failing; fails_when=the export throws, the inner result keeps 2.3, or the outer field isn't marked; no_claim=what Word shows in the outer field.
   test("a simple field inside another is renumbered, the outer one only marked", async () => {
     const inner = `<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${run("2.3")}</w:fldSimple>`;
     const reference = `${run("Either party may end this agreement under clause ")}<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${inner}</w:fldSimple>${run(".")}`;
@@ -398,14 +441,14 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
         document,
       );
     expect(nested?.[1]).toContain('w:dirty="true"');
-    expect(nested?.[2]).toContain('w:dirty="true"');
+    expect(nested?.[2]).not.toContain("w:dirty");
     expect(nested?.[3]).toContain(">2.4<");
     expect((await inspectPackage(data)).problems).toEqual([]);
   });
 
   // protects=a field the file already marks not dirty with single quotes (w:dirty='false') gets one w:dirty="true", not a second attribute, which would make the part malformed; fails_when=the begin holds two w:dirty, or none set to true; no_claim=other attributes' quoting, which is kept as the file had it.
   test("a field marked not dirty in single quotes is marked once", async () => {
-    const reference = `${run("Either party may end this agreement under clause ")}${field("REF _Ref201 \\r \\h", "2.3").replace('w:fldCharType="begin"/>', "w:fldCharType=\"begin\" w:dirty='false'/>")}${run(".")}`;
+    const reference = `${run("Either party may end this agreement; see page ")}${field("PAGEREF _Ref201 \\h", "1").replace('w:fldCharType="begin"/>', "w:fldCharType=\"begin\" w:dirty='false'/>")}${run(".")}`;
     const { document } = await exported(
       contractFile(ENGLISH_CONTRACT, reference),
       renumber(ENGLISH_CONTRACT),
@@ -413,11 +456,11 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     const begin = /<w:fldChar w:fldCharType="begin"[^>]*\/>/.exec(document)?.[0] ?? "";
     expect(begin.match(/w:dirty/g)).toHaveLength(1);
     expect(fieldsOf(document)).toEqual([
-      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: true },
+      { instruction: "PAGEREF _Ref201 \\h", result: "1", dirty: true },
     ]);
   });
 
-  // protects=with the User's edits tracked, the REF's new number is the User's own tracked change beside the sub-clause they added: every change accepted, the referring clause says 2.4 / （四）; every change rejected, it says 2.3 / （三） with no trace of the new number, in English and Chinese; fails_when=the new number is written untracked, so rejecting the added clause leaves 2.4, or the REF isn't marked; no_claim=what Word writes when it refreshes it.
+  // protects=with the User's edits tracked, the REF's new number is the User's own tracked change beside the sub-clause they added, written and so not marked: every change accepted, the referring clause says 2.4 / （四）; every change rejected, it says 2.3 / （三） with no trace of the new number, in English and Chinese; fails_when=the new number is written untracked, so rejecting the added clause leaves 2.4, or the REF is marked though written; no_claim=what Word writes when it refreshes it.
   test.each([
     ["English", ENGLISH_CONTRACT, "2.4"],
     ["Chinese", CHINESE_CONTRACT, "（四）"],
@@ -426,7 +469,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     async (_language, contract, number) => {
       const { data, document } = await exported(contractFile(contract), renumber(contract), true);
       const [ref] = fieldsOf(document);
-      expect(ref).toMatchObject({ result: number, dirty: true });
+      expect(ref).toMatchObject({ result: number, dirty: false });
       const accepted = acceptedParagraphs(document).join("\n");
       const rejected = rejectedParagraphs(document).join("\n");
       expect(accepted).toContain(contract.renumbered);
@@ -450,13 +493,13 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
-  // protects=a sub-clause deleted above the referred one renumbers it (2.2) when the deletion is made, but with the User's edits tracked the deleted clause still counts until the change is accepted: the REF is asked to refresh and keeps the file's 2.3, never a number one of the two views would show wrong; fails_when=the untracked export keeps 2.3, or the tracked one is rewritten or not marked; no_claim=what Word shows once it refreshes.
+  // protects=a sub-clause deleted above the referred one renumbers it (2.2, written, not marked) when the deletion is made, but with the User's edits tracked the deleted clause still counts until the change is accepted: the REF is asked to refresh and keeps the file's 2.3, never a number one of the two views would show wrong; fails_when=the untracked export keeps 2.3 or is marked, or the tracked one is rewritten or not marked; no_claim=what Word shows once it refreshes.
   test.each([
-    [false, "2.2"],
-    [true, "2.3"],
+    [false, "2.2", false],
+    [true, "2.3", true],
   ] as const)(
     "a clause deleted above the one a REF names (tracked: %s)",
-    async (trackChanges, number) => {
+    async (trackChanges, number, dirty) => {
       const deleted = (blocks: JSONContent[]): JSONContent[] => {
         const visit = (node: JSONContent): JSONContent => ({
           ...node,
@@ -474,12 +517,12 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
         trackChanges,
       );
       const [ref] = fieldsOf(document);
-      expect(ref).toMatchObject({ result: number, dirty: true });
+      expect(ref).toMatchObject({ result: number, dirty });
       expect((await inspectPackage(data)).problems).toEqual([]);
     },
   );
 
-  // protects=a REF to a bookmark's text, the bookmarked words changed, shows the new words and is asked to refresh, in English and Chinese; fails_when=it shows the old words or isn't marked; no_claim=a bookmark over several paragraphs, whose text is left to Word.
+  // protects=a REF to a bookmark's text, the bookmarked words changed, shows the new words, written and so not marked, in English and Chinese; fails_when=it shows the old words or is marked; no_claim=a bookmark over several paragraphs, whose text is left to Word.
   test.each([
     ["English", "Unpaid fees carry interest", "Unpaid fees carry a charge"],
     ["Chinese", "逾期未付的服务费", "逾期未付的费用"],
@@ -505,7 +548,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
         ),
       );
       expect(fieldsOf(document)).toEqual([
-        { instruction: "REF _Ref700 \\h", result: now, dirty: true },
+        { instruction: "REF _Ref700 \\h", result: now, dirty: false },
       ]);
     },
   );

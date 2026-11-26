@@ -10,12 +10,12 @@
  * and rejected views are checked in `tests/core/wordFields.test.ts`, on the file as Word reads it.
  * LibreOffice shows a field's result as the file saved it, and doesn't read the mark that asks
  * Word to work a field out again, so this checks the number the export writes: what any viewer
- * that doesn't refresh fields shows. Whether Word works
- * out again each field marked dirty is the manual check: with INCARNAMIND_WORD_PDFS set to a
- * folder, the exports are kept there for it, as `fields-<language>.docx` and
- * `fields-<language>-tracked.docx`, with `fields-Chinese-past-nine.docx`, whose REF keeps the
- * file's （九） for Word to make （十）, and LibreOffice's PDFs. Without LibreOffice its part is
- * skipped, unless INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1.
+ * that doesn't refresh fields shows. `fields-Chinese-past-nine` is the Chinese contract as Word
+ * saves it once 第二条 runs past nine, its `\r` REF showing "第二条（九）" and its `\n` REF
+ * "（九）", which become "第二条（十）" and "（十）". With INCARNAMIND_WORD_PDFS set to a folder, the
+ * exports are kept there for a person to open in Word, as `fields-<language>.docx`,
+ * `fields-<language>-tracked.docx` and `fields-Chinese-past-nine.docx`, with LibreOffice's PDFs.
+ * Without LibreOffice its part is skipped, unless INCARNAMIND_WORD_REQUIRE_LIBREOFFICE=1.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,13 +67,16 @@ describe("a renumbered clause's cross-reference opens in LibreOffice with the ne
     "%s",
     async (language, contract) => {
       const { plain, tracked } = await renumbered(contract);
-      const exports = [
-        [`fields-${language}`, plain],
-        [`fields-${language}-tracked`, tracked],
-      ] as const;
+      // Each export, and the referring clause's words as it must show them.
+      const exports: [string, Uint8Array, string][] = [
+        [`fields-${language}`, plain, contract.renumbered],
+        [`fields-${language}-tracked`, tracked, contract.redline],
+      ];
+      if (language === "Chinese") {
+        const pastNine = (await renumbered(CHINESE_PAST_NINE)).plain;
+        exports.push(["fields-Chinese-past-nine", pastNine, CHINESE_PAST_NINE.renumbered]);
+      }
       for (const [name, data] of exports) kept(name, data);
-      if (language === "Chinese")
-        kept("fields-Chinese-past-nine", (await renumbered(CHINESE_PAST_NINE)).plain);
       if (!soffice) {
         expect(required, "LibreOffice is required (INCARNAMIND_WORD_REQUIRE_LIBREOFFICE)").toBe(
           false,
@@ -83,15 +86,13 @@ describe("a renumbered clause's cross-reference opens in LibreOffice with the ne
       }
       const folder = mkdtempSync(join(tmpdir(), "incarnamind-word-fields-"));
       try {
-        for (const [name, data] of exports) {
+        for (const [name, data, words] of exports) {
           const path = join(folder, `${name}.docx`);
           writeFileSync(path, data);
           if (keep) await convertFile(soffice, path, "pdf", ".pdf", join(keep, `${name}.pdf`));
           const text = await convertFile(soffice, path, "txt:Text (encoded):UTF8", ".txt");
           expect(text.opened, text.problem).toBe(true);
-          expect(text.data?.toString("utf8"), name).toContain(
-            data === plain ? contract.renumbered : contract.redline,
-          );
+          expect(text.data?.toString("utf8"), name).toContain(words);
         }
       } finally {
         rmSync(folder, { recursive: true, force: true });

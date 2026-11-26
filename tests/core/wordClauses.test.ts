@@ -7,8 +7,9 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
+import { inspectPackage } from "../../eval/word/corpus";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { numbersIn } from "../helpers/docx";
+import { numbersIn, part, unzip } from "../helpers/docx";
 import { editMind } from "../helpers/minds";
 import { paragraph, run, STYLES, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
@@ -313,6 +314,34 @@ describe("a contract's numbered clauses after an edit", () => {
       ),
     );
     expect(numbersIn(data)).toEqual(["Part I General", "1. Services", "1.1 Fees"]);
+  });
+
+  // protects=a numbered list the User adds to a file with no numbering part brings the part, its relationship and its content type, so Word opens the export without reporting unreadable content; fails_when=any of the three is missing, or the package has a problem Word's repair prompt is about; no_claim=other parts the export adds, which the export tests cover.
+  test("a list added to a file with no numbering brings the part, its relationship and its content type", async () => {
+    const bytes = wordFile({ body: paragraph("The fees are as follows.") });
+    expect(unzip(bytes).has("word/numbering.xml")).toBe(false);
+    const data = await editedExport(bytes, (blocks) => [
+      ...blocks,
+      {
+        type: "orderedList",
+        attrs: { start: 1 },
+        content: [
+          {
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Rent" }] }],
+          },
+        ],
+      },
+    ]);
+    const files = unzip(data);
+    expect(files.has("word/numbering.xml")).toBe(true);
+    const relationships = part(files, "word/_rels/document.xml.rels");
+    expect(relationships).toContain("/relationships/numbering");
+    expect(relationships).toContain('Target="numbering.xml"');
+    expect(part(files, "[Content_Types].xml")).toContain(
+      '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>',
+    );
+    expect((await inspectPackage(data)).problems).toEqual([]);
   });
 
   // protects=typed clause numbers and a bold line standing for a heading stay the file's text after an edit: the export gives them no numbering; fails_when=either becomes a numbered paragraph; no_claim=how the import reads them, which the import test covers.

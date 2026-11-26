@@ -126,8 +126,9 @@ const HEAVENLY_STEMS = "甲乙丙丁戊己庚辛壬癸";
 /**
  * A number as Word writes it in a list's number format (`w:numFmt`), or null where how Word
  * writes it isn't certain: a format this doesn't know, or a number past those its formats agree
- * on. Chinese counting from 10 is one: ECMA-376 17.18.59 writes 10 as "一○" in
- * chineseCountingThousand and gives no example past 4 in chineseCounting.
+ * on. Word draws chineseCounting and chineseCountingThousand alike to 99 (十, 十一, 二十,
+ * 九十九, seen in Word), though ECMA-376 17.18.59 writes 10 as "一○"; from 100 they part, and
+ * the zero they write wasn't made out, so 100 and over is null.
  */
 export function wordNumberText(format: string, n: number): string | null {
   if (!Number.isInteger(n) || n < 1) return null;
@@ -150,7 +151,6 @@ export function wordNumberText(format: string, n: number): string | null {
       return n <= 26 ? letters(n).toUpperCase() : null;
     case "chineseCounting":
     case "chineseCountingThousand":
-      return n < 10 ? chinese(n) : null;
     case "taiwaneseCounting":
     case "japaneseCounting":
       return n < 100 ? chinese(n) : null;
