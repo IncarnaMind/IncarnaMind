@@ -351,4 +351,20 @@ describe("the menus", () => {
     const mac = /Mac|iPhone|iPad/.test(navigator.platform);
     expect(remove && menuKeysLabel(remove)).toBe(mac ? "⌦" : "Delete");
   });
+
+  test("the check menu keeps its full order from objectMenus without waiting for editor views", () => {
+    expect(menuIds("check")).toEqual([
+      "table.openCalculation",
+      "table.convertToText",
+      "figure.open",
+      "figure.copyFormula",
+      "figure.signOff",
+      "figure.signOffRemove",
+      "figure.convertToText",
+      "figure.remove",
+      "check.anyway",
+      "check.useDocumentWording",
+      "check.findSources",
+    ]);
+  });
 });

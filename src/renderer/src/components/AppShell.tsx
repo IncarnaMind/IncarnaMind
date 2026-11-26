@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { PlusMenuPlaceholder, SidebarHeader } from "./Sidebar";
+import { PlusMenuPlaceholder, SidebarHeader } from "./SidebarHeader";
 
 /** The sidebar's width as last shown on this computer, for the shell. */
 const SIDEBAR_WIDTH_KEY = "incarnamind.sidebarWidth";
