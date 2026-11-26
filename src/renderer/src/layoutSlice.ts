@@ -117,7 +117,6 @@ export function createLayoutSlice(
     async changeLayout(change, options) {
       const keep = keepPlacingsSince();
       const previous = get().layout;
-      const fallback = inFlightOptimistic === 0 ? previous : (confirmed ?? previous);
       const immediate = previous ? revealExistingTab(previous, change) : null;
       const changeId = ++layoutChanges;
       if (immediate) {
@@ -131,7 +130,8 @@ export function createLayoutSlice(
         if (changeId === layoutChanges) set({ layout });
         return layout;
       } catch (error) {
-        if (immediate && fallback && changeId === layoutChanges) set({ layout: keep(fallback) });
+        const restore = confirmed ?? previous;
+        if (immediate && restore && changeId === layoutChanges) set({ layout: keep(restore) });
         if (!options?.quiet) report(error);
         return null;
       } finally {

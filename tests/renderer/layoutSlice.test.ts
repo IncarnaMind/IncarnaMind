@@ -158,7 +158,7 @@ describe("a read of the layout", () => {
 });
 
 describe("switching to an already-open tab (#3828)", () => {
-  const twoTabs = (activeTabId: string): WindowLayout => ({
+  const threeTabs = (activeTabId: string): WindowLayout => ({
     groups: [
       {
         id: "group",
@@ -166,6 +166,14 @@ describe("switching to an already-open tab (#3828)", () => {
           {
             id: "lib",
             item: { kind: "library" },
+            preview: false,
+            pinned: false,
+            place: null,
+            opened: 0,
+          },
+          {
+            id: "home",
+            item: { kind: "home" },
             preview: false,
             pinned: false,
             place: null,
@@ -191,7 +199,7 @@ describe("switching to an already-open tab (#3828)", () => {
   });
 
   test("reveals an already-open Library tab synchronously before the core answers, and reverts to the confirmed layout if refused", async () => {
-    store.setState({ layout: twoTabs("note") });
+    store.setState({ layout: threeTabs("note") });
 
     const opening = store.getState().changeLayout({
       type: "open",
@@ -199,13 +207,13 @@ describe("switching to an already-open tab (#3828)", () => {
       where: { in: "place" },
     });
     expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
-    answer(0, twoTabs("lib"));
+    answer(0, threeTabs("lib"));
     await opening;
     expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
 
     // Overlapping optimistic switches: if the second refuses while the first is still pending,
     // rollback restores the last confirmed layout rather than the unconfirmed first switch.
-    store.setState({ layout: twoTabs("note") });
+    store.setState({ layout: threeTabs("note") });
     const first = store
       .getState()
       .changeLayout(
@@ -216,11 +224,84 @@ describe("switching to an already-open tab (#3828)", () => {
     bridge.changeLayout.mockRejectedValueOnce(new Error("refused"));
     const second = await store
       .getState()
-      .changeLayout({ type: "show", tabId: "note" }, { quiet: true });
+      .changeLayout(
+        { type: "open", item: { kind: "home" }, where: { in: "place" } },
+        { quiet: true },
+      );
     expect(second).toBeNull();
     expect(store.getState().layout?.groups[0]?.activeTabId).toBe("note");
-    answer(1, twoTabs("lib"));
+    answer(1, threeTabs("lib"));
     await first;
     expect(store.getState().layout?.groups[0]?.activeTabId).toBe("note");
+  });
+
+  test("when two switches overlap and the first is refused while the second is in flight, the second's confirmed answer wins", async () => {
+    store.setState({ layout: threeTabs("note") });
+
+    let rejectFirst: ((error: Error) => void) | undefined;
+    bridge.changeLayout.mockImplementationOnce(
+      () =>
+        new Promise<WindowLayout>((_, reject) => {
+          rejectFirst = reject;
+        }),
+    );
+    const first = store
+      .getState()
+      .changeLayout(
+        { type: "open", item: { kind: "library" }, where: { in: "place" } },
+        { quiet: true },
+      );
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
+
+    const second = store
+      .getState()
+      .changeLayout(
+        { type: "open", item: { kind: "home" }, where: { in: "place" } },
+        { quiet: true },
+      );
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("home");
+
+    rejectFirst?.(new Error("refused"));
+    expect(await first).toBeNull();
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("home");
+
+    answer(0, threeTabs("home"));
+    await second;
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("home");
+  });
+
+  test("when two switches overlap and the first succeeds before the second is refused, rollback restores the first's confirmed answer", async () => {
+    store.setState({ layout: threeTabs("note") });
+
+    const first = store
+      .getState()
+      .changeLayout(
+        { type: "open", item: { kind: "library" }, where: { in: "place" } },
+        { quiet: true },
+      );
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
+
+    let rejectSecond: ((error: Error) => void) | undefined;
+    bridge.changeLayout.mockImplementationOnce(
+      () =>
+        new Promise<WindowLayout>((_, reject) => {
+          rejectSecond = reject;
+        }),
+    );
+    const second = store
+      .getState()
+      .changeLayout(
+        { type: "open", item: { kind: "home" }, where: { in: "place" } },
+        { quiet: true },
+      );
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("home");
+
+    answer(0, threeTabs("lib"));
+    await first;
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("home");
+
+    rejectSecond?.(new Error("refused"));
+    expect(await second).toBeNull();
+    expect(store.getState().layout?.groups[0]?.activeTabId).toBe("lib");
   });
 });
