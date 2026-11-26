@@ -529,7 +529,6 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
         numbering: readWordNumbering((await writer.part(numbering.name))?.root, writtenStyles),
         styles: writtenStyles,
       },
-      input.review.trackAs === null,
     );
     if (refreshed !== text) writer.set(pkg.part, refreshed);
   }

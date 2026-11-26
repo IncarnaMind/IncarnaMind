@@ -2,7 +2,8 @@
  * Word's cross-references and tables of contents after an edit (#746): a clause added above the
  * one a REF names gives the REF its new number in the file, and Word is asked to refresh REF,
  * PAGEREF and TOC fields whose result the edit can have changed; one it can't have changed is
- * left as the file had it. A result that can't be known stays as the file showed it.
+ * left as the file had it. A result that can't be known stays as the file showed it, for Word to
+ * work out.
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
@@ -14,8 +15,8 @@ import { escapeXml, field, paragraph, run, STYLES, wordFile } from "../helpers/w
 import {
   addItemAfter,
   CHINESE_CONTRACT,
+  CHINESE_PAST_NINE,
   type Contract,
-  clauseNumbering,
   contractFile,
   ENGLISH_CONTRACT,
 } from "../helpers/wordContracts";
@@ -143,28 +144,55 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
 
   // protects=a Chinese sub-clause renumbered from （九） to （十）, a number whose writing in Word's Chinese counting isn't certain, is asked to refresh and keeps （九） rather than a guess; fails_when=its result is rewritten, or it isn't marked; no_claim=what Word writes when it refreshes it.
   test("a REF whose new number can't be written for certain is marked and keeps its result", async () => {
-    const contract: Contract = {
-      ...CHINESE_CONTRACT,
-      numbering: clauseNumbering(["chineseCounting", "第%1条"], ["chineseCounting", "（%2）"], 7),
-    };
-    const reference = `${run("未按第")}${field("REF _Ref301 \\r \\h", "（九）")}${run("项支付利息的，任何一方可解除本合同。")}`;
-    const { document } = await exported(contractFile(contract, reference), renumber(contract));
+    const { document } = await exported(
+      contractFile(CHINESE_PAST_NINE),
+      renumber(CHINESE_PAST_NINE),
+    );
     expect(fieldsOf(document)).toEqual([
       { instruction: "REF _Ref301 \\r \\h", result: "（九）", dirty: true },
     ]);
   });
 
-  // protects=in an export with the User's edits tracked, a renumbered REF is asked to refresh but keeps the result the file had, since Word numbers tracked deletions as gone; fails_when=its result is rewritten or it isn't marked; no_claim=the tracked changes themselves, which the review tests cover.
-  test("with the User's edits tracked, a renumbered REF is marked and keeps its result", async () => {
+  // protects=with the User's edits tracked, a sub-clause added above the referred one is a tracked insertion, which counts whether the change is shown or accepted: the REF gets the new number, as a viewer that doesn't refresh fields shows it; fails_when=it keeps 2.3 or isn't marked; no_claim=the tracked changes themselves, which the review tests cover.
+  test("with the User's edits tracked, a clause added above is renumbered too", async () => {
     const { data, document } = await exported(
       contractFile(ENGLISH_CONTRACT),
       renumber(ENGLISH_CONTRACT),
       true,
     );
     const [ref] = fieldsOf(document);
-    expect(ref).toMatchObject({ result: "2.3", dirty: true });
+    expect(ref).toMatchObject({ result: "2.4", dirty: true });
     expect((await inspectPackage(data)).problems).toEqual([]);
   });
+
+  // protects=a sub-clause deleted above the referred one renumbers it (2.2) when the deletion is made, but with the User's edits tracked the deleted clause still counts until the change is accepted: the REF is asked to refresh and keeps the file's 2.3, never a number one of the two views would show wrong; fails_when=the untracked export keeps 2.3, or the tracked one is rewritten or not marked; no_claim=what Word shows once it refreshes.
+  test.each([
+    [false, "2.2"],
+    [true, "2.3"],
+  ] as const)(
+    "a clause deleted above the one a REF names (tracked: %s)",
+    async (trackChanges, number) => {
+      const deleted = (blocks: JSONContent[]): JSONContent[] => {
+        const visit = (node: JSONContent): JSONContent => ({
+          ...node,
+          content: (node.content ?? [])
+            .filter(
+              (each) => !(each.type === "listItem" && textOf(each) === ENGLISH_CONTRACT.after),
+            )
+            .map(visit),
+        });
+        return blocks.map(visit);
+      };
+      const { data, document } = await exported(
+        contractFile(ENGLISH_CONTRACT),
+        deleted,
+        trackChanges,
+      );
+      const [ref] = fieldsOf(document);
+      expect(ref).toMatchObject({ result: number, dirty: true });
+      expect((await inspectPackage(data)).problems).toEqual([]);
+    },
+  );
 
   // protects=a REF to a bookmark's text, the bookmarked words changed, shows the new words and is asked to refresh, in English and Chinese; fails_when=it shows the old words or isn't marked; no_claim=a bookmark over several paragraphs, whose text is left to Word.
   test.each([

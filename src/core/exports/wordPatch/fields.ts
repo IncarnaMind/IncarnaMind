@@ -8,11 +8,12 @@
  * - a PAGEREF, when anything at or before its bookmark changed, which can move its page;
  * - a TOC, when the headings changed, or anything before the last of them.
  *
- * A REF's result is written again when it can be known: the file's result was its bookmark's
- * number (or text) as the file had it, written in one of the ways Word writes it, and that way
- * gives the number now. A page can't be known without laying the document out, so a PAGEREF's
- * page and a table of contents' entries are left to Word. Fields in headers, footers and notes
- * are left as they are.
+ * A REF's result is written again when it can be known, as a viewer that doesn't refresh fields
+ * shows it (LibreOffice is one): the file's result was its bookmark's number (or text) as the file
+ * had it, written in one of the ways Word writes it, and that way gives one number now whether a
+ * paragraph deleted as a tracked change counts or not. A page can't be known without laying the
+ * document out, so a PAGEREF's page and a table of contents' entries are left to Word. Fields in
+ * headers, footers and notes are left as they are.
  */
 import { headingLevelOf } from "../../documents/formats/docx";
 import {
@@ -111,7 +112,9 @@ class Reading {
   readonly root: XmlElement;
   private readonly parents: Map<XmlElement, XmlElement>;
   private readonly paragraphs: XmlElement[];
+  /** Each paragraph's number with every paragraph counted, and with those deleted as tracked changes left out. */
   private readonly numbers = new Map<XmlElement, ParagraphNumber>();
+  private readonly accepted = new Map<XmlElement, ParagraphNumber>();
   private readonly starts = new Map<string, XmlElement>();
   private readonly ends = new Map<string, XmlElement>();
   private texts: XmlElement[] | null = null;
@@ -123,10 +126,16 @@ class Reading {
     this.root = root;
     this.parents = parentsOf(this.root);
     this.paragraphs = descendants(this.root, "w:p");
-    paragraphNumbers(part.numbering, part.styles, this.paragraphs).forEach((number, index) => {
-      const p = this.paragraphs[index];
-      if (number && p) this.numbers.set(p, number);
-    });
+    const counted = (paragraphs: XmlElement[], into: Map<XmlElement, ParagraphNumber>) =>
+      paragraphNumbers(part.numbering, part.styles, paragraphs).forEach((number, index) => {
+        const p = paragraphs[index];
+        if (number && p) into.set(p, number);
+      });
+    counted(this.paragraphs, this.numbers);
+    counted(
+      this.paragraphs.filter((p) => !deletedMark(p)),
+      this.accepted,
+    );
     const ids = new Map<string, string>();
     for (const element of walk(this.root)) {
       const name = element.attrs["w:name"];
@@ -156,9 +165,10 @@ class Reading {
     return this.paragraphs.find((p) => startOf(p) >= endOf(start)) ?? null;
   }
 
-  numberOf(name: string): ParagraphNumber | null {
+  /** A bookmark's paragraph number, every paragraph counted, then with tracked deletions accepted. */
+  numberOf(name: string): [ParagraphNumber | null, ParagraphNumber | null] {
     const p = this.paragraphOf(name);
-    return p ? (this.numbers.get(p) ?? null) : null;
+    return p ? [this.numbers.get(p) ?? null, this.accepted.get(p) ?? null] : [null, null];
   }
 
   /** A bookmark's text, when it is all in one paragraph; null for one that isn't. */
@@ -202,8 +212,20 @@ class Reading {
   }
 }
 
-/** The ways Word writes a paragraph's number in a cross-reference to it; null where one can't be written. */
-function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): (string | null)[] {
+/** A paragraph's number in each way Word writes it in a cross-reference; null where one can't be written. */
+type Ways = (string | null)[];
+
+/** A paragraph whose mark is deleted as a tracked change: with it accepted, the paragraph is gone. */
+function deletedMark(p: XmlElement): boolean {
+  const pPr = child(p, "w:pPr");
+  const rPr = pPr && child(pPr, "w:rPr");
+  return (
+    rPr !== undefined &&
+    (child(rPr, "w:del") !== undefined || child(rPr, "w:moveFrom") !== undefined)
+  );
+}
+
+function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): Ways {
   if (!number) return [null, null, null, null];
   const own = number.text;
   const levels = number.numbers.map((_, at) =>
@@ -225,14 +247,11 @@ function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): (
 
 /**
  * The main part after the change, its fields marked dirty where the change can have altered
- * their results, and REF results written again where the new one can be known. `rewrite` off
- * leaves every result as it was: in a review export, Word numbers the User's tracked deletions
- * as gone, which this doesn't.
+ * their results, and REF results written again where the new one can be known.
  */
 export function refreshFields(
   before: FieldsPart & { root: XmlElement },
   after: FieldsPart,
-  rewrite: boolean,
 ): string {
   if (before.text === after.text) return after.text;
   let changedAt = 0;
@@ -272,14 +291,27 @@ export function refreshFields(
       const end = was.endOfBookmark(field.bookmark);
       dirty = end === null || now.endOfBookmark(field.bookmark) === null || changedAt < end;
     } else if (NUMBER_SWITCHES.some((each) => field.switches.has(each))) {
-      const then = numberWays(was.numberOf(field.bookmark), before.numbering);
-      const nowWays = numberWays(now.numberOf(field.bookmark), after.numbering);
-      const way = then.findIndex((each) => each !== null && each === shown.trim());
+      // Each way of writing the number, every paragraph counted and with tracked deletions accepted.
+      const [thenNumber, thenAcceptedNumber] = was.numberOf(field.bookmark);
+      const [nowNumber, nowAcceptedNumber] = now.numberOf(field.bookmark);
+      const thenAll = numberWays(thenNumber, before.numbering);
+      const thenAccepted = numberWays(thenAcceptedNumber, before.numbering);
+      const nowAll = numberWays(nowNumber, after.numbering);
+      const nowAccepted = numberWays(nowAcceptedNumber, after.numbering);
+      const result = shown.trim();
+      const way = thenAll.findIndex(
+        (each, at) => result !== "" && (each === result || thenAccepted[at] === result),
+      );
       if (way >= 0) {
-        const next = nowWays[way] ?? null;
-        dirty = next !== then[way];
-        if (dirty && next !== null) written = next;
-      } else dirty = then.some((each, at) => each !== nowWays[at]);
+        const all = nowAll[way] ?? null;
+        const accepted = nowAccepted[way] ?? null;
+        dirty = all !== thenAll[way] || accepted !== thenAccepted[way];
+        if (dirty && all !== null && all === accepted && all !== result) written = all;
+      } else {
+        dirty =
+          nowAll.some((each, at) => each !== thenAll[at]) ||
+          nowAccepted.some((each, at) => each !== thenAccepted[at]);
+      }
     } else {
       const then = was.textOf(field.bookmark);
       const next = now.textOf(field.bookmark);
@@ -291,8 +323,7 @@ export function refreshFields(
     const formatted = [...field.switches].some(
       (each) => each.startsWith("*") && !PLAIN_FORMATS.has(each.slice(1)),
     );
-    if (written !== null && rewrite && !formatted)
-      splices.push(...rewritten(field.result, written));
+    if (written !== null && !formatted) splices.push(...rewritten(field.result, written));
   }
   return splices.length > 0 ? applySplices(after.text, splices) : after.text;
 }
