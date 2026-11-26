@@ -34,9 +34,9 @@ import { useT } from "../../i18n";
 import { firstGroupLead, useCardWidth } from "../../layoutSlice";
 import { isLive, useMeetings } from "../../meetings";
 import { useSettingUp } from "../../modelSetup";
-import { useFoldForOwnAi, useHiddenForOwnAi } from "../../ownAiPanel";
+import { useFoldForOwnAi } from "../../ownAiPanel";
 import { useQuestionRoom } from "../../questionRoom";
-import { useQuietAssistant } from "../../quietAssistant";
+import { useAskPillShown, useQuietAssistant } from "../../quietAssistant";
 import { useAppStore } from "../../store";
 import { useWindowSize } from "../../useWindowWidth";
 import { PanelBoundary } from "../PanelBoundary";
@@ -78,8 +78,7 @@ export function Workbench({
   const placeAssistant = useAppStore((state) => state.placeAssistant);
   const quiet = useQuietAssistant();
   useFoldForOwnAi();
-  // The quiet pill opens the panel, which a User with only their own AI never sees (#3612).
-  const hiddenForOwnAi = useHiddenForOwnAi();
+  const pill = useAskPillShown();
   const viewport = useWindowSize();
   /** Sizes while the User drags a line or an edge, before they are kept. */
   const [preview, setPreview] = useState<Partial<AssistantPlace> | null>(null);
@@ -210,7 +209,7 @@ export function Workbench({
         </ComposerDockContext.Provider>
         {cardOverlay}
         <UndoPill />
-        {quiet && !hiddenForOwnAi && <AskPill />}
+        {pill && <AskPill />}
       </div>
       {quiet || dock === "float" ? null : folded ? (
         <div aria-hidden="true" className="workbench-gap" />

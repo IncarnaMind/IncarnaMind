@@ -1,4 +1,3 @@
-import { useAgentAlone } from "../../agentNote";
 import { useT } from "../../i18n";
 import {
   FirstTranscriptionChoiceFields,
@@ -17,7 +16,6 @@ import { SetupPanel, type StepPlace } from "./SetupPanel";
 export function TranscriptionStep({ place }: { place: StepPlace }) {
   const t = useT();
   const setup = useFirstTranscriptionChoice();
-  const agentAlone = useAgentAlone();
   const next = async () => {
     if (!setup.ready) return place.next();
     if (await setup.finish()) place.next();
@@ -64,11 +62,6 @@ export function TranscriptionStep({ place }: { place: StepPlace }) {
       }
     >
       <FirstTranscriptionChoiceFields setup={setup} onEnter={() => void next()} />
-      {agentAlone && (
-        <p data-testid="setup-meetings-needs-model" className="text-[12px] leading-5 text-ink-meta">
-          {t("setupPage.meetings.needsModel")}
-        </p>
-      )}
     </SetupPanel>
   );
 }

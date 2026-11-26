@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import type { AgentClient, AgentSetupPreview } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
+import { useAgentPairings } from "../../agentNote";
 import { core } from "../../core";
 import { useGap, useT } from "../../i18n";
 import { useAppStore } from "../../store";
@@ -102,12 +103,18 @@ export function ConnectAgentFields({
   const [preview, setPreview] = useState<AgentSetupPreview | null>(null);
   const reportError = useAppStore((state) => state.reportError);
 
-  // A new agent starts with all of it, and its own preview.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset folder choice only when switching client.
+  // A new agent starts with all of it, and its own preview; one already connected starts from what
+  // its connection allows now, so pressing Connect again never widens it unasked.
+  // Other agent is a new connection each time, named by the User.
+  const live =
+    useAgentPairings()?.find((pairing) => client.id !== "other" && pairing.client === client.id) ??
+    null;
+  const liveScope = live ? `${live.id}:${live.folderIds.join(",")}:${live.propose}` : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset the choice only when the client or its connection's scope changes.
   useEffect(() => {
-    folders.reset();
+    folders.reset(live?.folderIds);
     setName("");
-    setPropose(true);
+    setPropose(live?.propose ?? true);
     setPreview(null);
     let current = true;
     core.previewAgentSetup(client.id).then((value) => {
@@ -116,7 +123,7 @@ export function ConnectAgentFields({
     return () => {
       current = false;
     };
-  }, [client.id, reportError]);
+  }, [client.id, liveScope, reportError]);
 
   const agent = name.trim() || clientInSentence(client, t);
   const { all, setAll, rows, leftOut, anyFolder, shared, chosen, toggle, allowed } = folders;

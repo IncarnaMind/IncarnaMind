@@ -45,8 +45,8 @@ type Say = (key: MessageKey, params?: MessageParams) => string;
 export interface AgentAskOptions {
   /** The agents the User can ask about this Note now (`createAgents().askable`). */
   askable(mindId: string | null, documentId?: string): AgentPairing[];
-  /** Of these Folders and Documents, those the pairing can read now (`createAgents().reads`). */
-  reads(pairingId: string, ids: Ids): Ids;
+  /** Of these Folders and Documents, those the pairing can read asked in `mindId` now (`createAgents().reads`). */
+  reads(pairingId: string, ids: Ids, mindId?: string | null): Ids;
   /** A Folder's or a Document's name now; null when it is gone. */
   nameOf(kind: "folder" | "document", id: string): string | null;
   minds(): Mind[];
@@ -132,7 +132,7 @@ const quoteOf = (asked: AskedSentence, say: Say) =>
 /** The line the User sends, and the request that waits: the Note named by its title, and its id in the request. */
 export function agentRequest(
   note: { title: string; mindId: string } | null,
-  ask: Exclude<AgentAsk, { kind: "organize" | "summary" | "selection" | "deck-edit" }>,
+  ask: Exclude<AgentAsk, { kind: "organize" | "selection" | "deck-edit" }>,
   say: Say,
   meeting?: { transcriptId: string; propose: boolean; writeup?: string | null },
   file?: HandedFileAsked | null,
@@ -436,8 +436,6 @@ function parseAsk(value: unknown): AgentAsk {
       return { kind: "note" };
     case "check":
       return { kind: "check" };
-    case "summary":
-      return { kind: "summary", documentId: words(value.documentId) };
     case "deck-edit": {
       const slide = value.slide;
       if (typeof slide !== "number" || !Number.isInteger(slide) || slide < 1) {
@@ -597,16 +595,21 @@ function parseInput(input: unknown): ParsedInput {
 }
 
 export function createAgentAsk(options: AgentAskOptions) {
-  /** What the User looks at that this agent can read now, named as it is now. */
+  /** What the User looks at, asking in `mindId`, that this agent can read now, named as it is now. */
   const lookingAt = (
     pairingId: string,
+    mindId: string | null,
     onScreen: readonly string[],
     scope: SearchScope | null,
   ): Looking => {
-    const readable = options.reads(pairingId, {
-      folderIds: scope?.folderIds ?? [],
-      documentIds: [...onScreen, ...(scope?.documentIds ?? [])],
-    });
+    const readable = options.reads(
+      pairingId,
+      {
+        folderIds: scope?.folderIds ?? [],
+        documentIds: [...onScreen, ...(scope?.documentIds ?? [])],
+      },
+      mindId,
+    );
     const named = (
       kind: "folder" | "document",
       ids: readonly string[],
@@ -704,17 +707,6 @@ export function createAgentAsk(options: AgentAskOptions) {
     };
   }
 
-  /** One Document named in the line, which says everything: nothing waits for the agent (#3572). */
-  function summaryRequest(documentId: string): AgentRequestText {
-    const name = options.nameOf("document", documentId);
-    if (name === null) throw new NotFoundError({ key: "error.agent.cantAskDocument" });
-    return {
-      line: options.say("firstOpen.agent.line", { document: quotedName(name) }),
-      request: null,
-      sentences: [],
-    };
-  }
-
   return {
     forOrganize(input: unknown) {
       const target = organizeTarget(input);
@@ -727,9 +719,7 @@ export function createAgentAsk(options: AgentAskOptions) {
     async ask(input: unknown): Promise<AskAgentResult> {
       const { pairingId, mindId, ask, onScreen, scope, openChat } = parseInput(input);
       const documentId =
-        ask.kind === "summary" || ask.kind === "selection" || ask.kind === "deck-edit"
-          ? ask.documentId
-          : undefined;
+        ask.kind === "selection" || ask.kind === "deck-edit" ? ask.documentId : undefined;
       const pairing = options.askable(mindId, documentId).find((each) => each.id === pairingId);
       if (!pairing)
         throw new NotFoundError({
@@ -768,7 +758,8 @@ export function createAgentAsk(options: AgentAskOptions) {
           throw new NotFoundError({ key: "error.agent.meetingUnavailable" });
         }
       }
-      const looking = ask.kind === "question" ? lookingAt(pairingId, onScreen, scope) : undefined;
+      const looking =
+        ask.kind === "question" ? lookingAt(pairingId, mindId, onScreen, scope) : undefined;
       if ((ask.kind === "organize" || documentId !== undefined) && mindId !== null)
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       const deckEditRequest = (edit: Extract<AgentAsk, { kind: "deck-edit" }>) => {
@@ -814,22 +805,20 @@ export function createAgentAsk(options: AgentAskOptions) {
       const { line, request, named, sentences } =
         ask.kind === "organize"
           ? sortingRequest(pairing, ask.target)
-          : ask.kind === "summary"
-            ? summaryRequest(ask.documentId)
-            : ask.kind === "selection"
-              ? selectionRequest(pairing, note, ask)
-              : ask.kind === "deck-edit"
-                ? deckEditRequest(ask)
-                : agentRequest(
-                    note,
-                    ask,
-                    options.say,
-                    transcriptId && meetingPairing
-                      ? { transcriptId, propose: meetingPairing.propose, writeup }
-                      : undefined,
-                    note ? options.handedFile(note.mindId) : null,
-                    looking,
-                  );
+          : ask.kind === "selection"
+            ? selectionRequest(pairing, note, ask)
+            : ask.kind === "deck-edit"
+              ? deckEditRequest(ask)
+              : agentRequest(
+                  note,
+                  ask,
+                  options.say,
+                  transcriptId && meetingPairing
+                    ? { transcriptId, propose: meetingPairing.propose, writeup }
+                    : undefined,
+                  note ? options.handedFile(note.mindId) : null,
+                  looking,
+                );
       // Kept before the link opens: the User can send the line the moment the agent's app shows it.
       if (request !== null || named !== undefined) {
         options.keepRequest({

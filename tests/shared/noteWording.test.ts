@@ -134,8 +134,6 @@ const ANOTHER_NOTE: readonly MessageKey[] = [
   "citationStyle.chicago-notes",
   "citationStyle.form.note",
   "export.html.notes",
-  "firstOpen.work.meetings.notes",
-  "firstOpen.work.meetings.notes.done",
   "location.section.notes",
   "meetings.quickNote",
   "meetings.quickNote.placeholder",

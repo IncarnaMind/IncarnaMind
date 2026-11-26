@@ -25,10 +25,10 @@ import {
 test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION is false.");
 
 /*
- * Connect every AI app on this computer in one press (#3644):
- * - First Run: when 2+ apps are found, "All N on this computer" starts chosen with one consent
- *   sheet; unticking an app updates the button count; Allow connects file apps silently (with Undo),
- *   opens install-link apps (with Open again), and shows a hidden-token paste box (with Copy).
+ * Connect several AI apps on this computer in one press (#3644):
+ * - First Run (#3791): one list with only the first app ticked; the User ticks the others, and one
+ *   Connect writes file apps at once, leaves install-link apps waiting with their one button, and
+ *   a settings-paste app with Copy and its settings under Details; Undo takes the press back.
  * - Settings › AI: "Connect all N" opens the same sheet as a dialog, connects all found apps under
  *   one Folder choice, and gives each app its own row.
  */
@@ -72,7 +72,7 @@ async function shot(window: Page, name: string, width: number, height: number) {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`first run: connects all four found apps in one press (${language})`, async () => {
+  test(`first run: the User ticks all four found apps, and one press connects them (${language})`, async () => {
     const folders = { applications: apps, commands: apps, home };
     await installAgent("codex", folders, "command");
     await installAgent("claude-code", folders, "command");
@@ -104,54 +104,40 @@ for (const language of ["en", "zh-CN"] as const) {
     }
     await expect(panel).toHaveAttribute("data-step", "ai");
 
-    // "All 4 on this computer" starts selected by default with all 4 apps ticked.
-    const allTile = window.getByTestId("setup-agent-all");
-    await expect(allTile).toBeVisible();
-    await expect(allTile.locator("input[type=radio]")).toBeChecked();
-    await expect(window.getByTestId("connect-many-app")).toHaveCount(4);
-    const allowAll = window.getByTestId("setup-agent-allow-all");
-    await expect(allowAll).toBeEnabled();
-    await expect(allowAll).toContainText(
-      language === "en" ? "Allow and connect 4" : "允许并连接 4 个",
-    );
-
-    // Open Details and verify per-app previews; untick Zed and verify button count drops to 3.
-    await window.getByTestId("connect-many-details").locator("summary").first().click();
-    await expect(window.getByTestId("connect-many-app-detail")).toHaveCount(4);
+    // One list of the four, only Claude Code ticked (#3791); the User ticks the rest.
+    const row = (id: string) => panel.locator(`[data-testid="setup-app"][data-value="${id}"]`);
+    await expect(panel.getByTestId("setup-app")).toHaveCount(3);
+    await panel.getByTestId("setup-apps-more").click();
+    await expect(panel.getByTestId("setup-app")).toHaveCount(4);
+    await expect(panel.locator('[data-testid="setup-app-tick"]:checked')).toHaveCount(1);
+    await expect(row("claude-code").getByTestId("setup-app-tick")).toBeChecked();
+    for (const id of ["codex", "cursor", "zed"])
+      await row(id).getByTestId("setup-app-tick").check();
+    await panel.getByTestId("setup-consent-details").click();
+    await expect(panel.getByTestId("setup-consent-more")).toBeVisible();
     await shot(window, `first-run-sheet-${language}`, 1440, 900);
     await shot(window, `first-run-sheet-${language}`, 900, 700);
     await setWindowSize(app, window, 1440, 900);
 
-    const zedCheckbox = window.locator(
-      '[data-testid="connect-many-app"][data-client="zed"] input[type=checkbox]',
-    );
-    await zedCheckbox.uncheck();
-    await expect(allowAll).toContainText(
-      language === "en" ? "Allow and connect 3" : "允许并连接 3 个",
-    );
-    await zedCheckbox.check();
-    await expect(allowAll).toContainText(
-      language === "en" ? "Allow and connect 4" : "允许并连接 4 个",
-    );
-
-    // Press Allow and connect 4: two written silently, one opened (Cursor), one paste box (Zed).
-    await allowAll.click();
-    const result = window.getByTestId("connect-many-result");
-    await expect(result).toBeVisible();
-    await expect(result.locator('[data-client="codex"][data-outcome="connected"]')).toBeVisible();
-    await expect(
-      result.locator('[data-client="claude-code"][data-outcome="connected"]'),
-    ).toBeVisible();
-    await expect(result.locator('[data-client="cursor"][data-outcome="opened"]')).toBeVisible();
-    await expect(result.locator('[data-client="zed"][data-outcome="copy"]')).toBeVisible();
+    // One press: two written at once, Cursor waiting for its own Install, Zed for a paste.
+    await panel.getByTestId("setup-connect").click();
+    const done = panel.getByTestId("setup-done");
+    const doneRow = (id: string) =>
+      done.locator(`[data-testid="setup-done-row"][data-client="${id}"]`);
+    await expect(doneRow("codex")).not.toHaveAttribute("data-left");
+    await expect(doneRow("claude-code")).not.toHaveAttribute("data-left");
+    await expect(doneRow("cursor")).toHaveAttribute("data-left", "true");
+    await expect(doneRow("zed")).toHaveAttribute("data-left", "true");
+    // The step stays while two still need the User, and says so in plain words.
+    await expect(panel.getByTestId("setup-next")).toBeDisabled();
     await shot(window, `first-run-result-${language}`, 1440, 900);
     await shot(window, `first-run-result-${language}`, 900, 700);
     await setWindowSize(app, window, 1440, 900);
 
-    // Cursor link opened once, and "Open Cursor again" re-opens it.
+    // Cursor's link opened once, and its one button opens it again.
     const linksBefore = (await urlsOpened(app)).filter((u) => u.startsWith("cursor://")).length;
     expect(linksBefore).toBe(1);
-    await result.locator('[data-client="cursor"]').getByTestId("connect-many-open-again").click();
+    await doneRow("cursor").getByTestId("setup-done-open").click();
     await expect
       .poll(
         async () =>
@@ -160,22 +146,25 @@ for (const language of ["en", "zh-CN"] as const) {
       )
       .toBe(2);
 
-    // Zed paste box hides the token visually, while Copy puts the real token on the clipboard.
-    const zedShown = await result
-      .locator('[data-client="zed"]')
-      .getByTestId("connect-many-paste-text")
-      .innerText();
-    await result.locator('[data-client="zed"]').getByTestId("connect-many-copy").click();
+    // Zed's settings show only under Details, the key hidden, while Copy puts the real ones on the
+    // clipboard.
+    const details = doneRow("zed").getByTestId("setup-done-details");
+    await expect(details.locator("pre")).toBeHidden();
+    await details.locator("summary").click();
+    const zedShown = await details.locator("pre").innerText();
+    await doneRow("zed").getByTestId("setup-done-copy").click();
     const copiedText = await copied(window);
     expect(copiedText).toContain("incarnamind");
     expect(copiedText).not.toBe(zedShown);
 
-    // Both settings files were written, and Undo on Codex restores config.toml cleanly.
+    // Both settings files were written, and Undo takes every connection of the press back.
     expect(await readFile(join(home, ".codex", "config.toml"), "utf8")).toContain("incarnamind");
     expect(await readFile(join(home, ".claude.json"), "utf8")).toContain("incarnamind");
-    await result.locator('[data-client="codex"]').getByTestId("connect-many-undo").click();
-    await expect(result.locator('[data-client="codex"][data-outcome="undone"]')).toBeVisible();
-    expect(await readFile(join(home, ".codex", "config.toml"), "utf8")).toBe(CODEX_BEFORE);
+    await panel.getByTestId("setup-undo").click();
+    await expect(panel.getByTestId("setup-apps")).toBeVisible();
+    await expect
+      .poll(() => readFile(join(home, ".codex", "config.toml"), "utf8"))
+      .toBe(CODEX_BEFORE);
   });
 
   test(`settings: Connect all opens one sheet, connects each app with its own row (${language})`, async () => {

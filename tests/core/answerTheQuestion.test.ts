@@ -1,10 +1,11 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test, vi } from "vitest";
-import type { Core } from "../../src/core";
+import { type Core, DATABASE_FILE } from "../../src/core";
 import { answerInstructions } from "../../src/core/answers/prompt";
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
+import { openDatabase } from "../../src/core/storage";
 import { askAssistant } from "../helpers/assistant";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
@@ -14,9 +15,10 @@ import { importWordBytes } from "../helpers/wordMinds";
 
 /**
  * An Answer is about the Question asked, through the core's public
- * interface: the example's Answer, written in advance, isn't the model's own
- * earlier turn, so a Question about the User's own Documents is answered
- * without a word about it. What the model is sent, and what the User sees.
+ * interface: the example's Answer an earlier version wrote in advance isn't
+ * the model's own earlier turn, so a Question about the User's own Documents
+ * is answered without a word about it. What the model is sent, and what the
+ * User sees.
  */
 
 const EXAMPLES = resolve(__dirname, "../../resources/examples");
@@ -86,10 +88,26 @@ function sentSince(model: MockLanguageModelV4, seen: number) {
   };
 }
 
+/**
+ * The example's ready Question and its Answer written in advance, which earlier versions asked from
+ * the first open and kept in a conversation of the example's Mind.
+ */
+const EARLIER: Record<Language, { question: string; answer: string }> = {
+  en: {
+    question: "What’s the leverage cap?",
+    answer:
+      "Clause 7.1 caps Leverage at 3.5 times EBITDA in each Relevant Period [^1]. At the end of Q3, net debt to EBITDA was 3.1 times, inside the limit [^2].",
+  },
+  "zh-CN": {
+    question: "贷款协议对杠杆率上限是怎么规定的？",
+    answer:
+      "第 7.1 条规定，每一相关期间的杠杆率不超过 3.5 倍 [^1]。第三季度末，净债务与 EBITDA 之比为 3.1 倍，在上限之内 [^2]。",
+  },
+};
+
 async function setUp(language: Language, script?: (call: ModelCall, walk: Walk) => ScriptedReply) {
   const walk = WALKS[language];
-  const ready = EXAMPLE_SETS.credit[language].ready;
-  if (!ready) throw new Error("The credit example has no ready Question.");
+  const ready = EARLIER[language];
   // Reads the example's Question in what it is sent, and goes back to it.
   const model = scriptedModel(
     (call) =>
@@ -97,17 +115,49 @@ async function setUp(language: Language, script?: (call: ModelCall, walk: Walk) 
         text: call.prompt.includes(ready.question) ? walk.reconciled : walk.plain,
       },
   );
-  const core = startCore(await createTempDataFolder(), {
-    paths: { dataDir: await createTempDataFolder(), examples: EXAMPLES },
+  const dataDir = await createTempDataFolder();
+  const adapters = {
+    paths: { dataDir, examples: EXAMPLES },
     systemLanguages: () => [walk.system],
     createChatModel: () => model,
-  });
-  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
-  const made = await core.offerExamples();
-  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
-    timeout: 20_000,
-    interval: 100,
-  });
+  };
+  const before = startCore(dataDir, adapters);
+  await before.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  const made = await before.offerExamples();
+  if (!made?.mindId) throw new Error("The example Mind wasn't made.");
+  await vi.waitFor(
+    async () => {
+      const documents = await before.listDocuments({ linkedFolderId: made.linkedFolderId });
+      expect(documents.map((each) => each.status)).toEqual(["ready", "ready"]);
+    },
+    { timeout: 20_000, interval: 100 },
+  );
+  // The conversation an earlier version left: the Question asked from the example's Mind, and
+  // its Answer as that version wrote it, with no model and nothing searched.
+  const asked = await askAssistant(before, { text: ready.question, mindId: made.mindId });
+  before.close();
+  const db = openDatabase(join(dataDir, DATABASE_FILE));
+  try {
+    db.run(
+      `UPDATE conversation_messages SET text = ?, steps = ?, provider_id = NULL, model_id = NULL,
+         read_mind_id = NULL, read_mind_version = NULL, read_partial = 0
+       WHERE id = ?`,
+      [
+        ready.answer,
+        JSON.stringify({
+          sentAt: null,
+          finishedAt: asked.updatedAt,
+          phases: [],
+          reasoning: null,
+          example: true,
+        }),
+        asked.id,
+      ],
+    );
+  } finally {
+    db.close();
+  }
+  const core = startCore(dataDir, adapters);
   return { walk, ready, core, model, made, conversationId: asked.conversationId };
 }
 

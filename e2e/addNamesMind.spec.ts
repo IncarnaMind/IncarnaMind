@@ -6,7 +6,6 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   askInAssistant,
-  assistantAnswers,
   center,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
@@ -310,8 +309,6 @@ for (const language of LANGUAGES) {
     // Their own file, then their own Answer, in the example's Note: a first run's first Answer.
     await markSteps(window, { indexed: true });
     await expectReadyDocuments(window, 2);
-    await window.getByTestId("first-open-ready").click();
-    await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
     await addDocuments(window, [tides]);
     const answer = await askInAssistant(window, w.short);
 

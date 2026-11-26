@@ -224,8 +224,8 @@ test("while a run goes, the foot has its Stop", async () => {
   expect(container.querySelectorAll("button")).toHaveLength(1);
 });
 
-// protects=a check asked of the User's own AI is forgotten once a model is set up, while a summary asked of that AI stays (#3587); fails_when=the asked check outlives the model being set up, or the summary's ask goes with it
-test("a check asked of the User's own AI goes once a model is set up; a summary's stays", async () => {
+// protects=a check asked of the User's own AI is forgotten once a model is set up, while an Organize asked of that AI stays (#3587); fails_when=the asked check outlives the model being set up, or the Organize's ask goes with it
+test("a check asked of the User's own AI goes once a model is set up; an Organize's stays", async () => {
   const { rememberAsked, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
   const codex = { id: "pairing-codex", name: "Codex", client: "codex" } as AgentPairing;
   const asked = () => Object.values(useAgentAsked.getState().byKey).map((each) => each.for.kind);
@@ -238,15 +238,15 @@ test("a check asked of the User's own AI goes once a model is set up; a summary'
   await readiness({ ready: false, reason: "no-provider" });
   const at = new Date().toISOString();
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
-  rememberAsked(codex, { kind: "summary", documentId: "harbour" }, { copied: true, at });
+  rememberAsked(codex, { kind: "organize", target: { ids: null } }, { copied: true, at });
   await render(planned);
-  expect(asked().sort()).toEqual(["check", "summary"]);
+  expect(asked().sort()).toEqual(["check", "organize"]);
 
   await readiness({ ready: true } as ChatReadiness);
-  expect(asked()).toEqual(["summary"]);
+  expect(asked()).toEqual(["organize"]);
   // An ask that answers after the model was set up leaves no check asked either.
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
-  expect(asked()).toEqual(["summary"]);
+  expect(asked()).toEqual(["organize"]);
 });
 
 // protects=#3756: a check run on the User's own AI in the background is stopped from the card's foot, as a run on a model is, and a card whose line offers the next step has no foot at all; fails_when=the run's Stop is missing from the foot, or an empty foot is drawn under the line

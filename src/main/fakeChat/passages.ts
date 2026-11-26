@@ -144,7 +144,7 @@ export const citationsAsked = (question: string) =>
         : 0;
 
 /**
- * The records for a search result: for the first Passage, or with "each" in
+ * The records for a search result: for the first Passage, or with "each" (每份) in
  * the Question, for each Document found, its Passage with the line that
  * shares the most words with the Question, numbered in the order found.
  */
@@ -157,7 +157,7 @@ export function recordsFor(result: string, question: string): Record<string, unk
       first ? (recordFor(first, question, index + 1)?.record ?? null) : null,
     ).filter((record) => record !== null);
   }
-  if (!/\beach\b/i.test(question)) {
+  if (!/\beach\b|每份/i.test(question)) {
     const first = passages[0] && recordFor(passages[0], question, 1);
     return first ? [first.record] : [];
   }

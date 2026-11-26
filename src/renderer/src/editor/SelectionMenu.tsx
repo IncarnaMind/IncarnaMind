@@ -1,5 +1,5 @@
 import type { VirtualElement } from "@floating-ui/dom";
-import { isMacOS } from "@tiptap/core";
+import { isMacOS, posToDOMRect } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { BubbleMenu, type BubbleMenuProps } from "@tiptap/react/menus";
@@ -144,11 +144,39 @@ const controlsOf = (menu: HTMLElement | null) =>
     ) ?? [],
   );
 
-function fitToView(frame: HTMLElement | null) {
+/** Sets the menu's room for where it is now; true when that changed, so it is placed again. */
+function fitToView(frame: HTMLElement | null, editor: Editor): boolean {
   const view = frame?.closest(".mind-scroller");
+  const before = frame?.style.getPropertyValue("--selection-menu-room");
   // A short view can't hold the whole menu: its rows scroll and the field stays at its foot. The
   // room leaves the 8px padding at both ends of the view, and the 8px offset that comes after the slide.
-  frame?.style.setProperty("--selection-menu-room", view ? `${view.clientHeight - 24}px` : "100vh");
+  const room =
+    frame && view ? `${besideSelection(frame, view, editor) ?? view.clientHeight - 24}px` : "100vh";
+  frame?.style.setProperty("--selection-menu-room", room);
+  return before !== room;
+}
+
+/** The least the menu shrinks to: its field and a row above it (styles.css, `.selection-menu`). */
+const MENU_LEAST = 140;
+
+/**
+ * Where the whole menu fits neither below the selection nor above it in the view, the room on the
+ * larger side: it shrinks to stand there, its rows scrolling, rather than slide over the words the
+ * User is selecting. Null where it fits on one side, where neither side holds even its least, so
+ * it takes the whole view, or where nothing is selected to keep clear of. The selection is the
+ * Note's, where the menu stands, never the page's: with the keyboard in the menu's field, the
+ * page's is in the field.
+ */
+function besideSelection(frame: HTMLElement, view: Element, editor: Editor): number | null {
+  const menu = frame.querySelector<HTMLElement>(".selection-menu");
+  const { from, to, empty } = editor.state.selection;
+  if (!menu || empty || editor.isDestroyed) return null;
+  const selected = posToDOMRect(editor.view, from, to);
+  if (selected.width === 0 && selected.height === 0) return null;
+  const within = view.getBoundingClientRect();
+  // The 8px offset from the selection, and the 8px padding the slide keeps from the view's edge.
+  const larger = Math.max(selected.top - within.top, within.bottom - selected.bottom) - 16;
+  return menu.scrollHeight <= larger || larger < MENU_LEAST ? null : larger;
 }
 
 function hideMenu(editor: Editor) {
@@ -390,9 +418,14 @@ export function SelectionMenu({
     shift: { crossAxis: true, padding: 8 },
     onShow: () => {
       shown.current = true;
-      fitToView(frame.current);
+      fitToView(frame.current, editor);
     },
-    onUpdate: () => fitToView(frame.current),
+    // Its room set after it was placed, it is placed again for the room it has now.
+    onUpdate: () => {
+      if (fitToView(frame.current, editor) && !editor.isDestroyed) {
+        editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "updatePosition"));
+      }
+    },
     onHide: () => {
       shown.current = false;
       fieldNow.current.reset();

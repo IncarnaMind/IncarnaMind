@@ -76,7 +76,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
     await expectNamed(window, "Home on the first run");
     await openExample(window);
-    await expect(window.getByTestId("first-open-steps")).toBeVisible();
+    await expect(window.getByTestId("example-line")).toBeVisible();
     await expectNamed(window, "the first open");
 
     await useLocalChatModel(window);

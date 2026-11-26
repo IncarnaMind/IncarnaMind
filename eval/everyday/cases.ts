@@ -31,7 +31,7 @@ export interface EverydayCase {
   selectAll?: boolean;
   /** A Word file of these paragraphs (the first its title) is imported as the Mind it is asked from, in place of `mind`. */
   word?: { name: string; paragraphs: readonly string[] };
-  /** The example's Answer, written in advance, is the conversation's first turn, in the case's language. */
+  /** The example is made first, in the case's language, and its Documents read. */
   afterExample?: true;
   /** With `afterExample`: asked from the example's own Mind, where the User stays, instead of from a Mind of its own. */
   inExample?: true;

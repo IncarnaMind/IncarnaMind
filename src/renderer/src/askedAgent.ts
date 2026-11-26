@@ -1,14 +1,14 @@
 /**
- * What became of a check or a summary handed to the User's own AI (#3587): one state, read by every
- * place that shows it, the Note's check badge and card and Get started's step. Asked: the request
- * waits for the User to send it in that AI. Working: since the ask, that connection called a Tool
- * about the Note or the Document, which the core tells the windows as it records each call, so
- * nothing polls the agent. Quiet: nothing from it for a while, and the words say how to ask again;
- * a later call makes it working again. It ends when what was asked for lands: the check's report,
- * the Note the agent wrote, or the change to words the User selected (#3612); a check's ends too
- * once a model is set up. Words to explain land nothing in the Note: that ends at the connection's
- * first call about it, which has the words, as its answer comes in its own app. An Organize's
- * Suggestions land instead (#3610): the Library's top says what came until the User opens the Review.
+ * What became of a request handed to the User's own AI (#3587): one state, read by every place that
+ * shows it, the Note's check badge and card. Asked: the request waits for the User to send it in
+ * that AI. Working: since the ask, that connection called a Tool about the Note, which the core
+ * tells the windows as it records each call, so nothing polls the agent. Quiet: nothing from it for
+ * a while, and the words say how to ask again; a later call makes it working again. It ends when
+ * what was asked for lands: the check's report, or the change to words the User selected (#3612);
+ * a check's ends too once a model is set up. Words to explain land nothing in the Note: that ends
+ * at the connection's first call about it, which has the words, as its answer comes in its own app.
+ * An Organize's Suggestions land instead (#3610): the Library's top says what came until the User
+ * opens the Review.
  *
  * A check IncarnaMind runs on the User's own command-line AI in the background (#3606) is working
  * from the press, never quiet, and ends as the core says the run ended: its marks landed, the User
@@ -31,7 +31,6 @@ import { useAppStore } from "./store";
 
 export type AskedFor =
   | { kind: "check"; mindId: string }
-  | { kind: "summary"; documentId: string }
   | { kind: "organize"; target: OrganizeTarget }
   | { kind: "change" | "explain"; mindId: string };
 
@@ -67,11 +66,9 @@ const ORGANIZE = "organize";
 const keyOf = (asked: AskedFor) =>
   asked.kind === "check"
     ? `mind:${asked.mindId}`
-    : asked.kind === "summary"
-      ? `document:${asked.documentId}`
-      : asked.kind === "organize"
-        ? ORGANIZE
-        : `selection:${asked.mindId}`;
+    : asked.kind === "organize"
+      ? ORGANIZE
+      : `selection:${asked.mindId}`;
 
 export const useAgentAsked = create<{ byKey: Readonly<Record<string, AgentAsked>> }>()(() => ({
   byKey: {},
@@ -102,7 +99,6 @@ function put(key: string, asked: AgentAsked | null): void {
 
 const about = (activity: AgentActivity, asked: AgentAsked): boolean => {
   const what = asked.for;
-  if (what.kind === "summary") return activity.documentIds.includes(what.documentId);
   if (what.kind === "organize") {
     return activity.tool === "list_sorting" || activity.tool === "propose_sorting";
   }
@@ -115,7 +111,6 @@ const about = (activity: AgentActivity, asked: AgentAsked): boolean => {
 const landed = (activity: AgentActivity, asked: AgentAsked): boolean => {
   if (activity.outcome !== "done") return false;
   if (asked.for.kind === "check") return activity.tool === "report_check" && about(activity, asked);
-  if (asked.for.kind === "summary") return activity.tool === "create_mind";
   if (asked.for.kind === "change")
     return activity.tool === "propose_changes" && about(activity, asked);
   if (asked.for.kind === "explain") return about(activity, asked);
@@ -181,8 +176,7 @@ const modelSetUp = (readiness: ChatReadiness | null): boolean =>
 
 /**
  * A check stands asked of the User's own AI only while no model is set up: with one, the Note's
- * own Check runs it, and a report the AI sends after still lands its marks. A summary is the
- * User's own AI's either way.
+ * own Check runs it, and a report the AI sends after still lands its marks.
  */
 function forgetChecks({ chatReadiness }: { chatReadiness: ChatReadiness | null }): void {
   if (!modelSetUp(chatReadiness)) return;
@@ -284,7 +278,6 @@ export const runnerName = (asked: Pick<AgentAsked, "agent" | "background">): str
 
 const WORKING = {
   check: "agents.asked.checking",
-  summary: "agents.asked.writing",
   organize: "agents.asked.organizing",
   change: "agents.asked.changing",
   explain: "agents.asked.changing",

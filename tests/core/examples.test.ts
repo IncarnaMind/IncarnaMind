@@ -1,4 +1,4 @@
-import { access, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { describe, expect, test, vi } from "vitest";
@@ -16,11 +16,13 @@ import {
 import { EXAMPLE_SETS } from "../../src/core/exampleSets";
 import type { Language } from "../../src/core/language";
 import { openDatabase } from "../../src/core/storage";
-import { checkedResult } from "../helpers/citations";
+import { askAssistant } from "../helpers/assistant";
+import { checkedResult, citingModel } from "../helpers/citations";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { waitForDocuments, waitForProcessing } from "../helpers/documents";
 import { appendParagraph, connectToMind } from "../helpers/mindClient";
 import { readMind } from "../helpers/minds";
+import { scriptedModels } from "../helpers/models";
 import { buildPdf } from "../helpers/pdf";
 
 /** The example Documents the app ships. */
@@ -37,6 +39,41 @@ const startOn = (dataDir: string, language: Language = "en") =>
     paths: { dataDir, examples: EXAMPLES },
     systemLanguages: () => [language === "zh-CN" ? "zh-CN" : "en-US"],
   });
+
+/**
+ * The core with the shipped examples and a local chat model that answers the credit paper's own
+ * Question in the assistant as the example's Answer does: from its two Documents, citing each.
+ */
+async function startAskingTheExample(language: Language = "en") {
+  const set = EXAMPLE_SETS.credit[language];
+  const model = citingModel({
+    query: set.question,
+    records: (passages) =>
+      set.quotes.map((quote, index) => ({
+        marker: index + 1,
+        passage: passages.find((each) => each.document === quote.document)?.id,
+        pageFrom: 1,
+        pageTo: 1,
+        quote: quote.quote,
+      })),
+    answer: set.answer,
+  });
+  const dataDir = await createTempDataFolder();
+  const core = startCore(dataDir, {
+    paths: { dataDir, examples: EXAMPLES },
+    systemLanguages: () => [language === "zh-CN" ? "zh-CN" : "en-US"],
+    createChatModel: scriptedModels(model).createChatModel,
+  });
+  await core.saveChatProvider({ kind: "ollama", modelId: "local-model" });
+  return { core, dataDir };
+}
+
+/** Asks the credit paper's own Question in the assistant, from its Mind: a Conversation citing both its Documents. */
+async function askAboutTheExample(core: Core, mindId: string, language: Language = "en") {
+  const answer = await askAssistant(core, { text: EXAMPLE_SETS.credit[language].question, mindId });
+  expect(answer.citations.map((each) => each.check)).toEqual(["found", "found"]);
+  return answer;
+}
 
 /** The Mind the window shows: the focused group's shown tab. */
 function shownMind(layout: WindowLayout | null): string | null {
@@ -210,64 +247,30 @@ describe("the example Mind", { timeout: 30_000 }, () => {
     ]);
   });
 
-  test("its ready Question starts a conversation with its Answer written in advance and its Citations found, asking no model (#123)", async () => {
-    const { core } = await startWithExamples();
-    const made = await core.offerExamples();
-    const mindId = made?.mindId as string;
-    await vi.waitFor(async () =>
-      expect((await core.readyQuestion()).ready?.question).toBe("What’s the leverage cap?"),
-    );
-    const answerEvents = vi.fn();
-    core.on("answer.started", answerEvents);
-    core.on("answer.finished", answerEvents);
-    await vi.waitFor(
-      async () => {
-        const checks = citationsOf(await exampleMind(core, mindId)).map((each) => each.check);
-        expect(checks).toEqual(["found", "found"]);
-      },
-      { timeout: 20_000, interval: 100 },
-    );
-
-    const asked = await core.askExampleReadyQuestion();
-
-    const { conversation, messages } = await core.getConversation(asked.conversationId);
-    expect(conversation.askedFrom.map((each) => each.mindId)).toEqual([mindId]);
-    const [question, answer] = messages;
-    expect(question).toMatchObject({
-      kind: "question",
-      text: "What’s the leverage cap?",
-      askedFrom: expect.objectContaining({ mindId }),
-    });
-    expect(answer).toMatchObject({
-      kind: "answer",
-      id: asked.answerId,
-      status: "done",
-      model: null,
-      text: EXAMPLE_SETS.credit.en.ready?.answer,
-      steps: expect.objectContaining({ example: true, sentAt: null }),
-    });
-    expect(answer?.kind === "answer" && answer.citations).toEqual([
-      expect.objectContaining({
-        marker: 1,
-        documentName: "Northwind Retail · Senior facilities agreement (excerpt)",
-        check: "found",
-        pageFrom: 1,
-      }),
-      expect.objectContaining({
-        marker: 2,
-        documentName: "Northwind Retail · Q3 2026 results",
-        check: "found",
-        pageFrom: 1,
-      }),
-    ]);
-    expect(answerEvents).not.toHaveBeenCalled();
-  });
-
   test.each(["en", "zh-CN"] as const)(
-    "%s: the ready Answer does not place a repeated source quote at its first occurrence",
+    "%s: the example's Answer does not place a quote its Document repeats at its first occurrence",
     async (language) => {
-      const { core } = await startWithExamples(language);
-      await core.offerExamples();
+      const set = EXAMPLE_SETS.credit[language];
+      const [repeated, other] = set.quotes;
+      if (!repeated || !other) throw new Error("The credit paper's Answer quotes two Documents.");
+      // Shipped as the app ships them, but the results say the quoted sentence twice.
+      const examples = await createTempDataFolder();
+      await mkdir(join(examples, set.source), { recursive: true });
+      await writeFile(join(examples, "LICENSE"), "Test fixtures.");
+      await writeFile(
+        join(examples, set.source, `${repeated.document}.pdf`),
+        buildPdf([{ printed: [{ text: repeated.quote }, { text: repeated.quote }] }]),
+      );
+      await writeFile(
+        join(examples, set.source, `${other.document}.pdf`),
+        buildPdf([{ printed: [{ text: other.quote }] }]),
+      );
+      const dataDir = await createTempDataFolder();
+      const core = startCore(dataDir, {
+        paths: { dataDir, examples },
+        systemLanguages: () => [language === "zh-CN" ? "zh-CN" : "en-US"],
+      });
+      const made = await core.offerExamples();
       const listed = await waitForDocuments(core, (documents) => {
         expect(documents).toHaveLength(2);
       });
@@ -276,36 +279,22 @@ describe("the example Mind", { timeout: 30_000 }, () => {
         listed.map((document) => document.id),
       );
       expect(documents.map((document) => document.status)).toEqual(["ready", "ready"]);
-      const quote = EXAMPLE_SETS.credit[language].ready?.quotes[0];
-      const document = documents.find((document) => document.name === quote?.document);
-      if (!document || !quote) throw new Error("The ready Answer's Document is missing.");
-      await writeFile(
-        document.path,
-        buildPdf([{ printed: [{ text: quote.quote }, { text: quote.quote }] }]),
-      );
-      await core.reconcileDocuments();
-      await waitForProcessing(core, [document.id]);
 
-      const asked = await core.askExampleReadyQuestion();
-      const { messages } = await core.getConversation(asked.conversationId);
-      const answer = messages.find((message) => message.id === asked.answerId);
-      expect(answer?.kind === "answer" && answer.citations[0]).toMatchObject({
-        check: "not-found",
-        pageFrom: null,
-        pageTo: null,
-      });
+      await vi.waitFor(
+        async () => {
+          const [first] = citationsOf(await exampleMind(core, made?.mindId as string));
+          expect(first).toMatchObject({
+            quote: repeated.quote,
+            check: "not-found",
+            pageFrom: null,
+            pageTo: null,
+          });
+        },
+        { timeout: 20_000, interval: 100 },
+      );
       core.close();
     },
   );
-
-  test("there is no ready Question without the credit paper", async () => {
-    const core = startCore(await createTempDataFolder());
-    expect((await core.readyQuestion()).ready).toBeNull();
-    await expect(core.askExampleReadyQuestion()).rejects.toThrow(
-      "The example isn’t there any more. Add a file of your own to ask about it.",
-    );
-    expect(await core.listConversations()).toEqual([]);
-  });
 
   test("are removed with their Documents and the copies of their files, and can be made again", async () => {
     const { core, dataDir } = await startWithExamples();
@@ -476,7 +465,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
   });
 
   test("a Conversation's Citations open the examples' Documents again after Undo (#1292)", async () => {
-    const { core } = await startWithExamples();
+    const { core } = await startAskingTheExample();
     const made = await core.createExamples();
     const mindId = made.mindId as string;
     await vi.waitFor(
@@ -486,7 +475,7 @@ describe("the example Mind", { timeout: 30_000 }, () => {
       },
       { timeout: 20_000, interval: 100 },
     );
-    const asked = await core.askExampleReadyQuestion();
+    const asked = await askAboutTheExample(core, mindId);
     const cited = async () => {
       const { messages } = await core.getConversation(asked.conversationId);
       const answer = messages.find((each) => each.kind === "answer");
@@ -809,11 +798,11 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
 
   // protects=an example whose Documents a Conversation Citation quotes keeps its language and Documents when the interface language changes (#1794), so the Citation still opens its page; fails_when=the Documents are swapped and the Citation says its Linked folder was removed; no_claim=what the viewer draws.
   test("an example whose Documents a Conversation Citation uses keeps its language and Documents", async () => {
-    const { core } = await startWithExamples("en");
+    const { core } = await startAskingTheExample("en");
     const made = await core.createExamples();
     await foundIn(core, made.mindId as string, "Net debt to EBITDA");
 
-    const { conversationId } = await core.askExampleReadyQuestion();
+    const { conversationId } = await askAboutTheExample(core, made.mindId as string);
     const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
     expect(cited).toHaveLength(2);
 
@@ -827,7 +816,7 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
     for (const document of cited) expect(stillThere).toContain(document.id);
     const messages = (await core.getConversation(conversationId)).messages;
     const answer = messages.find((message) => message.kind === "answer");
-    if (answer?.kind !== "answer") throw new Error("The ready Question's Answer is gone.");
+    if (answer?.kind !== "answer") throw new Error("The Conversation's Answer is gone.");
     expect(new Set(answer.citations.map((each) => each.documentId))).toEqual(
       new Set(cited.map((each) => each.id)),
     );
@@ -847,10 +836,10 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
   // protects=a Chinese example a Conversation cites keeps its Documents and files when the interface language becomes English, and after a restart; fails_when=the Chinese example is swapped for the English one, or a restart loses it; no_claim=none beyond protects.
   test("a Chinese example a Conversation cites keeps its Documents when the language becomes English, and after a restart", async () => {
     const set = EXAMPLE_SETS.credit["zh-CN"];
-    const { core, dataDir } = await startWithExamples("zh-CN");
+    const { core, dataDir } = await startAskingTheExample("zh-CN");
     const made = await core.createExamples();
     await foundIn(core, made.mindId as string, set.quotes[0]?.quote.slice(0, 6) ?? "");
-    await core.askExampleReadyQuestion();
+    await askAboutTheExample(core, made.mindId as string, "zh-CN");
     const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
     expect(cited).toHaveLength(2);
 
@@ -859,7 +848,6 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
       expect(await current.getExamples()).toMatchObject({
         linkedFolderId: made.linkedFolderId,
       });
-      expect((await current.readyQuestion()).ready?.question).toBe(set.ready?.question);
       const stillThere = (await current.listDocuments()).map((each) => each.id);
       for (const document of cited) expect(stillThere).toContain(document.id);
       await expect(access(join(dataDir, set.folder))).resolves.toBeUndefined();
@@ -874,10 +862,10 @@ describe("the example Mind follows the interface language (#709)", { timeout: 60
 
   // protects=a Conversation in Recently deleted can come back with Citations that open, so the example it cites stays as it is meanwhile; fails_when=the example is swapped while only a deleted Conversation cites it; no_claim=none beyond protects.
   test("an example stays as it is while the Conversation citing it waits in Recently deleted", async () => {
-    const { core } = await startWithExamples("en");
+    const { core } = await startAskingTheExample("en");
     const made = await core.createExamples();
     await foundIn(core, made.mindId as string, "Net debt to EBITDA");
-    const { conversationId } = await core.askExampleReadyQuestion();
+    const { conversationId } = await askAboutTheExample(core, made.mindId as string);
     const cited = await core.listDocuments({ linkedFolderId: made.linkedFolderId as string });
     await core.deleteConversation(conversationId);
 
@@ -1027,24 +1015,6 @@ describe("the example Minds of each group", { timeout: 90_000 }, () => {
         const doc = await exampleMind(core, made.mindId as string);
         const question = doc.content.content.find((block) => block.type.name === QUESTION_BLOCK);
         expect(question?.textContent).toBe(set.question);
-
-        // The first open's ready Question quotes the same Documents, every Citation found.
-        if (set.ready) {
-          expect((await core.readyQuestion()).ready?.question).toBe(set.ready.question);
-          const asked = await core.askExampleReadyQuestion();
-          const { messages } = await core.getConversation(asked.conversationId);
-          const answer = messages.find((each) => each.kind === "answer");
-          expect(
-            answer?.kind === "answer" &&
-              answer.citations.map(({ documentName, quote, check }) => ({
-                document: documentName,
-                quote,
-                check,
-              })),
-          ).toEqual(set.ready.quotes.map((quote) => ({ ...quote, check: "found" })));
-        } else {
-          expect((await core.readyQuestion()).ready).toBeNull();
-        }
       });
     }
   }

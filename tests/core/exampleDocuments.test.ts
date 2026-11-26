@@ -21,11 +21,7 @@ const SETS = [
 describe("the credit example's Documents", () => {
   for (const { set, language, wording } of SETS) {
     test(`say the Note's name, and keep every quote the example cites (${language})`, async () => {
-      const quotes = [
-        ...set.quotes,
-        ...(set.ready?.quotes ?? []),
-        ...(set.checks ?? []).map((check) => check.evidence),
-      ];
+      const quotes = [...set.quotes, ...(set.checks ?? []).map((check) => check.evidence)];
       const named = new Set([...quotes.map((quote) => quote.document)]);
       expect(named.size).toBe(2);
 

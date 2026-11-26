@@ -512,6 +512,10 @@ for (const [language, width] of [
       const label = window.getByTestId("drop-label");
       await expect(row).toBeVisible();
       await expect(card).toBeVisible();
+      // Home's input and its buttons stand above Recent (#3791): in a short window the User scrolls
+      // the card into view first, the row still in view above it.
+      await card.scrollIntoViewIfNeeded();
+      await expect(row).toBeInViewport({ ratio: 1 });
       await dragOnto(window, row.getByTestId("home-recent-open"), card, async () => {
         await expect(card).toHaveAttribute("data-drop-target", "true");
         await expect(label).toHaveText(t("drop.moveTo", { folder: "Finance" }));

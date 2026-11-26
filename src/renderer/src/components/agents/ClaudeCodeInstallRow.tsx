@@ -20,7 +20,8 @@ export const ANTHROPIC_SETUP_GUIDE_URL = "https://code.claude.com/docs/en/setup"
 const linkClass =
   "rounded-sm text-[13px] font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
 
-function failureKey(reason: ClaudeCodeInstallFailureReason) {
+/** Why the one-press install failed, in one line. */
+export function installFailureKey(reason: ClaudeCodeInstallFailureReason) {
   switch (reason) {
     case "network":
       return "agents.install.failed.network" as const;
@@ -206,7 +207,7 @@ export function ClaudeCodeInstallRow({
             {t(signInFailed ? "agents.install.failed.signInTitle" : "agents.install.failed.title")}
           </div>
           <p className="mt-0.5 text-[12.5px] leading-[18px] text-ink-meta">
-            {t(failureKey(state.reason))}
+            {t(installFailureKey(state.reason))}
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
             {localMode && (

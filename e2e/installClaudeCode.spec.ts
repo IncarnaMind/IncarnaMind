@@ -1,6 +1,4 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -19,144 +17,12 @@ import {
   removeDataFolder,
   setWindowSize,
 } from "./app";
+import { type InstallerStandIn, startInstallerStandIn } from "./claudeInstaller";
 
 test.skip(!SHOW_AGENT_CONNECTION, "Agents are hidden while SHOW_AGENT_CONNECTION is false.");
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
 const STAND_INS = { fakeChat: true, ollama: "http://127.0.0.1:9", decisions: "http://127.0.0.1:9" };
-
-interface StandInBehavior {
-  binary: string | null;
-  install: "succeed" | "fail-network" | "hold";
-  signIn: "hold" | "signed-in" | "no-plan";
-  auth: "signed-out" | "signed-in" | "no-plan" | "missing";
-}
-
-interface InstallerStandIn {
-  origin: string;
-  behavior: StandInBehavior;
-  installCalls: number;
-  signInCalls: number;
-  authCalls: number;
-  releaseInstall(outcome?: "succeed" | "fail-network"): void;
-  close(): Promise<void>;
-}
-
-async function startInstallerStandIn(
-  initial?: Partial<StandInBehavior>,
-): Promise<InstallerStandIn> {
-  const behavior: StandInBehavior = {
-    binary: null,
-    install: "succeed",
-    signIn: "hold",
-    auth: "signed-out",
-    ...initial,
-  };
-  let installCalls = 0;
-  let signInCalls = 0;
-  let authCalls = 0;
-  let pendingInstall: ((outcome: "succeed" | "fail-network") => void) | null = null;
-  const openSignIns = new Set<() => void>();
-
-  const server: Server = createServer((req, res) => {
-    const url = req.url ?? "/";
-    res.setHeader("Content-Type", "application/json");
-    if (url === "/find") {
-      res.end(JSON.stringify({ binary: behavior.binary }));
-      return;
-    }
-    if (url === "/install") {
-      installCalls += 1;
-      if (behavior.install === "hold") {
-        let settled = false;
-        const finish = (outcome: "succeed" | "fail-network") => {
-          if (settled) return;
-          settled = true;
-          pendingInstall = null;
-          if (outcome === "succeed") {
-            behavior.binary = "/tmp/fake-claude";
-            res.end(
-              JSON.stringify({
-                kind: "installed",
-                stage: "installing",
-                binaryPath: behavior.binary,
-              }),
-            );
-          } else {
-            res.end(JSON.stringify({ kind: "failed", reason: "network" }));
-          }
-        };
-        pendingInstall = finish;
-        req.on("close", () => {
-          settled = true;
-          if (pendingInstall === finish) pendingInstall = null;
-        });
-        return;
-      }
-      if (behavior.install === "fail-network") {
-        res.end(JSON.stringify({ kind: "failed", reason: "network" }));
-        return;
-      }
-      behavior.binary = "/tmp/fake-claude";
-      res.end(
-        JSON.stringify({ kind: "installed", stage: "installing", binaryPath: behavior.binary }),
-      );
-      return;
-    }
-    if (url === "/sign-in") {
-      signInCalls += 1;
-      if (behavior.signIn === "signed-in") {
-        res.end(JSON.stringify({ kind: "signed-in" }));
-        return;
-      }
-      if (behavior.signIn === "no-plan") {
-        res.end(JSON.stringify({ kind: "no-plan" }));
-        return;
-      }
-      const closeSignIn = () => {
-        if (!res.writableEnded) res.end(JSON.stringify({ kind: "cancelled" }));
-      };
-      openSignIns.add(closeSignIn);
-      req.on("close", () => {
-        openSignIns.delete(closeSignIn);
-      });
-      return;
-    }
-    if (url === "/auth") {
-      authCalls += 1;
-      res.end(JSON.stringify({ kind: behavior.auth }));
-      return;
-    }
-    res.statusCode = 404;
-    res.end("{}");
-  });
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
-
-  return {
-    origin: `http://127.0.0.1:${port}`,
-    behavior,
-    get installCalls() {
-      return installCalls;
-    },
-    get signInCalls() {
-      return signInCalls;
-    },
-    get authCalls() {
-      return authCalls;
-    },
-    releaseInstall(outcome = "succeed") {
-      pendingInstall?.(outcome);
-    },
-    async close() {
-      for (const end of openSignIns) end();
-      openSignIns.clear();
-      pendingInstall?.("fail-network");
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    },
-  };
-}
 
 async function shot(window: Page, name: string): Promise<void> {
   if (!SCREENSHOTS) return;
@@ -217,11 +83,18 @@ test("First Run offers one-press Claude Code install in EN and ZH-CN when no com
   await window.getByTestId("setup-skip").click();
   await expect(window.getByTestId("setup-panel")).toHaveAttribute("data-step", "ai");
 
-  const offer = window.getByTestId("claude-code-install-offer");
+  // With no AI app found, the list's one row offers Claude Code, with its one button (#3791).
+  const offer = window.getByTestId("setup-install-row");
   await expect(offer).toBeVisible();
   await expect(offer).toContainText("Claude Code");
-  await expect(offer).toContainText("Downloads from Anthropic into your user folder.");
-  await expect(offer.getByTestId("install-claude-code")).toHaveText("Install Claude Code");
+  await expect(offer.getByTestId("setup-install-line")).toContainText(
+    "Downloads from Anthropic into your user folder.",
+  );
+  await expect(offer.getByTestId("setup-install-claude-code")).toHaveText("Install");
+  await offer.getByTestId("setup-install-details").click();
+  await expect(offer.getByTestId("setup-install-disclosure")).toContainText(
+    "Downloads and installs Claude Code from Anthropic into your user folder. Your operating system and architecture go to Anthropic for the download.",
+  );
   await assertNoHorizontalOverflow(window);
   await shot(window, "first-run-offer-en-1440");
 
@@ -232,8 +105,13 @@ test("First Run offers one-press Claude Code install in EN and ZH-CN when no com
   await setWindowSize(app, window, 900, 760);
   await setLanguage(window, "zh-CN");
   await expect(offer).toContainText("Claude Code");
-  await expect(offer).toContainText("从 Anthropic 下载到你的用户文件夹。");
-  await expect(offer.getByTestId("install-claude-code")).toHaveText("安装 Claude Code");
+  await expect(offer.getByTestId("setup-install-line")).toContainText(
+    "从 Anthropic 下载到你的用户文件夹。",
+  );
+  await expect(offer.getByTestId("setup-install-claude-code")).toHaveText("安装");
+  await expect(offer.getByTestId("setup-install-disclosure")).toContainText(
+    "下载时会把你的操作系统和架构发给 Anthropic。",
+  );
   await assertNoHorizontalOverflow(window);
   await shot(window, "first-run-offer-zh-900");
 
@@ -254,10 +132,10 @@ test("First Run offers one-press Claude Code install in EN and ZH-CN when no com
     app = second.app;
     await second.window.getByTestId("setup-skip").click();
     await expect(second.window.getByTestId("setup-panel")).toHaveAttribute("data-step", "ai");
-    await expect(second.window.getByTestId("claude-code-install-offer")).toHaveCount(0);
-    await expect(
-      second.window.locator('[data-testid="setup-agent"][data-value="claude-code"]'),
-    ).toBeVisible();
+    await expect(second.window.getByTestId("setup-install-row")).toHaveCount(0);
+    const found = second.window.locator('[data-testid="setup-app"][data-value="claude-code"]');
+    await expect(found).toBeVisible();
+    await expect(found.getByTestId("setup-app-tick")).toBeChecked();
   } finally {
     await app?.close();
     app = null;

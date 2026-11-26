@@ -23,7 +23,6 @@ import type {
   MergedFolder,
   Mind,
   PrivacySettings,
-  ReadyQuestion,
   RerankSettings,
   RestoreRef,
   SearchScope,
@@ -97,7 +96,6 @@ import {
 import { untitledFolderName } from "./newFolder";
 import { noModelSetUp } from "./noModelSetUp";
 import { useNotices } from "./notices";
-import { stepsShownOf } from "./nudges";
 import type { ObjectRef } from "./objects";
 import { useRequests } from "./requests";
 import {
@@ -258,14 +256,6 @@ export interface AppState extends LayoutSlice {
   /** The first-run example Mind and its Documents (onboarding). Null until loaded. */
   examples: Examples | null;
   otherExamples: Examples[];
-  /**
-   * The first open's ready Question (see `ReadyQuestion`), as the core reads it: about the
-   * User's own Document, or the example's while they have none. Set once loaded, then follows
-   * the Documents, the examples and the interface language.
-   */
-  readyQuestion: ReadyQuestion | null;
-  /** The User's own newest Document still being read, named: shown in place of the Question (#2127). */
-  readyReading: string | null;
   ownAnswerArrived: boolean;
   askedOwnAtLaunch: boolean;
   usageNotice: "auto" | "kept" | "answered";
@@ -1229,8 +1219,6 @@ export const useAppStore = create<AppState>()((set, get) => {
     skills: [],
     examples: null,
     otherExamples: [],
-    readyQuestion: null,
-    readyReading: null,
     ownAnswerArrived: false,
     askedOwnAtLaunch: false,
     usageNotice: "auto",
@@ -1268,7 +1256,6 @@ export const useAppStore = create<AppState>()((set, get) => {
           linkedFolders,
           keptCitationTexts,
           everyExample,
-          firstOpen,
           connectors,
           rerank,
           privacy,
@@ -1284,7 +1271,6 @@ export const useAppStore = create<AppState>()((set, get) => {
           readList("linkedFolders", core.listLinkedFolders(), readAt),
           readList("keptCitationTexts", core.listKeptCitationTexts(), readAt),
           readEveryExample(),
-          core.readyQuestion(),
           readList("connectorsOn", core.listConnectors(), readAt),
           readList("rerank", core.getRerankSettings(), readAt),
           readList("privacy", core.getPrivacySettings(), readAt),
@@ -1325,8 +1311,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           ...fresh,
           ...examplesBy(everyExample, settings.device.work),
-          readyQuestion: firstOpen?.ready ?? null,
-          readyReading: firstOpen?.reading ?? null,
           askedOwnAtLaunch: settings.device.gettingStarted.askedOwn,
           setup: setup.show
             ? { from: "work", workOrder: setup.workOrder, picksSent: setup.picksSent }
@@ -1356,19 +1340,18 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (get().setup?.from !== "work") return;
       try {
         const lead = await core.finishFirstRunSetup(work);
-        if (lead?.mindId) await startGettingStarted();
-        await get().openHome();
-        const [settings, every, firstOpen] = await Promise.all([
-          core.getSettings(),
-          readEveryExample(),
-          core.readyQuestion(),
-        ]);
-        set({
-          settings,
-          ...examplesBy(every, settings.device.work),
-          readyQuestion: firstOpen?.ready ?? null,
-          readyReading: firstOpen?.reading ?? null,
-        });
+        // First run ends in the example, where the User can ask at once (#3791).
+        if (lead?.mindId) {
+          await startGettingStarted();
+          showNotesOf(lead.mindId);
+          await get().changeLayout({
+            type: "open",
+            item: { kind: "mind", mindId: lead.mindId },
+            where: { in: "place" },
+          });
+        } else await get().openHome();
+        const [settings, every] = await Promise.all([core.getSettings(), readEveryExample()]);
+        set({ settings, ...examplesBy(every, settings.device.work) });
         void get().updateSettings({ device: { openedBefore: true } });
       } catch (error) {
         get().reportError(error);
@@ -2406,7 +2389,7 @@ export const useAppStore = create<AppState>()((set, get) => {
   };
 });
 
-/** The checklist starts with the example Mind on a first run. */
+/** The first open starts with the example Mind on a first run: the shell stays quiet while it is the one open. */
 async function startGettingStarted(): Promise<void> {
   try {
     const { device } = await core.getSettings();
@@ -2557,26 +2540,6 @@ core.on("documents.batch", (batch) => {
 // The examples made, opened again or removed: their Mind and Linked folder show "Example".
 core.on("examples.changed", (examples) => useAppStore.setState(withExamples(examples)));
 
-// The ready Question is about the User's own Documents, or the example while they have none: the
-// core reads it again when either, or the interface language, changes, while its card shows it.
-useAppStore.subscribe((state, before) => {
-  if (
-    stepsShownOf(state.settings?.device?.gettingStarted) &&
-    (state.documents !== before.documents ||
-      state.examples !== before.examples ||
-      state.settings?.language !== before.settings?.language)
-  ) {
-    core.readyQuestion().then(
-      (firstOpen) =>
-        useAppStore.setState({
-          readyQuestion: firstOpen?.ready ?? null,
-          readyReading: firstOpen?.reading ?? null,
-        }),
-      (error: unknown) => console.error("Couldn't read the first open's ready Question.", error),
-    );
-  }
-});
-
 // Privacy choices change on the Privacy page, in the usage data card, or with local mode.
 core.on("privacy.changed", (privacy) => {
   pushed("privacy");
@@ -2606,6 +2569,12 @@ core.on("answer.finished", ({ answerId, status }) => {
     useAppStore.setState({ ownAnswerArrived: true });
   }
 });
+
+// A request kept for the User's own AI, or a turn of it in a Note, is their ask of it, as an Answer
+// is of the assistant's: the first open ends with it (#3791).
+const askedOwnAi = () => useAppStore.getState().updateGettingStarted({ askedOwn: true });
+core.on("agents.request", askedOwnAi);
+core.on("agents.noteTurn", askedOwnAi);
 
 core.on("chatReadiness.changed", (chatReadiness) => {
   pushed("chatReadiness");

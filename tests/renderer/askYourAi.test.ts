@@ -764,20 +764,18 @@ describe("a Check handed to the User's own AI says how it goes, until its marks 
     }
   });
 
-  // protects=a model set up while the User's own AI is asked to check ends that ask, so the Note offers its own Check again rather than an asked line no press can clear, while Get started's summary ask stays the User's own AI's (#3587); fails_when=the asked line or state for the check outlives the model's setup, or the summary's ask goes with it
+  // protects=a model set up while the User's own AI is asked to check ends that ask, so the Note offers its own Check again rather than an asked line no press can clear, while an Organize asked of it stays the User's own AI's (#3587); fails_when=the asked line or state for the check outlives the model's setup, or the Organize's ask goes with it
   test("a model set up meanwhile ends the asked check, and only it", async () => {
     user(NO_MODEL, [codex]);
     expect(await askAgent(codex, MIND, { kind: "check" })).toBe(true);
-    expect(await askAgent(codex, null, { kind: "summary", documentId: "harbour-report" })).toBe(
-      true,
-    );
+    expect(await askAgent(codex, null, { kind: "organize", target: { ids: null } })).toBe(true);
     const { container, part } = await askedLine();
     expect(part("checks-asked")?.dataset.state).toBe("asked");
 
     await act(async () => useAppStore.setState({ chatReadiness: MODEL }));
     expect(container.textContent).toBe("");
     expect(Object.values(useAgentAsked.getState().byKey).map((each) => each.for)).toEqual([
-      { kind: "summary", documentId: "harbour-report" },
+      { kind: "organize", target: { ids: null } },
     ]);
   });
 

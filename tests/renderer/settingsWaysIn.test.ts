@@ -142,20 +142,19 @@ describe("every place that opens Settings › AI with no spot named", () => {
       // One-press Claude Code install from empty states and ⌘K (#3638).
       "claudeCodeInstall.ts",
       "commands/settings.ts",
-      // The Get started card's agent step, and its foot naming what was set.
-      "components/FirstOpenSteps.tsx",
+      // The example's line, with no AI app connected and no model: Connect (#3791).
+      "components/ExampleLine.tsx",
       // A Note's foot or check card with no AI of theirs that reads it: Move to… / Settings › AI (#3536) or Connect your AI (#3764).
       "components/assistant/NoteCantReadLine.tsx",
       "components/assistant/NoteFootAsk.tsx",
-      "components/firstRun/CardTail.tsx",
+      // Home's input with no AI app connected, or none that reads a new note: Connect, Settings › AI (#3791).
+      "components/home/HomeAsk.tsx",
       // Organize, a meeting's notes and its summary, when the agent can't read what they need.
       "components/library/OrganizeAsk.tsx",
       "components/meetings/MeetingAgentNotes.tsx",
       "components/meetings/MeetingSummaryProblem.tsx",
       // Empty-state "Connect your AI" beside Install Claude Code (#3638).
       "components/providers/ChatReadinessNotice.tsx",
-      // The Claude app shortcut, when the Note isn't in a Folder it can read.
-      "components/providers/ModelSetupCard.tsx",
       // Empty-state "Connect your AI" on Checks (#3638).
       "editor/CheckNotReady.tsx",
       // A refused key: the page then opens that provider's own page.
