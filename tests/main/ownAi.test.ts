@@ -1367,8 +1367,8 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
     };
   }
 
-  // protects=a Note's conversation asks Claude Code for its thinking summarized, after the hook is taken and before the request goes, so the line can show what the AI considers (#3677); fails_when=the thinking streams with no words, or the request goes before the ask
-  it("asks for the AI's thinking in words before the request goes", async () => {
+  /** What a run asked of a stand-in for Claude Code whose effective settings are `settings`. */
+  async function askedWith(settings: Record<string, unknown> | null) {
     useClaude({
       run: `
         const lines = require("node:readline").createInterface({ input: process.stdin });
@@ -1377,7 +1377,10 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         lines.on("line", (line) => {
           const v = JSON.parse(line);
           seen.push(v.type === "control_request" ? v.request : { type: v.type });
-          if (v.type === "control_request") {
+          if (v.type === "control_request" && v.request.subtype === "get_settings") {
+            const settings = ${JSON.stringify(settings)};
+            say({ type: "control_response", response: settings === null ? { subtype: "error", request_id: v.request_id, error: "unknown" } : { subtype: "success", request_id: v.request_id, response: { effective: settings, sources: [] } } });
+          } else if (v.type === "control_request") {
             say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [], ...${HOOKS_TAKEN} } } });
           } else if (v.type === "user") {
             say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "default", tools: [], mcp_servers: [] });
@@ -1387,16 +1390,28 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       `,
     });
     const { end } = await converse(async () => "deny");
-    const seen = JSON.parse(end.kind === "finished" ? end.reply : "[]") as Record<
-      string,
-      unknown
-    >[];
-    expect(seen.map((each) => each.subtype ?? each.type)).toEqual([
-      "initialize",
+    return JSON.parse(end.kind === "finished" ? end.reply : "[]") as Record<string, unknown>[];
+  }
+
+  // protects=a Note's conversation asks Claude Code for its thinking summarized, after the hook is taken and before the request goes, so the line can show what the AI considers, unless the User's own showThinkingSummaries is off, or Claude Code can't say (#3677); fails_when=the thinking streams with no words, the request goes before the ask, or the User's own setting is overridden
+  it("asks for the AI's thinking in words before the request goes, unless the User's setting says no", async () => {
+    const steps = (seen: Record<string, unknown>[]) =>
+      seen.map((each) => each.subtype ?? each.type);
+    const asked = await askedWith({ disableAllHooks: false });
+    expect(steps(asked)).toEqual(["initialize", "get_settings", "set_max_thinking_tokens", "user"]);
+    expect(asked[2]).toEqual({
+      subtype: "set_max_thinking_tokens",
+      thinking_display: "summarized",
+    });
+    expect(steps(await askedWith({ showThinkingSummaries: true }))).toContain(
       "set_max_thinking_tokens",
+    );
+    expect(steps(await askedWith({ showThinkingSummaries: false }))).toEqual([
+      "initialize",
+      "get_settings",
       "user",
     ]);
-    expect(seen[1]).toEqual({ subtype: "set_max_thinking_tokens", thinking_display: "summarized" });
+    expect(steps(await askedWith(null))).toEqual(["initialize", "get_settings", "user"]);
   });
 
   // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
