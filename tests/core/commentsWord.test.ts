@@ -91,11 +91,15 @@ function overlappingFile(): Buffer {
   });
 }
 
-async function importFile(core: Core, bytes: Buffer) {
+async function importFile(
+  core: Core,
+  bytes: Buffer,
+  origin: "someone-else" | "own" = "someone-else",
+) {
   const folder = await createTempDataFolder();
   const path = join(folder, "Comments.docx");
   await writeFileSync(path, bytes);
-  const result = await core.importWordFile({ path, origin: "someone-else" });
+  const result = await core.importWordFile({ path, origin });
   if (!result.ok) throw new Error(`Refused: ${result.refusal}`);
   const client = await connectToMind(core, result.mind.id);
   await new Promise<void>((resolve) => {
@@ -371,6 +375,7 @@ describe("comments in Word, in and out (#328)", () => {
     expect(left.myComments).toBe(2);
     expect(left.myCommentsShown).toBe(false);
     expect(left.myCommentsOptional).toBe(true);
+    expect(left.fileComments).toBe(3);
     const without = unzip(left.data).get("word/comments.xml")?.toString("utf8") ?? "";
     expect(without).not.toContain("My own note to self.");
     expect(without).not.toContain("My reply to Dana.");
@@ -382,6 +387,7 @@ describe("comments in Word, in and out (#328)", () => {
     const asked = await core.exportMind(mindId, { format: "docx", includeMyComments: true });
     expect(asked.myComments).toBe(2);
     expect(asked.myCommentsShown).toBe(true);
+    expect(asked.fileComments).toBe(3);
     const with_ = unzip(asked.data).get("word/comments.xml")?.toString("utf8") ?? "";
     expect(with_).toContain("My own note to self.");
     expect(with_).toContain("My reply to Dana.");
@@ -614,6 +620,7 @@ describe("comments in Word, in and out (#328)", () => {
     expect(result.myComments).toBe(2);
     expect(result.myCommentsShown).toBe(true);
     expect(result.myCommentsOptional).toBe(false);
+    expect(result.fileComments).toBe(0);
     // The comment with no words left is said before saving, as an imported file's is.
     expect(result.word?.notKept).toMatchObject([
       { kind: "comment", author: null, text: "This comment has no words." },
@@ -652,4 +659,47 @@ describe("comments in Word, in and out (#328)", () => {
     expect(extended).toContain(`w15:paraIdParent="${paraIds[0]}"`);
     core.close();
   });
+
+  test.each(["someone-else", "own"] as const)(
+    "export preview and Word export count fileComments and keep the original comments in the .docx (%s, #3821)",
+    async (origin) => {
+      const core = startCore(await createTempDataFolder());
+      const peopleRel = "http://schemas.microsoft.com/office/2011/relationships/people";
+      const peopleXml =
+        `${DECLARATION}<w15:people xmlns:w15="${W15}">` +
+        `<w15:person w15:author="Maren Lind"><w15:presenceInfo w15:providerId="None" w15:userId="ML"/></w15:person>` +
+        "</w15:people>";
+      const comment = commented(
+        0,
+        "Maren Lind",
+        "Check against the signed schedule.",
+        run("Revenue was $4.2M."),
+      );
+      const source = wordFile({
+        body: paragraph(comment.inline),
+        comments: comment.comment,
+        rels: `<Relationship Id="rIdPeople" Type="${peopleRel}" Target="people.xml"/>`,
+        parts: [{ name: "word/people.xml", data: peopleXml }],
+      });
+      const { mindId } = await importFile(core, source, origin);
+
+      const preview = await core.previewMindExport(mindId, { format: "source-pack" });
+      expect(preview.fileComments).toBe(1);
+      expect(preview.myComments).toBe(0);
+
+      const exported = await core.exportMind(mindId, {
+        format: "docx",
+        includeMyComments: false,
+      });
+      expect(exported.fileComments).toBe(1);
+      expect(exported.myComments).toBe(0);
+      const files = unzip(exported.data);
+      const commentsXml = files.get("word/comments.xml")?.toString("utf8") ?? "";
+      const peopleOut = files.get("word/people.xml")?.toString("utf8") ?? "";
+      expect(commentsXml).toContain('w:author="Maren Lind"');
+      expect(commentsXml).toContain("Check against the signed schedule.");
+      expect(peopleOut).toContain('w15:author="Maren Lind"');
+      core.close();
+    },
+  );
 });
