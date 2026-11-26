@@ -4,6 +4,7 @@ import {
   firstTicked,
   foundApps,
   monogram,
+  shownApps,
   stillNeedsUser,
 } from "../../src/renderer/src/components/firstRun/yourAiList";
 
@@ -61,6 +62,24 @@ describe("the apps found", () => {
       "claude-code",
       "claude-desktop",
     ]);
+  });
+
+  // protects=an app Connect would connect is always in sight: a ticked app the list re-read past the first three stays shown, not folded under "N more found"; fails_when=a ticked row is folded out of sight and still connected
+  it("never folds a ticked app out of sight", () => {
+    const ids: AgentClientId[] = ["claude-code", "codex", "claude-desktop", "cursor", "zed"];
+    const found = foundApps(ids.map((id) => client(id)), false);
+    expect(shownApps(found, new Set(), false).map((each) => each.id)).toEqual([
+      "claude-code",
+      "codex",
+      "claude-desktop",
+    ]);
+    expect(shownApps(found, new Set(["zed"]), false).map((each) => each.id)).toEqual([
+      "claude-code",
+      "codex",
+      "claude-desktop",
+      "zed",
+    ]);
+    expect(shownApps(found, new Set(), true)).toHaveLength(5);
   });
 
   // protects=only one app is ticked as the step opens, and none for a User who came back with one connected; fails_when=every app starts ticked, or a connected app is ticked again

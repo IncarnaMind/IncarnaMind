@@ -1,17 +1,17 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { ClaudeCodeInstallState } from "../../../../core/api";
 import {
   cancelClaudeCodeInstall,
   checkClaudeCodeAuth,
   openClaudeCodeSignIn,
-  startClaudeCodeInstall,
   useClaudeCodeInstallStarting,
   useClaudeCodeInstallState,
 } from "../../claudeCodeInstall";
-import { useT } from "../../i18n";
+import { useGap, useT } from "../../i18n";
 import { installFailureKey } from "../agents/ClaudeCodeInstallRow";
 import { buttonStyle } from "../ui";
-import { AppMark, rowClass } from "./yourAiParts";
+import { InstallDisclosure } from "./YourAiConsent";
+import { AppMark, linkClass } from "./yourAiParts";
 
 const CLAUDE_CODE = "Claude Code";
 
@@ -22,6 +22,7 @@ const CLAUDE_CODE = "Claude Code";
 function installStatus(
   state: ClaudeCodeInstallState,
   t: ReturnType<typeof useT>,
+  start: () => void,
 ): { line: string; action: ReactNode } | null {
   switch (state.kind) {
     case "idle":
@@ -92,9 +93,7 @@ function installStatus(
               type="button"
               data-testid="setup-install-retry"
               onClick={() =>
-                void (state.reason === "sign-in-failed"
-                  ? openClaudeCodeSignIn()
-                  : startClaudeCodeInstall())
+                state.reason === "sign-in-failed" ? void openClaudeCodeSignIn() : start()
               }
               className={buttonStyle("secondary", "sm")}
             >
@@ -105,71 +104,129 @@ function installStatus(
   }
 }
 
+/** The row's one line, and with `more`, a Details that opens what else there is to know below it. */
 function Row({
   testId,
   state,
   line,
   action,
+  more,
 }: {
   testId: string;
   state: string;
   line: string;
   action: ReactNode;
+  more?: ReactNode;
 }) {
+  const t = useT();
+  const gap = useGap();
+  const [open, setOpen] = useState(false);
   return (
-    <li data-testid={testId} data-client="claude-code" data-state={state} className={rowClass}>
-      <AppMark name={CLAUDE_CODE} />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="text-ui text-ink">{CLAUDE_CODE}</span>
-        <span role="status" className="text-[12px] leading-[18px] text-ink-meta">
-          {line}
+    <li
+      data-testid={testId}
+      data-client="claude-code"
+      data-state={state}
+      className="flex flex-col border-t border-rule first:border-t-0"
+    >
+      <div className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-2">
+        <AppMark name={CLAUDE_CODE} />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-ui text-ink">{CLAUDE_CODE}</span>
+          <span
+            data-testid="setup-install-line"
+            role="status"
+            className="text-[12px] leading-[18px] text-ink-meta"
+          >
+            {line}
+            {more && (
+              <>
+                {gap(line, t("agents.connect.details"))}
+                <button
+                  type="button"
+                  data-testid="setup-install-details"
+                  aria-expanded={open}
+                  onClick={() => setOpen(!open)}
+                  className={linkClass}
+                >
+                  {t("agents.connect.details")}
+                </button>
+              </>
+            )}
+          </span>
         </span>
-      </span>
-      {action}
+        {action}
+      </div>
+      {more && open && <div className="px-3 pb-2 pl-[52px]">{more}</div>}
     </li>
   );
 }
 
-/** With no AI app found: Claude Code, installed with one press, and each step of it in this row. */
-export function InstallOfferRow() {
+const installButton = (
+  t: ReturnType<typeof useT>,
+  testId: string,
+  starting: boolean,
+  start: () => void,
+) => (
+  <button
+    type="button"
+    data-testid={testId}
+    disabled={starting}
+    onClick={start}
+    className={buttonStyle("primary", "sm")}
+  >
+    {t("setupPage.ai.install")}
+  </button>
+);
+
+/**
+ * With no AI app found: Claude Code, installed with one press, and each step of it in this row.
+ * Before the press it says it downloads from Anthropic, with the rest under Details. `onStart`
+ * starts the install as the step's own, which leaving the step stops.
+ */
+export function InstallOfferRow({ onStart }: { onStart(): void }) {
   const t = useT();
   const state = useClaudeCodeInstallState();
   const starting = useClaudeCodeInstallStarting();
-  const status = installStatus(state, t);
+  const status = installStatus(state, t, onStart);
   return (
     <Row
       testId="setup-install-row"
       state={state.kind}
       line={status?.line ?? t("setupPage.ai.install.line")}
-      action={
-        status ? (
-          status.action
-        ) : (
-          <button
-            type="button"
-            data-testid="setup-install-claude-code"
-            disabled={starting}
-            onClick={() => void startClaudeCodeInstall()}
-            className={buttonStyle("primary", "sm")}
-          >
-            {t("setupPage.ai.install")}
-          </button>
-        )
-      }
+      action={status ? status.action : installButton(t, "setup-install-claude-code", starting, onStart)}
+      more={status ? undefined : <InstallDisclosure testId="setup-install-disclosure" />}
     />
   );
 }
 
-/** Claude Code installing in the same press that connected the Claude app, until it connects too. */
-export function InstallingRow({ state }: { state: ClaudeCodeInstallState }) {
+/**
+ * Claude Code installing in the same press that connected the Claude app, until it connects too.
+ * Stopped before it was installed (Cancel), the row says so, with Install to start it again.
+ */
+export function InstallingRow({
+  state,
+  onStart,
+}: {
+  state: ClaudeCodeInstallState;
+  onStart(): void;
+}) {
   const t = useT();
-  const status = installStatus(state, t);
+  const starting = useClaudeCodeInstallStarting();
+  const status = installStatus(state, t, onStart);
+  const stopped = state.kind === "idle" && !starting;
   return (
     <Row
       testId="setup-done-row"
-      state={state.kind}
-      line={status?.line ?? t("setupPage.ai.install.installing")}
-      action={status?.action ?? null}
+      state={stopped ? "stopped" : state.kind}
+      line={
+        status?.line ??
+        t(stopped ? "setupPage.ai.install.stopped" : "setupPage.ai.install.installing")
+      }
+      action={
+        status?.action ??
+        (stopped ? installButton(t, "setup-install-again", starting, onStart) : null)
+      }
+      more={stopped ? <InstallDisclosure testId="setup-install-disclosure" /> : undefined}
     />
   );
 }

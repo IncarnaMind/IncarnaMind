@@ -156,6 +156,36 @@ describe("connecting several AI apps in one press (#3644)", () => {
     expect(rollbackProblems).toEqual([]);
   });
 
+  // protects=a press the User walked away from connects no app it hadn't started on, and keeps what it already connected (#3791); fails_when=the apps after the User left are still connected
+  test("stops before the next app once the press is no longer wanted", async () => {
+    const order: string[] = [];
+    let wanted = true;
+    const state = { enabled: false, pairings: [] as AgentPairing[] };
+    const bridge: AgentBridge = {
+      getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
+      setAgentsEnabled: async (enabled) => {
+        state.enabled = enabled;
+      },
+      setUpAgent: async (each) => {
+        order.push(String(each.client));
+        wanted = false;
+        const pairing = { id: `pairing-${each.client}`, client: each.client } as AgentPairing;
+        state.pairings.push(pairing);
+        return { pairing, result: { kind: "wrote", path: "" } } as SetUpAgent;
+      },
+    };
+    const connectMany = manyAgentsConnector(bridge, () => undefined);
+    const outcomes = await connectMany(
+      [clientOf("codex"), clientOf("claude-code")],
+      { folderIds: ["not-in-a-folder"], propose: true },
+      { enable: true, stillWanted: () => wanted },
+    );
+
+    expect(order).toEqual(["codex"]);
+    expect(outcomes.map((each) => [each.client.id, each.kind])).toEqual([["codex", "connected"]]);
+    expect(state.enabled).toBe(true);
+  });
+
   test("turns connecting agents back off when every app in the batch fails", async () => {
     const state = { enabled: false, pairings: [] as AgentPairing[] };
     const bridge: AgentBridge = {

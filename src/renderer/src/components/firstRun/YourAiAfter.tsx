@@ -1,9 +1,16 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { type AgentClient, type AgentPairing, ALL_SHARED_ID } from "../../../../core/api";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type AgentClient,
+  type AgentPairing,
+  ALL_SHARED_ID,
+  type ClaudeCodeInstallState,
+} from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
+import type { AgentConnectOutcome } from "../../agentConnection";
 import {
   cancelClaudeCodeInstall,
   resetClaudeCodeInstall,
+  useClaudeCodeInstallStarting,
   useClaudeCodeInstallState,
 } from "../../claudeCodeInstall";
 import { core } from "../../core";
@@ -12,7 +19,7 @@ import { useAppStore } from "../../store";
 import { clientName, setupProblem } from "../agents/agentWords";
 import { connectManyAgents } from "../agents/connectShared";
 import { ProblemMark } from "../ProblemLine";
-import { buttonStyle } from "../ui";
+import { buttonStyle, dialogTextClass } from "../ui";
 import { InstallingRow } from "./ClaudeCodeInstallLine";
 import { SetupPanel, type StepPlace } from "./SetupPanel";
 import { stillNeedsUser } from "./yourAiList";
@@ -29,13 +36,17 @@ function useAwaitingInstall(): readonly string[] | null {
   return awaiting;
 }
 
-const outcomeOf = (
-  outcome: Awaited<ReturnType<typeof connectManyAgents>>[number],
-  client: AgentClient,
-): Done =>
+const outcomeOf = (outcome: AgentConnectOutcome, client: AgentClient): Done =>
   outcome.kind === "connected"
     ? { client, pairingId: outcome.pairing.id, result: outcome.result }
     : { client, error: outcome.error };
+
+/** Whether the install had put Claude Code on this computer by this state: past its download. */
+const pastDownload = (state: ClaudeCodeInstallState) =>
+  state.kind === "awaiting-sign-in" ||
+  state.kind === "signed-in" ||
+  state.kind === "no-plan" ||
+  (state.kind === "failed" && state.reason === "sign-in-failed");
 
 /**
  * After Connect in the Your AI step (#3791), while an app chosen still needs the User: each row
@@ -52,6 +63,7 @@ export function YourAiAfter({
   pairings,
   onDone,
   onUndo,
+  onInstallStart,
 }: {
   place: StepPlace;
   done: readonly Done[];
@@ -61,53 +73,75 @@ export function YourAiAfter({
   pairings: readonly AgentPairing[];
   /** Applies `update` to what is done as it is when it lands, so two results never undo each other. */
   onDone(update: (current: readonly Done[]) => readonly Done[]): void;
-  onUndo(): void;
+  /** `installKept`: the press had installed Claude Code before Undo, which leaves it installed. */
+  onUndo(installKept: boolean): void;
+  /** Starts Claude Code's install again from its row, as the step's own. */
+  onInstallStart(): void;
 }) {
   const t = useT();
-  const reportError = useAppStore((state) => state.reportError);
   const awaiting = useAwaitingInstall();
   const install = useClaudeCodeInstallState();
+  const starting = useClaudeCodeInstallStarting();
   const [undoing, setUndoing] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   // Connections still being made (a retry, or Claude Code once signed in): Undo waits for them, so
   // none it should take back lands after it.
   const [connecting, setConnecting] = useState(0);
   const handedOff = useRef(false);
   const moved = useRef(false);
   const undone = useRef(new Set<string>());
-  const connectWithChoice = async (client: AgentClient) => {
-    setConnecting((count) => count + 1);
-    try {
-      const [outcome] = await connectManyAgents(
-        [client],
-        { folderIds: [ALL_SHARED_ID], propose: choice.propose },
-        { enable: true },
-      );
-      return outcome;
-    } finally {
-      setConnecting((count) => count - 1);
-    }
-  };
-  const put = (client: AgentClient, outcome: Parameters<typeof outcomeOf>[0]) =>
-    onDone((current) =>
-      current.some((each) => each.client.id === client.id)
-        ? current.map((each) => (each.client.id === client.id ? outcomeOf(outcome, client) : each))
-        : [...current, outcomeOf(outcome, client)],
-    );
+  const propose = choice.propose;
+  const connectWithChoice = useCallback(
+    async (client: AgentClient): Promise<AgentConnectOutcome> => {
+      setConnecting((count) => count + 1);
+      try {
+        const [outcome] = await connectManyAgents(
+          [client],
+          { folderIds: [ALL_SHARED_ID], propose },
+          { enable: true },
+        );
+        return outcome ?? { kind: "failed", client, error: new Error("Nothing was connected.") };
+      } catch (error) {
+        return { kind: "failed", client, error };
+      } finally {
+        setConnecting((count) => count - 1);
+      }
+    },
+    [propose],
+  );
+  const put = useCallback(
+    (client: AgentClient, outcome: AgentConnectOutcome) =>
+      onDone((current) =>
+        current.some((each) => each.client.id === client.id)
+          ? current.map((each) =>
+              each.client.id === client.id ? outcomeOf(outcome, client) : each,
+            )
+          : [...current, outcomeOf(outcome, client)],
+      ),
+    [onDone],
+  );
 
-  // Signed in to the Claude Code it installed: the same press connects it, as the row said it would.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: connects once, when the sign-in lands.
-  useEffect(() => {
-    if (!installs || install.kind !== "signed-in" || !claudeCode || handedOff.current) return;
-    if (done.some((each) => each.client.id === "claude-code")) return;
-    handedOff.current = true;
-    connectWithChoice(claudeCode)
-      .then((outcome) => {
-        if (!outcome) return;
+  const connectAndPut = useCallback(
+    async (client: AgentClient) => {
+      const outcome = await connectWithChoice(client);
+      if (outcome.kind === "connected" && client.id === "claude-code") {
         void resetClaudeCodeInstall();
-        put(claudeCode, outcome);
-      })
-      .catch(reportError);
-  }, [installs, install.kind, claudeCode, done, reportError]);
+      }
+      put(client, outcome);
+    },
+    [connectWithChoice, put],
+  );
+
+  // Signed in to the Claude Code it installed: the same press connects it, as the consent before
+  // the press said. A failure is said on its row, with Try again. Once the User has left the step,
+  // nothing here runs, so nothing connects after they have gone.
+  const signedIn = installs && install.kind === "signed-in";
+  const claudeCodeDone = done.some((each) => each.client.id === "claude-code");
+  useEffect(() => {
+    if (!signedIn || !claudeCode || claudeCodeDone || handedOff.current) return;
+    handedOff.current = true;
+    void connectAndPut(claudeCode);
+  }, [signedIn, claudeCode, claudeCodeDone, connectAndPut]);
 
   const pairingOf = (id: string) => pairings.find((pairing) => pairing.id === id);
   // Until the waiting Installs are read, an app that isn't written to is taken as still waiting.
@@ -117,15 +151,21 @@ export function YourAiAfter({
       : awaiting === null
         ? each.result.kind !== "wrote"
         : stillNeedsUser(each.result, pairingOf(each.pairingId), awaiting);
-  // Installing goes on until it ends: a plan without Claude Code ends it, and asks nothing more.
-  const installing = installs && !done.some((each) => each.client.id === "claude-code");
+  // Claude Code's row until it connects: still going while it downloads, waits for the sign-in or
+  // connects; stopped, failed or without a plan, it stays on screen with its own button.
+  const installing = installs && !claudeCodeDone;
+  const installGoing =
+    installing &&
+    (starting ||
+      install.kind === "installing" ||
+      install.kind === "awaiting-sign-in" ||
+      install.kind === "signed-in");
   const leftNames = [
     ...done.filter(left).map((each) => clientName(each.client, t)),
-    ...(installing && install.kind !== "no-plan" ? ["Claude Code"] : []),
+    ...(installGoing ? ["Claude Code"] : []),
   ];
   const nothingLeft = leftNames.length === 0;
-  // A plan without Claude Code stays on screen, said on its row, until the User goes on.
-  const stays = installing && install.kind === "no-plan";
+  const stays = installing && !installGoing;
 
   useEffect(() => {
     if (!nothingLeft || stays || moved.current) return;
@@ -133,14 +173,11 @@ export function YourAiAfter({
     place.next();
   }, [nothingLeft, stays, place]);
 
-  const retry = async (client: AgentClient) => {
-    const outcome = await connectWithChoice(client);
-    if (outcome) put(client, outcome);
-  };
-
   const undo = async () => {
     if (undoing || connecting > 0) return;
     setUndoing(true);
+    setProblem(null);
+    const kept = installs && (claudeCodeDone || pastDownload(install));
     try {
       if (installs) await cancelClaudeCodeInstall();
       // An Undo that failed part way is pressed again: what it already took back is gone.
@@ -149,9 +186,9 @@ export function YourAiAfter({
         await core.undoAgentSetup(each.pairingId);
         undone.current.add(each.pairingId);
       }
-      onUndo();
+      onUndo(kept);
     } catch (error) {
-      reportError(error);
+      setProblem(setupProblem(error, t));
     } finally {
       setUndoing(false);
     }
@@ -204,11 +241,17 @@ export function YourAiAfter({
             key={each.client.id}
             done={each}
             left={left(each)}
-            onRetry={() => retry(each.client)}
+            onRetry={() => connectAndPut(each.client)}
           />
         ))}
-        {installing && <InstallingRow state={install} />}
+        {installing && <InstallingRow state={install} onStart={onInstallStart} />}
       </ul>
+      {problem && (
+        <p data-testid="setup-undo-problem" role="alert" className={dialogTextClass}>
+          <ProblemMark />
+          {problem}
+        </p>
+      )}
     </SetupPanel>
   );
 }

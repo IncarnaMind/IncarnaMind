@@ -16,6 +16,19 @@ const FIRST: readonly AgentClientId[] = ["claude-code", "codex", "claude-desktop
 export const SHOWN_FIRST = 3;
 
 /**
+ * The found apps the list shows: all once opened, else the first few and any other ticked, so an
+ * app Connect would connect is never folded out of sight.
+ */
+export const shownApps = (
+  found: readonly AgentClient[],
+  ticked: ReadonlySet<string>,
+  open: boolean,
+): AgentClient[] =>
+  open || found.length <= SHOWN_FIRST
+    ? [...found]
+    : found.filter((client, index) => index < SHOWN_FIRST || ticked.has(client.id));
+
+/**
  * The AI apps on this computer, each once, those that lead first. Claude Code counts as found once
  * its one-press install has put it here, before the list of apps is read again.
  */

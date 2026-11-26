@@ -40,6 +40,30 @@ export function useAgentPairings(): AgentPairing[] | null {
   return pairings;
 }
 
+/**
+ * The pairings there are, read as a screen that depends on them reads: a read that failed is said
+ * where it failed, with Try again; kept as they change once read.
+ */
+export function useAgentPairingsRead(): Read<AgentPairing[]> {
+  const [changed, setChanged] = useState<AgentPairing[] | null>(null);
+  useEffect(
+    () =>
+      core.on("agents.changed", (settings) => {
+        pairingsRead = settings.pairings;
+        setChanged(settings.pairings);
+      }),
+    [],
+  );
+  const read = useRead("The connected AI apps", () =>
+    core.getAgents().then((settings) => {
+      pairingsRead = settings.pairings;
+      return settings.pairings;
+    }),
+  );
+  if (changed) return { state: "ready", data: changed };
+  return read.state === "loading" && pairingsRead ? { state: "ready", data: pairingsRead } : read;
+}
+
 /** The agents IncarnaMind can be set up in, those on this computer first (src/core/agents/clients.ts). */
 export function useAgentClients(): Read<AgentClient[]> {
   const read = useRead("The agents IncarnaMind can be set up in", () =>

@@ -1,12 +1,15 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type AgentClient, type AgentPairing, ALL_SHARED_ID } from "../../../../core/api";
-import { useAgentClients, useAgentPairings } from "../../agentNote";
+import { useAgentClients, useAgentPairingsRead } from "../../agentNote";
 import {
+  cancelClaudeCodeInstall,
   resetClaudeCodeInstall,
   startClaudeCodeInstall,
   useClaudeCodeInstallAvailability,
+  useClaudeCodeInstallStarting,
   useClaudeCodeInstallState,
 } from "../../claudeCodeInstall";
+import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { clientName, setupProblem } from "../agents/agentWords";
@@ -21,7 +24,7 @@ import { SetupPanel, type StepPlace } from "./SetupPanel";
 import { SortingModelLine } from "./SortingModelLine";
 import { YourAiAfter } from "./YourAiAfter";
 import { YourAiConsent } from "./YourAiConsent";
-import { firstTicked, foundApps, notConnected, SHOWN_FIRST } from "./yourAiList";
+import { firstTicked, foundApps, notConnected, shownApps } from "./yourAiList";
 import { AppMark, type Choice, type Done, listClass, rowClass, StepFoot } from "./yourAiParts";
 
 type View =
@@ -35,17 +38,36 @@ type View =
  * first of them ticked; one sentence of what connecting lets them read, with Details; one Connect.
  * Connecting moves on by itself once every app chosen works; while one still needs the User, its
  * row says what is left, with the one button that does it. With only the Claude app found, the same
- * Connect installs Claude Code too, as the row says first. With none found, Claude Code is offered
- * to install, and any other app is reached through Another app….
+ * Connect downloads and connects Claude Code too, as the row and the consent say first. With none
+ * found, Claude Code is offered to install, and any other app is reached through Another app….
  */
 export function YourAiStep({ place }: { place: StepPlace }) {
   const t = useT();
   const clients = useAgentClients();
-  const pairings = useAgentPairings();
+  const pairingsRead = useAgentPairingsRead();
   const availability = useClaudeCodeInstallAvailability();
   const install = useClaudeCodeInstallState();
   const localOnly = useAppStore((state) => state.embedding?.localOnly === true);
+  const starting = useClaudeCodeInstallStarting();
   const [view, setView] = useState<View>({ kind: "list" });
+  // Claude Code installed by a press the User then took back: it stays, and the step says so.
+  const [kept, setKept] = useState(false);
+
+  // An install this step started and the User left by Back, Set up later or any other way: what
+  // hasn't happened yet doesn't. Its download stops, and so does a sign-in still waiting.
+  const ours = useRef(false);
+  const pending = useRef(false);
+  pending.current = starting || install.kind === "installing" || install.kind === "awaiting-sign-in";
+  useEffect(
+    () => () => {
+      if (ours.current && pending.current) void cancelClaudeCodeInstall();
+    },
+    [],
+  );
+  const startInstall = () => {
+    ours.current = true;
+    void startClaudeCodeInstall();
+  };
 
   // Esc leaves Another app… for the list, once nothing inside has taken the key.
   const away = view.kind === "another" || view.kind === "app";
@@ -60,9 +82,9 @@ export function YourAiStep({ place }: { place: StepPlace }) {
     return () => window.removeEventListener("keydown", leave);
   }, [away]);
 
-  // While the apps or the connections are read, or if that fails (said where it failed), the User
-  // can still go back or on.
-  if (clients.state === "loading" || pairings === null) {
+  // While the apps or the connections are read, or when the connections can't be, the User can
+  // still go back or on.
+  if (clients.state === "loading" || pairingsRead.state !== "ready") {
     return (
       <SetupPanel
         place={place}
@@ -70,22 +92,30 @@ export function YourAiStep({ place }: { place: StepPlace }) {
         title={t("setupPage.ai.title")}
         foot={<StepFoot place={place} />}
       >
-        {null}
+        {pairingsRead.state === "failed" ? (
+          <ReadProblem
+            words={t("setupPage.ai.connections.failed")}
+            read={pairingsRead}
+            testId="setup-connections-problem"
+          />
+        ) : null}
       </SetupPanel>
     );
   }
+  const pairings = pairingsRead.data;
   const all = clients.state === "ready" ? clients.data : [];
   const claudeCodeHere = availability?.installed === true || install.kind === "signed-in";
   const found = foundApps(all, claudeCodeHere);
+  const claudeCode = all.find((client) => client.id === "claude-code") ?? null;
   // Claude Code is installed in the same press only where nothing installs one already.
   const installs =
     !localOnly &&
     availability?.supported === true &&
     !availability.cliAgentPresent &&
     !claudeCodeHere &&
+    claudeCode !== null &&
     found.length === 1 &&
     found[0]?.id === "claude-desktop";
-  const claudeCode = all.find((client) => client.id === "claude-code") ?? null;
 
   if (view.kind === "another" || view.kind === "app") {
     return (
@@ -122,7 +152,11 @@ export function YourAiStep({ place }: { place: StepPlace }) {
             current.kind === "after" ? { ...current, done: update(current.done) } : current,
           )
         }
-        onUndo={() => setView({ kind: "list" })}
+        onUndo={(installKept) => {
+          setKept(installKept);
+          setView({ kind: "list" });
+        }}
+        onInstallStart={startInstall}
       />
     );
   }
@@ -140,11 +174,13 @@ export function YourAiStep({ place }: { place: StepPlace }) {
       }
       found={found}
       pairings={pairings}
-      installs={installs}
+      installs={installs ? claudeCode : null}
+      kept={kept}
       offersInstall={
         found.length === 0 && !localOnly && availability?.supported === true && claudeCode !== null
       }
       onAnother={() => setView({ kind: "another" })}
+      onInstallStart={startInstall}
       onConnected={(done, choice, installed) =>
         setView({ kind: "after", done, installs: installed, choice })
       }
@@ -158,26 +194,36 @@ function FoundList({
   found,
   pairings,
   installs,
+  kept,
   offersInstall,
   onAnother,
+  onInstallStart,
   onConnected,
 }: {
   place: StepPlace;
   problem: ReactNode;
   found: readonly AgentClient[];
   pairings: readonly AgentPairing[];
-  installs: boolean;
+  /** Claude Code, when the same Connect also downloads and connects it. */
+  installs: AgentClient | null;
+  kept: boolean;
   offersInstall: boolean;
   onAnother(): void;
+  onInstallStart(): void;
   onConnected(done: readonly Done[], choice: Choice, installed: boolean): void;
 }) {
   const t = useT();
   const [ticks, setTicks] = useState<ReadonlySet<string> | null>(null);
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // A press still connecting: its consent and its button stay as they were when it was pressed.
+  const [pressed, setPressed] = useState<{
+    apps: readonly AgentClient[];
+    installs: AgentClient | null;
+  } | null>(null);
   const [problemLine, setProblemLine] = useState<string | null>(null);
   const [propose, setPropose] = useState(true);
-  // A press still connecting when the User goes back or on moves them nowhere once it lands.
+  // A press still connecting when the User goes back or on starts nothing more, and moves them
+  // nowhere once it lands; what it connected shows as Connected, with Undo, when they come back.
   const here = useRef(true);
   useEffect(() => {
     here.current = true;
@@ -188,9 +234,13 @@ function FoundList({
   const first = firstTicked(found, pairings);
   const ticked = ticks ?? new Set(first ? [first] : []);
   const chosen = notConnected(found, pairings).filter((client) => ticked.has(client.id));
-  const { storage, canKeepKey, accept } = useSecretStorage(chosen.map((each) => each.id).join(","));
-  const inUse = new Set(pairings.map((pairing) => pairing.client));
-  const shown = open || found.length <= SHOWN_FIRST ? found : found.slice(0, SHOWN_FIRST);
+  const pairingOf = (client: AgentClient) => pairings.find((each) => each.client === client.id);
+  // Claude Code comes with the Claude app's Connect only while that app is ticked and not connected.
+  const installsNow = chosen.some((client) => client.id === "claude-desktop") ? installs : null;
+  const asked = pressed?.apps ?? chosen;
+  const askedInstalls = pressed ? pressed.installs : installsNow;
+  const { storage, canKeepKey, accept } = useSecretStorage(asked.map((each) => each.id).join(","));
+  const shown = shownApps(found, ticked, open);
   const folded = found.length - shown.length;
   const anyConnected = pairings.length > 0;
 
@@ -202,23 +252,23 @@ function FoundList({
   };
 
   const connect = async () => {
-    if (busy || chosen.length === 0) return;
-    setBusy(true);
+    if (pressed || chosen.length === 0) return;
+    setPressed({ apps: chosen, installs: installsNow });
     setProblemLine(null);
     try {
       const outcomes = await connectManyAgents(
         chosen,
         { folderIds: [ALL_SHARED_ID], propose },
-        { enable: true },
+        { enable: true, stillWanted: () => here.current },
       );
       if (!here.current) return;
-      if (installs) void startClaudeCodeInstall();
+      if (installsNow) onInstallStart();
       if (outcomes.some((each) => each.kind === "connected" && each.client.id === "claude-code")) {
         void resetClaudeCodeInstall();
       }
       // Every app works already: first run moves on, with nothing left to show here.
       if (
-        !installs &&
+        !installsNow &&
         outcomes.every((each) => each.kind === "connected" && each.result.kind === "wrote")
       ) {
         place.next();
@@ -231,21 +281,33 @@ function FoundList({
             : { client: each.client, error: each.error },
         ),
         { propose },
-        installs,
+        installsNow !== null,
       );
     } catch (error) {
-      setProblemLine(setupProblem(error, t));
+      if (here.current) setProblemLine(setupProblem(error, t));
+      else useAppStore.getState().reportError(error);
     } finally {
-      setBusy(false);
+      if (here.current) setPressed(null);
+    }
+  };
+
+  const undo = async (pairing: AgentPairing) => {
+    setProblemLine(null);
+    try {
+      await core.undoAgentSetup(pairing.id);
+    } catch (error) {
+      setProblemLine(setupProblem(error, t));
     }
   };
 
   const main =
-    found.length === 0 && !anyConnected ? undefined : chosen.length > 0 || !anyConnected ? (
+    found.length === 0 && !anyConnected && !pressed ? undefined : pressed ||
+      chosen.length > 0 ||
+      !anyConnected ? (
       <button
         type="button"
         data-testid="setup-connect"
-        disabled={busy || chosen.length === 0 || !canKeepKey}
+        disabled={pressed !== null || chosen.length === 0 || !canKeepKey}
         onClick={() => void connect()}
         className={buttonStyle("primary", "lg")}
       >
@@ -268,19 +330,27 @@ function FoundList({
       view="ai"
       title={t("setupPage.ai.title")}
       lead={t(found.length > 0 ? "setupPage.ai.lead.found" : "setupPage.ai.lead.none")}
-      foot={<StepFoot place={place} later={!anyConnected || chosen.length > 0} main={main} />}
+      foot={
+        <StepFoot
+          place={place}
+          later={!anyConnected || chosen.length > 0 || pressed !== null}
+          main={main}
+        />
+      }
     >
       {problem}
       <ul data-testid="setup-apps" aria-label={t("setupPage.ai.title")} className={listClass}>
-        {offersInstall && <InstallOfferRow />}
+        {offersInstall && <InstallOfferRow onStart={onInstallStart} />}
         {shown.map((client) => (
           <FoundRow
             key={client.id}
             client={client}
-            connected={inUse.has(client.id)}
+            pairing={pairingOf(client) ?? null}
             ticked={ticked.has(client.id)}
-            installs={installs && client.id === "claude-desktop"}
+            installs={askedInstalls !== null && client.id === "claude-desktop"}
+            busy={pressed !== null}
             onTick={(on) => toggle(client, on)}
+            onUndo={(pairing) => void undo(pairing)}
           />
         ))}
         {folded > 0 && (
@@ -322,8 +392,18 @@ function FoundList({
           </button>
         </li>
       </ul>
-      {chosen.length > 0 && (
-        <YourAiConsent chosen={chosen} propose={propose} onPropose={setPropose} />
+      {kept && (
+        <p data-testid="setup-install-kept" role="status" className={dialogTextClass}>
+          {t("setupPage.ai.install.kept")}
+        </p>
+      )}
+      {asked.length > 0 && (
+        <YourAiConsent
+          chosen={asked}
+          installs={askedInstalls}
+          propose={propose}
+          onPropose={setPropose}
+        />
       )}
       <AgentSecretNotice storage={storage} onAccept={accept} />
       {problemLine && (
@@ -338,19 +418,27 @@ function FoundList({
   );
 }
 
-/** One app found: its tick, or Connected once it is; with only the Claude app, what Connect installs. */
+/**
+ * One app found: its tick, or Connected with Undo once it is; with only the Claude app, what
+ * Connect downloads too.
+ */
 function FoundRow({
   client,
-  connected,
+  pairing,
   ticked,
   installs,
+  busy,
   onTick,
+  onUndo,
 }: {
   client: AgentClient;
-  connected: boolean;
+  pairing: AgentPairing | null;
   ticked: boolean;
   installs: boolean;
+  /** A press is still connecting: Undo waits for it. */
+  busy: boolean;
   onTick(on: boolean): void;
+  onUndo(pairing: AgentPairing): void;
 }) {
   const t = useT();
   const name = clientName(client, t);
@@ -361,7 +449,7 @@ function FoundRow({
         <span className="truncate text-ui text-ink" title={name}>
           {name}
         </span>
-        {installs && (
+        {installs && !pairing && (
           <span
             data-testid="setup-app-installs"
             className="text-[12px] leading-[18px] text-ink-meta"
@@ -376,10 +464,10 @@ function FoundRow({
     <li
       data-testid="setup-app"
       data-value={client.id}
-      data-connected={connected || undefined}
+      data-connected={pairing ? true : undefined}
       className={rowClass}
     >
-      {connected ? (
+      {pairing ? (
         <div className="flex min-w-0 flex-1 items-center gap-3">
           {words}
           <span
@@ -388,6 +476,15 @@ function FoundRow({
           >
             {t("setupPage.ai.connected")}
           </span>
+          <button
+            type="button"
+            data-testid="setup-app-undo"
+            disabled={busy}
+            onClick={() => onUndo(pairing)}
+            className={buttonStyle("ghost", "sm")}
+          >
+            {t("agents.done.undo")}
+          </button>
         </div>
       ) : (
         <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">

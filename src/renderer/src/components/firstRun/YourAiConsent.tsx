@@ -13,14 +13,18 @@ import { linkClass } from "./yourAiParts";
 /**
  * The one sentence of what connecting lets the chosen apps read, and where it goes, with Details
  * (#3791): what else they read and what is sent, that they may write notes, how the background run
- * behaves, and what IncarnaMind adds to each app's settings file.
+ * behaves, and what IncarnaMind adds to each app's settings file. `installs`: Claude Code, which
+ * the same press downloads from Anthropic and connects once signed in, so all of it covers Claude
+ * Code too, before the press, as its own connect sheet would.
  */
 export function YourAiConsent({
   chosen,
+  installs = null,
   propose,
   onPropose,
 }: {
   chosen: readonly AgentClient[];
+  installs?: AgentClient | null;
   propose: boolean;
   onPropose(propose: boolean): void;
 }) {
@@ -28,10 +32,11 @@ export function YourAiConsent({
   const gap = useGap();
   const panel = useId();
   const [open, setOpen] = useState(false);
-  const one = chosen.length === 1 ? chosen[0] : undefined;
+  const connects = installs ? [...chosen, installs] : chosen;
+  const one = connects.length === 1 ? connects[0] : undefined;
   const agent = one ? clientInSentence(one, t) : "";
-  const claudeCode = chosen.find((client) => client.id === "claude-code");
-  const codex = chosen.some((client) => client.id === "codex");
+  const claudeCode = connects.find((client) => client.id === "claude-code");
+  const codex = connects.some((client) => client.id === "codex");
   const said = t(one ? "setupPage.ai.consent.one" : "setupPage.ai.consent.many");
   return (
     <div className="-mt-1 flex flex-col gap-2">
@@ -84,7 +89,8 @@ export function YourAiConsent({
               {t("agents.connect.background.codex.details")}
             </p>
           )}
-          {chosen
+          {installs && <InstallDisclosure testId="setup-consent-install" />}
+          {connects
             .filter((client) => client.setup === "file")
             .map((client) => (
               <SettingsChange key={client.id} client={client} />
@@ -92,6 +98,20 @@ export function YourAiConsent({
         </div>
       )}
     </div>
+  );
+}
+
+/** What a press that installs Claude Code downloads, from where, and what it sends for that. */
+export function InstallDisclosure({ testId }: { testId: string }) {
+  const t = useT();
+  const gap = useGap();
+  const download = t("agents.install.disclosure");
+  return (
+    <p data-testid={testId} className={dialogTextClass}>
+      {download}
+      {gap(download, t("setupPage.ai.install.sends"))}
+      {t("setupPage.ai.install.sends")}
+    </p>
   );
 }
 
