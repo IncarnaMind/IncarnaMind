@@ -12,6 +12,7 @@ import {
   boxRight,
   createDataFolder,
   dismissChatSetup,
+  fromConversationMenu,
   launchApp,
   openMeetingSheet,
   pointAndClick,
@@ -190,7 +191,7 @@ async function askedIntoColumn(language: Language) {
   await pointAndClick(window, window.getByTestId("note-ask-handle-toggle"));
   const panel = window.getByTestId("note-ask-panel");
   await expect(panel).toBeVisible();
-  await pointAndClick(window, panel.getByTestId("conversation-move-left"));
+  await fromConversationMenu(window, panel, "conversation-move-left");
   const column = window.getByTestId("note-column");
   await expect(column).toBeVisible();
   return { ...launch, control, column, panel };
