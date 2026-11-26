@@ -202,6 +202,7 @@ registerMenu("block", [
   "block.delete",
 ]);
 
+// All check entries stay in one registration so the order does not depend on when the lazy Workspace loads (#2104).
 registerMenu("check", [
   "table.openCalculation",
   "table.convertToText",
