@@ -8834,6 +8834,8 @@ export const zhCN = {
   "noteAsk.conversationEmpty": "还没有提问。",
   "noteColumn.title": "对话",
   "noteAsk.doing.read_passages.of": "正在读 {n}/{total}：“{summary}”",
+  "noteAsk.doing.writing": "正在写“{words}”",
+  "noteAsk.doing.cite.from": "正在核对“{document}”中的引文",
   "noteColumn.readOf": "读了 {n}/{total} 个文档 · {seconds} 秒",
   "noteColumn.readOf.part": "读了 {n}/{total} 个文档，其中 {part} 个只读了一部分 · {seconds} 秒",
   "noteColumn.readPart": "“{summary}”较长，只读了约 {part}%",

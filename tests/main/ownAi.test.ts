@@ -1322,7 +1322,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
         lines.on("line", (line) => {
           const v = JSON.parse(line);
           if (v.type === "control_request") {
-            hooks = v.request.hooks ?? null;
+            if (v.request.subtype === "initialize") hooks = v.request.hooks ?? null;
             say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [], ...${HOOKS_TAKEN} } } });
           } else if (v.type === "user") {
             say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "acceptEdits", tools: ["Bash", "Write"], mcp_servers: [] });
@@ -1341,6 +1341,38 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
       answers: string[];
     };
   }
+
+  // protects=a Note's conversation asks Claude Code for its thinking summarized, after the hook is taken and before the request goes, so the line can show what the AI considers (#3677); fails_when=the thinking streams with no words, or the request goes before the ask
+  it("asks for the AI's thinking in words before the request goes", async () => {
+    useClaude({
+      run: `
+        const lines = require("node:readline").createInterface({ input: process.stdin });
+        const say = (value) => console.log(JSON.stringify(value));
+        const seen = [];
+        lines.on("line", (line) => {
+          const v = JSON.parse(line);
+          seen.push(v.type === "control_request" ? v.request : { type: v.type });
+          if (v.type === "control_request") {
+            say({ type: "control_response", response: { subtype: "success", request_id: v.request_id, response: { models: [], ...${HOOKS_TAKEN} } } });
+          } else if (v.type === "user") {
+            say({ type: "system", subtype: "init", session_id: "s1", permissionMode: "default", tools: [], mcp_servers: [] });
+            say({ type: "result", subtype: "success", is_error: false, result: JSON.stringify(seen) });
+          }
+        });
+      `,
+    });
+    const { end } = await converse(async () => "deny");
+    const seen = JSON.parse(end.kind === "finished" ? end.reply : "[]") as Record<
+      string,
+      unknown
+    >[];
+    expect(seen.map((each) => each.subtype ?? each.type)).toEqual([
+      "initialize",
+      "set_max_thinking_tokens",
+      "user",
+    ]);
+    expect(seen[1]).toEqual({ subtype: "set_max_thinking_tokens", thinking_display: "summarized" });
+  });
 
   // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
   it("registers a hook that makes every write to Claude Code's own steering files ask", async () => {
@@ -2508,5 +2540,60 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
     expect(launch.mock.calls.at(-1)?.[2]).toMatchObject({
       env: expect.objectContaining({ CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING: "1" }),
     });
+  });
+
+  // protects=the words of what the AI thinks, the Passage of the quote it writes and the paragraph of the change it writes reach IncarnaMind as they stream, a call's input once whole, and none more often than once a second (#3677); fails_when=the line stands on "Thinking", "Checking quotes" or "Writing the change" while the stream carries what the AI is at, or changes faster than it can be read
+  it("says what the AI thinks and writes as its stream carries it", async () => {
+    const steps: unknown[] = [];
+    const part = (event: unknown) => ({ type: "stream_event", event });
+    const delta = (index: number, value: Record<string, unknown>) =>
+      part({ type: "content_block_delta", index, delta: value });
+    const thought = "**Grouping the clinics**\n\nI'm sorting what each clinic said.";
+    useClaude({
+      run: session([
+        init(),
+        part({ type: "message_start", message: {} }),
+        part({ type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+        delta(0, { type: "thinking_delta", thinking: thought }),
+        delta(0, { type: "thinking_delta", thinking: " Then the quotes." }),
+        part({ type: "content_block_stop", index: 0 }),
+        part({
+          type: "content_block_start",
+          index: 1,
+          content_block: { type: "tool_use", name: "mcp__incarnamind__cite", input: {} },
+        }),
+        delta(1, {
+          type: "input_json_delta",
+          partial_json: '{"citations":[{"passageId":"p-one","quote":"the kick',
+        }),
+        delta(1, { type: "input_json_delta", partial_json: 'off call"}]}' }),
+        part({ type: "content_block_stop", index: 1 }),
+        part({
+          type: "content_block_start",
+          index: 2,
+          content_block: { type: "tool_use", name: "mcp__incarnamind__propose_changes", input: {} },
+        }),
+        delta(2, {
+          type: "input_json_delta",
+          partial_json:
+            '{"mindId":"m1","version":"v1","changes":[{"paragraph":"¶0+","text":"# Onboarding\\n\\nData migration was hard',
+        }),
+        done,
+      ]),
+    });
+    await ask((step) => steps.push(step));
+    expect(steps.filter((step) => (step as { kind: string }).kind !== "heard")).toEqual([
+      { kind: "thinking", text: "" },
+      { kind: "thinking", text: thought },
+      { kind: "tool", name: "cite" },
+      { kind: "quoting", passageId: "p-one" },
+      {
+        kind: "tool",
+        name: "cite",
+        input: { citations: [{ passageId: "p-one", quote: "the kickoff call" }] },
+      },
+      { kind: "tool", name: "propose_changes" },
+      { kind: "writing", tool: "propose_changes", text: "Data migration was hard" },
+    ]);
   });
 });

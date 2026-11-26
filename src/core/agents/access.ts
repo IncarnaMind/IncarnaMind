@@ -608,6 +608,11 @@ export interface AgentAccess {
   citationsNow(
     tokens: readonly string[],
   ): { report: AgentCheckedCitation; citation: Citation | null }[];
+  /**
+   * The name of a Document this connection reaches, by its id or by one of its Passages, for the
+   * line above a Note's input (#3677); null for one it doesn't reach, or that isn't there.
+   */
+  documentNamed(ref: { documentId?: string; passageId?: string }): string | null;
   /** Opens a Citation in IncarnaMind's viewer, at its quote, in front: chat apps won't open links. */
   showCitation(input: AgentShowInput): Promise<AgentShown>;
   listSorting(after?: string): Promise<SortingBatch>;
@@ -3172,6 +3177,16 @@ export function createAgentAccess(
         const { report, found } = checkToken(pairing, inScope, live, token, recheck);
         return { report, citation: found };
       });
+    },
+
+    documentNamed({ documentId, passageId }) {
+      const pairing = deps.reachOf(pairingId);
+      const reach = new Set(scopeOf(pairing, undefined));
+      if (passageId !== undefined) {
+        return findPassageInScope(pairing, reach, passageId)?.documentName ?? null;
+      }
+      if (documentId === undefined || !reach.has(documentId)) return null;
+      return deps.passagesBetween(documentId, 0, 0)[0]?.documentName ?? null;
     },
 
     checkCitations(input) {

@@ -35,7 +35,7 @@ import {
   startAgentsCore,
 } from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
-import { createTempDataFolder, startCore } from "../helpers/core";
+import { createTempDataFolder, queryDatabase, startCore } from "../helpers/core";
 import {
   addAndProcess,
   createSourceFolder,
@@ -391,7 +391,11 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       await pause();
       request.progress?.({ kind: "thinking" });
       await pause();
-      await agent.callTool({ name: "read_passages", arguments: { documentId: found?.documentId } });
+      // As Claude Code's stream gives a call's input, whole, before IncarnaMind runs it.
+      const read = { documentId: found?.documentId };
+      request.progress?.({ kind: "tool", name: "read_passages", input: read });
+      await pause();
+      await agent.callTool({ name: "read_passages", arguments: read });
       await pause();
       return { kind: "finished", reply: "The ferry carried 212,000 passengers." };
     });
@@ -422,13 +426,15 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(last?.documentsFound).toBe(1);
   });
 
-  // protects=with no words of the AI's own between its steps, the line moves with each step it takes, from the step itself: a call as it starts, what it names once it ends, thinking between them, then the reply's first words; and the AI isn't asked to write a line before each step, which made each request slower (#3753); fails_when=the line stands on one step while the AI takes the next, or the instructions ask for a line before each step again
+  // protects=with no words of the AI's own between its steps, the line moves with each step it takes, from the step itself: a call as it starts, what it names once its input is whole, thinking once it has ended, then the reply's first words; and the AI isn't asked to write a line before each step, which made each request slower (#3753); fails_when=the line stands on one step while the AI takes the next, or the instructions ask for a line before each step again
   it("moves the line with each step when the AI writes nothing between them", async () => {
     const run = runner(async (agent, request) => {
       const mindId = mindIdOf(request);
       request.progress?.({ kind: "thinking" });
       await pause(300);
       request.progress?.({ kind: "tool", name: "read_mind" });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "read_mind", input: { mindId, named: true } });
       await pause(300);
       const read = structured<{ version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
@@ -438,14 +444,14 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       await pause(300);
       request.progress?.({ kind: "tool", name: "propose_changes" });
       await pause(300);
-      await agent.callTool({
-        name: "propose_changes",
-        arguments: {
-          mindId,
-          version: read.version,
-          changes: [{ paragraph: "¶2", text: "Fares rose by twelve percent." }],
-        },
-      });
+      const change = {
+        mindId,
+        version: read.version,
+        changes: [{ paragraph: "¶2", text: "Fares rose by twelve percent." }],
+      };
+      request.progress?.({ kind: "tool", name: "propose_changes", input: change });
+      await pause(300);
+      await agent.callTool({ name: "propose_changes", arguments: change });
       await pause(300);
       request.progress?.({ kind: "said", text: "I changed the fares to twelve percent." });
       await pause(300);
@@ -465,6 +471,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       { kind: "thinking" },
       { kind: "call", tool: "propose_changes", summary: "", count: 0 },
       { kind: "call", tool: "propose_changes", summary: "Ferry notes", count: 1 },
+      { kind: "thinking" },
       { kind: "said", text: "I changed the fares to twelve percent." },
     ].map((step) => JSON.stringify(step));
     let from = 0;
@@ -474,6 +481,75 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       from = at + 1;
     }
     expect(run.runs[0]?.instructions).not.toMatch(/before each step/i);
+  });
+
+  // protects=the line says what the AI is at from what its stream carries: the words of its thinking, which a tick keeps, the paragraph of a change it writes, and the Document of the quote it writes by its name, only one the connection reaches; once IncarnaMind's call has ended it says the AI is thinking, never the call (#3677); fails_when=the line stands still while the stream carries words, names a Document the connection doesn't reach, or names as going on a call that has ended
+  it("says what the AI thinks, writes and quotes, and that it thinks once a call has ended", async () => {
+    let inReach = "";
+    let outOfReach = "";
+    const run = runner(async (agent, request) => {
+      await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } });
+      await pause(300);
+      request.progress?.({ kind: "thinking", text: "" });
+      request.progress?.({
+        kind: "thinking",
+        text: "**Weighing the ferry figures**\n\nComparing the two years.",
+      });
+      await pause(300);
+      request.progress?.({ kind: "thinking" });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "cite" });
+      request.progress?.({ kind: "quoting", passageId: outOfReach });
+      await pause(300);
+      request.progress?.({ kind: "quoting", passageId: inReach });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "propose_changes" });
+      request.progress?.({
+        kind: "writing",
+        tool: "propose_changes",
+        text: "The ferry carried 212,000 passengers.",
+      });
+      await pause(300);
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, dataDir, sources, reportId, mindId, turns, ended } = await written(run.adapter);
+    const [payroll] = await addAndProcess(core, [
+      await writeSourceFile(sources, "Payroll.md", "# Payroll\n\nThe crew's wages rose in May.\n"),
+    ]);
+    const passageOf = (documentId: string) =>
+      queryDatabase<{ id: string }>(
+        dataDir,
+        "SELECT id FROM passages WHERE document_id = ? AND deleted_at IS NULL LIMIT 1",
+        [documentId],
+      )[0]?.id ?? "";
+    inReach = passageOf(reportId);
+    outOfReach = passageOf(payroll?.id ?? "");
+    expect(inReach).not.toBe("");
+    expect(outOfReach).not.toBe("");
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    await ended();
+    const doings = turns
+      .filter((turn) => turn.state === "working")
+      .map((turn) => turn.doing)
+      .filter((doing, at, all) => JSON.stringify(doing) !== JSON.stringify(all[at - 1]));
+    const steps = [
+      { kind: "thinking" },
+      { kind: "thinking", summary: "**Weighing the ferry figures**\n\nComparing the two years." },
+      { kind: "call", tool: "cite", summary: "", count: 0 },
+      { kind: "quoting", document: "Report" },
+      { kind: "writing", tool: "propose_changes", text: "The ferry carried 212,000 passengers." },
+    ].map((step) => JSON.stringify(step));
+    const lines = doings.map((doing) => JSON.stringify(doing));
+    let from = 0;
+    for (const step of steps) {
+      const at = lines.indexOf(step, from);
+      expect(at, `${step} after ${lines.slice(0, from).join(", ")}`).toBeGreaterThanOrEqual(from);
+      from = at + 1;
+    }
+    expect(doings).not.toContainEqual(expect.objectContaining({ kind: "call", tool: "search" }));
+    expect(doings.filter((doing) => doing?.kind === "quoting")).toEqual([
+      { kind: "quoting", document: "Report" },
+    ]);
   });
 
   // protects=the line above the input shows no internal wording: a line of the AI's that names a Tool, an id, one of the Tools' id names or a path isn't what it shows, nor a tool of the AI's own known only by its name, and every request asks for plain words in the User's language (#3762); fails_when=the User reads "read_mind", a mindId or "ToolSearch" while the AI works

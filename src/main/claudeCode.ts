@@ -349,6 +349,14 @@ function readOwnTurn(
           clearTimeout(waiting);
           turn.onModels?.(answer);
           turn.signal.throwIfAborted();
+          // Its thinking in words, summarized, for the line above the Note's input (#3677). Claude
+          // Code keeps a User's own showThinkingSummaries over this, and an older one refuses it,
+          // which changes nothing.
+          write(stdin, {
+            type: "control_request",
+            request_id: "thinking",
+            request: { subtype: "set_max_thinking_tokens", thinking_display: "summarized" },
+          });
           prompted = true;
           write(stdin, userMessage(turn.prompt));
           for (const each of held.splice(0)) send(each.id, each.prompt);

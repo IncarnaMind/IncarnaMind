@@ -9459,6 +9459,8 @@ export const en = {
   "noteAsk.conversationEmpty": "Nothing asked yet.",
   "noteColumn.title": "Conversation",
   "noteAsk.doing.read_passages.of": "Reading {n} of {total}: “{summary}”",
+  "noteAsk.doing.writing": "Writing “{words}”",
+  "noteAsk.doing.cite.from": "Checking quotes from “{document}”",
   "noteColumn.readOf": "Read {n} of {total} Documents · {seconds}s",
   "noteColumn.readOf.part": "Read {n} of {total} Documents, {part} only in part · {seconds}s",
   "noteColumn.readPart": "Read about {part}% of “{summary}”: it is long",
