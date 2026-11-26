@@ -5,6 +5,7 @@ import { inspect } from "node:util";
 import { APICallError } from "ai";
 import { describe, expect, test, vi } from "vitest";
 import { readStatus } from "../../scripts/nightlyIssue";
+import { type KnownFailingEntry, NIGHTLY_KNOWN_FAILING } from "../../scripts/nightlyKnownFailing";
 import {
   type Attempt,
   availableSteps,
@@ -361,7 +362,7 @@ describe("a night that goes wrong", () => {
       const start = workflow.indexOf(`\n  ${jobId}:\n`);
       expect(start, jobId).toBeGreaterThan(-1);
       const rest = workflow.slice(start + 1);
-      const next = rest.search(/\n  [\w-]+:\n/);
+      const next = rest.search(/\n {2}[\w-]+:\n/);
       const block = next === -1 ? rest : rest.slice(0, next);
       return Number(/timeout-minutes: (\d+)/.exec(block)?.[1]);
     };
@@ -1393,5 +1394,130 @@ describe("a provider's words stay out of the summary and the log", () => {
     }
     expect(result.log).toContain(ORG);
     expect(OUT_OF_CREDIT.test(result.log)).toBe(true);
+  });
+});
+
+describe("known failing (frozen built-in assistant) allowlist (#3000)", () => {
+  const liveShard = STEPS.find((step) => step.id === "live-1") ?? live;
+  const baseResult = (
+    cases: Result["cases"],
+    exitCode = cases.some((each) => !each.passed) ? 1 : 0,
+  ): Result => ({
+    step: liveShard,
+    secret: "NIGHTLY_ANTHROPIC_KEY_1",
+    exitCode,
+    log: "",
+    seconds: 60,
+    outOfCredit: false,
+    cases,
+    usage: [],
+  });
+  const list: KnownFailingEntry[] = [
+    {
+      name: "frozen deterministic test",
+      issue: 3800,
+      area: "built-in-assistant",
+      reason: "Frozen built-in assistant path",
+    },
+    {
+      name: "frozen intermittent test",
+      issue: 3000,
+      area: "built-in-assistant",
+      reason: "Intermittent on Haiku 5.5",
+      passesSomeRuns: "1 of 3 runs passed on 2026-11-26",
+    },
+  ];
+
+  test("listed failures appear under Known failing (frozen) and do not turn the night red", () => {
+    const out = summary(
+      [
+        baseResult([
+          { name: "active check test", passed: true },
+          {
+            name: "frozen deterministic test",
+            passed: false,
+            detail: "failed: an expectation did not hold",
+          },
+          {
+            name: "frozen intermittent test",
+            passed: false,
+            detail: "failed: an expectation did not hold",
+          },
+        ]),
+      ],
+      "2026-11-26",
+      { knownFailing: list },
+    );
+    expect(out.passed).toBe(true);
+    expect(out.status.red).toEqual([]);
+    expect(out.text).toContain("### Known failing (frozen)");
+    expect(out.text).toContain("frozen deterministic test");
+    expect(out.text).toContain("#3800");
+    expect(out.text).toContain("1 of 3 runs passed on 2026-11-26");
+    expect(out.text).toContain("(2 known failing)");
+  });
+
+  test("a listed deterministic test that starts passing turns the night red so the list never goes stale", () => {
+    const out = summary(
+      [
+        baseResult(
+          [
+            { name: "active check test", passed: true },
+            { name: "frozen deterministic test", passed: true },
+            { name: "frozen intermittent test", passed: true },
+          ],
+          0,
+        ),
+      ],
+      "2026-11-26",
+      { knownFailing: list },
+    );
+    expect(out.passed).toBe(false);
+    expect(out.status.red).toEqual([
+      `${liveShard.name}: Known-failing test passed — remove from scripts/nightlyKnownFailing.ts: frozen deterministic test (#3800)`,
+    ]);
+    // passesSomeRuns test is shown in the Known failing (frozen) table with its count, red on neither pass nor fail.
+    expect(out.text).toContain("### Known failing (frozen)");
+    expect(out.text).toContain("| frozen intermittent test | passed | #3000 |");
+  });
+
+  test("an unlisted failure beside known-failing tests still turns the night red with only the unlisted failure", () => {
+    const out = summary(
+      [
+        baseResult([
+          {
+            name: "active check regression",
+            passed: false,
+            detail: "failed: an expectation did not hold",
+          },
+          {
+            name: "frozen deterministic test",
+            passed: false,
+            detail: "failed: an expectation did not hold",
+          },
+        ]),
+      ],
+      "2026-11-26",
+      { knownFailing: list },
+    );
+    expect(out.passed).toBe(false);
+    expect(out.status.red).toEqual([`${liveShard.name}: active check regression`]);
+  });
+
+  test("the checked-in allowlist holds only unique frozen built-in assistant entries with issues, and few passesSomeRuns entries", () => {
+    const names = new Set<string>();
+    let partial = 0;
+    for (const entry of NIGHTLY_KNOWN_FAILING) {
+      expect(entry.area).toBe("built-in-assistant");
+      expect(Number.isInteger(entry.issue) && entry.issue > 0).toBe(true);
+      expect(entry.reason.trim().length).toBeGreaterThan(0);
+      expect(names.has(entry.name)).toBe(false);
+      names.add(entry.name);
+      if (entry.passesSomeRuns !== undefined) {
+        expect(entry.passesSomeRuns.trim().length).toBeGreaterThan(0);
+        partial++;
+      }
+    }
+    expect(partial).toBeLessThanOrEqual(3);
   });
 });
