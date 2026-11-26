@@ -1314,6 +1314,63 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(shownWithChanges(client)).toEqual([FERRY, "Fares rose by a tenth."]);
   });
 
+  // protects=each change counts what it moved, read in its own write, so once the window has applied an earlier change of the same connection, as it does at a request's end and would for a run kept across the User's requests, a later change counts only its own paragraphs: a rewrite of the paragraph the earlier one wrote, the Note's own text by then, is one changed, and an addition one added; fails_when=a later change is counted against the earlier one's applied total, and the line says a number below 0 or too small
+  it("counts a change by its own paragraphs once the window has applied an earlier one", async () => {
+    const window: { applyFirst?: () => Promise<void> } = {};
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = async () =>
+        structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        ).version;
+      const propose = async (paragraph: string, text: string) =>
+        structured(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: { mindId, version: await named(), changes: [{ paragraph, text }] },
+          }),
+        );
+      await propose("¶2+", "The ferry runs twice a day.");
+      await window.applyFirst?.();
+      await propose("¶3", "The ferry runs three times a day.");
+      await propose("¶3+", "The last one leaves at nine.");
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, turns, ended } = await written(run.adapter);
+    window.applyFirst = async () => {
+      const first = await vi.waitFor(() => {
+        const told = turns.at(-1)?.applied[0];
+        if (!told) throw new Error("The first change isn't told yet.");
+        return told;
+      });
+      await core.applyAskedChanges({
+        answerId: turns.at(-1)?.turnId ?? "",
+        mindId,
+        requests: [first.request],
+      });
+      await client.settled();
+    };
+    await core.askInNote({ mindId, words: "add how often the ferry runs" });
+    const end = await ended();
+    expect((end?.applied ?? []).map(({ changed, added }) => ({ changed, added }))).toEqual([
+      { changed: 0, added: 1 },
+      { changed: 1, added: 0 },
+      { changed: 0, added: 1 },
+    ]);
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      FERRY,
+      FARES,
+      "The ferry runs three times a day.",
+      "The last one leaves at nine.",
+    ]);
+  });
+
   // protects=a later request writing into an empty Note while an earlier request's notes still wait there for the User, its run stopped, is refused as before, and the waiting notes stay once; fails_when=the later request reads the earlier one's notes as its own and writes beside them
   it("refuses a later request's first paragraphs while an earlier one's wait in an empty Note", async () => {
     const wrote = gate();

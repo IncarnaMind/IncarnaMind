@@ -1607,8 +1607,6 @@ export function createAgentAccess(
    * (ADR-0034): the Note reads with them in, so the agent never sees its change as not landed.
    */
   const ownPending = new Set<string>();
-  /** What this run's changes in the Note asked from came to as the line was last told, by Note. */
-  const reported = new Map<string, ChangeCounts>();
   /** A reply's tokens as last read in their Document, by the content they were read in (#3677). */
   const rechecked = new Map<string, { hash: string | null; now: CitationRecheck }>();
   /** This connection read a request the User made from IncarnaMind: what it makes then opens in front. */
@@ -3524,6 +3522,7 @@ export function createAgentAccess(
           askedHere =
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
+          const before = countedBy(blocks, ownPending);
           const proposed = proposeNamed(blocks, note, placed, {
             request,
             made: {
@@ -3543,10 +3542,20 @@ export function createAgentAccess(
           const kinds = changeKinds(blocks, mine);
           if (own) decideProposals(blocks, mine, "accept");
           if (askedHere) ownPending.add(request);
-          // What the run's changes here come to now, this one's in place of any it replaced.
-          const sofar = askedHere ? countedBy(blocks, ownPending) : null;
+          // The line adds up what each change reports: this one reports what it moved the count of
+          // the run's changes still waiting here by, read before and after it in this one write,
+          // so one that rewrites or takes out its own is never counted twice, and one the window
+          // applied meanwhile is never counted against it.
+          const after = countedBy(blocks, ownPending);
+          const moved = askedHere
+            ? {
+                changed: after.changed - before.changed,
+                added: after.added - before.added,
+                tables: after.tables - before.tables,
+              }
+            : null;
           const now = namedNote(blocks, namedWords(pairing, inScope, []), naming);
-          return { ...proposed, kinds, sofar, now, waitingInNote: waitingChanges(blocks, forUser) };
+          return { ...proposed, kinds, moved, now, waitingInNote: waitingChanges(blocks, forUser) };
         };
         let written: ReturnType<typeof write>;
         let step: string | null = null;
@@ -3571,22 +3580,10 @@ export function createAgentAccess(
         const ownFront =
           own && grant?.kind === "conversation" && grant.front.mindId === mind.id && step !== null;
         if ((askedHere || ownFront) && grant?.kind === "conversation") {
-          let counts = countsOf(written.kinds);
-          if (written.sofar) {
-            // The line adds up what each change reports: this one reports what it moved the run's
-            // count by, so a change that rewrites or takes out its own is never counted twice.
-            const before = reported.get(mind.id) ?? NONE_COUNTED;
-            counts = {
-              changed: written.sofar.changed - before.changed,
-              added: written.sofar.added - before.added,
-              tables: written.sofar.tables - before.tables,
-            };
-            reported.set(mind.id, written.sofar);
-          }
           grant.asked?.({
             mindId: mind.id,
             request,
-            ...counts,
+            ...(written.moved ?? countsOf(written.kinds)),
             ...(ownFront && { own: true as const }),
           });
         }
