@@ -40,9 +40,9 @@ import {
   chooseOutputLocation,
   SAVED_OPEN_BUTTON,
   SAVED_SHOW_BUTTON,
-  savedFileFailure,
   savedFolderLabel,
   showOutputLocationSetting,
+  useSavedFileActions,
 } from "../outputFiles";
 import { useAppStore } from "../store";
 import { useHeld } from "../useHeld";
@@ -130,7 +130,7 @@ function ResultBody({
 }) {
   const t = useT();
   const dismiss = useExports((state) => state.dismiss);
-  const [error, setError] = useState<string | null>(null);
+  const { problem: error, run } = useSavedFileActions(t);
   const held = useHeld(line, { focusHolds: true });
   // Someone else's Word file with no comments says so quietly, before Change, not as a warning (#110).
   const unmarked =
@@ -200,11 +200,6 @@ function ResultBody({
       };
     }
     return undefined;
-  };
-
-  const run = (act: () => Promise<void>, failed: "export.failed.open" | "export.failed.show") => {
-    setError(null);
-    act().catch((failure: unknown) => setError(savedFileFailure(failure, failed, t)));
   };
 
   return (

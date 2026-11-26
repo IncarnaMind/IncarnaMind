@@ -133,10 +133,15 @@ async function wordFileOf(core: Core, saved: Saved) {
   return { handed, document, bytes, ...partsOf(bytes) };
 }
 
-/** The file saved where Export › Word saves one, at the path the result gave. */
-function savedFile(saved: Saved) {
+/**
+ * The file saved where Export › Word saves one, at the path the result gave, with none of the
+ * faults behind Word's repair prompt (`inspectPackage`): every file a test reads passes them.
+ */
+async function savedFile(saved: Saved) {
   if (!saved.saved) throw new Error(`The Word file wasn't saved: ${saved.notSaved}`);
-  return new Uint8Array(readFileSync(saved.saved));
+  const bytes = new Uint8Array(readFileSync(saved.saved));
+  expect((await inspectPackage(bytes)).problems).toEqual([]);
+  return bytes;
 }
 
 /** Every part but the file's dates: what the words, pictures and footnotes are written as. */
@@ -337,7 +342,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const file = await wordFileOf(core, saved);
     expect(file.handed.file).toMatchObject({ kind: "docx", agent: "Claude Code", version: 1 });
     expect(file.document).toMatchObject({ name: "Harbour brief", kind: "docx" });
-    expect(savedFile(saved)).toEqual(file.bytes);
+    expect(await savedFile(saved)).toEqual(file.bytes);
     expect(file.body.map((each) => each.text)).toEqual([
       "Harbour brief",
       `${NORTH.slice(0, -1)}[1].`,
@@ -372,8 +377,8 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       version: 2,
       saved: join(output, "Harbour brief 2.docx"),
     });
-    expect(partsOf(savedFile(again)).body.at(-1)?.text).toBe("Boats moor at dawn.");
-    expect(partsOf(savedFile(saved)).body.at(-1)?.text).toBe(`${NORTH.slice(0, -1)}[1].`);
+    expect(partsOf(await savedFile(again)).body.at(-1)?.text).toBe("Boats moor at dawn.");
+    expect(partsOf(await savedFile(saved)).body.at(-1)?.text).toBe(`${NORTH.slice(0, -1)}[1].`);
     expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toHaveLength(1);
   });
 
@@ -465,7 +470,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       expect.objectContaining({ cite: "[cite:zz99zz99]", check: "unknown", document: null }),
     ]);
     const file = await wordFileOf(core, saved);
-    expect(savedFile(saved)).toEqual(file.bytes);
+    expect(await savedFile(saved)).toEqual(file.bytes);
     expect(file.document).toMatchObject({ name: "Quay counts", kind: "docx" });
     expect(file.body.map((each) => each.text)).toEqual([
       "Quay counts",
@@ -527,7 +532,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     );
 
     const saved = structured<Saved>(await save(agent, { mindId }));
-    const file = partsOf(savedFile(saved));
+    const file = partsOf(await savedFile(saved));
     expect(file.body.map((each) => each.text)).toEqual(
       expect.arrayContaining(["Quays", `${NORTH.slice(0, -1)}[1].`]),
     );
@@ -662,7 +667,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     }
 
     const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
-    const file = partsOf(savedFile(saved));
+    const file = partsOf(await savedFile(saved));
     expect(file.body.map((each) => each.text)).toEqual([`${NORTH.slice(0, -1)}[1].`, SOUTH]);
     const { markdown } = structured<{ markdown: string }>(
       await agent.callTool({ name: "read_mind", arguments: { mindId: saved.mindId } }),
@@ -723,7 +728,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
       title: "Harbour meeting",
       saved: join(output, "Harbour meeting.docx"),
     });
-    expect(partsOf(savedFile(meetingFile)).all).toContain("first North crossing");
+    expect(partsOf(await savedFile(meetingFile)).all).toContain("first North crossing");
 
     const memo = await core.createMind({ title: "Crossings memo", folderId: coast.id });
     await cites(memo.id, harbour, harbourLine);
@@ -1120,7 +1125,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         translate(language, "agents.handOver.word.libraryFacts"),
       );
       const chip = structured<Saved>(await save(agent, { mindId: chipped }));
-      expect(partsOf(savedFile(chip)).all).toContain("Old ledger");
+      expect(partsOf(await savedFile(chip)).all).toContain("Old ledger");
       const { markdown } = structured<{ markdown: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId: chipped } }),
       );
@@ -1170,7 +1175,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     await resolveChanges(client, "accept");
     const accepted = structured<Saved>(await save(agent, { mindId: mind.id }));
     expect(accepted).toMatchObject({ fileId: first.fileId, version: 2 });
-    expect(partsOf(savedFile(accepted)).body.map((each) => each.text)).toEqual([SOUTH_TRUE]);
+    expect(partsOf(await savedFile(accepted)).body.map((each) => each.text)).toEqual([SOUTH_TRUE]);
     expect(accepted.claims.map((each) => each.text)).not.toContain(SOUTH);
   });
 
@@ -1568,7 +1573,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     const agent = await connectLegacyAgent(writer.launch);
 
     const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
-    expect(partsOf(savedFile(saved)).footnotes).toEqual([
+    expect(partsOf(await savedFile(saved)).footnotes).toEqual([
       expect.stringContaining("https://encyclopedia.example/tea"),
     ]);
   });
@@ -1675,7 +1680,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
 
     // The agent that gave the file's path gets the Word file, its footnote naming the file.
     const saved = structured<Saved>(await save(citer, { mindId }));
-    expect(partsOf(savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
+    expect(partsOf(await savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
   });
 });
 

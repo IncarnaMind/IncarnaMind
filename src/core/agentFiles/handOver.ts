@@ -585,7 +585,11 @@ export function createHandOver(deps: HandOverDeps) {
     // The newest version's check is the file's one Note in the lists, named for the file; the one
     // before it, opened from its card, says its version, unless the User has named it (#3412).
     const named = deps.say("verify.mindTitle", { name: file.title });
-    if (before?.mindId && input.reachesNote(before.mindId) && deps.mindTitle(before.mindId) === named) {
+    if (
+      before?.mindId &&
+      input.reachesNote(before.mindId) &&
+      deps.mindTitle(before.mindId) === named
+    ) {
       deps.nameMind(
         before.mindId,
         deps.say("verify.handed.mindTitle", { name: file.title, version: before.number }),
@@ -639,9 +643,7 @@ export function createHandOver(deps: HandOverDeps) {
         version: newest,
         copies: [dirname(join(deps.dataDir, newest.file))],
       };
-      return taking(known, takes, () =>
-        complete(known, newest, input, contentHash, reach, takes),
-      );
+      return taking(known, takes, () => complete(known, newest, input, contentHash, reach, takes));
     }
     // A file IncarnaMind wrote for this agent, handed over again from where it saved it: that item.
     const written =
