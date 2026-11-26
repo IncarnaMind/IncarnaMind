@@ -61,6 +61,7 @@ import {
   figuresInMind,
   headingAbove,
   readAbove,
+  type TableLayout,
   tableCellContext,
   withAboveNow,
 } from "./figureOccurrences";
@@ -226,7 +227,10 @@ export function wordsReader(element: Y.XmlElement): (from: number, to: number) =
  * which is what a decision model's lines were measured with (#3118); and those of its figures that
  * IncarnaMind worked out itself, which no Passage states.
  */
-export function checkText(sentence: SelectedSentence): {
+export function checkText(
+  sentence: SelectedSentence,
+  layouts?: Map<Y.XmlElement, TableLayout>,
+): {
   claim: string;
   projection?: InlineTextProjection;
   context: string;
@@ -237,8 +241,12 @@ export function checkText(sentence: SelectedSentence): {
     (figure) => figure.calculated !== null || figure.analysisRecord?.label !== undefined,
   );
   // A table cell's words alone don't say what its figure is; its table's header row and cell labels do (#3825).
+  // Charts keep their own figure context so chart prompts stay unchanged.
   const words = wordsOf(sentence.element);
-  const around = tableCellContext(sentence.element, words) ?? words;
+  const around =
+    sentence.element.nodeName === CHART_NODE
+      ? (sentence.figures?.find((figure) => figure.label)?.context ?? words)
+      : (tableCellContext(sentence.element, words, layouts) ?? words);
   return {
     claim: sentence.projection?.text ?? wordsOf(sentence.element, sentence.from, sentence.to),
     ...(sentence.projection && { projection: sentence.projection }),

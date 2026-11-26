@@ -168,6 +168,7 @@ interface TableRowLayout {
 export interface TableLayout {
   grid: SourceGrid;
   caption: string;
+  captionFromHeading: boolean;
   /** The caption's stated units, read once for the table (#2523). */
   captionRead?: HeaderRead;
   rows: TableRowLayout[];
@@ -209,30 +210,27 @@ function rowLabelOf(
   return PERIOD_HEADING.test(heading) && isFigure(first) ? "" : first;
 }
 
-function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>): TableLayout {
-  const known = layouts.get(table);
-  if (known) return known;
+interface TableStructure {
+  grid: SourceGrid;
+  rows: TableRowLayout[];
+  rowIndex: Map<Y.XmlElement, number>;
+}
+
+/** A top-level table's own grid and row metadata, built once until the table changes (#2512, #2523). */
+const tableStructureOf = perBlock((table: Y.XmlElement): TableStructure => {
   const grid = gridOfTable(nodeOf(table));
   const rows = table.toArray().filter((each): each is Y.XmlElement => each instanceof Y.XmlElement);
-  const before = table.prevSibling;
-  const caption =
-    before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
   const columns = grid.reduce((most, slots) => Math.max(most, slots.length), 0);
   // Each cell's read counts this once, not once for each cell (#2523).
-  countFigureSteps(rows.length * (columns + 1) + caption.length);
+  countFigureSteps(rows.length * (columns + 1));
   const headings = Array.from({ length: columns }, () => ({ seen: new Set<string>(), text: "" }));
-  const layout: TableLayout = {
-    grid,
-    caption,
-    rows: [],
-    rowIndex: new Map(),
-    headerReads: new Map(),
-  };
+  const placed: TableRowLayout[] = [];
+  const rowIndex = new Map<Y.XmlElement, number>();
   let section = "";
   for (const [index, row] of rows.entries()) {
     const slots = grid[index] ?? [];
-    layout.rowIndex.set(row, index);
-    layout.rows.push({
+    rowIndex.set(row, index);
+    placed.push({
       rowLabel: rowLabelOf(slots, headings),
       rowText: slots.map((slot) => slot?.text ?? "").join(" | "),
       columnLabels: headings.map((heading) => heading.text),
@@ -250,6 +248,25 @@ function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout
       heading.text = heading.text ? `${heading.text}\n${slot.text}` : slot.text;
     }
   }
+  return { grid, rows: placed, rowIndex };
+});
+
+function tableLayout(table: Y.XmlElement, layouts: Map<Y.XmlElement, TableLayout>): TableLayout {
+  const known = layouts.get(table);
+  if (known) return known;
+  const { grid, rows, rowIndex } = tableStructureOf(table);
+  const before = table.prevSibling;
+  const caption =
+    before instanceof Y.XmlElement && before.nodeName !== "table" ? plainText(before) : "";
+  countFigureSteps(caption.length);
+  const layout: TableLayout = {
+    grid,
+    caption,
+    captionFromHeading: before instanceof Y.XmlElement && before.nodeName === "heading",
+    rows,
+    rowIndex,
+    headerReads: new Map(),
+  };
   layouts.set(table, layout);
   return layout;
 }
@@ -331,8 +348,12 @@ function tableContext(element: Y.XmlElement, layouts: Map<Y.XmlElement, TableLay
  * section, current row, and which cell is checked. Separate from `figure.context` so stored
  * figure staleness hashes stay unchanged.
  */
-export function tableCellContext(element: Y.XmlElement, cellText: string): string | null {
-  const table = tableContext(element, new Map());
+export function tableCellContext(
+  element: Y.XmlElement,
+  cellText: string,
+  layouts: Map<Y.XmlElement, TableLayout> = new Map(),
+): string | null {
+  const table = tableContext(element, layouts);
   if (!table || table.place.header) return null;
   const placed = table.layout.rows[table.place.row];
   const headerRow = placed?.columnLabels.some(Boolean)
@@ -343,8 +364,11 @@ export function tableCellContext(element: Y.XmlElement, cellText: string): strin
   const colName = table.place.columnLabel.replace(/\n+/g, " / ");
   const where = [rowName, colName].filter(Boolean).join(", ");
   const cellLine = where ? `Cell (${where}): ${cellText}` : `Cell: ${cellText}`;
+  // A heading right before the table is already emitted above by readAbove and headingAbove.
+  const caption =
+    table.layout.caption && !table.layout.captionFromHeading ? table.layout.caption : "";
   return [
-    table.layout.caption ? `Table: ${table.layout.caption}` : "",
+    caption ? `Table: ${caption}` : "",
     headerRow,
     placed?.section ? `Section: ${placed.section}` : "",
     currentRow,

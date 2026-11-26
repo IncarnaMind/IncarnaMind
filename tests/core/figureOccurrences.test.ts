@@ -4,6 +4,7 @@ import { createElement } from "../../src/core/answers/blocks";
 import { figuresInMind, figuresInSentence } from "../../src/core/answers/checks/figureOccurrences";
 import {
   checkText,
+  everySentence,
   figuresByBlock,
   type SelectedSentence,
   textOf,
@@ -533,4 +534,90 @@ test("table cell checkText includes the header row and cell labels without chang
       ].join("\n"),
     ].join("\n\n"),
   );
+
+  // Text-only cells in the table also receive the structured table context.
+  const labelCell = row.toArray()[0];
+  if (!(labelCell instanceof Y.XmlElement)) throw new Error("Missing label cell");
+  const labelP = labelCell.toArray()[0];
+  if (!(labelP instanceof Y.XmlElement)) throw new Error("Missing label paragraph");
+  expect(checkText(selected(labelP)).context).toContain("| Item | 2024 | 2025 | Unit |");
+});
+
+// protects=a heading immediately before a table is not duplicated as both the section heading above and "Table: <heading>" (#3825); fails_when=the heading appears twice in context or near
+test("a heading immediately before a table is not duplicated as a Table: caption (#3825)", () => {
+  const cell = (id: string, value: string, header = false): NodeJSON => ({
+    type: header ? "tableHeader" : "tableCell",
+    content: [paragraph(id, text(value))],
+  });
+  const blocks = stored(
+    { type: "heading", attrs: { id: "h", level: 2 }, content: [text("2025 Figures")] },
+    {
+      type: "table",
+      attrs: { id: "t1" },
+      content: [
+        { type: "tableRow", content: [cell("h0", "Item", true), cell("h1", "2025", true)] },
+        { type: "tableRow", content: [cell("r1c0", "Revenue"), cell("r1c1", "120")] },
+      ],
+    },
+  );
+  const table = blocks.toArray()[1];
+  if (!(table instanceof Y.XmlElement)) throw new Error("Missing table");
+  const row = table.toArray()[1];
+  if (!(row instanceof Y.XmlElement)) throw new Error("Missing row");
+  const cellEl = row.toArray()[1];
+  if (!(cellEl instanceof Y.XmlElement)) throw new Error("Missing cell");
+  const p = cellEl.toArray()[0];
+  if (!(p instanceof Y.XmlElement)) throw new Error("Missing paragraph");
+
+  const checked = checkText({ ...selected(p), figures: figuresByBlock(blocks).get("r1c1") ?? [] });
+  expect(checked.context).toBe(
+    [
+      "2025 Figures",
+      ["| Item | 2025 |", "| Revenue | 120 |", "Cell (Revenue, 2025): 120"].join("\n"),
+    ].join("\n\n"),
+  );
+  expect(checked.near).toBe(checked.context);
+});
+
+// protects=table cell checkText caches the table layout per table rather than rebuilding it per cell (#3825, #2512, #2523); fails_when=reading every cell of a 200-row table grows quadratically
+test("checkText reads every cell of a 200-row table in bounded time (#3825)", () => {
+  const cell = (id: string, value: string, header = false): NodeJSON => ({
+    type: header ? "tableHeader" : "tableCell",
+    content: [paragraph(id, text(value))],
+  });
+  const rows: NodeJSON[] = [
+    {
+      type: "tableRow",
+      content: [
+        cell("h0", "Item", true),
+        cell("h1", "2024", true),
+        cell("h2", "2025", true),
+        cell("h3", "Unit", true),
+      ],
+    },
+    ...Array.from({ length: 200 }, (_, index) => ({
+      type: "tableRow",
+      content: [
+        cell(`r${index}c0`, `Line ${index + 1}`),
+        cell(`r${index}c1`, `${100 + index}`),
+        cell(`r${index}c2`, `${200 + index}`),
+        cell(`r${index}c3`, "USD million"),
+      ],
+    })),
+  ];
+  const blocks = stored(paragraph("cap", text("Annual summary")), {
+    type: "table",
+    attrs: { id: "big" },
+    content: rows,
+  });
+  const sentences = everySentence(blocks).filter((sentence) => sentence.blockId !== "cap");
+  expect(sentences).toHaveLength(800);
+
+  const started = performance.now();
+  const contexts = sentences.map((sentence) => checkText(sentence).context);
+  const elapsedMs = performance.now() - started;
+
+  expect(contexts[1]).toContain("Cell (Line 1, 2024): 100");
+  expect(contexts.at(-2)).toContain("Cell (Line 200, 2025): 399");
+  expect(elapsedMs).toBeLessThan(250);
 });

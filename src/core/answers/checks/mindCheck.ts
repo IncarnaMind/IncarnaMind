@@ -289,8 +289,9 @@ export function createMindCheck(options: MindCheckOptions) {
         known.set(sentence.text, [{ kind: "fact", span: { start: 0, end: sentence.text.length } }]);
     }
     const unsorted = fresh.filter((sentence) => !known.has(sentence.text));
+    const grids = new Map<Y.XmlElement, TableLayout>();
     const partsOf = (sentence: SelectedSentence, said: readonly ClaimPartPlan[]) => {
-      const { claim } = checkText(sentence);
+      const { claim } = checkText(sentence, grids);
       // A sort that names nothing in a value cell would leave its figure out unchecked, so the
       // cell is checked whole (#2447). A sentence with a figure is checked whatever the sort calls
       // it, as Verify's is.
@@ -299,10 +300,9 @@ export function createMindCheck(options: MindCheckOptions) {
         : partsToCheck(claim, said, sentence.figures ?? [], sentence.projection);
     };
     if (unsorted.length > 0) {
-      const grids = new Map<Y.XmlElement, TableLayout>();
       const heard = new Set<number>();
       const texts = unsorted.map((sentence) => ({
-        text: checkText(sentence).claim,
+        text: checkText(sentence, grids).claim,
         ...cellHeadings(sentence.element, grids),
       }));
       const hears = along && {
@@ -746,6 +746,7 @@ export function createMindCheck(options: MindCheckOptions) {
       now: readonly SelectedSentence[],
       claim: SelectedSentence,
       checkedAt: string,
+      layouts?: Map<Y.XmlElement, TableLayout>,
     ): {
       sentence: SelectedSentence;
       mark: ClaimCheckAttributes;
@@ -799,7 +800,7 @@ export function createMindCheck(options: MindCheckOptions) {
       const verification = blocks.doc ? verificationOf(blocks.doc) : null;
       const framed = deckSaidOf(sentence, verification) ?? sheetSaidOf(sentence, verification);
       if (framed) mark.judgedWith = fingerprintOf(framed);
-      const own = checkText(sentence);
+      const own = checkText(sentence, layouts);
       const said = framed ?? row ?? own;
       // A row is asked whole, in words that aren't the sentence's.
       const whole = said.claim !== own.claim;
@@ -909,8 +910,9 @@ export function createMindCheck(options: MindCheckOptions) {
       const unread = options.unread(scope.wanted);
       const queued = content.edit(mindId, (blocks) => {
         const now = nowOf(blocks);
+        const layouts = new Map<Y.XmlElement, TableLayout>();
         const marked = claims.flatMap((claim): QueuedClaim[] => {
-          const found = placed(blocks, now, claim, startedAt);
+          const found = placed(blocks, now, claim, startedAt, layouts);
           if (!found) return [];
           markSentence(found.sentence.element, found.sentence.from, found.sentence.to, found.mark);
           return [found.queued];
