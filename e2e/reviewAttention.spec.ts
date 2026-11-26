@@ -273,14 +273,13 @@ test("Review goes to each Document that needs attention, and a credit failure is
     const [firstId = "", secondId = "", thirdId = "", fourthId = ""] = await notSortedIds(window);
 
     // The first press from the Library, in English: that Document's row in view.
-    // Measure frames (<= 3: immediate paint, no async wait) plus the CI freeze ceiling (500 ms, checks.md).
     await screenshot(window, "review-attention-en-1440-status");
     const first = await pressReview(window, firstId);
     expect(first.selected).toBe(firstId);
     expect(first.frames).toBeGreaterThanOrEqual(1);
     expect(first.frames).toBeLessThanOrEqual(3);
     expect(first.ms).toBeGreaterThanOrEqual(0);
-    expect(first.ms).toBeLessThan(500);
+    expect(first.ms).toBeLessThan(100);
     await screenshot(window, "review-attention-en-1440-first");
 
     // The second from the Library, in Chinese.
@@ -296,7 +295,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     expect(second.frames).toBeGreaterThanOrEqual(1);
     expect(second.frames).toBeLessThanOrEqual(3);
     expect(second.ms).toBeGreaterThanOrEqual(0);
-    expect(second.ms).toBeLessThan(500);
+    expect(second.ms).toBeLessThan(100);
     await screenshot(window, "review-attention-zh-1440-next");
 
     // The third from a Note, at the narrowest window, in English: the Library opens on it.
@@ -313,7 +312,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     expect(third.frames).toBeGreaterThanOrEqual(1);
     expect(third.frames).toBeLessThanOrEqual(3);
     expect(third.ms).toBeGreaterThanOrEqual(0);
-    expect(third.ms).toBeLessThan(500);
+    expect(third.ms).toBeLessThan(100);
     await expect(library).toBeVisible();
     await screenshot(window, "review-attention-en-900-next");
 
@@ -327,7 +326,7 @@ test("Review goes to each Document that needs attention, and a credit failure is
     expect(fourth.frames).toBeGreaterThanOrEqual(1);
     expect(fourth.frames).toBeLessThanOrEqual(3);
     expect(fourth.ms).toBeGreaterThanOrEqual(0);
-    expect(fourth.ms).toBeLessThan(500);
+    expect(fourth.ms).toBeLessThan(100);
     await expect(attentionOf(window)).toHaveCount(0, { timeout: 5_000 });
     await screenshot(window, "review-attention-zh-900-gone");
     await setWindowSize(app, window, 1440, 900);

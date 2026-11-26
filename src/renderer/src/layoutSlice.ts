@@ -82,6 +82,51 @@ type Get = () => LayoutSlice;
 
 /** How many times the assistant was placed in this window, to tell the latest answer. */
 let placings = 0;
+/** How many layout changes have started, so an older answer never reverts a newer tab switch. */
+let layoutChanges = 0;
+
+/**
+ * Switches to a tab that is already open in `layout` before the core's IPC round-trip finishes,
+ * matching `src/core/layout.ts` (`show`, and `open` in place for single-tab items like Library).
+ */
+function revealExisting(layout: WindowLayout, change: LayoutChange): WindowLayout | null {
+  let target: { group: LayoutGroup; tab: LayoutTab; focus: boolean } | null = null;
+  if (change.type === "show") {
+    for (const group of layout.groups) {
+      const tab = group.tabs.find((each) => each.id === change.tabId);
+      if (tab) {
+        target = { group, tab, focus: true };
+        break;
+      }
+    }
+  } else if (
+    change.type === "open" &&
+    !change.behind &&
+    !change.place &&
+    (change.where === undefined || change.where.in === "place") &&
+    (change.item.kind === "library" || change.item.kind === "home")
+  ) {
+    for (const group of layout.groups) {
+      const tab = group.tabs.find((each) => each.item.kind === change.item.kind);
+      if (tab) {
+        target = { group, tab, focus: change.focus !== false };
+        break;
+      }
+    }
+  }
+  if (!target) return null;
+  const focusedGroupId = target.focus ? target.group.id : layout.focusedGroupId;
+  if (target.group.activeTabId === target.tab.id && layout.focusedGroupId === focusedGroupId) {
+    return null;
+  }
+  return {
+    ...layout,
+    focusedGroupId,
+    groups: layout.groups.map((group) =>
+      group.id === target.group.id ? { ...group, activeTabId: target.tab.id } : group,
+    ),
+  };
+}
 
 export function createLayoutSlice(
   set: Set,
@@ -108,11 +153,16 @@ export function createLayoutSlice(
     },
     async changeLayout(change, options) {
       const keep = keepPlacingsSince();
+      const previous = get().layout;
+      const immediate = previous ? revealExisting(previous, change) : null;
+      const changeId = ++layoutChanges;
+      if (immediate) set({ layout: immediate });
       try {
         const layout = keep(await core.changeLayout(WINDOW_ID, change));
-        set({ layout });
+        if (changeId === layoutChanges) set({ layout });
         return layout;
       } catch (error) {
+        if (immediate && previous && changeId === layoutChanges) set({ layout: keep(previous) });
         if (!options?.quiet) report(error);
         return null;
       }
@@ -149,8 +199,9 @@ export function followLayout(set: Set, report: (error: unknown) => void): void {
     // is read afresh. It is applied only if no placing of the assistant started after the event:
     // that placing is shown already, and its own answer brings the core's word.
     const asked = placings;
+    const seenChange = layoutChanges;
     core.getLayout(WINDOW_ID).then((layout) => {
-      if (placings === asked) set({ layout });
+      if (placings === asked && layoutChanges === seenChange) set({ layout });
     }, report);
   });
 }
