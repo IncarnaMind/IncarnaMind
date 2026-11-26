@@ -46,6 +46,8 @@ export interface PermissionGuideOptions {
   appWindows(): BrowserWindow[];
   /** Whether a call comes from IncarnaMind's own page. */
   trusted(event: IpcMainInvokeEvent | IpcMainEvent): boolean;
+  /** Restarts IncarnaMind when the User presses Restart after granting system sound (#3756). */
+  restart(): void;
   /**
    * A test build lets the smoke tests say where the guide goes (INCARNAMIND_TEST_GUIDE) and what
    * the system answers (`globalThis.incarnamindFakePermission`), which no test can ask of the system.
@@ -163,7 +165,10 @@ export function servePermissionGuide(options: PermissionGuideOptions): void {
     clearInterval(polling);
     polling = undefined;
     tell();
-    if (state.placement === "beside") leaving = setTimeout(end, WINDOW_DONE_MS);
+    // Keep the beside window open for system sound so the User can click Restart (#3756).
+    if (state.placement === "beside" && state.source !== "system") {
+      leaving = setTimeout(end, WINDOW_DONE_MS);
+    }
   }
 
   function show(source: AudioSource): GuidePlacement {
@@ -193,6 +198,11 @@ export function servePermissionGuide(options: PermissionGuideOptions): void {
   ipcMain.on(FILES_CHANNELS.closePermissionGuide, (event) => {
     if (options.trusted(event)) end();
   });
+  ipcMain.on(FILES_CHANNELS.restartForPermission, (event) => {
+    if (!options.trusted(event)) return;
+    end();
+    options.restart();
+  });
   ipcMain.on(FILES_CHANNELS.permissionGuideWanted, (event) => {
     if (options.trusted(event)) event.sender.send(FILES_CHANNELS.permissionGuide, state);
   });
@@ -202,6 +212,11 @@ export function servePermissionGuide(options: PermissionGuideOptions): void {
   });
   ipcMain.on(PERMISSION_GUIDE_CHANNELS.close, (event) => {
     if (fromGuide(event)) end();
+  });
+  ipcMain.on(PERMISSION_GUIDE_CHANNELS.restart, (event) => {
+    if (!fromGuide(event)) return;
+    end();
+    options.restart();
   });
   ipcMain.on(PERMISSION_GUIDE_CHANNELS.size, (event, width: unknown, height: unknown) => {
     if (!fromGuide(event) || !guide || typeof width !== "number" || typeof height !== "number")

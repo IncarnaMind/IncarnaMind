@@ -9,6 +9,7 @@ import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import { INTERVIEW } from "../src/main/fakeChat/meetingInterview";
 import { translate } from "../src/shared/i18n";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   createDataFolder,
   dismissChatSetup,
@@ -799,6 +800,53 @@ for (const language of ["en", "zh-CN"] as const) {
     } finally {
       await app.close();
       await new Promise((done) => model.server.close(done));
+    }
+  });
+
+  // protects=when sending the transcript to the Meeting's model is not allowed yet, the line offers Allow right where it is said, and clicking Allow grants permission and fills the notes in (#3756); fails_when=the line asks the User to open Settings instead of offering Allow, or Allow does not grant permission and start the fill; no_claim=revoked checks consent, which tests/renderer/meetingFillLine.test.ts covers.
+  test(`a meeting fill stopped by missing permission offers Allow in place and fills on click (${language})`, async () => {
+    const words = LINES[language];
+    const { app, window } = await launchApp(dataDir, {
+      fakeChat: true,
+      transcriber: { lines: [words.speech[0]], theirLines: [words.speech[1]] },
+    });
+    try {
+      await setWindowSize(app, window, 1280, 800);
+      await dismissChatSetup(window);
+      await acceptPlainTextKeys(window);
+      await window.evaluate(async () => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        const provider = await core.saveChatProvider({
+          kind: "openai",
+          apiKey: "sk-test",
+          modelId: "gpt-6-luna",
+        });
+        if (!provider.service) throw new Error("Expected OpenAI to have a cloud service");
+        await core.revokeConsent("chat", provider.service.id);
+      });
+      await recordMeeting(window);
+      await firstTranscriptLine(window);
+      await window.evaluate(async (chosen) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.updateSettings({ user: { language: chosen } });
+      }, language);
+      await stopMeeting(window);
+      const line = window.getByTestId("meeting-fill-line");
+      const allow = line.getByTestId("meeting-fill-allow");
+      await expect(allow).toHaveText(translate(language, "privacy.flows.allow"), {
+        timeout: 30_000,
+      });
+      await expect(line).toContainText(
+        translate(language, "meetings.fill.problem.notAllowed", { service: "OpenAI" }),
+      );
+      await expect(line.getByTestId("meeting-fill-again")).toHaveCount(0);
+      await shot(window, `meeting-fill-allow-${language}`);
+      await pointAndClick(window, allow);
+      await expect(line.getByTestId("meeting-fill-undo")).toHaveText(words.undo, {
+        timeout: 30_000,
+      });
+    } finally {
+      await app.close();
     }
   });
 }

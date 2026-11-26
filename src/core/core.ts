@@ -6301,11 +6301,13 @@ export function createCore(adapters: CoreAdapters): Core {
         (!readiness.ready && readiness.reason === "consent-declined")
       ) {
         const service = readiness.provider.service?.name ?? readiness.provider.kind;
+        const serviceId = readiness.provider.service?.id;
         return {
           problem: {
             kind: "not-allowed",
             message: reasonAlone(language, "meetings.fill.problem.notAllowed", { service }),
             service,
+            ...(serviceId && { serviceId, flow: "chat" as const }),
           },
         };
       }

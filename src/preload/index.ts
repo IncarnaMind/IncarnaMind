@@ -180,6 +180,7 @@ const files: FilesBridge = {
     listen<ConversationAt>(FILES_CHANNELS.openConversation, listener),
   showPermissionGuide: (source) => invoke(FILES_CHANNELS.showPermissionGuide, source),
   closePermissionGuide: () => send(FILES_CHANNELS.closePermissionGuide),
+  restartForPermission: () => send(FILES_CHANNELS.restartForPermission),
   onPermissionGuide: (listener) => {
     const stop = listen<PermissionGuideState | null>(FILES_CHANNELS.permissionGuide, listener);
     send(FILES_CHANNELS.permissionGuideWanted);
@@ -223,6 +224,7 @@ if (process.argv.includes(PERMISSION_GUIDE_ARGUMENT)) {
   const guide: PermissionGuideBridge = {
     resize: (width, height) => send(PERMISSION_GUIDE_CHANNELS.size, width, height),
     close: () => send(PERMISSION_GUIDE_CHANNELS.close),
+    restart: () => send(PERMISSION_GUIDE_CHANNELS.restart),
     state: () => invoke(PERMISSION_GUIDE_CHANNELS.state),
     onState: (listener) =>
       listen<PermissionGuideState | null>(PERMISSION_GUIDE_CHANNELS.state, listener),

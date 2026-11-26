@@ -223,6 +223,8 @@ export interface FilesBridge {
   showPermissionGuide(source: AudioSource): Promise<GuidePlacement>;
   /** Closes the guide, and the steps in the window. */
   closePermissionGuide(): void;
+  /** Restarts IncarnaMind after the User grants screen/system audio permission (#3756). */
+  restartForPermission(): void;
   /** Calls `listener` with the guide's state, now and when it changes; null when there is none. Returns how to stop. */
   onPermissionGuide(listener: (state: PermissionGuideState | null) => void): () => void;
 }
@@ -322,6 +324,7 @@ export const FILES_CHANNELS = {
   /** From the page: show the guide beside System Settings for a source; the main process answers where. */
   showPermissionGuide: "app:showPermissionGuide",
   closePermissionGuide: "app:closePermissionGuide",
+  restartForPermission: "app:restartForPermission",
   /** From the page: what the guide's state is now; the main process answers on `permissionGuide`. */
   permissionGuideWanted: "app:permissionGuideWanted",
   /** From the main process: the guide's state (`PermissionGuideState`), or null. */

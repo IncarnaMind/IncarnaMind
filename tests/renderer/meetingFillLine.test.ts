@@ -24,6 +24,7 @@ const actions = vi.hoisted(() => {
     push: vi.fn<(change: Undoable) => void>(),
     openMind: vi.fn(),
     undoMeetingFill: vi.fn(async (_meetingId: string) => undefined),
+    allowDataFlow: vi.fn(async (_flow: string, _serviceId: string) => undefined),
     openSettings: vi.fn(),
     checkKey: vi.fn(),
     openBilling: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock("../../src/renderer/src/core", () => ({
       return () => undefined;
     },
     undoMeetingFill: actions.undoMeetingFill,
+    allowDataFlow: actions.allowDataFlow,
   },
   files: {},
 }));
@@ -1203,4 +1205,47 @@ describe("meeting-fill Undo notice", () => {
     completed(meetingOf(fillOf({ state: "failed", omitted: 2 })));
     expect(actions.push).not.toHaveBeenCalled();
   });
+});
+
+describe("meeting notes waiting for service consent (#3756)", () => {
+  // protects=when a meeting fill is blocked on service consent, the line offers Allow right where it is said, grants that flow and service, and fills the notes without a manual detour; fails_when=the line tells the User to ask a Question by hand or Allow does not grant and retry
+  test.each([
+    [
+      "en",
+      "off",
+      "chat",
+      "The note wasn’t filled in: sending the transcript to OpenAI isn’t allowed yet · Allow",
+    ],
+    ["zh-CN", "off", "chat", "未能补全笔记：尚未允许将转写内容发送给 OpenAI · 允许"],
+    [
+      "en",
+      "failed",
+      "checks",
+      "The note wasn’t filled in: sending the transcript to OpenAI isn’t allowed yet · Allow",
+    ],
+    ["zh-CN", "failed", "checks", "未能补全笔记：尚未允许将转写内容发送给 OpenAI · 允许"],
+  ] as const)(
+    "in %s (%s / %s), shows Allow on the line and allows + retries on click",
+    async (language, state, flow, text) => {
+      actions.language.current = language;
+      const meeting = meetingOf(
+        fillOf({
+          state,
+          problem: {
+            kind: "not-allowed",
+            service: "OpenAI",
+            serviceId: "https://api.openai.com",
+            flow,
+            message: "not allowed",
+          },
+        }),
+      );
+      const line = await show(meeting);
+      expect(line?.textContent).toBe(text);
+      expect(container.querySelector('[data-testid="meeting-fill-again"]')).toBeNull();
+      await click("meeting-fill-allow");
+      expect(actions.allowDataFlow.mock.calls).toEqual([[flow, "https://api.openai.com"]]);
+      expect(actions.fillNotes.mock.calls).toEqual([[meeting.id]]);
+    },
+  );
 });

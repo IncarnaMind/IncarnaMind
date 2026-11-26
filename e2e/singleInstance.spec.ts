@@ -293,8 +293,8 @@ try {
     expect(shown).toEqual([
       {
         title: "IncarnaMind couldn’t start",
-        content:
-          "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
+        content: "Another program is using IncarnaMind’s data. Nothing is lost.",
+        buttons: ["Relaunch", "Quit"],
         ready: true,
       },
     ]);
