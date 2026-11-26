@@ -4,10 +4,11 @@
  *
  * The sentence goes to its model whole, in its paragraph, with the Passages its own Citations
  * quote. The model may search the Documents for more, records each quote that decides the
- * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms one thing: that a
- * Supported or Contradicted verdict rests on a quote its Document holds (the Citation check).
- * No rule here changes the verdict the model gave. A refusal, a reply with no verdict, an empty
- * one or a provider's failure leaves the sentence not checked, with the reason; never Supported.
+ * sentence with `cite`, and gives one verdict (./prompt). IncarnaMind confirms that a Supported or
+ * Contradicted verdict rests on a quote its Document holds (the Citation check), and lowers
+ * Supported to Unsupported when the model's own Units word says "unstated" or "another" (#3806).
+ * Code never raises a verdict. A refusal, a reply with no verdict, an empty one or a provider's
+ * failure leaves the sentence not checked, with the reason; never Supported.
  *
  * A decision model the User's checks use reads the sentence first (./decisionFirst), and only a
  * sentence it leaves undecided comes here.
@@ -468,30 +469,6 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const evidence =
     quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);
   const result = ((): Judged => {
-    if (read.verdict === "supported" && (read.units === "unstated" || read.units === "another")) {
-      return {
-        verdict: "unsupported",
-        evidence: null,
-        says: null,
-        unsupported: {
-          kind: "units",
-          reason: translate(
-            language,
-            read.units === "another"
-              ? "claim.unsupported.unitsDiffer"
-              : "claim.unsupported.unitsNotGiven",
-          ),
-          covered: null,
-          uncovered: null,
-          ...(quoted && { found: true as const, quoted }),
-        },
-        calculation: null,
-        ...(working && { working }),
-        ...court.citedCase(null),
-        ...facts(),
-        excluded: [...facts().excluded, ...results.ownWorkings()],
-      };
-    }
     if (read.verdict === "unsupported")
       return {
         verdict: "unsupported",
@@ -513,6 +490,32 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
       };
     // The one thing IncarnaMind confirms: the verdict's quote is in its Document.
     if (!evidence && !restsOnOwnFigure(read)) return notChecked("no-evidence");
+    if (read.verdict === "supported" && (read.units === "unstated" || read.units === "another")) {
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: {
+          kind: "units",
+          units: read.units,
+          reason: translate(
+            language,
+            read.units === "another"
+              ? "claim.unsupported.unitsDiffer"
+              : "claim.unsupported.unitsNotGiven",
+          ),
+          covered: null,
+          uncovered: null,
+          found: true as const,
+          ...(evidence && { quoted: evidence }),
+        },
+        calculation: null,
+        ...(working && { working }),
+        ...court.citedCase(null),
+        ...facts(),
+        excluded: [...facts().excluded, ...results.ownWorkings()],
+      };
+    }
     const correction =
       read.correction &&
       correctionOf(request.claim, read.correction, quoted ? quotes : evidence ? [evidence] : []);

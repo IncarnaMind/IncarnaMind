@@ -8032,9 +8032,12 @@ export interface UnstatedParts {
 export interface UnsupportedReason {
   /**
    * "analysis-name": the sentence doesn't name an Analysis's figure as its label does (#2378).
-   * "units": a figure written as bare digits differs from its source only by a unit (#2864).
+   * "units": a figure written as bare digits differs from its source only by a unit (#2864), or
+   * Supported was lowered because the judge's own Units word said "unstated" or "another" (#3806).
    */
   kind?: "forecast-certainty" | "unbacked-cause" | "analysis-name" | "units";
+  /** Which Units mismatch lowered Supported (#3806), so the card translates when the interface language switches. */
+  units?: "another" | "unstated";
   /**
    * Which way the check's model said the sentence goes unsupported: the Documents say less than
    * it does, state only some of it, or don't state it; or the sentence is only its writer's own

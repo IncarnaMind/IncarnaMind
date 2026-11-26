@@ -8,9 +8,14 @@ import type {
   CoreAdapters,
   Document,
 } from "../../src/core";
+import { createFakeAnalysisRuntime } from "../../src/core/analysis/fake";
+import { ANALYSIS_TOOLS } from "../../src/core/tools";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { noteStateParts, readNoteState } from "../../src/renderer/src/noteState";
-import { claimCheckShown } from "../../src/shared/claimChecks";
+import { calculatedFigureNode } from "../../src/shared/calculatedFigures";
+import { claimCheckShown, partFoundNothing, saysNotFound } from "../../src/shared/claimChecks";
+import { readUnsupportedReason } from "../../src/shared/claimParts";
+import { FORMULA_VERSION } from "../../src/shared/formula";
 import { translate } from "../../src/shared/i18n";
 import { folderScope } from "../../src/shared/searchScope";
 import {
@@ -1745,5 +1750,339 @@ describe("Stated units check (#3806)", () => {
       text: "Units: same\nVerdict: partly supported\nExplanation: Missing detail.\nEvidence: [1]",
     });
     expect(unsupported.verdict).toBe("unsupported");
+  });
+
+  test("preserves explanations containing Units: labels and ignores Chinese 单位: lines", async () => {
+    const residential = await runCheck({
+      text: "Verdict: contradicted\nExplanation: The Document gives Residential Units: 240, not 250 [^1].\nEvidence: [1]",
+    });
+    expect(residential.verdict).toBe("contradicted");
+    if (residential.verdict !== "contradicted") return;
+    expect(residential.says).toBe("The Document gives Residential Units: 240, not 250.");
+
+    const business = await runCheck({
+      text: "Verdict: contradicted\nExplanation: Business Units: EMEA grew while (Units: £m) fell [^1].\nEvidence: [1]",
+    });
+    expect(business.verdict).toBe("contradicted");
+    if (business.verdict !== "contradicted") return;
+    expect(business.says).toBe("Business Units: EMEA grew while (Units: £m) fell.");
+
+    const noneGiven = await runCheck({
+      text: "Units: unstated\nVerdict: supported\nExplanation: The table header (Units: none given) shows 528.9 [^1].\nEvidence: [1]",
+    });
+    expect(noneGiven).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { kind: "units", units: "unstated", found: true },
+    });
+
+    const chineseLabel = await runCheck({
+      text: "Units: unstated\nVerdict: supported\nExplanation: 表头如下\n单位：万元\nEvidence: [1]",
+    });
+    expect(chineseLabel).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { kind: "units", units: "unstated", found: true },
+    });
+
+    const lastWinsSame = await runCheck({
+      text: "Units: unstated\nUnits: same\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]",
+    });
+    expect(lastWinsSame.verdict).toBe("supported");
+
+    const lastWinsUnstated = await runCheck({
+      text: "Units: same\nUnits: unstated\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]",
+    });
+    expect(lastWinsUnstated).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { kind: "units", units: "unstated" },
+    });
+  });
+
+  test("returns Not checked when Supported with Units: unstated has no found quote", async () => {
+    const model = scriptedModel((call) => {
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      if (!call.results.some((result) => result.tool === "cite")) {
+        const passage = shownPassages(search.text)[0];
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passage?.id ?? "P1",
+                    location: passage?.location ?? "§ Tides",
+                    quote: "A quote that is not in the document at all",
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      }
+      return {
+        text: "Units: unstated\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]",
+      };
+    });
+    const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+    const result = await core.checkClaim({ claim: SUPPORTED });
+    core.close();
+    expect(result).toMatchObject({ verdict: "not-checked", reason: "no-evidence" });
+  });
+
+  test("marks uncited run_analysis and own-figure Units lowerings as found so cards say Units may differ", async () => {
+    const ORDERS = "Region,Sales\nNorth,120\nSouth,300";
+    const CODE = 'result("total", inputs["orders"]["Sales"].sum())';
+    const rowsModel = scriptedModel((call) => {
+      const searches = call.results.filter((result) => result.tool === "search_documents");
+      if (searches.length === 0)
+        return { calls: [{ tool: "search_documents", input: { query: "sales" } }] };
+      if (!call.results.some((result) => result.tool === ANALYSIS_TOOLS.run)) {
+        const [passage] = searches.flatMap((each) => shownPassages(each.text));
+        return {
+          calls: [
+            {
+              tool: ANALYSIS_TOOLS.run,
+              input: { title: "Total sales", inputs: [{ name: "orders", passage: passage?.id }], code: CODE },
+            },
+          ],
+        };
+      }
+      return {
+        text: "Units: unstated\nVerdict: supported\nExplanation: Total sales were £420.\nEvidence: []",
+      };
+    });
+    const runtime = createFakeAnalysisRuntime({
+      answer: () => ({
+        output: { results: [{ kind: "figure", name: "total", label: "Total", unit: null, value: 420 }] },
+      }),
+    });
+    const rowsCore = startCore(await createTempDataFolder(), {
+      createChatModel: () => rowsModel,
+      analysisRuntime: runtime,
+    });
+    rowsCore.on("consent.requested", (asked) => void rowsCore.respondToConsent(asked.requestId, true));
+    await rowsCore.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    const csvSources = await createTempDataFolder();
+    await addAndProcess(rowsCore, [await writeSourceFile(csvSources, "Orders.csv", ORDERS)]);
+    const rowsResult = await rowsCore.checkClaim({ claim: "Total sales were £420." });
+    rowsCore.close();
+
+    expect(rowsResult).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "units",
+        units: "unstated",
+        found: true,
+        quoted: { documentName: "Orders", location: { kind: "rows" } },
+      },
+    });
+    if (rowsResult.verdict !== "unsupported") return;
+    const rowsPart = rowsResult.parts?.[0];
+    expect(rowsPart).toBeDefined();
+    if (rowsPart) expect(partFoundNothing(rowsPart)).toBe(false);
+    expect(
+      saysNotFound(
+        { state: "unsupported" },
+        {
+          id: "c1",
+          request: "r1",
+          action: "check-against-documents",
+          state: "unsupported",
+          reason: null,
+          detail: null,
+          providerId: null,
+          modelId: "claude-haiku-5-5",
+          text: "Total sales were £420.",
+          evidence: null,
+          says: null,
+          unsupported: rowsResult.unsupported,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          scope: { kind: "all", count: 1, names: ["Orders"], widened: false },
+          versions: [],
+          excluded: [],
+          checkedAt: "2026-11-26T00:00:00Z",
+        },
+        0,
+      ),
+    ).toBe(false);
+
+    const libraryModel = scriptedModel((call) => {
+      if (!call.results.some((result) => result.tool === ANALYSIS_TOOLS.run)) {
+        return {
+          calls: [
+            {
+              tool: ANALYSIS_TOOLS.run,
+              input: {
+                title: "Document count",
+                inputs: [{ name: "docs", library: "documents" }],
+                code: 'result("count", len(inputs["docs"]))',
+              },
+            },
+          ],
+        };
+      }
+      return {
+        text: "Units: unstated\nVerdict: supported\nExplanation: There is 1 document.\nEvidence: []",
+      };
+    });
+    const libraryCore = startCore(await createTempDataFolder(), {
+      createChatModel: () => libraryModel,
+      analysisRuntime: createFakeAnalysisRuntime({
+        answer: () => ({
+          output: { results: [{ kind: "figure", name: "count", label: "Count", unit: null, value: 1 }] },
+        }),
+      }),
+    });
+    libraryCore.on("consent.requested", (asked) => void libraryCore.respondToConsent(asked.requestId, true));
+    await libraryCore.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    const libSources = await createTempDataFolder();
+    await addAndProcess(libraryCore, [await writeSourceFile(libSources, TIDES.name, TIDES.contents)]);
+    const libraryResult = await libraryCore.checkClaim({ claim: "There is £1 document." });
+    libraryCore.close();
+
+    expect(libraryResult).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { kind: "units", units: "unstated", found: true },
+    });
+    if (libraryResult.verdict !== "unsupported") return;
+    expect(readUnsupportedReason(libraryResult.unsupported)).toMatchObject({
+      kind: "units",
+      units: "unstated",
+      found: true,
+    });
+    expect(
+      saysNotFound(
+        { state: "unsupported" },
+        {
+          id: "c2",
+          request: "r2",
+          action: "check-against-documents",
+          state: "unsupported",
+          reason: null,
+          detail: null,
+          providerId: null,
+          modelId: "claude-haiku-5-5",
+          text: "There is £1 document.",
+          evidence: null,
+          says: null,
+          unsupported: libraryResult.unsupported,
+          calculation: null,
+          citedCaseUnchecked: false,
+          citedCaseFound: false,
+          scope: { kind: "all", count: 1, names: ["Tides"], widened: false },
+          versions: [],
+          excluded: [],
+          checkedAt: "2026-11-26T00:00:00Z",
+        },
+        0,
+      ),
+    ).toBe(false);
+
+    const ownFigureModel = scriptedModel(
+      () => ({
+        text: "Units: unstated\nVerdict: supported\nExplanation: Matches worked figure.\nEvidence: []",
+      }),
+      { generate: checkGenerate({ "Total sales were £420.": { sort: "claim" } }) },
+    );
+    const ownCore = startCore(await createTempDataFolder(), {
+      createChatModel: () => ownFigureModel,
+    });
+    ownCore.on("consent.requested", (asked) => void ownCore.respondToConsent(asked.requestId, true));
+    await ownCore.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    const ownSources = await createTempDataFolder();
+    await addAndProcess(ownCore, [await writeSourceFile(ownSources, TIDES.name, TIDES.contents)]);
+    const ownMind = await ownCore.createMind({ title: "Own figure" });
+    const ownClient = await connectToMind(ownCore, ownMind.id);
+    writeMind(ownClient, [
+      {
+        type: "paragraph",
+        attrs: { id: "p-own" },
+        content: [
+          { type: "text", text: "Total sales were " },
+          calculatedFigureNode(
+            {
+              label: "Total sales",
+              formula: "",
+              inputs: [],
+              value: 420,
+              unit: { kind: "plain" },
+              approximate: false,
+              shown: "£420",
+              show: { language: "en", as: "number", decimals: 0, scale: null },
+              literals: [],
+              engine: FORMULA_VERSION,
+              written: null,
+              analysis: { analysis: 1, result: "sales" },
+            },
+            "fig-1",
+            "run-1",
+          ),
+          { type: "text", text: "." },
+        ],
+      },
+    ]);
+    await ownClient.settled();
+    await ownCore.checkMind({ requestId: "req-own", mindId: ownMind.id, mode: "all" });
+    await ownClient.settled();
+    const ownCheck = claimSpans(readMind(ownClient))[0]?.check;
+    ownCore.close();
+
+    expect(ownCheck).toMatchObject({
+      state: "unsupported",
+      unsupported: { kind: "units", units: "unstated", found: true },
+    });
+    if (!ownCheck) return;
+    expect(saysNotFound({ state: "unsupported" }, ownCheck, 0)).toBe(false);
+  });
+
+  test("leaves non-Supported verdicts and unknown Units words untouched", async () => {
+    const partly = await runCheck({
+      text: "Units: unstated\nVerdict: partly supported\nExplanation: Missing detail.\nEvidence: [1]",
+    });
+    expect(partly).toMatchObject({
+      verdict: "unsupported",
+      unsupported: { word: "partly-supported" },
+    });
+    if (partly.verdict === "unsupported") expect(partly.unsupported?.kind).toBeUndefined();
+
+    const contradicted = await runCheck({
+      text: "Units: another\nVerdict: contradicted\nExplanation: Wrong moon.\nEvidence: [1]\nChange 1: full moon\nTo 1: new moon [^1]",
+    });
+    expect(contradicted.verdict).toBe("contradicted");
+    if (contradicted.verdict === "contradicted") {
+      expect(contradicted.correction).toMatchObject({ from: "full moon" });
+    }
+
+    for (const unknown of ["not stated", "n/a", "不适用"]) {
+      const kept = await runCheck({
+        text: `Units: ${unknown}\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]`,
+      });
+      expect(kept.verdict).toBe("supported");
+    }
   });
 });

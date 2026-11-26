@@ -1490,9 +1490,9 @@ export const en = {
   "claim.unsupported.otherMeasure": "The Document gives {amount} for {measure}, not for {claimed}.",
   "claim.unsupported.unitsMayDiffer": "Units may differ: the source gives {amount}",
   "claim.unsupported.unitsNotGiven":
-    "The Document doesn’t state the currency, unit or scale for this figure.",
+    "The quote doesn’t state the currency, unit or scale for this figure.",
   "claim.unsupported.unitsDiffer":
-    "The Document gives another currency, unit or scale for this figure.",
+    "The quote gives another currency, unit or scale for this figure.",
   "claim.unsupported.whichDollar": "“{document}” gives “{amount}” without saying which currency",
   "claim.unsupported.yuanSign": "“{document}” gives “{amount}”, and in Chinese text ¥ means 人民币",
   "claim.currencyClause": "The Document states the currency ({source}): {quote}",
