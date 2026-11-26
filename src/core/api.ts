@@ -11974,6 +11974,8 @@ export interface MindExportPreview {
   myCommentsShown: boolean;
   /** Whether a Word export offers "Include my comments": the file came from someone else (#328). */
   myCommentsOptional: boolean;
+  /** Comments and replies already in the original Word file, which a Word export always keeps (#3821). */
+  fileComments: number;
 }
 
 /** The sentences an export holds whose check isn't good, by result (`MindExport.sentenceChecks`). */

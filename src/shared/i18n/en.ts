@@ -5764,6 +5764,11 @@ export const en = {
   "export.myComments.leftOut.one": "Your comment was left out",
   "export.myComments.leftOut.other": "Your {count} comments were left out",
   "export.myComments.include": "Include them",
+  "export.fileComments.hint.one": "1 comment from the Word file stays in the exported file.",
+  "export.fileComments.hint.other":
+    "{count} comments from the Word file stay in the exported file.",
+  "export.fileComments.one": "Kept 1 comment from the Word file",
+  "export.fileComments.other": "Kept {count} comments from the Word file",
   "export.checkComments": "{count} check comments",
   "export.checkComments.off": "Check comments off",
   "export.checkComments.ask":

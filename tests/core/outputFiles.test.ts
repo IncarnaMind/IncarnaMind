@@ -172,6 +172,7 @@ describe("The Output location", () => {
       myComments: 0,
       myCommentsShown: true,
       myCommentsOptional: false,
+      fileComments: 0,
       sentKept: true,
     });
     expect(await readFile(join(location, "Tides.md"), "utf8")).toContain(
