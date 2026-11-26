@@ -112,20 +112,21 @@ const filedCounts = (window: Page) =>
 interface Press {
   clicked: number | null;
   shown: number | null;
+  frames: number;
   selected: string | null;
 }
 
 /**
  * Presses Review as the sidebar shows it, with the mouse, and waits until `expected`'s row is
- * selected, focused and in view: the milliseconds from the click to that, and the row's id.
+ * selected, focused and in view: the frames and milliseconds from the click to that, and its id.
  */
 async function pressReview(
   window: Page,
   expected: string,
-): Promise<{ ms: number; selected: string | null }> {
+): Promise<{ ms: number; frames: number; selected: string | null }> {
   await window.evaluate((wanted) => {
     const held = window as unknown as { __reviewPress?: Press };
-    const record: Press = { clicked: null, shown: null, selected: null };
+    const record: Press = { clicked: null, shown: null, frames: 0, selected: null };
     held.__reviewPress = record;
     document.addEventListener(
       "click",
@@ -138,6 +139,7 @@ async function pressReview(
     );
     const look = () => {
       if (record.clicked !== null && record.shown === null) {
+        record.frames += 1;
         const row = document.querySelector<HTMLElement>(
           `[data-document-id="${CSS.escape(wanted)}"][aria-selected="true"]`,
         );
@@ -171,6 +173,7 @@ async function pressReview(
     const record = (window as unknown as { __reviewPress?: Press }).__reviewPress;
     return {
       ms: (record?.shown ?? 0) - (record?.clicked ?? 0),
+      frames: record?.frames ?? 0,
       selected: record?.selected ?? null,
     };
   });
@@ -270,11 +273,14 @@ test("Review goes to each Document that needs attention, and a credit failure is
     const [firstId = "", secondId = "", thirdId = "", fourthId = ""] = await notSortedIds(window);
 
     // The first press from the Library, in English: that Document's row in view.
+    // Measure frames (<= 3: immediate paint, no async wait) plus the CI freeze ceiling (500 ms, checks.md).
     await screenshot(window, "review-attention-en-1440-status");
     const first = await pressReview(window, firstId);
     expect(first.selected).toBe(firstId);
+    expect(first.frames).toBeGreaterThanOrEqual(1);
+    expect(first.frames).toBeLessThanOrEqual(3);
     expect(first.ms).toBeGreaterThanOrEqual(0);
-    expect(first.ms).toBeLessThan(100);
+    expect(first.ms).toBeLessThan(500);
     await screenshot(window, "review-attention-en-1440-first");
 
     // The second from the Library, in Chinese.
@@ -287,8 +293,10 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await screenshot(window, "review-attention-zh-1440-status");
     const second = await pressReview(window, secondId);
     expect(second.selected).toBe(secondId);
+    expect(second.frames).toBeGreaterThanOrEqual(1);
+    expect(second.frames).toBeLessThanOrEqual(3);
     expect(second.ms).toBeGreaterThanOrEqual(0);
-    expect(second.ms).toBeLessThan(100);
+    expect(second.ms).toBeLessThan(500);
     await screenshot(window, "review-attention-zh-1440-next");
 
     // The third from a Note, at the narrowest window, in English: the Library opens on it.
@@ -302,8 +310,10 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await newMind(window);
     const third = await pressReview(window, thirdId);
     expect(third.selected).toBe(thirdId);
+    expect(third.frames).toBeGreaterThanOrEqual(1);
+    expect(third.frames).toBeLessThanOrEqual(3);
     expect(third.ms).toBeGreaterThanOrEqual(0);
-    expect(third.ms).toBeLessThan(100);
+    expect(third.ms).toBeLessThan(500);
     await expect(library).toBeVisible();
     await screenshot(window, "review-attention-en-900-next");
 
@@ -314,8 +324,10 @@ test("Review goes to each Document that needs attention, and a credit failure is
     await newMind(window);
     const fourth = await pressReview(window, fourthId);
     expect(fourth.selected).toBe(fourthId);
+    expect(fourth.frames).toBeGreaterThanOrEqual(1);
+    expect(fourth.frames).toBeLessThanOrEqual(3);
     expect(fourth.ms).toBeGreaterThanOrEqual(0);
-    expect(fourth.ms).toBeLessThan(100);
+    expect(fourth.ms).toBeLessThan(500);
     await expect(attentionOf(window)).toHaveCount(0, { timeout: 5_000 });
     await screenshot(window, "review-attention-zh-900-gone");
     await setWindowSize(app, window, 1440, 900);
