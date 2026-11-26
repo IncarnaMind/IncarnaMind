@@ -10,12 +10,15 @@ import {
   acceptPlainTextKeys,
   agentsToConnect,
   catchCopies,
+  checkCard,
+  checkNote,
   copied,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
   frontMind,
   launchApp,
+  noteCheck,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -116,13 +119,6 @@ async function open(window: Page, mindId: string) {
   await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
 }
 
-async function press(window: Page) {
-  if (!(await window.getByTestId("check-card").isVisible())) {
-    await pointAndClick(window, window.getByTestId("check-badge-open"));
-  }
-  await pointAndClick(window, window.getByTestId("badge-check-mind"));
-}
-
 /** Each shot at 1440 wide in English and 900 wide in Chinese, then back to English. */
 async function both(
   app: Parameters<typeof setWindowSize>[0],
@@ -173,33 +169,42 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     await open(window, first);
     const asked = window.getByTestId("checks-asked");
 
-    // While it runs: the badge says so, naming it, and Stop takes Check's place in the card's foot
-    // (the card's words for it read only to a screen reader), with the focus Check had, so a
-    // keyboard User can stop it; nothing opens or is copied.
+    // While it runs: the button says so, naming it in its tooltip, with Stop right after it for a
+    // keyboard User, and no card opens by the press; the card, opened from the button, keeps Stop
+    // in its foot with no Check beside it (its words for the run read only to a screen reader);
+    // nothing opens or is copied.
     await nextRun("wait");
-    if (!(await window.getByTestId("check-card").isVisible())) {
-      await pointAndClick(window, window.getByTestId("check-badge-open"));
-    }
-    await window.getByTestId("badge-check-mind").focus();
+    const button = noteCheck(window);
+    await expect(button).toHaveAttribute("data-state", "check");
+    await button.focus();
     await window.keyboard.press("Enter");
+    await expect(button).toHaveAttribute("data-state", "checking");
+    await expect(button.locator(".note-check-words")).toHaveText("Checking…");
+    await expect(button).toHaveAttribute("title", "Checking this note in Claude Code.");
+    await expect(window.getByTestId("check-card")).toHaveCount(0);
+    const stop = window.getByTestId("note-check-stop");
+    await expect(stop).toBeVisible();
+    await button.focus();
+    await window.keyboard.press("Tab");
+    await expect(stop).toBeFocused();
+    await pointAndClick(window, button);
     await expect(asked).toHaveText("Checking this note in Claude Code.");
     await expect(asked).toHaveClass(/\bsr-only\b/);
-    await expect(window.getByTestId("badge-asked")).toHaveText("Claude Code is checking");
     const foot = window.getByTestId("check-card-foot");
     await expect(foot.getByTestId("checks-asked-stop")).toHaveText("Stop");
-    await expect(foot.getByTestId("checks-asked-stop")).toBeFocused();
-    await expect(foot.getByTestId("badge-check-mind")).toBeHidden();
+    await expect(foot.getByRole("button", { name: "Check", exact: true })).toHaveCount(0);
     await both(app, window, "background-running", async () => {
       await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
       await expect(window.getByTestId("checks-asked-stop")).toHaveText("停止");
     });
     await pointAndClick(window, window.getByTestId("checks-asked-stop"));
     await expect(asked).toHaveCount(0);
+    await expect(button).toHaveAttribute("data-state", "check");
     await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(0);
 
     // One press, and its marks land on the Note the User wrote.
     await nextRun("check");
-    await press(window);
+    await checkNote(window);
     await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(2);
     await expect(asked).toHaveCount(0);
     expect(await urlsOpened(app)).toEqual([]);
@@ -215,7 +220,7 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     );
     await open(window, second);
     await nextRun("signed-out");
-    await press(window);
+    await checkNote(window);
     await expect(asked).toHaveText(
       "Claude Code isn’t signed in: sign in to it in a terminal, then Check again.",
     );
@@ -258,7 +263,7 @@ test("with no model, one press checks a Note the User wrote on their own Claude 
     );
     await open(window, third);
     madeBefore();
-    await press(window);
+    await checkNote(window);
 
     await expect(dialog).toContainText(
       "To start your own AI on this computer when you press Check, ask in a note, or ask call help",
@@ -326,9 +331,13 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await open(window, first);
     const asked = window.getByTestId("checks-asked");
 
-    // While it runs the line names Codex, with Stop; Stop ends Codex and the server it started.
+    // While it runs the button and the card's line name Codex, with Stop; Stop ends Codex and the server it started.
     await nextRun("wait");
-    await press(window);
+    await checkNote(window);
+    const button = noteCheck(window);
+    await expect(button).toHaveAttribute("data-state", "checking");
+    await expect(button).toHaveAttribute("title", "Checking this note in Codex.");
+    await pointAndClick(window, button);
     await expect(asked).toHaveText("Checking this note in Codex.");
     await expect(window.getByTestId("checks-asked-stop")).toHaveText("Stop");
     await both(app, window, "codex-running", async () => {
@@ -343,7 +352,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
 
     // One press, and its marks land; nothing opens and nothing is copied.
     await nextRun("check");
-    await press(window);
+    await checkNote(window);
     await expect(window.locator('[data-testid="claim-mark"]')).toHaveCount(2);
     await expect(asked).toHaveCount(0);
     expect(await urlsOpened(app)).toEqual([]);
@@ -358,7 +367,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     );
     await open(window, second);
     await nextRun("limit");
-    await press(window);
+    await checkNote(window);
     await expect(asked).toHaveText(
       "Codex stopped before finishing. Check your sign-in and usage in Codex.",
     );
@@ -392,7 +401,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     );
     await open(window, third);
     await nextRun("outside");
-    await press(window);
+    await checkNote(window);
     await expect(asked).toHaveText(
       "Codex asked to act outside this check and was stopped. Open the check in Codex.",
     );
@@ -430,9 +439,14 @@ test("with no model, a press checks the Note on the User's own Codex in the back
       );
       await open(window, note);
       await nextRun(mode);
-      await press(window);
+      await checkNote(window);
       await expect.poll(() => urlsOpened(app)).toHaveLength(opened);
+      // The press opens no card: its line is read from the card, opened as the User would.
+      await expect(noteCheck(window)).not.toContainText("stopped");
+      await checkCard(window);
+      await expect(asked).toBeVisible();
       await expect(asked).not.toContainText("stopped");
+      await window.keyboard.press("Escape");
     }
 
     // A connection made before asks once, and says Codex reads the User's own instructions file.
@@ -447,7 +461,7 @@ test("with no model, a press checks the Note on the User's own Codex in the back
     await open(window, older);
     madeBefore();
     await nextRun("check");
-    await press(window);
+    await checkNote(window);
     const dialog = window.getByTestId("consent-dialog");
     await expect(dialog.getByTestId("consent-codex-note")).toHaveText(
       "In these runs Codex also reads your own instructions file, AGENTS.md in your Codex folder (or AGENTS.override.md, if you have one).",

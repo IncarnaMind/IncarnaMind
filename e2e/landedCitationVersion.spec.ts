@@ -10,6 +10,7 @@ import {
   addToNote,
   askInAssistant,
   checkCard,
+  checkNote,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
@@ -368,13 +369,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await window.keyboard.press("Escape");
 
       // Checked, the sentence's own card says the Document changed after it was cited.
-      await pointAndClick(window, (await checkCard(window)).getByTestId("badge-check-mind"));
+      await checkNote(window);
       const mark = window.getByTestId("claim-mark").first();
       // Its quiet ring is there before the check ends: point at it once it has its verdict.
       await expect(mark).toHaveAttribute("data-check", "unsupported", { timeout: 60_000 });
       await expect(mark).toBeVisible();
-      // The check card opens down from the badge at the Note's top right, over the Note's first lines (#3677): it closes first.
-      await window.keyboard.press("Escape");
+      // The press opens no card: the check card opens down from the Note's top right, over the Note's first lines (#3677, #3794).
       await expect(window.getByTestId("check-card")).toHaveCount(0);
       await window.mouse.move(0, 0);
       await pointAt(window, mark);

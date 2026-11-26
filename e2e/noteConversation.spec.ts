@@ -6,6 +6,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import type { CoreBridge, TabItem } from "../src/core/api";
 import {
   acceptPlainTextKeys,
+  checkCard,
   createDataFolder,
   cutIn,
   dismissChatSetup,
@@ -15,6 +16,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   openConversationMenu,
   pointAndClick,
   removeDataFolder,
@@ -30,7 +32,7 @@ import {
 /*
  * The Note's conversation in its two places (#3677): upward inside the input's box at the Note's
  * foot, and the window's column left of the tab groups (#3759), one control moving it between them with the
- * conversation, a run going on, and the input's words and focus; the check badge with the Note's
+ * conversation, a run going on, and the input's words and focus; the Note's Check button with its
  * own controls at its top right. With the stand-in for Claude Code (no model, no key). Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
@@ -145,7 +147,7 @@ const P1 = "The early ferry crossing from Kestrel Bay runs late most weekdays.";
 const P2 = "Commuters miss the 08:15 train when it does.";
 const P3 = "The harbour plan adds a second ramp in 2027.";
 
-test("the Note's conversation opens upward in its input's box and moves to the window's column at the left and back, keeping a run and the words typed; the check badge stands with the Note's own controls", async () => {
+test("the Note's conversation opens upward in its input's box and moves to the window's column at the left and back, keeping a run and the words typed; the Check button stands with the Note's own controls", async () => {
   const { app, window } = await launchApp(dataDir, {
     home,
     ownAi: join(bin, "claude"),
@@ -171,25 +173,26 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     const handle = group.getByTestId("note-ask-handle-toggle");
     const panel = group.getByTestId("note-ask-panel");
     const column = window.getByTestId("note-column");
-    const badge = group.getByTestId("check-badge-open");
+    const button = noteCheck(group);
 
-    // The check badge stands with the Note's own controls, left of Show conversation and ⋯: a
-    // mark and its count, its words its name; the box is the input row alone.
-    await expect(group.getByTestId("note-head-badge").getByTestId("check-badge")).toBeVisible();
-    await expect(group.getByTestId("check-badge").locator(".check-badge-quiet")).toHaveText("3");
-    await expect(badge).toHaveAccessibleName("Checks: 3 sentences not checked yet");
+    // The Check button stands with the Note's own controls, left of Show conversation and ⋯: the
+    // word Check and the count of sentences waiting, the Note's state in full in its tooltip; the
+    // box is the input row alone.
+    await expect(group.getByTestId("note-head-badge").getByTestId("note-check")).toBeVisible();
+    await expect(button).toHaveAttribute("data-state", "check");
+    await expect(button.locator(".note-check-count")).toHaveText("3");
+    await expect(button).toHaveAttribute("title", "3 sentences not checked yet");
     await expect(box.getByTestId("note-ask-top")).toHaveCount(0);
-    const [badgeBox, toggleBox] = [
-      await badge.boundingBox(),
+    const [buttonBox, toggleBox] = [
+      await button.boundingBox(),
       await group.getByTestId("note-ask-conversation-toggle").boundingBox(),
     ];
-    expect((badgeBox?.x ?? 0) + (badgeBox?.width ?? 0)).toBeLessThanOrEqual(toggleBox?.x ?? 0);
+    expect((buttonBox?.x ?? 0) + (buttonBox?.width ?? 0)).toBeLessThanOrEqual(toggleBox?.x ?? 0);
     await shot(window, "conversation-badge-rest-en");
-    // Its card opens downward from it.
-    await pointAndClick(window, badge);
-    const card = window.getByTestId("check-card");
+    // Its card opens downward from it, from ⌘K while the button would check instead.
+    const card = await checkCard(window, group);
     await expect(card).toBeVisible();
-    expect((await card.boundingBox())?.y ?? 0).toBeGreaterThan(badgeBox?.y ?? 0);
+    expect((await card.boundingBox())?.y ?? 0).toBeGreaterThan(buttonBox?.y ?? 0);
     await shot(window, "conversation-badge-card-en");
     await window.keyboard.press("Escape");
     await expect(card).toHaveCount(0);
@@ -295,7 +298,7 @@ test("the Note's conversation opens upward in its input's box and moves to the w
     await fromConversationMenu(window, column, "conversation-move-down");
     expect(await conversationMenu(window, panel)).toEqual(["新对话", "移到左侧", "隐藏对话"]);
     await expectPanelEdges(group);
-    await expect(badge).toHaveAccessibleName("核对结果：3 句未核对");
+    await expect(button).toHaveAttribute("title", "3 句未核对");
     await shot(window, "conversation-upward-zh-CN");
 
     // Esc folds it to the line; with no request running it doesn't stop anything.

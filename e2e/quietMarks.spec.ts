@@ -6,12 +6,14 @@ import type { CoreBridge } from "../src/core/api";
 import {
   addDocuments,
   checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   focusSettled,
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   openPageMenu,
   paletteOffers,
   pointAndClick,
@@ -137,10 +139,9 @@ test("after a check only what needs a look is marked; the sentences written befo
     },
   ]);
 
-  const card = await checkCard(window);
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
-  await expect(card.getByTestId("card-foot-stop")).toHaveCount(0, { timeout: 60_000 });
-  await window.keyboard.press("Escape");
+  await checkNote(window);
+  await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check");
+  await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 60_000 });
 
   // Four sentences checked; only the one that needs a look shows its mark and its wash.
   await expect(marks(window)).toHaveCount(4);
@@ -160,12 +161,10 @@ test("after a check only what needs a look is marked; the sentences written befo
   ];
   expect((await noteText(window)).slice(1, 3)).toEqual(written);
 
-  // The foot line keeps what needs a look first and says what can be cited.
-  const badge = window.getByTestId("check-badge");
-  await expect(badge).toHaveAttribute("data-state", "needs-look");
-  await expect(badge.getByTestId("check-badge-open")).toHaveAccessibleName(
-    "Checks: 1 needs a look and 2 can be cited",
-  );
+  // The button keeps what needs a look first and says what can be cited.
+  const button = noteCheck(window);
+  await expect(button).toHaveAttribute("data-state", "look");
+  await expect(button).toHaveAttribute("title", "1 needs a look · 2 can be cited");
   const panel = await checkCard(window);
   const row = panel.getByTestId("health-notYetCited");
   await expect(row).toContainText("2 can be cited");

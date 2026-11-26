@@ -11,6 +11,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -189,7 +190,7 @@ for (const language of ["en", "zh-CN"] as const) {
       ],
     );
     // No ✓ on the page; the Note itself still reads Checked.
-    await expect(window.getByTestId("check-badge")).toBeVisible();
+    await expect(noteCheck(window)).toHaveAttribute("data-state", "checked");
     await expect(
       window.locator('[data-testid="claim-mark"][data-claim="check-1"]'),
     ).toHaveAttribute("data-check", "not-checked");

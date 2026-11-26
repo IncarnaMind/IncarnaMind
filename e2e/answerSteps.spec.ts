@@ -17,6 +17,7 @@ import {
   launchApp,
   mindWrittenBefore,
   motionSettled,
+  noteCheck,
   openExample,
   openSteps,
   pointAndClick,
@@ -740,9 +741,7 @@ test("a sentence its model didn't cite, which the Passages its Answer read don't
     await expect(
       window.locator('[data-testid="claim-mark"]:not([data-check="supported"])'),
     ).toHaveCount(0);
-    await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-      new RegExp(`${words.toCheck}$`),
-    );
+    await expect(noteCheck(window)).toHaveAttribute("title", new RegExp(`${words.toCheck}$`));
     await expect(editor.locator('[data-testid="citation"]')).toHaveCount(language === "en" ? 1 : 2);
     for (const look of ["light", "dark"] as const) {
       await appearance(look);

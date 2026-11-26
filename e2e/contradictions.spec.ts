@@ -7,14 +7,17 @@ import {
   acceptPlainTextKeys,
   addDocuments,
   checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   markShownFor,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -133,7 +136,7 @@ test("Check for contradictions: the estimate first, then a cited claim another D
 
   await runFromPalette(window, "contradictions", "Check for contradictions");
 
-  // A model billed per token: the badge's card opens by itself and asks first; one claim costs
+  // A model billed per token: the Checks card opens by itself and asks first; one claim costs
   // less than a dollar, so no price line shows (#1941).
   const ask = window.getByTestId("check-card").getByTestId("contradictions-ask");
   await expect(ask).toContainText("Check 1 cited sentence against this Folder’s other Documents?");
@@ -148,8 +151,8 @@ test("Check for contradictions: the estimate first, then a cited claim another D
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
   await expect(checks.getByTestId("health-look")).toContainText("1 needs a look");
   await screenshot(window, "contradictions-found-en");
-  // The card opens down from the badge at the Note's top right, over the marks beside the Note's
-  // first lines (#3677): it closes before the mark is pressed.
+  // The card opens down from the Check button at the Note's top right, over the marks beside the
+  // Note's first lines (#3677): it closes before the mark is pressed.
   await window.keyboard.press("Escape");
   await expect(checks).toHaveCount(0);
 
@@ -181,22 +184,24 @@ test("the one Check in a Folder checks the cited sentence and its contradiction 
   await citedClaim(window);
   await bridge(window).folder("Harbours", ["Tides", "Office"]);
 
-  // One action: Check runs from its one press (#2313), with no price line for a run under a dollar (#1941).
-  const card = await checkCard(window);
-  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
+  // One action: Check runs from its one press (#2313), with no question for a run under a dollar (#1941).
+  const button = noteCheck(window);
+  await expect(button).toHaveAttribute("data-state", "check");
+  await expect(button.locator(".note-check-words")).toHaveText("Check");
+  await checkNote(window);
+  await expect(window.getByTestId("mind-check-ask")).toHaveCount(0);
 
   // The sentence is checked for support and against the Folder's other Document: the contradiction is what shows.
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted");
   const done = await checkCard(window);
   await expect(done.getByTestId("health-look")).toContainText("1 needs a look");
   await expect(done.getByTestId("health-toCheck")).toHaveCount(0);
-  await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "needs-look");
+  await expect(button).toHaveAttribute("data-state", "look");
   await screenshot(window, "one-check-folder-en");
 
-  // Nothing changed since: Check sends nothing and the card says so.
-  await expect(done.getByTestId("badge-check-mind")).toHaveAttribute("title", "Nothing changed");
-  await pointAndClick(window, done.getByTestId("badge-check-mind"));
+  // Nothing changed since: nothing waits on the button, and a Check from ⌘K sends nothing and the card says so.
+  await expect(button.locator(".note-check-count")).toHaveCount(0);
+  await runCommand(window, "mind.check", "Check");
   await expect(done.getByTestId("mind-check-unchanged")).toBeVisible();
   await expect(done.getByTestId("mind-check-ask")).toHaveCount(0);
   await app.close();
@@ -249,15 +254,14 @@ test("A new version of a Document in the Folder has the Mind's cited claims chec
 
   await writeFile(join(sources, "Office.pdf"), OFFICE);
 
-  // Work in the background never opens the card: the badge shows the mark, and the card what the run found.
+  // Work in the background never opens the card: the Check button says what was found, and the card says it in full.
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "contradicted", {
     timeout: 30_000,
   });
   await expect(line.locator(".claim-wash--contradicted").first()).toBeVisible();
   await expect(window.getByTestId("check-card")).toHaveCount(0);
-  await expect(
-    window.getByTestId("check-badge").locator('[data-part="contradicted"] .check-badge-words'),
-  ).toHaveText("1 needs a look");
+  await expect(noteCheck(window)).toHaveAttribute("data-state", "look");
+  await expect(noteCheck(window).locator(".note-check-words")).toHaveText("1 needs a look");
   const checks = await checkCard(window);
   const watched = checks.getByTestId("contradictions-watched");
   await expect(watched).toContainText(

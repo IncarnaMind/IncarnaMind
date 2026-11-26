@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -13,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -207,7 +209,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(ring).toBeVisible();
     await expect(ring.locator("svg")).toHaveCount(1);
 
-    // Its card still opens from the badge's row for the claims not checked yet.
+    // Its card still opens from the card's row for the claims not checked yet.
     await pointAndClick(window, card.getByTestId("health-toCheck"));
     const claimCard = window.getByTestId("claim-card");
     await expect(claimCard).toHaveAttribute("data-check", "not-checked");
@@ -318,9 +320,11 @@ test("Check again on a Note whose checks keep no time says nothing changed, with
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
     const card = await checkCard(window);
-    const again = card.getByTestId("badge-check-mind");
-    await expect(again).toHaveText(language === "en" ? "Check again" : "重新核对");
-    await pointAndClick(window, again);
+    // The card has no Check of its own: nothing changed says so once a Check from ⌘K has run.
+    for (const name of language === "en" ? ["Check", "Check again"] : ["核对", "重新核对"]) {
+      await expect(card.getByRole("button", { name, exact: true })).toHaveCount(0);
+    }
+    await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
     const unchanged = card.getByTestId("mind-check-unchanged");
     await expect(unchanged).toContainText(language === "en" ? "Nothing changed" : "没有改动");
     await expect(unchanged).not.toContainText(language === "en" ? "since" : "起");
@@ -391,23 +395,31 @@ test("the card keeps one height as a result lands, its body taking what it needs
   const card = await checkCard(window);
   await expect(card.getByTestId("health-checking")).toBeVisible();
   await expect(card.locator(".mind-health-summary")).toHaveCount(0);
+  const body = card.locator(".check-card-body");
   const running = await card.boundingBox();
+  const runningBody = await body.boundingBox();
+  await expect(card.getByTestId("check-card-foot")).toHaveCount(0);
 
   await write("contradicted", {
     says: "The agreement says the facilities end on 14 February 2029.",
   });
-  // The result lands in the same card: the card keeps the height it opened with, so it does not
-  // jump; its body holds what the result needs and scrolls if that is more (#2313).
+  // The result lands in the same card: its top and its body keep the place and height they opened
+  // with, so nothing in it jumps; the body holds what the result needs and scrolls if that is more
+  // (#2313). The one thing added is the fix the check found, as the card's foot under the body,
+  // where the card's own Check used to stand (#3794).
   await expect(card.locator(".mind-health-summary")).toHaveCount(0);
   await expect(card.getByTestId("health-look")).toContainText("1 needs a look");
+  const foot = card.getByTestId("check-card-foot");
+  await expect(foot.getByTestId("badge-fix-sentences")).toBeVisible();
   const done = await card.boundingBox();
-  expect(running).not.toBeNull();
-  expect(done).not.toBeNull();
-  if (running && done) {
-    expect(done.y).toBeCloseTo(running.y, 0);
-    expect(done.height).toBeCloseTo(running.height, 0);
-  }
-  const body = card.locator(".check-card-body");
+  const doneBody = await body.boundingBox();
+  const footBox = await foot.boundingBox();
+  if (!running || !runningBody || !done || !doneBody || !footBox)
+    throw new Error("The card, its body or its foot isn't drawn.");
+  expect(done.y).toBeCloseTo(running.y, 0);
+  expect(doneBody.y).toBeCloseTo(runningBody.y, 0);
+  expect(doneBody.height).toBeCloseTo(runningBody.height, 0);
+  expect(footBox.y).toBeGreaterThanOrEqual(doneBody.y + doneBody.height - 0.5);
   await expect(body).toHaveCount(1);
   expect(await body.evaluate((element) => getComputedStyle(element).overflowY)).toBe("auto");
   await app.close();

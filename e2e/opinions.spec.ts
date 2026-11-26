@@ -26,6 +26,7 @@ import {
   markShownFor,
   motionSettled,
   newMind,
+  noteCheck,
   openCardMenu,
   pointAndClick,
   removeDataFolder,
@@ -703,9 +704,9 @@ for (const language of ["en", "zh-CN"] as const) {
             citedCaseUnchecked: true,
           };
           await setContent(window, [paragraph("case", both, cases)]);
-          // Opened once the page's check badge shows, as a User sees it, so the card can keep clear of it.
-          const badge = window.locator(".note-head-badge .check-badge").first();
-          await expect(badge).toBeVisible();
+          // Opened once the Note's Check button shows, as a User sees it, so the card can keep clear of it.
+          const button = noteCheck(window);
+          await expect(button).toBeVisible();
           await markShownFor(window, window.getByTestId("claim-mark"));
           await window.getByTestId("claim-mark").click();
           await expect(card.getByTestId("claim-cited-case-unchecked")).toHaveText(
@@ -717,14 +718,14 @@ for (const language of ["en", "zh-CN"] as const) {
           await expect(rows).toHaveCount(2);
           await expect(rows.first().getByTestId("claim-part-cited-case-unchecked")).toBeVisible();
           await expect(rows.last().getByTestId("claim-part-cited-case-unchecked")).toHaveCount(0);
-          const badgeBox = await badge.boundingBox();
+          const buttonBox = await button.boundingBox();
           const box = await card.boundingBox();
-          if (!badgeBox || !box) throw new Error("The card or the badge has no size.");
+          if (!buttonBox || !box) throw new Error("The card or the Check button has no size.");
           expect(
-            box.y + box.height <= badgeBox.y ||
-              box.x + box.width <= badgeBox.x ||
-              box.x >= badgeBox.x + badgeBox.width ||
-              box.y >= badgeBox.y + badgeBox.height,
+            box.y + box.height <= buttonBox.y ||
+              box.x + box.width <= buttonBox.x ||
+              box.x >= buttonBox.x + buttonBox.width ||
+              box.y >= buttonBox.y + buttonBox.height,
           ).toBe(true);
           await window.keyboard.press("Escape");
         }

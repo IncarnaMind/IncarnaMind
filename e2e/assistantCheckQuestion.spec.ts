@@ -6,6 +6,8 @@ import {
   acceptPlainTextKeys,
   addDocuments,
   askInAssistant,
+  checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   launchApp,
@@ -19,8 +21,9 @@ import {
 
 /*
  * A Check that asks on the Note (#2252): the assistant's card line follows the User's answer, and
- * only an answer changes it. An outside click closes the card but keeps the question, which the
- * badge reopens; Esc, the badge's × and the Note closing settle it as closed; Not now declines it.
+ * only an answer changes it. An outside click closes the card but keeps the question, which ⌘K's
+ * Checks reopens; Esc and the Note closing settle it as closed, and so does the Note's Check
+ * pressed again, which then asks anew (#3794); Not now declines it.
  */
 
 const WAITING_EN = "The check starts when you confirm it on the note.";
@@ -65,13 +68,13 @@ test("a Check's question changes the assistant card line, EN and ZH", async () =
     await expect(ask).toBeVisible();
     await expect(first).toContainText(WAITING_EN);
 
-    // A click into the page closes the card and keeps the question. The badge reopens it, the same
+    // A click into the page closes the card and keeps the question. ⌘K's Checks reopens it, the same
     // question with its price.
-    // Below the text: the card, hung from the badge in the tab strip, lies over its first lines.
+    // Below the text: the card, hung from the Check button in the tab strip, lies over its first lines.
     await pointAndClick(window, window.getByTestId("mind-scroller"));
     await expect(ask).toHaveCount(0);
     await expect(first).toContainText(WAITING_EN);
-    await pointAndClick(window, window.getByTestId("check-badge-open"));
+    await checkCard(window);
     await expect(ask).toContainText("Check 1 sentence in this note against your Documents?");
     await expect(ask).toContainText("Under $0.01");
     await expect(ask.getByTestId("estimate-price")).toHaveAccessibleDescription(
@@ -91,12 +94,14 @@ test("a Check's question changes the assistant card line, EN and ZH", async () =
     await pointAndClick(window, ask.getByTestId("mind-check-cancel"));
     await expect(declined).toContainText(DECLINED_EN);
 
-    // The badge's × closes the question too.
+    // The Note's Check pressed while a question waits closes that question and asks again.
     const toggled = await askInAssistant(window, "Check this Note");
     await expect(ask).toBeVisible();
-    await pointAndClick(window, window.getByTestId("check-badge-open"));
-    await expect(ask).toHaveCount(0);
+    await checkNote(window);
     await expect(toggled).toContainText(CLOSED_EN);
+    await expect(ask).toContainText("Check 1 sentence in this note against your Documents?");
+    await window.keyboard.press("Escape");
+    await expect(ask).toHaveCount(0);
 
     // The same, in Chinese.
     await setLanguage(window, "zh-CN");

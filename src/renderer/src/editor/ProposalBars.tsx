@@ -479,7 +479,7 @@ function useBarPlace(
         .closest(".workbench")
         ?.querySelector("[data-ask-pill]")
         ?.getBoundingClientRect();
-      const badge = pageOf?.querySelector(".mind-foot-badge .check-badge")?.getBoundingClientRect();
+      const badge = pageOf?.querySelector(".mind-foot-badge .note-check")?.getBoundingClientRect();
       // The Note's own input at its foot, with its line (#3627), or what it opened over the Note.
       const input = pageOf ? drawnNoteAskBox(pageOf)?.getBoundingClientRect() : undefined;
       // Its width at the widest it is drawn, before this placement's own cap.

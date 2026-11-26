@@ -1183,8 +1183,8 @@
   .tab-strip[data-tight] :is(.tab-export, .note-conversation-button) {
     display: none;
   }
-  /* Short of the shown tab's icon and ✕, the Note's controls give up their room from the left,
-     the check's last: its room overflows at its start, so its Stop stays in view (#3765). */
+  /* Short of the shown tab's icon and ✕, the Note's other controls give up their room, then the
+     Check its start, keeping its number or its Stop in view (useTabStripFit, #3765). */
   .tab-strip[data-tight] .tab-strip-note {
     justify-content: flex-end;
     max-width: var(--note-controls-room, none);
@@ -1489,21 +1489,16 @@
   .mind-health-icon--wide {
     width: 18px;
   }
-  :is(.check-row, .check-badge-mark):is([data-part="found"], [data-part="supported"])
-    .mind-health-icon {
+  .check-row:is([data-part="found"], [data-part="supported"]) .mind-health-icon {
     padding: 0;
     color: var(--color-success);
   }
-  :is(.check-row, .check-badge-mark):is(
-      [data-part="unsupported"],
-      [data-part="notFound"],
-      [data-part="look"]
-    )
+  .check-row:is([data-part="unsupported"], [data-part="notFound"], [data-part="look"])
     .mind-health-icon {
     background: var(--color-warning);
     color: var(--color-sheet);
   }
-  :is(.check-row, .check-badge-mark)[data-part="contradicted"] .mind-health-icon {
+  .check-row[data-part="contradicted"] .mind-health-icon {
     box-shadow: inset 0 0 0 1.25px var(--color-danger);
     color: var(--color-danger);
   }
@@ -1869,7 +1864,7 @@
     padding: 0 max(16px, calc((100% - 784px) / 2)) 16px 16px;
     pointer-events: none;
 
-    &:has(.check-badge, .mind-count)::before {
+    &:has(.note-check, .mind-count)::before {
       content: "";
       position: absolute;
       inset: auto 0 0;
@@ -1889,116 +1884,192 @@
     position: relative;
     margin-left: auto;
   }
-  .check-badge-place {
+  .note-check-frame {
     position: relative;
   }
-  .check-badge-anchor {
+  .note-check-anchor {
     display: block;
     width: 1px;
     height: 28px;
   }
-  .check-badge {
+  /*
+   * The Note's Check (#3794): a 28px button, the one dark control of the Note's row while sentences
+   * wait; then how far a run has got, with Stop, and what it found, in the colours the margin marks
+   * use. While a run is on, and until the User types after it, it and its Stop keep the widest
+   * room they have had (`--note-check-held`), so their words changing move nothing beside them
+   * (#2519). Once the run is over the button stands at that room's end, beside the next control,
+   * the spare room on the strip's empty side: given back when the User types, it moves nothing.
+   */
+  .note-check {
     display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    min-width: var(--note-check-held, 0);
+    pointer-events: auto;
+    &:not([data-running]) {
+      justify-content: flex-end;
+    }
+  }
+  /* First of the Note's own controls at its top right (#3677). */
+  .note-head-badge {
+    display: flex;
+    flex: none;
+    align-items: center;
+    margin-right: 4px;
+  }
+  .note-check-button {
+    position: relative;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     height: 28px;
-    padding: 0 6px;
-    border-radius: 14px;
-    background: var(--color-sheet);
-    box-shadow: var(--shadow-popover);
+    padding: 0 10px;
+    border-radius: 6px;
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 20px;
-    color: var(--color-ink);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
-    pointer-events: auto;
-  }
-  .check-badge-open,
-  .check-badge-stop {
-    display: flex;
-    align-items: center;
-    height: 22px;
-    padding: 0 6px;
-    border-radius: 11px;
+    color: var(--color-ink-secondary);
     outline: none;
 
     &:hover,
-    &:focus-visible {
-      background: var(--color-hover);
+    &[aria-expanded="true"] {
+      background: var(--color-tab-hover);
+      color: var(--color-ink);
+    }
+    &:active {
+      background: var(--color-tab-press);
     }
     &:focus-visible {
       outline: 2px solid var(--color-accent);
       outline-offset: 1px;
     }
   }
-  /* A running badge, or one showing a finished check, keeps one width, so its words changing move
-     nothing; at rest it takes only its words' width, clear of the page's foot, and opening the
-     card leaves it as it was. The button fills the pill, and its words start at one edge, so a
-     change widens it without moving them. */
-  .check-badge[data-stable] {
-    justify-content: flex-start;
-    min-width: 252px;
+  .note-check-mark {
+    flex: none;
+    width: 14px;
+    height: 14px;
   }
-  .check-badge[data-stable] .check-badge-open {
-    flex: 1 1 auto;
-    justify-content: flex-start;
+  .note-check-mark--wide {
+    width: 18px;
   }
-  .check-badge-stop {
-    font-weight: 600;
+  .note-check-short {
+    display: none;
   }
-  .check-badge-mark {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
+  /* The running dot, in a mark's own room, so the words after it stay put when the run ends. */
+  .note-check-dot {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 14px;
+    height: 14px;
 
-    & + &::before {
-      content: "·";
-      margin: 0 2px 0 6px;
-      font-weight: 400;
-      color: var(--color-rule-strong);
+    &::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--color-accent);
     }
   }
-  .check-badge-words {
-    font-weight: 400;
-    color: var(--color-ink-secondary);
+  /* Sentences wait: the app's primary button. */
+  .note-check-button[data-state="check"] {
+    background: var(--color-ink);
+    color: var(--color-on-primary);
+
+    &:hover {
+      background: var(--color-ink-strong);
+      color: var(--color-on-primary);
+    }
+    &:active {
+      transform: scale(0.98);
+    }
   }
-  /* A note's three resting states (D266), in the check colours the margin uses. */
-  .check-badge[data-tone="success"] .check-badge-words {
-    font-weight: 600;
+  /* What needs a look: the warning colour on its wash, as the margin marks it. */
+  .note-check-button[data-state="look"] {
+    background: var(--color-warning-wash);
+    color: var(--color-warning);
+
+    &:hover,
+    &[aria-expanded="true"] {
+      background: color-mix(in srgb, var(--color-warning-wash), var(--color-warning) 12%);
+      color: var(--color-warning);
+    }
+  }
+  .note-check-button[data-state="checked"][data-tone="success"] .note-check-mark {
     color: var(--color-success);
   }
-  .check-badge[data-tone="warning"] .check-badge-words {
-    font-weight: 600;
-    color: var(--color-warning);
-  }
-  /* Unread files that could hold the evidence keep the ring amber, as a failed check does. */
-  .check-badge[data-tone="warning"] .mind-health-icon {
-    color: var(--color-warning);
-  }
-  .check-badge[data-tone="error"] .check-badge-words {
-    font-weight: 600;
-    color: var(--color-danger);
-  }
-  .check-badge[data-tone="neutral"] .mind-health-icon {
+  /* A mark of what is left, as the margin draws those sentences' own: never the checked green. */
+  .note-check-button[data-tone="neutral"]:not([data-state="check"]) .note-check-mark {
     color: var(--color-ink-meta);
   }
-  .check-badge[data-tone="success"] .mind-health-icon {
-    color: var(--color-success);
+  .note-check-button[data-state="said"][data-tone="warning"] {
+    color: var(--color-warning);
   }
-  .check-badge-more {
-    display: inline-flex;
+  .note-check-stop {
+    display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    width: 24px;
+    height: 28px;
+    border-radius: 6px;
+    color: var(--color-ink-secondary);
+    outline: none;
+
+    &:hover {
+      background: var(--color-tab-hover);
+      color: var(--color-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
   }
-  .check-badge-unread {
-    font-weight: 400;
-    color: var(--color-ink-meta);
+  /* On the line above the Note's input, in the line's 24px, on the page's own surface. */
+  .note-check[data-place="line"] {
+    .note-check-button {
+      height: 24px;
+      padding: 0 8px;
+    }
+    .note-check-stop {
+      height: 24px;
+    }
+    :is(.note-check-button:not([data-state="check"], [data-state="look"]), .note-check-stop):is(
+        :hover,
+        [aria-expanded="true"]
+      ) {
+      background: var(--color-hover);
+    }
   }
-  .check-badge-short {
-    display: none;
-    font-variant-numeric: tabular-nums;
+  /* A run's room held past its end, given back in a strip short of room (useTabStripFit). */
+  .tab-strip[data-check-unheld] .note-check {
+    min-width: 0;
+  }
+  /* A tight strip still short of room (useTabStripFit): the Check gives up its word before the
+     shown tab goes under its least width, and never leaves the row (#3794). Its word is kept for a
+     screen reader; its mark and number stay. */
+  .tab-strip[data-check-compact] .note-head-badge {
+    .note-check {
+      min-width: 0;
+    }
+    .note-check-button {
+      gap: 4px;
+      padding: 0 8px;
+    }
+    .note-check-words {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .note-check-short {
+      display: inline;
+    }
   }
   .home-recent-state {
     color: var(--color-ink-meta);
@@ -2012,21 +2083,6 @@
   }
   .home-recent-state[data-tone="success"] {
     color: var(--color-success);
-  }
-  .check-badge-sep {
-    color: var(--color-rule-strong);
-  }
-  .check-badge-running {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--color-ink-secondary);
-  }
-  .check-badge-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 3px;
-    background: var(--color-accent);
   }
   /*
    * The undo line with the sidebar out of sight (#1776): the card's bottom left corner, 16px in
@@ -2254,42 +2310,30 @@
       white-space: nowrap;
     }
   }
-  /* The run's price, under the rows and in the card's text column (#1941). */
-  .check-card-estimate {
-    padding: 2px 8px 4px;
-
-    /* A part that begins a wrapped line begins with its dot: the line clips it at its start. */
-    & .meta-line {
-      margin: 0;
-      padding-left: 0;
-    }
-  }
-  /* The run's words take Check's row: they lie over the hidden Check, to its left, so the row
-     keeps the Check's own size and the words' length never moves it (#2313). */
-  .check-card-press {
-    position: relative;
+  /* While a run goes, its Stop at the foot's right end; the Note's button says how far it has got. */
+  .check-card-progress {
     display: flex;
     align-items: center;
     margin-left: auto;
+  }
+  .check-card-stop {
+    height: 28px;
+    padding: 0 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 600;
+    color: var(--color-ink-secondary);
+    outline: none;
 
-    & > [data-hidden] {
-      visibility: hidden;
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
     }
-  }
-  .check-card-progress {
-    position: absolute;
-    top: 50%;
-    right: 0;
-    transform: translateY(-50%);
-    flex-wrap: nowrap;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    margin: 0;
-    padding-left: 0;
-  }
-  /* The foot's Stop is the badge's own, in the line's height. */
-  .check-card-progress .check-badge-stop {
-    height: 20px;
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
   }
   /* What a check found and what is left, under the rows (#1941). */
   .mind-health-summary {
@@ -2325,35 +2369,6 @@
     justify-content: space-between;
     gap: 4px 12px;
     padding: 2px 8px;
-  }
-  .check-card-link {
-    padding: 2px 4px;
-    border-radius: 4px;
-    font-size: 13px;
-    line-height: 20px;
-    color: var(--color-ink-meta);
-    outline: none;
-
-    &:hover:not(:disabled) {
-      color: var(--color-ink);
-      text-decoration: underline;
-    }
-    &:focus-visible {
-      outline: 2px solid var(--color-accent);
-      outline-offset: -2px;
-    }
-    &:disabled {
-      opacity: 0.5;
-    }
-  }
-  /* Check again is a quiet button, no border, in Check's own height, so the card keeps its height
-     through a run's end; its focus ring has a button's room around the words. */
-  .check-card-press > .check-card-link {
-    display: inline-flex;
-    align-items: center;
-    min-height: 28px;
-    padding: 0 8px;
-    border-radius: 6px;
   }
   .check-card-sep {
     height: 1px;
@@ -2462,18 +2477,6 @@
 
     & > :last-child {
       margin-left: auto;
-    }
-  }
-  @container note (width < 400px) {
-    .check-badge[data-stable] {
-      min-width: 0;
-    }
-    .check-badge-words,
-    .check-badge-more {
-      display: none;
-    }
-    .check-badge-short {
-      display: inline;
     }
   }
   .mind-count-button {
@@ -4051,110 +4054,6 @@
   /* A command is read exactly as it runs: no ligature turns "!=" into "≠". */
   .own-ask-card :is(code, pre, .own-ask-value, .own-ask-input, .own-ask-args dt) {
     font-variant-ligatures: none;
-  }
-  /*
-   * The check badge with the Note's own controls at its top right, left of the conversation button
-   * and ⋯ (#3677): at rest a mark and its count in the Note's tone, its words its tooltip.
-   */
-  .note-head-badge {
-    display: flex;
-    flex: none;
-    align-items: center;
-    margin-right: 4px;
-    /* The control fills its room in every state, so its edges never move as its words change. */
-    .check-badge-place {
-      display: flex;
-      flex: 1 1 auto;
-    }
-    .check-badge {
-      flex: 1 1 auto;
-      gap: 2px;
-      height: 28px;
-      padding: 0;
-      background: none;
-      box-shadow: none;
-    }
-    .check-badge-open {
-      flex: 1 1 auto;
-      justify-content: flex-end;
-    }
-    /* Running: the dot, the part checked and Stop, as a square; the dot stays where it starts. */
-    .check-badge-open:has(.check-badge-running) {
-      justify-content: flex-start;
-    }
-    .check-badge-share {
-      font-variant-numeric: tabular-nums;
-    }
-    .check-badge-stop {
-      justify-content: center;
-      width: 22px;
-      padding: 0;
-      color: var(--color-ink-secondary);
-      &:hover {
-        color: var(--color-ink);
-      }
-    }
-  }
-  /* One room for the check in every state, sized for its widest marks and for its run at "100%"
-     with Stop in any system's figures, so a check starting or ending never fits the strip again;
-     the marks keep to its right edge, by the Note's other controls (#2519). */
-  .note-head-badge:has(.check-badge) {
-    justify-content: flex-end;
-    min-width: 88px;
-  }
-  .check-badge-quiet {
-    display: none;
-    align-items: center;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    color: var(--color-ink-secondary);
-  }
-  .note-head-badge {
-    .check-badge-words,
-    .check-badge-more,
-    .check-badge-short,
-    .check-badge-mark[data-quiet-marks] {
-      display: none;
-    }
-    .check-badge-quiet {
-      display: inline-flex;
-    }
-    .check-badge-mark:not([data-quiet-marks]) + .check-badge-quiet {
-      margin-left: 4px;
-    }
-    .check-badge[data-tone="success"] .check-badge-quiet {
-      color: var(--color-success);
-    }
-    .check-badge[data-tone="warning"] .check-badge-quiet {
-      color: var(--color-warning);
-    }
-    .check-badge[data-tone="error"] .check-badge-quiet {
-      color: var(--color-danger);
-    }
-    /* Each problem's count in its own mark's colour. */
-    .check-badge-quiet .check-badge-mark[data-part="contradicted"] {
-      color: var(--color-danger);
-    }
-    .check-badge-quiet .check-badge-mark:is([data-part="unsupported"], [data-part="notFound"]) {
-      color: var(--color-warning);
-    }
-    /* What a checked Note left unsettled is in the margin's tone for those sentences, never the
-       checked green. */
-    .check-badge-quiet
-      .check-badge-mark:is(
-        [data-part="needs-recheck"],
-        [data-part="not-checked"],
-        [data-part="notYetCited"]
-      ),
-    .check-badge-quiet
-      .check-badge-mark:is(
-        [data-part="needs-recheck"],
-        [data-part="not-checked"],
-        [data-part="notYetCited"]
-      )
-      .mind-health-icon {
-      color: var(--color-ink-meta);
-    }
   }
   /* "Show conversation", at the Note's top right beside its menu. */
   .note-conversation-button {

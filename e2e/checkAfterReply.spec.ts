@@ -11,6 +11,7 @@ import {
   launchApp,
   nameMind,
   newMind,
+  noteCheck,
   openSettings,
   removeDataFolder,
   setLanguage,
@@ -21,7 +22,7 @@ import {
 /*
  * What the assistant writes into a Note is checked right after it lands, never in front of the
  * reply (#2830). The reply comes and the composer is free while the check runs; the line under
- * the Answer's card and the Note's badge count it live; a message sent meanwhile is answered, and
+ * the Answer's card and the Note's Check button count it live; a message sent meanwhile is answered, and
  * the check still finishes. The write here cites in the step after it (#1635), so its check starts
  * as the Answer ends. The scripted model holds each sentence's check until the test releases it.
  * Set INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
@@ -132,17 +133,25 @@ const heldSteps = (app: ElectronApplication) =>
   );
 
 /**
- * The numbers the line under the Answer and the Note's badge show, done then total, read from
- * the window at the same moment: "Checking: 1 of 2 sentences done", "正在核对 1/2". Null where
- * one shows none.
+ * The numbers the line under the Answer and the Note's Check button show, done then total, read
+ * from the window at the same moment: "Checking: 1 of 2 sentences done", "正在核对 1/2". Null where
+ * one shows none: the button only while it is checking.
  */
 const counts = (window: Page) =>
   window.evaluate(() => {
-    const numbers = (id: string) =>
-      document.querySelector(`[data-testid="${id}"]`)?.textContent?.match(/\d+/g)?.join(" of ") ??
-      null;
-    return { line: numbers("self-check-checking"), badge: numbers("badge-progress") };
+    const numbers = (text: string | null | undefined) => text?.match(/\d+/g)?.join(" of ") ?? null;
+    const button = document.querySelector(
+      '[data-testid="note-check-place"] [data-testid="note-check"][data-state="checking"]',
+    );
+    return {
+      line: numbers(document.querySelector('[data-testid="self-check-checking"]')?.textContent),
+      badge: numbers(button?.getAttribute("title")),
+    };
   });
+
+/** The Note's Check button while a check runs, in the strip or on the line above the input. */
+const checking = (window: Page) =>
+  window.locator('[data-testid="note-check"][data-state="checking"]');
 
 /** Asks as a person does, and gives back the Answer at once. */
 async function ask(window: Page, question: string): Promise<Locator> {
@@ -182,7 +191,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
     const line = answer.getByTestId("self-check-checking");
     await expect(line).toHaveText(words.checking);
-    await expect(window.getByTestId("badge-progress")).toHaveText(words.badge);
+    await expect(noteCheck(window)).toHaveAttribute("data-state", "checking");
+    await expect(noteCheck(window)).toHaveAttribute("title", words.badge);
     await expect(window.getByTestId("composer-stop")).toHaveCount(0);
     if (SCREENSHOTS) {
       await window.screenshot({ path: join(SCREENSHOTS, `check-after-reply-${language}.png`) });
@@ -193,7 +203,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(next).toHaveAttribute("data-status", "done", { timeout: 60_000 });
     await expect(line).toHaveText(words.checking);
 
-    // One step at a time to the end: the line under the card and the badge count the same
+    // One step at a time to the end: the line under the card and the button count the same
     // finished sentences at every step, several being checked at once (#2830).
     const seen = new Set<string>();
     for (let step = 0; step < 12; step++) {
@@ -221,7 +231,7 @@ for (const language of ["en", "zh-CN"] as const) {
       timeout: 30_000,
     });
     await expect(line).toHaveCount(0);
-    await expect(window.getByTestId("badge-progress")).toHaveCount(0);
+    await expect(checking(window)).toHaveCount(0);
     await app.close();
   });
 
@@ -294,7 +304,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(waiting).toHaveText(words.waiting);
     await expect(answer.getByTestId("self-check-left-action")).toHaveText(words.check);
     await expect(answer.getByTestId("self-check-checking")).toHaveCount(0);
-    await expect(window.getByTestId("badge-progress")).toHaveCount(0);
+    await expect(checking(window)).toHaveCount(0);
     // Nothing was sent for the sentences it wrote: no step of a check is held.
     expect(await heldSteps(app)).toBe(0);
     if (SCREENSHOTS) {
@@ -304,10 +314,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await releaseChecks(app);
     await answer.getByTestId("self-check-left-action").click();
     // The write's own sentences are checked and the line goes once none is left; the sentence the
-    // User typed in the Note is the Note's Check, on the badge, so it is still not checked yet.
+    // User typed in the Note is the Note's Check, on its button, so it is still not checked yet.
     await expect(waiting).toHaveCount(0, { timeout: 60_000 });
-    const badge = window.getByTestId("check-badge");
-    await expect(badge.locator(".check-badge-words")).toHaveText(words.userLeft);
+    const button = noteCheck(window);
+    await expect(button).toHaveAttribute("data-state", "check");
+    await expect(button.locator(".note-check-count")).toHaveText("1");
+    await expect(button).toHaveAttribute("title", words.userLeft);
     if (SCREENSHOTS) {
       await window.screenshot({ path: join(SCREENSHOTS, `write-checked-${language}.png`) });
     }

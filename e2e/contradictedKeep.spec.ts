@@ -12,6 +12,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -155,8 +156,8 @@ for (const language of ["en", "zh-CN"] as const) {
     expect(await kept()).toEqual([CLAIM]);
     await expect(undoLine).toContainText(words.kept);
     // Kept as the User's view counts as handled: the other sentence holds, so the note is checked (D266).
-    await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "checked");
-    await pointAndClick(window, window.getByTestId("check-badge-open"));
+    await expect(noteCheck(window)).toHaveAttribute("data-state", "checked");
+    await pointAndClick(window, noteCheck(window));
     const health = window.getByTestId("check-card");
     await expect(health.getByTestId("health-kept")).toContainText(words.keptOne);
     await window.keyboard.press("Escape");
@@ -166,7 +167,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await undo();
     await expect(marks).toHaveCount(2);
     await expect(marks.nth(0)).toHaveAttribute("data-check", "contradicted");
-    await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "needs-look");
+    await expect(noteCheck(window)).toHaveAttribute("data-state", "look");
     await expect(lines.nth(0).locator(".claim-wash--contradicted")).toBeVisible();
     await openCard();
     await expect(card.getByTestId("claim-keep")).toBeVisible();

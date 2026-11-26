@@ -11,6 +11,7 @@ import { installAgent } from "../tests/helpers/agentInstalls";
 import {
   acceptPlainTextKeys,
   catchCopies,
+  checkNote,
   createDataFolder,
   expectExampleInFront,
   frontMind,
@@ -18,6 +19,7 @@ import {
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
+  noteCheck,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -348,21 +350,22 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(assistant).toBeHidden();
       await plainAndWithAWayOn(window, language, "the agent's Note");
 
-      // 5. The User asks for a check with one press: Claude Code is asked, the Note says so until
-      // the marks land, and each sentence gets the mark its check gave.
-      if (!(await window.getByTestId("check-card").isVisible())) {
-        await pointAndClick(window, window.getByTestId("check-badge-open"));
-      }
-      await pointAndClick(window, window.getByTestId("badge-check-mind"));
+      // 5. The User asks for a check with one press on the Note's Check: Claude Code is asked, the
+      // button says so until the marks land, and each sentence gets the mark its check gave.
+      await checkNote(window);
       await expect
         .poll(typedInClaudeCode)
         .toEqual([asked, t("agents.ask.line.check", { title: `“${walk.title}”` })]);
-      const badge = window.getByTestId("badge-asked");
-      await expect(badge).toHaveText(t("agents.asked.short.asked", { agent: "Claude Code" }));
+      const button = noteCheck(window);
+      const buttonWords = button.locator(".note-check-words");
+      await expect(button).toHaveAttribute("data-state", "said");
+      await expect(buttonWords).toHaveText(t("agents.asked.short.asked", { agent: "Claude Code" }));
       const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } }),
       );
-      await expect(badge).toHaveText(t("agents.asked.short.working", { agent: "Claude Code" }));
+      await expect(buttonWords).toHaveText(
+        t("agents.asked.short.working", { agent: "Claude Code" }),
+      );
       const results = given.sentences.map((sentence) => {
         const at = walk.said.findIndex((said) => sentence.text.startsWith(said.text));
         const said = walk.said[at];
@@ -382,7 +385,7 @@ for (const language of ["en", "zh-CN"] as const) {
           arguments: { mindId, task: given.task, results },
         }),
       );
-      await expect(badge).toHaveCount(0);
+      await expect(button).toHaveAttribute("data-state", "look");
       const marks = note.getByTestId("claim-mark");
       await expect(marks).toHaveCount(walk.said.length);
       await expect
@@ -393,8 +396,8 @@ for (const language of ["en", "zh-CN"] as const) {
       // 6. One Citation opens the file at its quote.
       const first = walk.said[0];
       if (!first) throw new Error("The walk says nothing.");
-      // The check card opens down from the badge at the Note's top right, over the ends of the
-      // Note's first lines (#3677): it closes first.
+      // The check card opens down from the Check button at the Note's top right, over the ends of
+      // the Note's first lines (#3677): it closes first.
       if ((await window.getByTestId("check-card").count()) > 0) {
         await window.keyboard.press("Escape");
         await expect(window.getByTestId("check-card")).toHaveCount(0);

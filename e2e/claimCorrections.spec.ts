@@ -19,6 +19,7 @@ import {
   openCardMenu,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   undoMenuItem,
@@ -29,8 +30,8 @@ import {
  * Correct a confirmed contradiction from the Documents (#1481), with no model set up: with one,
  * Fix the sentence has the model write the words instead (#3383, e2e/fixSentence.spec.ts). The
  * checks are written into the page; the correction then asks for the sentence's check like any
- * edit (#2563), which waits for a model, and one Undo restores the words and marks. The card,
- * badge and ⌘K all use the one correction path.
+ * edit (#2563), which waits for a model, and one Undo restores the words and marks. The
+ * sentence's card, the Checks card and ⌘K all use the one correction path.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -369,7 +370,7 @@ for (const [language, width] of [
     await app.close();
   });
 
-  test(`the badge corrects every ready contradiction in one Undo (${language}, ${width}px)`, async () => {
+  test(`the Checks card corrects every ready contradiction in one Undo (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, editor, check, evidence } = await launched(language, width);
     const firstText = language === "en" ? "The first rate is 36.8%." : "第一个比率是 36.8%。";
@@ -411,7 +412,7 @@ for (const [language, width] of [
     const card = await checkCard(window);
     const correct = card.getByTestId("badge-correct-contradictions");
     await expect(correct).toHaveText(translate(language, "claim.correction.badge", { count: 2 }));
-    await screenshot(window, `correction-badge-${language}`);
+    await screenshot(window, `correction-checks-${language}`);
     await pointAndClick(window, correct);
 
     const judged = "needs-recheck";
@@ -438,7 +439,7 @@ for (const [language, width] of [
   test(`the foot keeps its height with a fix in its row (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, check, evidence } = await launched(language, width);
-    // A whole check of the Note runs on a model, and with one the badge's fix is the rewrite (#3383).
+    // A whole check of the Note runs on a model, and with one the card's fix is the rewrite (#3383).
     await useLocalChatModel(window);
     const text = language === "en" ? "The first rate is 36.8%." : "第一个比率是 36.8%。";
     await insert(window, [
@@ -458,14 +459,16 @@ for (const [language, width] of [
     const before = { card: await card.boundingBox(), foot: await foot.boundingBox() };
     if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
 
-    // The run's words take Check's row while the fix stays where it was, disabled.
+    // The run's Stop joins the fix's row while the fix stays where it was, disabled.
     await app.evaluate(() => {
       (
         globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
       ).incarnamindSlowCheck.hold = true;
     });
-    await pointAndClick(window, card.getByTestId("badge-check-mind"));
-    // The press asks first while the estimate lands, and with nothing changed offers every
+    // The Note's Check button says what needs a look here, and its press opens the card: the
+    // check starts from ⌘K, as the Note's menu starts it.
+    await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
+    // The command asks first while the estimate lands, and with nothing changed offers every
     // sentence again; either way one more press runs it.
     const ask = card.getByTestId("mind-check-check");
     const every = card.getByTestId("mind-check-every");

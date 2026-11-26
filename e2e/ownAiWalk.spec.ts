@@ -11,12 +11,14 @@ import {
   acceptPlainTextKeys,
   boxOf,
   checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   expectReadyDocuments,
   frontMind,
   launchApp,
   motionSettled,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -30,7 +32,7 @@ test.skip(!SHOW_AGENT_CONNECTION, "Your AI is hidden while SHOW_AGENT_CONNECTION
 
 /*
  * Walking the app with only the User's own AI connected and no AI model set up (#3536):
- * 1. A workbook Claude Code handed over: Home, the corner badge and the check card agree before
+ * 1. A workbook Claude Code handed over: Home, the Note's Check button and the check card agree before
  *    Claude Code checks it (offering Check, not Find claims) and after its marks land.
  * 2. A Note outside the Folders Claude Code reads: no top model line, its foot and check card
  *    say Claude Code can't read this note and offer Move to… and Settings › AI, ⌘J focuses Move
@@ -75,8 +77,8 @@ function budget(): Buffer {
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  // protects=with only the User's own AI and no model in IncarnaMind, a handed-over file's badge and card agree with Home before its check (offering Check, not Find claims) and show the marks Claude Code left after it (#3536); fails_when=the card says its claims haven't been found or offers Find claims while Home counts sentences to check, or the card ignores the agent's marks
-  test(`a workbook handed over with no model (${language}): Home, badge and card agree before and after Claude Code checks it`, async () => {
+  // protects=with only the User's own AI and no model in IncarnaMind, a handed-over file's Check button and card agree with Home before its check (offering Check, not Find claims) and show the marks Claude Code left after it (#3536); fails_when=the card says its claims haven't been found or offers Find claims while Home counts sentences to check, or the card ignores the agent's marks
+  test(`a workbook handed over with no model (${language}): Home, the Check button and the card agree before and after Claude Code checks it`, async () => {
     test.setTimeout(180_000);
     const t = (key: Parameters<typeof translate>[1], values?: Parameters<typeof translate>[2]) =>
       translate(language, key, values);
@@ -132,9 +134,10 @@ for (const language of ["en", "zh-CN"] as const) {
           .first(),
       );
       await expect(frontMind(window)).toHaveAttribute("data-mind-id", handed.mindId);
-      const badge = window.getByTestId("check-badge");
-      await expect(badge).toContainText("2");
-      await expect(badge).toContainText(t("badge.toCheck"));
+      const button = noteCheck(window);
+      await expect(button).toHaveAttribute("data-state", "check");
+      await expect(button.locator(".note-check-count")).toHaveText("2");
+      await expect(button).toHaveAttribute("title", t("verify.check", { count: 2 }));
 
       const card = await checkCard(window);
       await expect(card.getByTestId("verify-to-check")).toHaveText(toCheck);
@@ -189,7 +192,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(checked.getByTestId("verify-done")).toContainText(t("verify.needLook.one"));
       await expect(checked).not.toContainText(t("verify.notFound"));
       await expect(checked.getByTestId("verify-contradicted")).toBeVisible();
-      await expect(badge).toContainText("1");
+      await expect(button).toHaveAttribute("data-state", "look");
+      await expect(button.locator(".note-check-words")).toHaveText(t("verify.needLook.one"));
       await shot(window, `handed-after-${language}`);
       await window.keyboard.press("Escape");
 
@@ -268,9 +272,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(footLine.getByTestId("note-ask-move")).toBeFocused();
 
       // Checking this Note also says Claude Code can't read it instead of asking to connect an AI.
-      const card = await checkCard(window);
-      await pointAndClick(window, card.getByTestId("badge-check-mind"));
-      const checkProblem = card.getByTestId("checks-problem");
+      await checkNote(window);
+      const checkProblem = window.getByTestId("check-card").getByTestId("checks-problem");
       await expect(checkProblem).toContainText(t("noteAsk.cantRead.one", { agent: "Claude Code" }));
       await expect(checkProblem).not.toContainText(t("checks.problem.no-provider"));
       await shot(window, `cant-read-check-card-${language}`);

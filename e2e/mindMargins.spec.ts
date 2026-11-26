@@ -7,6 +7,7 @@ import { buildPdf } from "../tests/helpers/pdf";
 import { wordFile } from "../tests/helpers/word";
 import {
   addDocuments,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   frontMind,
@@ -15,6 +16,7 @@ import {
   mindWrittenBefore,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setGroupBeside,
@@ -79,7 +81,7 @@ function textColumn(editor: Locator) {
 const near = (actual: number, expected: number, tolerance: number) =>
   Math.abs(actual - expected) <= tolerance;
 
-/** The Note's own edges: the scroller the page scrolls in, which the foot's badge floats over. */
+/** The Note's own edges: the scroller the page scrolls in. */
 const paneOf = (window: Page) => window.getByTestId("mind-scroller");
 
 /** Waits until the checks are drawn, where the column's width puts them. */
@@ -168,7 +170,7 @@ for (const language of ["en", "zh-CN"] as const) {
         },
       ],
     );
-    // A check on two sentences: one the Documents support, one they don't, so the badge has a look to count.
+    // A check on two sentences: one the Documents support, one they don't, so the Check button has a look to count.
     const [first, second] = [
       editor.locator(":scope > p").nth(0),
       editor.locator(":scope > p").nth(1),
@@ -179,29 +181,31 @@ for (const language of ["en", "zh-CN"] as const) {
       window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
     );
     await expect(window.getByTestId("claim-mark")).toHaveCount(2, { timeout: 60_000 });
-    await expect(window.getByTestId("check-badge")).toBeVisible({ timeout: 60_000 });
-    const finishedBadge = window.getByTestId("check-badge");
-    // The check finishes before any shot: no mark is still checking, and the badge says its state.
+    const button = noteCheck(window);
+    await expect(button).toBeVisible({ timeout: 60_000 });
+    // The check finishes before any shot: no mark is still checking, and the button says its state.
     await expect(window.locator('[data-testid="claim-mark"][data-check="checking"]')).toHaveCount(
       0,
       {
         timeout: 60_000,
       },
     );
-    await expect(finishedBadge).toHaveAttribute("data-state", "needs-look", { timeout: 60_000 });
+    // The two bullets wait for Check, so the button is the Check, with what needs a look in its tooltip.
+    const needsLook = language === "en" ? /^1 needs a look/ : /^需要留意 1 处/;
+    await expect(button).toHaveAttribute("data-state", "check", { timeout: 60_000 });
+    await expect(button.locator(".note-check-count")).toHaveText("2");
+    await expect(button).toHaveAttribute("title", needsLook);
     // Where both marks stand, the ✓ included, which shows with every result (#3358).
     await showEveryCheckResult(window);
     // Resizing the Note across the 760px fold, both ways, never changes what its checks say.
     for (const across of [800, 700, 800]) {
       await sizeMind(app, window, across);
-      await expect(finishedBadge).toHaveAttribute("data-state", "needs-look");
-      await expect(finishedBadge.locator(".check-badge-words")).toContainText(
-        language === "en" ? "needs a look" : "需要留意",
-      );
+      await expect(button).toHaveAttribute("data-state", "check");
+      await expect(button.locator(".note-check-count")).toHaveText("2");
+      await expect(button).toHaveAttribute("title", needsLook);
     }
 
     const column = window.locator(".mind-column");
-    const badge = window.getByTestId("check-badge");
     const citation = editor.getByTestId("citation-chip").first();
 
     for (const width of WIDTHS) {
@@ -368,7 +372,7 @@ for (const language of ["en", "zh-CN"] as const) {
         )
         .toBeLessThanOrEqual(1);
 
-      // A Citation's badge opens inside the window; the check badge stands under the marks,
+      // A Citation's badge opens inside the window; the Check button stands in the Note's row,
       // never nearer than 16px to the pane's edge.
       await pointAndClick(window, citation);
       const card = window.getByTestId("citation-card");
@@ -388,43 +392,55 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(window.getByTestId("citation-card")).toHaveCount(0);
       await setGroupBeside(window, false);
 
-      await expect(badge).toBeVisible();
-      const badgeBox = await box(badge);
-      const fromRight = pane.x + pane.width - (badgeBox.x + badgeBox.width);
+      await expect(button).toBeVisible();
+      const buttonBox = await box(button);
+      const fromRight = pane.x + pane.width - (buttonBox.x + buttonBox.width);
       expect
-        .soft(fromRight, `${width}: the badge is at least 16px from the pane's right`)
+        .soft(fromRight, `${width}: the Check button is at least 16px from the pane's right`)
         .toBeGreaterThanOrEqual(16 - 0.5);
       // It stands with the Note's own controls in its tab strip, at the pane's top (#3765).
       expect
-        .soft(badgeBox.y - pane.y, `${width}: the badge at the pane's top`)
+        .soft(buttonBox.y - pane.y, `${width}: the Check button at the pane's top`)
         .toBeLessThanOrEqual(48);
       expect
-        .soft((await badge.innerText()).length, `${width}: the badge counts`)
+        .soft((await button.innerText()).length, `${width}: the Check button counts`)
         .toBeGreaterThan(0);
     }
 
-    // At rest the badge is its mark and its count at every width, its words its name (#3677): at
-    // 480 and under 400, with a Document beside the Note, as in a split window.
+    // Beside a Document, in a Note about 480px wide, the Check keeps its mark and its count in the
+    // Note's row: it gives up its word only when the row is short of room, after Export has lost
+    // its own (#3794).
     await setWindowSize(app, window, 1600, 900);
     await setGroupBeside(window, true);
     await sizeNote(app, window, 480);
-    const badgeWords = badge.locator(".check-badge-words");
     const page = window.locator(".mind-tab-page");
-    const paneWidth = async () => (await page.boundingBox())?.width ?? 0;
-    expect(await paneWidth(), "a Note at about 480px").toBeGreaterThanOrEqual(430);
-    const count = badge.locator(".check-badge-quiet");
-    await expect(badgeWords, "no label at a 480px Note").toBeHidden();
+    expect((await page.boundingBox())?.width ?? 0, "a Note at about 480px").toBeGreaterThanOrEqual(
+      430,
+    );
+    const strip = window.locator('[data-testid="tab-strip"]:has([data-testid="note-check"])');
+    const count = button.locator(".note-check-count");
     await expect(count, "the count at a 480px Note").toBeVisible();
-    // The boundary under 400px: the rule is the Note pane's own width, here held at 390.
-    await page.evaluate(() => {
-      const element = document.querySelector(".mind-tab-page") as HTMLElement;
-      element.style.width = "390px";
-      element.style.flex = "none";
-    });
-    const narrow = await paneWidth();
-    expect(narrow, "a Note under 400px").toBeLessThan(400);
-    await expect(badgeWords, `no label under a 400px Note (${narrow}px)`).toBeHidden();
-    await expect(count, `the count under a 400px Note (${narrow}px)`).toBeVisible();
+    await expect(count).toHaveText("2");
+    await expect(button, "the words are the button's name").toHaveAccessibleName(
+      language === "en" ? "Check 2" : "核对 2",
+    );
+    if ((await strip.getAttribute("data-check-compact")) === null) {
+      expect(
+        (await box(button.locator(".note-check-words"))).width,
+        "the word is drawn",
+      ).toBeGreaterThan(1);
+    } else {
+      await expect(
+        strip.locator('[data-testid="export-mind"] > span'),
+        "Export lost its word first",
+      ).toBeHidden();
+    }
+    const stripBox = await box(strip);
+    const at = await box(button);
+    expect(at.x, "the Check is in the Note's row").toBeGreaterThanOrEqual(stripBox.x);
+    expect(at.x + at.width, "the Check is in the Note's row").toBeLessThanOrEqual(
+      stripBox.x + stripBox.width + 0.5,
+    );
     await app.close();
   });
 }
@@ -588,19 +604,18 @@ test("a Chinese sentence's mark stays with its last character at 480 and 600px, 
   const line = editor.locator(":scope > p").first();
   await expect(line).toHaveText(/^潮+。$/);
 
-  // One check of the Note, from its badge: the sentence the Documents don't support takes a mark.
-  await pointAndClick(window, window.getByTestId("check-badge-open"));
-  const card = window.getByTestId("check-card");
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
+  // One check of the Note, from its Check button: the sentence the Documents don't support takes a mark.
+  await checkNote(window);
   const marks = window.getByTestId("margin-checks").getByTestId("claim-mark");
   await expect(marks).toHaveCount(1, { timeout: 60_000 });
   await expect(window.locator('[data-testid="claim-mark"][data-check="checking"]')).toHaveCount(0, {
     timeout: 60_000,
   });
-  await expect(window.getByTestId("check-badge")).toHaveAttribute("data-state", "needs-look", {
+  await expect(noteCheck(window)).toHaveAttribute("data-state", "look", {
     timeout: 60_000,
   });
-  await window.keyboard.press("Escape");
+  // The press checks at once: no card opens first.
+  await expect(window.getByTestId("check-card")).toHaveCount(0);
 
   for (const width of [480, 600]) {
     await sizeMind(app, window, width);
