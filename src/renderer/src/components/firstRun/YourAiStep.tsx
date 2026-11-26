@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type AgentClient, type AgentPairing, ALL_SHARED_ID } from "../../../../core/api";
 import { useAgentClients, useAgentPairings } from "../../agentNote";
 import {
@@ -60,7 +60,20 @@ export function YourAiStep({ place }: { place: StepPlace }) {
     return () => window.removeEventListener("keydown", leave);
   }, [away]);
 
-  if (clients.state === "loading" || pairings === null) return null;
+  // While the apps or the connections are read, or if that fails (said where it failed), the User
+  // can still go back or on.
+  if (clients.state === "loading" || pairings === null) {
+    return (
+      <SetupPanel
+        place={place}
+        view="ai"
+        title={t("setupPage.ai.title")}
+        foot={<StepFoot place={place} />}
+      >
+        {null}
+      </SetupPanel>
+    );
+  }
   const all = clients.state === "ready" ? clients.data : [];
   const claudeCodeHere = availability?.installed === true || install.kind === "signed-in";
   const found = foundApps(all, claudeCodeHere);
@@ -84,7 +97,14 @@ export function YourAiStep({ place }: { place: StepPlace }) {
         chosen={view.kind === "app" ? view.client : null}
         onChoose={(client) => setView({ kind: "app", client })}
         onBack={() => setView(view.kind === "app" ? { kind: "another" } : { kind: "list" })}
-        onDone={(done, choice) => setView({ kind: "after", done: [done], installs: false, choice })}
+        onDone={(done, choice) =>
+          // Only while the User is still on that app's sheet: one they left stays left.
+          setView((current) =>
+            current.kind === "app" && current.client.id === done.client.id
+              ? { kind: "after", done: [done], installs: false, choice }
+              : current,
+          )
+        }
       />
     );
   }
@@ -97,7 +117,11 @@ export function YourAiStep({ place }: { place: StepPlace }) {
         choice={view.choice}
         claudeCode={claudeCode}
         pairings={pairings}
-        onDone={(done) => setView({ ...view, done })}
+        onDone={(update) =>
+          setView((current) =>
+            current.kind === "after" ? { ...current, done: update(current.done) } : current,
+          )
+        }
         onUndo={() => setView({ kind: "list" })}
       />
     );
@@ -153,6 +177,14 @@ function FoundList({
   const [busy, setBusy] = useState(false);
   const [problemLine, setProblemLine] = useState<string | null>(null);
   const [propose, setPropose] = useState(true);
+  // A press still connecting when the User goes back or on moves them nowhere once it lands.
+  const here = useRef(true);
+  useEffect(
+    () => () => {
+      here.current = false;
+    },
+    [],
+  );
   const first = firstTicked(found, pairings);
   const ticked = ticks ?? new Set(first ? [first] : []);
   const chosen = notConnected(found, pairings).filter((client) => ticked.has(client.id));
@@ -179,6 +211,7 @@ function FoundList({
         { folderIds: [ALL_SHARED_ID], propose },
         { enable: true },
       );
+      if (!here.current) return;
       if (installs) void startClaudeCodeInstall();
       if (outcomes.some((each) => each.kind === "connected" && each.client.id === "claude-code")) {
         void resetClaudeCodeInstall();

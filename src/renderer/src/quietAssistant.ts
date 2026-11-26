@@ -3,6 +3,7 @@ import { useAgentsToAskRead, useReadAgentsToAsk } from "./askYourAi";
 import { useComposer } from "./composer";
 import { useConversations } from "./conversations";
 import { useFirstOpen } from "./firstOpen";
+import { noModelSetUp } from "./noModelSetUp";
 import { stepsShownOf } from "./nudges";
 import { hiddenForOwnAiNow, ownAiOnlyNow, useHiddenForOwnAi, useOwnAiOnly } from "./ownAiPanel";
 import { useAppStore } from "./store";
@@ -37,16 +38,18 @@ export function useQuietAssistant(): boolean {
 
 /**
  * Whether the quiet assistant floats its Ask pill: it asks IncarnaMind's own model, so it shows only
- * where one is set up and no AI app of the User's is connected; otherwise a Note's foot is the one
- * place to ask (#3791).
+ * where one is set up, working or not (the assistant says what it needs), and no AI app of the
+ * User's is connected; otherwise a Note's foot is the one place to ask (#3791).
  */
 export function useAskPillShown(): boolean {
   const quiet = useQuietAssistant();
   const hidden = useHiddenForOwnAi();
-  const modelReady = useAppStore((state) => state.chatReadiness?.ready === true);
+  const modelSetUp = useAppStore(
+    (state) => state.chatReadiness !== null && !noModelSetUp(state.chatReadiness),
+  );
   useReadAgentsToAsk(null);
   const connected = (useAgentsToAskRead(null)?.length ?? 0) > 0;
-  return quiet && !hidden && modelReady && !connected;
+  return quiet && !hidden && modelSetUp && !connected;
 }
 
 /** The same, read once rather than followed, for a change that isn't a render (#2270). */

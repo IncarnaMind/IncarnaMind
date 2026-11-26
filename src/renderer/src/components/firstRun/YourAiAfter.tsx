@@ -59,7 +59,8 @@ export function YourAiAfter({
   choice: Choice;
   claudeCode: AgentClient | null;
   pairings: readonly AgentPairing[];
-  onDone(done: readonly Done[]): void;
+  /** Applies `update` to what is done as it is when it lands, so two results never undo each other. */
+  onDone(update: (current: readonly Done[]) => readonly Done[]): void;
   onUndo(): void;
 }) {
   const t = useT();
@@ -67,13 +68,29 @@ export function YourAiAfter({
   const awaiting = useAwaitingInstall();
   const install = useClaudeCodeInstallState();
   const [undoing, setUndoing] = useState(false);
+  // Connections still being made (a retry, or Claude Code once signed in): Undo waits for them, so
+  // none it should take back lands after it.
+  const [connecting, setConnecting] = useState(0);
   const handedOff = useRef(false);
   const moved = useRef(false);
-  const connectWithChoice = (client: AgentClient) =>
-    connectManyAgents(
-      [client],
-      { folderIds: [ALL_SHARED_ID], propose: choice.propose },
-      { enable: true },
+  const connectWithChoice = async (client: AgentClient) => {
+    setConnecting((count) => count + 1);
+    try {
+      const [outcome] = await connectManyAgents(
+        [client],
+        { folderIds: [ALL_SHARED_ID], propose: choice.propose },
+        { enable: true },
+      );
+      return outcome;
+    } finally {
+      setConnecting((count) => count - 1);
+    }
+  };
+  const put = (client: AgentClient, outcome: Parameters<typeof outcomeOf>[0]) =>
+    onDone((current) =>
+      current.some((each) => each.client.id === client.id)
+        ? current.map((each) => (each.client.id === client.id ? outcomeOf(outcome, client) : each))
+        : [...current, outcomeOf(outcome, client)],
     );
 
   // Signed in to the Claude Code it installed: the same press connects it, as the row said it would.
@@ -83,13 +100,13 @@ export function YourAiAfter({
     if (done.some((each) => each.client.id === "claude-code")) return;
     handedOff.current = true;
     connectWithChoice(claudeCode)
-      .then(([outcome]) => {
+      .then((outcome) => {
         if (!outcome) return;
         void resetClaudeCodeInstall();
-        onDone([...done, outcomeOf(outcome, claudeCode)]);
+        put(claudeCode, outcome);
       })
       .catch(reportError);
-  }, [installs, install.kind, claudeCode, done, onDone, reportError]);
+  }, [installs, install.kind, claudeCode, done, reportError]);
 
   const pairingOf = (id: string) => pairings.find((pairing) => pairing.id === id);
   // Until the waiting Installs are read, an app that isn't written to is taken as still waiting.
@@ -116,13 +133,12 @@ export function YourAiAfter({
   }, [nothingLeft, stays, place]);
 
   const retry = async (client: AgentClient) => {
-    const [outcome] = await connectWithChoice(client);
-    if (!outcome) return;
-    onDone(done.map((each) => (each.client.id === client.id ? outcomeOf(outcome, client) : each)));
+    const outcome = await connectWithChoice(client);
+    if (outcome) put(client, outcome);
   };
 
   const undo = async () => {
-    if (undoing) return;
+    if (undoing || connecting > 0) return;
     setUndoing(true);
     try {
       if (installs) await cancelClaudeCodeInstall();
@@ -154,7 +170,7 @@ export function YourAiAfter({
             <button
               type="button"
               data-testid="setup-undo"
-              disabled={undoing}
+              disabled={undoing || connecting > 0}
               onClick={() => void undo()}
               className={`-ml-2.5 ${buttonStyle("ghost", "lg")}`}
             >

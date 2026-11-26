@@ -1078,7 +1078,11 @@ describe("an example the User asks their AI in (#3791)", () => {
     createdAt: AT,
     readAt: null,
   });
-  const exampleAccess = (asked: readonly KeptRequest[], grant?: RunGrant) =>
+  const exampleAccess = (
+    asked: readonly KeptRequest[],
+    grant?: RunGrant,
+    overrides: Partial<AgentAccessDeps> = {},
+  ) =>
     accessAnswering(
       { asked: false, reason: "not-ready" },
       {
@@ -1091,9 +1095,28 @@ describe("an example the User asks their AI in (#3791)", () => {
         },
         search: async (_query, documentIds) =>
           documentIds.map((documentId) => passageOf(documentId, documentId)),
+        ...overrides,
       },
       grant,
     );
+  /** A Folder that keeps its work inside it, which the User filed the example's `what` in. */
+  const behindAWall = (what: "note" | "documents"): Partial<AgentAccessDeps> => ({
+    folders: () => [
+      { id: "coast", name: "Coast", parentId: null, keepInside: false },
+      { id: "vault", name: "Vault", parentId: null, keepInside: true },
+    ],
+    wallOf: (folderId) => (folderId === "vault" ? "vault" : null),
+    documentsIn: (folderIds) =>
+      folderIds.includes("vault") ? (what === "documents" ? ["credit-results"] : []) : ["tides"],
+    minds: () =>
+      [
+        {
+          id: EXAMPLE,
+          title: "Draft: credit committee paper",
+          folderId: what === "note" ? "vault" : null,
+        },
+      ] as ReturnType<AgentAccessDeps["minds"]>,
+  });
   const searched = async (access: ReturnType<typeof exampleAccess>) =>
     (await access.search({ query: "gross margin" })).passages.map((each) => each.documentId);
 
@@ -1115,5 +1138,15 @@ describe("an example the User asks their AI in (#3791)", () => {
       front: { mindId: EXAMPLE, selection: null, words: "What was the margin?", folder: null },
     };
     expect(await searched(exampleAccess([], run))).toEqual(["tides", "credit-results"]);
+  });
+
+  // protects=a Folder that keeps its work inside it is shared only on its own: an example the User filed behind one, or its Documents, is never lent by a request made in it before; fails_when=the example's Note or Documents are read through the wall
+  it("lends nothing the User filed behind a work wall", async () => {
+    const asked = [askedIn("pairing")];
+    expect(await searched(exampleAccess(asked, undefined, behindAWall("documents")))).toEqual([
+      "tides",
+    ]);
+    const walledNote = exampleAccess(asked, undefined, behindAWall("note"));
+    expect(await searched(walledNote)).toEqual(["tides"]);
   });
 });

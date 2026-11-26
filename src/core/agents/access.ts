@@ -1379,9 +1379,20 @@ const NOTHING_LENT: Lent = { mindIds: new Set(), documentIds: [] };
  * The examples the User lent a connection by asking it in one (#3791): the Note a run was started
  * from, and each Note the User asked this pairing about, with their Documents. An example holds
  * nothing of the User's, so asking in it is enough to share it; no share of Folders reaches it.
+ * An example the User moved behind a work wall, or its Documents there, is never lent: a wall is
+ * shared only on its own.
  */
 export function lentExamples(
-  deps: Pick<AgentAccessDeps, "exampleNotes" | "exampleDocuments" | "requests">,
+  deps: Pick<
+    AgentAccessDeps,
+    | "exampleNotes"
+    | "exampleDocuments"
+    | "requests"
+    | "minds"
+    | "folders"
+    | "wallOf"
+    | "documentsIn"
+  >,
   pairingId: string,
   grant: RunGrant | undefined,
 ): Lent {
@@ -1393,15 +1404,25 @@ export function lentExamples(
       : grant?.kind === "check"
         ? grant.mindId
         : null;
+  const walled = (folderId: string | null) => folderId !== null && deps.wallOf(folderId) !== null;
+  const folderOf = new Map(deps.minds().map((mind) => [mind.id, mind.folderId]));
   const asked = examples.filter(
     (mindId) =>
-      mindId === front ||
-      deps.requests.forMind(mindId).some((request) => request.pairingId === pairingId),
+      !walled(folderOf.get(mindId) ?? null) &&
+      (mindId === front ||
+        deps.requests.forMind(mindId).some((request) => request.pairingId === pairingId)),
   );
   if (asked.length === 0) return NOTHING_LENT;
+  const walls = deps
+    .folders()
+    .filter((folder) => walled(folder.id))
+    .map((folder) => folder.id);
+  const behindWalls = new Set(walls.length === 0 ? [] : deps.documentsIn(walls));
   return {
     mindIds: new Set(asked),
-    documentIds: asked.flatMap((mindId) => deps.exampleDocuments(mindId) ?? []),
+    documentIds: asked
+      .flatMap((mindId) => deps.exampleDocuments(mindId) ?? [])
+      .filter((documentId) => !behindWalls.has(documentId)),
   };
 }
 
