@@ -205,6 +205,9 @@ for (const language of ["en", "zh-CN"] as const) {
         if (placement === "above")
           expect(rest.card[1] + rest.card[3]).toBeLessThanOrEqual(anchor[1] + 0.5);
         else expect(rest.card[1]).toBeGreaterThanOrEqual(anchor[1] + anchor[3] - 0.5);
+        // Off the card, beside it: the pointer left on what opened it would be under the card as it
+        // grows, and the User's touch ends the wait, so this would ask of a card the pointer held.
+        await window.mouse.move(rest.card[0] - 60, 900 - 40);
         await still("before");
 
         await watch(window);
