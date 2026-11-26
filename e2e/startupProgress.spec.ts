@@ -104,6 +104,7 @@ function start(
   extraPreloads: string[] = [],
   language = "en",
   debugPort = port,
+  choice?: "relaunch",
 ): ChildProcess {
   return startLifecycleCopy(
     data,
@@ -120,6 +121,7 @@ function start(
       INCARNAMIND_TEST_STARTUP_MODE: mode,
       INCARNAMIND_TEST_STARTUP_LANGUAGE: language,
       INCARNAMIND_FAKE_CHAT: "1",
+      ...(choice && { INCARNAMIND_TEST_STARTUP_CHOICE: choice }),
     },
   );
 }
@@ -400,12 +402,13 @@ for (const language of ["en", "zh-CN"]) {
     expect(problem).toMatchObject({
       pid: child.pid,
       title: language === "en" ? "IncarnaMind couldn’t start" : "IncarnaMind 无法启动",
+      buttons: language === "en" ? ["Relaunch", "Quit"] : ["重新启动", "退出"],
       visibleWindows: 0,
     });
     const prefix =
       language === "en"
-        ? "Your data folder couldn’t be opened. Open IncarnaMind again.\n\n"
-        : "无法打开你的数据文件夹。请重新打开 IncarnaMind。\n\n";
+        ? "Your data folder couldn’t be opened.\n\n"
+        : "无法打开你的数据文件夹。\n\n";
     if (typeof problem?.content !== "string")
       throw new Error("The startup problem has no native error detail.");
     expect(problem.content.startsWith(prefix)).toBe(true);
@@ -471,3 +474,18 @@ for (const language of ["en", "zh-CN"]) {
     ).toBe(true);
   });
 }
+
+// protects=choosing Relaunch in the startup error dialog asks Electron to relaunch and releases the folder (#3756); fails_when=Relaunch exits without scheduling a relaunch or leaves the data folder held; no_claim=the OS spawning the second process, which Electron handles after exit.
+test("choosing Relaunch on a startup error schedules a relaunch and releases its folder", async () => {
+  await mkdir(join(data, "incarnamind.db"));
+  const child = start("ready", [], "en", port, "relaunch");
+  await done(child);
+  const recorded = await events();
+  expect(recorded.filter((event) => event.kind === "relaunch")).toHaveLength(1);
+  expect(copiesWith(tag, true)).toEqual([]);
+  expect(
+    heldByAnotherCopy(data, (what, error) => {
+      throw new Error(what, { cause: error });
+    }),
+  ).toBe(false);
+});

@@ -2479,7 +2479,7 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     release();
     expect(await settledFill(core, meeting)).toMatchObject({
       state: "failed",
-      problem: { kind: "not-allowed" },
+      problem: { kind: "not-allowed", serviceId: service.id, flow: "checks" },
     });
     expect(await core.listConsentRequests()).toEqual([]);
     expect(calls.filter(isCheckRun)).toHaveLength(0);
@@ -2574,7 +2574,12 @@ describe("After Stop, the notes are filled in from the Transcript (#142)", {
     );
     expect(await settledFill(core, meeting)).toMatchObject({
       state: "off",
-      problem: { kind: "not-allowed", service: "OpenAI" },
+      problem: {
+        kind: "not-allowed",
+        service: "OpenAI",
+        serviceId: "https://api.openai.com",
+        flow: "chat",
+      },
     });
     expect((await core.getSettings()).user.chatModel?.providerId).not.toBe(cloudId);
     core.close();
