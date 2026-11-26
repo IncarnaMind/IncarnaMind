@@ -1368,7 +1368,7 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
   }
 
   /** What a run asked of a stand-in for Claude Code whose effective settings are `settings`. */
-  async function askedWith(settings: Record<string, unknown> | null) {
+  async function useSettingsAsked(settings: Record<string, unknown> | null) {
     useClaude({
       run: `
         const lines = require("node:readline").createInterface({ input: process.stdin });
@@ -1397,21 +1397,21 @@ describe("what Claude Code asks in a Note's conversation, and does with its own 
   it("asks for the AI's thinking in words before the request goes, unless the User's setting says no", async () => {
     const steps = (seen: Record<string, unknown>[]) =>
       seen.map((each) => each.subtype ?? each.type);
-    const asked = await askedWith({ disableAllHooks: false });
+    const asked = await useSettingsAsked({ disableAllHooks: false });
     expect(steps(asked)).toEqual(["initialize", "get_settings", "set_max_thinking_tokens", "user"]);
     expect(asked[2]).toEqual({
       subtype: "set_max_thinking_tokens",
       thinking_display: "summarized",
     });
-    expect(steps(await askedWith({ showThinkingSummaries: true }))).toContain(
+    expect(steps(await useSettingsAsked({ showThinkingSummaries: true }))).toContain(
       "set_max_thinking_tokens",
     );
-    expect(steps(await askedWith({ showThinkingSummaries: false }))).toEqual([
+    expect(steps(await useSettingsAsked({ showThinkingSummaries: false }))).toEqual([
       "initialize",
       "get_settings",
       "user",
     ]);
-    expect(steps(await askedWith(null))).toEqual(["initialize", "get_settings", "user"]);
+    expect(steps(await useSettingsAsked(null))).toEqual(["initialize", "get_settings", "user"]);
   });
 
   // protects=a write or a change to Claude Code's own steering files (CLAUDE.md, CLAUDE.local.md, .mcp.json, anything under a .claude folder, its memory there included), by a file tool or a command that names one, always asks, through a PreToolUse hook registered at initialize that runs before Claude Code's mode and rules; an ordinary file or command goes on as before; fails_when=a text the AI read can have it rewrite its own instructions unasked under a mode or rule the User allowed
