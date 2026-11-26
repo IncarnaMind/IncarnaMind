@@ -3007,7 +3007,8 @@ export async function fromConversationMenu(
 /** Opens the conversation's name menu in `scope` as a person does, and returns it. */
 export async function openConversationMenu(window: Page, scope: Locator): Promise<Locator> {
   const menu = scope.getByTestId("conversation-menu");
-  // A press while the box still grows open can land beside the name: pressed again until it opens.
+  // While a request runs, the box opened upward grows with each step it shows, its name moving up
+  // under a press: pressed again until it opens, until the box keeps still as it grows (#3765).
   await expect(async () => {
     if (!(await menu.isVisible())) {
       await motionSettled(window);
@@ -4455,21 +4456,15 @@ export async function leaveText(window: Page): Promise<void> {
 export async function exportFromMenu(window: Page, format?: ExportFormat): Promise<void> {
   const menu = window.getByTestId("export-menu");
   const more = pageMenuButton(window);
-  let throughMore = false;
-  // A strip too tight for Export keeps it in the Note's ⋯ (#3765). Which of the two it shows can
-  // change as it fits a tab just shown, so the press is made again on what it shows then.
-  await expect(async () => {
-    if (await menu.isVisible()) return;
-    const button = window.locator('[data-testid="export-mind"]:visible');
-    throughMore = (await button.count()) === 0;
-    if (!throughMore) await button.click({ timeout: 2_000 });
-    else {
-      const item = window.getByTestId("mind.exportMenu");
-      if (!(await item.isVisible())) await more.click({ timeout: 2_000 });
-      await item.click({ timeout: 2_000 });
-    }
-    await expect(menu).toBeVisible({ timeout: 2_000 });
-  }).toPass();
+  // A strip too tight for Export keeps it in the Note's ⋯ (#3765).
+  const button = window.locator('[data-testid="export-mind"]:visible');
+  const throughMore = (await button.count()) === 0;
+  if (!throughMore) await pointAndClick(window, button);
+  else {
+    await pointAndClick(window, more);
+    await pointAndClick(window, window.getByTestId("mind.exportMenu"));
+  }
+  await expect(menu).toBeVisible();
   // Through the ⋯, it opens under the ⋯.
   if (throughMore) {
     await expect

@@ -120,6 +120,26 @@ const PROBLEM_OF: Record<Exclude<OwnAiFailure, "lost-conversation">, NoteTurnPro
   other: "failed",
 };
 
+/**
+ * Whether a run's step comes only once Claude Code has begun its session, and so keeps it: its
+ * models, its mode and a word that something came are told before that too.
+ */
+const BEGUN: Record<OwnAiProgress["kind"], boolean> = {
+  heard: false,
+  models: false,
+  mode: false,
+  modeRefused: false,
+  model: true,
+  thinking: true,
+  said: true,
+  tool: true,
+  own: true,
+  compacting: true,
+  compacted: true,
+  taken: true,
+  answered: true,
+};
+
 export interface OwnAiConversationsOptions {
   runner: OwnAiRunner | undefined;
   db: Database;
@@ -656,6 +676,25 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     // Claude Code keeps the system prompt a conversation began with: one begun before its AI kept
     // its own abilities, told it had none, so it begins anew, once (#3653).
     const renewed = conversation.renewed === 1;
+    // That, or a new conversation the User started that no request has begun with the AI (#3765),
+    // stays so until Claude Code has begun the new session: a request stopped or failed before
+    // that (a Stop as it starts, an update it needs) leaves it to the next request, which then
+    // resumes no session Claude Code never kept.
+    let unbegun = renewed || conversation.anew === 1;
+    const begun = () => {
+      if (!unbegun) return;
+      unbegun = false;
+      try {
+        db.run(
+          "UPDATE own_ai_conversations SET renewed = 0, anew = 0, updated_at = ? WHERE id = ?",
+          [options.now(), conversation.id],
+        );
+      } catch (error) {
+        options.log.warn("agents.ownAiConversation.begunNotKept", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    };
     let fresh = false;
     const passagesIn = (documentId: string) =>
       db.get<{ count: number }>(
@@ -828,6 +867,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       return true;
     };
     const progress = (step: OwnAiProgress) => {
+      if (!over && BEGUN[step.kind]) begun();
       if (signal.aborted || over) return;
       heard();
       if (step.kind === "heard") return;
@@ -1229,23 +1269,20 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     let end: OwnAiEnd;
     let { session_id: sessionId } = conversation;
-    // The User started a new conversation that no request has begun with the AI (#3765): it stays
-    // so until a new session is kept, so a request stopped before it reached the AI leaves it to
-    // the next one.
-    const anew = conversation.anew === 1;
     const renewId = () => {
       sessionId = options.newId();
-      db.run(
-        `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, anew = 0, updated_at = ?
-         WHERE id = ?`,
-        [sessionId, options.now(), conversation.id],
-      );
+      db.run("UPDATE own_ai_conversations SET session_id = ?, updated_at = ? WHERE id = ?", [
+        sessionId,
+        options.now(),
+        conversation.id,
+      ]);
     };
-    if (renewed || anew) renewId();
+    if (unbegun) renewId();
     let listening: ReturnType<typeof setInterval> | undefined;
     try {
       listening = listen();
-      end = await runOnce(!renewed && !anew && hasEarlierTurns(conversation.id, turnId), sessionId);
+      end = await runOnce(!unbegun && hasEarlierTurns(conversation.id, turnId), sessionId);
+      if (end.kind === "finished" && !signal.aborted) begun();
       if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
         // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
         fresh = true;

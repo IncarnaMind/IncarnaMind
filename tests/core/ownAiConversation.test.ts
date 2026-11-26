@@ -2910,6 +2910,41 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     });
   }
 
+  // protects=a request stopped after New conversation once its command line runs but before Claude Code began the session leaves the new conversation to the next request, which starts it with one process and no word that the earlier one was cleared; once a session has begun, the next request continues it (#3765); fails_when=the next request resumes a session Claude Code never kept, starts a second process and says the earlier conversation was cleared
+  it("keeps New conversation when the request after it is stopped before Claude Code begins", async () => {
+    const kept = new Set<string>();
+    const run = runner(async (agent, request) => {
+      const session = request.conversation;
+      if (session?.resume && !kept.has(session.sessionId))
+        return { kind: "failed", reason: "lost-conversation" };
+      if (request.prompt.includes("and when")) return untilStopped(agent, request);
+      if (session) kept.add(session.sessionId);
+      request.progress?.({ kind: "model", model: "claude-haiku-5-5" });
+      return request.prompt.includes("and where")
+        ? untilStopped(agent, request)
+        : { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the plan add" });
+    await ended(1);
+    await core.startNewNoteConversation(mindId);
+    await core.askInNote({ mindId, words: "and when" });
+    await expect.poll(() => run.runs.length).toBe(2);
+    await core.stopInNote(mindId);
+    expect(await ended(2)).toMatchObject({ state: "stopped" });
+    await core.askInNote({ mindId, words: "and where" });
+    await expect.poll(() => run.runs.length).toBe(3);
+    await core.stopInNote(mindId);
+    expect(await ended(3)).toMatchObject({ state: "stopped", fresh: false });
+    await core.askInNote({ mindId, words: "and how" });
+    expect(await ended(4)).toMatchObject({ state: "landed", fresh: false });
+    expect(run.runs).toHaveLength(4);
+    const [first, , begun, next] = run.runs;
+    expect(begun?.conversation).toMatchObject({ key: first?.conversation?.key, resume: false });
+    expect(begun?.conversation?.sessionId).not.toBe(first?.conversation?.sessionId);
+    expect(next?.conversation).toEqual({ ...begun?.conversation, resume: true });
+  });
+
   // protects=a request sent in a run's last moments, after its AI's last answer, isn't refused: the next run begins with it and answers it (#3765); fails_when=it ends Not sent although the User only sent it while the request finished
   it("begins the next run with a request sent as the run before finished", async () => {
     let asking: (() => Promise<unknown>) | null = null;

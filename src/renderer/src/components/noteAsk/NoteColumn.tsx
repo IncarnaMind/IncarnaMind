@@ -9,7 +9,7 @@ import { KIND_LABELS, showFileLabelKey } from "../../fileInfo";
 import { useLanguage, useT } from "../../i18n";
 import { SAVED_OPEN_BUTTON, SAVED_SHOW_BUTTON, savedFileFailure } from "../../outputFiles";
 import {
-  askInNote,
+  askAgainInNote,
   discardInNote,
   editRequest,
   firstWordsOf,
@@ -513,7 +513,7 @@ function Turn({
                     type="button"
                     data-testid="own-ask-again"
                     onClick={() =>
-                      void askInNote(mindId, {
+                      void askAgainInNote(mindId, {
                         words: turn.request,
                         quote: "",
                         selection: null,
@@ -635,7 +635,7 @@ function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
           aria-label={t("noteColumn.sendAgain")}
           title={t("noteColumn.sendAgain")}
           onClick={() =>
-            void askInNote(mindId, { words: turn.request, quote: "", selection: null }).catch(
+            void askAgainInNote(mindId, { words: turn.request, quote: "", selection: null }).catch(
               report,
             )
           }

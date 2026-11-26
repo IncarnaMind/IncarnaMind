@@ -140,7 +140,8 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
   }, [editor]);
 
   // A sent request's Edit: its words come back to change, about the whole Note, for the words it
-  // was about may be gone; the keyboard is at their end.
+  // was about may be gone; the keyboard is at their end. Words the User is typing stay: the
+  // request's Copy still gives its words.
   const edited = useEditedRequests((state) => state.byMind[mindId]);
   useEffect(() => {
     if (edited === undefined) return;
@@ -148,6 +149,7 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
       const { [mindId]: _taken, ...rest } = state.byMind;
       return { byMind: rest };
     });
+    if (typedNow.current.trim() !== "") return;
     setWords(edited);
     setWhole(true);
     requestAnimationFrame(() => {

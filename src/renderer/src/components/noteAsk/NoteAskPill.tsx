@@ -17,8 +17,8 @@ import { showMeetingNoteView, useMeetingNoteView } from "../../meetingViews";
 import { showWaitingChanges } from "../../mindChanges";
 import {
   allowAndAskAgain,
+  askAgainInNote,
   askedAgain,
-  askInNote,
   firstWordsOf,
   type NoteAsk,
 } from "../../ownAiInNote";
@@ -349,7 +349,8 @@ export function FailureLine({
         ? {
             label: t("noteAsk.tryAgain"),
             testId: "note-ask-try-again",
-            onClick: () => void askInNote(mindId, again).catch(useAppStore.getState().reportError),
+            onClick: () =>
+              void askAgainInNote(mindId, again).catch(useAppStore.getState().reportError),
           }
         : undefined;
   return (

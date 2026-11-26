@@ -427,6 +427,20 @@ export async function discardInNote(mindId: string, turnId: string): Promise<voi
   }));
 }
 
+/**
+ * Sends a request of the conversation again, by the link where no agent runs it in the background
+ * now, as the input's Send does. Whether it went.
+ */
+export async function askAgainInNote(mindId: string, asked: NoteAsked): Promise<boolean> {
+  const went = await askInNote(mindId, asked);
+  return (
+    went === "started" ||
+    went === "sent" ||
+    (went === "link" &&
+      (await askFirstAgent(mindId, { kind: "question", text: asked.words })) === "asked")
+  );
+}
+
 /** The requests never sent that are being sent again: a second press sends nothing more. */
 const resending = new Set<string>();
 
@@ -438,13 +452,8 @@ export async function sendUnsent(mindId: string, turn: { id: string; request: st
   if (resending.has(turn.id)) return;
   resending.add(turn.id);
   try {
-    const went = await askInNote(mindId, { words: turn.request, quote: "", selection: null });
-    const gone =
-      went === "started" ||
-      went === "sent" ||
-      (went === "link" &&
-        (await askFirstAgent(mindId, { kind: "question", text: turn.request })) === "asked");
-    if (gone) await discardInNote(mindId, turn.id);
+    const asked = { words: turn.request, quote: "", selection: null };
+    if (await askAgainInNote(mindId, asked)) await discardInNote(mindId, turn.id);
   } finally {
     resending.delete(turn.id);
   }
@@ -477,7 +486,7 @@ export async function allowAndAskAgain(
   if (!ask) return;
   const asked = askedAgain(ask, turn);
   await core.updateAgent(ask.pairingId, { propose: true });
-  if (asked) await askInNote(mindId, asked);
+  if (asked) await askAgainInNote(mindId, asked);
   else clearNoteAsk(mindId);
 }
 

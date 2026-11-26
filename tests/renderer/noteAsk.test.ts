@@ -10,6 +10,8 @@ import { DOMParser } from "linkedom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   AgentPairing,
+  AskAgentInput,
+  AskAgentResult,
   NoteRequestInput,
   NoteRequestStart,
   NoteTurnEvent,
@@ -37,6 +39,11 @@ const bridge = {
     return claude;
   },
   listAgentsToAsk: async () => [claude],
+  handed: [] as AskAgentInput[],
+  askAgent: async (input: AskAgentInput): Promise<AskAgentResult> => {
+    bridge.handed.push(input);
+    return { kind: "opened" };
+  },
   now: null as NoteTurnEvent | null,
   noteTurnNow: async () => bridge.now,
 };
@@ -57,6 +64,7 @@ vi.mock("../../src/renderer/src/askedChanges", async (original) => ({
 
 const {
   allowAndAskAgain,
+  askAgainInNote,
   askedAgain,
   askFromSelection,
   askInNote,
@@ -103,6 +111,7 @@ beforeEach(() => {
   applyTurn.mockClear();
   bridge.asked = [];
   bridge.updated = [];
+  bridge.handed = [];
   bridge.start = { kind: "started", pairing: claude, turnId: "t1" };
   useNoteAsks.setState({ byMind: {} });
 });
@@ -272,6 +281,21 @@ describe("the input at a Note's foot (#3627)", () => {
   test("leaves the link to the caller when no agent runs it", async () => {
     bridge.start = { kind: "link" };
     expect(await askInNote("m1", { words: "shorter", quote: "", selection: null })).toBe("link");
+    expect(ask()).toBeUndefined();
+  });
+
+  // protects=Send again, Try again and Ask again on a request of the conversation, with no agent to run it in the background now, hand its words to the User's AI by the link, as Send at the input does; fails_when=the press does nothing at all
+  test("sends a request again by the link when no agent runs it here", async () => {
+    bridge.start = { kind: "link" };
+    const asked = { words: "and the fares", quote: "", selection: null };
+    expect(await askAgainInNote("m1", asked)).toBe(true);
+    expect(bridge.handed).toEqual([
+      expect.objectContaining({
+        pairingId: "p1",
+        mindId: "m1",
+        ask: { kind: "question", text: "and the fares" },
+      }),
+    ]);
     expect(ask()).toBeUndefined();
   });
 

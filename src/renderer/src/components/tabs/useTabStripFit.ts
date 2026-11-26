@@ -263,6 +263,13 @@ export function useTabStripFit(
     // they are once the spacer is gone.
     const controls = band.querySelector('[data-testid="note-controls"]');
     if (controls) resized.observe(controls);
+    // The Note shown fills its controls through portals after this has fitted its tab, and the
+    // observer above answers only a frame later: fitted again before they paint, so nothing in the
+    // strip moves under a press once the tab shows (#3765).
+    const filled = new MutationObserver(() => {
+      if (wheelTimer === undefined) place(following);
+    });
+    if (controls) filled.observe(controls, { childList: true, subtree: true, characterData: true });
     for (const tab of element.querySelectorAll(':scope > [role="tab"]')) resized.observe(tab);
     element.addEventListener("wheel", onWheel, { passive: true });
     element.addEventListener("scrollend", onScrollEnd);
@@ -273,6 +280,7 @@ export function useTabStripFit(
       stopWaiting?.();
       clearTimeout(wheelTimer);
       resized.disconnect();
+      filled.disconnect();
       element.removeEventListener("wheel", onWheel);
       element.removeEventListener("scrollend", onScrollEnd);
       element.removeEventListener("focusin", onKeyboard);

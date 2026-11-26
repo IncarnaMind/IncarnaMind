@@ -772,6 +772,11 @@ test("a sent request shows when it was sent, Send again, Edit and Copy while it 
     await expect(input).toBeFocused();
     await window.keyboard.type(" And when?");
     await expect(input).toHaveValue(`${asked} And when?`);
+    // Words typed since stay as they are: Edit leaves a draft be.
+    await input.fill("And the fares?");
+    await pointAt();
+    await pointAndClick(window, actions.getByTestId("note-column-edit"));
+    await expect(input).toHaveValue("And the fares?");
     await input.fill("");
 
     // Send again asks the same words as a new request.
