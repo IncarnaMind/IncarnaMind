@@ -3867,6 +3867,8 @@ export function createCore(adapters: CoreAdapters): Core {
     const folderId = file.folderId ?? NOT_IN_A_FOLDER_ID;
     if (item === null) return { kind: "path", path: file.path };
     if (item.kind === "text") return { kind: "text", folderId };
+    const note = minds.list().find((mind) => mind.id === item.mindId);
+    if (!note) return { kind: "deletedNote", folderId };
     const writer = content.read(item.mindId, (blocks) =>
       blocks.doc ? noteWriterOf(blocks.doc) : null,
     );
@@ -3875,13 +3877,12 @@ export function createCore(adapters: CoreAdapters): Core {
       (writer.mindId === undefined
         ? minds.duplicatedFrom(item.mindId) === null
         : writer.mindId === item.mindId);
-    // A plain save keeps a Note's file in the Note's own Folder.
-    const noteFolder = minds.list().find((mind) => mind.id === item.mindId)?.folderId ?? null;
     return {
       kind: "note",
       mindId: item.mindId,
       own,
-      folderId: noteFolder === file.folderId ? null : folderId,
+      // A plain save keeps a Note's file in the Note's own Folder.
+      folderId: note.folderId === file.folderId ? null : folderId,
     };
   };
   /**
@@ -6601,6 +6602,22 @@ export function createCore(adapters: CoreAdapters): Core {
                 document.ownFile?.kind !== "export",
             ),
     dropPurged: () => documents.dropPurged(),
+    discard: async ({ documentIds, mindIds, copies }) => {
+      const at = now();
+      // One the User sent to Recently deleted meanwhile is there already, and goes for good too.
+      const liveDocuments = documentIds.filter((id) => liveDocument(id) !== undefined);
+      if (liveDocuments.length > 0) documents.delete(liveDocuments, at);
+      const liveMinds = new Set(minds.list().map((mind) => mind.id));
+      for (const mindId of mindIds) if (liveMinds.has(mindId)) removeMind(mindId, at);
+      const refs = [
+        ...documentIds.map((id) => ({ kind: "document", id })),
+        ...mindIds.map((id) => ({ kind: "mind", id })),
+      ];
+      if (refs.length > 0) recentlyDeleted.deletePermanently(refs);
+      // A Word file's check Note keeps the package it was read from, as an imported Note does.
+      await Promise.all([wordImports.dropPurged(), documents.dropPurged(copies)]);
+    },
+    readKept: async (path) => new Uint8Array(await readFile(path)),
     setNotCited: (documentId) => void documents.setNotCited(documentId, true),
     rename: (documentId, name) => void documents.rename(documentId, name),
     assign: (documentId, folderId) => void library.assign(documentId, folderId),

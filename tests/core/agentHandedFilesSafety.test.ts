@@ -4,6 +4,7 @@
  * is deleted, the app quits before a check ends, a line's heading changes, no model is set up, the
  * check fails once, or what a kept result rests on changes or leaves the agent's reach.
  */
+import { readdirSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
@@ -128,6 +129,58 @@ describe("a file an outside agent hands over, where a call meets a change", () =
     await core.updateAgent(writer.pairing.id, { folderIds: more.map((each) => each.id) });
     held.open();
     expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+  });
+
+  // protects=a hand-over refused after it recorded its version keeps nothing of it: no version, no copy in the data folder, no check Note, the file's Document back to the version before, and that Note named as before; handed over again once the agent reaches the Folder, the same file is that next version, checked (#3751); fails_when=the refused version, its copy or its Note stays, or the Document keeps its bytes
+  it("takes back a version refused after its check, and makes it again when the same file comes", async () => {
+    const held = gate();
+    let holding = false;
+    const plans: Record<string, Plan> = {
+      ...PLANS,
+      [OFFICE]: {
+        ...PLANS[OFFICE],
+        reply: (call: ModelCall) => {
+          const reply = checkReply(call, PLANS);
+          if (!holding) return reply;
+          holding = false;
+          return { ...reply, pause: { after: 0, until: held.shut, reached: held.reached } };
+        },
+      },
+    };
+    const { core, coast, writer, files, more, dataDir } = await started([], {
+      plans,
+      folders: ["Other"],
+    });
+    const agent = await connectLegacyAgent(writer.launch);
+    const path = join(files, "Harbour review.pptx");
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH] }]));
+    const first = structured<Handed>(await handOver(agent, { path, folderId: coast.id }));
+    const document = (await core.listDocuments()).find((each) => each.name === "Harbour review");
+    if (!document || first.mindId === null) throw new Error("The first version wasn't kept.");
+    const checkNote = en("verify.mindTitle", { name: "Harbour review" });
+
+    await writeFile(path, plainDeck([{ title: "Harbour review" }, { lines: [NORTH, OFFICE] }]));
+    holding = true;
+    const asked = handOver(agent, { path });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { folderIds: more.map((each) => each.id) });
+    held.open();
+    expect(refusal(await asked)).toBe(en("agents.handOver.notFound"));
+    expect((await core.handedFileOf(first.mindId))?.file.version).toBe(1);
+    expect(readdirSync(join(dataDir, "Handed files", first.fileId)).sort()).toEqual([
+      "file-1.pptx",
+      "v1",
+    ]);
+    const now = (await core.listDocuments()).find((each) => each.id === document.id);
+    expect(now?.contentHash).toBe(document.contentHash);
+    const titles = (await core.listMinds()).map((each) => each.title);
+    expect(titles.filter((title) => title.endsWith(": Harbour review"))).toEqual([checkNote]);
+    expect((await core.listDeleted()).map((each) => each.name)).toEqual([]);
+
+    await core.updateAgent(writer.pairing.id, { folderIds: [coast.id] });
+    const again = structured<Handed>(await handOver(agent, { path }));
+    expect(again).toMatchObject({ fileId: first.fileId, version: 2, status: "checked" });
+    expect(again.mindId).not.toBeNull();
   });
 
   // protects=a file handed over into no Folder is checked only against the Documents its agent reaches, so what an unshared Folder's Document says never reaches the agent (#3412 review); fails_when=the check searches every Document and the reply says what a Document beyond the agent's reach states

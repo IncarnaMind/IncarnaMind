@@ -16,6 +16,7 @@ import {
   citedAddress,
   citedLocation,
   citedName,
+  liveDocumentOf,
   shownDocumentName,
 } from "../../shared/citations";
 import type { DrawnPage } from "../../shared/citedPage";
@@ -273,7 +274,8 @@ export function createExports(deps: ExportsDependencies) {
     const footnote = (attributes: Record<string, unknown>): Footnote => {
       const cited = attributes as Partial<CitationAttributes>;
       if (typeof cited.documentId === "string" && cited.documentId !== "") {
-        named?.add(cited.documentId);
+        // The Document its note names: one with the same content added again once it was deleted.
+        named?.add(liveDocumentOf(cited, documents)?.id ?? cited.documentId);
       }
       const found = footnoteOf(cited, documents, kept, language, deps);
       const checked = checkedOf(cited);

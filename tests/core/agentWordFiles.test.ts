@@ -6,7 +6,7 @@
  * Library as a file the agent hands over is. It holds nothing the agent couldn't read already.
  */
 import { randomUUID } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { chmod, copyFile, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { JSONContent } from "@tiptap/core";
@@ -35,13 +35,19 @@ import { checkGenerate, checkReply, type Plan } from "../helpers/checks";
 import { shownPassages } from "../helpers/citations";
 import { sortReply } from "../helpers/claimSentences";
 import { NO_MODEL_FILES, type TestAdapters, tickingClock } from "../helpers/core";
-import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
+import {
+  addAndProcess,
+  createSourceFolder,
+  waitForProcessing,
+  writeSourceFile,
+} from "../helpers/documents";
 import { footnotesOf, paragraphsOf, part, unzip } from "../helpers/docx";
 import {
   type Agent,
   gate,
   type Handed,
   handOver,
+  NEVER_CLOSES,
   NORTH,
   OFFICE,
   PLANS,
@@ -79,6 +85,14 @@ const PNG = Uint8Array.from(
 
 /** The app's drawer of SVG pictures as a fake: each chart drawn as `PNG`. */
 const drawer: Pictures = { png: async () => PNG };
+
+const ARTICLE = readFileSync(join(process.cwd(), "tests/fixtures/web/article.html"), "utf8");
+
+/** What the data folder keeps of the files agents hand over: an item's folder each. */
+const handedCopies = (dataDir: string): string[] => {
+  const folder = join(dataDir, "Handed files");
+  return existsSync(folder) ? readdirSync(folder) : [];
+};
 
 const save = (agent: Agent, args: Record<string, unknown>) =>
   agent.callTool({ name: "save_as_word", arguments: args });
@@ -1366,7 +1380,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     await saving.keptNothing();
   });
 
-  // protects=the Word file is saved in the Output location only while the agent may still write: a write grant the User took back while the file's check ran ends the call in the read-only words, and nothing is saved for the User (#3751); fails_when=the file is saved in the Output location after the User took the grant back
+  // protects=the Word file is kept only while the agent may still write: a write grant the User took back while the file's check ran ends the call in the read-only words, and nothing of it is kept, in the Output location, the Library or the data folder (#3751); fails_when=the file is saved in the Output location after the User took the grant back, or its Document, its check Note or its copies stay
   it("saves no Word file in the Output location once the agent's write grant is taken back during its check", async () => {
     const held = gate();
     let first = true;
@@ -1382,7 +1396,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         },
       },
     };
-    const { core, coast, writer } = await started([], { plans });
+    const { core, coast, writer, dataDir } = await started([], { plans });
     const output = await createSourceFolder();
     await core.setOutputLocation(output);
     const agent = await connectLegacyAgent(writer.launch);
@@ -1392,6 +1406,209 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     held.open();
     expect(refusal(await asked)).toBe(translate("en", "agents.problem.read-only"));
     expect(readdirSync(output)).toEqual([]);
+    expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toEqual([]);
+    expect((await core.listMinds()).map((each) => each.title)).not.toContain(
+      translate("en", "verify.mindTitle", { name: "Office hours" }),
+    );
+    expect((await core.listDeleted()).map((each) => each.name)).toEqual([]);
+    expect(handedCopies(dataDir)).toEqual([]);
+  });
+
+  // protects=the Documents a Note's Word file names are read against the agent's reach again after the waits that follow its writing: one the User stopped sharing while the file's check ran refuses the call in the words for a Document out of reach, and nothing of it is kept or saved (#3751); fails_when=the file naming a Document the agent no longer reaches is saved for the User, given to the agent, or stays in the Library or the data folder
+  it("refuses a Note's Word file whose cited Document left the agent's reach during its check", async () => {
+    const held = gate();
+    let first = true;
+    const plans: Record<string, Plan> = {
+      ...PLANS,
+      [OFFICE]: {
+        ...PLANS[OFFICE],
+        reply: (call: ModelCall) => {
+          const reply = checkReply(call, PLANS);
+          if (!first) return reply;
+          first = false;
+          return { ...reply, pause: { after: 0, until: held.shut, reached: held.reached } };
+        },
+      },
+    };
+    const { core, coast, writer, more, dataDir } = await started([], {
+      plans,
+      folders: ["Moorings"],
+    });
+    const moorings = more[0]?.id ?? "";
+    const [ledger] = await addAndProcess(core, [
+      await writeSourceFile(
+        await createSourceFolder(),
+        "Ledger.md",
+        "# Ledger\n\nThe ledger shows 9,931 crowns.\n",
+      ),
+    ]);
+    if (!ledger) throw new Error("The ledger wasn't added.");
+    await core.assignDocumentGroup(ledger.id, moorings);
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    const mind = await core.createMind({ title: "Office memo", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      { type: "paragraph", content: [text(OFFICE)] },
+      {
+        type: "paragraph",
+        content: [
+          text("The ledger shows 9,931 crowns"),
+          citation(ledger, "The ledger shows 9,931 crowns."),
+          text("."),
+        ],
+      },
+    ]);
+    await client.settled();
+    const agent = await connectLegacyAgent(writer.launch);
+
+    const asked = save(agent, { mindId: mind.id });
+    await held.at;
+    await core.updateAgent(writer.pairing.id, { folderIds: [coast.id] });
+    held.open();
+    expect(refusal(await asked)).toBe(UNSHARED.en);
+    expect(readdirSync(output)).toEqual([]);
+    expect((await core.listDocuments()).filter((each) => each.kind === "docx")).toEqual([]);
+    expect((await core.listMinds()).map((each) => each.title)).not.toContain(
+      translate("en", "verify.mindTitle", { name: "Office memo" }),
+    );
+    expect(handedCopies(dataDir)).toEqual([]);
+  });
+
+  // protects=two saves of the same words at once, of a new text or a changed one, are one version with one file in the Output location, both answers naming it (#3751); fails_when=the second save makes a version of its own or a second copy of the same words
+  it("saves the same words asked for twice at once as one version and one file", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    const agent = await connectLegacyAgent(writer.launch);
+    const words = { title: "Quay counts", markdown: OFFICE, folderId: coast.id };
+    const twice = async (args: Record<string, unknown>) =>
+      (await Promise.all([save(agent, args), save(agent, args)])).map((each) =>
+        structured<Saved>(each),
+      );
+
+    const [one, two] = await twice(words);
+    expect(two).toMatchObject({
+      fileId: one?.fileId,
+      version: 1,
+      mindId: one?.mindId,
+      saved: join(output, "Quay counts.docx"),
+    });
+    expect(one?.saved).toBe(join(output, "Quay counts.docx"));
+
+    const [three, four] = await twice({ ...words, markdown: NEVER_CLOSES });
+    expect(three).toMatchObject({ fileId: one?.fileId, version: 2 });
+    expect(four).toMatchObject({ fileId: one?.fileId, version: 2, saved: three?.saved });
+    expect(readdirSync(output).sort()).toEqual(["Quay counts 2.docx", "Quay counts.docx"]);
+  });
+
+  // protects=the file saved before is found past a name deleted since: the same words saved again, once the file that took "Quay counts.docx" before them is gone, name "Quay counts 2.docx", and nothing is saved a second time (#3751); fails_when=the look stops at the gone name and saves another copy
+  it("finds the file saved before past a name deleted since", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    const output = await createSourceFolder();
+    await core.setOutputLocation(output);
+    await writeFile(join(output, "Quay counts.docx"), "The User's own file of that name.");
+    const agent = await connectLegacyAgent(writer.launch);
+    const words = { title: "Quay counts", markdown: OFFICE, folderId: coast.id };
+    const first = structured<Saved>(await save(agent, words));
+    expect(first.saved).toBe(join(output, "Quay counts 2.docx"));
+
+    await rm(join(output, "Quay counts.docx"));
+    const again = structured<Saved>(await save(agent, words));
+    expect(again).toMatchObject({ fileId: first.fileId, version: 1, saved: first.saved });
+    expect(readdirSync(output)).toEqual(["Quay counts 2.docx"]);
+  });
+
+  // protects=a hand-over of the Word file IncarnaMind saved is answered with that item, its Folder named as the item's, whatever Folder the call named (#3751); fails_when=the answer names the call's Folder beside another Folder's item
+  it("names the saved Word file's own Folder when it is handed over with another", async () => {
+    const { core, coast, writer, more } = await started([], {
+      asItLands: false,
+      folders: ["Moorings"],
+    });
+    await core.setOutputLocation(await createSourceFolder());
+    const agent = await connectLegacyAgent(writer.launch);
+    const saved = structured<Saved>(
+      await save(agent, { title: "Quay counts", markdown: OFFICE, folderId: coast.id }),
+    );
+    const handed = structured<Handed>(
+      await handOver(agent, { path: saved.saved ?? "", folderId: more[0]?.id }),
+    );
+    expect(handed).toMatchObject({ fileId: saved.fileId, folder: "Coast", version: 1 });
+  });
+
+  // protects=a Citation of a web page deleted and saved again, the same page now a live Document the agent reaches, is written as Export › Word writes it, naming the page as it is now, never refused as a Document no longer in the Library (#3751); fails_when=the call is refused or the footnote loses the page's address
+  it("writes a Citation of a web page deleted and saved again, naming the page saved again", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    await core.setOutputLocation(await createSourceFolder());
+    const page = async () => {
+      const result = await core.saveWebPage({
+        address: "https://encyclopedia.example/tea",
+        html: ARTICLE,
+        folderId: coast.id,
+      });
+      if (result.outcome !== "saved") throw new Error(result.failure.message);
+      const [document] = await waitForProcessing(core, [result.document.id]);
+      if (!document) throw new Error("The page wasn't read.");
+      return document;
+    };
+    const removed = await page();
+    const mind = await core.createMind({ title: "Tea notes", folderId: coast.id });
+    const client = await connectToMind(core, mind.id);
+    writeMind(client, [
+      {
+        type: "paragraph",
+        content: [text("Tea came to Europe"), citation(removed, "Tea came to Europe"), text(".")],
+      },
+    ]);
+    await client.settled();
+    await core.deleteDocuments([removed.id]);
+    const replacement = await page();
+    expect(replacement.id).not.toBe(removed.id);
+    expect(replacement.contentHash).toBe(removed.contentHash);
+    const agent = await connectLegacyAgent(writer.launch);
+
+    const saved = structured<Saved>(await save(agent, { mindId: mind.id }));
+    expect(partsOf(savedFile(saved)).footnotes).toEqual([
+      expect.stringContaining("https://encyclopedia.example/tea"),
+    ]);
+  });
+
+  // protects=Ask in your agent on the check of a Word file whose Note was deleted since points the agent at the file's text in the check's Note and a save of the corrected Markdown, in English and Chinese, never at the deleted Note (#3751); fails_when=the request tells the agent to change the deleted Note with propose_changes or to save by its mindId
+  it("asks for a fix to a Word file's own text once the Note it was saved from is deleted", async () => {
+    const { core, coast, writer } = await started();
+    const agent = await connectLegacyAgent(writer.launch);
+    const { mindId } = structured<{ mindId: string }>(
+      await agent.callTool({
+        name: "create_mind",
+        arguments: { title: "Harbour brief", markdown: SOUTH, folderId: coast.id },
+      }),
+    );
+    const saved = structured<Saved>(await save(agent, { mindId }));
+    await core.deleteMind(mindId);
+
+    const request = await askToFix(core, writer.pairing.id, agent, saved);
+    expect(request).toMatch(
+      /^In IncarnaMind, the check of the Word file saved from my note “Harbour brief” \(version 1\) says this is contradicted by my Documents:/,
+    );
+    expect(request).toContain(
+      `That note has since been deleted. The file’s text is in the note mindId ${saved.mindId} (read_mind). Fix it from my Documents, change nothing else, and save it with save_as_word, the title “Harbour brief”, folderId ${coast.id} and the corrected markdown.`,
+    );
+    await core.updateSettings({ user: { language: "zh-CN" } });
+    const zh = await askToFix(core, writer.pairing.id, agent, saved);
+    expect(zh).toContain(
+      `这篇笔记已删除。文件的文字在笔记 mindId ${saved.mindId} 中（用 read_mind 读取）。请根据我的文档改正，其他内容不要改动，然后用 save_as_word、标题“Harbour brief”、folderId ${coast.id} 和改正后的 markdown 生成。`,
+    );
+    for (const words of [request, zh]) {
+      expect(words).not.toContain(mindId);
+      expect(words).not.toContain("propose_changes");
+    }
+    // The agent can do as it is asked: the check's Note reads, and the corrected text saves.
+    structured(await agent.callTool({ name: "read_mind", arguments: { mindId: saved.mindId } }));
+    expect(
+      structured<Saved>(
+        await save(agent, { title: "Harbour brief", markdown: SOUTH_TRUE, folderId: coast.id }),
+      ),
+    ).toMatchObject({ version: 1 });
   });
 
   // protects=a Note left where the agent reaches it while its Word file is written is saved as before: in the Library with its check Note, and in the Output location (#3751); fails_when=reading the Note's reach again refuses or loses a file the agent may have

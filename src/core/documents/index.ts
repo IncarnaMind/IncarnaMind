@@ -3749,9 +3749,10 @@ export function createDocuments(options: DocumentsOptions) {
     /**
      * Removes the old layout's copies of Documents deleted permanently, each once no Document
      * that can still come back is at its place, and the copies kept of the files outside agents
-     * handed over (#3505). Again at each start, for a quit that cut it short.
+     * handed over (#3505), with `refused`, what a refused hand-over wrote there (#3751). Again at
+     * each start, for a quit that cut it short.
      */
-    async dropPurged(): Promise<void> {
+    async dropPurged(refused: readonly string[] = []): Promise<void> {
       // By place, not by path: a Document added from a data folder reached through a link has
       // the path with links resolved, an old one the path as the app was given it.
       const places = db
@@ -3782,7 +3783,7 @@ export function createDocuments(options: DocumentsOptions) {
           db,
           dataDir,
           now,
-          ownFiles: places.filter((path) => isKeptCopy(dataDir, path)),
+          ownFiles: [...places, ...refused].filter((path) => isKeptCopy(dataDir, path)),
           reportError,
         }),
         ...copies.map((path) => rm(path, { force: true }).catch(reportError)),

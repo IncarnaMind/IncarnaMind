@@ -104,11 +104,13 @@ export interface HandedFileAsked {
    * Where it came from: the path the agent handed it over from, or the Note or text IncarnaMind
    * wrote it from with `save_as_word` (#3751), fixed there and saved again into the same item:
    * `folderId` to save with, null where a save names none to reach it; `own`, the agent wrote the
-   * Note, so its fix lands at once rather than waiting for the User.
+   * Note, so its fix lands at once rather than waiting for the User. A Note deleted since takes no
+   * fix: its file's text is read from the check's Note, as a text's is.
    */
   from:
     | { kind: "path"; path: string }
     | { kind: "note"; mindId: string; own: boolean; folderId: string | null }
+    | { kind: "deletedNote"; folderId: string }
     | { kind: "text"; folderId: string };
   /** Where in the file the claim a check result is on stands ("slide 4"); null when unknown. */
   whereOf(checkId: string | null): string | null;
@@ -311,6 +313,11 @@ const FILE_REQUESTS = {
     about: "agents.ask.request.wordNote",
     fix: "agents.ask.request.fixWordNoteWaits",
     fixAll: "agents.ask.request.fixWordNoteAllWaits",
+  },
+  deletedNote: {
+    about: "agents.ask.request.wordDeletedNote",
+    fix: "agents.ask.request.fixWordDeletedNote",
+    fixAll: "agents.ask.request.fixWordDeletedNoteAll",
   },
   text: {
     about: "agents.ask.request.wordText",

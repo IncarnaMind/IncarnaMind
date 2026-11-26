@@ -80,9 +80,10 @@ export function endPurgedHanded(db: Database, at: string): void {
 /**
  * Removes the folder of each item that ended with its Document (its rows deleted, as
  * `recentlyDeleted` does when the Document is deleted for good), and `ownFiles`: the files of
- * Documents deleted for good that an item which goes on with a newer Document no longer needs.
- * The file of a Document that can still come back stays, and the rest of its item's folder goes.
- * Run again at each start, so a removal that failed is tried again; each failure is reported.
+ * Documents deleted for good that an item which goes on with a newer Document no longer needs, and
+ * what a refused hand-over wrote (#3751). The file of a Document that can still come back stays,
+ * and the rest of its item's folder goes. Run again at each start, so a removal that failed is
+ * tried again; each failure is reported.
  */
 export async function dropPurgedHanded(options: {
   db: Database;
@@ -116,7 +117,9 @@ export async function dropPurgedHanded(options: {
       return [];
     });
   const there = new Set(await listing(root));
-  const targets = new Set(options.ownFiles);
+  const targets = new Set(
+    options.ownFiles.filter((target) => !holding.some((path) => isInside(target, path))),
+  );
   for (const folder of endedIds.filter((id) => there.has(id)).map((id) => join(root, id))) {
     const held = holding.filter((path) => isInside(folder, path));
     if (held.length === 0) {
