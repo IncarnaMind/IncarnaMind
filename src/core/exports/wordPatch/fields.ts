@@ -5,7 +5,7 @@
  * saved. So each field whose result the change can have altered is marked dirty:
  *
  * - a REF, when its bookmark's paragraph number (`\r`, `\n`, `\w`) or its bookmark's text changed,
- *   or for `\r` the levels that number shares with the paragraph the REF is in;
+ *   or for `\r` the levels that number shares with where the REF stands in that numbering;
  * - a PAGEREF, when anything at or before its bookmark changed, which can move its page;
  * - a TOC, when the headings changed, or anything before the last of them.
  *
@@ -214,9 +214,24 @@ class Reading {
     return this.numbersOf(this.paragraphOf(name));
   }
 
-  /** The number of the paragraph an element is in, both ways. */
-  numberAround(element: XmlElement): Counted {
-    return this.numbersOf(this.paragraphAround(element));
+  /**
+   * Where an element stands in a list's numbering, both ways: its paragraph's number in that
+   * list, else the number of the nearest paragraph before it in that list; null when the element
+   * isn't in a paragraph.
+   */
+  placeIn(element: XmlElement, abstract: string | undefined): Counted | null {
+    const p = this.paragraphAround(element);
+    if (!p) return null;
+    const from = this.paragraphs.indexOf(p);
+    const nearest = (numbers: Map<XmlElement, ParagraphNumber>) => {
+      for (let at = from; at >= 0; at--) {
+        const paragraph = this.paragraphs[at];
+        const number = paragraph && numbers.get(paragraph);
+        if (number && number.list.abstract === abstract) return number;
+      }
+      return null;
+    };
+    return [nearest(this.numbers), nearest(this.accepted)];
   }
 
   /** A bookmark's text, when it is all in one paragraph; null for one that isn't. */
@@ -273,7 +288,7 @@ const sameNumber = (a: ParagraphNumber | null, b: ParagraphNumber | null) =>
       a.list.level === b.list.level &&
       a.numbers.join(".") === b.numbers.join(".");
 
-/** How many of its first levels a paragraph's number shares with the referring paragraph's. */
+/** How many of its first levels a paragraph's number shares with where the REF to it stands. */
 function sharedLevels(target: ParagraphNumber | null, from: ParagraphNumber | null): number {
   if (!target || !from || target.list.abstract !== from.list.abstract) return 0;
   let at = 0;
@@ -410,8 +425,9 @@ function earlierFields(then: readonly Field[], now: readonly Field[]): Map<Field
 /**
  * A REF to a paragraph's number: whether the change can have altered what it shows, and what
  * it shows now when that can be known. A `\r` number leaves out the levels the paragraph shares
- * with the one the field is in (ECMA-376's REF field), so `from` is the field before the change,
- * null when it can't be found; undefined for a number that doesn't depend on where it is.
+ * with where the field stands in its numbering (ECMA-376's REF field), so `from` is the field
+ * before the change, null when it can't be found; undefined for a number that doesn't depend on
+ * where it is.
  */
 function numberResult(
   field: Field,
@@ -434,11 +450,14 @@ function numberResult(
   ];
   let placed = from === undefined;
   if (from) {
-    const thenFrom = was.numberAround(from);
-    const nowFrom = now.numberAround(field.begin);
-    placed = counts.every(
-      (at) => sharedLevels(then[at], thenFrom[at]) === sharedLevels(next[at], nowFrom[at]),
-    );
+    const thenFrom = was.placeIn(from, (then[0] ?? then[1])?.list.abstract);
+    const nowFrom = now.placeIn(field.begin, (next[0] ?? next[1])?.list.abstract);
+    placed =
+      thenFrom !== null &&
+      nowFrom !== null &&
+      counts.every(
+        (at) => sharedLevels(then[at], thenFrom[at]) === sharedLevels(next[at], nowFrom[at]),
+      );
   }
   const way = thenWays[0].findIndex(
     (_, at) => result !== "" && thenWays.some((ways) => ways[at] === result),

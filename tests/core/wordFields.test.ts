@@ -208,6 +208,36 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
+  // protects=a `\r` REF in a paragraph with no number of its own stands where the paragraph before it in the list does: a clause heading added just before it moves it out of clause 2, so the REF is asked to refresh though its bookmark keeps 2.3, its result kept; fails_when=it isn't marked because neither its paragraph before nor after has a number; no_claim=what Word writes for a relative number.
+  test("a `\\r` REF in an unnumbered paragraph that moves to another clause is marked", async () => {
+    const reference = `${run("Interest under clause ")}${field("REF _Ref201 \\r \\h", "2.3")}${run(" is due monthly.")}`;
+    const contract: Contract = {
+      ...ENGLISH_CONTRACT,
+      body: (words) =>
+        [
+          clause("Services"),
+          sub("Brightwater Studio designs the packaging Alder & Finch Ltd orders."),
+          clause("Fees"),
+          sub("Alder & Finch Ltd pays the fee each month."),
+          bookmarked("_Ref201", "Unpaid fees carry interest at 2% a month."),
+          paragraph(words),
+        ].join(""),
+      reference,
+    };
+    const { document } = await exported(contractFile(contract), (blocks) => {
+      const at = blocks.findIndex((each) => textOf(each).startsWith("Interest under clause"));
+      const heading = {
+        type: "heading",
+        attrs: { level: 1 },
+        content: [{ type: "text", text: "Interest" }],
+      };
+      return at < 0 ? blocks : [...blocks.slice(0, at), heading, ...blocks.slice(at)];
+    });
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\r \\h", result: "2.3", dirty: true },
+    ]);
+  });
+
   // protects=a simple field holding another, both naming a renumbered clause: each text of a result is the innermost field's, so the inner one gets the new number, and the outer one is only asked to refresh, rather than both writing the same text and the export failing; fails_when=the export throws, the inner result keeps 2.3, or either field isn't marked; no_claim=what Word shows in the outer field.
   test("a simple field inside another is renumbered, the outer one only marked", async () => {
     const inner = `<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${run("2.3")}</w:fldSimple>`;
