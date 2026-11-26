@@ -7,7 +7,6 @@ import {
   dragTabTo,
   firstTranscriptLine,
   focusSettled,
-  gettingStarted,
   launchApp,
   mindWrittenBefore,
   motionSettled,
@@ -743,48 +742,53 @@ test("back in a Note by its tab, ⌘J then Esc come back to the cursor where it 
   }
 });
 
-/** The getting-started steps shown, as on a first run, so their Hide is a change of the app's with Undo. */
-const showSteps = (window: Page) =>
-  window.evaluate(async () => {
-    const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const now = (await core.getSettings()).device.gettingStarted;
-    await core.updateSettings({
-      device: { gettingStarted: { ...now, started: true, hidden: false } },
-    });
-  });
+/** A first run with the examples, so Remove the examples is a change of the app's with Undo. */
+async function launchedWithExamples() {
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await setWindowSize(app, window, 1600, 900);
+  await dismissChatSetup(window);
+  return { app, window };
+}
 
-const stepsHidden = async (window: Page) => (await gettingStarted(window)).hidden;
+const examplesThere = (window: Page) =>
+  window.evaluate(
+    async () =>
+      (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getExamples())
+        .mindId !== null,
+  );
+
+/** Removes the examples from ⌘K, the focus back in the Note's text. */
+async function removeExamplesFromPalette(window: Page) {
+  await window.keyboard.press("ControlOrMeta+k");
+  await expect(window.getByTestId("palette-search")).toBeFocused();
+  await window.keyboard.type("Remove the examples");
+  await expect(window.getByTestId("palette-item").first()).toContainText("Remove the examples");
+  await window.keyboard.press("Enter");
+  await expect.poll(() => examplesThere(window)).toBe(false);
+  await expect(shownEditor(window)).toBeFocused();
+}
 
 // protects=in a Note's text ⌘Z takes back the Note's own typing first and, with nothing of the Note's left, the app's change; ⇧⌘Z does the typing again first and then the app's change, each once; a tab's name field keeps ⌘Z for its own text, the app's change staying (#3115); fails_when=⌘Z in the text stops at the Note's history, takes the app's change first, a step is done twice or lost, or the name field's ⌘Z takes back the app's change; no_claim=the Edit menu's names.
 test("in a Note's text ⌘Z takes back the typing, then the app's change, ⇧⌘Z the same way round, and a tab's name field keeps its own", async () => {
-  const { app, window } = await launched();
+  const { app, window } = await launchedWithExamples();
   try {
-    await showSteps(window);
     await newMind(window);
     const editor = shownEditor(window);
     await window.keyboard.type("Typed.");
-    await window.keyboard.press("ControlOrMeta+k");
-    await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("Hide the getting-started steps");
-    await expect(window.getByTestId("palette-item").first()).toContainText(
-      "Hide the getting-started steps",
-    );
-    await window.keyboard.press("Enter");
-    await expect.poll(() => stepsHidden(window)).toBe(true);
-    await expect(editor).toBeFocused();
+    await removeExamplesFromPalette(window);
 
     await window.keyboard.press("ControlOrMeta+z");
     await expect(editor).not.toContainText("Typed.");
-    expect(await stepsHidden(window)).toBe(true);
+    expect(await examplesThere(window)).toBe(false);
     await window.keyboard.press("ControlOrMeta+z");
-    await expect.poll(() => stepsHidden(window)).toBe(false);
+    await expect.poll(() => examplesThere(window)).toBe(true);
     await expect(editor).not.toContainText("Typed.");
 
     await window.keyboard.press("ControlOrMeta+Shift+z");
     await expect(paragraphs(editor)).toHaveText(["Typed."]);
-    expect(await stepsHidden(window)).toBe(false);
+    expect(await examplesThere(window)).toBe(true);
     await window.keyboard.press("ControlOrMeta+Shift+z");
-    await expect.poll(() => stepsHidden(window)).toBe(true);
+    await expect.poll(() => examplesThere(window)).toBe(false);
     await expect(paragraphs(editor)).toHaveText(["Typed."]);
 
     await shownTabs(window).first().getByTestId("tab-title").dblclick();
@@ -807,7 +811,7 @@ test("in a Note's text ⌘Z takes back the typing, then the app's change, ⇧⌘
     await window.keyboard.press("ControlOrMeta+z");
     await window.keyboard.press("Escape");
     await expect(name).toHaveCount(0);
-    expect(await stepsHidden(window)).toBe(true);
+    expect(await examplesThere(window)).toBe(false);
     await expect(paragraphs(editor)).toHaveText(["Typed."]);
   } finally {
     await app.close();
@@ -816,30 +820,21 @@ test("in a Note's text ⌘Z takes back the typing, then the app's change, ⇧⌘
 
 // protects=typing in a Note ends the app's Redo, as any new change does: an app change taken back before the typing is never done again by ⇧⌘Z or Ctrl+Y pressed in the Note's text once the Note has nothing left to do again (#3115); fails_when=the key pressed once too many does the earlier app change again; no_claim=the Edit menu's Redo item, which reads the same list.
 test("typing in a Note ends the app's Redo: ⇧⌘Z pressed once too many leaves an app change taken back before as it was", async () => {
-  const { app, window } = await launched();
+  const { app, window } = await launchedWithExamples();
   try {
-    await showSteps(window);
     await newMind(window);
     const editor = shownEditor(window);
     await window.keyboard.type("First.");
-    await window.keyboard.press("ControlOrMeta+k");
-    await expect(window.getByTestId("palette-search")).toBeFocused();
-    await window.keyboard.type("Hide the getting-started steps");
-    await expect(window.getByTestId("palette-item").first()).toContainText(
-      "Hide the getting-started steps",
-    );
-    await window.keyboard.press("Enter");
-    await expect.poll(() => stepsHidden(window)).toBe(true);
-    await expect(editor).toBeFocused();
+    await removeExamplesFromPalette(window);
     await window.keyboard.press("ControlOrMeta+z");
     await expect(editor).not.toContainText("First.");
     await window.keyboard.press("ControlOrMeta+z");
-    await expect.poll(() => stepsHidden(window)).toBe(false);
+    await expect.poll(() => examplesThere(window)).toBe(true);
 
     await window.keyboard.type("Typed.");
     await expect(editor).toContainText("Typed.");
     await window.keyboard.press("ControlOrMeta+Shift+z");
-    expect(await stepsHidden(window)).toBe(false);
+    expect(await examplesThere(window)).toBe(true);
 
     await window.keyboard.press("ControlOrMeta+z");
     await expect(editor).not.toContainText("Typed.");
@@ -847,7 +842,7 @@ test("typing in a Note ends the app's Redo: ⇧⌘Z pressed once too many leaves
     await expect(editor).toContainText("Typed.");
     await window.keyboard.press("ControlOrMeta+Shift+z");
     if (process.platform !== "darwin") await window.keyboard.press("Control+y");
-    expect(await stepsHidden(window)).toBe(false);
+    expect(await examplesThere(window)).toBe(true);
     await expect(editor).toContainText("Typed.");
   } finally {
     await app.close();

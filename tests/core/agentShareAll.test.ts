@@ -400,6 +400,61 @@ describe("the line that says the User has more than the agent was given (#3544)"
     expect((await search(all)).notShared).toBe(NOT_SHARED);
   });
 
+  // protects=the example can be asked in, as a Note of the User's own can, and the connection asked there reads it then, and no other (#3791); fails_when=the example's input has no AI to ask, the AI asked can't read the example it was asked in, or a connection never asked there reads the examples
+  it("lends an example to the connection the User asks in it, and to no other", async () => {
+    const { core, connect, folder } = await fresh({ examples: true });
+    const made = await core.createExamples();
+    const exampleDocuments = await vi.waitFor(
+      async () => {
+        const read = await core.listDocuments({ linkedFolderId: made.linkedFolderId ?? "" });
+        expect(read.length).toBeGreaterThan(0);
+        expect(read.every((each) => each.status === "ready")).toBe(true);
+        return read.map((each) => each.id);
+      },
+      { timeout: 30_000 },
+    );
+    const mindId = made.mindId ?? "";
+    const asked = await connect("Claude Code", [ALL_SHARED_ID]);
+    const other = await connect("Cursor", [ALL_SHARED_ID]);
+    // Given no Folders, a connection reads nothing, the example included: it isn't offered there.
+    await connect("Zed", []);
+    const readExample = (agent: Agent) =>
+      agent.callTool({ name: "read_mind", arguments: { mindId } });
+    const readsExamples = async (agent: Agent) =>
+      (await found(agent, "gross margin")).some((id) => exampleDocuments.includes(id));
+    const askable = async (documentId?: string) =>
+      (await core.listAgentsToAsk(mindId, documentId)).map((each) => each.id).sort();
+    expect(await askable()).toEqual([asked.pairing.id, other.pairing.id].sort());
+    // The example's own Documents go with it: one open there can be asked about, as the Note can.
+    expect(await askable(exampleDocuments[0])).toEqual([asked.pairing.id, other.pairing.id].sort());
+    expect((await readExample(asked.agent)).isError).toBe(true);
+    expect(await readsExamples(asked.agent)).toBe(false);
+
+    await core.askAgent({
+      pairingId: asked.pairing.id,
+      mindId,
+      ask: { kind: "question", text: "What was gross margin in the third quarter?" },
+      onScreen: [],
+      scope: null,
+    });
+    expect(structured<{ mindId: string }>(await readExample(asked.agent)).mindId).toBe(mindId);
+    expect(await readsExamples(asked.agent)).toBe(true);
+    expect((await readExample(other.agent)).isError).toBe(true);
+    expect(await readsExamples(other.agent)).toBe(false);
+
+    // Filed behind a work wall, the example is the wall's alone: no connection given all is asked
+    // there or reads it, the one asked in it before included.
+    const vault = await folder("Vault", { keepInside: true });
+    await core.moveToFolder({
+      mindIds: [mindId],
+      documentIds: exampleDocuments,
+      folderId: vault.id,
+    });
+    expect(await core.listAgentsToAsk(mindId)).toEqual([]);
+    expect((await readExample(asked.agent)).isError).toBe(true);
+    expect(await readsExamples(asked.agent)).toBe(false);
+  });
+
   // protects=a file an agent handed over is no source for another agent, and counts for nothing outside its share: an agent given all isn't told there is more because of it (#3492, #3544); fails_when=the handed-over file, held back from every other agent, makes them send the User to Settings
   it("leaves a file an agent handed over out of what is outside", async () => {
     const set = await handing();

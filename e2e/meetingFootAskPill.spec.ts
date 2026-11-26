@@ -8,6 +8,7 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  useLocalChatModel,
 } from "./app";
 
 /*
@@ -43,7 +44,9 @@ async function sheetFromChevron(window: Page, chevron: Locator): Promise<void> {
 
 // protects=on a first run with the assistant quiet, in a window as narrow as a small screen gives the packaged app, the Ask pill never lies over a recorded call's control at its Note's foot, so the chevron's press opens the Transcript sheet, in English and Chinese, and the pill is back over Home (#3762); fails_when=the pill floats over the control and takes its press, or it is gone everywhere; no_claim=the pill's own place and look, which the first-run specs hold.
 test("in a first run's small window the Ask pill gives way to a call's control, whose chevron opens the Transcript, and is back over Home", async () => {
-  const { app, window } = await launchApp(dataDir, { examples: true });
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
+  // The pill asks IncarnaMind's own model, so it floats once one is set up (#3791).
+  await useLocalChatModel(window);
   await setWindowSize(app, window, 1024, 677);
   const pill = window.getByTestId("ask-pill");
   await expect(pill).toBeVisible();

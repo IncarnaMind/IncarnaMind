@@ -29,7 +29,7 @@ const MESSAGES = [
   '[data-testid="chat-readiness"]',
   '[data-testid="undo-message"]',
   '[data-testid="model-setup"]',
-  '[data-testid="first-open-steps"]',
+  '[data-testid="note-ask-no-ai"]',
   '[data-testid="assistant-empty"]',
 ].join(", ");
 

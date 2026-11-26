@@ -48,7 +48,6 @@ import {
   type ExampleGroup,
   type Examples,
   type LinkedFolder,
-  type MarkedCitation,
   type Mind,
   QUESTION_BLOCK,
 } from "./api";
@@ -127,25 +126,6 @@ export interface ExamplesOptions {
 /** An example's draft, as the Blocks it is written into its Mind as. */
 const draftBlocks = (set: ExampleSet): NodeJSON[] => (set.draft ? markdownToBlocks(set.draft) : []);
 
-/**
- * What the default example's ready Answer can do now: be written with its checked Citations
- * (`ready`); wait, because a Document it cites is still being read (`reading`); never be written,
- * because a Document it cites couldn't be read (`unreadable`) or was deleted (`gone`); or there is
- * no example to answer from (`absent`).
- */
-export type ExampleReadyState =
-  | {
-      kind: "ready";
-      mindId: string;
-      question: string;
-      answer: string;
-      citations: MarkedCitation[];
-    }
-  | { kind: "reading"; document: string }
-  | { kind: "unreadable"; document: string }
-  | { kind: "gone"; document: string }
-  | { kind: "absent" };
-
 /** Each of the draft's Blocks as Markdown, as the Mind holds it: to tell whether the User changed it. */
 function draftMarkdown(set: ExampleSet): string[] {
   const scratch = new Y.Doc();
@@ -215,36 +195,6 @@ export function createExamples(options: ExamplesOptions) {
   };
 
   /**
-   * The example's own ready Question (#123), while the credit paper is the one shown; null
-   * otherwise, as for the earlier version's tea example. The one the first open offers is
-   * `readyQuestion`, which names the User's own Document instead as soon as theirs is ready.
-   * `waitingFor` names the Document whose reading its Answer waits for, or null once it can be
-   * written; a Document that can't be read at all takes the Question away, so no press is needed
-   * to learn it (#2218).
-   */
-  const readyQuestion = (): { question: string; waitingFor: string | null } | null => {
-    const examples = stored(DEFAULT_GROUP);
-    const ready = examples && EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready;
-    if (!examples || !ready || !options.mindExists(examples.mindId)) return null;
-    if (!options.linkedFolderExists(examples.linkedFolderId)) return null;
-    const documents = options.documentsIn(examples.linkedFolderId);
-    let waitingFor: string | null = null;
-    for (const quote of ready.quotes) {
-      const document = documents.find((each) => each.name === quote.document);
-      // Deleted, or never listed: nothing will answer from it, so the Question goes with it. Never
-      // waited for, as a folder that never stops being scanned would leave it waiting for ever.
-      if (!document) return null;
-      // Its text is still being read: the Answer waits for it.
-      if (document.status === "queued" || document.status === "extracting") {
-        waitingFor ??= quote.document;
-        continue;
-      }
-      if (!hasText(document) || document.status === "no-text") return null;
-    }
-    return { question: ready.question, waitingFor };
-  };
-
-  /**
    * Each part while it exists: the Mind can be deleted, or the folder unlinked,
    * on its own. The default is the earlier version's tea example while there is
    * one and no credit paper.
@@ -265,67 +215,6 @@ export function createExamples(options: ExamplesOptions) {
         ...(group === DEFAULT_GROUP ? [] : [DEFAULT_GROUP]),
         ...order().filter((each) => each !== group),
       ],
-    };
-  };
-
-  /**
-   * The ready Question with its Answer and Citations (`askExampleReadyQuestion`), checked
-   * against the Documents now, once every Document it cites has been read; otherwise why not
-   * (`readyQuestion` waits on this while the Documents are read).
-   */
-  const readyState = (): ExampleReadyState => {
-    const examples = stored(DEFAULT_GROUP);
-    const ready = examples && EXAMPLE_SETS[DEFAULT_GROUP][examples.language].ready;
-    if (!examples || !ready || !options.mindExists(examples.mindId)) return { kind: "absent" };
-    if (!options.linkedFolderExists(examples.linkedFolderId)) return { kind: "absent" };
-    const documents = options.documentsIn(examples.linkedFolderId);
-    const cited = ready.quotes.map((quote) => ({
-      quote,
-      document: documents.find((each) => each.name === quote.document),
-    }));
-    // What can't be answered is said first, a Document gone or read without text, so it never
-    // waits behind another still being read.
-    const gone = cited.find((each) => !each.document);
-    if (gone) return { kind: "gone", document: gone.quote.document };
-    const unread = cited.find(
-      ({ document }) => document?.status === "failed" || document?.status === "no-text",
-    );
-    if (unread) return { kind: "unreadable", document: unread.quote.document };
-    const reading = cited.find(
-      ({ document }) => document?.status === "queued" || document?.status === "extracting",
-    );
-    if (reading) return { kind: "reading", document: reading.quote.document };
-    const citations: MarkedCitation[] = [];
-    for (const [index, { quote, document }] of cited.entries()) {
-      if (!document) return { kind: "gone", document: quote.document };
-      if (!hasText(document)) return { kind: "unreadable", document: quote.document };
-      const result = options.cite({
-        documentId: document.id,
-        quote: quote.quote,
-      });
-      if (!result.passageId || !result.contentHash) {
-        return { kind: "unreadable", document: quote.document };
-      }
-      citations.push({
-        marker: index + 1,
-        passageId: result.passageId,
-        documentId: document.id,
-        documentName: document.name,
-        contentHash: result.contentHash,
-        pageFrom: result.pageFrom,
-        pageTo: result.pageTo,
-        location: result.location,
-        quote: quote.quote,
-        check: result.check,
-        checkReason: result.checkReason,
-      });
-    }
-    return {
-      kind: "ready",
-      mindId: examples.mindId,
-      question: ready.question,
-      answer: ready.answer,
-      citations,
     };
   };
 
@@ -795,10 +684,6 @@ export function createExamples(options: ExamplesOptions) {
     },
 
     create: inTurn(create),
-
-    readyQuestion,
-
-    readyState,
 
     /**
      * The interface language changed (#709): each example the User hasn't

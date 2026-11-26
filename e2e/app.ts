@@ -2718,10 +2718,12 @@ export async function expectReadyDocuments(window: Page, count: number): Promise
     .toBe(count);
 }
 
-/** Ends the first open (hides its steps), so the shell shows everything, as it does for a returning User. */
+/**
+ * Ends the first open as a User does, so the shell shows everything, as it does for a returning
+ * User: their first ask of an AI, a file of their own read, a Citation checked.
+ */
 export async function leaveFirstOpen(window: Page): Promise<void> {
-  await markSteps(window, { hidden: true });
-  await expect(window.getByTestId("first-open-steps")).toHaveCount(0);
+  await markSteps(window, { askedOwn: true, indexed: true, citationChecked: true });
 }
 
 /** Marks steps of the first open done (or hides it), as the User doing them would. */
@@ -2734,10 +2736,6 @@ export async function markSteps(window: Page, done: object): Promise<void> {
     });
   }, done);
 }
-
-/** One step of the Welcome card. */
-export const welcomeStep = (window: Page, key: "citation" | "question" | "files") =>
-  window.locator(`[data-testid="first-open-step"][data-step="${key}"]`);
 
 /** Which steps of the first open the core holds as done. */
 export const gettingStarted = (window: Page) =>
@@ -3477,6 +3475,15 @@ export async function expectHomeInFront(window: Page): Promise<void> {
   await expect(window.getByTestId("home")).toBeVisible();
   await expect(window.getByTestId("home-tab")).toHaveAttribute("aria-selected", "true");
   await expect(window.getByTestId("sidebar-home")).toHaveAttribute("aria-current", "page");
+}
+
+/** The example Note is the Note in front, as the first run's setup leaves it once it ends (#3791). */
+export async function expectExampleInFront(window: Page): Promise<void> {
+  await expect(frontMind(window)).toBeVisible();
+  const mindId = await frontMind(window).getAttribute("data-mind-id");
+  await expect(
+    window.locator(`[data-testid="mind-list-item"][data-example][data-mind-id="${mindId}"]`),
+  ).toHaveAttribute("aria-current", "page");
 }
 
 /** Opens the example Note from its row in the sidebar, as a first run's User does from Home. */

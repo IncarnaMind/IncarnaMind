@@ -601,9 +601,7 @@ function MindEditorView({
         ? explained
           ? "editor.hint.empty"
           : "editor.hint.first"
-        : isExample
-          ? "editor.hint.example"
-          : "editor.hint.afterAnswer";
+        : "editor.hint.afterAnswer";
     const [before = "", after = ""] = t(key, { ask: ASK }).split(ASK);
     return { before, ask: t(`${key}.ask`, { shortcut: shortcutLabel("composer.focus") }), after };
   };
@@ -1370,7 +1368,8 @@ function MindEditorView({
           {meeting?.kind === "meeting" && (
             <MeetingFillAt editor={editor} doc={doc} meeting={meeting} lineShown={!myNotes} />
           )}
-          {!readOnly && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
+          {/* An example is asked at its foot, as a Note of the User's own is (#3791). */}
+          {!readOnly && !isExample && <EndHint editor={editor} text={hintText} onAsk={askOnLine} />}
           <MarginChecks editor={editor} mind={{ id: mindId, doc }} />
           <CommentLayer editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />
           <DraftComment editor={editor} mindId={mindId} doc={doc} readOnly={readOnly} />

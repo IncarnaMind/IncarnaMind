@@ -124,8 +124,8 @@ export interface OwnAiPill {
 
 /**
  * What ⌘J asks about: the Note the assistant reads, else the Document in front. A Note no
- * connected AI may read (an example's, which a new User has open) gives way to the Document opened
- * beside it, so ⌘J still asks when the User opens one there.
+ * connected AI may read gives way to the Document opened beside it, so ⌘J still asks when the User
+ * opens one there.
  */
 interface AskedOn {
   mindId: string | null;

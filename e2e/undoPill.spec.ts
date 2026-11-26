@@ -600,9 +600,11 @@ test("at 900 px with the first open's Ask pill, the pill sits beside it, at the 
   test.setTimeout(180_000);
   const sources = await createDataFolder();
   await writeFile(join(sources, "Tides note.txt"), "Tides and the moon.\n");
-  const { app, window } = await launchApp(dataDir, { examples: true });
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   try {
     await dismissChatSetup(window);
+    // The Ask pill asks IncarnaMind's own model, so it floats only where one is set up (#3791).
+    await connectLocalChatModel(window);
     await setWindowSize(app, window, 900, 700);
     await setSidebarShown(window, false);
     // A Document added at the first open is a change Undo takes back.

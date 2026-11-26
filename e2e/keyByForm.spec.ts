@@ -1,5 +1,3 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
 import { translate } from "../src/shared/i18n";
@@ -10,21 +8,18 @@ import {
   assistantAnswers,
   createDataFolder,
   fakeChatRequests,
-  interceptOpenDialog,
   launchApp,
-  openExample,
   pasteText,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  welcomeStep as step,
 } from "./app";
 
 /*
  * A key is recognised by its form only (#2865). In Chinese, a key in the form DeepSeek and Qwen
- * share is used after one press of Use this key, DeepSeek asked first, so the first Answer comes
- * as soon as with a key whose form names its service, plus that press. The fake chat model
+ * share is used after one press of Use this key, DeepSeek asked first, so the waiting Question is
+ * answered as soon as with a key whose form names its service, plus that press. The fake chat model
  * answers, with no network, and keeps every request it was sent: none carries the key before the
  * User says where it goes, however it was entered, and then all go there.
  */
@@ -33,14 +28,11 @@ import {
 const SHARED_KEY = `sk-${"0123456789abcdef".repeat(2)}`;
 
 let dataDir: string;
-let sources: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
-  sources = await createDataFolder();
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
-  await removeDataFolder(sources);
 });
 
 /** Where the requests that carried `key` would have gone: each service and region, once. */
@@ -61,37 +53,18 @@ for (const { key, name, service, presses } of [
   { key: SHARED_KEY, name: "a DeepSeek-form", service: "deepseek", presses: 1 },
   { key: ANTHROPIC_KEY, name: "an Anthropic", service: "anthropic", presses: 0 },
 ] as const) {
-  test(`in Chinese, ${name} key pasted on the first-run card is used ${presses === 1 ? "after one press of Use this key" : "at once"}, and the first Answer comes within 6 steps`, async () => {
+  test(`in Chinese, ${name} key pasted on the setup card is used ${presses === 1 ? "after one press of Use this key" : "at once"}, and the waiting Question is answered`, async () => {
     test.setTimeout(120_000);
-    const file = join(sources, "项目简报.md");
-    await writeFile(file, "# 项目简报\n\n项目简报写明了港口计划。\n");
     const { app, window } = await launchApp(dataDir, {
       fakeChat: true,
-      examples: true,
       ollama: "http://127.0.0.1:9",
     });
     try {
-      await openExample(window);
       await setWindowSize(app, window, 1440, 900);
       await acceptPlainTextKeys(window);
       await setLanguage(window, "zh-CN");
-      // 1: the example, opened from its row.
-      let steps = 1;
-
-      // 2 and 3: Add files…, and the file picked in the system's dialog.
-      const files = step(window, "files");
-      await expect(files).toHaveAttribute("data-state", "open");
-      await interceptOpenDialog(app, file);
-      await pointAndClick(window, files.getByTestId("first-open-add-files"));
-      steps += 2;
-
-      // 4: Ask, the Question about the file it offers; with no AI yet, the card asks for one.
-      const ready = step(window, "question").getByTestId("first-open-ready");
-      await expect(ready).toHaveText("提问：“项目简报”讲了什么？", { timeout: 30_000 });
-      await pointAndClick(window, ready);
-      steps += 1;
-      const card = window.getByTestId("model-setup");
-      await expect(card).toBeVisible();
+      // With no AI yet, the first Question brings the card that asks for one.
+      const card = await askFirstQuestion(window);
       const field = card.getByTestId("setup-key");
       await expect(field).toBeFocused();
       await expect(card.getByTestId("setup-key-line")).toHaveText(
@@ -101,9 +74,7 @@ for (const { key, name, service, presses } of [
         "你提问、修改或核对的内容，连同所需的笔记和文档内容，会发送到密钥所属的服务。",
       );
 
-      // 5: the key, pasted.
       await pasteText(app, window, key);
-      steps += 1;
       if (presses === 1) {
         const ask = card.getByTestId("setup-key-ask");
         await expect(ask).toHaveText("是 DeepSeek 吗？· 使用这个密钥 · 换一个服务");
@@ -111,9 +82,7 @@ for (const { key, name, service, presses } of [
         expect(await sentWith(app, key)).toEqual([]);
         expect(await savedProviders(window)).toEqual([]);
         await expect(window.getByTestId("assistant-waiting-model")).toBeVisible();
-        // 6: Use this key.
         await pointAndClick(window, ask.getByTestId("setup-key-use"));
-        steps += 1;
       }
 
       await expect(assistantAnswers(window).first()).toHaveAttribute("data-status", "done", {
@@ -121,8 +90,6 @@ for (const { key, name, service, presses } of [
       });
       expect(await savedProviders(window)).toEqual([service]);
       expect(await sentWith(app, key)).toEqual([service]);
-      expect(steps).toBeLessThanOrEqual(6);
-      expect(steps).toBe(5 + presses);
     } finally {
       await app.close();
     }

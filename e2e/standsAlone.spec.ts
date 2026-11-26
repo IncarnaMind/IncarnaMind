@@ -1,16 +1,14 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { EXAMPLE_SETS } from "../src/core/exampleSets";
 import {
   askInAssistant,
-  assistantAnswers,
   createDataFolder,
   dismissChatSetup,
   frontMind,
   launchApp,
-  markSteps,
   openExample,
-  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -59,20 +57,15 @@ for (const walk of WALKS) {
     await expect(frontMind(window).locator(".mind-editor h1")).toHaveText(walk.example, {
       timeout: 30_000,
     });
-    // The ready Question waits for the example's Documents to be read, as its Citations show.
+    // The example's Documents are read, as its Citations show, so the search can find them too.
     const checks = frontMind(window).getByTestId("mind-editor").getByTestId("citation-chip");
     await expect(checks).toHaveCount(2);
     await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 60_000 });
-    await markSteps(window, { indexed: true });
-    await pointAndClick(
-      window,
-      window
-        .locator('[data-testid="first-open-step"][data-step="question"]')
-        .getByTestId("first-open-ready"),
-    );
-    await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done");
     await dismissChatSetup(window);
     await useLocalChatModel(window);
+    // The conversation already holds the example's turns, its own Question asked first (#1172).
+    const example = await askInAssistant(window, EXAMPLE_SETS.credit[walk.language].question);
+    await expect(example).toHaveAttribute("data-status", "done");
     const path = join(sources, walk.file);
     await writeFile(path, walk.text);
     await window.getByTestId("add-documents-input").setInputFiles([path]);

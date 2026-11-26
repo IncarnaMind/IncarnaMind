@@ -6,6 +6,7 @@ import { TYPE_AHEAD_MS } from "../src/renderer/src/components/usePopoverMenu";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
+  useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   documentIdOf,
@@ -20,6 +21,13 @@ import {
   setLanguage,
   setWindowSize,
 } from "./app";
+
+/** Opens the quiet assistant by its Ask pill, which floats once a model is set up (#3791). */
+async function openAssistant(window: Page): Promise<void> {
+  await connectLocalChatModel(window);
+  await window.getByTestId("ask-pill").click();
+  await expect(window.getByTestId("assistant")).toBeVisible();
+}
 
 /*
  * A group's tab strip rests on whole tabs (DESIGN.md, Components: Mind tabs, Width): no tab is
@@ -894,8 +902,7 @@ for (const language of LANGUAGES) {
     await newMind(window);
     await nameMind(window, NOTE[language]);
     await expect(window.getByTestId("mind-tab")).toHaveCount(2);
-    await window.getByTestId("ask-pill").click();
-    await expect(window.getByTestId("assistant")).toBeVisible();
+    await openAssistant(window);
 
     for (const width of [1600, 1440, 900]) {
       const at = `${width} px`;
@@ -951,8 +958,7 @@ for (const language of LANGUAGES) {
     const report = await addReport(window, language);
     await newMind(window);
     await nameMind(window, NOTE[language]);
-    await window.getByTestId("ask-pill").click();
-    await expect(window.getByTestId("assistant")).toBeVisible();
+    await openAssistant(window);
 
     let added = 0;
     for (const count of [3, 5]) {
@@ -1006,8 +1012,7 @@ for (const language of LANGUAGES) {
       await newMind(window);
       await nameMind(window, name);
     }
-    await window.getByTestId("ask-pill").click();
-    await expect(window.getByTestId("assistant")).toBeVisible();
+    await openAssistant(window);
     const note = window.getByRole("tab", { name: NOTE[language], exact: true });
     await note.click();
     await openDocumentAt(window, { documentId: report, ...OPENS_PDF });

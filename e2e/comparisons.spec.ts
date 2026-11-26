@@ -3238,20 +3238,18 @@ test("Fill all again leaves the cells the User wrote or checked, and writes them
 
 test("Make the table says what is missing with no model, and the Ask pill never covers it at 900 and 1,440 with the viewer open", async () => {
   test.setTimeout(180_000);
-  // A first open, where the Ask pill is shown.
+  // A first open. With no model the Ask pill, which asks IncarnaMind's own model, isn't there (#3791).
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(app, window, 1440, 860);
-  await expect(window.getByTestId("ask-pill")).toBeVisible();
+  await expect(window.getByTestId("ask-pill")).toHaveCount(0);
   await acceptPlainTextKeys(window);
   await addSuppliers(window);
-  await expect(window.getByTestId("ask-pill")).toBeVisible();
 
   const sheet = await openSheetFromSlash(window);
   const line = sheet.getByTestId("compare-sheet-model-line");
   await expect(line).toContainText("Making a table needs an AI model");
   await expect(line).toContainText("Set one up");
   await expect(sheet.getByTestId("compare-sheet-make")).toBeVisible();
-  // The pill had floated where the sheet's primary button is: it steps aside.
   await expect(window.getByTestId("ask-pill")).toHaveCount(0);
   await screenshot(window, "compare-needs-model-en-1440");
 
@@ -3269,8 +3267,15 @@ test("Make the table says what is missing with no model, and the Ask pill never 
   await setLanguage(window, "zh-CN");
   await expect(line).toContainText("生成表格需要 AI 模型");
   await expect(line).toContainText("设置");
-
-  // Closed, the sheet leaves the pill's place as it was.
   await pointAndClick(window, sheet.getByTestId("compare-sheet-close"));
+
+  // With a model the pill floats where the sheet's primary button is: it steps aside while the
+  // sheet is open, and comes back once it closes.
+  await useLocalChatModel(window);
+  await expect(window.getByTestId("ask-pill")).toBeVisible();
+  const again = await openSheetFromSlash(window);
+  await expect(again.getByTestId("compare-sheet-make")).toBeVisible();
+  await expect(window.getByTestId("ask-pill")).toHaveCount(0);
+  await pointAndClick(window, again.getByTestId("compare-sheet-close"));
   await expect(window.getByTestId("ask-pill")).toBeVisible();
 });

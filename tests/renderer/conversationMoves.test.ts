@@ -4,7 +4,6 @@ import type {
   ConversationAskResult,
   ConversationMessage,
   ConversationQuestion,
-  ExampleReadyAsked,
   Meeting,
 } from "../../src/core/api";
 import { NotFoundError } from "../../src/core/errors";
@@ -59,9 +58,6 @@ let ask: () => Promise<ConversationAskResult> = async () => {
   throw new Error("No Question is asked in this test.");
 };
 let deleting: Promise<void> = Promise.resolve();
-let exampleAsk: () => Promise<ExampleReadyAsked> = async () => {
-  throw new Error("No ready Question is asked in this test.");
-};
 let helpAsk: () => Promise<ConversationAskResult> = async () => {
   throw new Error("No help is asked in this test.");
 };
@@ -82,7 +78,6 @@ const bridge = new Proxy(
     stopConversationAnswer: async ({ answerId }: { answerId: string }) =>
       void stopped.push(answerId),
     deleteConversation: () => deleting,
-    askExampleReadyQuestion: () => exampleAsk(),
     askMeetingHelp: () => helpAsk(),
     changeLayout: async (
       _windowId: string,
@@ -247,40 +242,6 @@ test("a new conversation's first read doesn't replace a newer one the User opene
     question("new"),
     question("later"),
   ]);
-});
-
-test.each(["opens another conversation", "starts a New chat"] as const)(
-  "the example's ready Question doesn't take the User away when they %s while its Documents are read",
-  async (move) => {
-    const reading = held<ExampleReadyAsked>();
-    exampleAsk = () => reading.promise;
-    const asking = conversations.askReadyQuestion({
-      question: "What’s the leverage cap?",
-      scope: null,
-      waitingFor: "Northwind Retail · Q3 2026 results",
-    });
-    if (move === "opens another conversation") await conversations.openConversation("other");
-    else conversations.startNewChat();
-    reading.settle({ conversationId: "example", answerId: "answer in example", stopped: false });
-    await asking;
-
-    expect(shown()).toBe(move === "opens another conversation" ? "other" : null);
-  },
-);
-
-test("the example's ready Question shows its conversation when the User stayed", async () => {
-  exampleAsk = async () => ({
-    conversationId: "example",
-    answerId: "answer in example",
-    stopped: false,
-  });
-  await conversations.askReadyQuestion({
-    question: "What’s the leverage cap?",
-    scope: null,
-    waitingFor: null,
-  });
-
-  expect(shown()).toBe("example");
 });
 
 const answerTo = (conversationId: string): ConversationMessage =>

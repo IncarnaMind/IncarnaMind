@@ -28,10 +28,14 @@ export type AgentConnectOutcome =
   | { kind: "connected"; client: AgentClient; pairing: AgentPairing; result: AgentSetupResult }
   | { kind: "failed"; client: AgentClient; error: unknown };
 
+/**
+ * `stillWanted`: asked before each app, so one press the User walked away from connects no app it
+ * hadn't started on.
+ */
 export type ConnectManyAgents = (
   clients: readonly AgentClient[],
   choice: { folderIds: string[]; propose: boolean },
-  options?: { enable?: boolean },
+  options?: { enable?: boolean; stillWanted?(): boolean },
 ) => Promise<AgentConnectOutcome[]>;
 
 /**
@@ -80,10 +84,11 @@ export function createAgentConnectors(
       markConnected();
       return setUp;
     });
-  const connectMany: ConnectManyAgents = (clients, choice, { enable = false } = {}) =>
+  const connectMany: ConnectManyAgents = (clients, choice, { enable = false, stillWanted } = {}) =>
     guarded(enable, async (markConnected) => {
       const outcomes: AgentConnectOutcome[] = [];
       for (const client of clients) {
+        if (stillWanted && !stillWanted()) break;
         try {
           const { pairing, result } = await bridge.setUpAgent({
             client: client.id,

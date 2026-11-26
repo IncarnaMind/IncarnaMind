@@ -1,20 +1,26 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
+  askInAssistant,
   assistantAnswers,
   coreOf,
   createDataFolder,
   frontMind,
   launchApp,
-  markSteps,
   openExample,
   pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  welcomeStep as step,
+  useLocalChatModel,
 } from "./app";
 
 const mindTitle = (window: Page) => window.getByTestId("mind-editor").locator("h1");
+
+// With "each" (每份), the scripted model cites the line of each Document that shares the most
+// words with the Question; it matches Latin words only, so the Chinese one names EBITDA.
+const ENGLISH_QUESTION =
+  "What does each Document say about net debt to EBITDA and the leverage limit?";
+const CHINESE_QUESTION = "每份文档对净债务与 EBITDA 之比和杠杆率上限怎么说？";
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -24,7 +30,8 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
-async function askReady(window: Page): Promise<Locator> {
+/** A Question about the example asked in the assistant from its page, once its Documents are read. */
+async function askAboutExample(window: Page, question: string): Promise<Locator> {
   const checks = window
     .getByTestId("mind-pane")
     .getByTestId("mind-editor")
@@ -33,10 +40,9 @@ async function askReady(window: Page): Promise<Locator> {
   for (const chip of await checks.all()) {
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
   }
-  await markSteps(window, { indexed: true });
-  await pointAndClick(window, step(window, "question").getByTestId("first-open-ready"));
-  const answer = assistantAnswers(window).last();
+  const answer = await askInAssistant(window, question);
   await expect(answer).toHaveAttribute("data-status", "done");
+  await expect(answer.getByTestId("citation-chip")).toHaveCount(2);
   return answer;
 }
 
@@ -82,10 +88,11 @@ async function expectCitedPage(
 }
 
 test("an English Conversation's Citations open their original pages after the interface language becomes Chinese, and after a restart (#1794)", async () => {
-  const first = await launchApp(dataDir, { examples: true });
+  const first = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
-  const answer = await askReady(first.window);
+  await useLocalChatModel(first.window);
+  const answer = await askAboutExample(first.window, ENGLISH_QUESTION);
   await first.window.keyboard.press("Escape");
 
   await setLanguage(first.window, "zh-CN");
@@ -93,47 +100,48 @@ test("an English Conversation's Citations open their original pages after the in
     first.window,
     answer,
     0,
-    "Northwind Retail · Senior facilities agreement (excerpt)",
-    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
+    "Northwind Retail · Q3 2026 results",
+    "Net debt to EBITDA was 3.1 times at the end of the quarter",
   );
   await expectCitedPage(
     first.window,
     answer,
     1,
-    "Northwind Retail · Q3 2026 results",
-    "Net debt to EBITDA was 3.1 times at the end of the quarter",
+    "Northwind Retail · Senior facilities agreement (excerpt)",
+    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
   );
   await expect(mindTitle(first.window)).toHaveText("Draft: credit committee paper");
   await first.app.close();
 
-  const again = await launchApp(dataDir, { examples: true });
+  const again = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(again.app, again.window, 1440, 900);
-  const reopened = await openFromPalette(again.window, "leverage");
+  const reopened = await openFromPalette(again.window, "net debt");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
   await expectCitedPage(
     again.window,
     reopened,
     0,
-    "Northwind Retail · Senior facilities agreement (excerpt)",
-    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
+    "Northwind Retail · Q3 2026 results",
+    "Net debt to EBITDA was 3.1 times at the end of the quarter",
   );
   await expectCitedPage(
     again.window,
     reopened,
     1,
-    "Northwind Retail · Q3 2026 results",
-    "Net debt to EBITDA was 3.1 times at the end of the quarter",
+    "Northwind Retail · Senior facilities agreement (excerpt)",
+    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
   );
   await again.app.close();
 });
 
 test("a Chinese Conversation's Citations open their original pages after the interface language becomes English, and after a restart (#1794)", async () => {
-  const first = await launchApp(dataDir, { examples: true });
+  const first = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
   await setLanguage(first.window, "zh-CN");
   await expect(mindTitle(first.window)).toHaveText("授信委员会报告（草稿）", { timeout: 30_000 });
-  const answer = await askReady(first.window);
+  await useLocalChatModel(first.window);
+  const answer = await askAboutExample(first.window, CHINESE_QUESTION);
   await first.window.keyboard.press("Escape");
 
   await setLanguage(first.window, "en");
@@ -142,19 +150,19 @@ test("a Chinese Conversation's Citations open their original pages after the int
     answer,
     0,
     "Northwind Retail · 优先级贷款协议（节选）",
-    "公司应确保每一相关期间的杠杆率不超过 3.5 倍。",
+    "“EBITDA”指任一相关期间内集团扣除利息、税项、折旧及摊销前的合并经营利润，以该相关期间的合规证明所载数额为准。",
   );
   await expectCitedPage(
     first.window,
     answer,
     1,
     "Northwind Retail · 2026 年第三季度业绩",
-    "季末净债务与 EBITDA 之比为 3.1 倍",
+    "基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。",
   );
   await expect(mindTitle(first.window)).toHaveText("授信委员会报告（草稿）");
   await first.app.close();
 
-  const again = await launchApp(dataDir, { examples: true });
+  const again = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(again.app, again.window, 1440, 900);
   const reopened = await openFromPalette(again.window, "杠杆率上限");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
@@ -163,23 +171,24 @@ test("a Chinese Conversation's Citations open their original pages after the int
     reopened,
     0,
     "Northwind Retail · 优先级贷款协议（节选）",
-    "公司应确保每一相关期间的杠杆率不超过 3.5 倍。",
+    "“EBITDA”指任一相关期间内集团扣除利息、税项、折旧及摊销前的合并经营利润，以该相关期间的合规证明所载数额为准。",
   );
   await expectCitedPage(
     again.window,
     reopened,
     1,
     "Northwind Retail · 2026 年第三季度业绩",
-    "季末净债务与 EBITDA 之比为 3.1 倍",
+    "基础 EBITDA 为 9,600 万英镑，上年同期为 1.18 亿英镑。",
   );
   await again.app.close();
 });
 
-test("a Citation copied from the example's Answer into a Mind opens its original page after the interface language becomes Chinese (#1830)", async () => {
-  const { app, window } = await launchApp(dataDir, { examples: true });
+test("a Citation copied from an Answer about the example into a Mind opens its original page after the interface language becomes Chinese (#1830)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(window);
   await setWindowSize(app, window, 1440, 900);
-  const answer = await askReady(window);
+  await useLocalChatModel(window);
+  const answer = await askAboutExample(window, ENGLISH_QUESTION);
   await pointAndClick(window, answer.getByTestId("answer-write-note"));
   const copy = frontMind(window).getByTestId("mind-editor");
   await expect(copy.getByTestId("citation-chip")).toHaveCount(2);
@@ -203,15 +212,15 @@ test("a Citation copied from the example's Answer into a Mind opens its original
     window,
     copy,
     0,
-    "Northwind Retail · Senior facilities agreement (excerpt)",
-    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
+    "Northwind Retail · Q3 2026 results",
+    "Net debt to EBITDA was 3.1 times at the end of the quarter",
   );
   await expectCitedPage(
     window,
     copy,
     1,
-    "Northwind Retail · Q3 2026 results",
-    "Net debt to EBITDA was 3.1 times at the end of the quarter",
+    "Northwind Retail · Senior facilities agreement (excerpt)",
+    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
   );
   await app.close();
 });

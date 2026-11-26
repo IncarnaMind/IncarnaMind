@@ -2165,6 +2165,19 @@ describe("Get started's Ask a question", () => {
     finished("own", "done");
     expect(asked()).toBe(true);
   });
+
+  // protects=asking the User's own AI by the link ends the first open, a request the Note's conversation sends again included, as each keeps a request the core tells of (#3791); fails_when=a request kept for the User's AI leaves the first open showing
+  test("a request kept for the User's own AI ticks it, as one sent again by the link is", () => {
+    emit("agents.request", {
+      id: "request",
+      pairingId: "pairing",
+      mindId: "note",
+      sentences: [],
+      createdAt: "2026-11-26T00:00:00.000Z",
+      readAt: null,
+    });
+    expect(asked()).toBe(true);
+  });
 });
 
 describe("a batch of Documents being added (#1329)", () => {

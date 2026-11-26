@@ -312,7 +312,7 @@ test("a card with no price line keeps no empty line at rest", async () => {
   expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
 });
 
-// protects=a check asked of the User's own AI leaves the card no Check only while no model is set up (the asked line offers the next step, #3756): once one is, Check is back and the badge has no asked state left to show, while a summary asked of that AI stays (#3587); fails_when=Check stays away after a model is set up, the asked check outlives it, or the summary's ask goes with it
+// protects=a check asked of the User's own AI leaves the card no Check only while no model is set up (the asked line offers the next step, #3756): once one is, Check is back and the badge has no asked state left to show, while an Organize asked of that AI stays (#3587); fails_when=Check stays away after a model is set up, the asked check outlives it, or the Organize's ask goes with it
 test("the card's Check is back once a model is set up while the User's own AI was asked", async () => {
   const { rememberAsked, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
   const codex = { id: "pairing-codex", name: "Codex", client: "codex" } as AgentPairing;
@@ -326,7 +326,7 @@ test("the card's Check is back once a model is set up while the User's own AI wa
   await readiness({ ready: false, reason: "no-provider" });
   const at = new Date().toISOString();
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
-  rememberAsked(codex, { kind: "summary", documentId: "harbour" }, { copied: true, at });
+  rememberAsked(codex, { kind: "organize", target: { ids: null } }, { copied: true, at });
   await render("price", planned);
   const check = () => container.querySelector('[data-testid="badge-check-mind"]');
   expect(check()).toBeNull();
@@ -334,10 +334,10 @@ test("the card's Check is back once a model is set up while the User's own AI wa
   await readiness({ ready: true } as ChatReadiness);
   expect(check()?.hasAttribute("data-hidden")).toBe(false);
   expect(check()?.hasAttribute("disabled")).toBe(false);
-  expect(asked()).toEqual(["summary"]);
+  expect(asked()).toEqual(["organize"]);
   // An ask that answers after the model was set up leaves no check asked either.
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
-  expect(asked()).toEqual(["summary"]);
+  expect(asked()).toEqual(["organize"]);
 });
 
 // protects=#3756: a check run on the User's own AI in the background is stopped where Check was, as a run on a model is, and a card whose line offers the next step has no foot at all; fails_when=the run's Stop is missing from the foot, sits beside a Check, or an empty foot is drawn under the line
