@@ -91,16 +91,20 @@ const PERCENT_POINTS_AFTER = new RegExp(`^ (?:${PERCENT})[ -]points?\\b`, "i");
 const POINTS_AFTER = new RegExp(`^\\s+(?:(?:${PERCENT})[ -]|basis )?points?\\b`, "i");
 const AT_BEFORE = /\bat\s+$/i;
 const POINT_AFTER = /^\s+point\b(?!s)/i;
-// A percent ends its number, so what is said after it is a row of its own: "twenty percent and one
-// of the reasons", "twenty percent and fifty to sixty thousand users". After "or" or "to" the words
-// can't tell a pair ("about five percent to six") from two things unless the numbers after it count
-// something named right after them: "fifteen percent or two points higher". "between" and "from"
-// lead both ends of a range in: "from fifteen percent to nine", "between about five percent and nine".
+// A percent ends its number, so what is said after it is a row of its own when the next number
+// clearly names something else (a percent of its own, a large scale word, a counted noun, money,
+// or "of the ..."): "twenty percent and one of the reasons", "twenty percent and fifty to sixty
+// thousand users", "fifteen percent or two points higher". Without that, a bare second number may
+// be a pair with the percent ("twenty percent or thirty", "five percent and six", "five percent,
+// six") and stays with it as said. "between" and "from" lead both ends of a range in: "from
+// fifteen percent to nine", "between about five percent and nine".
 const AFTER_PERCENT = new RegExp(`(?<= (?:${PERCENT}))(?:,| (?:${JOINED})) `, "gi");
 const COUNTED =
   "points|people|users|customers|clients|members|staff|employees|units|items|products|orders|deals|accounts|sites|stores|plants|cases|days|weeks|months|years|hours|minutes|times";
-const COUNTED_NEXT = new RegExp(
-  `^${RUN}(?: (?:${JOINED}) ${RUN})* (?:${COUNTED})(?![A-Za-z-])`,
+const RANGE_START = new RegExp(`^${RUN}(?: (?:${JOINED}) ${RUN})*`, "i");
+const ENDS_IN_LARGE_SCALE = new RegExp(`\\b(?:${SCALE_WORD})$`, "i");
+const SEPARATE_AFTER = new RegExp(
+  `^ (?:(?:${COUNTED}|dollars?|euros?|pounds?|yuan|cents?|pence|rupees?|yen|bucks)(?![A-Za-z-])|of the\\b)`,
   "i",
 );
 const LEADS_BOTH_ENDS = /\b(?:between|from)(?: [a-z]+)? $/i;
@@ -279,16 +283,34 @@ function sharingOf(run: string): Sharing {
 
 /**
  * Whether numbers said in a row stay as said, all of them: one run says two numbers ("one hundred,
- * two hundred and three hundred"), or one may share the next one's "hundred" or "thousand".
+ * two hundred and three hundred"), one may share the next one's "hundred" or "thousand", or a
+ * percent run is followed by a bare non-percent run that may share its percent ("twenty percent or
+ * thirty", "five percent, six").
  */
 function staysAsSaid(row: string): boolean {
-  const runs = (row.match(EACH_RUN) ?? []).map(sharingOf);
+  const matched = row.match(EACH_RUN) ?? [];
+  let sawPercent = false;
+  for (const run of matched) {
+    const isPercent = PERCENT_END.test(run) || word(run) === A_HUNDRED_PERCENT;
+    if (sawPercent && !isPercent) return true;
+    if (isPercent) sawPercent = true;
+  }
+  const runs = matched.map(sharingOf);
   return runs.some(({ far, several }, each) => {
     const near = runs[each - 1]?.near ?? null;
     return (
       several || (far !== null && near !== null && near.top < far.word && near.digits <= far.digits)
     );
   });
+}
+
+/** Whether what follows a percent joiner clearly starts a separate figure rather than a bare pair. */
+function isSeparateAfterPercent(next: string): boolean {
+  const lead = RANGE_START.exec(next)?.[0];
+  if (!lead) return false;
+  if (PERCENT_END.test(lead) || word(lead) === A_HUNDRED_PERCENT) return true;
+  if (ENDS_IN_LARGE_SCALE.test(lead)) return true;
+  return SEPARATE_AFTER.test(next.slice(lead.length));
 }
 
 /** The rows of a list of `text` that starts at `at`, with the joiners between them as rows too. */
@@ -299,7 +321,7 @@ function rowsOf(text: string, list: string, at: number): string[] {
   for (const joiner of list.matchAll(AFTER_PERCENT)) {
     const end = joiner.index + joiner[0].length;
     const next = text.slice(at + end, at + end + NEAR);
-    if (/^ (?:or|to) $/i.test(joiner[0]) && !COUNTED_NEXT.test(next)) continue;
+    if (!isSeparateAfterPercent(next)) continue;
     rows.push(list.slice(from, joiner.index), joiner[0]);
     from = end;
   }
@@ -498,13 +520,21 @@ const ZH_ROUGH_BEFORE = new RegExp(
 const ZH_ROUGH_STRETCH = new RegExp(`(?:几|[${ZH_NUMERAL}]多)[天年](?:${ZH_JOINED})$`, "u");
 const ZH_DATE = new RegExp(`^(?:[${ZH_NUMERAL}]+[月日号]|[零〇一二三四五六七八九]{4}年)`, "u");
 // 两块五 is 2.5块, 十块零五 10.05块 and 三元五角 3.5元: a digit after money goes on with the amount,
-// unless it counts something itself (五十块一个) or starts the next amount (一百块两百块都行), which
-// never starts at 零 or at a digit before another: 两块五五块 is 两块五 and 五块. The amounts said
-// before one that goes on stay as said with it: 五块两块五.
+// unless it counts something itself (五十块一个) or starts the next amount with 百/千/万/亿
+// (一百块两百块都行), which never stands alone after a split (unlike 十块 in 两块五十块, which may
+// be 两块五 + 十块). Amounts said before or after one that goes on (including 角/毛) stay as said
+// with it: 五块两块五, 三元五角五块, 两块五十块.
 const ZH_MONEY_BEFORE = new RegExp(`[${ZH_NUMERAL}](?:${ZH_MONEY.join("|")})$`, "u");
-const ZH_ON = `(?:[零〇][一二两三四五六七八九]|[一二两三四五六七八九](?!${ZH_UNITS}|[十百千万亿][${ZH_NUMERAL}]*(?:${ZH_MONEY.join("|")})))`;
+const ZH_ON = `(?:[零〇][一二两三四五六七八九]|[一二两三四五六七八九](?!${ZH_UNITS}|[百千万亿][${ZH_NUMERAL}]*(?:${ZH_MONEY.join("|")})))`;
 const ZH_GOES_ON = new RegExp(`^${ZH_ON}`, "u");
-const ZH_AMOUNTS_GO_ON = new RegExp(`^(?:[${ZH_NUMERAL}]+(?:${ZH_MONEY.join("|")}))*${ZH_ON}`, "u");
+const ZH_AMOUNTS_GO_ON = new RegExp(
+  `^(?:[${ZH_NUMERAL}]+(?:${ZH_MONEY.join("|")}))*(?:${ZH_ON}|[${ZH_NUMERAL}]+[角毛])`,
+  "u",
+);
+const ZH_SUBUNIT_BEFORE = new RegExp(
+  `(?:[${ZH_NUMERAL}]+[角毛](?:[${ZH_NUMERAL}]+分)?|[${ZH_NUMERAL}](?:${ZH_MONEY.join("|")})${ZH_ON}[${ZH_NUMERAL}]*(?:${ZH_MONEY.join("|")})?)(?:(?:${ZH_JOINED})?[${ZH_NUMERAL}]+(?:${ZH_MONEY.join("|")}))*(?:${ZH_JOINED})?$`,
+  "u",
+);
 // 周六日 is the weekend, 下周二十号 may be a Tuesday and 下周二十个人 ten people on a Tuesday. 本周十五号
 // names no day of the week, and 一周 or 两个星期 is a length of time.
 const ZH_WEEKDAY_BEFORE = new RegExp(`(?<![${ZH_NUMERAL}\\d]个?)(?:周|星期|礼拜)$`, "u");
@@ -568,6 +598,7 @@ function chineseNumbers(text: string): string {
     if (ZH_MONEY_BEFORE.test(before) && ZH_GOES_ON.test(range)) return range;
     const parts = range.split(ZH_JOINER);
     const far = ZH_PARTS.exec(parts.at(-1) ?? "")?.[5];
+    if (far !== undefined && ZH_MONEY.includes(far) && ZH_SUBUNIT_BEFORE.test(before)) return range;
     if (far !== undefined && ZH_MONEY.includes(far) && ZH_AMOUNTS_GO_ON.test(after)) return range;
     const written = parts.map((part, at) => {
       if (at % 2 === 1) return part;
