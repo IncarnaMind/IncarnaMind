@@ -156,7 +156,7 @@ const ALWAYS_LOAD = { "anthropic/alwaysLoad": true } as const;
 /**
  * Stays behind the tool search where a client loads the rest at once, as a Note's conversation
  * does (#3753): asked from a Note to write a page there, Haiku 5.5 with this Tool in view made a
- * new Note instead in 2 of 10 real runs, and in none with it deferred.
+ * new Note instead in 2 of 12 real runs; with it deferred, none did.
  */
 const SEARCHED_FOR = { "anthropic/alwaysLoad": false } as const;
 
