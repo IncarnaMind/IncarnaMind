@@ -36,6 +36,7 @@ import { INERT_BRACKET, inertBrackets } from "../../shared/inertBrackets";
 import { hasMarkIn, markValueOf } from "../../shared/markKeys";
 import {
   isEmptyLine,
+  pendingProposals,
   readProposalAttribute,
   readProposalRef,
   resolveProposals,
@@ -44,6 +45,7 @@ import {
   waitingChanges,
 } from "../../shared/proposals";
 import { INLINE_NODE } from "../../shared/sentences";
+import { citationElementId } from "../../shared/signOffs";
 import { type ChangedParagraph, sentenceWords, uncitedSpans } from "../../shared/uncitedSentences";
 import { createElement, nodeOf } from "../answers/blocks";
 import { emphasisOf, markdownToBlocks, withoutEmphasisEscapes } from "../answers/markdown";
@@ -62,6 +64,7 @@ import {
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
+  type ProposalAttribute,
 } from "../api";
 import {
   escapeNames,
@@ -118,6 +121,12 @@ export interface NamedParagraph {
    * and the version changes whenever it does.
    */
   content?: string;
+  /**
+   * This run's own change, in the Note once its request ends (`NamedOptions.ownPending`): a
+   * paragraph it added, or one of the Note's it changed or took out. `text` is the paragraph as
+   * it will be, and a later change of the same run replaces the earlier one there.
+   */
+  yours?: "added" | "changed" | "removed";
 }
 
 export interface NamedNote {
@@ -160,9 +169,9 @@ export interface NamedOptions {
   users?: { wrote: string; changed: string };
   /**
    * The requests of this run whose changes apply in the Note once the request ends, as the window
-   * that asked applies them (ADR-0034): read with their words in, so the agent sees the Note as
-   * it will be, never as if its change hadn't landed. The paragraphs' names and the version stay
-   * those of the Note as it is, which the next change is placed against.
+   * that asked applies them (ADR-0034): read with their words in and what they add named in its
+   * place, so the agent sees the Note as it will be, never as if its change hadn't landed, and
+   * places its next change there (`ProposeOptions.own`).
    */
   ownPending?: ReadonlySet<string>;
 }
@@ -252,40 +261,48 @@ const wholeOf = (element: Y.XmlElement, blockId: string) =>
     to: { blockId, offset: sizeOf(element) },
   }) as const;
 
-/** The requests of the changes waiting in an element, its own attribute's and its text's. */
+/**
+ * The requests of the changes waiting in a paragraph: in its words and inline nodes, on it, and on
+ * a Block it is in that a change takes out with it.
+ */
 function pendingIn(element: Y.XmlElement): Set<string> {
-  const requests = new Set<string>();
-  const own = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
-  if (own) requests.add(own.request);
-  for (const { node } of layout(element)) {
-    if (!(node instanceof Y.XmlText)) continue;
-    for (const run of node.toDelta() as { insert: unknown; attributes?: Attributes }[]) {
-      for (const mark of [PROPOSAL_INSERT_MARK, PROPOSAL_DELETE_MARK] as const) {
-        const ref = readProposalRef(markValueOf(mark, run.attributes));
-        if (ref) requests.add(ref.request);
-      }
-    }
+  const requests = new Set(pendingProposals(element).map((ref) => ref.request));
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    const proposal = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal) requests.add(proposal.request);
   }
   return requests;
 }
 
-/** Whether every change waiting in an element is one of `own`, and there is at least one. */
+/** Whether every change waiting in a paragraph is one of `own`, and there is at least one. */
 function onlyOwn(element: Y.XmlElement, own: ReadonlySet<string> | undefined): boolean {
   if (!own || own.size === 0) return false;
   const requests = pendingIn(element);
   return requests.size > 0 && [...requests].every((request) => own.has(request));
 }
 
-/** Whether the Block `blockId` holds changes waiting that are all this run's own (`own`). */
-export function heldByOwn(
-  blocks: Y.XmlFragment,
-  blockId: string,
-  own: ReadonlySet<string>,
-): boolean {
-  for (const { element } of namedBlocks(blocks)) {
-    if (element.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId) return onlyOwn(element, own);
+/** A Citation's or footnote's id, or, for one written without, its element's (`citationElementId`). */
+const inlineIdOf = (node: Y.XmlElement): string | null => {
+  const id = node.getAttribute(BLOCK_ID_ATTRIBUTE);
+  return typeof id === "string" && id !== "" ? id : citationElementId(node);
+};
+
+/**
+ * The ids of a paragraph's Citations and footnotes as the Note holds them, those a change waits to
+ * add left out: how a handle numbers them once this run's changes there are taken back
+ * (`takeBackOwnIn`), so the agent's rewrite keeps the one it read.
+ */
+function heldIds(element: Y.XmlElement): { citations: string[]; footnotes: string[] } {
+  const ids = { citations: [] as string[], footnotes: [] as string[] };
+  for (const { node } of layout(element)) {
+    if (!(node instanceof Y.XmlElement)) continue;
+    if (readProposalAttribute(node.getAttribute(PROPOSAL_ATTRIBUTE))?.kind === "insert") continue;
+    const id = inlineIdOf(node);
+    if (id === null) continue;
+    if (node.nodeName === CITATION_NODE) ids.citations.push(id);
+    else if (node.nodeName === FOOTNOTE_NODE) ids.footnotes.push(id);
   }
-  return false;
+  return ids;
 }
 
 /**
@@ -307,18 +324,22 @@ function readerOnceIn(
       copy.transact(() =>
         resolveProposals(changed, (proposal) => own.has(proposal.request), "accept"),
       );
-      const elements = new Map(
-        namedBlocks(changed).map(({ element }) => [
-          element.getAttribute(BLOCK_ID_ATTRIBUTE),
-          element,
-        ]),
-      );
+      const byId = (fragment: Y.XmlFragment) =>
+        new Map(
+          namedBlocks(fragment).map(({ element }) => [
+            element.getAttribute(BLOCK_ID_ATTRIBUTE),
+            element,
+          ]),
+        );
+      const elements = byId(changed);
+      const held = byId(blocks);
       read = (id) => {
         const element = elements.get(id);
         if (!element) return null;
         const { from, to } = wholeOf(element, id);
         const selection = readSelection(changed, from, to);
-        return selection.ok ? shownText(selection.selection, words) : "";
+        const now = held.get(id);
+        return selection.ok ? shownText(selection.selection, words, now && heldIds(now)) : "";
       };
     }
     return read(blockId);
@@ -338,18 +359,35 @@ function heldWords(element: Y.XmlElement): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** The selection's text as the agent reads it: its Citations as tokens or handles, footnotes as handles. */
-function shownText(selection: Selection, words: NamedWords): string {
+/**
+ * The selection's text as the agent reads it: its Citations as tokens or handles, footnotes as
+ * handles. `held`: a handle numbers what it keeps as the Note holds them (`heldIds`); one the
+ * Note doesn't hold yet has no handle to keep it by.
+ */
+function shownText(
+  selection: Selection,
+  words: NamedWords,
+  held?: { citations: string[]; footnotes: string[] },
+): string {
+  const numbered = (list: readonly string[] | undefined, id: unknown, n: number) =>
+    list === undefined ? n : typeof id === "string" ? list.indexOf(id) + 1 : 0;
   return escapeHandles(escapeNames(selection.text)).replace(
     /\[\^(\d+)\]|\[(\d+)\]/g,
     (whole, footnote: string | undefined, citation: string | undefined) => {
       if (citation !== undefined) {
         const n = Number(citation);
         const attributes = selection.citations[n - 1];
-        return attributes ? (words.citation(attributes) ?? handle("kept", n)) : whole;
+        if (!attributes) return whole;
+        const token = words.citation(attributes);
+        if (token !== null) return token;
+        const kept = numbered(held?.citations, attributes[BLOCK_ID_ATTRIBUTE], n);
+        return kept > 0 ? handle("kept", kept) : "";
       }
       const n = Number(footnote);
-      return selection.footnotes[n - 1] ? handle("note", n) : whole;
+      const node = selection.footnotes[n - 1];
+      if (!node) return whole;
+      const kept = numbered(held?.footnotes, inlineIdOf(node), n);
+      return kept > 0 ? handle("note", kept) : "";
     },
   );
 }
@@ -389,9 +427,6 @@ export function namedNote(
   const paragraphs: NamedParagraph[] = [];
   const tops = new Map(blocks.toArray().map((block, index) => [block, index]));
   const places: number[] = [];
-  // How this run's own changes read, by paragraph, and the paragraphs it added, unnamed.
-  const asChanged = new Map<number, string>();
-  const added: { at: number; text: string }[] = [];
   const own = words.yours ? options.ownPending : undefined;
   const onceIn = own && own.size > 0 ? readerOnceIn(blocks, own, words) : null;
   const seen = new Set<string>();
@@ -403,36 +438,45 @@ export function namedNote(
     if (typeof blockId !== "string" || blockId === "" || seen.has(blockId)) continue;
     seen.add(blockId);
     const adding = addingRequest(element);
-    if (adding !== null) {
-      const text = (onceIn && own?.has(adding) && visual === null ? onceIn(blockId) : null) ?? "";
-      if (text !== "") {
-        added.push({ at: topOf(element, tops), text: `${words.yours} ${escapeOpening(text)}` });
-      }
-      continue;
-    }
+    const added = onceIn !== null && adding !== null && own?.has(adding) === true;
+    if (adding !== null && !added) continue;
     if (visual !== null) {
-      const waits = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE)) !== null;
+      const waits =
+        !added && readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE)) !== null;
+      const taken = waits && onceIn !== null && onlyOwn(element, own);
       paragraphs.push({
         name: paragraphName(paragraphs.length - (titled ? 1 : 0)),
         blockId,
         text: visual,
-        held: waits ? "waiting" : null,
+        held: waits && !taken ? "waiting" : null,
         users: null,
         visual: true,
         content: visualContent(element),
+        ...(added && { yours: "added" as const }),
+        ...(taken && { yours: "removed" as const }),
       });
       places.push(topOf(element, tops));
       continue;
     }
-    const { from, to } = wholeOf(element, blockId);
-    const read = readSelection(blocks, from, to);
-    const held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
-    const text = escapeOpening(
-      read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element)),
-    );
-    const changed =
-      onceIn && held === "waiting" && onlyOwn(element, own) ? onceIn(blockId) : undefined;
-    if (text.trim() === "" && !changed) continue;
+    let held: NamedParagraph["held"] = null;
+    let yours: NamedParagraph["yours"] = added ? "added" : undefined;
+    let text = added ? (onceIn?.(blockId) ?? "") : "";
+    if (!added) {
+      const { from, to } = wholeOf(element, blockId);
+      const read = readSelection(blocks, from, to);
+      held = read.ok ? null : read.reason === "busy" ? "busy" : "waiting";
+      // This run's own change in a paragraph of the Note reads as it will be, or as taken out.
+      const changed =
+        onceIn && held === "waiting" && onlyOwn(element, own) ? onceIn(blockId) : undefined;
+      if (changed !== undefined) {
+        held = null;
+        yours = changed === null ? "removed" : "changed";
+      }
+      text =
+        changed ?? (read.ok ? shownText(read.selection, words) : escapeNames(heldWords(element)));
+    }
+    text = escapeOpening(text);
+    if (text.trim() === "") continue;
     const title =
       options.title === true &&
       paragraphs.length === 0 &&
@@ -445,26 +489,23 @@ export function namedNote(
       text,
       held,
       users: options.users && !title ? usersWordsIn(element) : null,
+      ...(yours && { yours }),
     });
     places.push(topOf(element, tops));
-    // A paragraph this run takes out keeps its name and its held state, so a change to it is
-    // refused as now; it reads as taken out, never as words this request keeps.
-    if (changed !== undefined) {
-      const name = paragraphs.at(-1)?.name ?? "";
-      asChanged.set(
-        paragraphs.length - 1,
-        changed === null
-          ? `${name} ${words.yoursRemoved ?? words.yours}`
-          : `${name} ${words.yours} ${escapeOpening(changed)}`,
-      );
-    }
   }
+  const status = (paragraph: NamedParagraph) => {
+    if (paragraph.yours === "removed") return words.yoursRemoved ?? words.yours;
+    if (paragraph.yours) return words.yours;
+    if (paragraph.held === null) return null;
+    return paragraph.held === "busy" ? words.busy : words.waiting;
+  };
+  // A paragraph this run takes out reads as taken out, never as words this request keeps.
   const line = (paragraph: NamedParagraph) =>
     [
       paragraph.name,
-      paragraph.held === null ? null : paragraph.held === "busy" ? words.busy : words.waiting,
+      status(paragraph),
       paragraph.users === null ? null : options.users?.[paragraph.users],
-      paragraph.text,
+      paragraph.yours === "removed" ? null : paragraph.text,
     ]
       .filter((part) => part !== null && part !== undefined)
       .join(" ");
@@ -472,15 +513,14 @@ export function namedNote(
     paragraphs
       .map(
         (paragraph) =>
-          `${paragraph.blockId}\u0000${paragraph.held ?? ""}\u0000${paragraph.users ?? ""}\u0000${paragraph.text}\u0000${paragraph.content ?? ""}`,
+          `${paragraph.blockId}\u0000${paragraph.yours ?? paragraph.held ?? ""}\u0000${paragraph.users ?? ""}\u0000${paragraph.text}\u0000${paragraph.content ?? ""}`,
       )
       .join("\u0001"),
   );
   const shown: { at: number; text: string }[] = paragraphs.map((paragraph, index) => ({
     at: places[index] ?? 0,
-    text: asChanged.get(index) ?? line(paragraph),
+    text: line(paragraph),
   }));
-  shown.push(...added);
   if (words.untitledTab) shown.push(...tabLines(blocks, words.untitledTab));
   const text = shown
     .sort((a, b) => a.at - b.at)
@@ -601,6 +641,11 @@ export interface ProposeOptions {
   newId(): string;
   /** Given, a Checkpoint of the Note just before the changes reach it: they apply at once (#3371). */
   checkpoint?(): void;
+  /**
+   * The requests of this run whose changes apply once it ends (`NamedOptions.ownPending`): a
+   * change to what they added or changed replaces theirs there, so the Note takes its last word.
+   */
+  own?: ReadonlySet<string>;
 }
 
 /** A change that can't be written as it is, in the interface language's words: nothing was written. */
@@ -1241,7 +1286,125 @@ function tallyKept(placed: CitingNodes, element: Y.XmlElement, request: string, 
   tallyBack(placed, kept, request);
 }
 
+/** A Block this run's own change adds, opened (`openOwn`), with the Proposal that adds it. */
+interface Opened {
+  element: Y.XmlElement;
+  proposal: ProposalAttribute;
+}
+
+/**
+ * Opens the Blocks this run's own changes add, so a later change of the same run writes in them as
+ * in the Note's own text: their Proposals come off, for `closeOwn` to put back.
+ */
+function openOwn(blocks: Y.XmlFragment, own: ReadonlySet<string>): Opened[] {
+  const opened: Opened[] = [];
+  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
+    for (const child of parent.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (proposal?.kind === "insert" && own.has(proposal.request)) {
+        opened.push({ element: child, proposal });
+        child.removeAttribute(PROPOSAL_ATTRIBUTE);
+      }
+      visit(child);
+    }
+  };
+  visit(blocks);
+  return opened;
+}
+
+/**
+ * Closes what `openOwn` opened, once `request` has written there: a Block it takes out goes, as it
+ * was never in the Note; every other takes what it wrote in it, or with `reject` drops it, and
+ * waits again, whole, as the earlier change that adds it.
+ */
+function closeOwn(
+  blocks: Y.XmlFragment,
+  opened: readonly Opened[],
+  request: string,
+  outcome: "accept" | "reject",
+): void {
+  for (const { element, proposal } of opened) {
+    if (element._item === null || element._item.deleted) continue;
+    const now = readProposalAttribute(element.getAttribute(PROPOSAL_ATTRIBUTE));
+    const parent = element.parent;
+    if (
+      outcome === "accept" &&
+      now?.kind === "delete" &&
+      now.request === request &&
+      (parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment)
+    ) {
+      parent.delete(parent.toArray().indexOf(element), 1);
+      continue;
+    }
+    const inside = new Set(
+      pendingProposals(element)
+        .filter((ref) => ref.request === request)
+        .map((ref) => ref.id),
+    );
+    if (inside.size > 0) resolveProposals(blocks, (ref) => inside.has(ref.id), outcome);
+    setProposal(element, proposal);
+  }
+}
+
+/**
+ * Takes this run's own changes out of a paragraph of the Note, and off the Blocks it is in that
+ * take it out with them, so the change that replaces them is written over the User's words.
+ */
+function takeBackOwnIn(
+  blocks: Y.XmlFragment,
+  element: Y.XmlElement,
+  own: ReadonlySet<string>,
+): void {
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    const proposal = readProposalAttribute(at.getAttribute(PROPOSAL_ATTRIBUTE));
+    if (proposal?.kind === "delete" && own.has(proposal.request)) {
+      at.removeAttribute(PROPOSAL_ATTRIBUTE);
+    }
+  }
+  const inside = new Set(
+    pendingProposals(element)
+      .filter((ref) => own.has(ref.request))
+      .map((ref) => ref.id),
+  );
+  if (inside.size > 0) resolveProposals(blocks, (ref) => inside.has(ref.id), "reject");
+}
+
+/**
+ * `writeChanges`, where a change may be for what this run's own earlier changes wrote
+ * (`ProposeOptions.own`): the Blocks they add are written in as the Note's own text and closed
+ * again after, and a paragraph of the Note they changed has them taken back first, so the Note
+ * takes this change there in their place.
+ */
 function writeNamed(
+  blocks: Y.XmlFragment,
+  note: NamedNote,
+  changes: readonly NamedChange[],
+  options: ProposeOptions,
+): Wrote<Written> {
+  const own = options.own;
+  if (!own || own.size === 0) return writeChanges(blocks, note, changes, options);
+  const opened = openOwn(blocks, own);
+  let wrote: Wrote<Written> | null = null;
+  try {
+    const elements = new Map(
+      namedBlocks(blocks).map(({ element }) => [element.getAttribute(BLOCK_ID_ATTRIBUTE), element]),
+    );
+    for (const change of changes) {
+      if (change.kind === "add") continue;
+      const paragraph = note.paragraphs[change.at];
+      if (paragraph?.yours !== "changed" && paragraph?.yours !== "removed") continue;
+      const element = elements.get(paragraph.blockId);
+      if (element) takeBackOwnIn(blocks, element, own);
+    }
+    wrote = writeChanges(blocks, note, changes, options);
+    return wrote;
+  } finally {
+    closeOwn(blocks, opened, options.request, wrote && !refusalOf(wrote) ? "accept" : "reject");
+  }
+}
+
+function writeChanges(
   blocks: Y.XmlFragment,
   note: NamedNote,
   changes: readonly NamedChange[],
