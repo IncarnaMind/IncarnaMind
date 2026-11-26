@@ -16,6 +16,7 @@ import { describe, expect, test } from "vitest";
 import type { AnalysisRuntime, ChatModelFactory, ClaimCheckAttributes, Core } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
+import { escapedInStrings } from "../../src/shared/jsonText";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
 import { connectToMind, type MindClient } from "../helpers/mindClient";
@@ -564,6 +565,15 @@ interface JudgeCapture {
   verdict: string | null;
 }
 
+function parseToolInput(input: unknown): Record<string, unknown> {
+  if (typeof input !== "string") return (input ?? {}) as Record<string, unknown>;
+  try {
+    return JSON.parse(escapedInStrings(input)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 function captureFrom(
   text: string,
   toolCalls: { toolName: string; input: unknown }[],
@@ -572,17 +582,10 @@ function captureFrom(
   const verdictLine = text.match(/^\s*Verdict\s*:\s*(.*)$/im)?.[1]?.trim() ?? null;
   const cite = toolCalls.findLast((c) => {
     if (c.toolName !== "cite") return false;
-    const inp =
-      typeof c.input === "string"
-        ? (JSON.parse(c.input) as Record<string, unknown>)
-        : ((c.input ?? {}) as Record<string, unknown>);
+    const inp = parseToolInput(c.input);
     return inp.verdict !== undefined || inp.units !== undefined;
   });
-  const citeInput = cite
-    ? typeof cite.input === "string"
-      ? (JSON.parse(cite.input) as Record<string, unknown>)
-      : ((cite.input ?? {}) as Record<string, unknown>)
-    : null;
+  const citeInput = cite ? parseToolInput(cite.input) : null;
   const units = unitsLine ?? (typeof citeInput?.units === "string" ? citeInput.units : null);
   const verdict =
     verdictLine ?? (typeof citeInput?.verdict === "string" ? citeInput.verdict : null);
