@@ -102,6 +102,7 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
       expect(prompt).toContain("read the Transcript again");
       expect(prompt).toContain("never cite them");
       expect(prompt).toContain(`“${unconfirmed}”`);
+      expect(prompt).not.toContain("for a recorded meeting");
       // A Note with no meeting recording is told nothing of one.
       const other = await core.createMind({
         title: "Plain",
@@ -110,6 +111,7 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
       await core.askInNote({ mindId: other.id, words: "Hello" });
       await vi.waitFor(() => expect(runner.runs).toHaveLength(2));
       expect(runner.runs[1]?.prompt).not.toContain("meeting being recorded");
+      expect(runner.runs[1]?.prompt).not.toContain("for a recorded meeting");
     } finally {
       core.close();
     }
@@ -369,6 +371,43 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
       expect(fill.problem?.message).toBe(
         `${started.pairing.name} wasn’t given this note. Change what it reads in Settings › AI, or choose an AI model.`,
       );
+    } finally {
+      started.core.close();
+    }
+  });
+
+  // protects=a request on a stopped meeting's Note names its Transcript's documentId and gives the fidelity and multi-line citation rules for Write notes (#3156), while leaving plain Notes untouched; fails_when=a stopped meeting's ask gets no Transcript id or citation guidance, or a plain Note gets meeting rules
+  test("a request on a stopped meeting's Note names its Transcript and grounding rules", async () => {
+    const runner = ownAi(answered);
+    const started = await startLiveAgentMeeting(
+      vi.fn<Summarize>(),
+      false,
+      [monday, friday],
+      "claude-code",
+      { ownAi: runner.adapter },
+    );
+    try {
+      started.push(4500);
+      await until(started.core, started.meeting.id, (state) => state.lines >= 2);
+      await started.core.stopMeeting(started.meeting.id);
+      const saved = await until(
+        started.core,
+        started.meeting.id,
+        (state) => state.state === "saved" && !!state.documentId,
+      );
+      const { ended } = turnsOf(started.core);
+      await started.core.askInNote({
+        mindId: started.meeting.mindId,
+        words: "Write notes from the Transcript.",
+      });
+      await ended();
+      const prompt = runner.runs[0]?.prompt ?? "";
+      expect(prompt).toContain("This note is for a recorded meeting. Its Transcript is");
+      expect(prompt).toContain(`(documentId: ${saved.documentId ?? ""})`);
+      expect(prompt).toContain("keep offers, suggestions, plans, wishes and conditions");
+      expect(prompt).toContain("every transcript line it draws on");
+      expect(prompt).not.toContain("meeting being recorded");
+      expect(prompt).not.toContain("never cite them");
     } finally {
       started.core.close();
     }
