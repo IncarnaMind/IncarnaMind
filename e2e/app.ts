@@ -4453,8 +4453,28 @@ export async function leaveText(window: Page): Promise<void> {
  * one it lists first, the last one used.
  */
 export async function exportFromMenu(window: Page, format?: ExportFormat): Promise<void> {
-  await pointAndClick(window, window.getByTestId("export-mind"));
+  const button = window.locator('[data-testid="export-mind"]:visible');
   const menu = window.getByTestId("export-menu");
+  // A strip too tight for Export keeps it in the Note's ⋯ (#3765), and its menu opens under the ⋯.
+  if ((await button.count()) > 0) await pointAndClick(window, button);
+  else {
+    const more = pageMenuButton(window);
+    await pointAndClick(window, more);
+    await pointAndClick(window, window.getByTestId("mind.exportMenu"));
+    await expect(menu).toBeVisible();
+    await expect
+      .poll(async () => {
+        const [at, box] = [await more.boundingBox(), await menu.boundingBox()];
+        return (
+          !!at &&
+          !!box &&
+          box.y >= at.y + at.height - 1 &&
+          box.x <= at.x + at.width &&
+          box.x + box.width >= at.x
+        );
+      })
+      .toBe(true);
+  }
   await expect(menu).toBeVisible();
   if (!format) {
     await pointAndClick(window, menu.getByRole("menuitem").first());
