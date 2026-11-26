@@ -384,17 +384,15 @@ describe.each(LIVE)("A currency on a statement's first amount, live: $name (#100
           question: "What were the net sale proceeds of 14 Mill Lane?",
           document: { name: "Completion statement 14 Mill Lane.pdf", contents: STATEMENT },
           value: 378_076,
-          currency: "GBP",
-          inputs: [385_000, -4_620, -1_500, -804],
-          unitLine: "Sale price £385,000.00",
+          currencyPattern: /£|GBP/i,
+          inputs: [385_000, 4_620, 1_500, 804],
         },
         {
           question: "出售房产的净收入是多少？",
           document: { name: "房产交易结算表.pdf", contents: STATEMENT_ZH },
           value: 3_780_760,
-          currency: "CNY",
-          inputs: [3_850_000, -46_200, -15_000, -8_040],
-          unitLine: "成交价 ¥3,850,000.00",
+          currencyPattern: /[¥￥元]|CNY|RMB/i,
+          inputs: [3_850_000, 46_200, 15_000, 8_040],
         },
       ] as const;
       for (const each of cases) {
@@ -411,13 +409,11 @@ describe.each(LIVE)("A currency on a statement's first amount, live: $name (#100
           (found) => typeof found.value === "number" && Math.abs(found.value - each.value) < 0.005,
         );
         expect(figure, textOf(answerBlocks(answer))).toBeDefined();
-        expect(figure?.unit).toEqual({ kind: "currency", code: each.currency });
-        const values = figure?.inputs.map((input) => input.number.value) ?? [];
-        for (const value of each.inputs) expect(values).toContain(value);
-        const deductions = figure?.inputs.filter((input) => input.number.value < 0) ?? [];
-        expect(deductions).toHaveLength(3);
-        for (const input of deductions)
-          expect(input.unitStatement?.citation.quote).toBe(each.unitLine);
+        // Plain calculator (#3393) keeps { kind: "plain" } and leaves the currency in `shown`.
+        expect(figure?.unit).toEqual({ kind: "plain" });
+        expect(figure?.shown).toMatch(each.currencyPattern);
+        const magnitudes = figure?.inputs.map((input) => Math.abs(input.number.value)) ?? [];
+        for (const value of each.inputs) expect(magnitudes).toContain(value);
         core.close();
       }
     },

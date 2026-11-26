@@ -8,7 +8,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createAiSdkChatModel } from "../../src/core";
 import { createTempDataFolder, startCore, turnOnAutomaticTagging } from "../helpers/core";
 import { addAndProcess, writeSourceFile } from "../helpers/documents";
-import { tagNamesOf, waitForTagging } from "../helpers/tags";
+import { proposedTagNamesOf, waitForTagging } from "../helpers/tags";
 
 const KEY = process.env.INCARNAMIND_LIVE_ANTHROPIC_KEY;
 const PAPER = [
@@ -56,7 +56,8 @@ describe("Haiku 5.5, live", () => {
         const [tagged] = await waitForTagging(core, [since?.id ?? ""], undefined, 120_000);
 
         expect(tagged?.tagging).toBe("tagged");
-        expect(await tagNamesOf(core, since?.id ?? "")).toContain("Paper");
+        // Automatic tagging proposes Tags into Review rather than applying them directly (#2339).
+        expect(await proposedTagNamesOf(core, since?.id ?? "")).toContain("Paper");
         expect(sent.length).toBeGreaterThan(0);
         expect((await core.listDocuments()).find((each) => each.id === earlier?.id)?.tagging).toBe(
           "off",

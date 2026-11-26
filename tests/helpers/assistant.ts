@@ -15,11 +15,12 @@ export async function askAssistant(
   core: Core,
   input: AskInConversationInput,
   ends: "finished" | "failed" = "finished",
+  judgedTimeout?: number,
 ): Promise<ConversationAnswer> {
   const result = await core.askInConversation(input);
   if (!result.asked) throw new Error(`The Question wasn't asked: ${JSON.stringify(result)}`);
-  expect((await answerEnded(core, result.answerId)).event).toBe(ends);
-  return answerJudged(core, result.conversation.id, result.answerId);
+  expect((await answerEnded(core, result.answerId, judgedTimeout)).event).toBe(ends);
+  return answerJudged(core, result.conversation.id, result.answerId, judgedTimeout);
 }
 
 export const mindCalls = (answer: ConversationAnswer): AnswerToolCall[] =>

@@ -15,6 +15,7 @@ import type { ChatProviderKind } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core";
 import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess } from "../helpers/documents";
+import { proposedFor } from "../helpers/library";
 
 const SCANS = join(__dirname, "../fixtures/scans");
 
@@ -169,9 +170,10 @@ describe.each(LIVE)("$name, live", (live) => {
       await vi.waitFor(async () => expect((await assignment())?.status).toBe("classified"), {
         timeout: 120_000,
       });
+      // Organize proposes into Suggestions rather than filing directly (#1569).
       const { groups } = await core.getLibrary();
-      const filed = (await assignment())?.groupId;
-      expect(groups.find((group) => group.id === filed)?.name).toBe(live.expected);
+      const proposed = await proposedFor(core, scan.id);
+      expect(groups.find((group) => group.id === proposed)?.name).toBe(live.expected);
       expect(images.length).toBeGreaterThan(0);
       expect(Math.max(...images)).toBeLessThanOrEqual(3);
       expect(Math.min(...images)).toBeGreaterThan(0);
