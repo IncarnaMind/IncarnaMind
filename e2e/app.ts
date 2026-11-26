@@ -3136,9 +3136,9 @@ export async function checkNote(window: Page, scope: Page | Locator = window): P
 
 /**
  * A Mind's Checks card (#909): open already, as a question opens it, or opened from ⌘K's Checks
- * once a run in `scope` has ended. Never from the Check button: its press checks whenever
- * sentences wait, and the count a change makes lands a moment later, so the button can turn to
- * Check under the pointer. checkButton.spec.ts opens the card from the button.
+ * once a run in `scope` has ended. Not from the Check button while its Note is in front: its press
+ * checks whenever sentences wait, and the count a change makes lands a moment later, so the button
+ * can turn to Check under the pointer.
  */
 export async function checkCard(
   window: Page,
@@ -3148,6 +3148,22 @@ export async function checkCard(
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
     await expect(scope.getByTestId("note-check-stop")).toHaveCount(0, { timeout: stopTimeout });
+    const mindInFront = window.locator(
+      '[data-testid="tab-group"][data-focused] [data-testid="mind-tab"][aria-selected="true"]',
+    );
+    // ⌘K's Checks is the Note's in front of the focused group: with something else there, the
+    // Note's own tab is pressed first, as a person goes back to the Note.
+    if ((await mindInFront.count()) === 0) {
+      await pointAndClick(
+        window,
+        window
+          .locator(
+            '[data-testid="tab-group"]:has([data-testid="note-check-place"]) [data-testid="mind-tab"][aria-selected="true"]',
+          )
+          .first(),
+      );
+      await expect(mindInFront).toHaveCount(1);
+    }
     // ⌘K over text selected in a Note adds a link: the caret goes to the selection's end first.
     const selected = await window.evaluate(() => {
       const selection = document.getSelection();

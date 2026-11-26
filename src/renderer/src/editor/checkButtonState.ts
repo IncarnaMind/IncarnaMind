@@ -34,8 +34,6 @@ export interface CheckButtonInput {
   running: { words: string; done: number; total: number } | null;
   /** What the User's own AI was asked and says now, when it is not running a check. */
   asked: { short: string; words: string; failed: boolean } | null;
-  /** The quiet first open (#856): only a run, a question or a problem shows the button. */
-  quiet: boolean;
   /** A question or a problem waits in the card. */
   waiting: boolean;
   /** A run ended since the User last typed. */
@@ -86,7 +84,7 @@ export function checkButtonOf(
       mark: "notChecked",
     };
   }
-  if (state === null || (input.quiet && !input.waiting)) return null;
+  if (state === null) return null;
   if (state.notChecked > 0) {
     return {
       ...base,
@@ -149,7 +147,6 @@ export function verifyButtonOf(
 ): CheckButtonView | null {
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   if (input.running || input.asked) return checkButtonOf({ ...input, state: null }, t, language);
-  if (input.quiet && !input.waiting) return null;
   const base = { short: null, fresh: input.justChecked };
   if (input.toCheck > 0) {
     return {

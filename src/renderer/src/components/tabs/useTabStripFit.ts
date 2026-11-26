@@ -134,22 +134,32 @@ export function useTabStripFit(
         element.style.removeProperty("--tab-room");
         // Each step is taken only while the tabs' own extent, never the strip's `scrollWidth` (the
         // shown tab's feet reach past it, and always read as overflow), still doesn't fit.
-        band.removeAttribute("data-fit");
         delete band.dataset.tight;
         delete band.dataset.checkCompact;
+        delete band.dataset.checkUnheld;
         const controls = band.querySelector<HTMLElement>('[data-testid="note-controls"]');
         controls?.style.removeProperty("--note-controls-room");
-        // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
-        const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
-        if (!fits()) {
-          band.dataset.fit = "label";
-          if (!fits()) band.dataset.fit = "split";
-        }
         const lead = shown === 0 ? START_GAP : 0;
         const least = SHOWN_LEAST_PX + END_GAP + lead;
+        // Each level is measured as it will lay out: a hidden label or Split gives the tabs room.
         // Short of the shown tab's least width, the strip is tight: Export and the conversation's
         // button leave it (styles.css).
-        const tight = shown >= 0 && roomNow() - taken < least;
+        const fits = () => fitFrom(0, -1, roomNow() - taken).run === null;
+        const short = () => {
+          band.removeAttribute("data-fit");
+          if (!fits()) {
+            band.dataset.fit = "label";
+            if (!fits()) band.dataset.fit = "split";
+          }
+          return shown >= 0 && roomNow() - taken < least;
+        };
+        let tight = short();
+        // The room a run's words took, held after it ends until the User types so nothing moves,
+        // never costs the row a control: short of it, it is given back first (#3794).
+        if (tight && controls?.querySelector(".note-check[style]:not([data-running])")) {
+          band.dataset.checkUnheld = "";
+          tight = short();
+        }
         if (tight) band.dataset.tight = "";
         const check = controls?.querySelector<HTMLElement>(".note-head-badge:has(.note-check)");
         // The Check gives up its word before the shown tab goes under its least width (#3794).

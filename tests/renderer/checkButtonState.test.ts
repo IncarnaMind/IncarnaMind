@@ -35,7 +35,6 @@ const input = (over: Partial<CheckButtonInput> = {}): CheckButtonInput => ({
   state: NOT_CHECKED,
   running: null,
   asked: null,
-  quiet: false,
   waiting: false,
   justChecked: false,
   ...over,
@@ -160,10 +159,8 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(view?.title).toContain(words.look);
     });
 
-    // protects=#856: the quiet first open shows no button unless a question or a problem waits; fails_when=the example's first open shows its marks
-    test("the quiet first open stays bare", () => {
-      expect(checkButtonOf(input({ quiet: true }), t, language)).toBeNull();
-      expect(checkButtonOf(input({ quiet: true, waiting: true }), t, language)).not.toBeNull();
+    // protects=#3794: a Note with no sentence a check is for shows no button; fails_when=a Note with nothing to check reads Check
+    test("nothing to check: no button", () => {
       expect(checkButtonOf(input({ state: null }), t, language)).toBeNull();
     });
 

@@ -336,7 +336,13 @@ test("each row's Next goes through its sentences in order and round to the first
   await checkNote(window);
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
-  const unsupported = async () => (await checkCard(window)).getByTestId("health-look");
+  // Opened as a person opens it once the button says what the check found: from the button.
+  const unsupported = async () => {
+    const card = window.getByTestId("check-card");
+    if (!(await card.isVisible())) await pointAndClick(window, noteCheck(window));
+    await expect(card).toBeVisible();
+    return card.getByTestId("health-look");
+  };
   await expect(await unsupported()).toContainText("2 need a look");
   // Each Next ends as a click on the sentence's mark does: its card open, the Checks card closed.
   const sentenceCard = window.getByTestId("claim-card");

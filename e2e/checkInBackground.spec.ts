@@ -10,6 +10,7 @@ import {
   acceptPlainTextKeys,
   agentsToConnect,
   catchCopies,
+  checkCard,
   checkNote,
   copied,
   createDataFolder,
@@ -440,7 +441,12 @@ test("with no model, a press checks the Note on the User's own Codex in the back
       await nextRun(mode);
       await checkNote(window);
       await expect.poll(() => urlsOpened(app)).toHaveLength(opened);
+      // The press opens no card: its line is read from the card, opened as the User would.
+      await expect(noteCheck(window)).not.toContainText("stopped");
+      await checkCard(window);
+      await expect(asked).toBeVisible();
       await expect(asked).not.toContainText("stopped");
+      await window.keyboard.press("Escape");
     }
 
     // A connection made before asks once, and says Codex reads the User's own instructions file.

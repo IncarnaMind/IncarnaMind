@@ -88,6 +88,7 @@ export function CheckButton({
       className="note-check"
       data-testid={place === "strip" ? "note-check-place" : "note-check-line"}
       data-place={place}
+      data-running={view.kind === "checking" ? "" : undefined}
       style={held === null ? undefined : ({ "--note-check-held": `${held}px` } as CSSProperties)}
     >
       <button

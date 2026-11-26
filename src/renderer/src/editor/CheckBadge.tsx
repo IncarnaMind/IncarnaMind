@@ -107,7 +107,6 @@ export function CheckBadge(props: {
   doc: Y.Doc;
   mindId: string;
   verification: Verification | null;
-  quiet: boolean;
 }) {
   return props.verification ? (
     <VerifyBadge {...props} verification={props.verification} />
@@ -129,17 +128,7 @@ function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
   return { checkedAll, ...useHealth(editor, skipped, unexamined, doc, running) };
 }
 
-function MindBadge({
-  editor,
-  doc,
-  mindId,
-  quiet,
-}: {
-  editor: Editor;
-  doc: Y.Doc;
-  mindId: string;
-  quiet: boolean;
-}) {
+function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId: string }) {
   const t = useT();
   const language = useLanguage();
   const running = useChecks((state) => state.running[mindId]);
@@ -179,7 +168,6 @@ function MindBadge({
         asked && !backgroundRun
           ? { short: asked.short, words: asked.words, failed: askedFailed }
           : null,
-      quiet,
       waiting,
       justChecked,
     },
@@ -366,13 +354,11 @@ function VerifyBadge({
   doc,
   mindId,
   verification,
-  quiet,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   verification: Verification;
-  quiet: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -424,7 +410,6 @@ function VerifyBadge({
         asked && !backgroundRun
           ? { short: asked.short, words: asked.words, failed: asked.asked.state === "failed" }
           : null,
-      quiet,
       waiting,
       justChecked,
       toCheck,

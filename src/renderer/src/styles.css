@@ -2040,6 +2040,10 @@
       background: var(--color-hover);
     }
   }
+  /* A run's room held past its end, given back in a strip short of room (useTabStripFit). */
+  .tab-strip[data-check-unheld] .note-check {
+    min-width: 0;
+  }
   /* A tight strip still short of room (useTabStripFit): the Check gives up its word before the
      shown tab goes under its least width, and never leaves the row (#3794). Its word is kept for a
      screen reader; its mark and number stay. */

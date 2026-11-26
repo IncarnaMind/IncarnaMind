@@ -1,7 +1,7 @@
 import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
-import type { CoreBridge } from "../src/core/api";
+import { ALL_SHARED_ID, type CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
@@ -60,6 +60,7 @@ const WORDS = {
   en: {
     check: "Check",
     running: /^Checking… \d of 2$/,
+    checking: "Checking…",
     look: "2 need a look",
     checked: "Checked",
     stop: "Stop",
@@ -70,6 +71,7 @@ const WORDS = {
   "zh-CN": {
     check: "核对",
     running: /^正在核对 \d\/2…$/,
+    checking: "正在核对…",
     look: "需要留意 2 处",
     checked: "已核对",
     stop: "停止",
@@ -432,6 +434,35 @@ for (const language of ["en", "zh-CN"] as const) {
       await app.close();
     }
   });
+
+  // protects=#3794 on the example a new User lands in with no AI app and no model: the labelled Check is in the Note's row from the moment the example opens, and its one press says why it can't check, with the way to connect an AI; fails_when=the example opens with no Check, or its press does nothing or says nothing
+  test(`on the example with no AI, the Check is in the Note's row from the start, and its press says checking needs the User's AI (${language})`, async () => {
+    const { app, window } = await launchApp(dataDir, { examples: true });
+    try {
+      await setLanguage(window, language);
+      await setWindowSize(app, window, SIZES[0][0], SIZES[0][1]);
+      await openExample(window);
+      await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
+      const button = noteCheck(window);
+      await atEachSize(app, window, `example-no-ai-${language}`, async () => {
+        await expect(button).toHaveAttribute("data-state", "check");
+        await expect(button.locator(".note-check-words")).toHaveText(words.check);
+        expect(await wordDrawn(button)).toBe(true);
+        expect(await darkButtons(window)).toEqual(["note-check"]);
+        // The example's foot says how to ask, with no input to show.
+        await expect(window.getByTestId("example-line")).toBeVisible();
+        await expect(window.getByTestId("note-ask-no-ai")).toBeVisible();
+      });
+      await pointAndClick(window, button);
+      const problem = window.getByTestId("check-card").getByTestId("checks-problem");
+      await expect(problem).toContainText(words.needsAi);
+      await expect(problem.getByTestId("checks-connect-ai")).toHaveText(words.connect);
+      await expect(window.getByTestId("claim-mark")).toHaveCount(1);
+      await shot(window, `example-no-ai-card-${language}-1440`);
+    } finally {
+      await app.close();
+    }
+  });
 }
 
 /** Whether the button's word is drawn, not only kept for a screen reader. */
@@ -448,11 +479,8 @@ const insideOf = async (inner: Locator, outer: Locator) => {
   return a.x >= b.x - 0.5 && a.x + a.width <= b.x + b.width + 0.5;
 };
 
-/**
- * "Kestrel Bay" with its interviews, and Claude Code connected to it, allowed to propose changes;
- * `ready` is how many Documents the Library then holds.
- */
-async function connected(window: Page, home: string, ready = 1): Promise<string> {
+/** "Kestrel Bay" with its interviews, and Claude Code connected to it, allowed to propose changes. */
+async function connected(window: Page, home: string): Promise<string> {
   const report = join(home, "Ferry interviews.md");
   await writeFile(
     report,
@@ -471,7 +499,7 @@ async function connected(window: Page, home: string, ready = 1): Promise<string>
     });
     return folder.id;
   }, report);
-  await expectReadyDocuments(window, ready);
+  await expectReadyDocuments(window, 1);
   return folderId;
 }
 
@@ -611,8 +639,8 @@ test.describe("with the User's own AI", () => {
       }
     });
 
-    // protects=#3794 on the example a new User opens first: with their own AI connected and a file of their own, the example's Check is the labelled one dark button of the Note's row, over the example's line and its input, and one press checks with no card first; fails_when=the example's Check has no word, is hidden, another control in the row is as dark, or its press opens a card instead of checking
-    test(`on the example, the Check is the one dark labelled button of the Note's row, over the example's line and its input, and checks in one press (${language})`, async () => {
+    // protects=#3794 on the example a new User lands in: with their own AI connected and nothing asked or added yet, the example's Check is the labelled one dark button of the Note's row from the moment it opens, over the example's line and its input; one press checks with no card first, and while it runs the button says so in words, with Stop; fails_when=the example's Check waits for a first request, has no word, another control in the row is as dark, its press opens a card instead of checking, or a run shows no words
+    test(`on the example, the Check is the one dark labelled button of the Note's row from the start, over the example's line and its input, and checks in one press (${language})`, async () => {
       test.setTimeout(180_000);
       const { app, window } = await launchApp(dataDir, {
         home,
@@ -625,8 +653,16 @@ test.describe("with the User's own AI", () => {
         await dismissChatSetup(window);
         await setLanguage(window, language);
         await setWindowSize(app, window, SIZES[0][0], SIZES[0][1]);
-        // The example's two Documents, and the User's first of their own.
-        await connected(window, home, 3);
+        // Claude Code connected to everything, with no file of the User's own and nothing asked.
+        await window.evaluate(async (all) => {
+          const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+          await bridge.setAgentsEnabled(true);
+          await bridge.connectAgent({
+            name: "Claude Code",
+            client: "claude-code",
+            folderIds: [all],
+          });
+        }, ALL_SHARED_ID);
         await openExample(window);
         const button = noteCheck(window);
         await atEachSize(app, window, `example-${language}`, async () => {
@@ -642,9 +678,13 @@ test.describe("with the User's own AI", () => {
         await writeFile(join(bin, "mode"), "wait");
         await pointAndClick(window, button);
         await expect(button).toHaveAttribute("data-state", "checking");
-        await expect(window.getByTestId("note-check-stop")).toBeVisible();
         await expect(window.getByTestId("check-card")).toHaveCount(0);
-        await shot(window, `example-checking-${language}-1440`);
+        await atEachSize(app, window, `example-checking-${language}`, async () => {
+          await expect(button.locator(".note-check-words")).toHaveText(words.checking);
+          expect(await wordDrawn(button)).toBe(true);
+          expect(await hittable(window.getByTestId("note-check-stop"))).toBe(true);
+          await expect(window.getByTestId("check-card")).toHaveCount(0);
+        });
         await pointAndClick(window, window.getByTestId("note-check-stop"));
         await expect(button).toHaveAttribute("data-state", "check");
       } finally {

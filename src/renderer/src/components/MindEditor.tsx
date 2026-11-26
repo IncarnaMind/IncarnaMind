@@ -1337,13 +1337,7 @@ function MindEditorView({
           createPortal(<NoteAsk mindId={mindId} editor={editor} />, slots.ask)}
         {badgeTarget &&
           createPortal(
-            <CheckBadge
-              editor={editor}
-              doc={doc}
-              mindId={mindId}
-              verification={verification}
-              quiet={firstOpen && isExample}
-            />,
+            <CheckBadge editor={editor} doc={doc} mindId={mindId} verification={verification} />,
             badgeTarget,
           )}
         {readOnly && <MindNotice kind="read-only" />}
