@@ -11,10 +11,12 @@
  * reaches every Folder outside a wall at the time of each call, and every Mind
  * in no Folder but the examples (#3544). Where a result can read as "nothing is
  * there", it says in one line, naming nothing, when the User has more than the
- * pairing reaches (`holdsMore`). Nothing here changes the
- * User's Documents, and a Mind only through `propose_changes`, which the User
- * allows per pairing and whose changes wait for them as Proposals (#352,
- * ./proposals). With the same leave `create_mind` writes a new Mind (#3306):
+ * pairing reaches (`holdsMore`). Nothing here writes the User's Documents
+ * directly: `propose_deck_changes` queues a waiting deck Proposal that writes
+ * only when the User confirms it (ADR-0010, 2026-11-25), and a Mind changes
+ * only through `propose_changes`, which the User allows per pairing and whose
+ * changes wait for them as Proposals (#352, ./proposals). With the same leave
+ * `create_mind` writes a new Mind (#3306):
  * it changes none there is, so it doesn't wait. In a Mind the pairing wrote
  * itself, its changes apply at once, each a step the User can undo after a
  * Checkpoint (#3371, ./ownChanges).
@@ -121,6 +123,11 @@ import {
 } from "./canvases";
 import { type AgentCitation, type AgentCitations, CITATION_TOKEN, citeTag } from "./citations";
 import type { FileCiting } from "./citedFiles";
+import {
+  createDeckEditTools,
+  type ProposeDeckChangesInput,
+  type ReadDeckToolInput,
+} from "./deckEdits";
 import { type AgentHandedFile, createHandedFileTool, type HandedFileToolDeps } from "./handedFiles";
 import { howToJudge, OWN_VERDICTS, type OwnVerdict } from "./ownCheck";
 import {
@@ -649,6 +656,10 @@ export interface AgentAccess {
    * keeps it as a file the agent handed over (#3751).
    */
   saveAsWord(input: SaveAsWordInput): Promise<AgentWordFile>;
+  /** Reads a PowerPoint deck as slides and shapes with stable ids and version (#149 part 2). */
+  readDeck(input: ReadDeckToolInput): Promise<object>;
+  /** Proposes targeted changes to named shapes, cells, notes or chart series of a deck (#149 part 2). */
+  proposeDeckChanges(input: ProposeDeckChangesInput): Promise<object>;
 }
 
 export { AgentRefusedError } from "./refusals";
@@ -932,6 +943,26 @@ export interface AgentAccessDeps {
     data: Uint8Array,
     asks: boolean,
   ): Promise<WordSaved>;
+  /** Reads a `.pptx` Document's metadata, current Folder placement, and handed-over owner (#149 part 2). */
+  deckDocument?(documentId: string): {
+    id: string;
+    name: string;
+    kind: string;
+    currentFolderIds: readonly string[];
+    handed: { pairingId: string } | null;
+  } | null;
+  /** Reads a `.pptx` Document's current bytes for `read_deck` (#149 part 2). */
+  readDeckBytes?(documentId: string): Promise<Uint8Array>;
+  /** Queues an AI Proposal for targeted deck edits (#149 part 2). */
+  proposeDeckChanges?(input: {
+    documentId: string;
+    agentName: string;
+    pairingId: string;
+    version: string;
+    summary: string;
+    changes: readonly import("../exports/pptxPatch/deckChanges").DeckChange[];
+    stillAllowed?: () => void;
+  }): Promise<import("../decks/proposals").DeckProposal>;
 }
 
 /**
@@ -1499,6 +1530,34 @@ export function documentsForPairing(
       .map(({ documentId }) => documentId),
   );
   return documentIds.filter((id) => !apart.has(id));
+}
+
+/**
+ * Resolves a deck (by `documentId` or a handed file's `fileId`) if the pairing reaches it:
+ * - Ordinary source decks follow `documentsForPairing` (honoring Matter walls).
+ * - Handed-over decks are reached ONLY by the pairing that handed them over AND only while
+ *   the Document's current Folder placement stays inside the pairing's reached Folders (#149 S8).
+ */
+export function deckReachedByPairing(
+  deps: AgentAccessDeps,
+  pairing: AdmittedPairing,
+  documentId: string,
+  reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): { id: string; name: string; kind: string } | null {
+  const doc = deps.deckDocument?.(documentId) ?? null;
+  if (!doc) return null;
+  if (doc.handed) {
+    if (doc.handed.pairingId !== pairing.id) return null;
+    const placementReached =
+      doc.currentFolderIds.length > 0
+        ? doc.currentFolderIds.every((folderId) => reached.has(folderId))
+        : reached.has(NOT_IN_A_FOLDER_ID);
+    return placementReached ? { id: doc.id, name: doc.name, kind: doc.kind } : null;
+  }
+  if (documentsForPairing(deps, pairing, [...reached], reached).includes(doc.id)) {
+    return { id: doc.id, name: doc.name, kind: doc.kind };
+  }
+  return null;
 }
 
 /**
@@ -2439,6 +2498,61 @@ export function createAgentAccess(
       deps.saveWordFile(source, fileName, data, grant?.kind === "conversation"),
   });
 
+  const deckEditTools = createDeckEditTools({
+    t,
+    call,
+    recheck: (id, needsWrite) => {
+      const admitted = deps.admit(id);
+      if (needsWrite && !admitted.propose) {
+        throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
+      }
+      return admitted;
+    },
+    documentInScope: (pairing, documentId) => {
+      if (pairing.folderIds.length === 0) {
+        throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
+      }
+      const doc = deckReachedByPairing(deps, pairing, documentId);
+      if (!doc) throw new NotReachedError(t("agents.problem.not-found"));
+      return doc;
+    },
+    readDeckBytes: (documentId) => {
+      if (!deps.readDeckBytes) {
+        throw new AgentRefusedError("invalid", t("agents.deck.notAvailable"));
+      }
+      return deps.readDeckBytes(documentId);
+    },
+    reachesDocument: (pairing, documentId) => {
+      const inScope = new Set(scopeOf(pairing, undefined));
+      return inScope.has(documentId);
+    },
+    lookupCitation: (documentId, passageId) => {
+      if (passageId) {
+        const passage = deps.passage(passageId);
+        if (!passage || passage.documentId !== documentId) return null;
+        return {
+          document: passage.documentName,
+          location: passage.pageFrom !== null ? `p. ${passage.pageFrom}` : null,
+          quote: passage.text,
+        };
+      }
+      const doc = deps.deckDocument?.(documentId) ?? null;
+      return doc ? { document: doc.name, location: null, quote: "" } : null;
+    },
+    resolveCitation: (pairing, token) => {
+      const inScope = new Set(scopeOf(pairing, undefined));
+      const kept = deps.citations.find(pairing.id, token);
+      if (!kept || !usable(inScope, kept.documentId)) return null;
+      return kept;
+    },
+    propose: (input) => {
+      if (!deps.proposeDeckChanges) {
+        throw new AgentRefusedError("invalid", t("agents.deck.notAvailable"));
+      }
+      return deps.proposeDeckChanges(input);
+    },
+  });
+
   const canvasTools = createCanvasTools({
     filesByPath: grant === undefined,
     deps: {
@@ -2522,14 +2636,16 @@ export function createAgentAccess(
         return [{ id, name }];
       });
     const document = (id: string) => documents.get(id);
+    const canReadDoc = (id: string) =>
+      readable.has(id) || deckReachedByPairing(deps, pairing, id, reached)?.kind === "pptx";
     return {
-      open: still(named.open, document, (id) => readable.has(id)),
+      open: still(named.open, document, canReadDoc),
       folders: still(
         named.folders,
         (id) => folders.get(id),
         (id) => reached.has(id),
       ),
-      documents: still(named.documents, document, (id) => readable.has(id)),
+      documents: still(named.documents, document, canReadDoc),
     };
   };
 
@@ -3820,6 +3936,8 @@ export function createAgentAccess(
       if (saved.mindId !== null) opened({ kind: "mind", mindId: saved.mindId });
       return saved;
     },
+    readDeck: deckEditTools.readDeck,
+    proposeDeckChanges: deckEditTools.proposeDeckChanges,
     readRequest(input) {
       const named = typeof input?.note === "string" ? comparableName(input.note) : "";
       const minds = new Map(deps.minds().map((mind) => [mind.id, mind]));
