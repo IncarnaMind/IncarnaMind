@@ -378,6 +378,18 @@ export function createOwnAi({
       let thought = "";
       let thoughtTold = "";
       let thoughtAt = 0;
+      let thinkingBlock = -1;
+      // A summary comes in bursts: what the limit held back of one is told once the limit allows,
+      // not when the next burst comes, seconds later.
+      let thoughtLater: ReturnType<typeof setTimeout> | null = null;
+      const tellThought = (saying: string | null) => {
+        if (thoughtLater !== null) clearTimeout(thoughtLater);
+        thoughtLater = null;
+        if (saying === null || saying === "" || saying === thoughtTold) return;
+        thoughtAt = performance.now();
+        thoughtTold = saying;
+        request.progress?.({ kind: "thinking", text: saying });
+      };
       const heardPart = (event: Record<string, unknown>) => {
         const block = object(event.content_block);
         const delta = object(event.delta);
@@ -390,11 +402,18 @@ export function createOwnAi({
         } else if (event.type === "content_block_start" && block.type === "text") {
           written = "";
         } else if (event.type === "content_block_start" && block.type === "thinking") {
+          tellThought(null);
           thought = "";
           thoughtTold = "";
           thoughtAt = Number.NEGATIVE_INFINITY;
+          thinkingBlock = index;
           request.progress?.({ kind: "thinking", text: "" });
         } else if (event.type === "content_block_stop") {
+          // Its last words, whole, before the calls it led to start.
+          if (index === thinkingBlock) {
+            thinkingBlock = -1;
+            tellThought(thought.trim());
+          }
           const call = writing.get(index);
           writing.delete(index);
           const input = call ? parsedInput(call.json) : null;
@@ -402,12 +421,9 @@ export function createOwnAi({
         } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
           if (delta.thinking === "") return;
           thought = `${thought}${delta.thinking}`.slice(-MAX_THOUGHT_CHARS);
-          if (performance.now() - thoughtAt < SAY_EVERY_MS) return;
-          const saying = sayingNow(thought);
-          if (saying === null || saying === thoughtTold) return;
-          thoughtAt = performance.now();
-          thoughtTold = saying;
-          request.progress?.({ kind: "thinking", text: saying });
+          const wait = thoughtAt + SAY_EVERY_MS - performance.now();
+          if (wait <= 0) tellThought(sayingNow(thought));
+          else thoughtLater ??= setTimeout(() => tellThought(sayingNow(thought)), wait);
         } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
           const call = writing.get(index);
           if (!call || call.json.length > MAX_RUN_BYTES) return;
@@ -647,6 +663,7 @@ export function createOwnAi({
         for (const waiting of asking.values()) waiting.abort();
         asking.clear();
         if (compacting !== null) clearTimeout(compacting);
+        if (thoughtLater !== null) clearTimeout(thoughtLater);
         await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch(() =>
           console.warn("Could not remove the temporary folder of a run of the User's own AI."),
         );

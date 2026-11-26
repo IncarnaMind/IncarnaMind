@@ -2624,9 +2624,12 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       ]),
     });
     await ask((step) => steps.push(step));
+    // The thought's last sentence came within the second: it is told as its thinking ends, before
+    // the call it led to.
     expect(steps.filter((step) => (step as { kind: string }).kind !== "heard")).toEqual([
       { kind: "thinking", text: "" },
       { kind: "thinking", text: thought },
+      { kind: "thinking", text: `${thought} Then the quotes.` },
       { kind: "tool", name: "cite" },
       { kind: "quoting", passageId: "p-one" },
       {
@@ -2636,6 +2639,34 @@ describe("a run that goes quiet, and one that says what it does (#3677)", () => 
       },
       { kind: "tool", name: "propose_changes" },
       { kind: "writing", tool: "propose_changes", text: "Data migration was hard" },
+    ]);
+  });
+
+  // protects=words of a thought held back by the once-a-second limit are told once it allows, though nothing more comes: a summary streams in bursts seconds apart (#3677); fails_when=the line stands on a thought's first words, cut mid-sentence, until the next burst
+  it("tells the rest of a burst of thought once the limit allows, though no more comes", async () => {
+    const steps: unknown[] = [];
+    const part = (event: unknown) => ({ type: "stream_event", event });
+    const delta = (thinking: string) =>
+      part({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking } });
+    const whole = "I'm sorting what each clinic said. Then I'll group the quotes by clinic.";
+    useClaude({
+      run: session(
+        [
+          init(),
+          part({ type: "message_start", message: {} }),
+          part({ type: "content_block_start", index: 0, content_block: { type: "thinking" } }),
+          delta("I'm sorting what each clinic said. Then I'll"),
+          delta(" group the quotes by clinic."),
+        ],
+        false,
+        `setTimeout(() => console.log(JSON.stringify(${JSON.stringify(done)})), 1500);`,
+      ),
+    });
+    await ask((step) => steps.push(step));
+    expect(steps.filter((step) => (step as { kind: string }).kind !== "heard")).toEqual([
+      { kind: "thinking", text: "" },
+      { kind: "thinking", text: "I'm sorting what each clinic said." },
+      { kind: "thinking", text: whole },
     ]);
   });
 });

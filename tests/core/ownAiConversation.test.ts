@@ -552,6 +552,44 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
+  // protects=the AI's latest thought stays on the line through the calls it led to and the start of its next stretch of thinking, until a newer thought or its own words to the User take its place (#3677); fails_when=a call a tenth of a second long, after a thought that came whole as its thinking ended, leaves the line on a bare Thinking for the seconds the AI thinks next
+  it("keeps the AI's latest thought through the calls it led to, until a newer thought or its words", async () => {
+    const thought = "I need wider coverage, so I'll run several searches at once.";
+    const run = runner(async (agent, request) => {
+      request.progress?.({ kind: "thinking", text: "" });
+      request.progress?.({ kind: "thinking", text: thought });
+      request.progress?.({ kind: "tool", name: "search" });
+      await agent.callTool({ name: "search", arguments: { query: "ferry passengers" } });
+      await pause(300);
+      request.progress?.({ kind: "thinking", text: "" });
+      request.progress?.({ kind: "thinking" });
+      await pause(300);
+      request.progress?.({ kind: "said", text: "The ferry carried 212,000 passengers." });
+      request.progress?.({ kind: "tool", name: "search" });
+      await agent.callTool({ name: "search", arguments: { query: "ferry crew" } });
+      await pause(300);
+      request.progress?.({ kind: "thinking", text: "" });
+      await pause(300);
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "what does the report say about the ferry?" });
+    await ended();
+    const doings = turns
+      .filter((turn) => turn.state === "working")
+      .map((turn) => turn.doing)
+      .filter((doing, at, all) => JSON.stringify(doing) !== JSON.stringify(all[at - 1]));
+    const kept = { kind: "thinking", summary: thought };
+    const said = { kind: "said", text: "The ferry carried 212,000 passengers." };
+    const from = doings.findIndex((doing) => JSON.stringify(doing) === JSON.stringify(kept));
+    const to = doings.findIndex((doing) => JSON.stringify(doing) === JSON.stringify(said));
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThan(from);
+    expect(doings.slice(from + 1, to)).not.toContainEqual({ kind: "thinking" });
+    expect(doings.slice(to + 1)).toContainEqual({ kind: "thinking" });
+    expect(doings.slice(to + 1)).not.toContainEqual(kept);
+  });
+
   // protects=a request asks Claude Code's sign-in before each run: signed out, nothing starts and the line says so at once, which a run ending as signed out takes twice as long to say (#3677); fails_when=a signed-out request starts a run first, or the sign-in is asked once and then taken as given
   it("asks the sign-in before each request, and starts nothing while signed out", async () => {
     let status: OwnAiStatus = { kind: "signed-out" };

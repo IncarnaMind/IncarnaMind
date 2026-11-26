@@ -913,6 +913,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (current) {
           current.doing = compacting ? { kind: "compacting" } : { kind: "thinking" };
           current.saidForStep = false;
+          current.thought = "";
         }
         tellWorking();
         return;
@@ -972,7 +973,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (step.state === "refused") taken.by = "refused";
         if (step.state === "done" || step.state === "failed") {
           delete taken.going;
-          if (calls === 0 && !now.saidForStep && !ownGoing(now)) now.doing = { kind: "thinking" };
+          if (calls === 0 && !now.saidForStep && !ownGoing(now)) now.doing = thinkingOf(now);
         } else if (step.state === "going") {
           now.calledSince = true;
           // A tool it names by its own name only ("ToolSearch") says nothing to the User: the line
@@ -993,6 +994,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         now.doing = { kind: "said", text: step.text };
         now.saidForStep = true;
         now.calledSince = false;
+        now.thought = "";
       } else if (step.kind === "tool") {
         // A Tool's name the stream gives as the call starts, and what it reads once its input is
         // written whole; what else it names comes as IncarnaMind runs it.
@@ -1012,13 +1014,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (!document || now.saidForStep) return;
         now.doing = { kind: "quoting", document };
       } else if (step.text) {
-        now.doing = { kind: "thinking", summary: step.text };
+        now.thought = step.text;
+        now.doing = thinkingOf(now);
         now.saidForStep = false;
       } else if (
         (now.doing?.kind !== "said" || now.calledSince) &&
         !(step.text === undefined && now.doing?.kind === "thinking")
       ) {
-        now.doing = { kind: "thinking" };
+        now.doing = thinkingOf(now);
         now.saidForStep = false;
       }
       tellWorking();
@@ -1240,7 +1243,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             // Its result goes back to the AI, which works on its next step: the line never names
             // as going on a call that has ended.
             if (calls === 0 && current === of && !of.saidForStep && !ownGoing(of)) {
-              of.doing = { kind: "thinking" };
+              of.doing = thinkingOf(of);
               tellWorking();
             }
           },
@@ -1695,6 +1698,11 @@ interface Taken {
    */
   saidForStep: boolean;
   calledSince: boolean;
+  /**
+   * The AI's latest summary of its thinking: the line says it with Thinking until a newer one or
+   * words of its own to the User take its place, the calls it led to being too quick to read.
+   */
+  thought: string;
   /** Its calls still running, and its end, once its AI took a later request, kept until they end. */
   calls: number;
   closing: (() => void) | null;
@@ -1717,7 +1725,11 @@ const taking = (turnId: string, startedAt: string): Taken => ({
   readOf: new Map(),
   saidForStep: false,
   calledSince: false,
+  thought: "",
   calls: 0,
   closing: null,
   own: new Set(),
 });
+
+const thinkingOf = (of: Taken): NoteDoing =>
+  of.thought === "" ? { kind: "thinking" } : { kind: "thinking", summary: of.thought };
