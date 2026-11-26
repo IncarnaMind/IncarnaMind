@@ -141,7 +141,6 @@ const checkedCitationOut = z.object({
   location,
   quote: z.string().nullable(),
   changed: z.boolean(),
-  text: z.string().optional(),
 });
 
 const READ_ONLY = {
@@ -491,7 +490,7 @@ export function createAgentServer(
     {
       title: "Change a Note",
       description:
-        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change, ¶0+ adds at the top. Write Markdown as in create_mind, with [cite:…] tokens or [cite:passageId|exact words]. Changes apply in Notes you wrote and wait for review elsewhere.",
+        "Read with read_mind (named) first. ¶3 rewrites or removes that paragraph, ¶3+ adds after it, ¶+ continues the prior change, ¶0+ adds at the top. Write Markdown as in create_mind, with its [cite:…] tokens. Changes apply in Notes you wrote and wait for review elsewhere.",
       inputSchema: z.object({
         mindId: z.string(),
         version: z.string().describe("version from read_mind with named."),
@@ -537,7 +536,7 @@ export function createAgentServer(
     {
       title: "Write a new Note",
       description:
-        'Write a new Note (report, meeting summary, draft), marked as yours; use when asked to write or summarize in IncarnaMind, not chat only. Format in Markdown: headings; compared figures in a table (labels in column 1, one figure + [cite:…] per cell); for a change over periods or figure against a limit, add a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), with "leaveOut": ["Total"] to skip rows. Keep a short answer short. Cite each claim with its exact token or [cite:passageId|exact words]. Picture: ![alt](full path or data: URL) on its own line. Tabs only if asked: ```tab block of its title. Returns Citation checks and uncited sentences. Refused unless allowed to write.',
+        'Write a new Note (report, meeting summary, draft), marked as yours; use when asked to write or summarize in IncarnaMind, not chat only. Format in Markdown: headings; compared figures in a table (labels in column 1, one figure + [cite:…] per cell); for a change over periods or figure against a limit, add a ```chart block right under it, {"kind": "bar", "title": "…"} (or "line"), with "leaveOut": ["Total"] to skip rows. Keep a short answer short. Cite each claim with its exact token. Picture: ![alt](full path or data: URL) on its own line. Tabs only if asked: ```tab block of its title. Returns Citation checks and uncited sentences. Refused unless allowed to write.',
       inputSchema: z.object({
         title: z.string().describe("The Note's name."),
         markdown: z.string().describe("Its text."),
