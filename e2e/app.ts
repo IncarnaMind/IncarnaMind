@@ -4453,15 +4453,25 @@ export async function leaveText(window: Page): Promise<void> {
  * one it lists first, the last one used.
  */
 export async function exportFromMenu(window: Page, format?: ExportFormat): Promise<void> {
-  const button = window.locator('[data-testid="export-mind"]:visible');
   const menu = window.getByTestId("export-menu");
-  // A strip too tight for Export keeps it in the Note's ⋯ (#3765), and its menu opens under the ⋯.
-  if ((await button.count()) > 0) await pointAndClick(window, button);
-  else {
-    const more = pageMenuButton(window);
-    await pointAndClick(window, more);
-    await pointAndClick(window, window.getByTestId("mind.exportMenu"));
-    await expect(menu).toBeVisible();
+  const more = pageMenuButton(window);
+  let throughMore = false;
+  // A strip too tight for Export keeps it in the Note's ⋯ (#3765). Which of the two it shows can
+  // change as it fits a tab just shown, so the press is made again on what it shows then.
+  await expect(async () => {
+    if (await menu.isVisible()) return;
+    const button = window.locator('[data-testid="export-mind"]:visible');
+    throughMore = (await button.count()) === 0;
+    if (!throughMore) await button.click({ timeout: 2_000 });
+    else {
+      const item = window.getByTestId("mind.exportMenu");
+      if (!(await item.isVisible())) await more.click({ timeout: 2_000 });
+      await item.click({ timeout: 2_000 });
+    }
+    await expect(menu).toBeVisible({ timeout: 2_000 });
+  }).toPass();
+  // Through the ⋯, it opens under the ⋯.
+  if (throughMore) {
     await expect
       .poll(async () => {
         const [at, box] = [await more.boundingBox(), await menu.boundingBox()];
@@ -4475,7 +4485,6 @@ export async function exportFromMenu(window: Page, format?: ExportFormat): Promi
       })
       .toBe(true);
   }
-  await expect(menu).toBeVisible();
   if (!format) {
     await pointAndClick(window, menu.getByRole("menuitem").first());
     return;
