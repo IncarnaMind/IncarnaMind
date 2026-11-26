@@ -520,6 +520,34 @@ test("only the Claude app found, Set up later while Claude Code downloads: it st
   ]);
 });
 
+// protects=with no AI app found, once Install has put Claude Code here and its sign-in waits, its row stays with the sign-in's words and button, and Claude Code isn't offered as found meanwhile; fails_when=the row goes once the download lands, taking the way to finish the sign-in or cancel it with it
+test("none found, Install: while the sign-in waits, Claude Code's row stays with its button", async () => {
+  test.setTimeout(180_000);
+  installer = await startInstallerStandIn({ signIn: "hold" });
+  const window = await launch([], "en", { installer });
+  const ai = await yourAi(window);
+  const offer = ai.getByTestId("setup-install-row");
+  await offer.getByTestId("setup-install-claude-code").click();
+  await expect(offer).toHaveAttribute("data-state", "awaiting-sign-in", { timeout: 30_000 });
+  // Downloaded, Claude Code is on this computer now, which the window reads again.
+  await expect
+    .poll(() =>
+      window.evaluate(
+        async () =>
+          (
+            await (
+              globalThis as unknown as { incarnamind: CoreBridge }
+            ).incarnamind.getClaudeCodeInstallAvailability()
+          ).installed,
+      ),
+    )
+    .toBe(true);
+  // The window reads it again as the sign-in starts: the row has to outlast that read.
+  await window.waitForTimeout(1_000);
+  await expect(offer.getByTestId("setup-install-signed-in")).toBeVisible();
+  expect(await listed(ai)).toEqual([]);
+});
+
 // protects=Undo after Claude Code installed but before its sign-in takes back the connections, stops the waiting sign-in, and says in one line that Claude Code stays installed; fails_when=the sign-in keeps waiting, the Claude app stays connected, or the step says nothing of the install it leaves
 test("only the Claude app found, Undo while the sign-in waits: Claude Code stays installed, and the step says so", async () => {
   test.setTimeout(180_000);

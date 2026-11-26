@@ -105,8 +105,18 @@ export function YourAiStep({ place }: { place: StepPlace }) {
   }
   const pairings = pairingsRead.data;
   const all = clients.state === "ready" ? clients.data : [];
-  const claudeCodeHere = availability?.installed === true || install.kind === "signed-in";
-  const found = foundApps(all, claudeCodeHere);
+  // While its install goes on, or stopped with something left to do, Claude Code is its install
+  // row, with that state's words and button, though its download already put it here.
+  const installShown =
+    install.kind === "installing" ||
+    install.kind === "awaiting-sign-in" ||
+    install.kind === "no-plan" ||
+    install.kind === "failed";
+  const claudeCodeHere =
+    install.kind === "signed-in" || (availability?.installed === true && !installShown);
+  const found = foundApps(all, claudeCodeHere).filter(
+    (client) => !(installShown && client.id === "claude-code"),
+  );
   const claudeCode = all.find((client) => client.id === "claude-code") ?? null;
   // Claude Code is installed in the same press only where nothing installs one already.
   const installs =
@@ -178,7 +188,10 @@ export function YourAiStep({ place }: { place: StepPlace }) {
       installs={installs ? claudeCode : null}
       kept={kept}
       offersInstall={
-        found.length === 0 && !localOnly && availability?.supported === true && claudeCode !== null
+        (found.length === 0 || installShown) &&
+        !localOnly &&
+        availability?.supported === true &&
+        claudeCode !== null
       }
       onAnother={() => setView({ kind: "another" })}
       onInstallStart={startInstall}

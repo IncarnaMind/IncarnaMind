@@ -142,10 +142,12 @@ describe("every place that opens Settings › AI with no spot named", () => {
       // One-press Claude Code install from empty states and ⌘K (#3638).
       "claudeCodeInstall.ts",
       "commands/settings.ts",
+      // The example's line, with no AI app connected and no model: Connect (#3791).
+      "components/ExampleLine.tsx",
       // A Note's foot or check card with no AI of theirs that reads it: Move to… / Settings › AI (#3536) or Connect your AI (#3764).
       "components/assistant/NoteCantReadLine.tsx",
       "components/assistant/NoteFootAsk.tsx",
-      // Home's input with no AI app connected: Connect (#3791).
+      // Home's input with no AI app connected, or none that reads a new note: Connect, Settings › AI (#3791).
       "components/home/HomeAsk.tsx",
       // Organize, a meeting's notes and its summary, when the agent can't read what they need.
       "components/library/OrganizeAsk.tsx",
