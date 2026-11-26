@@ -58,9 +58,6 @@ const selection = (window: Page) =>
 async function shiftClick(window: Page, x: number, y: number): Promise<void> {
   await window.keyboard.down("Shift");
   try {
-    // Up from the line below, as a hand comes to it: passing over a Citation on the way opens its
-    // card, which in a short window can lie over the place pressed.
-    await window.mouse.move(x, y + 28);
     await window.mouse.move(x, y, { steps: 4 });
     await window.mouse.down();
     await window.mouse.up();
@@ -299,6 +296,9 @@ for (const language of ["en", "zh-CN"] as const) {
           await setWindowSize(app, window, width, 900);
           await setLanguage(window, language);
           await leaveFirstOpen(window);
+          // At 900 px the assistant docks under the Note, and the example's foot holds its line and
+          // the way to ask (#3791): folded, it leaves the selection menu room off the line pressed.
+          if (width === 900) await window.getByTestId("assistant-fold").click();
           const chip = editor(window).getByTestId("citation-chip").first();
           await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
           await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));
