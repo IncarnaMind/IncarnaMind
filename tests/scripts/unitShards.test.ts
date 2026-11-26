@@ -52,6 +52,15 @@ describe("the unit test shards", () => {
     expect(secondsOf("tests/core/calculations.test.ts", 1)).toBe(
       durations["tests/core/calculations.test.ts"],
     );
+    expect(secondsOf("tests/live/tieOut.live.test.ts", 20_000, {})).toBe(0);
+    expect(
+      secondsOf("tests/live/tieOut.live.test.ts", 20_000, { NIGHTLY_LIVE_SHARD: "1/4" }),
+    ).toBeCloseTo(5.4);
+    expect(
+      secondsOf("tests/live/meetingFillSections.live.test.ts", 170_000, {
+        NIGHTLY_LIVE_SHARD: "1/4",
+      }),
+    ).toBeCloseTo(45.9);
   });
 });
 

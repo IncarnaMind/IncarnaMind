@@ -326,11 +326,12 @@ export interface Step {
 
 const HAIKU = "claude-haiku-5-5";
 
-const vitestRun = (files: string, folder: string) => [
+const vitestRun = (files: string, folder: string, extra: readonly string[] = []) => [
   "npx",
   "vitest",
   "run",
   files,
+  ...extra,
   "--maxWorkers=2",
   "--reporter=default",
   "--reporter=json",
@@ -347,7 +348,7 @@ export const STEPS: readonly Step[] = [
     id: "live",
     name: "Live tests on Claude",
     provider: "anthropic",
-    minutes: 40,
+    minutes: 60,
     results: "vitest",
     command: (folder) => vitestRun("tests/live", folder),
     env: (key) => ({
@@ -1046,21 +1047,60 @@ export async function runNight({
   return night;
 }
 
+/** Validates a Vitest shard specification (`index/count`, 1-based). */
+export function parseLiveShard(raw: string | undefined): string | null {
+  const text = raw?.trim();
+  if (!text) return null;
+  const match = /^(\d+)\/(\d+)$/.exec(text);
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (!match || index < 1 || count < 1 || index > count) {
+    throw new Error(`NIGHTLY_LIVE_SHARD must be "<index>/<count>" with 1 <= index <= count, not "${text}".`);
+  }
+  return `${index}/${count}`;
+}
+
+/** Selects the steps named by NIGHTLY_STEPS (minus NIGHTLY_SKIP_STEPS) and applies NIGHTLY_LIVE_SHARD. */
+export function selectSteps(env: Readonly<Record<string, string | undefined>>): Step[] {
+  const list = (raw: string | undefined) =>
+    (raw ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+  const ids = list(env.NIGHTLY_STEPS);
+  const skipped = new Set(list(env.NIGHTLY_SKIP_STEPS));
+  const unknown = [...ids, ...skipped].filter((id) => !STEPS.some((step) => step.id === id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `NIGHTLY_STEPS names no step ${unknown.join(", ")}: the steps are ${STEPS.map((step) => step.id).join(", ")}.`,
+    );
+  }
+  const shard = parseLiveShard(env.NIGHTLY_LIVE_SHARD);
+  const base = ids.length === 0 ? STEPS : STEPS.filter((step) => ids.includes(step.id));
+  return base
+    .filter((step) => !skipped.has(step.id))
+    .map((step) =>
+      step.id === "live" && shard
+        ? {
+            ...step,
+            name: `${step.name} (${shard})`,
+            command: (folder) => vitestRun("tests/live", folder, [`--shard=${shard}`]),
+          }
+        : step,
+    );
+}
+
 async function main(): Promise<void> {
   const env: Record<string, string | undefined> = { ...process.env };
   for (const name of Object.values(SECRETS).flat()) env[name] = env[name]?.trim();
-  const ids = (env.NIGHTLY_STEPS ?? "")
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-  const unknown = ids.filter((id) => !STEPS.some((step) => step.id === id));
-  if (unknown.length > 0) {
-    console.error(
-      `NIGHTLY_STEPS names no step ${unknown.join(", ")}: the steps are ${STEPS.map((step) => step.id).join(", ")}.`,
-    );
+  let steps: Step[];
+  try {
+    steps = selectSteps(env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  const steps = ids.length === 0 ? STEPS : STEPS.filter((step) => ids.includes(step.id));
+  if (steps.length === 0) return;
   const missing = missingSecrets(env, steps);
   if (missing.length > 0) {
     console.error(`${env.GITHUB_ACTIONS ? "::error::" : ""}${missingMessage(missing)}`);

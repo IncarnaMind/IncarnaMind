@@ -230,22 +230,23 @@ export function nightFromStatus(
   result: string,
   status: Status | null,
   job?: Job,
+  label = "Real-model checks",
 ): Night {
   const red = [...(status?.red ?? [])];
   const gaps = [...(status?.gaps ?? [])];
   let measured = status?.measured ?? false;
   const reported = red.length > 0 || gaps.length > 0;
   if (!reported && (result === "cancelled" || result === "skipped")) {
-    gaps.push({ what: "Real-model checks", why: "the run was cancelled before it wrote a report" });
+    gaps.push({ what: label, why: "the run was cancelled before it wrote a report" });
   } else if (!reported && result !== "success") {
     measured = true;
-    red.push(`Real-model checks: ${job ? failedStep(job) : "the job failed"}`);
+    red.push(`${label}: ${job ? failedStep(job) : "the job failed"}`);
   } else if (!reported && !status) {
     measured = true;
-    red.push("Real-model checks: the run wrote no report");
+    red.push(`${label}: the run wrote no report`);
   }
   if (!measured && gaps.length === 0 && red.length === 0) {
-    gaps.push({ what: "Real-model checks", why: "no check ran" });
+    gaps.push({ what: label, why: "no check ran" });
   }
   return {
     workflow: REAL_MODELS,
@@ -253,6 +254,48 @@ export function nightFromStatus(
     sha: run.sha,
     runUrl: run.url,
     red,
+    gaps,
+    measured,
+  };
+}
+
+const JOB_LABELS: Readonly<Record<string, string>> = {
+  "real-models": "Real-model checks",
+};
+
+const labelForRealModelJob = (id: string, jobs: readonly Job[]): { label: string; job?: Job } => {
+  const shard = /^live-(\d+)$/.exec(id);
+  const shardPrefix = shard ? `Live tests on Claude (${shard[1]}/` : null;
+  const job =
+    jobs.find((each) => each.name === JOB_LABELS[id]) ??
+    (shardPrefix ? jobs.find((each) => each.name.startsWith(shardPrefix)) : undefined) ??
+    jobs.find((each) => each.name === id);
+  return { label: job?.name ?? JOB_LABELS[id] ?? id, job };
+};
+
+/** Merges the statuses reported by every real-model job (sharded live jobs + real-models). */
+export function nightFromStatuses(run: Run, needs: Needs, jobs: readonly Job[]): Night {
+  const entries = Object.entries(needs);
+  const active = entries.filter(([, need]) => need.result !== "skipped" || need.outputs?.status);
+  if (active.length === 0) {
+    return nightFromStatus(run, entries[0]?.[1].result ?? "failure", null);
+  }
+  const red: string[] = [];
+  const gaps: Gap[] = [];
+  let measured = false;
+  for (const [id, need] of active) {
+    const { label, job } = labelForRealModelJob(id, jobs);
+    const part = nightFromStatus(run, need.result, readStatus(need.outputs?.status), job, label);
+    red.push(...part.red);
+    gaps.push(...part.gaps);
+    measured ||= part.measured;
+  }
+  return {
+    workflow: REAL_MODELS,
+    date: run.date,
+    sha: run.sha,
+    runUrl: run.url,
+    red: [...new Set(red)],
     gaps,
     measured,
   };
@@ -494,12 +537,15 @@ export async function nightOf(
 ): Promise<Night> {
   const { run, jobs } = await hub.run();
   if (kind === "real-models") {
-    return nightFromStatus(
-      run,
-      needs["real-models"]?.result ?? "failure",
-      readStatus(status),
-      jobs.find((job) => job.name === "Real-model checks"),
-    );
+    if (status !== undefined) {
+      return nightFromStatus(
+        run,
+        needs["real-models"]?.result ?? "failure",
+        readStatus(status),
+        jobs.find((job) => job.name === "Real-model checks"),
+      );
+    }
+    return nightFromStatuses(run, needs, jobs);
   }
   const logs = new Map<number, string>();
   for (const job of jobs) {
@@ -590,7 +636,7 @@ async function main(args: readonly string[], env: Record<string, string | undefi
   const dry = args.includes("--dry-run");
   const needs = JSON.parse((dry ? readNamed(args, "--needs") : env.NEEDS) || "{}") as Needs;
   const hub = dry ? savedHub(args) : liveHub(env);
-  const status = dry ? readNamed(args, "--status") : needs["real-models"]?.outputs?.status;
+  const status = dry ? (argument(args, "--status") ? readNamed(args, "--status") : undefined) : undefined;
   const done = await apply(await nightOf(kind, hub, needs, status), hub);
   console.log(done.said);
   if (dry) {

@@ -44,6 +44,7 @@ import {
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { isCloudModelName } from "../../src/core/providers/ollamaCloud";
+import { countingMarkOf } from "../../src/shared/markKeys";
 import {
   outOfDateProposals,
   pendingProposals,
@@ -367,9 +368,12 @@ describe.each(LIVE)("Changes out of date, live: $name", (live) => {
       const words = paragraph.toArray().find((child) => "toDelta" in child) as Y.XmlText;
       let at = 0;
       let typed = false;
-      for (const run of words.toDelta() as { insert: unknown; attributes?: object }[]) {
+      for (const run of words.toDelta() as {
+        insert: unknown;
+        attributes?: Record<string, unknown>;
+      }[]) {
         const length = typeof run.insert === "string" ? run.insert.length : 1;
-        if (!typed && run.attributes && PROPOSAL_DELETE_MARK in run.attributes && length > 1) {
+        if (!typed && countingMarkOf(PROPOSAL_DELETE_MARK, run.attributes) !== null && length > 1) {
           words.insert(at + 1, "X");
           typed = true;
         }
