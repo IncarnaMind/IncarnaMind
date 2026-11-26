@@ -13165,6 +13165,11 @@ export interface AgentDisconnected {
    * the same with the home folder written as "~", as a line for the User names it.
    */
   skillsLeft: { path: string; shown: string }[];
+  /**
+   * The agent's settings files that still hold an entry for IncarnaMind, which it couldn't take out
+   * because the connection's key couldn't be read here; as `skillsLeft` gives them. Only when there are.
+   */
+  settingsLeft?: { path: string; shown: string }[];
 }
 
 export interface ConnectAgentInput {
@@ -16465,6 +16470,9 @@ export interface CoreApi {
    * Pairs an agent and sets IncarnaMind up in it, as `connectAgent` does,
    * once the User has confirmed: opens its app to finish, writes its settings
    * file, or gives what to paste. A setup that fails leaves no pairing.
+   * An app already connected is not paired again (Other agent aside): its
+   * pairing is set up once more, under its name, reading and writing what
+   * the User chose now; a failure then leaves it connected.
    */
   setUpAgent(input: SetUpAgentInput): Promise<SetUpAgent>;
   /** Takes a setup just made back: its settings file as it was, and the pairing gone. */

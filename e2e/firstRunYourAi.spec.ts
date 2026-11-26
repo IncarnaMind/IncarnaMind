@@ -443,6 +443,38 @@ test("agents that can't be listed: the step says so in their place, and a model 
   await expect(ai.getByTestId("setup-next")).toBeEnabled();
 });
 
+// protects=the same app allowed again in the step, after Back, keeps its one connection: one row under its own name, one entry in its settings file, and the key the app was given still works; fails_when=a second connection appears ("Claude Code 2"), the file holds another key, or the app's first key stops working
+test("the same app allowed again after Back keeps its one connection", async () => {
+  const window = await launch();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  await connectClaudeCode(window, await atStep(window, "ai"));
+  const [first] = (await core(window).agents()).pairings;
+  if (!first) throw new Error("Claude Code wasn't connected.");
+  const given = await core(window).launchOf(first.id);
+
+  await panelOf(window).getByTestId("setup-back").click();
+  await (await atStep(window, "work")).getByTestId("setup-skip").click();
+  const ai = await atStep(window, "ai");
+  await expect(ai.locator('[data-testid="setup-agent"][data-value="claude-code"]')).toBeVisible();
+  await connectClaudeCode(window, ai);
+  await expect(ai.getByTestId("setup-agent-connected")).toHaveText(["Claude Code is connected"]);
+
+  const pairings = (await core(window).agents()).pairings;
+  expect(pairings.map((each) => [each.id, each.name])).toEqual([[first.id, "Claude Code"]]);
+  const servers = JSON.parse(await readFile(join(home, ".claude.json"), "utf8")).mcpServers;
+  expect(Object.keys(servers)).toEqual(["incarnamind"]);
+  const key = given.env.INCARNAMIND_AGENT_TOKEN ?? "";
+  expect(key !== "" && servers.incarnamind.env.INCARNAMIND_AGENT_TOKEN === key).toBe(true);
+  const now = await core(window).launchOf(first.id);
+  expect(now.env.INCARNAMIND_AGENT_TOKEN === key).toBe(true);
+  const agent = await agentOf(window, first.id);
+  try {
+    expect((await agent.listTools()).tools.length).toBeGreaterThan(0);
+  } finally {
+    await agent.close();
+  }
+});
+
 /** Skips each step left, until the setup has ended. */
 async function skipTheRest(window: Page): Promise<void> {
   const panel = panelOf(window);

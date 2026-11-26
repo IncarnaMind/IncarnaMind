@@ -45,7 +45,7 @@ import {
   NOT_IN_A_FOLDER_ID,
   type NoteCitation,
 } from "../api";
-import type { Consent } from "../consent";
+import type { Consent, ReplacedDecision } from "../consent";
 import { InvalidInputError, isRecord, NotFoundError } from "../errors";
 import { earliestRestorable } from "../recentlyDeleted";
 import type { Secrets } from "../secrets";
@@ -143,6 +143,16 @@ export interface PairingEvents {
   disconnected(pairingId: string): Promise<void>;
 }
 
+/** What `connectAgain` changed on a connection, for `putBack` to take back. */
+export interface ConnectedBefore {
+  folderIds: string[];
+  propose: boolean;
+  /** Its token was renewed: the one before works nowhere now. */
+  renewed: boolean;
+  /** The decisions on its data flows the press replaced. */
+  consents: readonly ReplacedDecision[];
+}
+
 /** How an agent starts the shim: the command and arguments for its MCP settings. */
 export interface AgentLauncher {
   command: string;
@@ -158,7 +168,7 @@ export interface AgentsOptions {
   now(): string;
   clock(): number;
   secrets: Pick<Secrets, "set" | "tryGet" | "delete">;
-  consent: Pick<Consent, "status" | "choose" | "revoke" | "registry">;
+  consent: Pick<Consent, "status" | "choose" | "putBack" | "revoke" | "registry">;
   readValue(key: string): unknown;
   writeValue(key: string, value: unknown): void;
   /** Local mode is on: every pairing is paused. */
@@ -480,6 +490,34 @@ export function createAgents(options: AgentsOptions) {
     if (stored) tokens.set(pairingId, stored);
     return stored;
   };
+
+  /** A new token for the pairing in place of its own, which stops working at once, its connections closed. */
+  const renewToken = async (pairingId: string): Promise<string> => {
+    const token = `im_${randomBytes(32).toString("base64url")}`;
+    await options.secrets.set(secretName(pairingId), token);
+    tokens.set(pairingId, token);
+    await closeConnections(pairingId);
+    return token;
+  };
+
+  /**
+   * The User confirmed what the agent may read and where that goes before this is called, and, for
+   * an agent IncarnaMind can start for a check, that it may (the connect sheet says so).
+   */
+  const chooseFlows = (pairing: { id: string; name: string }, client: string | null) =>
+    options.consent.choose(
+      HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
+      serviceOf(pairing),
+      HOSTED_UNNAMED[client ?? ""],
+    );
+
+  const writeReach = (pairingId: string, folderIds: readonly string[], propose: boolean) =>
+    db.run("UPDATE agent_pairings SET folder_ids = ?, propose = ?, updated_at = ? WHERE id = ?", [
+      JSON.stringify(folderIds),
+      propose ? 1 : 0,
+      options.now(),
+      pairingId,
+    ]);
 
   /** The pairing a token belongs to, compared in constant time; null for none. */
   const pairingOfToken = async (token: string): Promise<string | null> => {
@@ -1019,15 +1057,47 @@ export function createAgents(options: AgentsOptions) {
         [id, name, JSON.stringify(folderIds), client, propose ? 1 : 0, at, at],
       );
       tokens.set(id, token);
-      // The User confirmed what it may read and where that goes before this was called, and, for
-      // an agent IncarnaMind can start for a check, that it may (the connect sheet says so).
-      options.consent.choose(
-        HOSTED_CLIENTS.includes(client ?? "") ? ["agents", "hosted-agents"] : ["agents"],
-        serviceOf({ id, name }),
-        HOSTED_UNNAMED[client ?? ""],
-      );
+      chooseFlows({ id, name }, client);
       changed();
       return { pairing: requirePairing(id), launch: launchFor(token) } satisfies ConnectedAgent;
+    },
+
+    /**
+     * The User allowed an agent again that is connected already: the same pairing, under its name,
+     * reads and writes what they chose now, with their consent recorded as `connect` records it.
+     * Its token stays, unless its agent last connected with an out-of-date shim (ADR-0036) or the
+     * token can't be read here: then it gets a new one and the old one stops working.
+     */
+    async connectAgain(
+      pairingId: string,
+      input: { folderIds: unknown; propose?: unknown },
+    ): Promise<ConnectedAgent & { before: ConnectedBefore }> {
+      const pairing = requirePairing(pairingId);
+      const folderIds = parseFolders(input.folderIds);
+      const propose = parsePropose(input.propose, pairing.propose);
+      await ensureReachable();
+      const stored = legacyShims.has(pairing.id) ? null : await tokenOf(pairing.id);
+      const token = stored ?? (await renewToken(pairing.id));
+      const reach = { folderIds: pairing.folderIds, propose: pairing.propose };
+      writeReach(pairing.id, folderIds, propose);
+      const consents = chooseFlows(pairing, pairing.client);
+      changed();
+      const before: ConnectedBefore = { ...reach, renewed: stored === null, consents };
+      return { pairing: requirePairing(pairing.id), launch: launchFor(token), before };
+    },
+
+    /**
+     * Takes back what `connectAgain` changed on a connection that stays: what it reads and writes,
+     * and each decision on its data flows as it stood before the press, or, for a flow with none,
+     * the press's taken back (`consent.putBack`). A renewed token stays new: the one before it
+     * works nowhere.
+     */
+    putBack(pairingId: string, before: ConnectedBefore): AgentPairing {
+      const pairing = requirePairing(pairingId);
+      writeReach(pairing.id, before.folderIds, before.propose);
+      options.consent.putBack(before.consents);
+      changed();
+      return requirePairing(pairing.id);
     },
 
     update(pairingIdInput: unknown, input: unknown): AgentPairing {
@@ -1124,11 +1194,7 @@ export function createAgents(options: AgentsOptions) {
      */
     async rotateKey(pairingIdInput: unknown): Promise<AgentLaunch> {
       const pairing = requirePairing(pairingIdInput);
-      const nextToken = `im_${randomBytes(32).toString("base64url")}`;
-      await options.secrets.set(secretName(pairing.id), nextToken);
-      tokens.set(pairing.id, nextToken);
-      await closeConnections(pairing.id);
-      return launchFor(nextToken);
+      return launchFor(await renewToken(pairing.id));
     },
 
     activity(pairingIdInput: unknown): AgentActivity[] {

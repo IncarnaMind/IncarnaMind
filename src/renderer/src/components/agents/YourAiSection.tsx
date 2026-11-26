@@ -119,14 +119,31 @@ export function useAgentsRead(): AgentsRead {
   return { settings, failed, clients, clientsFailed, switchShown, setSettings, retry };
 }
 
-/** The Skills each Disconnect left because the User changed them, by the app that had them. */
-const skillsLeftBy = (left: readonly LeftBehind[]) =>
-  left
-    .filter((each) => each.left.skillsLeft.length > 0)
-    .map((each) => ({
-      agent: each.agent,
-      paths: each.left.skillsLeft.map((skill) => skill.shown),
-    }));
+/**
+ * What each Disconnect left, by the app that had it: the Skills the User changed, and the settings
+ * files whose entry it couldn't take out.
+ */
+const leftBehindBy = (left: readonly LeftBehind[]) =>
+  left.flatMap((each) => [
+    ...(each.left.skillsLeft.length > 0
+      ? [
+          {
+            agent: each.agent,
+            paths: each.left.skillsLeft.map((skill) => skill.shown),
+            words: "agents.settings.skillLeft" as const,
+          },
+        ]
+      : []),
+    ...(each.left.settingsLeft
+      ? [
+          {
+            agent: each.agent,
+            paths: each.left.settingsLeft.map((file) => file.shown),
+            words: "agents.settings.settingsLeft" as const,
+          },
+        ]
+      : []),
+  ]);
 
 /**
  * Settings › AI › Your AI (#351, #3645): the AI the User already uses (Claude Code, Codex, Claude's
@@ -162,8 +179,8 @@ export function YourAiSection({
   const connection = useAgentConnection();
   const many = useManyAgentConnection();
   const [justSetUp, setJustSetUp] = useState<JustSetUp | null>(null);
-  // The Skills a Disconnect left because the User changed them, said until the page goes.
-  const [skillLeft, setSkillLeft] = useState<{ agent: string; paths: string[] }[]>([]);
+  // What a Disconnect left, said until the page goes.
+  const [leftBehind, setLeftBehind] = useState<ReturnType<typeof leftBehindBy>>([]);
   const [addingAnother, setAddingAnother] = useState(false);
   const list = useRef<HTMLDivElement>(null);
 
@@ -229,7 +246,7 @@ export function YourAiSection({
     const done = await connection.connect(client, choice, { enable: true });
     if (!done) return;
     setJustSetUp(done);
-    setSkillLeft([]);
+    setLeftBehind([]);
     setConnecting(null);
     setAddingAnother(false);
     if (client.id === "claude-code") void resetClaudeCodeInstall();
@@ -280,7 +297,7 @@ export function YourAiSection({
   const allowMany = async (choice: ManyAgentsChoice) => {
     const outcomes = await many.connectAll(choice, { enable: true });
     if (outcomes?.some((each) => each.kind === "connected")) {
-      setSkillLeft([]);
+      setLeftBehind([]);
       setAddingAnother(false);
     }
   };
@@ -332,15 +349,17 @@ export function YourAiSection({
         </p>
       )}
 
-      {skillLeft.map((each) => (
+      {leftBehind.map((each) => (
         <p
           key={each.paths.join("\n")}
-          data-testid="agent-skill-left"
+          data-testid={
+            each.words === "agents.settings.skillLeft" ? "agent-skill-left" : "agent-settings-left"
+          }
           role="status"
           className={noticeClass}
         >
           <Slotted
-            message={t("agents.settings.skillLeft", { agent: each.agent, path: SLOT })}
+            message={t(each.words, { agent: each.agent, path: SLOT })}
             slot={each.paths.map((path, at) => (
               <Fragment key={path}>
                 {at > 0 && (language === "zh-CN" ? "、" : ", ")}
@@ -413,7 +432,7 @@ export function YourAiSection({
                       rotated,
                     })
                   }
-                  onDisconnected={(agent, left) => setSkillLeft(skillsLeftBy([{ agent, left }]))}
+                  onDisconnected={(agent, left) => setLeftBehind(leftBehindBy([{ agent, left }]))}
                 />
               ))}
               {showInstallRow && (
@@ -441,7 +460,7 @@ export function YourAiSection({
           )}
           <DisconnectAll
             pairings={connected}
-            onDisconnected={(left) => setSkillLeft(skillsLeftBy(left))}
+            onDisconnected={(left) => setLeftBehind(leftBehindBy(left))}
           />
           {!(connected.length > 0 || !listed) && showInstallRow && (
             <SettingsGroup>

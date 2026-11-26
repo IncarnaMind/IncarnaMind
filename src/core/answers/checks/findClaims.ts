@@ -12,6 +12,7 @@ import {
   CLAIM_BATCH,
   FIND_CLAIMS_INSTRUCTIONS,
   FIND_OWN_CLAIMS_INSTRUCTIONS,
+  FIND_WORKBOOK_CLAIMS_INSTRUCTIONS,
   findClaimsPrompt,
   type SortedText,
   type SortWord,
@@ -74,7 +75,11 @@ export async function claimsAmong(
   const sorting = AbortSignal.any([signal, ended.signal]);
   type Batch = readonly ({ number: number } & SortedText)[];
   const instructions =
-    whose === "someone-else" ? FIND_CLAIMS_INSTRUCTIONS : FIND_OWN_CLAIMS_INSTRUCTIONS;
+    whose === "someone-else"
+      ? along.sheets !== undefined
+        ? FIND_WORKBOOK_CLAIMS_INSTRUCTIONS
+        : FIND_CLAIMS_INSTRUCTIONS
+      : FIND_OWN_CLAIMS_INSTRUCTIONS;
   const partsOf = (number: number, word: SortWord) =>
     sortedWhole(texts[number - 1]?.text ?? "", word);
   const ask = async (batch: Batch, tries: number): Promise<Asked> => {
