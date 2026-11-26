@@ -552,27 +552,27 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     ]);
   });
 
-  // protects=a request starts no sign-in check before its run: a signed-out Claude Code ends the run as signed out, which the line says as it said before, with its record kept (#3677); fails_when=a request runs the sign-in check first, or a run that ends signed out reads as any other failure
-  it("leaves the sign-in to the run, which ends as signed out when it isn't", async () => {
-    const asked: unknown[] = [];
-    const run = runner(async () => ({ kind: "failed", reason: "signed-out" }));
-    run.adapter.status = async (_client, options) => {
-      asked.push(options);
-      return { kind: "ready" };
+  // protects=a request asks Claude Code's sign-in before each run: signed out, nothing starts and the line says so at once, which a run ending as signed out takes twice as long to say (#3677); fails_when=a signed-out request starts a run first, or the sign-in is asked once and then taken as given
+  it("asks the sign-in before each request, and starts nothing while signed out", async () => {
+    let status: OwnAiStatus = { kind: "signed-out" };
+    let asked = 0;
+    const run = runner(async () => ({ kind: "finished", reply: "" }));
+    run.adapter.status = async () => {
+      asked += 1;
+      return status;
     };
     const { core, mindId, ended } = await written(run.adapter);
     await expect(
       core.askInNote({ mindId, words: "shorten the first paragraph" }),
-    ).resolves.toMatchObject({
-      kind: "started",
-    });
-    expect(await ended()).toMatchObject({ state: "failed", problem: "signed-out" });
-    expect(asked).toEqual([{ signIn: false }]);
-    expect((await core.noteConversation(mindId)).at(-1)).toMatchObject({
-      request: "shorten the first paragraph",
-      outcome: "failed",
-      problem: "signed-out",
-    });
+    ).resolves.toMatchObject({ kind: "problem", problem: "signed-out" });
+    expect(run.runs).toEqual([]);
+    status = { kind: "ready" };
+    await expect(
+      core.askInNote({ mindId, words: "shorten the first paragraph" }),
+    ).resolves.toMatchObject({ kind: "started" });
+    await ended();
+    expect(run.runs).toHaveLength(1);
+    expect(asked).toBe(2);
   });
 
   // protects=the line above the input shows no internal wording: a line of the AI's that names a Tool, an id, one of the Tools' id names or a path isn't what it shows, nor a tool of the AI's own known only by its name, and every request asks for plain words in the User's language (#3762); fails_when=the User reads "read_mind", a mindId or "ToolSearch" while the AI works

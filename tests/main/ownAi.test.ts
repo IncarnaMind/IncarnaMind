@@ -404,8 +404,8 @@ describe("whether Claude Code can run a check", () => {
     ]);
   });
 
-  // protects=a request from a Note starts no sign-in check before it runs (a signed-out Claude Code ends the run itself as signed out, before any model call), and asks the version only until it has passed, again once Claude Code is replaced, as an update replaces it, too old said as before (#3677); fails_when=each request starts Claude Code twice before its run, or an update to a version too old goes unseen
-  it("asks a Note's request only the version, and only again once Claude Code is replaced", async () => {
+  // protects=the sign-in is asked before each request, and the version only until it has passed, again once Claude Code is replaced, as an update replaces it, too old said as before (#3677); fails_when=each request starts Claude Code for its version too, the sign-in is taken as given, or an update to a version too old goes unseen
+  it("asks the version only again once Claude Code is replaced, and the sign-in each time", async () => {
     const folder = await mkdtemp(join(tmpdir(), "own-ai-version-"));
     onTestFinished(() => rm(folder, { recursive: true, force: true }));
     const binary = join(folder, "claude");
@@ -413,20 +413,22 @@ describe("whether Claude Code can run a check", () => {
     await chmod(binary, 0o755);
     useClaude();
     const own = createOwnAi({ command: binary });
-    await expect(own.status("claude-code", { signIn: false })).resolves.toEqual({
-      kind: "ready",
-    });
-    await expect(own.status("claude-code", { signIn: false })).resolves.toEqual({
-      kind: "ready",
-    });
+    await expect(own.status("claude-code")).resolves.toEqual({ kind: "ready" });
+    useClaude({ signedIn: false });
+    await expect(own.status("claude-code")).resolves.toEqual({ kind: "signed-out" });
     await writeFile(binary, "#!/bin/sh\n# another version\n");
     useClaude({ version: "2.1.100 (Claude Code)" });
-    await expect(own.status("claude-code", { signIn: false })).resolves.toEqual({
+    await expect(own.status("claude-code")).resolves.toEqual({
       kind: "too-old",
       found: "2.1.100",
       lowest: "2.1.248",
     });
-    expect(launch.mock.calls.map(([, args]) => args.join(" "))).toEqual(["--version", "--version"]);
+    expect(launch.mock.calls.map(([, args]) => args.join(" "))).toEqual([
+      "--version",
+      "auth status",
+      "auth status",
+      "--version",
+    ]);
   });
 
   // protects=a sign-in check that gives no answer, stopped as one past its time is or one that can't be started, says that, never that the User isn't signed in; fails_when=a slow or broken `auth status` reads as signed out

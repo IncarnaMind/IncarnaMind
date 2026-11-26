@@ -204,7 +204,7 @@ export function createOwnAi({
   }
   const codex = () => (codexCommand === null ? Promise.resolve(null) : findCodex(codexCommand));
   // The executable whose version last passed: it is asked again only once Claude Code is replaced,
-  // as an update does, so a request needn't start it first (#3677).
+  // as an update does, so a request starts it only for its sign-in first (#3677).
   let versionPassed: string | null = null;
 
   return {
@@ -234,7 +234,7 @@ export function createOwnAi({
       return purged.code === 0 || (purged.code === 1 && NOTHING_TO_PURGE.test(purged.out));
     },
 
-    async status(client, { signIn = true } = {}): Promise<OwnAiStatus> {
+    async status(client): Promise<OwnAiStatus> {
       if (client === "codex") {
         const path = await codex();
         return path === null ? { kind: "missing" } : codexStatus(path);
@@ -252,7 +252,6 @@ export function createOwnAi({
         }
         versionPassed = identity;
       }
-      if (!signIn) return { kind: "ready" };
       // 0 signed in, 1 not: anything else says nothing about the sign-in.
       const signedIn = await short(executable, ["auth", "status"]);
       if (signedIn.kind === "exited" && signedIn.code === 0) return { kind: "ready" };

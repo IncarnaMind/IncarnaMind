@@ -306,17 +306,6 @@ async function run(message) {
     });
     await new Promise(() => {});
   }
-  if (mode === "signed-out") {
-    // As Claude Code 2.1.331 answers a request with no sign-in: at once, with no model call.
-    const said = "Not logged in · Please run /login";
-    say({
-      type: "assistant",
-      error: "authentication_failed",
-      message: { content: [{ type: "text", text: said }] },
-    });
-    say({ type: "result", subtype: "success", is_error: true, result: said });
-    return;
-  }
   if (mode === "limit") {
     say({ type: "system", subtype: "api_retry", error: "rate_limit", attempt: 1 });
     say({ type: "result", subtype: "success", is_error: true, result: "Limit reached." });

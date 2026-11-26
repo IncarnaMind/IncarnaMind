@@ -139,18 +139,6 @@ function NoteAskBox({ mindId, editor }: { mindId: string; editor: Editor }) {
     };
   }, [editor]);
 
-  // A request Claude Code ended as signed out keeps its words in the input, to send again once
-  // signed in, as one IncarnaMind found signed out before it went.
-  const signedOut =
-    ask?.state === "failed" && ask.problem === "signed-out" && ask.turnId !== null
-      ? ask.asked
-      : null;
-  useEffect(() => {
-    if (!signedOut || signedOut.words === "" || typedNow.current.trim() !== "") return;
-    setWords(signedOut.words);
-    if (signedOut.quote !== "") setWhole(false);
-  }, [signedOut]);
-
   // A sent request's Edit: its words come back to change, about the whole Note, for the words it
   // was about may be gone; the keyboard is at their end. Words the User is typing stay: the
   // request's Copy still gives its words.
