@@ -74,8 +74,15 @@ describe("A short stretch read on this computer (#1031)", () => {
   // protects=a stretch under 3 s is told its stream's language once two of the stream's latest readings of 4 s or more are in it, so a short "yeah" in an English call isn't written "对。"; only that stream's, as the microphone and the call can be in different languages; fails_when=a short reading is told before its stream's language is clear, on another stream, or at 3 s and over; no_claim=the real model's answers, which eval/meetings and the short-phrase runs measure.
   test("is told its stream's language once two long readings agree, and only on that stream", async () => {
     const engine = await createSherpaEngine(model);
+    const chineseTurn = "今天下午三点我们开会讨论。";
     answer = (seconds, options) =>
-      seconds >= 4 ? ENGLISH : options.language === "English" ? "Yeah." : "对。";
+      seconds >= 4
+        ? ENGLISH
+        : options.language === "English"
+          ? "Yeah."
+          : seconds >= 3
+            ? chineseTurn
+            : "对。";
     const read = (seconds: number, stream = "meeting-1:system") =>
       engine.recognizer.decode(audio(seconds), stream, []);
 
@@ -86,7 +93,7 @@ describe("A short stretch read on this computer (#1031)", () => {
     READINGS.length = 0;
     expect(await read(1)).toBe("Yeah.");
     expect(await read(2.9)).toBe("Yeah.");
-    expect(await read(3)).toBe("对。");
+    expect(await read(3)).toBe(chineseTurn);
     expect(await read(1, "meeting-1:microphone")).toBe("对。");
     expect(READINGS.map((options) => options.language)).toEqual([
       "English",
@@ -476,6 +483,86 @@ describe("A short stretch read on this computer (#1031)", () => {
     expect(warned).toHaveBeenCalledWith(
       "The speech model wrote on after a stretch's words; what it wrote after them is left out.",
     );
+    warned.mockRestore();
+  });
+
+  // protects=a long stretch (>= 3 s) on a stream whose language is known that collapses into a sparse reading in another script (such as "提纲" for 14 s of English, or "system" for 5 s of Chinese) is read again told the stream's language and keeps the recovered speech without logging words; genuine speech in another script or mixed-script speech (Chinese with English terms, English with Chinese names, or a slow foreign name whose forced retry only transliterates) is never replaced; fails_when=a collapsed long stretch stays "提纲" or poisons the stream's language, or real code-switching is translated into the stream's language; no_claim=the real model's output, which the 8-meeting run and synthetic code-switching calls verify.
+  test("recovers a long stretch that collapsed into another script without touching real code-switching (#1031)", async () => {
+    const engine = await createSherpaEngine(model);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // English stream: 14 s collapse to "提纲" recovers and keeps the stream known as English.
+    const recoveredEn = "Yeah, like maybe tie that in with dialogue acts or something as well.";
+    answer = (seconds, options) => {
+      if (seconds >= 10) return options.language === "English" ? recoveredEn : "提纲";
+      if (seconds >= 4) return ENGLISH;
+      return options.language === "English" ? "Yeah." : "对。";
+    };
+    await engine.recognizer.decode(audio(5), "collapse:en", []);
+    await engine.recognizer.decode(audio(5), "collapse:en", []);
+    READINGS.length = 0;
+
+    expect(await engine.recognizer.decode(audio(14), "collapse:en", [])).toBe(recoveredEn);
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "English"]);
+    expect(await engine.recognizer.decode(audio(1), "collapse:en", [])).toBe("Yeah.");
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/提纲|dialogue/);
+
+    // English stream: mixed English with Chinese names, full Chinese sentence, and a slow Chinese
+    // name whose forced retry only transliterates are never replaced.
+    const mixedEnZh = "I talked to 林明远 and 陈嘉宁 about the warehouse lease.";
+    const fullZh = "林明远，陈嘉宁，周志远，顾清河。";
+    answer = (seconds, options) => {
+      if (seconds === 6) return mixedEnZh;
+      if (seconds === 4.5) return options.language ? "Lin Mingyuan, Chen Jianing." : fullZh;
+      if (seconds === 3.2) return options.language ? "Lin Mingyuan" : "林明远";
+      return ENGLISH;
+    };
+    // Slow 3.2 s Chinese name triggers one check, sees only 2 transliterated words (< 2x 3), keeps Han.
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(3.2), "collapse:en", [])).toBe("林明远");
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "English"]);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(6), "collapse:en", [])).toBe(mixedEnZh);
+    expect(READINGS).toEqual([{}]);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(4.5), "collapse:en", [])).toBe(fullZh);
+    expect(READINGS).toEqual([{}]);
+
+    // Chinese stream: 5 s collapse to "system" recovers real Chinese; mixed Chinese with English
+    // terms and a real 4 s English sentence are never re-read.
+    const recoveredZh = "对，就是说，咱们最主要的是先把方案定下来。";
+    const mixedZhEn = "我们下周三和 Acme 讨论第三季度的 API deadline。";
+    const fullEn = "We need to finalize the deployment schedule before Friday afternoon.";
+    answer = (seconds, options) => {
+      if (seconds === 5.5) return options.language === "Chinese" ? recoveredZh : "system";
+      if (seconds === 6.5) return mixedZhEn;
+      if (seconds === 4.2) return options.language ? "我们需要在周五下午之前完成。" : fullEn;
+      return CHINESE;
+    };
+    await engine.recognizer.decode(audio(5), "collapse:zh", []);
+    await engine.recognizer.decode(audio(5), "collapse:zh", []);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(5.5), "collapse:zh", [])).toBe(recoveredZh);
+    expect(READINGS.map((o) => o.language)).toEqual([undefined, "Chinese"]);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(6.5), "collapse:zh", [])).toBe(mixedZhEn);
+    expect(READINGS).toEqual([{}]);
+    READINGS.length = 0;
+    expect(await engine.recognizer.decode(audio(4.2), "collapse:zh", [])).toBe(fullEn);
+    expect(READINGS).toEqual([{}]);
+
+    // A failed retry keeps the first reading and logs no spoken words.
+    answer = (seconds, options) => {
+      if (seconds === 9) {
+        if (options.language) throw new Error("The model stopped.");
+        return "提纲";
+      }
+      return ENGLISH;
+    };
+    await engine.recognizer.decode(audio(5), "collapse:fail", []);
+    await engine.recognizer.decode(audio(5), "collapse:fail", []);
+    expect(await engine.recognizer.decode(audio(9), "collapse:fail", [])).toBe("提纲");
+    expect(JSON.stringify(warned.mock.calls)).not.toMatch(/提纲/);
     warned.mockRestore();
   });
 });
