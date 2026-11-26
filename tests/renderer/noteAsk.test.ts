@@ -184,6 +184,39 @@ describe("the input at a Note's foot (#3627)", () => {
     ]);
   });
 
+  // protects=a request taken while a call of the one before still runs takes the line at once, and each request's end applies its own changes once in the window that asked, whichever ends first, the earlier never taking the line back (#3765); fails_when=the line stays on the earlier request, an end heard while another request has the line is dropped and its changes never applied, or the earlier request's late end replaces the later one's line
+  test("follows the request taken next while the one before ends late, and applies each one's changes", async () => {
+    await askInNote("m1", { words: "shorter", quote: "", selection: null });
+    tell(event({ turnId: "t1", startedAt: "2026-11-22T10:00:00.000Z" }));
+    bridge.start = { kind: "sent", pairing: claude, turnId: "t2" };
+    expect(await askInNote("m1", { words: "and the fares", quote: "", selection: null })).toBe(
+      "sent",
+    );
+    tell(event({ turnId: "t1", queued: ["t2"] }));
+    const later = { turnId: "t2", startedAt: "2026-11-22T10:00:05.000Z" };
+    tell(event({ ...later }));
+    expect(ask()).toMatchObject({ turnId: "t2", state: "working" });
+    const second = [{ mindId: "m1", request: "r2", changed: 1, added: 0, tables: 0 }];
+    tell(event({ ...later, state: "landed", applied: second, reply: "A tenth." }));
+    await vi.waitFor(() => expect(applyTurn).toHaveBeenCalledOnce());
+    expect(applyTurn).toHaveBeenLastCalledWith(
+      "t2",
+      expect.objectContaining({ requests: ["r2"] }),
+      expect.any(Function),
+      expect.anything(),
+    );
+    const first = [{ mindId: "m1", request: "r1", changed: 1, added: 0, tables: 0 }];
+    tell(event({ turnId: "t1", state: "landed", applied: first }));
+    await vi.waitFor(() => expect(applyTurn).toHaveBeenCalledTimes(2));
+    expect(applyTurn).toHaveBeenLastCalledWith(
+      "t1",
+      expect.objectContaining({ requests: ["r1"] }),
+      expect.any(Function),
+      expect.anything(),
+    );
+    expect(ask()).toMatchObject({ turnId: "t2", state: "landed", reply: "A tenth." });
+  });
+
   // protects=a request another window sent shows its line here but applies only there; fails_when=two windows apply one turn's changes
   test("doesn't apply a turn another window asked", async () => {
     tell(

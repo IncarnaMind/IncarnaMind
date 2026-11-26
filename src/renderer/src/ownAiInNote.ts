@@ -249,7 +249,23 @@ const rowOf = (mindId: string, applied: readonly NoteChangeApplied[]): ChangedMi
 function heard(event: NoteTurnEvent): void {
   keepTrail(event);
   const was = useNoteAsks.getState().byMind[event.mindId];
-  if (was && was.turnId !== null && was.turnId !== event.turnId && was.state === "working") return;
+  // While a request works, the line is its own; the one its AI takes next, sent meanwhile, follows
+  // it at once, as the earlier one may end a moment later, once a call of it still running has, and
+  // never takes the line back (#3765).
+  const shown =
+    !was ||
+    was.turnId === null ||
+    was.turnId === event.turnId ||
+    ((was.state !== "working" || was.queued.includes(event.turnId)) &&
+      (was.startedAt === null || event.startedAt >= was.startedAt));
+  if (!shown) {
+    // Not the line's, an ended request asked here still has its changes applied.
+    if (event.state === "stopped") {
+      askedHere.delete(event.turnId);
+      sentHere.delete(event.turnId);
+    } else if (event.state !== "working") applyEnded(event);
+    return;
+  }
   // A turn that ended stays ended: nothing of it said later takes it back to working.
   if (was?.turnId === event.turnId && was.state !== "working" && event.state === "working") return;
   // Stopped, the request leaves nothing behind: no line, no reply (#3677).
@@ -285,7 +301,12 @@ function heard(event: NoteTurnEvent): void {
         ? was.asked
         : (sentHere.get(event.turnId) ?? { words: "", quote: "", selection: null }),
   });
-  if (event.state === "working" || !askedHere.delete(event.turnId)) return;
+  if (event.state !== "working") applyEnded(event);
+}
+
+/** An ended request asked in this window: its changes in the Notes, applied here once. */
+function applyEnded(event: NoteTurnEvent): void {
+  if (!askedHere.delete(event.turnId)) return;
   sentHere.delete(event.turnId);
   // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
