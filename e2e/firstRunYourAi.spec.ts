@@ -1,5 +1,7 @@
 import { chmod, readFile, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import { ALL_SHARED_ID, type CoreBridge } from "../src/core/api";
 import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
@@ -88,6 +90,11 @@ const bridge = (window: Page) => ({
           user: { language: chosen },
         }),
       language,
+    ),
+  launchOf: (pairingId: string) =>
+    window.evaluate(
+      (id) => (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.getAgentLaunch(id),
+      pairingId,
     ),
 });
 
@@ -455,4 +462,50 @@ test("the sheet for an app already connected starts from what its connection all
     sheet.locator(`[data-testid="agent-folder"][data-folder="${folderId}"]`),
   ).toBeChecked();
   await expect(sheet.getByTestId("agent-propose")).not.toBeChecked();
+});
+
+// protects=the same app allowed again in the step, after Back, keeps its one connection: one row under its own name, one entry in its settings file, and the key the app was given still works; fails_when=a second connection appears ("Claude Code 2"), the file holds another key, or the app's first key stops working
+test("the same app allowed again after Back keeps its one connection", async () => {
+  test.setTimeout(180_000);
+  const window = await launch([], "en");
+  const ai = await yourAi(window);
+  // Claude Code, not found here, is reached through Another app….
+  const allowClaudeCode = async () => {
+    await ai.getByTestId("setup-another-app").click();
+    await window.locator('[data-testid="setup-another-app"][data-value="claude-code"]').click();
+    await window.getByTestId("setup-another-connect").getByTestId("setup-another-allow").click();
+    await atStep(window, "meetings");
+  };
+  await allowClaudeCode();
+  const [first] = (await bridge(window).agents()).pairings;
+  if (!first) throw new Error("Claude Code wasn't connected.");
+  const given = await bridge(window).launchOf(first.id);
+
+  await (await atStep(window, "meetings")).getByTestId("setup-back").click();
+  await atStep(window, "ai");
+  await allowClaudeCode();
+
+  const pairings = (await bridge(window).agents()).pairings;
+  expect(pairings.map((each) => [each.id, each.name])).toEqual([[first.id, "Claude Code"]]);
+  const servers = JSON.parse(await readFile(join(home, ".claude.json"), "utf8")).mcpServers;
+  expect(Object.keys(servers)).toEqual(["incarnamind"]);
+  const key = given.env.INCARNAMIND_AGENT_TOKEN ?? "";
+  expect(key !== "" && servers.incarnamind.env.INCARNAMIND_AGENT_TOKEN === key).toBe(true);
+  const now = await bridge(window).launchOf(first.id);
+  expect(now.env.INCARNAMIND_AGENT_TOKEN === key).toBe(true);
+  const launched = await bridge(window).launchOf(first.id);
+  const agent = new Client({ name: "test-agent", version: "1.0.0" });
+  await agent.connect(
+    new StdioClientTransport({
+      command: launched.command,
+      args: launched.args,
+      env: launched.env,
+      stderr: "pipe",
+    }),
+  );
+  try {
+    expect((await agent.listTools()).tools.length).toBeGreaterThan(0);
+  } finally {
+    await agent.close();
+  }
 });

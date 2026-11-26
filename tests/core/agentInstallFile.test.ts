@@ -14,7 +14,12 @@ import type { Core } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
 import { openPackage } from "../../src/core/documents/formats/zip";
 import { agentSocketAnswers } from "../helpers/agentClients";
-import { agentsAdapter, buildAgentShim, connectLegacyAgent } from "../helpers/agents";
+import {
+  agentsAdapter,
+  buildAgentShim,
+  connectedTwice,
+  connectLegacyAgent,
+} from "../helpers/agents";
 import { createMemoryKeychain, createTempDataFolder, startCore } from "../helpers/core";
 
 const TOKEN_ENV = "INCARNAMIND_AGENT_TOKEN";
@@ -105,9 +110,9 @@ describe("Claude's install file (#3523)", () => {
 
   it("stays through a restart while it waits, and a start takes away only the files of pairings it holds that no longer wait", async () => {
     const { connectClaude, restart, core, tempDir, bundleFolders } = await computer();
-    const waiting = await connectClaude();
     const disconnected = await connectClaude();
     await core.disconnectAgent(disconnected.pairing.id);
+    const waiting = await connectClaude();
     const file = join(tempDir, `${PREFIX}${waiting.pairing.id}`, "IncarnaMind.mcpb");
     const kept = await readFile(file);
     // The temporary folder is shared by every IncarnaMind of the account: this one is another's.
@@ -124,16 +129,16 @@ describe("Claude's install file (#3523)", () => {
   });
 
   it("takes away at a start what a pairing that has been used left, and leaves the one still waiting", async () => {
-    const { connectClaude, restart, core, tempDir, bundleFolders } = await computer();
+    const { connectClaude, restart, core, coast, tempDir, bundleFolders } = await computer();
     const waiting = await connectClaude();
-    const used = await connectClaude();
-    const agent = await claudeStarts(core, used.pairing.id);
+    const used = await connectedTwice(core, "claude-desktop", "Claude 2", [coast.id]);
+    const agent = await claudeStarts(core, used.id);
     await agent.callTool({ name: "search", arguments: { query: "spring tides" } });
     await vi.waitFor(async () =>
       expect(await bundleFolders()).toEqual([`${PREFIX}${waiting.pairing.id}`]),
     );
     expect((await core.getAgents()).awaitingInstall).toEqual([waiting.pairing.id]);
-    await leaveFile(tempDir, `${PREFIX}${used.pairing.id}`);
+    await leaveFile(tempDir, `${PREFIX}${used.id}`);
 
     await restart(core);
     await vi.waitFor(async () =>
