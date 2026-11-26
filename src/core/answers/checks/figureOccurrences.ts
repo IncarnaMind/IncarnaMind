@@ -43,7 +43,12 @@ import { plainText } from "../../mindText";
 import { layout, textBlocksOf } from "../../proposals/write";
 import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
-import { documentFigureContext, type NoteParagraphs, partsFigureContext } from "../calculations";
+import {
+  documentFigureContext,
+  type NoteParagraphs,
+  partsFigureContext,
+  partsFigureContextAsync,
+} from "../calculations";
 import {
   isTableCaption,
   type SelectedSentence,
@@ -894,9 +899,28 @@ function inChart(element: Y.XmlElement): FigureOccurrence[] {
 export const inTableCell = (figures: readonly FigureOccurrence[] | undefined): boolean =>
   figures?.some((figure) => figure.table !== undefined) ?? false;
 
-/** Each place a figure the one Check reads sits in a table's cell, by Block: what `inTableCell` finds. */
-export function tableCellFigurePlaces(blocks: Y.XmlFragment): CellFigurePlace[] {
-  return figuresInMind(blocks).flatMap((figure) =>
+const LEAF_NON_TABLE_BLOCKS: ReadonlySet<string> = new Set([
+  "paragraph",
+  "heading",
+  "codeBlock",
+  "horizontalRule",
+  "wordBlock",
+  CHART_NODE,
+]);
+
+/** Whether a top-level Block is, or holds, a table whose cells may hold figures. */
+export function containsTable(element: Y.XmlElement): boolean {
+  if (element.nodeName === "table") return true;
+  if (LEAF_NON_TABLE_BLOCKS.has(element.nodeName)) return false;
+  for (const child of element.toArray()) {
+    if (child instanceof Y.XmlElement && containsTable(child)) return true;
+  }
+  return false;
+}
+
+/** Each table-cell figure's place from already-read occurrences. */
+export function tableCellPlacesOf(occurrences: readonly FigureOccurrence[]): CellFigurePlace[] {
+  return occurrences.flatMap((figure) =>
     figure.table !== undefined && figure.locator.kind === "text"
       ? [
           {
@@ -907,6 +931,16 @@ export function tableCellFigurePlaces(blocks: Y.XmlFragment): CellFigurePlace[] 
         ]
       : [],
   );
+}
+
+/** Each place a figure the one Check reads sits in a table's cell, by Block: what `inTableCell` finds. */
+export function tableCellFigurePlaces(blocks: Y.XmlFragment): CellFigurePlace[] {
+  const elements = blocks
+    .toArray()
+    .filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
+  const tables = elements.filter(containsTable);
+  if (tables.length === 0) return [];
+  return tableCellPlacesOf(tableFiguresInBlocks(elements, tables));
 }
 
 /** A top-level Block's paragraphs' words, and what they tell of the Note's numbers in a language. */
@@ -933,62 +967,149 @@ const readFiguresOf = perBlock(
   }),
 );
 
+function blockKey(block: Y.XmlElement, noteKey: string): string {
+  // A table's cells are read with the caption before it, which is a Block of its own.
+  const before = block.prevSibling;
+  return block.nodeName === "table" && before instanceof Y.XmlElement && before.nodeName !== "table"
+    ? `${noteKey}\u0000${plainText(before)}`
+    : noteKey;
+}
+
+function isRetainedAnalysisTable(block: Y.XmlElement): boolean {
+  // An Analysis's own table counts once, as its run's, never cell by cell (#2378).
+  return (
+    block.nodeName === "table" &&
+    keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE)) !== null
+  );
+}
+
+function figuresInTextBlock(
+  element: Y.XmlElement,
+  layouts: Map<Y.XmlElement, TableLayout>,
+  note: FigureContext,
+  found: FigureOccurrence[],
+): void {
+  if (element.nodeName === CHART_NODE) {
+    found.push(...inChart(element));
+    return;
+  }
+  if (element.nodeName !== "paragraph" || isTableCaption(element)) return;
+  const blockId = element.getAttribute("id");
+  if (typeof blockId !== "string") return;
+  const text = textOf(element);
+  try {
+    const figures = inSentence(
+      {
+        element,
+        blockId,
+        occurrence: 0,
+        from: 0,
+        to: text.length,
+        text,
+        context: text,
+        cited: [],
+        citations: [],
+      },
+      layouts,
+      note,
+    );
+    for (const figure of figures) found.push(figure);
+  } catch (error) {
+    if (!(error instanceof FiguresNotRead)) throw error;
+    // The rest of the Note is still read: the check of each sentence here reads its own
+    // figures again, and one it can't read is not checked and says so (#2510).
+    console.error(`The figures in Block ${blockId} couldn't be read: ${String(error.cause)}`);
+  }
+}
+
 function figuresOfBlock(
   block: Y.XmlElement,
   note: FigureContext,
   noteKey: string,
 ): readonly FigureOccurrence[] {
-  // A table's cells are read with the caption before it, which is a Block of its own.
-  const before = block.prevSibling;
-  const key =
-    block.nodeName === "table" && before instanceof Y.XmlElement && before.nodeName !== "table"
-      ? `${noteKey}\u0000${plainText(before)}`
-      : noteKey;
-  // An Analysis's own table counts once, as its run's, never cell by cell (#2378).
-  if (
-    block.nodeName === "table" &&
-    keptBinding(block.doc, block.getAttribute(ANALYSIS_TABLE_ATTRIBUTE))
-  )
-    return [];
+  if (isRetainedAnalysisTable(block)) return [];
+  const key = blockKey(block, noteKey);
   const read = readFiguresOf(block);
   if (read.readWith === key) return read.figures;
   const layouts = new Map<Y.XmlElement, TableLayout>();
   const found: FigureOccurrence[] = [];
   for (const { element, busy } of textBlocksOf(block, { charts: true })) {
     if (busy) continue;
-    if (element.nodeName === CHART_NODE) found.push(...inChart(element));
-    else if (element.nodeName === "paragraph" && !isTableCaption(element)) {
-      const blockId = element.getAttribute("id");
-      if (typeof blockId !== "string") continue;
-      const text = textOf(element);
-      try {
-        const figures = inSentence(
-          {
-            element,
-            blockId,
-            occurrence: 0,
-            from: 0,
-            to: text.length,
-            text,
-            context: text,
-            cited: [],
-            citations: [],
-          },
-          layouts,
-          note,
-        );
-        for (const figure of figures) found.push(figure);
-      } catch (error) {
-        if (!(error instanceof FiguresNotRead)) throw error;
-        // The rest of the Note is still read: the check of each sentence here reads its own
-        // figures again, and one it can't read is not checked and says so (#2510).
-        console.error(`The figures in Block ${blockId} couldn't be read: ${String(error.cause)}`);
-      }
-    }
+    figuresInTextBlock(element, layouts, note, found);
   }
   read.readWith = key;
   read.figures = found;
   return found;
+}
+
+const LANGUAGE_HEAD_LIMIT = 20_000;
+
+function openingParagraphsOf(elements: readonly Y.XmlElement[]): NoteParagraphs[] {
+  const sample: NoteParagraphs[] = [];
+  let chars = 0;
+  for (const element of elements) {
+    const paragraphs = paragraphsOf(element);
+    sample.push(paragraphs);
+    for (const words of paragraphs.words) chars += words.length + 1;
+    if (chars > LANGUAGE_HEAD_LIMIT) break;
+  }
+  return sample;
+}
+
+/** Table-cell figures for Notes that have tables, reading only those table Blocks. */
+export function tableFiguresInBlocks(
+  elements: readonly Y.XmlElement[],
+  tables: readonly Y.XmlElement[],
+): FigureOccurrence[] {
+  if (tables.length === 0) return [];
+  const note = partsFigureContext(tables.map(paragraphsOf), openingParagraphsOf(elements));
+  const noteKey = JSON.stringify(note);
+  return tables.flatMap((block) => figuresOfBlock(block, note, noteKey));
+}
+
+/**
+ * As `tableFiguresInBlocks`, yielding whenever a slice reaches `sliceMs` so even a long Note with
+ * large tables never holds the main process past its frame budget.
+ */
+export async function tableFiguresInBlocksAsync(
+  elements: readonly Y.XmlElement[],
+  tables: readonly Y.XmlElement[],
+  yieldTurn: () => Promise<void>,
+  sliceMs = 15,
+): Promise<FigureOccurrence[]> {
+  if (tables.length === 0) return [];
+  const note = await partsFigureContextAsync(
+    tables.map(paragraphsOf),
+    openingParagraphsOf(elements),
+    yieldTurn,
+    sliceMs,
+  );
+  const noteKey = JSON.stringify(note);
+  const all: FigureOccurrence[] = [];
+  let sliceStart = performance.now();
+  for (const block of tables) {
+    if (isRetainedAnalysisTable(block)) continue;
+    const key = blockKey(block, noteKey);
+    const read = readFiguresOf(block);
+    if (read.readWith === key) {
+      for (const figure of read.figures) all.push(figure);
+      continue;
+    }
+    const layouts = new Map<Y.XmlElement, TableLayout>();
+    const found: FigureOccurrence[] = [];
+    for (const { element, busy } of textBlocksOf(block, { charts: true })) {
+      if (busy) continue;
+      figuresInTextBlock(element, layouts, note, found);
+      if (performance.now() - sliceStart >= sliceMs) {
+        await yieldTurn();
+        sliceStart = performance.now();
+      }
+    }
+    read.readWith = key;
+    read.figures = found;
+    for (const figure of found) all.push(figure);
+  }
+  return all;
 }
 
 /**

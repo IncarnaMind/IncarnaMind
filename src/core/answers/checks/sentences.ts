@@ -801,17 +801,26 @@ const marksOfBlock = perBlock((block): readonly MarkedSentence[] => {
  * The first of each check's marks in the Mind's Blocks, in order, each Block read once while it
  * stays the same: the Note's figures are read with them on every change (#746).
  */
-function firstMarks<T extends { check: ClaimCheckAttributes }>(
-  blocks: Y.XmlFragment,
+function firstMarksIn<T extends { check: ClaimCheckAttributes }>(
+  elements: readonly Y.XmlElement[],
   marksOf: (block: Y.XmlElement) => readonly T[],
 ): T[] {
   const found = new Map<string, T>();
-  for (const block of blocks.toArray()) {
-    if (!(block instanceof Y.XmlElement)) continue;
+  for (const block of elements) {
     for (const mark of marksOf(block))
       if (!found.has(mark.check.id)) found.set(mark.check.id, { ...mark });
   }
   return [...found.values()];
+}
+
+function firstMarks<T extends { check: ClaimCheckAttributes }>(
+  blocks: Y.XmlFragment,
+  marksOf: (block: Y.XmlElement) => readonly T[],
+): T[] {
+  return firstMarksIn(
+    blocks.toArray().filter((block): block is Y.XmlElement => block instanceof Y.XmlElement),
+    marksOf,
+  );
 }
 
 /** Every check's mark in the Mind, in order. */
@@ -897,6 +906,11 @@ export function keptAsView(
  */
 export function checkedSentences(blocks: Y.XmlFragment): CheckedSentence[] {
   return firstMarks(blocks, checkedOfBlock);
+}
+
+/** As `checkedSentences`, restricted to the given top-level Blocks. */
+export function checkedSentencesInBlocks(elements: readonly Y.XmlElement[]): CheckedSentence[] {
+  return firstMarksIn(elements, checkedOfBlock);
 }
 
 type CheckedSentence = MarkedSentence & {

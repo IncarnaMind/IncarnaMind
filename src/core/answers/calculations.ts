@@ -61,23 +61,56 @@ export interface NoteParagraphs {
   facts(language: string | null): readonly FigureFacts[];
 }
 
+function languageOf(blocks: readonly NoteParagraphs[]): string | null {
+  const head: string[] = [];
+  let length = 0;
+  for (const block of blocks) {
+    for (const words of block.words) {
+      if (length > LANGUAGE_SAMPLE) break;
+      head.push(words);
+      length += words.length + 1;
+    }
+    if (length > LANGUAGE_SAMPLE) break;
+  }
+  return noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+}
+
 /**
  * `documentFigureContext` of a Note's paragraphs, added up from each Block's: the whole Note is
  * read for its separators and language on every change to it (#746).
  */
-export function partsFigureContext(blocks: readonly NoteParagraphs[]): FigureContext {
-  const head: string[] = [];
-  let length = 0;
-  for (const words of blocks.flatMap((block) => block.words)) {
-    if (length > LANGUAGE_SAMPLE) break;
-    head.push(words);
-    length += words.length + 1;
-  }
-  const language = noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+export function partsFigureContext(
+  blocks: readonly NoteParagraphs[],
+  languageBlocks: readonly NoteParagraphs[] = blocks,
+): FigureContext {
+  const language = languageOf(languageBlocks);
   return figureContextOfFacts(
     blocks.flatMap((block) => block.facts(language)),
     language,
   );
+}
+
+/**
+ * As `partsFigureContext`, yielding between slices so reading many table Blocks never holds the
+ * main process past `sliceMs`.
+ */
+export async function partsFigureContextAsync(
+  blocks: readonly NoteParagraphs[],
+  languageBlocks: readonly NoteParagraphs[],
+  yieldTurn: () => Promise<void>,
+  sliceMs: number,
+): Promise<FigureContext> {
+  const language = languageOf(languageBlocks);
+  const facts: FigureFacts[] = [];
+  let sliceStart = performance.now();
+  for (const block of blocks) {
+    for (const fact of block.facts(language)) facts.push(fact);
+    if (performance.now() - sliceStart >= sliceMs) {
+      await yieldTurn();
+      sliceStart = performance.now();
+    }
+  }
+  return figureContextOfFacts(facts, language);
 }
 
 /** The one line a figure read from a scan's unsure word is refused with (#535). */

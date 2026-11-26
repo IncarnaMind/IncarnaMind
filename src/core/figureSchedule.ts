@@ -45,15 +45,24 @@ import { anchorsOf, cellNumber, columnName, parseCellRef, type UnitText } from "
 import { sheetRows } from "./analysis/ranges";
 import { nodeOf } from "./answers/blocks";
 import { documentFigureContext } from "./answers/calculations";
-import { type FigureOccurrence, figuresInMind } from "./answers/checks/figureOccurrences";
-import { checkedSentences } from "./answers/checks/sentences";
+import {
+  containsTable,
+  type FigureOccurrence,
+  figuresInMind,
+  tableCellPlacesOf,
+  tableFiguresInBlocks,
+  tableFiguresInBlocksAsync,
+} from "./answers/checks/figureOccurrences";
+import { checkedSentences, checkedSentencesInBlocks } from "./answers/checks/sentences";
 import { type AnswerDocuments, createCitationSession } from "./answers/citations";
 import type {
   AnalysisTableBinding,
+  CellFigurePlace,
   ClaimCheckResult,
   FigureCheckAttributes,
   FigureCheckResult,
   FigureFinding,
+  FigureFootingNow,
   FigureInput,
   FigureSchedule,
   FigureScheduleRow,
@@ -514,14 +523,13 @@ function citationsIn(element: Y.XmlElement): () => ReadonlySet<number> {
   };
 }
 
-function placesIn(blocks: Y.XmlFragment) {
+function placesInElements(elements: readonly Y.XmlElement[]) {
   const places = new Map<string, Place>();
   const tables = new Map<string, SourceGrid>();
   const figures: NodeJSON[] = [];
   let paragraph = 0;
   let heading: string | null = null;
-  for (const block of blocks.toArray()) {
-    if (!(block instanceof Y.XmlElement)) continue;
+  for (const block of elements) {
     const read = placesOfBlock(block);
     for (const entry of read.entries)
       places.set(entry.id, {
@@ -535,6 +543,12 @@ function placesIn(blocks: Y.XmlFragment) {
     if (read.heading !== undefined) heading = read.heading;
   }
   return { places, tables, figures };
+}
+
+function placesIn(blocks: Y.XmlFragment) {
+  return placesInElements(
+    blocks.toArray().filter((block): block is Y.XmlElement => block instanceof Y.XmlElement),
+  );
 }
 
 function retainedAnalyses(blocks: Y.XmlFragment, nodes: readonly NodeJSON[], mindId: string) {
@@ -910,10 +924,12 @@ function analysisTableRows(
   });
 }
 
-function readFindings(blocks: Y.XmlFragment, input: CheckedNow) {
-  const occurrences = figuresInMind(blocks);
-  const owners = checkedSentences(blocks);
-  const layout = placesIn(blocks);
+function findingsFrom(
+  occurrences: readonly FigureOccurrence[],
+  owners: readonly Owner[],
+  layout: ReturnType<typeof placesIn>,
+  input: CheckedNow,
+) {
   const figureContexts = new Map(
     occurrences.map((occurrence) => [occurrence.id, occurrence.context]),
   );
@@ -974,12 +990,114 @@ function readFindings(blocks: Y.XmlFragment, input: CheckedNow) {
   return { occurrences, owners, layout, states, findings, footing };
 }
 
+function readFindings(blocks: Y.XmlFragment, input: CheckedNow) {
+  return findingsFrom(figuresInMind(blocks), checkedSentences(blocks), placesIn(blocks), input);
+}
+
 /** Each figure's footing against its table as the Note's marks and numbers are now (#2998). */
 export function noteFooting(
   blocks: Y.XmlFragment,
   input: CheckedNow,
 ): ReadonlyMap<string, LiveFooting> {
-  return readFindings(blocks, input).footing;
+  const elements = blocks
+    .toArray()
+    .filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
+  const tables = elements.filter(containsTable);
+  if (tables.length === 0) return new Map();
+  return findingsFrom(
+    tableFiguresInBlocks(elements, tables),
+    checkedSentencesInBlocks(tables),
+    placesInElements(tables),
+    input,
+  ).footing;
+}
+
+/**
+ * Table-cell places and footing for a Mind's snapshot, reading only table Blocks and yielding
+ * between slices so a long Note never holds the main process past its budget (#3822).
+ */
+export async function readTableSnapshot(
+  blocks: Y.XmlFragment,
+  input: CheckedNow,
+  yieldTurn: () => Promise<void>,
+  sliceMs = 15,
+): Promise<{ cellFigures: CellFigurePlace[]; footing: FigureFootingNow[] }> {
+  const elements = blocks
+    .toArray()
+    .filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
+  const tables = elements.filter(containsTable);
+  if (tables.length === 0) return { cellFigures: [], footing: [] };
+  const occurrences = await tableFiguresInBlocksAsync(elements, tables, yieldTurn, sliceMs);
+  const cellFigures = tableCellPlacesOf(occurrences);
+  await yieldTurn();
+  const places = new Map<string, Place>();
+  const grids = new Map<string, SourceGrid>();
+  const figures: NodeJSON[] = [];
+  const owners: Owner[] = [];
+  const seenChecks = new Set<string>();
+  let paragraph = 0;
+  let heading: string | null = null;
+  let sliceStart = performance.now();
+  for (const block of tables) {
+    const read = placesOfBlock(block);
+    for (const entry of read.entries)
+      places.set(entry.id, {
+        ...entry.place,
+        heading: entry.heading ? entry.place.heading : heading,
+        paragraph: paragraph + entry.place.paragraph,
+      });
+    for (const [id, grid] of read.tables) grids.set(id, grid);
+    figures.push(...read.figures);
+    paragraph += read.paragraphs;
+    if (read.heading !== undefined) heading = read.heading;
+    for (const mark of checkedSentencesInBlocks([block])) {
+      if (seenChecks.has(mark.check.id)) continue;
+      seenChecks.add(mark.check.id);
+      owners.push(mark);
+    }
+    if (performance.now() - sliceStart >= sliceMs) {
+      await yieldTurn();
+      sliceStart = performance.now();
+    }
+  }
+  const footing = new Map<string, LiveFooting>();
+  if (grids.size > 0) {
+    const layout = { places, tables: grids, figures };
+    const { findings, states } = findingsFrom(
+      occurrences,
+      owners,
+      { places, tables: new Map(), figures },
+      input,
+    );
+    const checking = new Set(
+      occurrences.flatMap((occurrence, index) => {
+        const state = states[index];
+        return (state?.child ?? state?.owner?.check)?.state === "checking" ? [occurrence.id] : [];
+      }),
+    );
+    sliceStart = performance.now();
+    for (const [tableId, grid] of layout.tables) {
+      const oneTable = new Map([[tableId, grid]]);
+      for (const [id, axes] of tableFooting(occurrences, findings, {
+        places,
+        tables: oneTable,
+        figures,
+      })) {
+        footing.set(id, {
+          footing: axes,
+          waiting: axes.some((axis) => axis.componentIds.some((each) => checking.has(each))),
+        });
+      }
+      if (performance.now() - sliceStart >= sliceMs) {
+        await yieldTurn();
+        sliceStart = performance.now();
+      }
+    }
+  }
+  return {
+    cellFigures,
+    footing: [...footing].map(([id, live]) => ({ id, ...live })),
+  };
 }
 
 export function figureSchedule(input: FigureScheduleInput): FigureSchedule {
