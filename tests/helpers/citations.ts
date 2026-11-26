@@ -210,6 +210,7 @@ export async function contextOfNextQuestion(
 export function answerEnded(
   core: Core,
   answerId: string,
+  judgedTimeout?: number,
 ): Promise<
   | { event: "finished"; payload: CoreEvents["answer.finished"] }
   | { event: "failed"; payload: CoreEvents["answer.failed"] }
@@ -223,7 +224,7 @@ export function answerEnded(
         const { conversationId } = payload;
         if (!conversationId) resolve({ event: "finished", payload });
         else {
-          answerJudged(core, conversationId, answerId).then(
+          answerJudged(core, conversationId, answerId, judgedTimeout).then(
             () => resolve({ event: "finished", payload }),
             reject,
           );
@@ -247,6 +248,7 @@ export async function answerJudged(
   core: Core,
   conversationId: string,
   answerId: string,
+  timeout = 20_000,
 ): Promise<ConversationAnswer> {
   return vi.waitFor(
     async () => {
@@ -262,7 +264,7 @@ export async function answerJudged(
       }
       return answer;
     },
-    { timeout: 20_000, interval: 20 },
+    { timeout, interval: 20 },
   );
 }
 

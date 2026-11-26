@@ -19,6 +19,7 @@ import {
   type ClaimCheckAttributes,
   createAiSdkChatModel,
 } from "../../src/core";
+import { questionOf } from "../../src/core/answers/judge";
 import { catalogProvider } from "../../src/core/providers/catalog/providers";
 import {
   type ClaimCheckShown,
@@ -308,7 +309,8 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
             middleware: {
               specificationVersion: "v4",
               wrapStream: async ({ doStream, params }) => {
-                if (isWriting(params.prompt)) return scripted.doStream(params);
+                if (!questionOf(params) && isWriting(params.prompt))
+                  return scripted.doStream(params);
                 const result = await doStream();
                 if (!TRACE) return result;
                 let written = "";
@@ -336,7 +338,9 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
         const core = startCore(await createTempDataFolder(), { createChatModel });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
-        await core.updateSettings({ user: { language: each.language } });
+        await core.updateSettings({
+          user: { language: each.language, checkAssistantWrites: true },
+        });
         const sources = await createTempDataFolder();
         const documents = await addAndProcess(core, [
           await writeSourceFile(sources, each.file.name, each.file.contents),
@@ -350,11 +354,16 @@ describe.each(CASES)("table cell checks, live: $language", (each) => {
         const client = await connectToMind(core, mind.id);
         writeMind(client, [note(each.language === "en" ? "Budget notes." : "预算要点。")]);
         await client.settled();
-        await askAssistant(core, {
-          text: each.ask,
-          mindId: mind.id,
-          scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
-        });
+        await askAssistant(
+          core,
+          {
+            text: each.ask,
+            mindId: mind.id,
+            scope: { folderIds: [folder.id], tagIds: [], documentIds: [] },
+          },
+          "finished",
+          300_000,
+        );
         await client.settled();
         const found: { text: string; check: ClaimCheckAttributes | null }[] = [];
         readMind(client).descendants((node) => {
