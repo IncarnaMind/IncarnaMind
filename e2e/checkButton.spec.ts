@@ -331,8 +331,8 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(narrow).toHaveAttribute("data-state", "check");
       const holds = async () => {
         await expect(strip).toHaveAttribute("data-check-compact", "");
-        // Export has left the row, into the ⋯ menu; the Check is still in it.
-        await expect(strip.getByTestId("export-mind")).toBeHidden();
+        // Export lost its word first; the Check is still in the row, never in the ⋯ menu.
+        await expect(strip.locator('[data-testid="export-mind"] > span')).toBeHidden();
         expect(await wordDrawn(narrow)).toBe(false);
         expect(await hittable(narrow)).toBe(true);
         expect(await insideOf(narrow, strip)).toBe(true);
@@ -571,8 +571,12 @@ test.describe("with the User's own AI", () => {
         await expect(pill).toHaveAttribute("data-state", "landed", { timeout: 30_000 });
         const undo = pill.getByTestId("note-ask-undo");
         await expect(undo).toBeVisible();
+        const undoAt = await undo.boundingBox();
         const onLine = noteCheckOnLine(window);
         const inStrip = noteCheck(window);
+        // The Check comes once the sentences are counted, never moving Undo from under the pointer.
+        await expect(onLine).toHaveAttribute("data-state", "check");
+        expect((await undo.boundingBox())?.x ?? 0).toBeCloseTo(undoAt?.x ?? 0, 0);
         await atEachSize(app, window, `line-check-${language}`, async () => {
           // The same dark Check, on the line beside Undo, as in the strip.
           for (const each of [onLine, inStrip]) {
@@ -587,9 +591,9 @@ test.describe("with the User's own AI", () => {
           const a = await undo.boundingBox();
           const b = await onLine.boundingBox();
           if (!a || !b) throw new Error("Undo or the line's Check isn't drawn.");
-          // In one row, the Check after Undo.
+          // In one row, the Check just before Undo.
           expect(Math.abs(a.y + a.height / 2 - (b.y + b.height / 2))).toBeLessThan(4);
-          expect(b.x).toBeGreaterThan(a.x + a.width);
+          expect(b.x + b.width).toBeLessThan(a.x);
           expect(await hittable(onLine)).toBe(true);
         });
 

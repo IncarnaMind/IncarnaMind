@@ -155,6 +155,7 @@ const stripsNow = (window: Page) =>
         close: box(tab?.querySelector('[data-testid="tab-close"]')),
         plus: box(strip.querySelector('[data-testid="new-tab"]')),
         exportShown: drawn(strip.querySelector('[data-testid="export-mind"]')),
+        exportWordShown: drawn(strip.querySelector('[data-testid="export-mind"] > span')),
         conversationShown: drawn(
           strip.querySelector('[data-testid="note-ask-conversation-toggle"]'),
         ),
@@ -291,7 +292,7 @@ for (const language of ["en", "zh-CN"] as const) {
           expect(strip.check, about).not.toBeNull();
           expect(strip.checkHit, about).toBe(true);
           expect(strip.moreHit, about).toBe(true);
-          if (strip.compact) expect(strip.exportShown, about).toBe(false);
+          if (strip.compact) expect(strip.exportWordShown, about).toBe(false);
         }
       }).toPass();
 
@@ -306,8 +307,10 @@ for (const language of ["en", "zh-CN"] as const) {
             // The Check gave up its word before the tab went under its least width.
             expect(strip.compact, about).toBe(true);
           }
-          // Its word goes only once Export has left the row.
-          if (strip.compact) expect(strip.exportShown, about).toBe(false);
+          // Its word goes only once Export's has gone, and Export leaves the row only once the
+          // Check has given up its word.
+          if (strip.compact) expect(strip.exportWordShown, about).toBe(false);
+          if (!strip.exportShown) expect(strip.compact, about).toBe(true);
           // The Note's other controls give up their room, and then the Check its start, only past
           // the tab's icon and ✕, and only once the Check has given up its word.
           if (strip.othersCut || strip.checkCut) {

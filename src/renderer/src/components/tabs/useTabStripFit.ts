@@ -63,14 +63,14 @@ function nameBoxOf(tab: HTMLElement): { left: number; right: number } | null {
  * A strip too full for its tabs makes room in steps, each only while the one before isn't
  * enough, and takes them back in reverse when the room returns (`data-fit` in styles.css):
  * Export's label alone, then the split button leaving, then tabs hidden at the strip's ends and
- * the shown tab narrowed to its least width. Short even of that, the strip is tight
- * (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
- * Note's input holds, leave it. The Note's Check then gives up its word, keeping its mark and
- * number (`data-check-compact`, #3794), and only then the shown tab goes under its least width
- * down to its icon and ✕. Short even of those, the Note's other controls give up their room, and
- * then the Check its start, keeping its end, where its number or its Stop is. The shown tab, the
- * Check and the ⋯ never leave (#3765). Returns how many tabs it hides, so the strip can offer them
- * in a list (#2244).
+ * the shown tab narrowed to its least width. Short even of that, the Note's Check gives up its
+ * word, keeping its mark and number (`data-check-compact`, #3794); short still, the strip is
+ * tight (`data-tight`): Export, which the ⋯ menu holds, and the conversation's button, which the
+ * Note's input holds, leave it, and only then the shown tab goes under its least width down to
+ * its icon and ✕. Short even of those, the Note's other controls give up their room, and then the
+ * Check its start, keeping its end, where its number or its Stop is. The shown tab, the Check and
+ * the ⋯ never leave (#3765). Returns how many tabs it hides, so the strip can offer them in a
+ * list (#2244).
  */
 export function useTabStripFit(
   strip: RefObject<HTMLElement | null>,
@@ -160,10 +160,14 @@ export function useTabStripFit(
           band.dataset.checkUnheld = "";
           tight = short();
         }
-        if (tight) band.dataset.tight = "";
         const check = controls?.querySelector<HTMLElement>(".note-head-badge:has(.note-check)");
-        // The Check gives up its word before the shown tab goes under its least width (#3794).
-        if (tight && check && roomNow() - taken < least) band.dataset.checkCompact = "";
+        // Short still, the Check gives up its word, after Export's and before Export leaves the
+        // row or the shown tab goes under its least width (#3794).
+        if (tight && check) {
+          band.dataset.checkCompact = "";
+          tight = short();
+        }
+        if (tight) band.dataset.tight = "";
         // The Check's whole box with its margins, rounded up, so none of it is cut while the
         // Note's other controls give up theirs.
         const checkRoom = () => {

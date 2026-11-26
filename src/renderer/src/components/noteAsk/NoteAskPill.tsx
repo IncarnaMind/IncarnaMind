@@ -441,9 +441,12 @@ export function EndAction({
       </button>
     );
   }
-  // The finished change is said once, here: the page draws no line of its own (#3762).
+  // The finished change is said once, here: the page draws no line of its own (#3762). The Check
+  // comes before Undo: it shows once the Note's sentences are counted, a moment after the line, and
+  // there it takes the room of the words before it, never moving Undo from under the pointer.
   return (
     <>
+      <CheckOnLine mindId={mindId} />
       <button
         type="button"
         data-testid="note-ask-undo"
@@ -462,7 +465,6 @@ export function EndAction({
           {t("edit.applied.review")}
         </button>
       )}
-      <CheckOnLine mindId={mindId} />
     </>
   );
 }

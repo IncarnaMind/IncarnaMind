@@ -407,8 +407,9 @@ for (const language of ["en", "zh-CN"] as const) {
         .toBeGreaterThan(0);
     }
 
-    // Beside a Document, in a Note about 480px wide, the Check keeps its mark, its word and its
-    // count in the Note's row: the strip takes its word only when short of room (#3794).
+    // Beside a Document, in a Note about 480px wide, the Check keeps its mark and its count in the
+    // Note's row: it gives up its word only when the row is short of room, after Export has lost
+    // its own (#3794).
     await setWindowSize(app, window, 1600, 900);
     await setGroupBeside(window, true);
     await sizeNote(app, window, 480);
@@ -423,13 +424,17 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(button, "the words are the button's name").toHaveAccessibleName(
       language === "en" ? "Check 2" : "核对 2",
     );
-    await expect(strip, "the word stays while the strip has room").not.toHaveAttribute(
-      "data-check-compact",
-    );
-    expect(
-      (await box(button.locator(".note-check-words"))).width,
-      "the word is drawn",
-    ).toBeGreaterThan(1);
+    if ((await strip.getAttribute("data-check-compact")) === null) {
+      expect(
+        (await box(button.locator(".note-check-words"))).width,
+        "the word is drawn",
+      ).toBeGreaterThan(1);
+    } else {
+      await expect(
+        strip.locator('[data-testid="export-mind"] > span'),
+        "Export lost its word first",
+      ).toBeHidden();
+    }
     const stripBox = await box(strip);
     const at = await box(button);
     expect(at.x, "the Check is in the Note's row").toBeGreaterThanOrEqual(stripBox.x);
