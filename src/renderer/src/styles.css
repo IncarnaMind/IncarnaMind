@@ -1897,7 +1897,8 @@
    * wait; then how far a run has got, with Stop, and what it found, in the colours the margin marks
    * use. While a run is on, and until the User types after it, it and its Stop keep the widest
    * room they have had (`--note-check-held`), so their words changing move nothing beside them
-   * (#2519).
+   * (#2519). Once the run is over the button stands at that room's end, beside the next control,
+   * the spare room on the strip's empty side: given back when the User types, it moves nothing.
    */
   .note-check {
     display: flex;
@@ -1906,6 +1907,9 @@
     gap: 2px;
     min-width: var(--note-check-held, 0);
     pointer-events: auto;
+    &:not([data-running]) {
+      justify-content: flex-end;
+    }
   }
   /* First of the Note's own controls at its top right (#3677). */
   .note-head-badge {

@@ -475,10 +475,9 @@ test("In Chinese and a narrow window: the same, in Chinese", async () => {
   const card = await checkCard(window);
   await expect(card).toContainText("要对照你的文档核对吗？");
   await expect(card.getByTestId("verify-check")).toHaveText("核对 4 条说法");
-  // The card keeps to the Mind's side: its right edge at the right edge of the Check's room, which
-  // the finding run before it held so its end moved nothing, the PDF's tab beside it.
+  // The card keeps to the Mind's side: its right edge at the Check button's, the PDF's tab beside it.
   const cardBox = await card.boundingBox();
-  const buttonBox = await window.getByTestId("note-check-place").boundingBox();
+  const buttonBox = await noteCheck(window).boundingBox();
   expect((cardBox?.x ?? 0) + (cardBox?.width ?? 0)).toBeLessThanOrEqual(
     (buttonBox?.x ?? 0) + (buttonBox?.width ?? 0) + 1,
   );

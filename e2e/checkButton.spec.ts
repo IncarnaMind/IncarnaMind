@@ -458,6 +458,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(problem).toContainText(words.needsAi);
       await expect(problem.getByTestId("checks-connect-ai")).toHaveText(words.connect);
       await expect(window.getByTestId("claim-mark")).toHaveCount(1);
+      // Connecting an AI is the card's lead: the correction it offers beside it is not filled.
+      const correct = window.getByTestId("check-card").getByTestId("badge-correct-contradictions");
+      await expect(correct).toBeVisible();
+      expect(
+        await correct.evaluate((element) => getComputedStyle(element).backgroundColor),
+      ).not.toBe(await tokenColor(window, "--color-ink"));
       await shot(window, `example-no-ai-card-${language}-1440`);
     } finally {
       await app.close();

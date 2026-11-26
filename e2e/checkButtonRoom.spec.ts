@@ -177,7 +177,7 @@ const stripsNow = (window: Page) =>
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`from the press on, a check runs to its end with no input and nothing in a full strip moves; Stop by its name stops one, and the Check then opens the card (${language})`, async () => {
+  test(`from the press on, a check runs to its end with no input and nothing else in a full strip moves, its result at the end of the Check's room; Stop by its name stops one, and the Check then opens the card (${language})`, async () => {
     test.setTimeout(150_000);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
@@ -223,8 +223,11 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(button).not.toHaveAttribute("data-state", "checking");
       await motionSettled(window);
       for (const id of await idsIn(strip)) kept.add(id);
-      // The strip's parts and the card's own box; the card's rows take what the check found.
-      const moved = (await shifts()).filter((each) => !each.inCard && kept.has(each.testId));
+      // The strip's parts and the card's own box; the card's rows take what the check found. The
+      // run over, the button alone goes to the end of the room it held, beside the next control.
+      const moved = (await shifts()).filter(
+        (each) => !each.inCard && kept.has(each.testId) && each.testId !== "note-check",
+      );
       const trail = moved
         .map(
           (each) =>
@@ -233,6 +236,11 @@ for (const language of ["en", "zh-CN"] as const) {
         .join("; ");
       expect(moved, `what moved with no input: ${trail}`).toEqual([]);
       expect(await placesOf(strip)).toEqual(before);
+      const [held, at] = [
+        await strip.getByTestId("note-check-place").boundingBox(),
+        await button.boundingBox(),
+      ];
+      expect((at?.x ?? 0) + (at?.width ?? 0)).toBeCloseTo((held?.x ?? 0) + (held?.width ?? 0), 0);
 
       // A press on what the check found opens its card, and never lands on "+".
       await expect(button).toHaveAttribute("data-state", "look");

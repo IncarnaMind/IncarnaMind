@@ -256,6 +256,8 @@ export function CheckActions({
   // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
   const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
+  // While the card's line offers to install or connect an AI, that is its lead (#3794).
+  const connectLeads = useChecks((state) => state.problems[mindId]?.kind === "not-ready");
   if (askingMind)
     return (
       <CardFoot>
@@ -281,7 +283,7 @@ export function CheckActions({
               type="button"
               data-testid="badge-correct-contradictions"
               disabled={running || editing}
-              className={buttonStyle("primary", "sm")}
+              className={buttonStyle(connectLeads ? "secondary" : "primary", "sm")}
               onClick={() => {
                 if (correctContradictions(editor, mindId, doc) === 0) return;
                 setCheckCardOpen(place, false);
