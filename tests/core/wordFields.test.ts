@@ -134,6 +134,46 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     ]);
   });
 
+  /** Top-level paragraphs numbered "%1.", the second bookmarked, and a `\w` REF to it showing `result`. */
+  const topLevel = (result: string) =>
+    wordFile({
+      styles: STYLES,
+      numbering:
+        '<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="singleLevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>',
+      body: [
+        paragraph("Services are as ordered.", { numId: 1, ilvl: 0 }),
+        `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:bookmarkStart w:id="9" w:name="_Ref900"/>${run("Fees are due monthly.")}<w:bookmarkEnd w:id="9"/></w:p>`,
+        paragraph(
+          `${run("Late payment is covered by paragraph ")}${field("REF _Ref900 \\w \\h", result)}${run(".")}`,
+        ),
+      ].join(""),
+    });
+  const addAbove = addItemAfter("Services are as ordered.", "Deposits are held in trust.");
+
+  // protects=a `\w` REF to a top-level paragraph numbered "2.", whose result is "2" as Word writes a cross-reference's number without its closing period, gets "3" when a paragraph is added above it, written untracked or as the User's tracked change: every change accepted reads 3, every change rejected reads 2; fails_when=it is only marked and keeps "2", or the tracked export's rejected view reads 3; no_claim=a two-level "%1.%2." list, whose full context the export doesn't work out.
+  test.each([false, true])(
+    "a `\\w` REF to a renumbered top-level paragraph gets its new number (tracked: %s)",
+    async (tracked) => {
+      const { document } = await exported(topLevel("2"), addAbove, tracked);
+      expect(fieldsOf(document)).toEqual([
+        { instruction: "REF _Ref900 \\w \\h", result: "3", dirty: true },
+      ]);
+      if (!tracked) return;
+      expect(acceptedParagraphs(document).join("\n")).toContain("covered by paragraph 3.");
+      const rejected = rejectedParagraphs(document).join("\n");
+      expect(rejected).toContain("covered by paragraph 2.");
+      expect(rejected).not.toContain("paragraph 3");
+    },
+  );
+
+  // protects=a `\w` result that no full-context way gives (words typed into it) is still only marked when its paragraph is renumbered, its result kept; fails_when=it is rewritten; no_claim=what Word writes.
+  test("a `\\w` REF whose result matches no way is only marked", async () => {
+    const { document } = await exported(topLevel("Paragraph 2"), addAbove);
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref900 \\w \\h", result: "Paragraph 2", dirty: true },
+    ]);
+  });
+
   // protects=a REF whose shown result no way of writing its number gives (a full-context number the author typed over) is asked to refresh but keeps what it showed, rather than a number IncarnaMind would guess; fails_when=its result is rewritten, or it isn't marked; no_claim=what Word writes when it refreshes it.
   test("a REF whose result can't be known is marked and keeps its result", async () => {
     const reference = `${run("See ")}${field("REF _Ref201 \\w \\h", "Clause 2.3 of the Fees")}${run(".")}`;

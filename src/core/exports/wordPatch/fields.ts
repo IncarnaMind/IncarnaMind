@@ -302,7 +302,7 @@ class Reading {
 type Ways = (string | null)[];
 
 /** Which of `numberWays` a switch can show: its own level's text (with its period trimmed), or the full context. */
-const WAYS = { own: [0, 1], full: [2, 3], any: [0, 1, 2, 3] } as const;
+const WAYS = { own: [0, 1], full: [2, 3, 4], any: [0, 1, 2, 3, 4] } as const;
 
 /** A paragraph's number with every paragraph counted, and with tracked deletions accepted. */
 type Counted = [ParagraphNumber | null, ParagraphNumber | null];
@@ -332,8 +332,13 @@ function deletedMark(p: XmlElement): boolean {
   );
 }
 
+/**
+ * A paragraph's number as its level's text, then that with its closing period trimmed, then in
+ * full context: as the levels' texts, with all but the last's period trimmed, and with every
+ * period trimmed, as Word writes "2" for a clause numbered "2.".
+ */
 function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): Ways {
-  if (!number) return [null, null, null, null];
+  if (!number) return [null, null, null, null, null];
   const own = number.text;
   const levels = number.numbers.map((_, at) =>
     levelText(numbering, number.list.numId, at, number.numbers.slice(0, at + 1)),
@@ -349,6 +354,7 @@ function numberWays(number: ParagraphNumber | null, numbering: WordNumbering): W
           .map((each, at) => (at < levels.length - 1 ? trimmed(each ?? "") : (each ?? "")))
           .join("")
       : null,
+    known ? levels.map((each) => trimmed(each ?? "")).join("") : null,
   ];
 }
 
