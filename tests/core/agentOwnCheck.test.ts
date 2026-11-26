@@ -1083,8 +1083,15 @@ describe("a cell an agent corrects in a Note it wrote (#3466)", () => {
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId, again: true } }),
     );
     await report(agent, mindId, again.task, [
-      { n: 1, verdict: "supported", units: "same", cites: [twice], explanation: "Same units." },
-      { n: 2, verdict: "supported", units: "none", cites: [largest], explanation: "No units." },
+      {
+        n: 1,
+        details: "twice a month / twice a month, same",
+        units: "same",
+        verdict: "supported",
+        cites: [twice],
+        explanation: "Same units.",
+      },
+      { n: 2, units: "none", verdict: "supported", cites: [largest], explanation: "No units." },
       { n: 3, verdict: "supported", cites: [twice], explanation: "Units omitted." },
       { n: 4, verdict: "nothing to check" },
     ]);

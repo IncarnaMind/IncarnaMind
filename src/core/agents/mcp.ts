@@ -29,7 +29,7 @@ import {
   serverUnknownPairingLine,
 } from "../../shared/agentSocket";
 import { DOCUMENT_KINDS } from "../../shared/libraryFacts";
-import { STATED_UNITS, UNITS_RULE } from "../answers/checks/prompt";
+import { DETAILS_RULE, STATED_UNITS, UNITS_RULE } from "../answers/checks/prompt";
 import type { AgentToolName } from "../api";
 import {
   type AgentAccess,
@@ -634,8 +634,9 @@ export function createAgentServer(
         results: z.array(
           z.object({
             n: z.number().int(),
-            verdict: z.enum(OWN_VERDICT_WORDS),
+            details: z.string().optional().describe(DETAILS_RULE),
             units: z.enum(STATED_UNITS).optional().describe(UNITS_RULE),
+            verdict: z.enum(OWN_VERDICT_WORDS),
             cites: z.array(z.string()).optional().describe("The [cite:…] it rests on."),
             otherwise: z
               .array(z.string())

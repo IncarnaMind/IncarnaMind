@@ -93,6 +93,10 @@ const VERDICTS = [
   "own view",
 ] as const;
 
+/** Shared Details comparison form for the in-app reply and report_check (#3806). */
+export const DETAILS_RULE =
+  'what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".';
+
 /** Shared Units classification rule for the reply form, the cite tool schema and report_check (#3806). */
 export const UNITS_RULE =
   '"none" when neither the sentence nor its heading or unit line states a currency, unit or scale; "same" when the Passages state the same currency, unit and scale for those figures — including the same amount written at another scale or in a unit it converts to exactly, or a figure worked out from amounts whose units the Passages state; "another" when the Passages state a different currency, unit or scale (not an exact conversion); "unstated" only when the Passages you have read, including table headers and unit lines, never state one for that figure or state one only for another table.';
@@ -100,7 +104,7 @@ export const UNITS_RULE =
 const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
-    'Details: what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
+    `Details: ${DETAILS_RULE}`,
     `Verdict: ${VERDICTS.slice(0, -1).join(", ")} or ${VERDICTS.at(-1)}`,
     `Units: ${STATED_UNITS.slice(0, -1).join(", ")}, or ${STATED_UNITS.at(-1)} — ${UNITS_RULE}`,
     `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For overstated, say what the Document says and how the sentence goes further; for partly supported, say which part the Documents don't state; for not found, say what the Documents don't say; for own view, say what the Documents hold on it, with the markers of the quotes: the facts that are a reason for it and the facts that point the other way, or that they hold nothing on it. Never mention the search, the Passages or how you found it.`,

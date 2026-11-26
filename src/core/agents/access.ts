@@ -522,8 +522,9 @@ export interface AgentReportInput {
   task: string;
   results: {
     n: number;
-    verdict: string;
+    details?: string;
     units?: string;
+    verdict: string;
     cites?: string[];
     /** The id of a run IncarnaMind made for this agent in this check (#3363). */
     run?: string;
