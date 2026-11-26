@@ -16,3 +16,17 @@ dialog.showErrorBox = (title, content) => {
     `${JSON.stringify({ title, content, ready: app.isReady() })}\n`,
   );
 };
+
+dialog.showMessageBox = async (...args) => {
+  const options = args.length > 1 ? args[1] : args[0];
+  appendFileSync(
+    process.env.INCARNAMIND_TEST_ERROR_BOXES,
+    `${JSON.stringify({
+      title: options?.title ?? "",
+      content: options?.detail ?? options?.message ?? "",
+      buttons: options?.buttons ?? [],
+      ready: app.isReady(),
+    })}\n`,
+  );
+  return { response: options?.cancelId ?? 1, checkboxChecked: false };
+};
