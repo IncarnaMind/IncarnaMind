@@ -43,6 +43,11 @@ import { costOf, inCurrency } from "../src/core/cost/price";
 import type { OffPeak, Price } from "../src/core/providers/catalog/types";
 import { OUT_OF_CREDIT as CORE_OUT_OF_CREDIT } from "../src/core/providers/creditWords";
 import type { Gap, Status } from "./nightlyIssue";
+import {
+  type KnownFailingEntry,
+  knownFailingByName,
+  NIGHTLY_KNOWN_FAILING,
+} from "./nightlyKnownFailing";
 import type { Usage } from "./usageTally";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -622,11 +627,70 @@ const gapOf = (step: Step, why: string): Gap => ({
   keeps: `${step.name}: `,
 });
 
+const appliesKnownFailing = (step: Step): boolean =>
+  step.results === "vitest" &&
+  step.provider === "anthropic" &&
+  (step.id === "live" || step.id.startsWith("live-"));
+
+interface StepClassification {
+  /** Cases not on the known-failing list, plus any stale deterministic entry that started passing. */
+  unexpectedFailing: Case[];
+  /** Deterministic allowlisted entries that passed and must now be removed from the allowlist. */
+  stalePassing: { item: Case; entry: KnownFailingEntry }[];
+  /** Allowlisted failures and `passesSomeRuns` entries (shown in a separate table, never red). */
+  knownRows: { item: Case; entry: KnownFailingEntry }[];
+  /** Regular cases for the main step table (excludes entries shown in the known-failing table). */
+  shownCases: Case[];
+}
+
+function classifyStepCases(
+  step: Step,
+  cases: readonly Case[],
+  known: ReadonlyMap<string, KnownFailingEntry>,
+): StepClassification {
+  const unexpectedFailing: Case[] = [];
+  const stalePassing: { item: Case; entry: KnownFailingEntry }[] = [];
+  const knownRows: { item: Case; entry: KnownFailingEntry }[] = [];
+  const shownCases: Case[] = [];
+  const checkKnown = appliesKnownFailing(step) && known.size > 0;
+  for (const item of cases) {
+    const entry = checkKnown ? known.get(item.name) : undefined;
+    if (!entry) {
+      shownCases.push(item);
+      if (!item.passed) unexpectedFailing.push(item);
+      continue;
+    }
+    if (entry.passesSomeRuns !== undefined) {
+      knownRows.push({ item, entry });
+      continue;
+    }
+    if (item.passed) {
+      stalePassing.push({ item, entry });
+      shownCases.push({
+        name: item.name,
+        passed: false,
+        detail: `Known-failing test passed — remove from scripts/nightlyKnownFailing.ts (#${entry.issue})`,
+      });
+    } else {
+      knownRows.push({ item, entry });
+    }
+  }
+  return { unexpectedFailing, stalePassing, knownRows, shownCases };
+}
+
 /** The failing cases of a step that was measured, named by the step; a step that failed with no failing case is named in plain words. */
-const redOf = (step: Step, cases: readonly Case[], ran: boolean, failing: number): string[] =>
-  failing > 0
-    ? cases.filter((each) => !each.passed).map((each) => `${step.name}: ${each.name}`)
+function redOf(step: Step, classified: StepClassification, ran: boolean): string[] {
+  const red = [
+    ...classified.unexpectedFailing.map((each) => `${step.name}: ${each.name}`),
+    ...classified.stalePassing.map(
+      ({ item, entry }) =>
+        `${step.name}: Known-failing test passed — remove from scripts/nightlyKnownFailing.ts: ${item.name} (#${entry.issue})`,
+    ),
+  ];
+  return red.length > 0
+    ? red
     : [`${step.name}: ${ran ? "the step failed with every case passing" : "no case reported a result"}`];
+}
 
 /** Lines our own code writes, which hold numbers and no provider's words. */
 const OWN_LINE =
@@ -647,8 +711,14 @@ export function summary(
   results: readonly Result[],
   date: string,
   /** The steps the night means to run, and why it is unfinished when it is: what isn't in `results` is listed as not measured. */
-  night: { planned?: readonly Step[]; unfinished?: string; notes?: readonly string[] } = {},
+  night: {
+    planned?: readonly Step[];
+    unfinished?: string;
+    notes?: readonly string[];
+    knownFailing?: readonly KnownFailingEntry[];
+  } = {},
 ): { text: string; passed: boolean; status: Status } {
+  const known = knownFailingByName(night.knownFailing ?? NIGHTLY_KNOWN_FAILING);
   const steps = [...new Set(results.map((result) => result.step))];
   const waiting = (night.planned ?? []).filter((step) => !steps.includes(step));
   const unfinished =
@@ -672,21 +742,34 @@ export function summary(
     total += dollars;
     unpriced += spend.reduce((sum, each) => sum + each.unpricedTokens, 0);
     const ran = last.cases.length > 0;
-    const ok = last.exitCode === 0 && ran;
-    passed &&= ok;
     const failing = last.cases.filter((each) => !each.passed).length;
     const notMeasured = last.cancelled
       ? "the night was cancelled during this step"
       : (last.skipped ??
         (last.outOfCredit ? "the key ran out of credit during the step" : undefined));
+    const classified = classifyStepCases(step, last.cases, known);
+    const knownFailingCount = classified.knownRows.filter(({ item }) => !item.passed).length;
+    const onlyKnownFailed =
+      ran &&
+      failing > 0 &&
+      classified.unexpectedFailing.length === 0 &&
+      classified.stalePassing.length === 0;
+    const ok =
+      !notMeasured &&
+      ran &&
+      classified.stalePassing.length === 0 &&
+      classified.unexpectedFailing.length === 0 &&
+      (last.exitCode === 0 || onlyKnownFailed);
+    passed &&= ok;
     if (notMeasured) {
       status.gaps.push(gapOf(step, notMeasured));
     } else {
       status.measured ||= ran;
-      if (!ok) status.red.push(...redOf(step, last.cases, ran, failing));
+      if (!ok) status.red.push(...redOf(step, classified, ran));
     }
     const minutes = (tries.reduce((sum, attempt) => sum + attempt.seconds, 0) / 60).toFixed(1);
     const skippedCases = last.skippedCases ? ` (${last.skippedCases} skipped)` : "";
+    const knownSuffix = knownFailingCount > 0 ? ` (${knownFailingCount} known failing)` : "";
     const outcome = last.cancelled
       ? "**cancelled**"
       : notMeasured
@@ -695,7 +778,7 @@ export function summary(
           ? "passed"
           : "**failed**";
     rows.push(
-      `| ${step.name} | ${last.secret} | ${outcome} | ${last.cases.length - failing} of ${last.cases.length}${skippedCases} | $${dollars.toFixed(2)} | ${minutes} min |`,
+      `| ${step.name} | ${last.secret} | ${outcome} | ${last.cases.length - failing} of ${last.cases.length}${skippedCases}${knownSuffix} | $${dollars.toFixed(2)} | ${minutes} min |`,
     );
     const why = last.skipped
       ? `Not measured: ${last.skipped}.`
@@ -709,19 +792,41 @@ export function summary(
       ...(notMeasured && ran
         ? [`Not measured: ${notMeasured}; the results below are not counted.`, ""]
         : []),
-      ...(ran && !ok && failing === 0 && reason && !notMeasured
+      ...(ran && !ok && failing === 0 && classified.stalePassing.length === 0 && reason && !notMeasured
         ? [`The step failed, every case passed: ${reason}`, ""]
         : []),
       ...(!ran
         ? [last.skipped ? why : reason ? `${why} ${reason}` : why, ""]
         : [
-            "| Case | Result |",
-            "|---|---|",
-            ...last.cases.map(
-              (each) =>
-                `| ${cell(each.name)} | ${each.passed ? "passed" : `**failed**${each.detail ? `: ${cell(each.detail)}` : ""}`} |`,
-            ),
-            "",
+            ...(classified.shownCases.length > 0
+              ? [
+                  "| Case | Result |",
+                  "|---|---|",
+                  ...classified.shownCases.map(
+                    (each) =>
+                      `| ${cell(each.name)} | ${each.passed ? "passed" : `**failed**${each.detail ? `: ${cell(each.detail)}` : ""}`} |`,
+                  ),
+                  "",
+                ]
+              : []),
+            ...(classified.knownRows.length > 0
+              ? [
+                  "### Known failing (frozen)",
+                  "",
+                  "| Case | Result | Issue | Note |",
+                  "|---|---|---|---|",
+                  ...classified.knownRows.map(({ item, entry }) => {
+                    const res = item.passed
+                      ? "passed"
+                      : `failed${item.detail ? `: ${cell(item.detail)}` : ""}`;
+                    const note = entry.passesSomeRuns
+                      ? `${cell(entry.reason)} (${cell(entry.passesSomeRuns)})`
+                      : cell(entry.reason);
+                    return `| ${cell(item.name)} | ${res} | #${entry.issue} | ${note} |`;
+                  }),
+                  "",
+                ]
+              : []),
           ]),
     );
   }
@@ -771,6 +876,9 @@ function readUsage(folder: string): Counted[] {
 
 interface VitestReport {
   testResults?: {
+    name?: string;
+    status?: string;
+    message?: string;
     assertionResults?: { fullName: string; status: string; failureMessages?: string[] }[];
   }[];
 }
@@ -823,8 +931,9 @@ export function casesOf(step: Step, folder: string): { cases: Case[]; skipped: n
     return { cases, skipped: 0 };
   }
   const report = readJson(join(folder, "vitest.json")) as VitestReport | null;
-  const all = (report?.testResults ?? []).flatMap((file) => file.assertionResults ?? []);
-  const cases = all
+  const files = report?.testResults ?? [];
+  const all = files.flatMap((file) => file.assertionResults ?? []);
+  const cases: Case[] = all
     .filter((each) => each.status === "passed" || each.status === "failed")
     .map((each) => {
       const failure = each.failureMessages?.join("\n");
@@ -834,7 +943,21 @@ export function casesOf(step: Step, folder: string): { cases: Case[]; skipped: n
         ...(failure && { detail: describeFailure(failure) }),
       };
     });
-  return { cases, skipped: all.length - cases.length };
+  for (const file of files) {
+    if (file.status !== "failed") continue;
+    const hasFailedAssertion = (file.assertionResults ?? []).some(
+      (each) => each.status === "failed",
+    );
+    const fileMessage = file.message?.trim() ?? "";
+    if (!hasFailedAssertion || fileMessage !== "") {
+      cases.push({
+        name: file.name ?? "test file failed to load",
+        passed: false,
+        ...(fileMessage !== "" && { detail: describeFailure(fileMessage) }),
+      });
+    }
+  }
+  return { cases, skipped: all.filter((each) => each.status !== "passed" && each.status !== "failed").length };
 }
 
 const everydayReports = () => {
