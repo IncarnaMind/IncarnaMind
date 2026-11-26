@@ -41,7 +41,7 @@ import {
 } from "../api";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
-import type { ConversationHears, ConversationRun, SelectedInBlock } from "./askedChecks";
+import type { ConversationHears, ConversationRun, RunCall, SelectedInBlock } from "./askedChecks";
 import { CITATION_TOKEN } from "./citations";
 
 /**
@@ -749,6 +749,14 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       lastEnd = told;
       endTurn({ mindId, pairingId: pairing.id, turnId: of.turnId }, outcome, told);
     };
+    // Requests whose AI took a later one while a call of theirs still ran, and their ends.
+    const closingLater = new Set<Taken>();
+    const closeLater = (of: Taken) => {
+      const end = of.closing;
+      of.closing = null;
+      closingLater.delete(of);
+      end?.();
+    };
     /**
      * Its AI took a request sent meanwhile (#3765): the one before ends with no reply of its own,
      * the reply that comes next being the later one's, and what the run does is for this one now.
@@ -756,7 +764,15 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const take = (id: string) => {
       const at = sent.findIndex((each) => each.turnId === id);
       if (at === -1) return;
-      if (current) close(current, outcomeOf(current, { kind: "finished", reply: "" }), "");
+      const before = current;
+      if (before) {
+        const end = () => close(before, outcomeOf(before, { kind: "finished", reply: "" }), "");
+        // A call it started still running ends it once it has told what it did.
+        if (before.calls > 0) {
+          before.closing = end;
+          closingLater.add(before);
+        } else end();
+      }
       const [taken] = sent.splice(at, 1);
       if (taken) {
         front.selection = null;
@@ -1043,74 +1059,82 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       return;
     }
     front.folder = folder;
+    // What a call did goes to the request the run was on as the call started: the AI may take one
+    // sent meanwhile before the call ends (#3765).
+    const heardCall = (of: Taken, call: RunCall) => {
+      if (signal.aborted || over) return;
+      if (call.outcome === "refused" && call.problem === "read-only") of.readOnly = true;
+      if (call.outcome === "done" && call.tool === "create_mind") {
+        const wrote = call.effects.find(
+          (each) => each.action === "write" && each.scope.kind === "mind",
+        );
+        const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
+        if (mindId !== "") of.made.push({ mindId, title: call.summary });
+      }
+      if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
+        for (const { scope } of call.effects) {
+          if (scope.kind !== "mind") continue;
+          const was = of.waiting.get(scope.mindId);
+          of.waiting.set(scope.mindId, {
+            mindId: scope.mindId,
+            title: call.summary,
+            count: (was?.count ?? 0) + call.count,
+          });
+        }
+      }
+      doingCall(of, call.tool, call.summary);
+      const ids = call.documentIds ?? [];
+      if (call.outcome === "done" && call.tool === "search") for (const id of ids) of.found.add(id);
+      const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
+      const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
+      const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
+      if (read) {
+        of.found.add(read);
+        const sofar = (of.readOf.get(read) ?? 0) + (call.count ?? 0);
+        of.readOf.set(read, sofar);
+        const total = passagesIn(read);
+        const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
+        of.steps.push({
+          kind: "call",
+          tool: call.tool,
+          summary: call.summary,
+          documentId: read,
+          ...(part !== undefined && { part }),
+        });
+      } else {
+        of.steps.push({
+          kind: "call",
+          tool: call.tool,
+          summary: call.summary,
+          done: call.outcome === "done",
+          ...(other && call.outcome === "done" && { mindId: other }),
+          ...(other && call.tool === "propose_changes" && call.count && { waiting: call.count }),
+          ...(call.saved && call.outcome === "done" && { file: call.saved }),
+        });
+      }
+      tellWorking();
+    };
     // Only this run's own calls and changes: another run of the connection, or the User's own
     // session of it, tells nothing here.
     const grant = options.conversationGrant(pairing.id, front, {
-      // Applied in the Note while a request works on it: never between one's end and the next.
-      asked: (change) => (current ?? latest).applied.push(change),
       calling: () => {
+        const of = current ?? latest;
         calls += 1;
+        of.calls += 1;
         heard();
-        return () => {
-          calls -= 1;
-          heard();
+        return {
+          // Applied in the Note while a request works on it: never between one's end and the next.
+          asked: (change) => of.applied.push(change),
+          called: (call) => heardCall(of, call),
+          ended: () => {
+            calls -= 1;
+            of.calls -= 1;
+            heard();
+            if (of.calls === 0) closeLater(of);
+          },
         };
       },
-      called: (call) => {
-        const of = current ?? latest;
-        if (signal.aborted || over) return;
-        if (call.outcome === "refused" && call.problem === "read-only") of.readOnly = true;
-        if (call.outcome === "done" && call.tool === "create_mind") {
-          const wrote = call.effects.find(
-            (each) => each.action === "write" && each.scope.kind === "mind",
-          );
-          const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
-          if (mindId !== "") of.made.push({ mindId, title: call.summary });
-        }
-        if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
-          for (const { scope } of call.effects) {
-            if (scope.kind !== "mind") continue;
-            const was = of.waiting.get(scope.mindId);
-            of.waiting.set(scope.mindId, {
-              mindId: scope.mindId,
-              title: call.summary,
-              count: (was?.count ?? 0) + call.count,
-            });
-          }
-        }
-        doingCall(of, call.tool, call.summary);
-        const ids = call.documentIds ?? [];
-        if (call.outcome === "done" && call.tool === "search")
-          for (const id of ids) of.found.add(id);
-        const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
-        const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
-        const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
-        if (read) {
-          of.found.add(read);
-          const sofar = (of.readOf.get(read) ?? 0) + (call.count ?? 0);
-          of.readOf.set(read, sofar);
-          const total = passagesIn(read);
-          const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
-          of.steps.push({
-            kind: "call",
-            tool: call.tool,
-            summary: call.summary,
-            documentId: read,
-            ...(part !== undefined && { part }),
-          });
-        } else {
-          of.steps.push({
-            kind: "call",
-            tool: call.tool,
-            summary: call.summary,
-            done: call.outcome === "done",
-            ...(other && call.outcome === "done" && { mindId: other }),
-            ...(other && call.tool === "propose_changes" && call.count && { waiting: call.count }),
-            ...(call.saved && call.outcome === "done" && { file: call.saved }),
-          });
-        }
-        tellWorking();
-      },
+      called: (call) => heardCall(current ?? latest, call),
     });
     // Every window hears it started: one that sends another meanwhile sends it into this run.
     if (current) tell(event(current, { state: "working" }));
@@ -1217,6 +1241,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       pending = null;
       await grant.end();
       running.delete(mindId);
+      // A call that never ended keeps no request from its end.
+      for (const of of closingLater) closeLater(of);
     }
     // Sent in the run's last moments, after its AI's last answer, a request isn't refused: the
     // next run begins with it (#3765). Stopped, failed or held back, it stays never sent.
@@ -1560,6 +1586,9 @@ interface Taken {
    */
   saidForStep: boolean;
   calledSince: boolean;
+  /** Its calls still running, and its end, once its AI took a later request, kept until they end. */
+  calls: number;
+  closing: (() => void) | null;
 }
 
 const taking = (turnId: string, startedAt: string): Taken => ({
@@ -1577,4 +1606,6 @@ const taking = (turnId: string, startedAt: string): Taken => ({
   readOf: new Map(),
   saidForStep: false,
   calledSince: false,
+  calls: 0,
+  closing: null,
 });

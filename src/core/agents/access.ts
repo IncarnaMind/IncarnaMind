@@ -111,7 +111,7 @@ import type { Footnote } from "../mindText";
 import { insertBlocks } from "../noteAdding";
 import { callMarkupIn } from "../tools/callMarkup";
 import { type Looking, lookingText } from "./ask";
-import type { AskedChecks, RunGrant, SelectedInBlock } from "./askedChecks";
+import type { AskedChecks, CallHears, RunGrant, SelectedInBlock } from "./askedChecks";
 import {
   type AgentCanvasListed,
   type AgentCanvasPublished,
@@ -1634,9 +1634,11 @@ export function createAgentAccess(
     tool: AgentToolName,
     summary: string,
     effects: Effect[],
-    run: (pairing: AdmittedPairing) => Promise<Done<T>> | Done<T>,
+    run: (pairing: AdmittedPairing, hears: CallHears | null) => Promise<Done<T>> | Done<T>,
   ): Promise<T> {
     const started = deps.clock();
+    // A conversation's run hears the rest of a call it started through what it gave as it started.
+    let hears: CallHears | null = null;
     const record = (
       outcome: AgentActivity["outcome"],
       rest: Partial<AgentActivity>,
@@ -1660,7 +1662,9 @@ export function createAgentAccess(
       } catch (error) {
         deps.reportError(error);
       }
-      if (grant?.kind === "conversation") grant.called?.({ ...activity, ...(saved && { saved }) });
+      const heard = { ...activity, ...(saved && { saved }) };
+      if (hears) hears.called(heard);
+      else if (grant?.kind === "conversation") grant.called?.(heard);
     };
     let pairing: AdmittedPairing;
     try {
@@ -1678,9 +1682,9 @@ export function createAgentAccess(
       }
       throw error;
     }
-    const ended = grant?.kind === "conversation" ? grant.calling?.(tool) : undefined;
+    hears = (grant?.kind === "conversation" && grant.calling?.(tool)) || null;
     try {
-      const done = await run(pairing);
+      const done = await run(pairing, hears);
       record(
         "done",
         {
@@ -1702,7 +1706,7 @@ export function createAgentAccess(
       record("failed", { problem: "failed" });
       throw new AgentRefusedError("failed", t("agents.problem.failed"));
     } finally {
-      ended?.();
+      hears?.ended();
     }
   }
 
@@ -3442,7 +3446,8 @@ export function createAgentAccess(
         { action: "write", scope: { kind: "mind", mindId } },
       ];
       const known = deps.minds().find((mind) => mind.id === mindId);
-      return call("propose_changes", known ? mindName(known) : "", effects, async (admitted) => {
+      const named = known ? mindName(known) : "";
+      return call("propose_changes", named, effects, async (admitted, hears) => {
         if (!admitted.propose) {
           throw new AgentRefusedError("read-only", t("agents.problem.read-only"));
         }
@@ -3540,9 +3545,9 @@ export function createAgentAccess(
         deps.versions.set(key, written.now.version);
         // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
         const ownFront = own && madeFor !== null && step !== null;
-        if ((askedHere || ownFront) && grant?.kind === "conversation") {
+        if ((askedHere || ownFront) && hears) {
           const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
-          grant.asked?.({
+          hears.asked({
             mindId: mind.id,
             request,
             changed: added > 0 ? 0 : countChanged(written.kinds),
