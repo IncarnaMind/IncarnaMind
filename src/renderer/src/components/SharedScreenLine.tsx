@@ -18,11 +18,10 @@ interface LineAction {
 }
 
 /**
- * The meeting bar's line for the shared screen (#834): while the
- * Meeting records, it asks whether someone will share their screen, until
- * the User answers; then it says which window is read, with Stop, or offers
- * "Read the shared screen…" for later in the call. What stopped the reading
- * is said here too, with the one thing to do. Nothing while paused: only a
+ * The shared screen's one line over the meeting's control (#834, #3762): while the Meeting
+ * records, it asks whether to read a shared screen, until the User answers; then it says which
+ * window is read, with Stop. What stopped the reading is said here too, with the one thing to do.
+ * Later in the call the sheet's "Shared screen…" reads one. Nothing while paused: only a
  * recording Meeting reads its screen.
  */
 export function SharedScreenLine({ meeting }: { meeting: Meeting }) {
@@ -82,7 +81,6 @@ export function SharedScreenLine({ meeting }: { meeting: Meeting }) {
     actions = [];
   } else if (screen.state === "ask") {
     text = [
-      t("meetings.screen.ask"),
       provider
         ? t("meetings.screen.askProvider", { provider: providerName(provider, t, language) })
         : t("meetings.screen.askModel"),
@@ -146,6 +144,7 @@ export function SharedScreenLine({ meeting }: { meeting: Meeting }) {
     }
   }
 
+  if (text === null) return null;
   return (
     <p
       data-testid="meeting-screen-line"
@@ -156,33 +155,20 @@ export function SharedScreenLine({ meeting }: { meeting: Meeting }) {
     >
       <ScreenLineIcon className="meeting-screen-icon" />
       <span className="meeting-screen-text">
-        {text === null ? (
-          <button
-            type="button"
-            data-testid="meeting-screen-offer"
-            onClick={() => void chooseScreen(meeting.id)}
-            className="meeting-screen-action"
-          >
-            {t("meetings.screen.offer")}
-          </button>
-        ) : (
-          <>
-            <span data-testid="meeting-screen-words">{text}</span>
-            {actions.map((action) => (
-              <Fragment key={action.testId}>
-                <span aria-hidden="true"> · </span>
-                <button
-                  type="button"
-                  data-testid={action.testId}
-                  onClick={action.onClick}
-                  className={`meeting-screen-action ${action.primary ? "meeting-screen-action--primary" : ""}`}
-                >
-                  {action.label}
-                </button>
-              </Fragment>
-            ))}
-          </>
-        )}
+        <span data-testid="meeting-screen-words">{text}</span>
+        {actions.map((action) => (
+          <Fragment key={action.testId}>
+            <span aria-hidden="true"> · </span>
+            <button
+              type="button"
+              data-testid={action.testId}
+              onClick={action.onClick}
+              className={`meeting-screen-action ${action.primary ? "meeting-screen-action--primary" : ""}`}
+            >
+              {action.label}
+            </button>
+          </Fragment>
+        ))}
       </span>
     </p>
   );

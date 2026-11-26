@@ -12,6 +12,7 @@ import { isCitationStyleId, withRecentStyle } from "../shared/citationStyles";
 import { citedLocation, parseQuotedWords, quoteNotAtItsPlace } from "../shared/citations";
 import type { DrawnPage } from "../shared/citedPage";
 import { foundElsewhere } from "../shared/claimChecks";
+import { displayName } from "../shared/documentNames";
 import {
   chosenExportMarks,
   exportMarksOf,
@@ -87,7 +88,7 @@ import { createAgentAsk, type HandedFileAsked } from "./agents/ask";
 import { createFileCiting } from "./agents/citedFiles";
 import type { FoundClaim } from "./agents/handedFiles";
 import { createClaudeCodeInstallController } from "./agents/installClaudeCode";
-import { createOwnAiConversations } from "./agents/ownAiConversations";
+import { createOwnAiConversations, type OwnAiLiveMeeting } from "./agents/ownAiConversations";
 import { createOwnChanges } from "./agents/ownChanges";
 import { createOwnAiChecks } from "./agents/ownRun";
 import { createAgentSetup } from "./agents/setup";
@@ -311,7 +312,7 @@ import { freeFileName, safeFileName, writeNewFile } from "./fileNames";
 import { createFirstRun } from "./firstRun";
 import { turnOnAtFirstStart } from "./firstStart";
 import { createFolders, folderIdFor } from "./folders";
-import { LANGUAGES, systemRegion } from "./language";
+import { LANGUAGE_NAMES, LANGUAGES, systemRegion } from "./language";
 import { createLayouts } from "./layout";
 import { CLASSIFICATION_FLOW_SENDS, createLibrary, SCAN_IMAGES_FLOW_SENDS } from "./library";
 import { automaticGroupClassifier } from "./library/automatic";
@@ -3657,6 +3658,18 @@ export function createCore(adapters: CoreAdapters): Core {
       const to = from === null ? null : Math.max(from, typeof pageTo === "number" ? pageTo : from);
       return documents.pageTexts(documentId, contentHash, from, to);
     },
+    recheckCitation: (citation, mindId) => {
+      try {
+        return recheckIn({ ...citation, mindId });
+      } catch (error) {
+        // Its card then says the Document changed, as the Note's does when its check can't run.
+        (adapters.log ?? silentLogger).warn("export.recheckFailed", {
+          documentId: citation.documentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return "failed";
+      }
+    },
     sharePageTextOnly: (mindId) => notes.readSettings(mindId, textOnlyDocuments),
     printer: adapters.printer ?? null,
     paper: systemPaper,
@@ -5723,7 +5736,11 @@ export function createCore(adapters: CoreAdapters): Core {
       const template = skills.list().find((skill) => skill.id === skillId && skill.meetingTemplate);
       return helpTemplateForWriteup(template?.builtIn ? template.name : null);
     },
-    noticeAccepted: () => settings.get().device.meetingNoticeAccepted,
+    recorded: () => {
+      if (settings.get().device.meetingNoticeAccepted) return;
+      // Home's line offering to take notes in calls waits for this, in the window too.
+      events.emit("settings.changed", settings.update({ device: { meetingNoticeAccepted: true } }));
+    },
     systemAudioByDefault: () => settings.get().device.meetingSystemAudio,
     keepAudioByDefault: () => settings.get().device.keepMeetingAudio,
     language: () => settings.get().language,
@@ -5888,9 +5905,13 @@ export function createCore(adapters: CoreAdapters): Core {
   const askInCall = (meeting: Meeting, text: string, how: CallAsk = {}) => {
     const pairingId = settings.get().device.meetingCallHelpAgentId;
     const selectedAgent = pairingId ? prepareAgentPress(meeting, pairingId, text, how.kind) : null;
+    let ownAgent: AgentPress | null = null;
     const ask = (asking.get(meeting.id) ?? Promise.resolve())
-      .then(() => askNow(liveCall(meeting.id), text, how, selectedAgent))
-      .finally(() => selectedAgent?.close());
+      .then(async () => {
+        if (!selectedAgent) ownAgent = await ownCallAgent(liveCall(meeting.id), text, how.kind);
+        return askNow(liveCall(meeting.id), text, how, selectedAgent ?? ownAgent);
+      })
+      .finally(() => (selectedAgent ?? ownAgent)?.close());
     // A failed ask is its caller's to tell; the next one goes on.
     asking.set(
       meeting.id,
@@ -5935,29 +5956,69 @@ export function createCore(adapters: CoreAdapters): Core {
     if (result.asked) helpConversations.set(meeting.id, result.conversation.id);
     return result;
   };
+  /** What call help through the User's own AI sends it: the question typed and the speech. */
+  const CALL_HELP_SENDS: readonly DataKind[] = ["note-requests", "scoped-passages"];
+  /**
+   * Whether the User's own AI may answer call help they didn't choose it for: its consent to run in
+   * the background, given where they connected it, already covers what call help sends (#3762).
+   */
+  const ownCallAgentAllowed = (pairing: AgentPairing) =>
+    (pairing.client === "claude-code" || pairing.client === "codex") &&
+    consent.covers("hosted-agents", serviceOf(pairing), CALL_HELP_SENDS);
+  /**
+   * With no model set up and no AI chosen for call help, the User's own AI a request at this
+   * meeting's Note would run, reading the Note and its Transcript, within the consent it has; it
+   * asks nothing (#3762). Null for none: the ask goes on to say a model is needed.
+   */
+  async function ownCallAgent(
+    meeting: Meeting,
+    text: string,
+    kind?: MeetingHelpKind,
+  ): Promise<AgentPress | null> {
+    if (!adapters.summarizeWithMeetingAgent || embedding.localOnly()) return null;
+    if (settings.get().device.meetingCallHelpAgentId !== null) return null;
+    const documentId = meeting.transcript?.documentId ?? undefined;
+    // Refused for the AI chosen for call help too: the Transcript is gone or kept from citing.
+    if (documentId && liveDocument(documentId)?.notCited !== false) return null;
+    const own = agents.askable(meeting.mindId, documentId).filter(ownCallAgentAllowed);
+    if (own.length === 0) return null;
+    const choice = await chat.answeringModel(modelInUseIn(meeting.mindId) ?? undefined);
+    const readiness = await chat.readiness(choice);
+    if (readiness.ready || readiness.reason !== "no-provider") return null;
+    for (const pairing of own) {
+      const client = pairing.client === "codex" ? "codex" : "claude-code";
+      if (!((await adapters.ownAi?.installed(client)) ?? true)) continue;
+      return prepareAgentPress(meeting, pairing.id, text, kind, false);
+    }
+    return null;
+  }
+  /** `chosen`: the AI the User chose for call help; otherwise their own AI it falls back to. */
   function prepareAgentPress(
     meeting: Meeting,
     pairingId: string,
     text: string,
     kind?: MeetingHelpKind,
+    chosen = true,
   ) {
     const documentId = meeting.transcript?.documentId ?? null;
     const selectedClient = () => {
       const document = documentId ? liveDocument(documentId) : undefined;
       const current = meetings.list().find((each) => each.id === meeting.id);
+      const callHelpAgent = settings.get().device.meetingCallHelpAgentId;
       if (
         !current ||
         (current.status !== "recording" && current.status !== "paused") ||
         current.mindId !== meeting.mindId ||
         (current.transcript?.documentId ?? null) !== documentId ||
-        settings.get().device.meetingCallHelpAgentId !== pairingId ||
+        callHelpAgent !== (chosen ? pairingId : null) ||
         (documentId && (!document || document.notCited))
       )
         return null;
-      const client = agents
+      const pairing = agents
         .askable(current.mindId, documentId ?? undefined)
-        .find((each) => each.id === pairingId)?.client;
-      return client === "claude-code" || client === "codex" ? client : null;
+        .find((each) => each.id === pairingId);
+      if (!pairing || (!chosen && !ownCallAgentAllowed(pairing))) return null;
+      return pairing.client === "claude-code" || pairing.client === "codex" ? pairing.client : null;
     };
     const client = selectedClient();
     const run = adapters.summarizeWithMeetingAgent;
@@ -5966,6 +6027,7 @@ export function createCore(adapters: CoreAdapters): Core {
       documentId ? (transcripts?.confirmedCues(meeting.id) ?? []) : [],
       text,
       kind ?? "question",
+      meeting.transcript?.partials ?? [],
     );
     return {
       pairingId,
@@ -6197,6 +6259,8 @@ export function createCore(adapters: CoreAdapters): Core {
     const { steps } = await skills.draftOf(skill.id);
     return { steps, fillUncovered: skill.meetingFillUncovered !== false };
   }
+  /** See `OwnAiConversations.runsOn`; set once the Notes' conversations are. */
+  let ownAiRunsOn = async (_mindId: string): Promise<AgentPairing | null> => null;
   // After Stop, the notes filled in from the Transcript (#142), on the Answers route.
   const meetingFill = createMeetingFill({
     localOnly: () => embedding.localOnly(),
@@ -6241,22 +6305,35 @@ export function createCore(adapters: CoreAdapters): Core {
         };
       }
       if (!readiness.ready) {
-        const agent =
-          readiness.reason === "no-provider"
-            ? (agents.askable(mindId)[0] ?? agents.askable(null)[0])
-            : undefined;
+        if (readiness.reason === "local-mode") {
+          return {
+            problem: {
+              kind: "local-mode",
+              message: reasonAlone(language, "meetings.fill.problem.localMode"),
+            },
+          };
+        }
+        const noModel = {
+          kind: "no-model" as const,
+          message: reasonAlone(language, "meetings.fill.problem.noModel"),
+        };
+        if (readiness.reason !== "no-provider") return { problem: noModel };
+        // Write notes runs the User's own AI as the Note's input does, on one that runs here in the
+        // background first; one asked only in its own app keeps its link (ADR-0034). Never one that
+        // doesn't read this Note: the line says so instead (#3762).
+        const agent = (await ownAiRunsOn(mindId)) ?? agents.askable(mindId)[0];
+        if (agent) return { agentId: agent.id, problem: noModel };
+        const connected = agents.askable(null);
+        const away = connected.find((each) => each.client === "claude-code") ?? connected[0];
+        if (!away) return { problem: noModel };
         return {
-          ...(agent && { agentId: agent.id }),
-          problem:
-            readiness.reason === "local-mode"
-              ? {
-                  kind: "local-mode",
-                  message: reasonAlone(language, "meetings.fill.problem.localMode"),
-                }
-              : {
-                  kind: "no-model",
-                  message: reasonAlone(language, "meetings.fill.problem.noModel"),
-                },
+          problem: {
+            ...noModel,
+            message: reasonAlone(language, "meetings.fill.problem.agentUnreached", {
+              agent: away.name,
+            }),
+            agent: away.name,
+          },
         };
       }
       const model = { providerId: readiness.provider.id, modelId: readiness.modelId };
@@ -6400,6 +6477,15 @@ export function createCore(adapters: CoreAdapters): Core {
     return meetings.get(stopped.id);
   };
 
+  /** Resume, after a pause or after Stop (#3762): what that Stop began for the notes stops. */
+  const resumeMeeting = (meetingId: unknown): Meeting => {
+    const afterStop = meetings.get(meetingId).status === "stopped";
+    const resumed = meetings.resume(meetingId);
+    if (!afterStop) return resumed;
+    meetingFill.resumed(resumed.id);
+    return meetings.get(resumed.id);
+  };
+
   const isLive = (meeting: Meeting) =>
     meeting.status === "recording" || meeting.status === "paused";
   const recordOffer = (mindId?: string) => {
@@ -6480,7 +6566,14 @@ export function createCore(adapters: CoreAdapters): Core {
     if (!meeting) return null;
     const screen = screens?.forQuestion(meeting.id, question);
     const documentId = meeting.transcript?.documentId;
-    if (!documentId || !transcripts) return { passages: [], behind: isBehind(meeting), screen };
+    if (!documentId || !transcripts) {
+      return {
+        passages: [],
+        behind: isBehind(meeting),
+        screen,
+        unconfirmed: meeting.transcript?.partials ?? [],
+      };
+    }
     await transcripts.refresh(meeting.id);
     await extracted(documentId, LIVE_TRANSCRIPT_WAIT_MS);
     const now = meetings.list().find((each) => each.id === meeting.id) ?? meeting;
@@ -6496,6 +6589,25 @@ export function createCore(adapters: CoreAdapters): Core {
           : passages,
       behind: isBehind(now),
       screen,
+      unconfirmed: now.transcript?.partials ?? [],
+    };
+  };
+  /** A Note's meeting while it records or is paused, as a request at the Note's foot tells it. */
+  const liveMeetingOf = (mindId: string): OwnAiLiveMeeting | null => {
+    const meeting = meetings
+      .list()
+      .find(
+        (each) =>
+          each.kind === "meeting" &&
+          each.mindId === mindId &&
+          (each.status === "recording" || each.status === "paused"),
+      );
+    if (!meeting) return null;
+    const documentId = meeting.transcript?.documentId ?? null;
+    const [transcript] = documentId ? documents.getMany([documentId]) : [];
+    return {
+      transcript: transcript ? displayName(transcript) : null,
+      unconfirmed: meeting.transcript?.partials ?? [],
     };
   };
 
@@ -7342,12 +7454,15 @@ export function createCore(adapters: CoreAdapters): Core {
     onReachChange: onHostedReachChange,
     turned: (turn) => events.emit("agents.noteTurn", turn),
     titleOf: hostedTitleOf,
+    liveMeeting: liveMeetingOf,
+    language: () => LANGUAGE_NAMES[settings.get().language],
     newId: () => crypto.randomUUID(),
     now,
     lifetime: lifetime.signal,
     log: adapters.log ?? silentLogger,
     ...(adapters.ownAiQuietMs !== undefined && { quietMs: adapters.ownAiQuietMs }),
   });
+  ownAiRunsOn = (mindId) => ownAiConversations.runsOn(mindId);
   const claudeCodeInstall = createClaudeCodeInstallController({
     installer: adapters.claudeCodeInstaller,
     consent,
@@ -9656,7 +9771,7 @@ export function createCore(adapters: CoreAdapters): Core {
     startMeeting: async (input) => meetings.start(input),
     recordMemo: async (input) => meetings.recordMemo(input),
     pauseMeeting: async (meetingId) => meetings.pause(meetingId),
-    resumeMeeting: async (meetingId) => meetings.resume(meetingId),
+    resumeMeeting: async (meetingId) => resumeMeeting(meetingId),
     stopMeeting: async (meetingId) => stopMeeting(meetingId),
     getMeetingSummaryItemSources: meetingItemSources,
     canReviewMeetingSummaryCandidates: async (meetingId) => candidateReviews.canReview(meetingId),
@@ -9820,10 +9935,6 @@ export function createCore(adapters: CoreAdapters): Core {
     },
     getMeetingOffers: async () => meetingOffers.get(),
     takeMeetingOffer: async (offerId) => {
-      // Refused before anything is taken, so the offer waits while the window shows the notice.
-      if (!settings.get().device.meetingNoticeAccepted) {
-        throw new InvalidInputError({ key: "error.meeting.noticeUnread" });
-      }
       const { meetingId, joinUrl } = meetingOffers.take(String(offerId));
       const meeting = meetings.get(meetingId);
       if (joinUrl) {

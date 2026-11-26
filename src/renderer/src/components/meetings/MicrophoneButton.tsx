@@ -9,17 +9,20 @@ import { MicLineIcon, MicOffLineIcon } from "../lineIcons";
  * Pause my mic (暂停我的麦克风), for when the User mutes themselves in the call to talk to someone
  * in the room: pressed while the microphone is paused. The other side is still recorded, which
  * its tooltip says. `keys`: the shortcut held now, which the panel shows; else the one set.
+ * `worded`: its name beside the icon, where the row has room for words.
  */
 export function MicrophoneButton({
   meeting,
   testId,
   className,
   keys,
+  worded = false,
 }: {
   meeting: Meeting;
   testId: string;
   className: string;
   keys?: string | null;
+  worded?: boolean;
 }) {
   const t = useT();
   const settings = useAppStore((state) => state.settings);
@@ -43,7 +46,12 @@ export function MicrophoneButton({
       onClick={() => void useMeetings.getState().setMicrophonePaused(meeting.id, !paused)}
       className={className}
     >
-      <Icon className="size-3.5" />
+      <Icon className={worded ? "size-4" : "size-3.5"} />
+      {worded && (
+        <span className="meeting-button-word">
+          {t(paused ? "meetings.mic.resume" : "meetings.mic.pause")}
+        </span>
+      )}
     </button>
   );
 }

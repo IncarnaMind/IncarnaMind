@@ -9,6 +9,21 @@ import { useAppStore } from "../../store";
 import { MoveToPicker } from "../MoveToPicker";
 import { type ProblemAction, ProblemLine } from "../ProblemLine";
 
+type Translate = ReturnType<typeof useT>;
+
+const openIn = (
+  t: Translate,
+  meeting: Meeting,
+  agent: AgentPairing,
+  onAsked?: () => void,
+): ProblemAction => ({
+  label: t("meetings.notesAgent.open", { agent: agent.name }),
+  onClick: async () => {
+    if (await askAgent(agent, meeting.mindId, { kind: "meeting", meetingId: meeting.id }))
+      onAsked?.();
+  },
+});
+
 export function MeetingAgentNotes({
   meeting,
   agentId,
@@ -17,6 +32,40 @@ export function MeetingAgentNotes({
   meeting: Meeting;
   agentId: string;
   onAsked?: () => void;
+}) {
+  const t = useT();
+  const documentId = meeting.transcript?.documentId ?? undefined;
+  useReadAgentsToAsk(meeting.mindId, documentId);
+  const allowed = useAgentsToAskRead(meeting.mindId, documentId);
+  if (!allowed || !documentId) return null;
+  const agent = allowed.find((pairing) => pairing.id === agentId);
+  if (!agent)
+    return <MeetingAgentUnavailable meeting={meeting} agentId={agentId} onAsked={onAsked} />;
+  return (
+    <ProblemLine
+      role="status"
+      testId="meeting-agent-notes"
+      action={openIn(t, meeting, agent, onAsked)}
+    >
+      {t("meetings.notesAgent.ready")}
+    </ProblemLine>
+  );
+}
+
+/**
+ * Why the AI chosen for meeting notes can't write them, with the way to fix it: Move to… a Folder
+ * shared with it, or Settings. Nothing once it reads both the Note and its Transcript.
+ */
+export function MeetingAgentUnavailable({
+  meeting,
+  agentId,
+  onAsked,
+  role = "status",
+}: {
+  meeting: Meeting;
+  agentId: string;
+  onAsked?: () => void;
+  role?: "alert" | "status";
 }) {
   const t = useT();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -31,20 +80,7 @@ export function MeetingAgentNotes({
   const folders = useAppStore((state) => state.library?.groups);
   const openSettings = useAppStore((state) => state.openSettings);
   if (!allowed || !active || !noteReaders || !documentId) return null;
-  const open = (agent: AgentPairing): ProblemAction => ({
-    label: t("meetings.notesAgent.open", { agent: agent.name }),
-    onClick: async () => {
-      if (await askAgent(agent, meeting.mindId, { kind: "meeting", meetingId: meeting.id }))
-        onAsked?.();
-    },
-  });
-  const agent = allowed.find((pairing) => pairing.id === agentId);
-  if (agent)
-    return (
-      <ProblemLine role="status" testId="meeting-agent-notes" action={open(agent)}>
-        {t("meetings.notesAgent.ready")}
-      </ProblemLine>
-    );
+  if (allowed.some((pairing) => pairing.id === agentId)) return null;
 
   const connected = active.find((pairing) => pairing.id === agentId);
   const readsNote = noteReaders.some((pairing) => pairing.id === agentId);
@@ -63,10 +99,10 @@ export function MeetingAgentNotes({
   return (
     <>
       <ProblemLine
-        role="status"
+        role={role}
         testId="meeting-agent-unavailable"
         action={fix}
-        also={allowed[0] ? open(allowed[0]) : undefined}
+        also={allowed[0] ? openIn(t, meeting, allowed[0], onAsked) : undefined}
       >
         {connected
           ? t(canMove ? "meetings.notesAgent.unshared" : "meetings.notesAgent.needsAccess", {

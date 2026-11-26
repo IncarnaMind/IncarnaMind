@@ -18,16 +18,7 @@ interface FocusAsked {
 export const useMeetingNoteViews = create<{
   views: Views;
   focus: FocusAsked | null;
-  /** The stopped call's chip asked to open on its recording details, by a line on its page. */
-  details: { mindId: string; at: number } | null;
-}>(() => ({ views: {}, focus: null, details: null }));
-
-/** Opens a stopped call's chip on its recording details, from a problem line that names them. */
-export function showMeetingDetails(mindId: string): void {
-  useMeetingNoteViews.setState((state) => ({
-    details: { mindId, at: (state.details?.at ?? 0) + 1 },
-  }));
-}
+}>(() => ({ views: {}, focus: null }));
 
 /** A Meeting's views, in the order ⌥⌘← and ⌥⌘→ go through: My notes once the call is over. */
 export const meetingViewsOf = (meeting: Meeting): readonly MeetingNoteView[] =>

@@ -742,8 +742,6 @@ app.whenReady().then(async () => {
     showSettings: () => showFrontAndSend(FILES_CHANNELS.menuCommand, "settings.open"),
     showOffer: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerShown", null),
     showOfferLinkFailure: () => showFrontAndSend(EVENT_CHANNEL, "meetings.offerLinkFailed", null),
-    showOfferNotice: (offerId) =>
-      showFrontAndSend(EVENT_CHANNEL, "meetings.offerNoticeShown", { offerId }),
     keepRunning: keepsRunning(),
     quit: () => appEnd.quit("tray"),
     testHooks,

@@ -4,7 +4,7 @@
 // and never the request's headers or text.
 import { appendFileSync } from "node:fs";
 
-const HOSTS = new Set(["api.anthropic.com", "api.moonshot.ai"]);
+const HOSTS = new Set(["api.anthropic.com", "api.moonshot.ai", "api.deepseek.com"]);
 
 export interface Usage {
   /** The prompt's tokens, those read from and written to the cache included. */
@@ -22,11 +22,14 @@ const last = (text: string, name: string): number => {
 /**
  * The tokens a response counted, whether it is one JSON body or a stream of events: the last count
  * of each kind wins, since a stream's later events hold the running totals. Anthropic's input count
- * leaves out the cache's, while OpenAI-compatible APIs' (Kimi) includes it.
+ * leaves out the cache's, while OpenAI-compatible APIs' (Kimi, DeepSeek) includes it.
  */
 export function usageOf(text: string): Usage {
   const anthropic = text.includes('"input_tokens"');
-  const cacheRead = last(text, "cache_read_input_tokens") || last(text, "cached_tokens");
+  const cacheRead =
+    last(text, "cache_read_input_tokens") ||
+    last(text, "cached_tokens") ||
+    last(text, "prompt_cache_hit_tokens");
   const cacheWrite = last(text, "cache_creation_input_tokens");
   return {
     inputTokens: anthropic
@@ -42,6 +45,7 @@ const file = process.env.NIGHTLY_USAGE_FILE;
 if (file) {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
+    const at = new Date().toISOString();
     const response = await original(input, init);
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (HOSTS.has(url.host) && response.ok) {
@@ -51,7 +55,9 @@ if (file) {
       response
         .clone()
         .text()
-        .then((text) => appendFileSync(file, `${JSON.stringify({ model, ...usageOf(text) })}\n`))
+        .then((text) =>
+          appendFileSync(file, `${JSON.stringify({ model, at, ...usageOf(text) })}\n`),
+        )
         // A request the caller cancels half way ends its copy of the stream too; it counted what it read.
         .catch(() => {});
     }

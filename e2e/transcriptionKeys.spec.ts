@@ -7,7 +7,9 @@ import {
   closeSettings,
   createDataFolder,
   dismissChatSetup,
+  firstTranscriptLine,
   launchApp,
+  openMeetingSheet,
   openSettings,
   pointAndClick,
   recordMeeting,
@@ -79,15 +81,16 @@ const keyRow = (settings: Locator, route: CloudTranscriptionRoute) =>
     .getByTestId("your-providers")
     .locator(`[data-testid="transcription-key-row"][data-host="${route}"]`);
 
-/** Starts recording a meeting, past the first recording's sheet, which names the route chosen. */
-async function recordOn(window: Page, provider: string): Promise<void> {
-  const start = await recordMeeting(window);
-  await start.getByTestId("meeting-start-record").click();
-  const sheet = window.getByTestId("meeting-notice");
-  await expect(sheet.getByTestId("meeting-route")).toContainText(`Transcribe with ${provider}`);
-  await sheet.getByTestId("meeting-notice-start").click();
-  await expect(sheet).toBeHidden();
-  await expect(window.getByTestId("meeting-bar")).toHaveAttribute("data-status", "recording");
+/**
+ * Records a meeting on the cloud service chosen in Settings › AI, at once, the first time too
+ * (#3762): nothing over the meeting's control says it is transcribed on this computer.
+ */
+async function recordOnCloud(window: Page): Promise<void> {
+  await recordMeeting(window);
+  await firstTranscriptLine(window);
+  await expect(
+    window.getByTestId("meeting-foot-tip").filter({ hasText: "on this computer" }),
+  ).toHaveCount(0);
 }
 
 let dataDir: string;
@@ -205,7 +208,7 @@ test("a Soniox key set up from Defaults' Meeting transcription is checked, chose
   await expect(meetings.getByTestId("transcription-key-row")).toHaveCount(0);
   await closeSettings(window);
 
-  await recordOn(window, "Soniox");
+  await recordOnCloud(window);
   await expect.poll(async () => (await bridge(window)).meetings[0]?.cloud).toBe("soniox");
 });
 
@@ -265,7 +268,7 @@ test("Deepgram set up from Meeting transcription's picker takes Cloudflare's add
   );
   await closeSettings(window);
 
-  await recordOn(window, "Deepgram");
+  await recordOnCloud(window);
   await expect.poll(async () => (await bridge(window)).meetings[0]?.cloud).toBe("deepgram");
 });
 
@@ -392,8 +395,8 @@ test("a provider row whose key also transcribes says both uses, and ⌘K and a r
   await closeSettings(window);
 
   // The pretend service turns the key away: Check the key opens its row, the key field focused.
-  await recordOn(window, "Soniox");
-  const refused = window.getByTestId("meeting-bar").getByTestId("meeting-line-cloud");
+  await recordMeeting(window);
+  const refused = (await openMeetingSheet(window)).getByTestId("meeting-line-cloud");
   await expect(refused).toContainText("Soniox didn’t accept the key.", { timeout: 20_000 });
   await refused.getByTestId("meeting-line-change-key").click();
   await expect(settings).toHaveAttribute("data-page", "ai");

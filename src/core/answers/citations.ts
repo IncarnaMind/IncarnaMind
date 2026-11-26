@@ -57,7 +57,7 @@ import { readableQuote, readableQuoteText } from "../../shared/readableQuote";
 import { type LinePart, markWords, partsOf, speakerMark, speakerOf } from "../../shared/speakers";
 import { foldRadicals, normaliseText } from "../../shared/text";
 import { TURN_PAUSE_MS } from "../../shared/transcriptTurns";
-import { parseCueTarget, sameRun } from "../../shared/units";
+import { parseCueTarget, sameRun, transcriptCueLines } from "../../shared/units";
 import {
   type AskedQuote,
   type ChangedQuote,
@@ -918,8 +918,13 @@ export function recheckCitation(
   const quoted = input.contentHash ?? "";
   if (quoted === "" || now.contentHash === null || now.contentHash === quoted) return now;
   const inQuoted = checkInVersion(documents, input, quoted);
+  const grew =
+    now.check === "found" &&
+    input.location?.kind === "time" &&
+    onlyGrew(documents, input.documentId, quoted, now.contentHash);
   return {
     ...now,
+    ...(grew && { grew: true as const }),
     inQuotedVersion:
       inQuoted &&
       withQuotedWords(
@@ -936,6 +941,40 @@ export function recheckCitation(
         ? changedQuote(documents, input, quoted, now.contentHash)
         : null,
   };
+}
+
+/**
+ * Whether version `after` of a Transcript holds every line of version `before` as it was, in its
+ * order, with only lines added after them, as a meeting's Transcript grows while it records. A line
+ * edited, split, dropped, moved or given another speaker is a change; so is any other Document, and
+ * a version whose text is no longer kept.
+ */
+function onlyGrew(
+  documents: RecheckDocuments,
+  documentId: string,
+  before: string,
+  after: string,
+): boolean {
+  const linesOf = (version: string) => {
+    const units = documents.pageTexts(documentId, version, null, null);
+    return units.every((unit) => unit.kind === "cues") ? transcriptCueLines(units) : [];
+  };
+  const was = linesOf(before);
+  const now = linesOf(after);
+  return (
+    was.length > 0 &&
+    now.length >= was.length &&
+    was.every((line, index) => {
+      const kept = now[index];
+      return (
+        kept !== undefined &&
+        kept.startMs === line.startMs &&
+        kept.endMs === line.endMs &&
+        kept.text === line.text &&
+        kept.label === line.label
+      );
+    })
+  );
 }
 
 function checkInVersion(

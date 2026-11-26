@@ -22,7 +22,6 @@ import {
   setWindowSize,
   slideSelect,
   splitFromTabMenu,
-  startRecording,
 } from "./app";
 
 /*
@@ -366,7 +365,7 @@ test("the core fills a call's notes while its tab is hidden: ⌘Z after coming b
     await setWindowSize(app, window, 1600, 900);
     await dismissChatSetup(window);
     await selectLocalChatModel(window);
-    await startRecording(window, await recordMeeting(window), { notice: true });
+    await recordMeeting(window);
     await firstTranscriptLine(window);
     const notes = shownEditor(window);
     await pointAndClick(window, notes);

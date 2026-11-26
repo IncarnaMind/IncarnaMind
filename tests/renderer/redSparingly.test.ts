@@ -37,7 +37,7 @@ const RED_RULES = [
   'src/styles.css .home-recent-state[data-tone="error"]',
   // The outline of a picture a contradicted quote was read from.
   'src/viewer/viewer.css [data-quote-tone="contradicted"]',
-  'src/viewer/viewer.css [data-quote-tone="contradicted"] .quote-highlight, .highlight',
+  'src/viewer/viewer.css [data-quote-tone="contradicted"] :is(.quote-highlight, .highlight)',
   'src/viewer/viewer.css [data-quote-tone="contradicted"] td.viewer-cell--quote',
   "src/viewer/viewer.css .quote-mark--contradicted",
   "src/styles.css .recording-dot",

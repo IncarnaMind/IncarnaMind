@@ -218,4 +218,56 @@ describe("writing into a Note of empty lines (#3759)", () => {
       else expect(exactly(client)).toEqual(before);
     }
   }, 120_000);
+
+  // protects=an agent writing into a Note with no paragraphs, as Write notes does after Stop, is told the one name that writes there, ¶0+, by the paragraph field it fills in and by each refusal of another name, in English and Chinese, and ¶0+ then writes; fails_when=the field or a refusal names only ¶3, ¶3+ and ¶+, which an empty Note can't take, so the agent guesses
+  it("tells an agent that names a paragraph an empty Note hasn't to write there with ¶0+", async () => {
+    const { core } = await startAgentsCore(replyingModel());
+    await core.setAgentsEnabled(true);
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: ["all"],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const { tools } = (await agent.listTools()) as {
+      tools: {
+        name: string;
+        inputSchema: {
+          properties?: {
+            changes?: { items?: { properties?: { paragraph?: { description?: string } } } };
+          };
+        };
+      }[];
+    };
+    const field = tools.find((tool) => tool.name === "propose_changes")?.inputSchema.properties
+      ?.changes?.items?.properties?.paragraph?.description;
+    expect(field).toContain("¶0+");
+
+    const said = {
+      en: {
+        "¶1": "¶1 isn’t in the note: it has no paragraphs to name. Write into it with ¶0+.",
+        "¶3": "¶3 isn’t in the note: it has no paragraphs to name. Write into it with ¶0+.",
+        "¶+": "¶+ adds after the change before it: name a paragraph first, or write at the top of the note, as into an empty one, with ¶0+.",
+      },
+      "zh-CN": {
+        "¶1": "笔记中没有 ¶1：这篇笔记没有可命名的段落。请用 ¶0+ 写入。",
+        "¶3": "笔记中没有 ¶3：这篇笔记没有可命名的段落。请用 ¶0+ 写入。",
+        "¶+": "¶+ 会添加在上一处修改之后，先写明一个段落；要写在笔记开头（空笔记也一样），请用 ¶0+。",
+      },
+    } as const;
+    for (const language of ["en", "zh-CN"] as const) {
+      await core.updateSettings({ user: { language } });
+      const mind = await core.createMind({});
+      const client = await connectToMind(core, mind.id);
+      writeMind(client, [heading(1, ""), note("")]);
+      await client.settled();
+      for (const [name, refusal] of Object.entries(said[language])) {
+        const result = await propose(agent, mind.id, [{ paragraph: name, text: SUMMARY }]);
+        expect(result.isError, name).toBe(true);
+        expect(result.content?.[0]?.text, `${language} ${name}`).toBe(refusal);
+      }
+      const written = await propose(agent, mind.id, [{ paragraph: "¶0+", text: SUMMARY }]);
+      expect(written.structuredContent?.status, language).toBe("waiting");
+    }
+  }, 120_000);
 });

@@ -41,7 +41,7 @@ const mindsNamed = (window: Page, ...titles: string[]) =>
   }, titles);
 
 for (const language of LANGUAGES) {
-  test(`after Record a meeting, Start recording has the focus, Enter starts and Esc keeps the Mind as a note (${language})`, async () => {
+  test(`after Record a meeting, the first time too, it records at once and the notes have the focus, with no start block or card (${language})`, async () => {
     const { app, window } = await launchApp(dataDir);
     await dismissChatSetup(window);
     await setWindowSize(app, window, 1100, 720);
@@ -49,19 +49,20 @@ for (const language of LANGUAGES) {
 
     await pointAndClick(window, window.getByTestId("plus-menu"));
     await pointAndClick(window, window.getByTestId("plus-record-meeting"));
-    const start = window.getByTestId("meeting-start");
-    await expect(start).toBeVisible();
-    await expect(start.getByTestId("meeting-start-record")).toBeFocused();
-
-    await window.keyboard.press("Escape");
-    await expect(start).toHaveCount(0);
+    await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
     await expect(window.locator('[data-testid="mind-editor"]:visible')).toBeFocused();
-    expect(await (await coreOf(window)).evaluate((core) => core.listMeetings())).toEqual([]);
+    await expect(window.getByTestId("meeting-start")).toHaveCount(0);
+    await expect(window.locator("dialog[open]")).toHaveCount(0);
+    expect(
+      (await (await coreOf(window)).evaluate((core) => core.listMeetings())).map(
+        (each) => each.status,
+      ),
+    ).toEqual(["recording"]);
     await app.close();
   });
 }
 
-test("after Record a meeting by keyboard, Enter starts the recording, through the one-time notice", async () => {
+test("after Record a meeting by keyboard, it records at once and what is typed next goes into the notes", async () => {
   const { app, window } = await launchApp(dataDir);
   await dismissChatSetup(window);
   await setWindowSize(app, window, 1100, 720);
@@ -70,11 +71,13 @@ test("after Record a meeting by keyboard, Enter starts the recording, through th
   await window.keyboard.press("Enter");
   await window.getByTestId("plus-record-meeting").focus();
   await window.keyboard.press("Enter");
-  const record = window.getByTestId("meeting-start-record");
-  await expect(record).toBeFocused();
+  await expect(window.getByTestId("meeting-foot")).toHaveAttribute("data-status", "recording");
+  const notes = window.locator('[data-testid="mind-editor"]:visible');
+  await expect(notes).toBeFocused();
 
-  await window.keyboard.press("Enter");
-  await expect(window.getByTestId("meeting-notice")).toBeVisible();
+  await window.keyboard.type("Agenda");
+  await expect(notes).toContainText("Agenda");
+  await expect(window.locator("dialog[open]")).toHaveCount(0);
   await app.close();
 });
 
