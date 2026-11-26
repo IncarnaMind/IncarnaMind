@@ -499,7 +499,7 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       signal: new AbortController().signal,
     });
 
-  // protects=a request keeps its conversation in the Note's own working folder, started under IncarnaMind's id and continued with it, with every Tool of IncarnaMind's server beside Claude Code's own abilities on the User's own settings: no mode, settings, setting sources, tool list or switch of IncarnaMind's, its questions asked of IncarnaMind, its instructions added to Claude Code's own from a private file (#3653); fails_when=a follow-up starts a new conversation, runs in a shared folder, keeps no session, or a flag of the sealed check run holds the conversation
+  // protects=a request keeps its conversation in the Note's own working folder, started under IncarnaMind's id and continued with it, with every Tool of IncarnaMind's server there from its first turn (#3753) beside Claude Code's own abilities on the User's own settings: no mode, settings, setting sources, tool list or switch of IncarnaMind's, its questions asked of IncarnaMind, its instructions added to Claude Code's own from a private file (#3653); fails_when=a follow-up starts a new conversation, runs in a shared folder, keeps no session, a flag of the sealed check run holds the conversation, or its Tools wait behind Claude Code's tool search
   it("starts the conversation in the Note's folder with Claude Code's own abilities, then continues it", async () => {
     useClaude({ run: session([init(["Bash", "mcp__incarnamind__read_mind"]), done]) });
     const conversations = await mkdtemp(join(tmpdir(), "own-ai-conversations-"));
@@ -537,6 +537,10 @@ describe("a request at a Note's foot, in the Note's own conversation (ADR-0034)"
       );
       expect(seen?.instructions).toEqual({ mode: 0o600, text: INSTRUCTIONS });
       expect(seen?.settings.mode).toBe(0o600);
+      // Every Tool in the first turn, none behind Claude Code's tool search (#3753).
+      expect(JSON.parse(seen?.settings.text ?? "{}")).toEqual({
+        mcpServers: { incarnamind: { type: "stdio", ...SERVER, alwaysLoad: true } },
+      });
       expect(args.join(" ")).not.toContain(SERVER.env.INCARNAMIND_AGENT_TOKEN);
       expect(options.cwd).toBe(join(conversations, KEY));
 
