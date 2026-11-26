@@ -179,12 +179,12 @@ function FoundList({
   const [propose, setPropose] = useState(true);
   // A press still connecting when the User goes back or on moves them nowhere once it lands.
   const here = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    here.current = true;
+    return () => {
       here.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   const first = firstTicked(found, pairings);
   const ticked = ticks ?? new Set(first ? [first] : []);
   const chosen = notConnected(found, pairings).filter((client) => ticked.has(client.id));
