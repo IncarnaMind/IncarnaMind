@@ -3,13 +3,12 @@
  * newest Note an agent connected now wrote, with its check as Home reads it. Both come from what
  * is there, the pairings and the Notes' own record of who wrote them, so nothing new is kept.
  */
-import { useEffect, useState } from "react";
-import * as Y from "yjs";
+import { useEffect, useRef, useState } from "react";
 import type { AgentClient, AgentPairing } from "../../core/api";
 import { isListedMind } from "../../shared/listedMinds";
-import { noteWriterOf } from "../../shared/noteWriter";
 import { core } from "./core";
-import { homeReading, type NoteState } from "./noteState";
+import { createAgentNoteCache } from "./homeNoteStates";
+import type { NoteState } from "./noteState";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
@@ -92,17 +91,25 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
   const documents = useAppStore((state) => state.documents);
   const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
   const library = useAppStore((state) => state.library);
-  const [saves, setSaves] = useState(0);
   const [note, setNote] = useState<AgentNote | null>(null);
+  const [dirtyVersion, setDirtyVersion] = useState(0);
+  const cacheRef = useRef<ReturnType<typeof createAgentNoteCache> | null>(null);
   useEffect(() => {
+    const cache = createAgentNoteCache({
+      readMindContents: (mindIds) => core.readMindContents(mindIds),
+    });
+    cacheRef.current = cache;
     let pause: ReturnType<typeof setTimeout> | undefined;
-    const stop = core.on("mind.update", () => {
+    const stop = core.on("mind.update", ({ mindId }) => {
+      cache.markDirty(mindId);
       clearTimeout(pause);
-      pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
+      pause = setTimeout(() => setDirtyVersion((count) => count + 1), SAVED_MS);
     });
     return () => {
       clearTimeout(pause);
       stop();
+      cache.dispose();
+      cacheRef.current = null;
     };
   }, []);
   const ids = new Set(pairings.map((pairing) => pairing.id));
@@ -115,48 +122,22 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
           .filter((mind) => mind.createdAt >= since && isListedMind(mind))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
           .slice(0, NEWEST);
-  const wanted = `${[...ids].join(",")}|${candidates.map((mind) => mind.id).join(",")}`;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the pairings and the Notes.
+  const wanted = `${[...ids].join(",")}|${candidates.map((mind) => `${mind.id}:${mind.folderId ?? ""}`).join(",")}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the pairings, Notes and Folders.
   useEffect(() => {
-    if (candidates.length === 0) {
-      setNote(null);
-      return;
-    }
+    const cache = cacheRef.current;
+    if (!cache) return;
     let current = true;
-    core
-      .readMindContents(candidates.map((mind) => mind.id))
-      .then((snapshots) => {
-        const byId = new Map(snapshots.map((snapshot) => [snapshot.mindId, snapshot]));
-        for (const mind of candidates) {
-          const snapshot = byId.get(mind.id);
-          if (!snapshot) continue;
-          const doc = new Y.Doc();
-          let pairingId: string | undefined;
-          try {
-            Y.applyUpdate(doc, snapshot.state);
-            const writer = noteWriterOf(doc);
-            // A copy carries its source's record: only the Note the record names is the agent's.
-            if (writer?.mindId === mind.id) pairingId = writer.pairingId;
-          } finally {
-            doc.destroy();
-          }
-          if (pairingId === undefined || !ids.has(pairingId)) continue;
-          const reading = homeReading(snapshot, {
-            documents,
-            keptCitationTexts,
-            library,
-            folderId: mind.folderId,
-          });
-          if (current) setNote({ mindId: mind.id, state: reading.state });
-          return;
-        }
-        if (current) setNote(null);
+    void cache
+      .read(candidates, ids, { documents, keptCitationTexts, library })
+      .then((found) => {
+        if (current) setNote(found);
       })
       .catch(useAppStore.getState().reportError);
     return () => {
       current = false;
     };
-  }, [wanted, documents, keptCitationTexts, library, saves]);
+  }, [wanted, documents, keptCitationTexts, library, dirtyVersion]);
   return note;
 }
 
