@@ -1059,6 +1059,10 @@ describe("outside agents", () => {
     // read_request too: the User's one-line request names nothing a search for Tools would find (#3419).
     const alwaysLoaded = tools.filter((tool) => tool._meta?.["anthropic/alwaysLoad"] === true);
     expect(alwaysLoaded.map((tool) => tool.name).sort()).toEqual(["ask", "read_request", "search"]);
+    // Where a client loads every Tool at once, as a Note's conversation does, a new Note stays
+    // behind its tool search: asked to write a page in a Note, the AI made a new one (#3753).
+    const searchedFor = tools.filter((tool) => tool._meta?.["anthropic/alwaysLoad"] === false);
+    expect(searchedFor.map((tool) => tool.name)).toEqual(["create_mind"]);
   });
 
   it("ask: IncarnaMind's own Answer, its Citations checked and given as tokens", async () => {

@@ -356,10 +356,21 @@ export function createOwnAi({
         if (own) places = { ...places, folders: [cwd, await realpath(cwd).catch(() => cwd)] };
         const configFile = join(scratch, "mcp.json");
         const { command: server, args, env } = request.server;
+        // A Note's conversation has its Tools in its first turn: deferred, they cost each request a
+        // tool search with no content first (#3753). Only this run pays for their definitions in
+        // each call; a sealed check has no tool search, and the agents the User runs keep their own.
         await writeFile(
           configFile,
           JSON.stringify({
-            mcpServers: { [SERVER]: { type: "stdio", command: server, args, env } },
+            mcpServers: {
+              [SERVER]: {
+                type: "stdio",
+                command: server,
+                args,
+                env,
+                ...(own && { alwaysLoad: true }),
+              },
+            },
           }),
           { mode: 0o600 },
         );

@@ -422,6 +422,60 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(last?.documentsFound).toBe(1);
   });
 
+  // protects=with no words of the AI's own between its steps, the line moves with each step it takes, from the step itself: a call as it starts, what it names once it ends, thinking between them, then the reply's first words; and the AI isn't asked to write a line before each step, which made each request slower (#3753); fails_when=the line stands on one step while the AI takes the next, or the instructions ask for a line before each step again
+  it("moves the line with each step when the AI writes nothing between them", async () => {
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      request.progress?.({ kind: "thinking" });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "read_mind" });
+      await pause(300);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      await pause(300);
+      request.progress?.({ kind: "thinking" });
+      await pause(300);
+      request.progress?.({ kind: "tool", name: "propose_changes" });
+      await pause(300);
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: read.version,
+          changes: [{ paragraph: "¶2", text: "Fares rose by twelve percent." }],
+        },
+      });
+      await pause(300);
+      request.progress?.({ kind: "said", text: "I changed the fares to twelve percent." });
+      await pause(300);
+      return { kind: "finished", reply: "I changed the fares to twelve percent." };
+    });
+    const { core, mindId, turns, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "the fares rose by twelve percent" });
+    await ended();
+    const lines = turns
+      .filter((turn) => turn.state === "working")
+      .map((turn) => JSON.stringify(turn.doing))
+      .filter((line, at, all) => line !== all[at - 1]);
+    const steps = [
+      { kind: "thinking" },
+      { kind: "call", tool: "read_mind", summary: "", count: 0 },
+      { kind: "call", tool: "read_mind", summary: "Ferry notes", count: 1 },
+      { kind: "thinking" },
+      { kind: "call", tool: "propose_changes", summary: "", count: 0 },
+      { kind: "call", tool: "propose_changes", summary: "Ferry notes", count: 1 },
+      { kind: "said", text: "I changed the fares to twelve percent." },
+    ].map((step) => JSON.stringify(step));
+    let from = 0;
+    for (const step of steps) {
+      const at = lines.indexOf(step, from);
+      expect(at, `${step} after ${lines.slice(0, from).join(", ")}`).toBeGreaterThanOrEqual(from);
+      from = at + 1;
+    }
+    expect(run.runs[0]?.instructions).not.toMatch(/before each step/i);
+  });
+
   // protects=the line above the input shows no internal wording: a line of the AI's that names a Tool, an id, one of the Tools' id names or a path isn't what it shows, nor a tool of the AI's own known only by its name, and every request asks for plain words in the User's language (#3762); fails_when=the User reads "read_mind", a mindId or "ToolSearch" while the AI works
   it("keeps Tool names and ids off the line while it works", async () => {
     const run = runner(async (_agent, request) => {
@@ -455,7 +509,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       expect.objectContaining({ kind: "own", action: { kind: "other", value: "ToolSearch" } }),
     );
     expect(run.runs[0]?.prompt).toContain(
-      "The lines you write as you work are shown to the User: plain words, no Tool names, ids or paths, in their words' language, else in English.",
+      "Your reply is shown to the User: plain words, no Tool names, ids or paths, in their words' language, else in English.",
     );
   });
 
