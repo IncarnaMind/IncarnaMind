@@ -1,6 +1,8 @@
 import type { ElectronApplication } from "@playwright/test";
 
 interface SlowCheck {
+  hold: boolean;
+  holdSort: boolean;
   holdCite: boolean;
   holdAsked: boolean;
   holdCellFinish: boolean;
@@ -10,7 +12,7 @@ interface SlowCheck {
 
 export async function holdModel(
   app: ElectronApplication,
-  which: "holdCite" | "holdAsked" | "holdCellFinish",
+  which: "hold" | "holdSort" | "holdCite" | "holdAsked" | "holdCellFinish",
   hold: boolean,
 ): Promise<void> {
   await app.evaluate(

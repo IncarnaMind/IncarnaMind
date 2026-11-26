@@ -1,14 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { LayoutGroup } from "../../../../core/api";
+import { GROUP_MIN_WIDTH } from "../../assistantPlace";
 import { useExportDialog } from "../../exportDialog";
 import { useT } from "../../i18n";
-import {
-  activeTabOf,
-  currentTabOf,
-  focusedGroupOf,
-  GROUP_MIN_WIDTH,
-  useCardWidth,
-} from "../../layoutSlice";
+import { activeTabOf, currentTabOf, focusedGroupOf, useCardWidth } from "../../layoutSlice";
 import { useShareDialog } from "../../shareDialog";
 import { useAppStore } from "../../store";
 import { forgetTabCloseFocus, resumeTabCloseFocus } from "../../tabFocus";
@@ -206,6 +201,7 @@ function GroupDivider({
   onCommit(shares: number[]): void;
 }) {
   const t = useT();
+  const lead = useCardWidth((state) => state.lead);
   const before = shares[index - 1] ?? 0;
   const pair = before + (shares[index] ?? 0);
   const sharesWith = (px: number) => {
@@ -215,15 +211,16 @@ function GroupDivider({
     return next;
   };
   const pairPx = Math.round(pair * room);
-  // Two groups too narrow for their minimum each keep half.
-  const min = Math.min(GROUP_MIN_WIDTH, Math.floor(pairPx / 2));
+  // Two groups too narrow for their minimum each keep half; the first keeps its lead as well.
+  const min = Math.min(GROUP_MIN_WIDTH + (index === 1 ? lead : 0), Math.floor(pairPx / 2));
+  const minAfter = Math.min(GROUP_MIN_WIDTH, Math.floor(pairPx / 2));
   return (
     <ResizeRod
       testId="group-divider"
       label={t("tabs.resize")}
       width={Math.round(before * room)}
       min={min}
-      max={pairPx - min}
+      max={pairPx - minAfter}
       direction={1}
       onPreview={(px) => onPreview(sharesWith(px))}
       onRelease={onRelease}

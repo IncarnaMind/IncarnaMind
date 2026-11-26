@@ -186,6 +186,7 @@ import {
   type MindExportPreview,
   type NetworkTrafficId,
   NOT_IN_A_FOLDER_ID,
+  NOTE_MODES,
   NOTE_TAB_NODE,
   type OlderKeyJob,
   type OpenAtLogin,
@@ -7611,6 +7612,7 @@ export function createCore(adapters: CoreAdapters): Core {
     heldBack: hostedHeldBack,
     onReachChange: onHostedReachChange,
     turned: (turn) => events.emit("agents.noteTurn", turn),
+    moded: (mindId) => events.emit("agents.noteMode", { mindId }),
     titleOf: hostedTitleOf,
     liveMeeting: liveMeetingOf,
     language: () => LANGUAGE_NAMES[settings.get().language],
@@ -10241,6 +10243,11 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       ownAiConversations.stop(mindId);
     },
+    discardInNote: async (mindId, turnId) => {
+      if (typeof mindId !== "string" || typeof turnId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.discard(mindId, turnId);
+    },
     answerInNote: async (mindId, questionId, answer) => {
       if (
         typeof mindId !== "string" ||
@@ -10265,11 +10272,24 @@ export function createCore(adapters: CoreAdapters): Core {
         throw new InvalidInputError({ key: "error.agent.askRequest" });
       return ownAiConversations.kept(mindId);
     },
+    startNewNoteConversation: async (mindId) => {
+      if (typeof mindId !== "string")
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      ownAiConversations.startNew(mindId);
+    },
     noteModels: async (mindId) => {
       if (typeof mindId !== "string")
         throw new InvalidInputError({ key: "error.agent.askRequest" });
-      const { models, ran } = ownAiConversations.models(mindId);
-      return { models: [...models], ran };
+      const { models, ...rest } = ownAiConversations.models(mindId);
+      return { models: [...models], ...rest };
+    },
+    chooseNoteMode: async (mindId, mode) => {
+      if (
+        typeof mindId !== "string" ||
+        (mode !== null && !(NOTE_MODES as readonly string[]).includes(mode))
+      )
+        throw new InvalidInputError({ key: "error.agent.askRequest" });
+      await ownAiConversations.chooseMode(mindId, mode);
     },
     ownAiRunsHere: async () => (await adapters.ownAi?.installed("claude-code")) ?? false,
     frontAgent: (pairingId) => agentAsk.front(pairingId),

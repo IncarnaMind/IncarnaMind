@@ -144,7 +144,7 @@ test("a request at a Note's foot changes the selected words at once, says what i
     const pill = box.getByTestId("note-ask-pill");
     const problem = box.getByTestId("note-ask-problem");
     const words = box.getByTestId("note-ask-pill-open");
-    // Show conversation sits at the Note's top right, beside its menu.
+    // Show conversation sits in the Note's tab strip, beside its menu (#3765).
     const toggle = window.locator(
       '[data-testid="tab-group"][data-focused] [data-testid="note-ask-conversation-toggle"]',
     );
@@ -154,11 +154,12 @@ test("a request at a Note's foot changes the selected words at once, says what i
       await window.keyboard.press("Enter");
     };
 
-    // The Note has its own input, where the pill would have asked.
-    await expect(input).toHaveAttribute("placeholder", "Describe a change…");
+    // The Note has its own input, where the pill would have asked: one placeholder for a question
+    // and a change (#3765).
+    await expect(input).toHaveAttribute("placeholder", "Ask, or describe a change…");
     await expect(window.getByTestId("own-ai-pill")).toHaveCount(0);
     await both(app, window, "note-ask-input", async () => {
-      await expect(input).toHaveAttribute("placeholder", "描述要做的修改…");
+      await expect(input).toHaveAttribute("placeholder", "提问，或描述要做的修改…");
     });
 
     // Words selected and a change asked: it lands at once, in them alone, nothing opened or copied.
@@ -216,20 +217,18 @@ test("a request at a Note's foot changes the selected words at once, says what i
     await pointAndClick(window, stop);
     await expect(pill).toHaveCount(0);
 
-    // A failure says why in one line.
+    // A failure says why in one line, with what to do; the words wait in the input.
     await nextRun("signed-out");
     await send("Make it shorter");
-    await expect(problem).toHaveText(
-      "Claude Code isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
-    );
+    await expect(problem).toHaveText("Claude Code isn’t signed in on this computer. · Sign in");
+    await expect(input).toHaveValue("Make it shorter");
     await both(app, window, "note-ask-failure", async () => {
-      await expect(problem).toHaveText(
-        "Claude Code 尚未在这台电脑上登录。在终端中登录后，再发送一次。",
-      );
+      await expect(problem).toHaveText("Claude Code 尚未在这台电脑上登录。· 登录");
     });
 
     // An explanation answers where the User asked, and changes nothing.
     await nextRun("explain");
+    await input.fill("");
     await send("What does this count?");
     await expect(pill).toHaveText("It counts the ship calls the harbour handled in 2025.");
     // Pressed, the line opens the conversation upward in the box, at that reply: the reply is in

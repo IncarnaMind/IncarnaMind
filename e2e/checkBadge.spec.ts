@@ -98,7 +98,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked /);
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
-  // It sits with the Note's own controls at its top right, never past the Mind's pane (#3677).
+  // It sits with the Note's own controls in its tab strip (#3765), never past the Mind's pane.
   const pane = await window.getByTestId("mind-pane").boundingBox();
   const box = await badge.boundingBox();
   if (!pane || !box) throw new Error("The badge isn't drawn.");

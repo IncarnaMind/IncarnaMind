@@ -2992,6 +2992,34 @@ export async function expectFirstTabAtCardStart(window: Page, firstTab: Locator)
 }
 
 /**
+ * Chooses `item` (its test ID) in the menu of the Note's conversation's name, in `scope`, as a
+ * person does: the name pressed, then the item (#3765).
+ */
+export async function fromConversationMenu(
+  window: Page,
+  scope: Locator,
+  item: string,
+): Promise<void> {
+  const menu = await openConversationMenu(window, scope);
+  await pointAndClick(window, menu.getByTestId(item));
+}
+
+/** Opens the conversation's name menu in `scope` as a person does, and returns it. */
+export async function openConversationMenu(window: Page, scope: Locator): Promise<Locator> {
+  const menu = scope.getByTestId("conversation-menu");
+  // While a request runs, the box opened upward grows with each step it shows, its name moving up
+  // under a press: pressed again until it opens, until the box keeps still as it grows (#3765).
+  await expect(async () => {
+    if (!(await menu.isVisible())) {
+      await motionSettled(window);
+      await pointAndClick(window, scope.getByTestId("conversation-name").first());
+    }
+    await expect(menu.getByRole("menuitem").first()).toBeVisible({ timeout: 2000 });
+  }).toPass();
+  return menu;
+}
+
+/**
  * Slides the mouse onto an element, in steps, as a person does, and clicks it:
  * with the left button, or the right to open its menu.
  */
@@ -3124,6 +3152,70 @@ export async function checkCard(
   // It grows from the badge: a click while it moves could land on the page behind.
   await motionSettled(window);
   return card;
+}
+
+/** What moved in a layout shift no recent input caused: its owner's test id, and its box before and after. */
+export interface ShiftedPart {
+  testId: string;
+  /** Inside the check card, the card's own box aside. */
+  inCard: boolean;
+  from: [number, number, number, number];
+  to: [number, number, number, number];
+}
+
+/**
+ * Starts collecting the layout shifts the browser draws that no recent input caused, as the feel
+ * check counts them; the function it gives back stops and says what moved.
+ */
+export async function watchShifts(window: Page): Promise<() => Promise<ShiftedPart[]>> {
+  await window.evaluate(() => {
+    type Entry = {
+      hadRecentInput: boolean;
+      sources: { node: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[];
+    };
+    const holder = globalThis as unknown as {
+      shifted: ShiftedPart[];
+      shifting?: PerformanceObserver;
+      keepShifts(entries: PerformanceEntryList): void;
+    };
+    const box = (rect: DOMRectReadOnly): [number, number, number, number] => [
+      Math.round(rect.x),
+      Math.round(rect.y),
+      Math.round(rect.width),
+      Math.round(rect.height),
+    ];
+    holder.shifted = [];
+    holder.shifting?.disconnect();
+    holder.keepShifts = (entries) => {
+      for (const entry of entries as unknown as Entry[]) {
+        if (entry.hadRecentInput) continue;
+        for (const source of entry.sources) {
+          const element =
+            source.node instanceof Element ? source.node : (source.node?.parentElement ?? null);
+          holder.shifted.push({
+            testId: element?.closest("[data-testid]")?.getAttribute("data-testid") ?? "",
+            inCard: element?.closest(".check-card") != null && !element.matches(".check-card"),
+            from: box(source.previousRect),
+            to: box(source.currentRect),
+          });
+        }
+      }
+    };
+    holder.shifting = new PerformanceObserver((list) => holder.keepShifts(list.getEntries()));
+    holder.shifting.observe({ type: "layout-shift" });
+  });
+  return () =>
+    window.evaluate(() => {
+      const holder = globalThis as unknown as {
+        shifted: ShiftedPart[];
+        shifting?: PerformanceObserver;
+        keepShifts(entries: PerformanceEntryList): void;
+      };
+      // What the browser drew but has not delivered yet.
+      if (holder.shifting) holder.keepShifts(holder.shifting.takeRecords());
+      holder.shifting?.disconnect();
+      return holder.shifted;
+    });
 }
 
 /**
@@ -4362,9 +4454,32 @@ export async function leaveText(window: Page): Promise<void> {
  * one it lists first, the last one used.
  */
 export async function exportFromMenu(window: Page, format?: ExportFormat): Promise<void> {
-  await pointAndClick(window, window.getByTestId("export-mind"));
   const menu = window.getByTestId("export-menu");
+  const more = pageMenuButton(window);
+  // A strip too tight for Export keeps it in the Note's ⋯ (#3765).
+  const button = window.locator('[data-testid="export-mind"]:visible');
+  const throughMore = (await button.count()) === 0;
+  if (!throughMore) await pointAndClick(window, button);
+  else {
+    await pointAndClick(window, more);
+    await pointAndClick(window, window.getByTestId("mind.exportMenu"));
+  }
   await expect(menu).toBeVisible();
+  // Through the ⋯, it opens under the ⋯.
+  if (throughMore) {
+    await expect
+      .poll(async () => {
+        const [at, box] = [await more.boundingBox(), await menu.boundingBox()];
+        return (
+          !!at &&
+          !!box &&
+          box.y >= at.y + at.height - 1 &&
+          box.x <= at.x + at.width &&
+          box.x + box.width >= at.x
+        );
+      })
+      .toBe(true);
+  }
   if (!format) {
     await pointAndClick(window, menu.getByRole("menuitem").first());
     return;

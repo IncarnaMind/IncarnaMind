@@ -13578,11 +13578,15 @@ export type NoteTurnProblem =
   | "update";
 
 /**
- * How a request at a Note's foot went to the User's own AI: "started", in the background; "link",
- * no agent can run it so and it goes by the link; "problem", one can't run now, with why.
+ * How a request at a Note's foot went to the User's own AI: "started", in the background; "sent",
+ * into the Note's request running already, whose AI takes it at its next step (#3765); "link", no
+ * agent can run it so and it goes by the link; "problem", one can't run now, with why.
  */
 export type NoteRequestStart =
   | { kind: "started"; pairing: AgentPairing; turnId: string }
+  | { kind: "sent"; pairing: AgentPairing; turnId: string }
+  /** A request about words selected, while one of the Note's runs: it is not sent (#3765). */
+  | { kind: "busy"; pairing: AgentPairing }
   | { kind: "link" }
   | {
       kind: "problem";
@@ -13618,7 +13622,11 @@ export interface NoteTurn {
   quote: string;
   /** The agent's last words. */
   reply: string;
-  outcome: "working" | "landed" | "stopped" | "failed";
+  /**
+   * "waiting": sent while another request ran, and not yet taken by its AI (#3765); "unsent": that
+   * run ended before its AI took it, so it never reached the AI.
+   */
+  outcome: "working" | "landed" | "stopped" | "failed" | "waiting" | "unsent";
   problem: NoteTurnProblem | null;
   /** ISO 8601, UTC. */
   at: string;
@@ -13636,6 +13644,8 @@ export interface NoteTurn {
    * ask nothing. Null when it named none.
    */
   mode: string | null;
+  /** The User started a new conversation after this turn: the AI carries none of the turns before (#3765). */
+  newAfter: boolean;
 }
 
 /**
@@ -13730,21 +13740,16 @@ export interface NoteQuestion {
 export type NoteAnswered = NoteAnswer | "stopped" | "closed" | "refused";
 
 /**
- * A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document, its quote, and
- * where the quote stands in that Document now, to open it there: the Passage and version it was
- * found in, its Units (pages, slides…, from 1; null for a whole file) and its Location in them, a
- * Transcript's being its line's time (`{ kind: "time", from, to, speaker? }`, ms into the call).
+ * A Citation in a reply at a Note's foot, as IncarnaMind gave it: its Document's name, its quote,
+ * and the Citation a Note would hold, found in that Document now: its card, and the place to open
+ * it at, a Transcript's being its line's time (`{ kind: "time", from, to, speaker? }`, ms into the
+ * call).
  */
 export interface NoteCitation {
   token: string;
-  documentId: string;
   documentName: string;
   quote: string;
-  passageId: string;
-  contentHash: string;
-  pageFrom: number | null;
-  pageTo: number | null;
-  location: CitationLocation | null;
+  citation: Citation;
 }
 
 /**
@@ -13789,6 +13794,11 @@ export interface NoteTurnEvent {
   mode: string | null;
   /** No earlier request of the conversation ran in `mode`. */
   modeNew: boolean;
+  /**
+   * The requests sent into this run while it goes that its AI hasn't taken yet, by their turns' ids,
+   * oldest first (#3765): while there are any, the run goes on after this request ends.
+   */
+  queued: string[];
 }
 
 /** One step of a request at a Note's foot, kept in order for its conversation (#3677). */
@@ -13831,11 +13841,28 @@ export interface NoteModel {
   description: string;
 }
 
+/**
+ * The AI's own permission modes the input offers (#3765), as Claude Code names them: asking before
+ * it acts, except to read, and acting on its own behind its safety check.
+ */
+export const NOTE_MODES = ["default", "auto"] as const;
+export type NoteMode = (typeof NOTE_MODES)[number];
+
 /** The models a Note's conversation may run on, and the one its last run named (#3653). */
 export interface NoteModels {
   models: NoteModel[];
   /** As the run named it, e.g. "claude-haiku-5-5"; null until a run in this conversation has. */
   ran: string | null;
+  /**
+   * The AI's own permission mode the next request starts in (#3765), as it names it ("default",
+   * "auto", "plan", …): the one chosen by the input for this conversation, else the one its last
+   * request ran in; null until a request has named one.
+   */
+  mode: string | null;
+  /** Whether `mode` was chosen by the input rather than the User's own settings for the AI. */
+  chosen: boolean;
+  /** Why the AI last refused a mode chosen by the input, by its own code; null for none. */
+  refused: string | null;
 }
 
 /**
@@ -16522,10 +16549,14 @@ export interface CoreApi {
    * Sends a request typed at a Note's foot to the User's own command-line AI, in the background, in
    * the Note's one conversation (ADR-0034): on `pairingId`, or the first agent that can run it.
    * Asks once for the consent to send it. Its progress and end are told by "agents.noteTurn".
+   * While a request of the Note's runs, this one goes into that run at once, about the whole Note,
+   * as a turn of its own (#3765).
    */
   askInNote(input: NoteRequestInput): Promise<NoteRequestStart>;
   /** Stops the request running at the Note's foot, if one is: what it applied stays, with its Undo. */
   stopInNote(mindId: string): Promise<void>;
+  /** Removes a request of the Note's conversation that was never sent (#3765); any other stays. */
+  discardInNote(mindId: string, turnId: string): Promise<void>;
   /**
    * Answers what the User's own AI asks in the Note's conversation (#3653), with one of the
    * answers the question offers. One no longer waiting, or an answer it doesn't offer, does nothing.
@@ -16541,11 +16572,22 @@ export interface CoreApi {
   /** Whether the Note has a conversation kept, reading none of it (#3677). */
   noteConversationKept(mindId: string): Promise<boolean>;
   /**
+   * Starts a new conversation after the Note's last turn (#3765): the turns stay, and the next
+   * request begins anew with the AI. Does nothing while a request runs.
+   */
+  startNewNoteConversation(mindId: string): Promise<void>;
+  /**
    * The models the User's own command-line AI offers for a request from this Note (#3677), as a
    * request's run heard them before its prompt went: looking starts nothing. [] until a request
    * has run since IncarnaMind started, and while none from this Note could run.
    */
   noteModels(mindId: string): Promise<NoteModels>;
+  /**
+   * Chooses the AI's permission mode for the Note's conversation by the input (#3765): for this
+   * conversation only, taken by a request running now from its next step where the AI can; null
+   * goes back to the User's own settings for the AI. Writes nothing to the AI's own settings.
+   */
+  chooseNoteMode(mindId: string, mode: NoteMode | null): Promise<void>;
   /**
    * Whether a request at a Note's foot can run on the User's own command-line AI here: its command
    * is on this computer's path (ADR-0034). Looking starts nothing.
@@ -16922,6 +16964,8 @@ export interface CoreEvents {
   "agents.ownCheck": OwnAiCheckEnd;
   /** A request at a Note's foot is working, or ended (see `askInNote`). */
   "agents.noteTurn": NoteTurnEvent;
+  /** The mode the input shows for a Note's conversation may have changed (see `noteModels`). */
+  "agents.noteMode": { mindId: string };
   /** An outside agent asked to show one of its Citations: open it in the viewer, in front. */
   "agents.citationShown": AgentCitationShown;
   /** An outside agent wrote a Note, or changed one it wrote (#3371). */
@@ -17460,11 +17504,14 @@ const methods: Record<CoreApiMethod, true> = {
   stopOwnAiCheck: true,
   askInNote: true,
   stopInNote: true,
+  discardInNote: true,
   answerInNote: true,
   noteTurnNow: true,
   noteConversation: true,
   noteConversationKept: true,
+  startNewNoteConversation: true,
   noteModels: true,
+  chooseNoteMode: true,
   ownAiRunsHere: true,
   handedFileOf: true,
   editDeck: true,

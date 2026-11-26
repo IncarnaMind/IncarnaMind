@@ -366,6 +366,10 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(editor.locator(".claim-wash")).toHaveCount(0);
       await expect(marker).toHaveAttribute("data-state", "supported");
       await pointAndClick(window, checks.getByTestId("checks-problem-close"));
+      // The card hangs from the strip over the Note's text (#3765): its control closes it, as a
+      // person closes it to reach the table's marker under it.
+      await pointAndClick(window, window.getByTestId("check-badge-open"));
+      await expect(checks).toHaveCount(0);
 
       // Its card says how each column was worked out, in the figure card's words.
       await pointAndClick(window, marker.getByTestId("analysis-table-marker-open"));

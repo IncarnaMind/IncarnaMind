@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 import type { ChatModelChoice, CitedOrigin, FigureScheduleRow } from "../../../core/api";
 import type { SignOffRecord } from "../../../shared/signOffs";
+import type { ViewerTarget } from "../store";
 
 /** The Mind an editor shows, for its node views (Questions and Answers ask the core about it). */
 export const MindIdContext = createContext<string | null>(null);
@@ -41,6 +42,15 @@ export const useCitedOrigin = (): CitedOrigin =>
   useContext(AssistantFoldedContext) === null ? "note" : "assistant";
 
 /**
+ * In a reply of the User's own AI at a Note's foot, what opens a Citation before a Note's own way
+ * does: a meeting's Transcript in the sheet over that meeting's Note (#3762). True when it opened
+ * it; null outside a reply.
+ */
+export const ReplyCitationOpensContext = createContext<((cited: ViewerTarget) => boolean) | null>(
+  null,
+);
+
+/**
  * Whether an editor holds one Answer's Blocks alone, as the assistant's does:
  * its pictures are that Answer's, whatever Block they are in (#2377). Null in
  * a Mind, where a picture's own Answer around it decides.
@@ -57,7 +67,8 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
 /**
  * The places on a Mind's page outside its text (#908, see `MindTab`): `top`,
  * above the text, for what is happening now and needs the User, as a Word
- * import's progress; `menu`, the page's top right, for its ⋯ button; `count`
+ * import's progress; `menu`, in the tab strip that shows it, for its check, comments and Show
+ * conversation, and `more`, at that strip's end, for its ⋯ button (#3765); `count`
  * and `badge`, the page's bottom left and right, over the text, for the count
  * while writing and the check badge; `review`, beside the page or over its
  * right edge, for the reviewing pane (#697), and where it shows now;
@@ -69,6 +80,7 @@ export const ComposerDockContext = createContext<HTMLElement | null>(null);
 export const PageSlotsContext = createContext<{
   top: HTMLElement | null;
   menu: HTMLElement | null;
+  more: HTMLElement | null;
   count: HTMLElement | null;
   badge: HTMLElement | null;
   review: HTMLElement | null;
@@ -79,6 +91,7 @@ export const PageSlotsContext = createContext<{
 }>({
   top: null,
   menu: null,
+  more: null,
   count: null,
   badge: null,
   review: null,

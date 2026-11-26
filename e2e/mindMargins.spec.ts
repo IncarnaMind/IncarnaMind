@@ -394,7 +394,7 @@ for (const language of ["en", "zh-CN"] as const) {
       expect
         .soft(fromRight, `${width}: the badge is at least 16px from the pane's right`)
         .toBeGreaterThanOrEqual(16 - 0.5);
-      // It stands with the Note's own controls at its top right (#3677).
+      // It stands with the Note's own controls in its tab strip, at the pane's top (#3765).
       expect
         .soft(badgeBox.y - pane.y, `${width}: the badge at the pane's top`)
         .toBeLessThanOrEqual(48);

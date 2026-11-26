@@ -9045,10 +9045,11 @@ export const en = {
   "agents.chart.refused.needsTwo": "a scatter chart needs two columns of numbers",
   // Before a paragraph an agent reads by name that it can't change now (#352).
   "agents.mind.waiting": "(changes waiting)",
-  // A paragraph this run changed or added from the box at the Note's foot, which the window that
-  // asked puts in once the request ends (ADR-0034).
-  "agents.mind.yours": "(your change, made)",
-  "agents.mind.yoursRemoved": "(taken out by your change)",
+  // On the name of a paragraph this run changed or added from the box at the Note's foot, which the
+  // window that asked puts in once the request ends (ADR-0034), or took out: one mark in every
+  // language, as read_mind's description names it (#3753).
+  "agents.mind.yours": "✓",
+  "agents.mind.yoursRemoved": "✗",
   "agents.mind.busy": "(being written)",
   // Before a paragraph of a note the agent wrote that holds the User's own words (#3371).
   "agents.mind.usersWrote": "(the User wrote this)",
@@ -9499,7 +9500,7 @@ export const en = {
   "agents.ownCheck.problem.service":
     "{agent} stopped before finishing. Check your sign-in and usage in {agent}.",
   // A request typed at a Note's foot, run on the User's own command-line AI (#3627).
-  "noteAsk.placeholder": "Describe a change…",
+  "noteAsk.placeholder": "Ask, or describe a change…",
   "noteAsk.send": "Send",
   "noteAsk.stop": "Stop",
   "noteAsk.working": "{agent} is working…",
@@ -9566,6 +9567,7 @@ export const en = {
   "noteColumn.what.docs": "{count} Documents",
   "noteColumn.what.doc": "“{document}”",
   "noteColumn.made.note": "Note",
+  "noteColumn.made.open": "Open",
   "noteColumn.made.waiting.one": "1 change waits",
   "noteColumn.made.waiting.other": "{count} changes wait",
   "noteColumn.close": "Hide conversation",
@@ -9575,9 +9577,38 @@ export const en = {
   // Before a request here has named its model: the box names none.
   "noteAsk.modelNone": "Model",
   "noteAsk.modelBusy": "The model can be changed once this request ends",
+  // Whether the User's own AI asks before it acts, by the input after the model: each of its
+  // modes by Claude Code's own name for it, and a sentence for the two the input offers.
+  "noteAsk.mode.title": "Before {agent} acts",
+  "noteAsk.mode.default": "Asks first",
+  "noteAsk.mode.default.about": "Asks you first, except to read.",
+  "noteAsk.mode.auto": "On its own",
+  "noteAsk.mode.auto.about": "Acts without asking; a safety check blocks what looks risky.",
+  "noteAsk.mode.plan": "Plans only",
+  "noteAsk.mode.acceptEdits": "Edits on its own",
+  "noteAsk.mode.bypassPermissions": "Asks nothing",
+  "noteAsk.mode.dontAsk": "Never asks",
+  "noteAsk.mode.yours": "Your setting",
+  "noteAsk.mode.yours.about": "As your {agent} settings say.",
+  // Why the AI wouldn't work on its own here, by its own reason.
+  "noteAsk.mode.refused.auto_mode_settings": "Turned off in your {agent} settings.",
+  "noteAsk.mode.refused.auto_mode_model": "Not offered for this model.",
+  "noteAsk.mode.refused.auto_mode_unavailable": "Not offered for your account.",
+  "noteAsk.mode.refused.auto_mode_circuit_breaker": "Paused after too many blocked actions.",
+  "noteAsk.mode.refused.auto_mode_fast_mode": "Not while fast mode is on.",
+  "noteAsk.mode.refused.other": "{agent} didn’t switch.",
+  // A new conversation with the AI after the turns so far, which stay; also the line that marks it.
+  "noteColumn.new": "New conversation",
   "noteColumn.moveLeft": "Move to the left",
   "noteColumn.moveDown": "Move back under the note",
   "noteColumn.copy": "Copy",
+  // A request sent: send the same words again, or put them back in the input to change them.
+  "noteColumn.sendAgain": "Send again",
+  "noteColumn.edit": "Edit",
+  // A request sent while another ran (#3765): until the AI takes it, and when its run ended first.
+  "noteColumn.waiting": "Waiting",
+  "noteColumn.notSent": "Not sent",
+  "noteColumn.discard": "Discard",
   "noteColumn.citation": "Citation {number}",
   // What the User's own AI asks before it uses a tool of its own in a Note's conversation, and its
   // steps with them (#3653).
@@ -9704,7 +9735,7 @@ export const en = {
   "noteAsk.did.save_as_word": "Made the Word file “{summary}”",
   "noteAsk.did.other": "Used IncarnaMind",
   "noteAsk.wholeNote": "Ask about the whole note",
-  "noteAsk.command": "Describe a change to this note…",
+  "noteAsk.command": "Ask, or describe a change to this note…",
   "noteAsk.noAi": "Asking needs your AI",
   "noteAsk.cantRead.one": "{agent} can’t read this note",
   "noteAsk.cantRead": "Your AI can’t read this note",
@@ -9713,8 +9744,9 @@ export const en = {
   "noteAsk.action.translate": "Translate it into {language}",
   "noteAsk.action.edit": "Change it",
   "noteAsk.action.explain": "Explain this",
-  "noteAsk.problem.signed-out":
-    "{agent} isn’t signed in on this computer. Sign in to it in a terminal, then send it again.",
+  "noteAsk.problem.signed-out": "{agent} isn’t signed in on this computer.",
+  "noteAsk.signIn": "Sign in",
+  "noteAsk.tryAgain": "Try again",
   "noteAsk.problem.too-old":
     "{agent} {found} is older than IncarnaMind needs ({lowest} or later). Update it, then send it again.",
   "noteAsk.problem.update":
@@ -9722,14 +9754,13 @@ export const en = {
   "noteAsk.problem.no-answer":
     "{agent} didn’t answer on this computer, so nothing was sent. Try again.",
   "noteAsk.problem.plan-limit":
-    "{agent} stopped: your Claude plan or API key has reached its limit. Try again later.",
+    "{agent} stopped: your Claude plan or API key has reached its limit.",
   "noteAsk.problem.billing":
     "{agent} stopped: the account it signs in with can’t be billed. Check its billing, then try again.",
-  "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped. Try again.",
-  "noteAsk.problem.stalled":
-    "{agent} stopped answering for six minutes, so it stopped. Send it again.",
+  "noteAsk.problem.timeout": "{agent} took longer than 15 minutes, so it stopped.",
+  "noteAsk.problem.stalled": "{agent} didn’t answer for six minutes, so it stopped.",
   "noteAsk.problem.compaction":
-    "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped. Send it again.",
+    "{agent} couldn’t condense this note’s conversation in ten minutes, so it stopped.",
   "noteAsk.problem.no-marks": "{agent} finished without changing anything.",
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",
@@ -9737,12 +9768,10 @@ export const en = {
   "noteAsk.problem.local-mode": "{agent} stopped: “Keep everything on this computer” is on.",
   "noteAsk.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",
-  "noteAsk.problem.failed": "{agent} stopped before it finished. Try again.",
-  "noteAsk.problem.outside":
-    "{agent} stopped because it asked for something outside this request. Try again.",
-  "noteAsk.problem.unreadable": "{agent} stopped before it finished. Try again.",
-  "noteAsk.problem.service":
-    "{agent} stopped before it finished. Check your sign-in and usage in {agent}.",
+  "noteAsk.problem.failed": "{agent} stopped before it finished.",
+  "noteAsk.problem.outside": "{agent} stopped because it asked for something outside this request.",
+  "noteAsk.problem.unreadable": "{agent} stopped before it finished.",
+  "noteAsk.problem.service": "{agent} stopped before it finished.",
   "noteAsk.problem.read-only": "{agent} may only read. Let it propose changes?",
   "error.agent.meetingUnavailable": "This meeting transcript is unavailable.",
   "agents.ask.request.meeting":

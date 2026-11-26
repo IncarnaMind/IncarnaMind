@@ -8,7 +8,7 @@ import type {
   WindowLayout,
 } from "../../core/api";
 import { groupsMergedAt } from "./assistantPlace";
-import { core } from "./core";
+import { core, files } from "./core";
 
 /*
  * The window's tabs and groups, as the core keeps them (see src/core/layout.ts):
@@ -21,19 +21,29 @@ export const WINDOW_ID =
   new URLSearchParams(globalThis.location?.search ?? "").get("window") ?? "main";
 
 /**
- * A group is never dragged narrower than this: 220px plus the 10px a tab list keeps before its
- * first tab. Narrower, the shown tab at its least width is too short for its own icon and ✕.
+ * The card's width as last measured, which the groups share (null until it is), with how many
+ * groups the window has and what the first one's strip keeps before its tabs.
  */
-export const GROUP_MIN_WIDTH = 230;
+export const useCardWidth = create<{ width: number | null; groups: number; lead: number }>()(
+  () => ({ width: null, groups: 1, lead: 0 }),
+);
 
-/** The card's width as last measured, which the groups share; null until it is. */
-export const useCardWidth = create<{ width: number | null }>()(() => ({ width: null }));
+/**
+ * What the first group's strip keeps before its tabs (`.tab-strip > .sidebar-toggle` in
+ * styles.css): the sidebar's 28px button with its 8px and 6px, and on macOS, where the button
+ * stands in the sidebar while it shows, the traffic lights' 76px beside it while it is hidden.
+ */
+export const firstGroupLead = (sidebarHidden: boolean): number =>
+  files.titleBar !== "inset" ? 42 : sidebarHidden ? 76 + 34 : 0;
 
 /**
  * Whether there is no room for groups side by side right now: the window is
  * narrow, or the card is (`groupsMergedAt`).
  */
-export const groupsMerged = () => groupsMergedAt(window.innerWidth, useCardWidth.getState().width);
+export const groupsMerged = () => {
+  const { width, groups, lead } = useCardWidth.getState();
+  return groupsMergedAt(window.innerWidth, width, groups, lead);
+};
 
 /** A line about the tabs, shown in the sidebar foot's one slot. */
 export type TabNotice =
