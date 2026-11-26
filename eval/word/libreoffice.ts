@@ -102,10 +102,10 @@ export function convertFile(
 }
 
 /**
- * A Basic module that opens a file, accepts (or rejects) every tracked change,
- * and saves its text; what went wrong, if anything, goes into the target's ".error".
+ * A Basic module that opens a file, accepts every tracked change, and saves
+ * its text; what went wrong, if anything, goes into the target's ".error".
  */
-const resolveModule = (command: string) => `<?xml version="1.0" encoding="UTF-8"?>
+const ACCEPT_MODULE = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE script:module PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "module.dtd">
 <script:module xmlns:script="http://openoffice.org/2000/script" script:name="Module1" script:language="StarBasic">
 Sub AcceptAll(source As String, target As String)
@@ -115,7 +115,7 @@ Sub AcceptAll(source As String, target As String)
   document = StarDesktop.loadComponentFromURL(ConvertToURL(source), "_blank", 0, opening())
   Dim dispatcher As Object
   dispatcher = createUnoService("com.sun.star.frame.DispatchHelper")
-  dispatcher.executeDispatch(document.getCurrentController().getFrame(), "${command}", "", 0, Array())
+  dispatcher.executeDispatch(document.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, Array())
   Dim saving(1) As New com.sun.star.beans.PropertyValue
   saving(0).Name = "FilterName"
   saving(0).Value = "Text (encoded)"
@@ -163,25 +163,9 @@ const run = (soffice: string, args: string[]) =>
  * (#107), and returns its text, a paragraph a line: a Basic macro does it, in
  * a profile of its own in a temporary folder, which LibreOffice makes first.
  */
-export function acceptAllChanges(
+export async function acceptAllChanges(
   soffice: string,
   file: string,
-): Promise<{ text: string } | { problem: string }> {
-  return resolveAllChanges(soffice, file, ".uno:AcceptAllTrackedChanges");
-}
-
-/** As `acceptAllChanges`, every tracked change rejected. */
-export function rejectAllChanges(
-  soffice: string,
-  file: string,
-): Promise<{ text: string } | { problem: string }> {
-  return resolveAllChanges(soffice, file, ".uno:RejectAllTrackedChanges");
-}
-
-async function resolveAllChanges(
-  soffice: string,
-  file: string,
-  command: string,
 ): Promise<{ text: string } | { problem: string }> {
   const work = mkdtempSync(join(tmpdir(), "incarnamind-word-accept-"));
   const profile = [
@@ -200,7 +184,7 @@ async function resolveAllChanges(
       writeFileSync(join(standard, "script.xlb"), LIBRARY);
       writeFileSync(join(standard, "dialog.xlb"), LIBRARY.replace(/\n <library:element[^>]*>/, ""));
     }
-    writeFileSync(join(standard, "Module1.xba"), resolveModule(command));
+    writeFileSync(join(standard, "Module1.xba"), ACCEPT_MODULE);
     const target = join(work, "accepted.txt");
     const { error, output } = await run(soffice, [
       ...profile,
