@@ -272,17 +272,27 @@ export function MeetingLines({ meeting, cards = false }: { meeting: Meeting; car
       </ProblemLine>
     ));
   if (inPlace) {
+    const dismissGuide = {
+      label: t("move.dismiss"),
+      testId: "meeting-line-guide-close",
+      onClick: () => files.closePermissionGuide(),
+    };
+    const restartGuide =
+      inPlace.status === "granted" && inPlace.source === "system"
+        ? {
+            label: t("meetings.guide.restart"),
+            testId: "meeting-line-guide-restart",
+            onClick: () => files.restartForPermission(),
+          }
+        : undefined;
     shown.push(
       <ProblemLine
         key="guide"
         testId="meeting-line-guide"
         role="status"
         className="meeting-line"
-        action={{
-          label: t("move.dismiss"),
-          testId: "meeting-line-guide-close",
-          onClick: () => files.closePermissionGuide(),
-        }}
+        action={restartGuide ?? dismissGuide}
+        also={restartGuide ? dismissGuide : undefined}
       >
         {inPlace.status === "granted"
           ? t(`meetings.guide.done.${inPlace.source}`)

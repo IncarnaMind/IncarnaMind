@@ -17,6 +17,8 @@ export type QuitAsker =
   /** Quit in the menu bar or tray icon's menu (#189). */
   | "tray"
   | "update"
+  /** Restarted from the meeting permission guide after granting system sound (#3756). */
+  | "permissionRestart"
   /** The last window closed, on Windows and Linux. */
   | "lastWindow"
   | "startFailed"

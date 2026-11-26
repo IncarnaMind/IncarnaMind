@@ -8,6 +8,9 @@ export const RELEASES_PAGE = "https://github.com/IncarnaMind/IncarnaMind/release
 /** Index of "Download the latest version" in the buttons of a newer-data dialog. */
 export const DOWNLOAD_BUTTON = 0;
 
+/** Index of "Relaunch" in the buttons of a startup-error dialog (#3756). */
+export const RELAUNCH_BUTTON = 0;
+
 export interface StartupDialog {
   title: string;
   message: string;
@@ -46,7 +49,7 @@ export function updateStartupDialog(
   };
 }
 
-/** What the User sees when start-up fails. Only a data folder from a newer version gets buttons. */
+/** What the User sees when start-up fails. */
 export function startupDialog(error: unknown, language: Language): StartupDialog {
   if (error instanceof DataFromNewerVersionError) {
     return {
@@ -73,9 +76,12 @@ export function startupDialog(error: unknown, language: Language): StartupDialog
     detail: held
       ? translate(language, "error.startup.held")
       : translate(language, "error.startup.body", { message }),
-    buttons: [],
-    defaultId: 0,
-    cancelId: 0,
+    buttons: [
+      translate(language, "error.startup.relaunch"),
+      translate(language, "error.startup.newer.quit"),
+    ],
+    defaultId: RELAUNCH_BUTTON,
+    cancelId: 1,
   };
 }
 

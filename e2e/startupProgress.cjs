@@ -32,6 +32,10 @@ app.whenReady().then(() => {
   setInterval(sampleVisibility, 250).unref();
 });
 
+const choice = process.env.INCARNAMIND_TEST_STARTUP_CHOICE;
+if (choice === "relaunch") {
+  app.relaunch = (options) => record("relaunch", { options: options ?? null });
+}
 app.getPreferredSystemLanguages = () => [process.env.INCARNAMIND_TEST_STARTUP_LANGUAGE || "en"];
 dialog.showErrorBox = (title, content) =>
   record("problem", {
@@ -39,6 +43,19 @@ dialog.showErrorBox = (title, content) =>
     content,
     visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
   });
+dialog.showMessageBox = async (...args) => {
+  const options = args.length > 1 ? args[1] : args[0];
+  record("problem", {
+    title: options?.title ?? "",
+    content: options?.detail ?? options?.message ?? "",
+    buttons: options?.buttons ?? [],
+    visibleWindows: BrowserWindow.getAllWindows().filter((window) => window.isVisible()).length,
+  });
+  return {
+    response: choice === "relaunch" ? 0 : (options?.cancelId ?? 1),
+    checkboxChecked: false,
+  };
+};
 app.on("browser-window-created", (_event, window) => {
   const windowId = window.id;
   record("window-created", { windowId });

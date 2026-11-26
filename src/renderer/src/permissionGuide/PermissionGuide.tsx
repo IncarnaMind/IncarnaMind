@@ -90,6 +90,16 @@ export function PermissionGuide() {
             <span data-testid="permission-guide-status" className="grow">
               {t(`meetings.guide.done.${source}`)}
             </span>
+            {source === "system" && (
+              <button
+                type="button"
+                data-testid="permission-guide-restart"
+                onClick={() => bridge.restart()}
+                className="shrink-0 rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                {t("meetings.guide.restart")}
+              </button>
+            )}
           </>
         ) : (
           <>

@@ -1537,16 +1537,31 @@ export function createMeetingFill(options: MeetingFillOptions) {
           signal,
         })
         .catch((error: unknown) => {
-          const service =
+          const blocked =
             error instanceof ConsentNeededError || error instanceof ConsentDeclinedError
-              ? error.flow.service.name
+              ? {
+                  service: error.flow.service.name,
+                  serviceId: error.flow.service.id,
+                  flow: error.flow.id,
+                }
               : error instanceof ChatNotReadyError &&
                   !error.readiness.ready &&
-                  error.readiness.reason === "consent-declined"
-                ? error.readiness.provider.service?.name
+                  error.readiness.reason === "consent-declined" &&
+                  error.readiness.provider.service
+                ? {
+                    service: error.readiness.provider.service.name,
+                    serviceId: error.readiness.provider.service.id,
+                    flow: "checks" as const,
+                  }
                 : undefined;
-          if (service && error instanceof Error) {
-            throw new FillProblemError({ kind: "not-allowed", service, message: error.message });
+          if (blocked && error instanceof Error) {
+            throw new FillProblemError({
+              kind: "not-allowed",
+              service: blocked.service,
+              serviceId: blocked.serviceId,
+              flow: blocked.flow,
+              message: error.message,
+            });
           }
           // Not checked is not supported: it stays on the list.
           if (!signal.aborted) {

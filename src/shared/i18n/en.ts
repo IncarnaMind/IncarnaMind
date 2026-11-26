@@ -6039,9 +6039,9 @@ export const en = {
   "error.system.dataFolder": "IncarnaMind couldn’t open its data folder.",
   "error.system.corrupt": "IncarnaMind’s data is damaged.",
   "error.startup.title": "IncarnaMind couldn’t start",
-  "error.startup.body": "Your data folder couldn’t be opened. Open IncarnaMind again.\n\n{message}",
-  "error.startup.held":
-    "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
+  "error.startup.body": "Your data folder couldn’t be opened.\n\n{message}",
+  "error.startup.held": "Another program is using IncarnaMind’s data. Nothing is lost.",
+  "error.startup.relaunch": "Relaunch",
   "error.startup.busy": "Another copy may still be starting. Try again in a moment.",
   "error.startup.starting":
     "Another copy hasn’t finished starting. Wait a moment, then open IncarnaMind again.",
@@ -7487,8 +7487,8 @@ export const en = {
   "meetings.guide.waiting": "Waiting for you…",
   "meetings.guide.done.microphone":
     "Done. Stop the recording and start it again to record your voice.",
-  "meetings.guide.done.system":
-    "Done. Quit and reopen IncarnaMind, then record again, to record the computer’s sound.",
+  "meetings.guide.done.system": "Done. Restart to record the computer’s sound.",
+  "meetings.guide.restart": "Restart",
   "meetings.guide.inline":
     "In System Settings, open {where}, find IncarnaMind in the list and switch it on.",
   "meetings.guide.close": "Close (Esc)",
@@ -7642,8 +7642,7 @@ export const en = {
   "meetings.fill.problem.stopped": "IncarnaMind closed before they were done",
   "meetings.fill.problem.localMode":
     "“Keep everything on this computer” is on, and this note’s model isn’t on this computer",
-  "meetings.fill.problem.notAllowed":
-    "sending to {service} isn’t allowed yet: allow it by asking a Question, then Try again",
+  "meetings.fill.problem.notAllowed": "sending the transcript to {service} isn’t allowed yet",
   "meetings.fill.problem.noModel": "choose an AI model first",
   "meetings.fill.problem.agentUnreached":
     "{agent} wasn’t given this note. Change what it reads in Settings › AI, or choose an AI model",

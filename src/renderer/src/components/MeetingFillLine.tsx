@@ -2,6 +2,7 @@ import type { Meeting, MeetingFillProblem, ProviderErrorKind } from "../../../co
 import type { MessageKey } from "../../../shared/i18n";
 import { isPartialMeetingFill } from "../../../shared/meetingFill";
 import { useAnswers } from "../answers";
+import { core } from "../core";
 import { fixAction } from "../fixAction";
 import { useT } from "../i18n";
 import { billingUrlOfProvider } from "../keyRefusals";
@@ -144,6 +145,22 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     testId: "meeting-fill-undo",
     onClick: () => void useMeetings.getState().undoFill(meeting.id, editor),
   };
+  const allow: ProblemAction | undefined =
+    fill.problem?.kind === "not-allowed" && fill.problem.serviceId && fill.problem.flow
+      ? {
+          label: t("privacy.flows.allow"),
+          testId: "meeting-fill-allow",
+          onClick: () => {
+            const flow = fill.problem?.flow;
+            const serviceId = fill.problem?.serviceId;
+            if (!flow || !serviceId) return;
+            void core
+              .allowDataFlow(flow, serviceId)
+              .then(() => useMeetings.getState().fillNotes(meeting.id))
+              .catch((error: unknown) => useAppStore.getState().reportError(error));
+          },
+        }
+      : undefined;
   // Said in the interface's words now; a model's own words show on hover.
   const reasonOf = (problem: MeetingFillProblem | null) =>
     t(
@@ -283,9 +300,9 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
             : []),
         ]}
         action={
-          // A refused key or a key with no credit is mended there, not in the Transcript.
-          !filled && provider?.fix
-            ? provider.fix
+          // A refused key, missing permission, or exhausted credit is mended there, not in the Transcript.
+          !filled && (allow ?? provider?.fix)
+            ? (allow ?? provider?.fix)
             : documentId && place
               ? {
                   label: t("meetings.fill.viewTranscript"),
@@ -297,7 +314,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
                 }
               : undefined
         }
-        also={filled ? undo : again(t("meetings.fill.tryAgain"))}
+        also={filled ? undo : allow ? undefined : again(t("meetings.fill.tryAgain"))}
       >
         {filled ? t("meetings.fill.partial") : notFilled(fill.problem)}
       </ProblemLine>
@@ -314,6 +331,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
         className=""
         details={telling}
         action={undo}
+        also={fill.mode === "transcript" ? allow : undefined}
       >
         {fill.mode === "transcript" ? (
           t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
@@ -347,8 +365,8 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       role={stoppedByUser ? "status" : "alert"}
       className=""
       title={fill.problem?.kind === "model" ? fill.problem.message : undefined}
-      action={provider?.fix ?? again(t("meetings.fill.tryAgain"))}
-      also={provider?.fix && again(t("meetings.fill.tryAgain"))}
+      action={allow ?? provider?.fix ?? again(t("meetings.fill.tryAgain"))}
+      also={allow ? undefined : provider?.fix && again(t("meetings.fill.tryAgain"))}
     >
       {stoppedByUser ? reasonOf(fill.problem) : notFilled(fill.problem)}
     </ProblemLine>
