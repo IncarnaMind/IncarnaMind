@@ -6,13 +6,15 @@
  * each request and reply; it never reads the agent's transcript, and deletes both copies when the
  * Note is deleted for good, the connection is removed or the consent is taken back. The agent keeps
  * its own abilities, on the User's own settings for it: what it asks before it uses one waits on
- * the User's answer here, and what it does with them shows as steps (#3653).
+ * the User's answer here, and what it does with them shows as steps (#3653). A request typed while
+ * one runs goes into that run at once, a turn of its own once the agent takes it (#3765).
  */
 
 import { clockTime } from "../../shared/clock";
 import type {
   Logger,
   OwnAiAsk,
+  OwnAiEnd,
   OwnAiFailure,
   OwnAiModel,
   OwnAiProgress,
@@ -39,7 +41,7 @@ import {
 } from "../api";
 import { InvalidInputError, isRecord } from "../errors";
 import type { Database } from "../storage";
-import type { ConversationHears, ConversationRun, SelectedInBlock } from "./askedChecks";
+import type { ConversationHears, ConversationRun, RunCall, SelectedInBlock } from "./askedChecks";
 import { CITATION_TOKEN } from "./citations";
 
 /**
@@ -78,6 +80,8 @@ const SAID_FROM = 12;
  * waiting for the AI: a line that doesn't change for longer reads as stuck (#3677).
  */
 const QUIET_MS = 30_000;
+/** How long a mode chosen while a request runs waits on the AI's answer before the input reads it. */
+const MODE_ANSWER_MS = 3000;
 const isAgentTool = (name: string): name is AgentToolName =>
   (AGENT_TOOLS as readonly string[]).includes(name);
 /**
@@ -116,6 +120,26 @@ const PROBLEM_OF: Record<Exclude<OwnAiFailure, "lost-conversation">, NoteTurnPro
   other: "failed",
 };
 
+/**
+ * Whether a run's step comes only once Claude Code has begun its session, and so keeps it: its
+ * models, its mode and a word that something came are told before that too.
+ */
+const BEGUN: Record<OwnAiProgress["kind"], boolean> = {
+  heard: false,
+  models: false,
+  mode: false,
+  modeRefused: false,
+  model: true,
+  thinking: true,
+  said: true,
+  tool: true,
+  own: true,
+  compacting: true,
+  compacted: true,
+  taken: true,
+  answered: true,
+};
+
 export interface OwnAiConversationsOptions {
   runner: OwnAiRunner | undefined;
   db: Database;
@@ -139,6 +163,8 @@ export interface OwnAiConversationsOptions {
   /** Calls `listener` at each change that can end what `heldBack` allows; returns its end. */
   onReachChange(listener: () => void): () => void;
   turned(event: NoteTurnEvent): void;
+  /** The mode the input shows for the Note may have changed: every window reads it again. */
+  moded(mindId: string): void;
   titleOf(mindId: string): string;
   /** The Note's meeting while it records or is paused; null for a Note with none. */
   liveMeeting?(mindId: string): OwnAiLiveMeeting | null;
@@ -158,6 +184,8 @@ interface ConversationRow {
   pairing_id: string;
   session_id: string;
   renewed: number;
+  /** A new conversation the User started that no request has begun with the AI yet (#3765). */
+  anew: number;
 }
 
 interface TurnRow {
@@ -168,6 +196,7 @@ interface TurnRow {
   outcome: NoteTurn["outcome"];
   problem: string | null;
   mode: string | null;
+  new_after: number;
   created_at: string;
 }
 
@@ -284,28 +313,38 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   // The model each conversation's last run named: the User's own setting may name another than the
   // list's first, which is the agent's general default.
   const ranOn = new Map<string, string>();
+  /**
+   * The permission mode the User chose by the input, by the Note's conversation, new conversations
+   * after a line included: it holds for that conversation only and is written nowhere, the agent's
+   * settings least (#3765). What the input shows is what the next request starts in.
+   */
+  const chosenModes = new Map<string, string>();
+  /**
+   * The mode a run started with none chosen named, by conversation: the User's own setting, as far
+   * as IncarnaMind has seen since it started. Unknown, the input names no mode.
+   */
+  const ownModes = new Map<string, string>();
+  /** The choice before the one a running request was last told, given back if it refuses that one. */
+  const modeBefore = new Map<string, string | undefined>();
+  /** Tells the Note's running request of a mode chosen while it runs. */
+  const modeHears = new Map<string, (mode: string) => void>();
+  /** Why the AI refused the mode chosen for a conversation, by its own code, until another is chosen. */
+  const refusedModes = new Map<string, string>();
+  /** Ends the wait for the running request's answer to a mode chosen now, by the Note. */
+  const modeAnswers = new Map<string, () => void>();
   const { db } = options;
-  const running = new Map<
-    string,
-    {
-      pairing: AgentPairing;
-      turnId: string;
-      conversationId: string;
-      stop: AbortController;
-      ended: Promise<void>;
-      /** What its AI asks now, and the answer to one; and the request as it is now. */
-      questions(): NoteQuestion[];
-      now(): NoteTurnEvent | null;
-      answer(questionId: string, answer: NoteAnswer): void;
-    }
-  >();
+  const running = new Map<string, Running>();
 
-  // A request left working when IncarnaMind last quit ended then, and what it asked didn't run.
+  // A request left working when IncarnaMind last quit ended then, what it asked didn't run, and
+  // one sent meanwhile that its AI hadn't taken never reached it.
   db.transaction(() => {
     db.run(
       "UPDATE own_ai_turns SET outcome = 'stopped', updated_at = ? WHERE outcome = 'working'",
       [options.now()],
     );
+    db.run("UPDATE own_ai_turns SET outcome = 'unsent', updated_at = ? WHERE outcome = 'waiting'", [
+      options.now(),
+    ]);
     db.run(
       `UPDATE own_ai_questions SET answer = 'closed', updated_at = ?
        WHERE answer IS NULL AND deleted_at IS NULL`,
@@ -315,7 +354,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
   const conversationOf = (mindId: string, pairingId: string) =>
     db.get<ConversationRow>(
-      `SELECT id, mind_id, pairing_id, session_id, renewed FROM own_ai_conversations
+      `SELECT id, mind_id, pairing_id, session_id, renewed, anew FROM own_ai_conversations
        WHERE mind_id = ? AND pairing_id = ? AND deleted_at IS NULL`,
       [mindId, pairingId],
     ) ?? null;
@@ -341,6 +380,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       pairing_id: pairingId,
       session_id: options.newId(),
       renewed: 0,
+      anew: 0,
     };
     db.run(
       `INSERT INTO own_ai_conversations (id, mind_id, pairing_id, session_id, created_at, updated_at)
@@ -398,6 +438,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         questions: [],
         mode: null,
         modeNew: false,
+        queued: [],
         ...rest,
         ...outcome,
         reply,
@@ -420,6 +461,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     const going = [...running.values()].filter((each) => ids.has(each.conversationId));
     for (const each of going) each.stop.abort();
     await Promise.all(going.map((each) => each.ended));
+    for (const { id } of rows) {
+      for (const kept of [chosenModes, ownModes, modeBefore, refusedModes]) kept.delete(id);
+    }
     const at = options.now();
     db.transaction(() => {
       for (const { id } of rows) {
@@ -475,8 +519,24 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       throw new InvalidInputError({ key: "error.agent.askRequest" });
     }
 
+    // A request typed while one runs goes into that run, about the whole Note (#3765). One about
+    // words selected doesn't: its AI takes no new selection mid-run, so it waits for Stop.
+    const into = (run: Running): NoteRequestStart => {
+      if (options.lifetime.aborted || options.heldBack(run.pairing, mindId))
+        return { kind: "link" };
+      if (quote !== "" || selection !== null) return { kind: "busy", pairing: run.pairing };
+      const turnId = options.newId();
+      const at = options.now();
+      db.run(
+        `INSERT INTO own_ai_turns (id, conversation_id, request, selection, outcome, created_at, updated_at)
+         VALUES (?, ?, ?, '', 'waiting', ?, ?)`,
+        [turnId, run.conversationId, request, at, at],
+      );
+      run.live.send(turnId, request);
+      return { kind: "sent", pairing: run.pairing, turnId };
+    };
     const already = running.get(mindId);
-    if (already) return { kind: "started", pairing: already.pairing, turnId: already.turnId };
+    if (already) return into(already);
     const { runner } = options;
     const pairing = options
       .askable(mindId)
@@ -498,7 +558,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       };
     }
     const meanwhile = running.get(mindId);
-    if (meanwhile) return { kind: "started", pairing: meanwhile.pairing, turnId: meanwhile.turnId };
+    if (meanwhile) return into(meanwhile);
     // The consent can wait as long as the User does: what it found may no longer hold.
     if (options.lifetime.aborted || options.heldBack(pairing, mindId)) return { kind: "link" };
 
@@ -510,39 +570,48 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
        VALUES (?, ?, ?, ?, 'working', ?, ?)`,
       [turnId, conversation.id, request, quote, at, at],
     );
+    begin({ mindId, pairing, turnId, conversation, request, quote, caret, selection, model });
+    return { kind: "started", pairing, turnId };
+  }
+
+  /** Runs the Note's conversation for a request recorded as working. */
+  function begin(first: {
+    mindId: string;
+    pairing: AgentPairing;
+    turnId: string;
+    conversation: ConversationRow;
+    request: string;
+    quote: string;
+    caret: string;
+    selection: SelectedInBlock[] | null;
+    model: string | undefined;
+  }): Running {
+    const { mindId, pairing, conversation } = first;
     const stop = new AbortController();
-    const live: Live = { questions: () => [], answer: () => undefined, now: () => null };
-    const ended = converse({
-      mindId,
-      pairing,
-      turnId,
-      conversation,
-      request,
-      quote,
-      caret,
-      selection,
-      model,
-      stop,
-      live,
-    }).catch((error: unknown) => {
-      // Whatever went wrong, the request doesn't stay working: the User can send it again.
+    const live: Live = {
+      turnId: () => first.turnId,
+      questions: () => [],
+      answer: () => undefined,
+      now: () => null,
+      send: () => undefined,
+      unsent: () => undefined,
+    };
+    const ended = converse({ ...first, stop, live }).catch((error: unknown) => {
+      // Whatever went wrong, the request doesn't stay working: the User can send it again, and
+      // each sent meanwhile too.
       options.log.warn("agents.ownAiConversation.broke", {
         error: error instanceof Error ? error.name : "unknown",
       });
-      if (running.get(mindId)?.turnId === turnId) running.delete(mindId);
-      endTurn({ mindId, pairingId: pairing.id, turnId }, { state: "failed", problem: "failed" });
+      if (running.get(mindId)?.live === live) running.delete(mindId);
+      live.unsent();
+      endTurn(
+        { mindId, pairingId: pairing.id, turnId: live.turnId() },
+        { state: "failed", problem: "failed" },
+      );
     });
-    running.set(mindId, {
-      pairing,
-      turnId,
-      conversationId: conversation.id,
-      stop,
-      ended,
-      questions: () => live.questions(),
-      now: () => live.now(),
-      answer: (questionId, answer) => live.answer(questionId, answer),
-    });
-    return { kind: "started", pairing, turnId };
+    const run = { pairing, conversationId: conversation.id, stop, ended, live };
+    running.set(mindId, run);
+    return run;
   }
 
   async function converse(turn: {
@@ -560,17 +629,26 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
   }): Promise<void> {
     const { mindId, pairing, turnId, conversation, stop } = turn;
     const signal = AbortSignal.any([options.lifetime, stop.signal]);
-    const startedAt = options.now();
-    let doing: NoteDoing | null = null;
-    let written = "";
-    const named = new Map<string, Set<string>>();
-    const applied: NoteChangeApplied[] = [];
-    const waiting = new Map<string, { mindId: string; title: string; count: number }>();
-    const made: { mindId: string; title: string }[] = [];
-    let readOnly = false;
+    // The request its AI works on now: the first, then each sent meanwhile as its AI takes it; none
+    // between a request's end and the taking of the next (#3765). Widened with `as`, as this and
+    // `lastEnd` change in the callbacks below, which the compiler's narrowing doesn't follow.
+    let latest = taking(turnId, options.now());
+    let current = latest as Taken | null;
+    // Sent meanwhile and not yet taken, oldest first, and how the run sends one to its AI; the end
+    // of the last request ended, told again while those wait for the next to be taken.
+    const sent: { turnId: string; prompt: string; words: string }[] = [];
+    let send: ((id: string, prompt: string) => void) | null = null;
+    // What a change in the Note is held to and named by, as the grant reads it at each call: the
+    // request its AI works on, which `take` moves on to one sent meanwhile, about the whole Note.
+    const front: ConversationRun["front"] = {
+      mindId,
+      selection: turn.selection,
+      words: turn.request,
+      folder: null,
+    };
+    let lastEnd = null as NoteTurnEvent | null;
     let lost: NoteTurnProblem | null = null;
     let answeredOn: string | null = null;
-    const steps: NoteStep[] = [];
     // The agent's own steps by their call's id, what it asks that waits on the User, its mode,
     // and the latest text it read that the User didn't write (#3653).
     const ownSteps = new Map<string, Extract<NoteStep, { kind: "own" }>>();
@@ -592,37 +670,62 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     });
     let mode: string | null = null;
     let modeNew = false;
+    // The mode the run was started in, none for the User's own, and whether it has named its mode.
+    let startedIn: string | undefined;
+    let firstMode = true;
     // Claude Code keeps the system prompt a conversation began with: one begun before its AI kept
     // its own abilities, told it had none, so it begins anew, once (#3653).
     const renewed = conversation.renewed === 1;
-    // The Documents its searches found and its reads reached, and how many Passages of each it read.
-    const found = new Set<string>();
-    const readOf = new Map<string, number>();
+    // That, or a new conversation the User started that no request has begun with the AI (#3765),
+    // stays so until Claude Code has begun the new session: a request stopped or failed before
+    // that (a Stop as it starts, an update it needs) leaves it to the next request, which then
+    // resumes no session Claude Code never kept.
+    let unbegun = renewed || conversation.anew === 1;
+    const begun = () => {
+      if (!unbegun) return;
+      unbegun = false;
+      try {
+        db.run(
+          "UPDATE own_ai_conversations SET renewed = 0, anew = 0, updated_at = ? WHERE id = ?",
+          [options.now(), conversation.id],
+        );
+      } catch (error) {
+        options.log.warn("agents.ownAiConversation.begunNotKept", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    };
+    let fresh = false;
     const passagesIn = (documentId: string) =>
       db.get<{ count: number }>(
         "SELECT COUNT(*) AS count FROM passages WHERE document_id = ? AND deleted_at IS NULL",
         [documentId],
       )?.count ?? 0;
-    const event = (rest: Partial<NoteTurnEvent> & Pick<NoteTurnEvent, "state">): NoteTurnEvent => ({
+    const event = (
+      of: Taken,
+      rest: Partial<NoteTurnEvent> & Pick<NoteTurnEvent, "state">,
+    ): NoteTurnEvent => ({
       mindId,
-      turnId,
+      turnId: of.turnId,
       pairingId: pairing.id,
-      doing,
+      doing: of.doing,
       problem: null,
-      reply: written,
-      startedAt,
-      applied,
-      waiting: [...waiting.values()],
-      made,
+      reply: of.written,
+      startedAt: of.startedAt,
+      applied: of.applied,
+      waiting: [...of.waiting.values()],
+      made: of.made,
       fresh: false,
-      renewed,
+      // Said once, at the run's first request: the later ones continue the conversation it began.
+      renewed: renewed && of.turnId === turnId,
       quiet,
       model: answeredOn,
-      steps: steps.map((step) => ({ ...step })),
-      documentsFound: found.size,
+      steps: of.steps.map((step) => ({ ...step })),
+      documentsFound: of.found.size,
       questions: [...waitingOn.values()].map(questionOf),
       mode,
       modeNew,
+      queued: sent.map((each) => each.turnId),
       ...rest,
     });
     const tell = (each: NoteTurnEvent) => {
@@ -642,13 +745,9 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       if (pending !== null || signal.aborted || over) return;
       pending = setTimeout(() => {
         pending = null;
-        if (!signal.aborted && !over) tell(event({ state: "working" }));
+        if (!signal.aborted && !over && current) tell(event(current, { state: "working" }));
       }, TELL_EVERY_MS);
     };
-    // The AI's own words for a step stand for its calls until it thinks again after them, as the
-    // User's AI app shows a thought for its step; with none, the line says the call itself.
-    let saidForStep = false;
-    let calledSince = false;
     // A clock that stands still while the computer sleeps: a sleep isn't the AI gone quiet.
     let heardAt = performance.now();
     let calls = 0;
@@ -668,25 +767,129 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
             return;
           if (performance.now() - heardAt < quietMs) return;
           quiet = true;
-          tell(event({ state: "working" }));
+          if (current) tell(event(current, { state: "working" }));
         },
         Math.min(1_000, quietMs / 4),
       );
-    const doingCall = (tool: AgentToolName, summary: string) => {
-      const seen = named.get(tool) ?? new Set<string>();
+    const doingCall = (of: Taken, tool: AgentToolName, summary: string) => {
+      const seen = of.named.get(tool) ?? new Set<string>();
       if (summary !== "") seen.add(summary);
-      named.set(tool, seen);
-      calledSince = true;
-      if (!saidForStep) doing = { kind: "call", tool, summary, count: seen.size };
+      of.named.set(tool, seen);
+      of.calledSince = true;
+      if (!of.saidForStep) of.doing = { kind: "call", tool, summary, count: seen.size };
+    };
+    const outcomeOf = (of: Taken, end: OwnAiEnd): Pick<NoteTurnEvent, "state" | "problem"> =>
+      end.kind === "failed"
+        ? {
+            state: "failed",
+            problem: end.reason === "lost-conversation" ? "failed" : PROBLEM_OF[end.reason],
+          }
+        : of.readOnly && of.applied.length === 0 && of.waiting.size === 0 && of.made.length === 0
+          ? { state: "failed", problem: "read-only" }
+          : { state: "landed", problem: null };
+    /** Ends a request of the run: its record, and every window told. */
+    const close = (of: Taken, outcome: Pick<NoteTurnEvent, "state" | "problem">, reply: string) => {
+      if (current === of) current = null;
+      if (outcome.state === "failed") {
+        options.log.warn("agents.ownAiConversation.ended", {
+          problem: outcome.problem ?? "failed",
+        });
+      }
+      const told = event(of, {
+        ...outcome,
+        reply,
+        doing: null,
+        fresh: fresh && of.turnId === turnId,
+        quiet: false,
+        questions: [],
+      });
+      lastEnd = told;
+      endTurn({ mindId, pairingId: pairing.id, turnId: of.turnId }, outcome, told);
+    };
+    // Requests whose AI took a later one while a call of theirs still ran, and their ends.
+    const closingLater = new Set<Taken>();
+    const closeLater = (of: Taken) => {
+      const end = of.closing;
+      of.closing = null;
+      closingLater.delete(of);
+      end?.();
+    };
+    /**
+     * Its AI took a request sent meanwhile (#3765): the one before ends with no reply of its own,
+     * the reply that comes next being the later one's, and what the run does is for this one now.
+     */
+    const take = (id: string) => {
+      const at = sent.findIndex((each) => each.turnId === id);
+      if (at === -1) return;
+      const before = current;
+      if (before) {
+        const end = () => close(before, outcomeOf(before, { kind: "finished", reply: "" }), "");
+        // A call it started still running ends it once it has told what it did.
+        if (before.calls > 0) {
+          before.closing = end;
+          closingLater.add(before);
+        } else end();
+      }
+      const [taken] = sent.splice(at, 1);
+      if (taken) {
+        front.selection = null;
+        front.words = taken.words;
+      }
+      latest = taking(id, options.now());
+      current = latest;
+      try {
+        db.run(
+          "UPDATE own_ai_turns SET outcome = 'working', updated_at = ? WHERE id = ? AND outcome = 'waiting'",
+          [options.now(), id],
+        );
+      } catch (error) {
+        options.log.warn("agents.ownAiConversation.takenNotKept", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+      tell(event(current, { state: "working" }));
+    };
+    /** What was sent meanwhile and never taken: the run is over, so it didn't reach its AI. */
+    const unsent = (): boolean => {
+      const ids = sent.splice(0).map((each) => each.turnId);
+      if (ids.length === 0 || options.lifetime.aborted) return ids.length > 0;
+      try {
+        db.run(
+          `UPDATE own_ai_turns SET outcome = 'unsent', updated_at = ?
+           WHERE outcome = 'waiting' AND id IN (${ids.map(() => "?").join(", ")})`,
+          [options.now(), ...ids],
+        );
+      } catch (error) {
+        options.log.warn("agents.ownAiConversation.unsentNotKept", {
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      }
+      return true;
     };
     const progress = (step: OwnAiProgress) => {
+      if (!over && BEGUN[step.kind]) begun();
       if (signal.aborted || over) return;
       heard();
       if (step.kind === "heard") return;
+      if (step.kind === "taken") {
+        take(step.id);
+        return;
+      }
+      if (step.kind === "answered") {
+        if (current)
+          close(
+            current,
+            outcomeOf(current, step.end),
+            step.end.kind === "finished" ? step.end.reply.trim() : "",
+          );
+        return;
+      }
       if (step.kind === "compacting" || step.kind === "compacted") {
         compacting = step.kind === "compacting";
-        doing = compacting ? { kind: "compacting" } : { kind: "thinking" };
-        saidForStep = false;
+        if (current) {
+          current.doing = compacting ? { kind: "compacting" } : { kind: "thinking" };
+          current.saidForStep = false;
+        }
         tellWorking();
         return;
       }
@@ -695,7 +898,30 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         if (offered.length > 0) listed = offered;
         return;
       }
+      if (step.kind === "modeRefused") {
+        // The choice before it holds again, the one the run is still in, and the menu says why.
+        if ((chosenModes.get(conversation.id) ?? ownModes.get(conversation.id)) === step.mode) {
+          const before = modeBefore.get(conversation.id);
+          if (before === undefined) chosenModes.delete(conversation.id);
+          else chosenModes.set(conversation.id, before);
+        }
+        refusedModes.set(conversation.id, step.reason);
+        modeAnswers.get(mindId)?.();
+        options.moded(mindId);
+        tellWorking();
+        return;
+      }
       if (step.kind === "mode") {
+        if (firstMode) {
+          firstMode = false;
+          if (startedIn === undefined) ownModes.set(conversation.id, step.mode);
+          else if (step.mode !== startedIn && chosenModes.get(conversation.id) === startedIn) {
+            // Started in another mode than the one asked, the choice didn't hold.
+            chosenModes.delete(conversation.id);
+            refusedModes.set(conversation.id, "other");
+          }
+        }
+        modeAnswers.get(mindId)?.();
         if (mode !== step.mode) {
           mode = step.mode;
           modeNew =
@@ -704,54 +930,60 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
                WHERE conversation_id = ? AND id != ? AND mode = ? AND deleted_at IS NULL LIMIT 1`,
               [conversation.id, turnId, mode],
             ) === undefined;
+          options.moded(mindId);
           tellWorking();
         }
-        return;
-      }
-      if (step.kind === "own") {
-        const taken = ownStep(step.id, step.action);
-        if (step.state === "refused") taken.by = "refused";
-        if (step.state === "done" || step.state === "failed") {
-          delete taken.going;
-        } else if (step.state === "going") {
-          calledSince = true;
-          // A tool it names by its own name only ("ToolSearch") says nothing to the User: the line
-          // says it works.
-          if (!saidForStep)
-            doing = step.action.kind === "other" ? null : { kind: "own", action: step.action };
-        }
-        tellWorking();
         return;
       }
       if (step.kind === "model") {
         answeredOn = step.model;
         ranOn.set(conversation.id, step.model);
-      } else if (step.kind === "said") {
+        tellWorking();
+        return;
+      }
+      const now = current;
+      if (!now) return;
+      if (step.kind === "own") {
+        const taken = ownStep(now, step.id, step.action);
+        if (step.state === "refused") taken.by = "refused";
+        if (step.state === "done" || step.state === "failed") {
+          delete taken.going;
+        } else if (step.state === "going") {
+          now.calledSince = true;
+          // A tool it names by its own name only ("ToolSearch") says nothing to the User: the line
+          // says it works.
+          if (!now.saidForStep)
+            now.doing = step.action.kind === "other" ? null : { kind: "own", action: step.action };
+        }
+        tellWorking();
+        return;
+      }
+      if (step.kind === "said") {
         // The words of one line grow as they come; a line that doesn't start as the last did is new.
-        const last = steps.at(-1);
+        const last = now.steps.at(-1);
         if (last?.kind === "said" && step.text.startsWith(last.text)) last.text = step.text;
-        else steps.push({ kind: "said", text: step.text });
-        written = step.text;
+        else now.steps.push({ kind: "said", text: step.text });
+        now.written = step.text;
         if (step.text.trim().length < SAID_FROM || INTERNAL.test(step.text)) return;
-        doing = { kind: "said", text: step.text };
-        saidForStep = true;
-        calledSince = false;
+        now.doing = { kind: "said", text: step.text };
+        now.saidForStep = true;
+        now.calledSince = false;
       } else if (step.kind === "tool") {
         // A Tool's name the stream gives as the call starts; what it names comes when it ends.
-        if (isAgentTool(step.name)) doingCall(step.name, "");
-      } else if (doing?.kind !== "said" || calledSince) {
-        doing = { kind: "thinking" };
-        saidForStep = false;
+        if (isAgentTool(step.name)) doingCall(now, step.name, "");
+      } else if (now.doing?.kind !== "said" || now.calledSince) {
+        now.doing = { kind: "thinking" };
+        now.saidForStep = false;
       }
       tellWorking();
     };
-    /** The step of the agent's own call `id`, begun now if it wasn't heard yet. */
-    const ownStep = (id: string | null, action: NoteAction) => {
+    /** The step of the agent's own call `id`, begun now in `of` if it wasn't heard yet. */
+    const ownStep = (of: Taken, id: string | null, action: NoteAction) => {
       const known = id === null ? undefined : ownSteps.get(id);
       if (known) return known;
       const begun: Extract<NoteStep, { kind: "own" }> = { kind: "own", action, going: true };
       if (id !== null) ownSteps.set(id, begun);
-      steps.push(begun);
+      of.steps.push(begun);
       return begun;
     };
     const settle = (questionId: string, answer: NoteAnswered) => {
@@ -775,7 +1007,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           return;
         }
         const id = options.newId();
-        const step = ownStep(asked.step, asked.action);
+        const of = current ?? latest;
+        const step = ownStep(of, asked.step, asked.action);
         try {
           const at = options.now();
           db.run(
@@ -783,7 +1016,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
-              turnId,
+              of.turnId,
               asked.action.kind,
               asked.action.value,
               asked.action.server ?? null,
@@ -826,15 +1059,40 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         });
         heard();
         // Every window hears it at once: the User may be looking at another Note.
-        tell(event({ state: "working" }));
+        tell(event(of, { state: "working" }));
       });
+    turn.live.turnId = () => latest.turnId;
     turn.live.questions = () => [...waitingOn.values()].map(questionOf);
-    turn.live.now = () => (over ? null : event({ state: "working" }));
+    turn.live.now = () => (over ? null : current ? event(current, { state: "working" }) : lastEnd);
     turn.live.answer = (questionId, answer) => {
       const waiting = waitingOn.get(questionId);
       if (!waiting || over || signal.aborted || !questionOf(waiting).answers.includes(answer))
         return;
       waiting.give(answer);
+    };
+    turn.live.send = (id, words) => {
+      // About the whole Note, as the record keeps it: the selection was the first request's.
+      const prompt = promptOf(
+        options.titleOf(mindId),
+        mindId,
+        words,
+        "",
+        "",
+        options.liveMeeting?.(mindId) ?? null,
+        options.language?.() ?? null,
+      );
+      sent.push({ turnId: id, prompt, words });
+      send?.(id, prompt);
+      if (over) return;
+      // Every window hears of it at once, while the request before still runs or after it ended.
+      if (current) tell(event(current, { state: "working" }));
+      else if (lastEnd) {
+        lastEnd = { ...lastEnd, queued: sent.map((each) => each.turnId) };
+        tell(lastEnd);
+      }
+    };
+    turn.live.unsent = () => {
+      unsent();
     };
     // A file it hands over is taken only from the conversation's own folder (#3653).
     let folder: string | null = null;
@@ -851,91 +1109,126 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
     if (lost || signal.aborted) {
       over = true;
       running.delete(mindId);
+      unsent();
       endTurn(
         { mindId, pairingId: pairing.id, turnId },
         lost ? { state: "failed", problem: lost } : { state: "stopped", problem: null },
       );
       return;
     }
+    front.folder = folder;
+    // What a call did goes to the request the run was on as the call started: the AI may take one
+    // sent meanwhile before the call ends (#3765).
+    const heardCall = (of: Taken, call: RunCall) => {
+      if (signal.aborted || over) return;
+      if (call.outcome === "refused" && call.problem === "read-only") of.readOnly = true;
+      if (call.outcome === "done" && call.tool === "create_mind") {
+        const wrote = call.effects.find(
+          (each) => each.action === "write" && each.scope.kind === "mind",
+        );
+        const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
+        if (mindId !== "") of.made.push({ mindId, title: call.summary });
+      }
+      if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
+        for (const { scope } of call.effects) {
+          if (scope.kind !== "mind") continue;
+          const was = of.waiting.get(scope.mindId);
+          of.waiting.set(scope.mindId, {
+            mindId: scope.mindId,
+            title: call.summary,
+            count: (was?.count ?? 0) + call.count,
+          });
+        }
+      }
+      doingCall(of, call.tool, call.summary);
+      const ids = call.documentIds ?? [];
+      if (call.outcome === "done" && call.tool === "search") for (const id of ids) of.found.add(id);
+      const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
+      const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
+      const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
+      if (read) {
+        of.found.add(read);
+        const sofar = (of.readOf.get(read) ?? 0) + (call.count ?? 0);
+        of.readOf.set(read, sofar);
+        const total = passagesIn(read);
+        const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
+        of.steps.push({
+          kind: "call",
+          tool: call.tool,
+          summary: call.summary,
+          documentId: read,
+          ...(part !== undefined && { part }),
+        });
+      } else {
+        of.steps.push({
+          kind: "call",
+          tool: call.tool,
+          summary: call.summary,
+          done: call.outcome === "done",
+          ...(other && call.outcome === "done" && { mindId: other }),
+          ...(other && call.tool === "propose_changes" && call.count && { waiting: call.count }),
+          ...(call.saved && call.outcome === "done" && { file: call.saved }),
+        });
+      }
+      tellWorking();
+    };
     // Only this run's own calls and changes: another run of the connection, or the User's own
     // session of it, tells nothing here.
-    const grant = options.conversationGrant(
-      pairing.id,
-      { mindId, selection: turn.selection, words: turn.request, folder },
-      {
-        asked: (change) => applied.push(change),
-        calling: () => {
-          calls += 1;
-          heard();
-          return () => {
+    const grant = options.conversationGrant(pairing.id, front, {
+      calling: () => {
+        const of = current ?? latest;
+        calls += 1;
+        of.calls += 1;
+        heard();
+        return {
+          own: of.own,
+          // Applied in the Note while a request works on it: never between one's end and the next.
+          asked: (change) => of.applied.push(change),
+          called: (call) => heardCall(of, call),
+          ended: () => {
             calls -= 1;
+            of.calls -= 1;
             heard();
-          };
-        },
-        called: (call) => {
-          if (signal.aborted || over) return;
-          if (call.outcome === "refused" && call.problem === "read-only") readOnly = true;
-          if (call.outcome === "done" && call.tool === "create_mind") {
-            const wrote = call.effects.find(
-              (each) => each.action === "write" && each.scope.kind === "mind",
-            );
-            const mindId = wrote?.scope.kind === "mind" ? wrote.scope.mindId : "";
-            if (mindId !== "") made.push({ mindId, title: call.summary });
-          }
-          if (call.outcome === "done" && call.tool === "propose_changes" && call.count) {
-            for (const { scope } of call.effects) {
-              if (scope.kind !== "mind") continue;
-              const was = waiting.get(scope.mindId);
-              waiting.set(scope.mindId, {
-                mindId: scope.mindId,
-                title: call.summary,
-                count: (was?.count ?? 0) + call.count,
-              });
-            }
-          }
-          doingCall(call.tool, call.summary);
-          const ids = call.documentIds ?? [];
-          if (call.outcome === "done" && call.tool === "search")
-            for (const id of ids) found.add(id);
-          const [read] = call.tool === "read_passages" && call.outcome === "done" ? ids : [];
-          const mind = call.effects.find(({ scope }) => scope.kind === "mind")?.scope;
-          const other = mind?.kind === "mind" && mind.mindId !== mindId ? mind.mindId : undefined;
-          if (read) {
-            found.add(read);
-            const sofar = (readOf.get(read) ?? 0) + (call.count ?? 0);
-            readOf.set(read, sofar);
-            const total = passagesIn(read);
-            const part = total > 0 && sofar < total ? Math.round((sofar / total) * 100) : undefined;
-            steps.push({
-              kind: "call",
-              tool: call.tool,
-              summary: call.summary,
-              documentId: read,
-              ...(part !== undefined && { part }),
-            });
-          } else {
-            steps.push({
-              kind: "call",
-              tool: call.tool,
-              summary: call.summary,
-              done: call.outcome === "done",
-              ...(other && call.outcome === "done" && { mindId: other }),
-              ...(other &&
-                call.tool === "propose_changes" &&
-                call.count && { waiting: call.count }),
-              ...(call.saved && call.outcome === "done" && { file: call.saved }),
-            });
-          }
-          tellWorking();
-        },
+            if (of.calls === 0) closeLater(of);
+          },
+        };
       },
-    );
-    // Every window hears it started, so none sends another meanwhile.
-    tell(event({ state: "working" }));
+      called: (call) => heardCall(current ?? latest, call),
+    });
+    // Every window hears it started: one that sends another meanwhile sends it into this run.
+    if (current) tell(event(current, { state: "working" }));
     const offReach = options.onReachChange(() => {
       lost ??= options.heldBack(pairing, mindId);
       if (lost) stop.abort();
     });
+    // Each run is given what waits to be taken: a run begun anew after a lost conversation too.
+    const meanwhile = (write: (id: string, prompt: string) => void) => {
+      send = write;
+      for (const each of sent) write(each.turnId, each.prompt);
+    };
+    // The mode a run starts in, the one the input shows, and how it hears one chosen as it runs.
+    const modesFor = (start: string | undefined) => {
+      startedIn = start;
+      firstMode = true;
+      return {
+        ...(start !== undefined && { start }),
+        hear(listener: (mode: string) => void) {
+          modeHears.set(mindId, listener);
+          // One chosen in its first moments, before it could hear it, is told now: the User's own
+          // setting too, for a run started in a mode chosen before.
+          const chosen = chosenModes.get(conversation.id);
+          const wanted =
+            chosen ?? (start === undefined ? undefined : ownModes.get(conversation.id));
+          if (wanted !== undefined && wanted !== (mode ?? start)) {
+            modeBefore.set(conversation.id, start);
+            listener(wanted);
+          }
+          return () => {
+            if (modeHears.get(mindId) === listener) modeHears.delete(mindId);
+          };
+        },
+      };
+    };
     const runOnce = (resume: boolean, sessionId: string) =>
       options.runner
         ? options.runner
@@ -943,7 +1236,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               client: "claude-code",
               server: grant.launch,
               tools: "all",
-              own: { ask },
+              own: { ask, meanwhile },
               instructions: INSTRUCTIONS,
               prompt: promptOf(
                 options.titleOf(mindId),
@@ -956,6 +1249,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               ),
               conversation: { key: conversation.id, sessionId, resume },
               ...(turn.model !== undefined && { model: turn.model }),
+              modes: modesFor(chosenModes.get(conversation.id)),
               listModels: true,
               progress,
               signal,
@@ -968,32 +1262,31 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
               }
               return { kind: "failed" as const, reason: "other" as const };
             })
+            .finally(() => {
+              send = null;
+            })
         : Promise.resolve({ kind: "failed" as const, reason: "other" as const });
 
-    let fresh = false;
-    let end: Awaited<ReturnType<typeof runOnce>>;
+    let end: OwnAiEnd;
     let { session_id: sessionId } = conversation;
-    if (renewed) {
+    const renewId = () => {
       sessionId = options.newId();
-      db.run(
-        `UPDATE own_ai_conversations SET session_id = ?, renewed = 0, updated_at = ?
-         WHERE id = ?`,
-        [sessionId, options.now(), conversation.id],
-      );
-    }
+      db.run("UPDATE own_ai_conversations SET session_id = ?, updated_at = ? WHERE id = ?", [
+        sessionId,
+        options.now(),
+        conversation.id,
+      ]);
+    };
+    if (unbegun) renewId();
     let listening: ReturnType<typeof setInterval> | undefined;
     try {
       listening = listen();
-      end = await runOnce(!renewed && hasEarlierTurns(conversation.id, turnId), sessionId);
+      end = await runOnce(!unbegun && hasEarlierTurns(conversation.id, turnId), sessionId);
+      if (end.kind === "finished" && !signal.aborted) begun();
       if (end.kind === "failed" && end.reason === "lost-conversation" && !signal.aborted) {
         // Claude Code's own sweep, or the User, removed it: a new one starts, under a new id.
         fresh = true;
-        const sessionId = options.newId();
-        db.run("UPDATE own_ai_conversations SET session_id = ?, updated_at = ? WHERE id = ?", [
-          sessionId,
-          options.now(),
-          conversation.id,
-        ]);
+        renewId();
         end = await runOnce(false, sessionId);
       }
     } finally {
@@ -1004,37 +1297,59 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       pending = null;
       await grant.end();
       running.delete(mindId);
+      // A call that never ended keeps no request from its end.
+      for (const of of closingLater) closeLater(of);
     }
-    // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
-    const reply = end.kind === "finished" ? end.reply.trim() : "";
-    const outcome: Pick<NoteTurnEvent, "state" | "problem"> = lost
-      ? { state: "failed", problem: lost }
-      : signal.aborted
-        ? { state: "stopped", problem: null }
-        : end.kind === "failed"
-          ? {
-              state: "failed",
-              problem: end.reason === "lost-conversation" ? "failed" : PROBLEM_OF[end.reason],
-            }
-          : readOnly && applied.length === 0 && waiting.size === 0 && made.length === 0
-            ? { state: "failed", problem: "read-only" }
-            : { state: "landed", problem: null };
-    if (outcome.state === "failed") {
-      options.log.warn("agents.ownAiConversation.ended", { problem: outcome.problem ?? "failed" });
+    // Sent in the run's last moments, after its AI's last answer, a request isn't refused: the
+    // next run begins with it (#3765). Stopped, failed or held back, it stays never sent.
+    const next =
+      end.kind === "finished" &&
+      !signal.aborted &&
+      !lost &&
+      !options.lifetime.aborted &&
+      options.heldBack(pairing, mindId) === null
+        ? sent.splice(0)
+        : [];
+    // What its AI never took is kept as such before the last end is told: every window reads the
+    // conversation again on that.
+    const neverTaken = unsent();
+    if (current) {
+      // Kept as the AI wrote it: the conversation shows its Markdown, the line its first words.
+      close(
+        current,
+        lost
+          ? { state: "failed", problem: lost }
+          : signal.aborted
+            ? { state: "stopped", problem: null }
+            : outcomeOf(current, end),
+        end.kind === "finished" ? end.reply.trim() : "",
+      );
+    } else if (neverTaken && lastEnd && !options.lifetime.aborted) {
+      tell({ ...lastEnd, queued: [] });
     }
-    endTurn({ mindId, pairingId: pairing.id, turnId }, outcome, {
-      reply,
-      fresh,
-      renewed,
-      applied,
-      waiting: [...waiting.values()],
-      made,
-      model: answeredOn,
-      steps,
-      documentsFound: found.size,
-      mode,
-      modeNew,
-    });
+    const [first, ...rest] = next;
+    if (!first) return;
+    const going = running.get(mindId);
+    const carried =
+      going ??
+      (() => {
+        db.run(
+          "UPDATE own_ai_turns SET outcome = 'working', updated_at = ? WHERE id = ? AND outcome = 'waiting'",
+          [options.now(), first.turnId],
+        );
+        return begin({
+          mindId,
+          pairing,
+          turnId: first.turnId,
+          conversation: conversationOf(mindId, pairing.id) ?? conversation,
+          request: first.words,
+          quote: "",
+          caret: "",
+          selection: null,
+          model: turn.model,
+        });
+      })();
+    for (const each of going ? next : rest) carried.live.send(each.turnId, each.words);
   }
 
   return {
@@ -1057,12 +1372,24 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
     /** The Note's running request as it is now, for a window opened while it runs; null for none. */
     now(mindId: string): NoteTurnEvent | null {
-      return running.get(mindId)?.now() ?? null;
+      return running.get(mindId)?.live.now() ?? null;
     },
 
     /** Answers what the agent asks in the Note's running request; one no longer waiting does nothing. */
     answer(mindId: string, questionId: string, answer: NoteAnswer): void {
-      running.get(mindId)?.answer(questionId, answer);
+      running.get(mindId)?.live.answer(questionId, answer);
+    },
+
+    /** Removes a request of the Note's that was never sent, as a deletion to sync (#3765). */
+    discard(mindId: string, turnId: string): void {
+      const at = options.now();
+      db.run(
+        `UPDATE own_ai_turns SET request = '', selection = '', reply = '', deleted_at = ?, updated_at = ?
+         WHERE id = ? AND outcome = 'unsent' AND deleted_at IS NULL
+           AND conversation_id IN
+             (SELECT id FROM own_ai_conversations WHERE mind_id = ? AND deleted_at IS NULL)`,
+        [at, at, turnId, mindId],
+      );
     },
 
     /** The Note's conversation, as IncarnaMind keeps it, with the agent asked last, oldest first. */
@@ -1076,8 +1403,8 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
       );
       if (!latest) return [];
       const rows = db.all<TurnRow>(
-        `SELECT id, request, selection, reply, outcome, problem, mode, created_at FROM own_ai_turns
-         WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
+        `SELECT id, request, selection, reply, outcome, problem, mode, new_after, created_at
+         FROM own_ai_turns WHERE conversation_id = ? AND deleted_at IS NULL ORDER BY created_at, rowid`,
         [latest.id],
       );
       const closed = new Map<string, NoteAction[]>();
@@ -1124,10 +1451,39 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
           const cited = found.get(token);
           return cited ? [cited] : [];
         }),
-        questions: row.outcome === "working" && now?.turnId === row.id ? now.questions() : [],
+        questions:
+          row.outcome === "working" && now?.live.turnId() === row.id ? now.live.questions() : [],
         closed: closed.get(row.id) ?? [],
         mode: row.mode,
+        newAfter: row.new_after === 1,
       }));
+    },
+
+    /**
+     * Starts a new conversation after the Note's last request that ran (#3765): every turn stays,
+     * and the next request begins a new one with the AI, which carries none of the turns before it.
+     * Asked again before a request, it is the same new conversation; while a run of the Note goes,
+     * it does nothing.
+     */
+    startNew(mindId: string): void {
+      if (running.has(mindId)) return;
+      // After the last request that ran, not one never sent, whose Discard would take the line too.
+      const last = db.get<{ id: string; conversation_id: string }>(
+        `SELECT t.id, t.conversation_id FROM own_ai_turns t
+         JOIN own_ai_conversations c ON c.id = t.conversation_id AND c.deleted_at IS NULL
+         WHERE c.mind_id = ? AND t.deleted_at IS NULL AND t.outcome NOT IN ('waiting', 'unsent')
+         ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1`,
+        [mindId],
+      );
+      if (!last) return;
+      const at = options.now();
+      db.transaction(() => {
+        db.run("UPDATE own_ai_turns SET new_after = 1, updated_at = ? WHERE id = ?", [at, last.id]);
+        db.run("UPDATE own_ai_conversations SET anew = 1, updated_at = ? WHERE id = ?", [
+          at,
+          last.conversation_id,
+        ]);
+      });
     },
 
     /** Whether the Note has a conversation kept, reading none of its turns. */
@@ -1148,12 +1504,64 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
      * until a run has answered, and while no request from the Note could run (no connection that
      * runs here, no consent, local mode).
      */
-    models(mindId: string): { models: readonly OwnAiModel[]; ran: string | null } {
-      const pairing = options.askable(mindId).find(canRun);
+    models(mindId: string): {
+      models: readonly OwnAiModel[];
+      ran: string | null;
+      mode: string | null;
+      chosen: boolean;
+      refused: string | null;
+    } {
+      const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
       if (!listed || !pairing || options.heldBack(pairing, mindId))
-        return { models: [], ran: null };
+        return { models: [], ran: null, mode: null, chosen: false, refused: null };
       const conversation = conversationOf(mindId, pairing.id);
-      return { models: listed, ran: (conversation && ranOn.get(conversation.id)) ?? null };
+      const chosen = conversation ? chosenModes.get(conversation.id) : undefined;
+      // What the next request starts in, and the running one is in: the choice, else the User's
+      // own setting as the running request or one before named it, else nothing known.
+      const own =
+        running.get(mindId)?.live.now()?.mode ??
+        (conversation ? ownModes.get(conversation.id) : undefined);
+      return {
+        models: listed,
+        ran: (conversation && ranOn.get(conversation.id)) ?? null,
+        mode: chosen ?? own ?? null,
+        chosen: chosen !== undefined,
+        refused: (conversation && refusedModes.get(conversation.id)) ?? null,
+      };
+    },
+
+    /**
+     * Chooses the AI's permission mode for the Note's conversation, by the input (#3765): its next
+     * request starts in it, and a request running now is told at once, which the AI takes from its
+     * next step where it can. Null goes back to the User's own settings for the AI, the running
+     * request too where a run has named them. Nothing is written to the AI's own settings; every
+     * window hears of it.
+     */
+    async chooseMode(mindId: string, mode: string | null): Promise<void> {
+      // The conversation running, else the one the next request would reach.
+      const pairing = running.get(mindId)?.pairing ?? options.askable(mindId).find(canRun);
+      const conversation = pairing ? conversationOf(mindId, pairing.id) : null;
+      if (!conversation) return;
+      const before = chosenModes.get(conversation.id);
+      refusedModes.delete(conversation.id);
+      if (mode === null) chosenModes.delete(conversation.id);
+      else chosenModes.set(conversation.id, mode);
+      options.moded(mindId);
+      const told = mode ?? ownModes.get(conversation.id);
+      const hear = modeHears.get(mindId);
+      if (!hear || told === undefined) return;
+      modeBefore.set(conversation.id, before);
+      // A request running now answers at once, switched or not: what the input shows next is true.
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          if (modeAnswers.get(mindId) === done) modeAnswers.delete(mindId);
+          resolve();
+        };
+        const timer = setTimeout(done, MODE_ANSWER_MS);
+        modeAnswers.set(mindId, done);
+        hear(told);
+      });
     },
 
     /** Deletes the conversations of Notes deleted for good. */
@@ -1190,9 +1598,73 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
 
 export type OwnAiConversations = ReturnType<typeof createOwnAiConversations>;
 
-/** What a running request lets the windows reach: its waiting questions, and their answers. */
+/** A Note's request running. */
+interface Running {
+  pairing: AgentPairing;
+  conversationId: string;
+  stop: AbortController;
+  ended: Promise<void>;
+  live: Live;
+}
+
+/**
+ * What a running request lets the windows reach: the request its AI works on, its waiting
+ * questions and their answers, and the requests sent into it meanwhile (#3765).
+ */
 interface Live {
+  turnId(): string;
   questions(): NoteQuestion[];
   answer(questionId: string, answer: NoteAnswer): void;
   now(): NoteTurnEvent | null;
+  send(turnId: string, words: string): void;
+  /** Keeps each request sent meanwhile that its AI hadn't taken as never sent. */
+  unsent(): void;
 }
+
+/** A request of a run as its AI works on it, the first or one sent meanwhile and taken (#3765). */
+interface Taken {
+  turnId: string;
+  startedAt: string;
+  doing: NoteDoing | null;
+  written: string;
+  named: Map<string, Set<string>>;
+  applied: NoteChangeApplied[];
+  waiting: Map<string, { mindId: string; title: string; count: number }>;
+  made: { mindId: string; title: string }[];
+  readOnly: boolean;
+  steps: NoteStep[];
+  /** The Documents its searches found and its reads reached, and how many Passages of each it read. */
+  found: Set<string>;
+  readOf: Map<string, number>;
+  /**
+   * The AI's own words for a step stand for its calls until it thinks again after them, as the
+   * User's AI app shows a thought for its step; with none, the line says the call itself.
+   */
+  saidForStep: boolean;
+  calledSince: boolean;
+  /** Its calls still running, and its end, once its AI took a later request, kept until they end. */
+  calls: number;
+  closing: (() => void) | null;
+  /** The changes it applied in the Note asked from, by their request ids. */
+  own: Set<string>;
+}
+
+const taking = (turnId: string, startedAt: string): Taken => ({
+  turnId,
+  startedAt,
+  doing: null,
+  written: "",
+  named: new Map(),
+  applied: [],
+  waiting: new Map(),
+  made: [],
+  readOnly: false,
+  steps: [],
+  found: new Set(),
+  readOf: new Map(),
+  saidForStep: false,
+  calledSince: false,
+  calls: 0,
+  closing: null,
+  own: new Set(),
+});

@@ -18,6 +18,14 @@ import type { TitleBar } from "../../shared/titleBar";
 export const SIDE_DOCK_FROM = 1000;
 /** Below this card width the groups share one strip: the card a 1,000px window gives beside the sidebar. */
 export const CARD_MERGE_BELOW = 736;
+/**
+ * A group's least width: a Note's strip at rest, tight (`useTabStripFit`), its shown tab at its
+ * least width. The tab with its list's 10px each side (152), "+" (24), the check's room with the
+ * controls' margins (94), the ⋯ (32) and the strip's end (4), as styles.css draws them; in both
+ * languages, since a tight strip shows no words but the tab's. The first group also keeps its
+ * `lead` before its tabs.
+ */
+export const GROUP_MIN_WIDTH = 306;
 
 /** A side dock's width: at least this, and it leaves the card `CARD_MIN_WIDTH`. */
 export const SIDE_MIN = 280;
@@ -186,12 +194,22 @@ export function zoneAt(
 
 /**
  * Whether the groups share one strip: in a narrow window, or when the card is
- * narrower than a 1,000px window gives it, e.g. beside a wide side dock.
+ * narrower than a 1,000px window gives it, e.g. beside a wide side dock, or too
+ * narrow to give each of the `groups` its least width, the first its `lead`
+ * too, and the 1px dividers between them: they merge rather than squeeze.
  * Folding the assistant, or moving it to the bottom or floating it, gives the
  * room back. Before the card is measured, only the window counts.
  */
-export const groupsMergedAt = (windowWidth: number, cardWidth: number | null): boolean =>
-  windowWidth < SIDE_DOCK_FROM || (cardWidth !== null && cardWidth < CARD_MERGE_BELOW);
+export const groupsMergedAt = (
+  windowWidth: number,
+  cardWidth: number | null,
+  groups = 1,
+  lead = 0,
+): boolean =>
+  windowWidth < SIDE_DOCK_FROM ||
+  (cardWidth !== null &&
+    (cardWidth < CARD_MERGE_BELOW ||
+      (groups > 1 && cardWidth < groups * (GROUP_MIN_WIDTH + 1) - 1 + lead)));
 
 /**
  * Its default size where it is drawn, as a double-click on its edge restores

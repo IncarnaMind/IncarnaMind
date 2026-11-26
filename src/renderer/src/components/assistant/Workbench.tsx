@@ -31,7 +31,7 @@ import {
 import { useAssistantYields } from "../../assistantYields";
 import { ComposerDockContext } from "../../editor/mindContext";
 import { useT } from "../../i18n";
-import { useCardWidth } from "../../layoutSlice";
+import { firstGroupLead, useCardWidth } from "../../layoutSlice";
 import { isLive, useMeetings } from "../../meetings";
 import { useSettingUp } from "../../modelSetup";
 import { useFoldForOwnAi, useHiddenForOwnAi } from "../../ownAiPanel";
@@ -304,8 +304,12 @@ function useContentSize(element: HTMLElement | null): Size {
   return size;
 }
 
-/** Keeps the card's width where the groups read it (`useCardWidth`). */
+/** Keeps the card's width, and what the groups need of it, where the groups read it (`useCardWidth`). */
 function useMeasuredCard(card: HTMLElement | null, sidebarHidden: boolean): void {
+  const groups = useAppStore((state) => state.layout?.groups.length ?? 1);
+  useLayoutEffect(() => {
+    useCardWidth.setState({ groups, lead: firstGroupLead(sidebarHidden) });
+  }, [groups, sidebarHidden]);
   // Before the sidebar's slide starts, so the groups merge or part first and what they draw slides too.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `sidebarHidden` is when to measure again.
   useLayoutEffect(() => {

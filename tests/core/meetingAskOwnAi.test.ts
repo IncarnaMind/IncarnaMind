@@ -239,12 +239,15 @@ describe("asking during a meeting, with the User's own AI", { timeout: 60_000 },
       const [turn] = await core.noteConversation(meeting.mindId);
       expect(turn?.citations).toEqual([
         expect.objectContaining({
-          documentId: live.documentId,
           quote: monday,
-          location: expect.objectContaining({
-            kind: "time",
-            from: expect.any(Number),
-            to: expect.any(Number),
+          citation: expect.objectContaining({
+            documentId: live.documentId,
+            quote: monday,
+            location: expect.objectContaining({
+              kind: "time",
+              from: expect.any(Number),
+              to: expect.any(Number),
+            }),
           }),
         }),
       ]);

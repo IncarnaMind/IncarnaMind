@@ -33,6 +33,7 @@ import {
   saveComment,
   useCommentsUi,
 } from "../comments";
+import { CommentLineIcon } from "../components/lineIcons";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { useLanguage, useT } from "../i18n";
 import { COMMENTS_REDRAWN, commentRuns } from "./commentSchema";
@@ -165,15 +166,7 @@ export function CommentLayer({
     if (!element || !frame) return;
     const cards = [...element.querySelectorAll<HTMLElement>("[data-comment-card]")];
     const next: { id: string; top: number }[] = [];
-    // The first card stays 8px under the page's own controls at its top right, where the first
-    // line's card would touch them (#3759); scrolled, the cards go under them with the text.
-    const scroller = frame.closest<HTMLElement>(".mind-scroller");
-    const controls = frame.closest(".mind-tab-page")?.querySelector(".mind-menu-slot");
-    let bottom =
-      scroller && controls
-        ? controls.getBoundingClientRect().bottom -
-          (frame.getBoundingClientRect().top + scroller.scrollTop)
-        : -Infinity;
+    let bottom = Number.NEGATIVE_INFINITY;
     for (const card of cards) {
       const id = card.dataset.commentCard;
       if (!id) continue;
@@ -665,6 +658,7 @@ export function CommentsButton({
   if (comments.length === 0) return null;
   return (
     <>
+      {/* In the tab strip, as the check's badge is: its icon and count, its name on hover (#3765). */}
       <button
         ref={button}
         type="button"
@@ -672,9 +666,12 @@ export function CommentsButton({
         data-testid="comments-count"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={t("comments.fold", { count: comments.length })}
+        title={t("comments.fold", { count: comments.length })}
         onClick={() => showList(open ? null : mindId)}
       >
-        {t("comments.fold", { count: comments.length })}
+        <CommentLineIcon className="size-4 flex-none" aria-hidden="true" />
+        <span className="tabular-nums">{comments.length}</span>
       </button>
       {open && button.current && (
         <CommentsList

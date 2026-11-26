@@ -1,26 +1,29 @@
 import type { Editor } from "@tiptap/react";
 import { useEditorState } from "@tiptap/react";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
-import type { AgentToolName, NoteCitation } from "../../../../core/api";
+import type { AgentToolName } from "../../../../core/api";
 import type { MessageKey } from "../../../../shared/i18n";
 
 type Translate = ReturnType<typeof useT>;
 
 import { canReviewApplied, reviewApplied } from "../../appliedEdits";
 import { undoAsked, useAskedState } from "../../askedChanges";
+import { openClaudeCodeSignIn } from "../../claudeCodeInstall";
 import { pendingIn } from "../../editor/proposalReview";
 import { resolveProposalsIn } from "../../editWithAi";
 import { useT } from "../../i18n";
 import { showMeetingNoteView, useMeetingNoteView } from "../../meetingViews";
 import { showWaitingChanges } from "../../mindChanges";
-import { openCited } from "../../openCited";
-import { allowAndAskAgain, firstWordsOf, type NoteAsk } from "../../ownAiInNote";
+import {
+  allowAndAskAgain,
+  askAgainInNote,
+  askedAgain,
+  firstWordsOf,
+  type NoteAsk,
+} from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { MarkdownBlocks } from "../../viewer/MarkdownBlocks";
-import { parseMarkdown } from "../../viewer/markdown";
-import { showCitedInTranscript } from "../meetings/MeetingFoot";
-import { ProblemLine } from "../ProblemLine";
+import { type ProblemAction, ProblemLine } from "../ProblemLine";
 import { useTabPlace } from "../tabs/tabItems";
 import { useAnnounce, WaitingLine } from "./OwnAsk";
 import { ownDoingWords } from "./ownAskWords";
@@ -286,6 +289,18 @@ export function NoteAskPill({
   );
 }
 
+/** The ways a run stops part way that sending it again can mend. */
+const RETRIED: ReadonlySet<string> = new Set([
+  "plan-limit",
+  "timeout",
+  "stalled",
+  "compaction",
+  "failed",
+  "outside",
+  "unreadable",
+  "service",
+]);
+
 /**
  * Notes in place of My notes, at what the AI changed, as Review shows it. My notes goes first: with
  * it, the review's cursor would land in lines it hides.
@@ -313,21 +328,37 @@ export function FailureLine({
 }) {
   const t = useT();
   const readOnly = ask.problem === "read-only";
+  // A request that never started keeps its words in the input, where Send is: only a run that
+  // stopped part way is sent again from its line.
+  const again =
+    ask.turnId !== null && RETRIED.has(ask.problem ?? "failed") ? askedAgain(ask, turn) : null;
+  const action: ProblemAction | undefined = readOnly
+    ? {
+        label: t("noteAsk.allow"),
+        testId: "note-ask-allow",
+        onClick: () =>
+          void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
+      }
+    : ask.problem === "signed-out"
+      ? {
+          label: t("noteAsk.signIn"),
+          testId: "note-ask-sign-in",
+          onClick: () => void openClaudeCodeSignIn(),
+        }
+      : again
+        ? {
+            label: t("noteAsk.tryAgain"),
+            testId: "note-ask-try-again",
+            onClick: () =>
+              void askAgainInNote(mindId, again).catch(useAppStore.getState().reportError),
+          }
+        : undefined;
   return (
     <ProblemLine
       testId="note-ask-problem"
       role={readOnly || turn ? "status" : "alert"}
       className={className}
-      action={
-        readOnly
-          ? {
-              label: t("noteAsk.allow"),
-              testId: "note-ask-allow",
-              onClick: () =>
-                void allowAndAskAgain(mindId, turn).catch(useAppStore.getState().reportError),
-            }
-          : undefined
-      }
+      action={action}
     >
       {readOnly
         ? t("noteAsk.readOnly", { agent: ask.agent })
@@ -430,127 +461,5 @@ export function EndAction({
         </button>
       )}
     </>
-  );
-}
-
-/** Stands for a Citation chip in the text until the reply is drawn: its number between the two. */
-const CHIP_OPEN = "\uE000";
-const CHIP_CLOSE = "\uE001";
-
-/**
- * A reply's Citation opens at the words cited: a meeting's Transcript in the sheet over that
- * meeting's Note (#3762), any other Document beside the Note, as a Note's own Citation opens it.
- * `from`: the group the Note is in.
- */
-function openReplyCitation(cited: NoteCitation, from: string | undefined): void {
-  const units = {
-    ...(cited.pageFrom !== null && { pageFrom: cited.pageFrom }),
-    ...(cited.pageTo !== null && { pageTo: cited.pageTo }),
-  };
-  // With the Citation's own place, the sheet says so when that place is gone.
-  const inTranscript = showCitedInTranscript({
-    documentId: cited.documentId,
-    quote: cited.quote,
-    ...units,
-    citation: {
-      check: "found",
-      origin: "note",
-      contentHash: cited.contentHash,
-      ...(cited.location && { location: cited.location }),
-      ...units,
-    },
-    request: 0,
-  });
-  if (inTranscript) return;
-  openCited(
-    {
-      documentId: cited.documentId,
-      quote: cited.quote,
-      pageFrom: cited.pageFrom,
-      pageTo: cited.pageTo,
-      contentHash: cited.contentHash,
-      ...(cited.location && { location: cited.location }),
-    },
-    { origin: "note", check: "found", withQuote: true, ...(from && { from }) },
-  );
-}
-
-/**
- * A reply as the AI wrote it: its paragraphs, lists and bold, as the app's other reading surfaces
- * show Markdown, and each Citation IncarnaMind gave its connection as the numbered chip a Note
- * shows (#3677). Any other `[cite:…]` is left out, never drawn as a Citation.
- */
-export function Reply({ text, citations }: { text: string; citations: readonly NoteCitation[] }) {
-  const t = useT();
-  const groupId = useTabPlace()?.groupId;
-  const drawn = useRef<HTMLDivElement>(null);
-  const tokens: string[] = [];
-  const shown = text.replace(/\s?\[cite:([a-z0-9]{1,32})\]/g, (_, token: string) => {
-    if (!citations.some((each) => each.token === token)) return "";
-    if (!tokens.includes(token)) tokens.push(token);
-    return `${CHIP_OPEN}${tokens.indexOf(token) + 1}${CHIP_CLOSE}`;
-  });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the chips are drawn anew for each text.
-  useLayoutEffect(() => {
-    const root = drawn.current;
-    if (!root) return;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const holding: Text[] = [];
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (node instanceof Text && node.data.includes(CHIP_OPEN)) holding.push(node);
-    }
-    for (const node of holding) {
-      const parts = node.data.split(new RegExp(`${CHIP_OPEN}(\\d+)${CHIP_CLOSE}`));
-      const pieces = parts.map((part, index) => {
-        // A word joiner keeps each chip with the word before it, as a Note keeps its marks.
-        if (index % 2 === 0)
-          return document.createTextNode(index < parts.length - 1 ? `${part}\u2060` : part);
-        const cited = citations.find((each) => each.token === tokens[Number(part) - 1]);
-        const chip = document.createElement("span");
-        chip.className = "citation-marker";
-        chip.dataset.check = "found";
-        chip.textContent = part;
-        chip.title = cited
-          ? `${cited.documentName}: “${cited.quote}”`
-          : t("noteColumn.citation", { number: part });
-        if (cited) {
-          chip.dataset.token = cited.token;
-          chip.setAttribute("role", "button");
-          chip.tabIndex = 0;
-        }
-        return chip;
-      });
-      node.replaceWith(...pieces);
-    }
-  }, [shown, t, citations]);
-  /** The chip pressed, or given Enter or Space, opens its Citation: whether one did. */
-  const opened = (target: EventTarget): boolean => {
-    if (!(target instanceof Element)) return false;
-    const chip = target.closest<HTMLElement>(".citation-marker[data-token]");
-    const cited = citations.find((each) => each.token === chip?.dataset.token);
-    if (!cited) return false;
-    openReplyCitation(cited, groupId);
-    return true;
-  };
-  return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: the chips inside are the buttons; this hears their press.
-    <div
-      key={shown}
-      ref={drawn}
-      data-testid="note-ask-reply"
-      className="note-ask-reply-text"
-      onClick={(event) => {
-        if (opened(event.target)) event.stopPropagation();
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        if (!opened(event.target)) return;
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-    >
-      <MarkdownBlocks blocks={parseMarkdown(shown)} source={shown} highlight={[]} />
-    </div>
   );
 }

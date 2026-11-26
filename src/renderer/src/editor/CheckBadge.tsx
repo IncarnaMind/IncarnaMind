@@ -20,6 +20,7 @@ import { askToCheck, useAgentsToAsk, useNoModel, useReadAgentsToAsk } from "../a
 import { useCheckDecision } from "../checkDecision";
 import { setCheckCardOpen, stopCheck, useChecks } from "../checks";
 import { EstimateMeta } from "../components/EstimateSource";
+import { StopLineIcon } from "../components/lineIcons";
 import { useTabPlace } from "../components/tabs/tabItems";
 import { buttonStyle } from "../components/ui";
 import { useScrollFade } from "../components/useScrollFade";
@@ -63,7 +64,7 @@ import { type CheckEstimateView, checkPressOf } from "./checkEstimateState";
 import { useCardPlace } from "./checkPlace";
 import { EveryResultSwitch } from "./EveryResultSwitch";
 import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
-import { MindCheckAsk, MindUnchanged, RunningText } from "./MindCheckLine";
+import { MindCheckAsk, MindUnchanged, RunningText, useRunningCheck } from "./MindCheckLine";
 import { HealthCard, PartMark, partLabel, useHealth } from "./NoteHealth";
 import { Popover } from "./Popover";
 import { useEveryCheckResult } from "./useEveryCheckResult";
@@ -118,6 +119,8 @@ export function CheckBadge(props: {
   mindId: string;
   verification: Verification | null;
   quiet: boolean;
+  /** In the Note's tab strip, where it has one room in every state (#3765). */
+  inStrip: boolean;
 }) {
   return props.verification ? (
     <VerifyBadge {...props} verification={props.verification} />
@@ -136,7 +139,7 @@ function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
     () => new Set(unexaminedKeys.split(" ").filter(Boolean)),
     [unexaminedKeys],
   );
-  return { checkedAll, health: useHealth(editor, skipped, unexamined, doc, running) };
+  return { checkedAll, ...useHealth(editor, skipped, unexamined, doc, running) };
 }
 
 function MindBadge({
@@ -144,17 +147,20 @@ function MindBadge({
   doc,
   mindId,
   quiet,
+  inStrip,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   quiet: boolean;
+  inStrip: boolean;
 }) {
   const running = useChecks((state) => state.running[mindId]);
+  const run = useRunningCheck(editor, mindId);
   // The User's own AI asked to check the Note: the badge says how that goes until its marks land (#3587).
   const asked = useAskedAgent({ kind: "check", mindId });
   // Counted again as the AI's marks land, as at a run's end, so the badge says what it marked.
-  const { checkedAll, health } = useMindHealth(
+  const { checkedAll, health, counted } = useMindHealth(
     editor,
     doc,
     running !== undefined || asked !== null,
@@ -196,13 +202,15 @@ function MindBadge({
       mindId={mindId}
       badge={badgeOf(input)}
       state={input.running ? null : state}
+      counted={counted}
       ask={input.asking || problem}
       // A problem lands in a card that opened with less, as a Check pressed in it leaves one: the
       // card takes its height again then, so the line is not left below its fold (#3533).
       holdKey={problem ? "problem" : asked ? "asked" : "plain"}
+      inStrip={inStrip}
       running={
-        running ? (
-          <RunningText editor={editor} mindId={mindId} />
+        run ? (
+          <RunningText run={run} />
         ) : (
           asked && (
             <span data-testid="badge-asked" data-state={asked.asked.state} title={asked.words}>
@@ -211,6 +219,8 @@ function MindBadge({
           )
         )
       }
+      runWords={run?.words ?? asked?.words ?? null}
+      share={run?.share ?? null}
       onStop={running ? () => stopCheck(mindId) : null}
       actions={
         <CheckActions
@@ -434,12 +444,14 @@ function VerifyBadge({
   mindId,
   verification,
   quiet,
+  inStrip,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   verification: Verification;
   quiet: boolean;
+  inStrip: boolean;
 }) {
   const t = useT();
   const language = useLanguage();
@@ -448,7 +460,7 @@ function VerifyBadge({
   const noModel = useNoModel();
   const asked = useAskedAgent({ kind: "check", mindId });
   const backgroundRun = asked?.asked.background === true && asked.asked.state === "working";
-  const { health } = useMindHealth(editor, doc, state.running !== null || asked !== null);
+  const { health, counted } = useMindHealth(editor, doc, state.running !== null || asked !== null);
   useReadAgentsToAsk(mindId);
   const agents = useAgentsToAsk(mindId);
   const kept = useVerificationBrief(doc);
@@ -474,6 +486,10 @@ function VerifyBadge({
     state.opinions.length === 0 &&
     toCheck === 0;
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const progress = t("badge.checking", {
+    done: format(marked - checking),
+    total: format(marked),
+  });
   const input: BadgeInput = {
     marks: {
       // A formula whose saved result differs needs a look as the card counts it (#3278, #3493).
@@ -495,14 +511,16 @@ function VerifyBadge({
       mindId={mindId}
       badge={badgeOf(input)}
       state={null}
+      counted={counted}
       ask={input.asking || state.finding || input.problem}
       holdKey={holdKey}
+      inStrip={inStrip}
       running={
         phase === "finding" ? (
           t("verify.finding")
         ) : phase === "checking" ? (
           <span data-testid="badge-progress" className="tabular-nums">
-            {t("badge.checking", { done: format(marked - checking), total: format(marked) })}
+            {progress}
           </span>
         ) : (
           asked && (
@@ -512,6 +530,14 @@ function VerifyBadge({
           )
         )
       }
+      runWords={
+        phase === "finding"
+          ? t("verify.finding")
+          : phase === "checking"
+            ? progress
+            : (asked?.words ?? null)
+      }
+      share={phase === "checking" && marked > 0 ? (marked - checking) / marked : null}
       onStop={
         state.running !== null
           ? () => stopVerify(mindId)
@@ -608,9 +634,13 @@ function BadgeFrame({
   mindId,
   badge,
   state,
+  counted,
   ask,
   holdKey,
+  inStrip,
   running,
+  runWords,
+  share,
   onStop,
   foot,
   actions,
@@ -620,10 +650,17 @@ function BadgeFrame({
   badge: Badge | null;
   /** A Mind's resting state (D266); null for a Verify run, which shows its own marks. */
   state: NoteState | null;
+  /** Whether the Note's health the card counts is counted from the Note as it is now. */
+  counted(): boolean;
   ask: boolean;
   /** When it changes, the card takes the height of what is in it now, as at its first paint. */
   holdKey?: string;
+  inStrip: boolean;
   running: ReactNode;
+  /** What `running` says, in words: the badge's tooltip while a run is on. */
+  runWords: string | null;
+  /** The part of the run checked, from 0 to 1, once counted. */
+  share: number | null;
   /** Null for what runs elsewhere, such as the User's own AI checking: nothing here can stop it. */
   onStop: (() => void) | null;
   foot?: ReactNode;
@@ -676,14 +713,21 @@ function BadgeFrame({
     const card = element.closest(".check-card");
     let settle: number | undefined;
     let first: number | undefined;
-    const hold = () => {
+    const holdNow = () => {
       watching.disconnect();
       window.clearTimeout(settle);
       setHeldHeight(firstHeightOf(element, anchor, rest, fromTop));
     };
+    // What landed is known once the Note's health is counted from the change that brought it: a
+    // line worked out at once lands before the rows that count brings, a moment later (#3765).
+    const hold = () => {
+      const left = SETTLE_AT_MOST_MS - (performance.now() - (first ?? 0));
+      if (counted() || left <= 0) holdNow();
+      else settle = window.setTimeout(hold, Math.min(SETTLE_MS, left));
+    };
     // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
     const touched = () => {
-      if (!bodyIsEmpty(element)) hold();
+      if (!bodyIsEmpty(element)) holdNow();
     };
     const watching = new ResizeObserver(() => {
       if (bodyIsEmpty(element)) return;
@@ -706,7 +750,7 @@ function BadgeFrame({
       card?.removeEventListener("pointerenter", touched);
       card?.removeEventListener("focusin", touched);
     };
-  }, [open, heldHeight, anchor, fromTop]);
+  }, [open, heldHeight, anchor, fromTop, counted]);
   useScrollFade(body, open && anchor !== null);
   useEffect(() => {
     if (ask && front) setCheckCardOpen(place, true);
@@ -737,8 +781,12 @@ function BadgeFrame({
           badge={badge}
           state={state}
           open={open}
+          inStrip={inStrip}
           running={running}
-          stable={badge.running || badge.checked !== null}
+          runWords={runWords}
+          share={share}
+          // In the strip its room is the same in every state, so it holds no width of its own (#2519).
+          stable={!inStrip && (badge.running || badge.checked !== null)}
           onToggle={() => {
             // The badge closes the card as its × does: the question closes with it.
             if (open) cardClosed(mindId, "toggle");
@@ -898,7 +946,10 @@ function BadgePill({
   badge,
   state,
   open,
+  inStrip,
   running,
+  runWords,
+  share,
   stable,
   onToggle,
   onStop,
@@ -906,7 +957,10 @@ function BadgePill({
   badge: Badge;
   state: NoteState | null;
   open: boolean;
+  inStrip: boolean;
   running: ReactNode;
+  runWords: string | null;
+  share: number | null;
   /** It keeps one width while a run is on or a finished check shows; opening the card leaves it. */
   stable: boolean;
   onToggle(): void;
@@ -939,7 +993,24 @@ function BadgePill({
           parts: new Intl.ListFormat(language, { type: "conjunction" }).format(said),
         })
       : t("health.label");
-  if (badge.running && running) {
+  const runs = badge.running && Boolean(running);
+  if (runs && inStrip) {
+    // Its room holds the dot, "100%" and Stop alike, so the run's words, which have no bounded
+    // width, are its name and tooltip rather than drawn: nothing in the strip moves (#2519).
+    parts.push(
+      <span key="running" className="check-badge-running">
+        <span className="check-badge-dot" aria-hidden="true" />
+        {share !== null && (
+          <span aria-hidden="true" className="check-badge-share">
+            {new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 0 }).format(
+              Math.floor(share * 100) / 100,
+            )}
+          </span>
+        )}
+        <span className="sr-only">{running}</span>
+      </span>,
+    );
+  } else if (runs) {
     parts.push(
       <span key="running" className="check-badge-running">
         <span className="check-badge-dot" aria-hidden="true" />
@@ -1039,13 +1110,25 @@ function BadgePill({
         className="check-badge-open"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={badge.running && running ? undefined : label}
-        title={badge.running && running ? undefined : label}
+        aria-label={runs ? undefined : label}
+        title={runs ? (inStrip ? (runWords ?? undefined) : undefined) : label}
         onClick={onToggle}
       >
         {parts}
       </button>
-      {badge.running && running && onStop && (
+      {runs && onStop && inStrip && (
+        <button
+          type="button"
+          data-testid="badge-stop"
+          className="check-badge-stop"
+          aria-label={t("checks.stop")}
+          title={t("checks.stop")}
+          onClick={onStop}
+        >
+          <StopLineIcon className="size-3.5" />
+        </button>
+      )}
+      {runs && onStop && !inStrip && (
         <>
           <span className="check-badge-sep" aria-hidden="true">
             ·

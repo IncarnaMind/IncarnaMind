@@ -23,7 +23,7 @@ import {
   SettingsLineIcon,
 } from "../lineIcons";
 import { menuClass, menuItemClass, menuRuleClass, tallMenuItemClass } from "../ui";
-import { usePopoverMenu, useSubmenu } from "../usePopoverMenu";
+import { openMenuFromRightClick, usePopoverMenu, useSubmenu } from "../usePopoverMenu";
 
 const MAIN_FORMATS: readonly ExportFormat[] = ["docx", "pdf"];
 
@@ -124,7 +124,15 @@ export function ExportMenu({ mindId }: { mindId: string }) {
   const asked = useExportMenuRequests((state) => state.request);
   const button = menu.buttonProps.ref;
   useEffect(() => {
-    if (asked?.mindId === mindId && takeExportMenuRequest(mindId)) button.current?.click();
+    const shown = button.current;
+    if (asked?.mindId !== mindId || !takeExportMenuRequest(mindId) || !shown) return;
+    // A strip too tight for Export keeps it in the Note's ⋯ (#3765): its menu opens under the ⋯.
+    const more = shown.checkVisibility()
+      ? null
+      : shown.closest(".tab-strip")?.querySelector('[data-testid="page-menu"]');
+    const box = more?.getBoundingClientRect();
+    if (box) openMenuFromRightClick(shown, 0, { x: box.left, y: box.bottom, above: box.top });
+    else shown.click();
   }, [asked, mindId, button]);
 
   const run = (id: CommandId) => {

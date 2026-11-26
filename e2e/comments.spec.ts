@@ -406,7 +406,7 @@ test("the interface is Chinese: 批注, 回复, 解决 and 原文已删除", asy
   await expect(card(window)).toContainText("请核对这个数字。");
   await expect(window.locator('[data-testid^="comment-reply-"]').first()).toHaveText("回复");
   await expect(window.locator('[data-testid^="comment-resolve-"]').first()).toHaveText("解决");
-  await expect(window.getByTestId("comments-count")).toContainText("批注");
+  await expect(window.getByTestId("comments-count")).toHaveAccessibleName(/^批注（\d+）$/);
   await screenshot(window, "comments-zh-wide");
   await pointAndClick(window, window.getByTestId("comments-count"));
   await expect(window.getByTestId("comments-list")).toContainText("批注");

@@ -11,6 +11,7 @@ import {
   floatRect,
   foldsInMenu,
   GAP,
+  GROUP_MIN_WIDTH,
   groupsMergedAt,
   HEADER,
   QUESTION_LEAVES,
@@ -190,6 +191,17 @@ describe("the groups", () => {
     // Folded to the rail, or at the bottom, the room comes back.
     expect(groupsMergedAt(1280, 964)).toBe(false);
     expect(groupsMergedAt(1000, 736)).toBe(false);
+  });
+
+  test("merge rather than squeeze when the card can't give each group its least width, the first its lead too", () => {
+    // Three groups, their two 1px dividers and the first's sidebar button.
+    const three = 3 * GROUP_MIN_WIDTH + 2 + 42;
+    expect(groupsMergedAt(1440, three, 3, 42)).toBe(false);
+    expect(groupsMergedAt(1440, three - 1, 3, 42)).toBe(true);
+    // The traffic lights beside the sidebar's button ask for more of the same card.
+    expect(groupsMergedAt(1440, three, 3, 110)).toBe(true);
+    // Two always fit a card that keeps them apart.
+    expect(groupsMergedAt(1000, 736, 2, 110)).toBe(false);
   });
 });
 
