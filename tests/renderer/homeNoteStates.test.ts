@@ -5,15 +5,19 @@ import * as Y from "yjs";
 import { tableCellFigurePlaces } from "../../src/core/answers/checks/figureOccurrences";
 import {
   BLOCK_ID_ATTRIBUTE,
+  CITATION_NODE,
   CLAIM_CHECK_MARK,
   type ClaimCheckAttributes,
   MIND_CONTENT_FIELD,
   MIND_SETTINGS_FIELD,
   type MindContentSnapshot,
 } from "../../src/core/api";
-import { noteFooting } from "../../src/core/figureSchedule";
+import { noteFooting, readTableSnapshot } from "../../src/core/figureSchedule";
 import { noteExtensions } from "../../src/renderer/src/editor/noteSchema";
-import { createHomeNoteStateReader } from "../../src/renderer/src/homeNoteStates";
+import {
+  createAgentNoteCache,
+  createHomeNoteStateReader,
+} from "../../src/renderer/src/homeNoteStates";
 import {
   decodeHomeSnapshot,
   homeReading,
@@ -22,6 +26,7 @@ import {
 } from "../../src/renderer/src/noteState";
 import { translate } from "../../src/shared/i18n";
 import { sentenceKey, writeMindCheck } from "../../src/shared/mindCheck";
+import { recordNoteWriter } from "../../src/shared/noteWriter";
 import { writeOpinionSentences } from "../../src/shared/opinions";
 import { createTempDataFolder, startCore } from "../helpers/core";
 
@@ -545,6 +550,315 @@ describe("createHomeNoteStateReader (#3822)", () => {
       expect(asyncReading.health.toCheck.length).toBe(800);
     } finally {
       decoded.dispose();
+    }
+  });
+
+  test("moving another Note does not cancel an in-flight per-Note re-evaluation", async () => {
+    const docId = "doc-wall";
+    const sentence = "Harbour depth stayed at twelve metres.";
+    const state = updateFromDoc({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { [BLOCK_ID_ATTRIBUTE]: "p-a" },
+          content: [
+            {
+              type: "text",
+              text: sentence,
+              marks: [
+                {
+                  type: CLAIM_CHECK_MARK,
+                  attrs: checkedAttrs(sentence, {
+                    scope: { folderId: "wall", widened: false },
+                    versions: [{ documentId: docId, contentHash: "h1" }],
+                  }),
+                },
+              ],
+            },
+            {
+              type: CITATION_NODE,
+              attrs: {
+                passageId: "p-1",
+                documentId: docId,
+                documentName: "Wall.pdf",
+                contentHash: "h1",
+                pageFrom: 1,
+                pageTo: 1,
+                location: null,
+                quote: sentence,
+                check: "found",
+                checkReason: null,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const noteBState = paragraphDoc("Note B stays unchecked.", "p-b");
+    const gateA = Promise.withResolvers<void>();
+    let holdNextReadA = false;
+    const seenFoldersA: (string | null)[] = [];
+    let latest: ReadonlyMap<string, NoteReading> = new Map();
+
+    const reader = createHomeNoteStateReader({
+      readMindContents: async (mindIds) =>
+        mindIds.map((mindId) => ({
+          mindId,
+          state: mindId === "a" ? state : noteBState,
+          cellFigures: [],
+          footing: [],
+        })),
+      decode: async (snapshot) => {
+        const real = await decodeHomeSnapshot(snapshot);
+        if (snapshot.state !== state) return real;
+        return {
+          ...real,
+          async read(ctx) {
+            if (holdNextReadA) {
+              holdNextReadA = false;
+              await gateA.promise;
+            }
+            seenFoldersA.push(ctx.folderId);
+            return real.read(ctx);
+          },
+        };
+      },
+      onChange: (states) => {
+        latest = states;
+      },
+      onError: (error) => {
+        throw error;
+      },
+    });
+
+    const walledLibrary = {
+      groups: [{ id: "wall", name: "Private", parentId: null, keepInside: true }],
+      documentWalls: { [docId]: { wallId: "wall", byUser: true } },
+    };
+    const shared = {
+      documents: [{ id: docId, contentHash: "h1" }],
+      keptCitationTexts: [],
+      library: walledLibrary,
+    };
+
+    // Initial launch: Note A is outside the walled folder (its check cannot read Wall.pdf).
+    reader.sync(
+      [
+        { id: "a", folderId: null },
+        { id: "b", folderId: null },
+      ],
+      shared,
+    );
+    await flush();
+    expect(seenFoldersA).toEqual([null]);
+    const stateBeforeMove = latest.get("a")?.state;
+
+    // Move Note A into the walled folder (hold its async read), then immediately move Note B.
+    holdNextReadA = true;
+    reader.sync(
+      [
+        { id: "a", folderId: "wall" },
+        { id: "b", folderId: null },
+      ],
+      shared,
+    );
+    reader.sync(
+      [
+        { id: "a", folderId: "wall" },
+        { id: "b", folderId: "wall" },
+      ],
+      shared,
+    );
+
+    // Release Note A's read: Note B's move must not have cancelled Note A's evaluation.
+    gateA.resolve();
+    await flush();
+    expect(seenFoldersA).toEqual([null, "wall"]);
+    expect(latest.get("a")?.state?.kind).toBe("checked");
+    expect(latest.get("a")?.state).not.toEqual(stateBeforeMove);
+    expect(latest.get("b")?.state?.kind).toBe("not-checked");
+
+    reader.dispose();
+  });
+
+  test("createAgentNoteCache preserves the previous decoded Note and dirty flag when replacement decode fails", async () => {
+    const mindId = "agent-note-1";
+    const pairingId = "pair-1";
+    const makeAgentState = (text: string) =>
+      updateFromDoc(
+        {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              attrs: { [BLOCK_ID_ATTRIBUTE]: "p-agent" },
+              content: [{ type: "text", text }],
+            },
+          ],
+        },
+        (doc) => {
+          recordNoteWriter(doc, {
+            source: "outside-agent",
+            agent: "Test Agent",
+            pairingId,
+            createdAt: AT,
+            mindId,
+          });
+        },
+      );
+
+    let currentState = makeAgentState("First agent sentence.");
+    let failDecode = false;
+    let firstDisposed = false;
+    let fetchCount = 0;
+
+    const cache = createAgentNoteCache({
+      readMindContents: async (mindIds) => {
+        fetchCount++;
+        return mindIds.map((id) => ({
+          mindId: id,
+          state: currentState,
+          cellFigures: [],
+          footing: [],
+        }));
+      },
+      decode: async (snapshot) => {
+        if (failDecode) throw new Error("corrupt replacement");
+        const real = await decodeHomeSnapshot(snapshot);
+        if (fetchCount === 1) {
+          return {
+            ...real,
+            dispose() {
+              firstDisposed = true;
+              real.dispose();
+            },
+          };
+        }
+        return real;
+      },
+    });
+
+    const candidates = [{ id: mindId, folderId: null }];
+    const pairings = new Set([pairingId]);
+    const ctx = { documents: [], keptCitationTexts: [], library: null };
+
+    const first = await cache.read(candidates, pairings, ctx);
+    expect(fetchCount).toBe(1);
+    expect(first?.mindId).toBe(mindId);
+    expect(first?.state?.kind).toBe("not-checked");
+    expect(firstDisposed).toBe(false);
+    expect(cache.isDirty(mindId)).toBe(false);
+
+    // Mark dirty and fail decoding the replacement: old doc must stay undisposed and dirty flag kept.
+    cache.markDirty(mindId);
+    failDecode = true;
+    await expect(cache.read(candidates, pairings, ctx)).rejects.toThrow("corrupt replacement");
+    expect(fetchCount).toBe(2);
+    expect(firstDisposed).toBe(false);
+    expect(cache.has(mindId)).toBe(true);
+    expect(cache.isDirty(mindId)).toBe(true);
+
+    // Next read retries, succeeds, disposes the old doc, and clears dirty.
+    failDecode = false;
+    currentState = makeAgentState("First updated sentence. Second updated sentence.");
+    const retried = await cache.read(candidates, pairings, ctx);
+    expect(fetchCount).toBe(3);
+    expect(firstDisposed).toBe(true);
+    expect(cache.isDirty(mindId)).toBe(false);
+    expect(retried?.mindId).toBe(mindId);
+    expect(retried?.state?.kind).toBe("not-checked");
+
+    cache.dispose();
+  });
+
+  test("readTableSnapshot yields inside large table paragraph, fact, and place loops with identical output", async () => {
+    const tableRows: JSONContent[] = [
+      {
+        type: "tableRow",
+        content: [
+          {
+            type: "tableHeader",
+            content: [
+              {
+                type: "paragraph",
+                attrs: { [BLOCK_ID_ATTRIBUTE]: "h-0" },
+                content: [{ type: "text", text: "Item" }],
+              },
+            ],
+          },
+          {
+            type: "tableHeader",
+            content: [
+              {
+                type: "paragraph",
+                attrs: { [BLOCK_ID_ATTRIBUTE]: "h-1" },
+                content: [{ type: "text", text: "Amount ($m)" }],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    for (let r = 0; r < 25; r++) {
+      tableRows.push({
+        type: "tableRow",
+        content: [
+          {
+            type: "tableCell",
+            content: [
+              {
+                type: "paragraph",
+                attrs: { [BLOCK_ID_ATTRIBUTE]: `c-${r}-0` },
+                content: [{ type: "text", text: `Row ${r + 1}` }],
+              },
+            ],
+          },
+          {
+            type: "tableCell",
+            content: [
+              {
+                type: "paragraph",
+                attrs: { [BLOCK_ID_ATTRIBUTE]: `c-${r}-1` },
+                content: [{ type: "text", text: String((r + 1) * 10) }],
+              },
+            ],
+          },
+        ],
+      });
+    }
+    const doc = new Y.Doc();
+    try {
+      prosemirrorToYXmlFragment(
+        schema.nodeFromJSON({
+          type: "doc",
+          content: [
+            {
+              type: "table",
+              attrs: { [BLOCK_ID_ATTRIBUTE]: "big-table" },
+              content: tableRows,
+            },
+          ],
+        }),
+        doc.getXmlFragment(MIND_CONTENT_FIELD),
+      );
+      const frag = doc.getXmlFragment(MIND_CONTENT_FIELD);
+
+      let yields = 0;
+      const countingYield = async () => {
+        yields++;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      };
+      const now = { versions: new Map<string, string>(), folderId: null, scope: null };
+      const asyncResult = await readTableSnapshot(frag, now, countingYield, 0);
+      expect(yields).toBeGreaterThan(10);
+      expect(asyncResult.cellFigures).toEqual(tableCellFigurePlaces(frag));
+      expect(asyncResult.footing).toEqual(
+        [...noteFooting(frag, now)].map(([id, live]) => ({ id, ...live })),
+      );
+      expect(asyncResult.cellFigures.length).toBeGreaterThan(0);
+    } finally {
+      doc.destroy();
     }
   });
 });

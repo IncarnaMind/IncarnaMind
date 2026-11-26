@@ -18,6 +18,7 @@ import {
   type FigureContext,
   type FigureFacts,
   FiguresNotRead,
+  figureContextOfFacts,
   figureFactsOf,
   type HeaderRead,
   readFigures,
@@ -45,9 +46,9 @@ import { recordCiteSpans } from "../../recordCites/parser";
 import { nodeOf } from "../blocks";
 import {
   documentFigureContext,
+  languageOfWords,
   type NoteParagraphs,
   partsFigureContext,
-  partsFigureContextAsync,
 } from "../calculations";
 import {
   isTableCaption,
@@ -1068,8 +1069,9 @@ export function tableFiguresInBlocks(
 }
 
 /**
- * As `tableFiguresInBlocks`, yielding whenever a slice reaches `sliceMs` so even a long Note with
- * large tables never holds the main process past its frame budget.
+ * As `tableFiguresInBlocks`, yielding whenever a slice reaches `sliceMs` inside opening-word
+ * sampling, per-paragraph fact reading, and per-cell figure extraction so even a single large
+ * table never holds the main process past its frame budget.
  */
 export async function tableFiguresInBlocksAsync(
   elements: readonly Y.XmlElement[],
@@ -1078,15 +1080,38 @@ export async function tableFiguresInBlocksAsync(
   sliceMs = 15,
 ): Promise<FigureOccurrence[]> {
   if (tables.length === 0) return [];
-  const note = await partsFigureContextAsync(
-    tables.map(paragraphsOf),
-    openingParagraphsOf(elements),
-    yieldTurn,
-    sliceMs,
-  );
+  let sliceStart = performance.now();
+  const maybeYield = async () => {
+    if (performance.now() - sliceStart >= sliceMs) {
+      await yieldTurn();
+      sliceStart = performance.now();
+    }
+  };
+  const headWords: string[] = [];
+  let headChars = 0;
+  for (const element of elements) {
+    for (const { element: child } of textBlocksOf(element, { charts: true })) {
+      if (child.nodeName !== "paragraph") continue;
+      const words = wordsOf(child);
+      headWords.push(words);
+      headChars += words.length + 1;
+      if (headChars > LANGUAGE_HEAD_LIMIT) break;
+      await maybeYield();
+    }
+    if (headChars > LANGUAGE_HEAD_LIMIT) break;
+  }
+  const language = languageOfWords(headWords);
+  const facts: FigureFacts[] = [];
+  for (const block of tables) {
+    for (const { element } of textBlocksOf(block, { charts: true })) {
+      if (element.nodeName !== "paragraph") continue;
+      facts.push(figureFactsOf(wordsOf(element), language));
+      await maybeYield();
+    }
+  }
+  const note = figureContextOfFacts(facts, language);
   const noteKey = JSON.stringify(note);
   const all: FigureOccurrence[] = [];
-  let sliceStart = performance.now();
   for (const block of tables) {
     if (isRetainedAnalysisTable(block)) continue;
     const key = blockKey(block, noteKey);
@@ -1100,10 +1125,7 @@ export async function tableFiguresInBlocksAsync(
     for (const { element, busy } of textBlocksOf(block, { charts: true })) {
       if (busy) continue;
       figuresInTextBlock(element, layouts, note, found);
-      if (performance.now() - sliceStart >= sliceMs) {
-        await yieldTurn();
-        sliceStart = performance.now();
-      }
+      await maybeYield();
     }
     read.readWith = key;
     read.figures = found;

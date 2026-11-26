@@ -61,6 +61,18 @@ export interface NoteParagraphs {
   facts(language: string | null): readonly FigureFacts[];
 }
 
+/** The language of a Note's opening words, matching `partsFigureContext`. */
+export function languageOfWords(words: readonly string[]): string | null {
+  const head: string[] = [];
+  let length = 0;
+  for (const text of words) {
+    if (length > LANGUAGE_SAMPLE) break;
+    head.push(text);
+    length += text.length + 1;
+  }
+  return noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+}
+
 function languageOf(blocks: readonly NoteParagraphs[]): string | null {
   const head: string[] = [];
   let length = 0;
@@ -88,29 +100,6 @@ export function partsFigureContext(
     blocks.flatMap((block) => block.facts(language)),
     language,
   );
-}
-
-/**
- * As `partsFigureContext`, yielding between slices so reading many table Blocks never holds the
- * main process past `sliceMs`.
- */
-export async function partsFigureContextAsync(
-  blocks: readonly NoteParagraphs[],
-  languageBlocks: readonly NoteParagraphs[],
-  yieldTurn: () => Promise<void>,
-  sliceMs: number,
-): Promise<FigureContext> {
-  const language = languageOf(languageBlocks);
-  const facts: FigureFacts[] = [];
-  let sliceStart = performance.now();
-  for (const block of blocks) {
-    for (const fact of block.facts(language)) facts.push(fact);
-    if (performance.now() - sliceStart >= sliceMs) {
-      await yieldTurn();
-      sliceStart = performance.now();
-    }
-  }
-  return figureContextOfFacts(facts, language);
 }
 
 /** The one line a figure read from a scan's unsure word is refused with (#535). */

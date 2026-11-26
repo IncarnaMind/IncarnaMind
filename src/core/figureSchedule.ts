@@ -1012,6 +1012,46 @@ export function noteFooting(
   ).footing;
 }
 
+async function placesOfBlockAsync(
+  block: Y.XmlElement,
+  yieldTurn: () => Promise<void>,
+  sliceMs: number,
+) {
+  const entries: { id: string; place: Place; heading: boolean }[] = [];
+  const tables: [string, SourceGrid][] = [];
+  const figures: NodeJSON[] = [];
+  let paragraph = 0;
+  let heading: string | null | undefined;
+  let sliceStart = performance.now();
+  const stack: Y.XmlElement[] = [block];
+  while (stack.length > 0) {
+    const element = stack.pop();
+    if (!element) continue;
+    if (element.nodeName === "heading") heading = plainText(element);
+    if (element.nodeName === "paragraph") paragraph++;
+    if (element.nodeName === CALCULATED_FIGURE_NODE) figures.push(nodeOf(element));
+    const id = element.getAttribute("id");
+    if (typeof id === "string") {
+      entries.push({
+        id,
+        place: { element, heading: heading ?? null, paragraph, citedAt: citationsIn(element) },
+        heading: heading !== undefined,
+      });
+      if (element.nodeName === "table") tables.push([id, gridOfTable(nodeOf(element))]);
+    }
+    const children = element.toArray();
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i];
+      if (child instanceof Y.XmlElement) stack.push(child);
+    }
+    if (performance.now() - sliceStart >= sliceMs) {
+      await yieldTurn();
+      sliceStart = performance.now();
+    }
+  }
+  return { entries, tables, figures, paragraphs: paragraph, heading };
+}
+
 /**
  * Table-cell places and footing for a Mind's snapshot, reading only table Blocks and yielding
  * between slices so a long Note never holds the main process past its budget (#3822).
@@ -1039,7 +1079,7 @@ export async function readTableSnapshot(
   let heading: string | null = null;
   let sliceStart = performance.now();
   for (const block of tables) {
-    const read = placesOfBlock(block);
+    const read = await placesOfBlockAsync(block, yieldTurn, sliceMs);
     for (const entry of read.entries)
       places.set(entry.id, {
         ...entry.place,

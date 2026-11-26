@@ -6,9 +6,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentClient, AgentPairing } from "../../core/api";
 import { isListedMind } from "../../shared/listedMinds";
-import { noteWriterOf } from "../../shared/noteWriter";
 import { core } from "./core";
-import { type DecodedHomeSnapshot, decodeHomeSnapshot, type NoteState } from "./noteState";
+import { createAgentNoteCache } from "./homeNoteStates";
+import type { NoteState } from "./noteState";
 import { useAppStore } from "./store";
 import { type Read, useRead } from "./useRead";
 
@@ -93,30 +93,23 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
   const library = useAppStore((state) => state.library);
   const [note, setNote] = useState<AgentNote | null>(null);
   const [dirtyVersion, setDirtyVersion] = useState(0);
-  const cacheRef = useRef<Map<string, { decoded: DecodedHomeSnapshot; pairingId?: string }>>(
-    new Map(),
-  );
-  const dirtyRef = useRef<Set<string>>(new Set());
-  const inFlightRef = useRef<Map<string, Promise<void>>>(new Map());
-  const mountedRef = useRef(true);
+  const cacheRef = useRef<ReturnType<typeof createAgentNoteCache> | null>(null);
   useEffect(() => {
-    mountedRef.current = true;
-    const cache = cacheRef.current;
-    const inFlight = inFlightRef.current;
+    const cache = createAgentNoteCache({
+      readMindContents: (mindIds) => core.readMindContents(mindIds),
+    });
+    cacheRef.current = cache;
     let pause: ReturnType<typeof setTimeout> | undefined;
     const stop = core.on("mind.update", ({ mindId }) => {
-      dirtyRef.current.add(mindId);
+      cache.markDirty(mindId);
       clearTimeout(pause);
       pause = setTimeout(() => setDirtyVersion((count) => count + 1), SAVED_MS);
     });
     return () => {
-      mountedRef.current = false;
       clearTimeout(pause);
       stop();
-      for (const entry of cache.values()) entry.decoded.dispose();
-      cache.clear();
-      dirtyRef.current.clear();
-      inFlight.clear();
+      cache.dispose();
+      cacheRef.current = null;
     };
   }, []);
   const ids = new Set(pairings.map((pairing) => pairing.id));
@@ -129,85 +122,18 @@ export function useAgentNote(pairings: readonly AgentPairing[]): AgentNote | nul
           .filter((mind) => mind.createdAt >= since && isListedMind(mind))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
           .slice(0, NEWEST);
-  const wanted = `${[...ids].join(",")}|${candidates.map((mind) => mind.id).join(",")}`;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the pairings and the Notes.
+  const wanted = `${[...ids].join(",")}|${candidates.map((mind) => `${mind.id}:${mind.folderId ?? ""}`).join(",")}`;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the pairings, Notes and Folders.
   useEffect(() => {
     const cache = cacheRef.current;
-    const inFlight = inFlightRef.current;
-    const keep = new Set(candidates.map((mind) => mind.id));
-    for (const [id, entry] of [...cache.entries()]) {
-      if (!keep.has(id)) {
-        entry.decoded.dispose();
-        cache.delete(id);
-      }
-    }
-    if (candidates.length === 0) {
-      dirtyRef.current.clear();
-      setNote(null);
-      return;
-    }
-    const toFetch: string[] = [];
-    const waitFor: Promise<void>[] = [];
-    for (const mind of candidates) {
-      const isDirty = dirtyRef.current.has(mind.id);
-      if (isDirty) {
-        dirtyRef.current.delete(mind.id);
-        toFetch.push(mind.id);
-      } else if (!cache.has(mind.id)) {
-        const existing = inFlight.get(mind.id);
-        if (existing) waitFor.push(existing);
-        else toFetch.push(mind.id);
-      }
-    }
+    if (!cache) return;
     let current = true;
-    const evaluate = async () => {
-      if (toFetch.length > 0) {
-        const job = (async () => {
-          const snapshots = await core.readMindContents(toFetch);
-          if (!mountedRef.current) return;
-          const byId = new Map(snapshots.map((snapshot) => [snapshot.mindId, snapshot]));
-          for (const mindId of toFetch) {
-            const snapshot = byId.get(mindId);
-            cache.get(mindId)?.decoded.dispose();
-            if (!snapshot) {
-              cache.delete(mindId);
-              continue;
-            }
-            const decoded = await decodeHomeSnapshot(snapshot);
-            if (!mountedRef.current) {
-              decoded.dispose();
-              return;
-            }
-            const writer = noteWriterOf(decoded.doc);
-            // A copy carries its source's record: only the Note the record names is the agent's.
-            const pairingId = writer?.mindId === mindId ? writer.pairingId : undefined;
-            cache.set(mindId, { decoded, pairingId });
-          }
-        })().finally(() => {
-          for (const mindId of toFetch) {
-            if (inFlight.get(mindId) === job) inFlight.delete(mindId);
-          }
-        });
-        for (const mindId of toFetch) inFlight.set(mindId, job);
-        waitFor.push(job);
-      }
-      if (waitFor.length > 0) await Promise.all(waitFor);
-      if (!current) return;
-      for (const mind of candidates) {
-        const entry = cache.get(mind.id);
-        if (!entry || entry.pairingId === undefined || !ids.has(entry.pairingId)) continue;
-        const reading = await entry.decoded.read({
-          documents,
-          keptCitationTexts,
-          library,
-          folderId: mind.folderId,
-        });
-        if (current) setNote({ mindId: mind.id, state: reading.state });
-        return;
-      }
-      if (current) setNote(null);
-    };
-    void evaluate().catch(useAppStore.getState().reportError);
+    void cache
+      .read(candidates, ids, { documents, keptCitationTexts, library })
+      .then((found) => {
+        if (current) setNote(found);
+      })
+      .catch(useAppStore.getState().reportError);
     return () => {
       current = false;
     };
