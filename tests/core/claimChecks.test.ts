@@ -1853,7 +1853,11 @@ describe("Stated units check (#3806)", () => {
           calls: [
             {
               tool: ANALYSIS_TOOLS.run,
-              input: { title: "Total sales", inputs: [{ name: "orders", passage: passage?.id }], code: CODE },
+              input: {
+                title: "Total sales",
+                inputs: [{ name: "orders", passage: passage?.id }],
+                code: CODE,
+              },
             },
           ],
         };
@@ -1864,14 +1868,19 @@ describe("Stated units check (#3806)", () => {
     });
     const runtime = createFakeAnalysisRuntime({
       answer: () => ({
-        output: { results: [{ kind: "figure", name: "total", label: "Total", unit: null, value: 420 }] },
+        output: {
+          results: [{ kind: "figure", name: "total", label: "Total", unit: null, value: 420 }],
+        },
       }),
     });
     const rowsCore = startCore(await createTempDataFolder(), {
       createChatModel: () => rowsModel,
       analysisRuntime: runtime,
     });
-    rowsCore.on("consent.requested", (asked) => void rowsCore.respondToConsent(asked.requestId, true));
+    rowsCore.on(
+      "consent.requested",
+      (asked) => void rowsCore.respondToConsent(asked.requestId, true),
+    );
     await rowsCore.saveChatProvider({
       kind: "anthropic",
       apiKey: "test-key",
@@ -1914,7 +1923,7 @@ describe("Stated units check (#3806)", () => {
           calculation: null,
           citedCaseUnchecked: false,
           citedCaseFound: false,
-          scope: { kind: "all", count: 1, names: ["Orders"], widened: false },
+          scope: { folderId: null, widened: false },
           versions: [],
           excluded: [],
           checkedAt: "2026-11-26T00:00:00Z",
@@ -1946,18 +1955,25 @@ describe("Stated units check (#3806)", () => {
       createChatModel: () => libraryModel,
       analysisRuntime: createFakeAnalysisRuntime({
         answer: () => ({
-          output: { results: [{ kind: "figure", name: "count", label: "Count", unit: null, value: 1 }] },
+          output: {
+            results: [{ kind: "figure", name: "count", label: "Count", unit: null, value: 1 }],
+          },
         }),
       }),
     });
-    libraryCore.on("consent.requested", (asked) => void libraryCore.respondToConsent(asked.requestId, true));
+    libraryCore.on(
+      "consent.requested",
+      (asked) => void libraryCore.respondToConsent(asked.requestId, true),
+    );
     await libraryCore.saveChatProvider({
       kind: "anthropic",
       apiKey: "test-key",
       modelId: "claude-haiku-5-5",
     });
     const libSources = await createTempDataFolder();
-    await addAndProcess(libraryCore, [await writeSourceFile(libSources, TIDES.name, TIDES.contents)]);
+    await addAndProcess(libraryCore, [
+      await writeSourceFile(libSources, TIDES.name, TIDES.contents),
+    ]);
     const libraryResult = await libraryCore.checkClaim({ claim: "There is £1 document." });
     libraryCore.close();
 
@@ -1990,7 +2006,7 @@ describe("Stated units check (#3806)", () => {
           calculation: null,
           citedCaseUnchecked: false,
           citedCaseFound: false,
-          scope: { kind: "all", count: 1, names: ["Tides"], widened: false },
+          scope: { folderId: null, widened: false },
           versions: [],
           excluded: [],
           checkedAt: "2026-11-26T00:00:00Z",
@@ -2008,7 +2024,10 @@ describe("Stated units check (#3806)", () => {
     const ownCore = startCore(await createTempDataFolder(), {
       createChatModel: () => ownFigureModel,
     });
-    ownCore.on("consent.requested", (asked) => void ownCore.respondToConsent(asked.requestId, true));
+    ownCore.on(
+      "consent.requested",
+      (asked) => void ownCore.respondToConsent(asked.requestId, true),
+    );
     await ownCore.saveChatProvider({
       kind: "anthropic",
       apiKey: "test-key",

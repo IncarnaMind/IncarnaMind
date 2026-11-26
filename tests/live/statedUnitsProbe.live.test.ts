@@ -13,12 +13,7 @@ import { appendFile } from "node:fs/promises";
 import type { JSONContent } from "@tiptap/core";
 import { wrapLanguageModel } from "ai";
 import { describe, expect, test } from "vitest";
-import type {
-  AnalysisRuntime,
-  ChatModelFactory,
-  ClaimCheckAttributes,
-  Core,
-} from "../../src/core";
+import type { AnalysisRuntime, ChatModelFactory, ClaimCheckAttributes, Core } from "../../src/core";
 import { createAiSdkChatModel } from "../../src/core/providers/models";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { createTempDataFolder, startCore } from "../helpers/core";
@@ -315,7 +310,10 @@ const PROBE_CASES: readonly ProbeCase[] = [
         name: "Regional Revenue.csv",
         content: [
           "Store,Revenue (GBP million)",
-          ...Array.from({ length: 120 }, (_, i) => `Store ${i + 1},${(0.25 + (i % 6) * 0.1).toFixed(2)}`),
+          ...Array.from(
+            { length: 120 },
+            (_, i) => `Store ${i + 1},${(0.25 + (i % 6) * 0.1).toFixed(2)}`,
+          ),
         ].join("\n"),
       },
     ],
@@ -390,7 +388,10 @@ const PROBE_CASES: readonly ProbeCase[] = [
         name: "门店收入.csv",
         content: [
           "门店,收入（人民币百万元）",
-          ...Array.from({ length: 120 }, (_, i) => `门店${i + 1},${(0.25 + (i % 6) * 0.1).toFixed(2)}`),
+          ...Array.from(
+            { length: 120 },
+            (_, i) => `门店${i + 1},${(0.25 + (i % 6) * 0.1).toFixed(2)}`,
+          ),
         ].join("\n"),
       },
     ],
@@ -478,11 +479,7 @@ const PROBE_CASES: readonly ProbeCase[] = [
           { chineseLines: ["经营回顾", ...zhFiller("第二页", 8)] },
           { chineseLines: ["公司治理", ...zhFiller("第三页", 8)] },
           {
-            chineseLines: [
-              "财务表现",
-              "全年营业利润为84.6。",
-              "期末现金余额为31.2。",
-            ],
+            chineseLines: ["财务表现", "全年营业利润为84.6。", "期末现金余额为31.2。"],
           },
         ]),
       },
@@ -587,7 +584,8 @@ function captureFrom(
       : ((cite.input ?? {}) as Record<string, unknown>)
     : null;
   const units = unitsLine ?? (typeof citeInput?.units === "string" ? citeInput.units : null);
-  const verdict = verdictLine ?? (typeof citeInput?.verdict === "string" ? citeInput.verdict : null);
+  const verdict =
+    verdictLine ?? (typeof citeInput?.verdict === "string" ? citeInput.verdict : null);
   return units !== null || verdict !== null ? { units, verdict } : null;
 }
 
@@ -693,35 +691,35 @@ async function runCase(
 }
 
 describe.skipIf(!KEY)("honest probe for the Units guard (#3806)", () => {
-  test(
-    `${PROBE_CASES.length} honest sentences, ${RUNS} runs each (${PROVIDER}/${MODEL})`,
-    { timeout: 3_600_000 },
-    async () => {
-      const needsPython = PROBE_CASES.some((each) => each.needsAnalysis);
-      const analysisRuntime = needsPython ? await pyodideAnalysisRuntime() : undefined;
-      const rows: Awaited<ReturnType<typeof runCase>>[] = [];
-      for (let run = 1; run <= RUNS; run++) {
-        // Run non-analysis cases 3 at a time and analysis cases sequentially (Pyodide queues one job).
-        const plain = PROBE_CASES.filter((c) => !c.needsAnalysis);
-        const py = PROBE_CASES.filter((c) => c.needsAnalysis);
-        for (let i = 0; i < plain.length; i += 3) {
-          const batch = plain.slice(i, i + 3);
-          const results = await Promise.all(batch.map((c) => runCase(c, run, undefined)));
-          rows.push(...results);
-        }
-        for (const c of py) {
-          rows.push(await runCase(c, run, analysisRuntime));
-        }
+  test(`${PROBE_CASES.length} honest sentences, ${RUNS} runs each (${PROVIDER}/${MODEL})`, {
+    timeout: 3_600_000,
+  }, async () => {
+    const needsPython = PROBE_CASES.some((each) => each.needsAnalysis);
+    const analysisRuntime = needsPython ? await pyodideAnalysisRuntime() : undefined;
+    const rows: Awaited<ReturnType<typeof runCase>>[] = [];
+    for (let run = 1; run <= RUNS; run++) {
+      // Run non-analysis cases 3 at a time and analysis cases sequentially (Pyodide queues one job).
+      const plain = PROBE_CASES.filter((c) => !c.needsAnalysis);
+      const py = PROBE_CASES.filter((c) => c.needsAnalysis);
+      for (let i = 0; i < plain.length; i += 3) {
+        const batch = plain.slice(i, i + 3);
+        const results = await Promise.all(batch.map((c) => runCase(c, run, undefined)));
+        rows.push(...results);
       }
-      const lowered = rows.filter((each) => each.loweredByUnits);
-      const unsettled = rows.filter((each) => each.state === "not-checked" || each.state === "missing");
-      process.stdout.write(
-        `SUMMARY arm=${ARM} model=${MODEL} total=${rows.length} supported=${rows.filter((r) => r.state === "supported").length} loweredByUnits=${lowered.length} unsettled=${unsettled.length}\n`,
-      );
-      if (ASSERT) {
-        expect(unsettled).toEqual([]);
-        expect(lowered).toEqual([]);
+      for (const c of py) {
+        rows.push(await runCase(c, run, analysisRuntime));
       }
-    },
-  );
+    }
+    const lowered = rows.filter((each) => each.loweredByUnits);
+    const unsettled = rows.filter(
+      (each) => each.state === "not-checked" || each.state === "missing",
+    );
+    process.stdout.write(
+      `SUMMARY arm=${ARM} model=${MODEL} total=${rows.length} supported=${rows.filter((r) => r.state === "supported").length} loweredByUnits=${lowered.length} unsettled=${unsettled.length}\n`,
+    );
+    if (ASSERT) {
+      expect(unsettled).toEqual([]);
+      expect(lowered).toEqual([]);
+    }
+  });
 });
