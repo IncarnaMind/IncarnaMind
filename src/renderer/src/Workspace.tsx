@@ -49,6 +49,7 @@ import { importReferenceFile, isReferenceFile } from "./referenceImport";
 import { useAppStore } from "./store";
 import { useSidebarSlide } from "./useSidebarSlide";
 import { useWindowWidth } from "./useWindowWidth";
+import "./viewer/viewer.css";
 import { useWebPages } from "./webPages";
 
 /** The card's distance from the sidebar, and from the window's top, right and bottom edges. */

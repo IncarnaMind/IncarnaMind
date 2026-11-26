@@ -6,12 +6,39 @@ import { useLanguage, useT } from "./i18n";
 import { setMotionPreference } from "./motion";
 import { useAppStore } from "./store";
 
-const SetupPage = lazy(() =>
-  import("./components/firstRun/SetupPage").then((module) => ({ default: module.SetupPage })),
-);
-const Workspace = lazy(() =>
-  import("./Workspace").then((module) => ({ default: module.Workspace })),
-);
+let interactiveServices: Promise<void> | null = null;
+function loadInteractiveServices(): Promise<void> {
+  if (!interactiveServices) {
+    const loads: Promise<unknown>[] = [import("./commands/app")];
+    if (new URLSearchParams(window.location.search).has("testHooks")) {
+      loads.push(import("./viewerControls").then((module) => module.installTestHooks()));
+    }
+    interactiveServices = Promise.all(loads)
+      .then(() => undefined)
+      .catch((error) => {
+        interactiveServices = null;
+        throw error;
+      });
+  }
+  return interactiveServices;
+}
+
+const SetupPage = lazy(async () => {
+  const [, setupPage] = await Promise.all([
+    loadInteractiveServices(),
+    import("./components/firstRun/SetupPage"),
+  ]);
+  return { default: setupPage.SetupPage };
+});
+const Workspace = lazy(async () => {
+  const [, , , workspace] = await Promise.all([
+    loadInteractiveServices(),
+    import("./windowMemory").then((module) => module.installWindowMemory()),
+    import("./writtenChecks").then((module) => module.installWrittenChecks()),
+    import("./Workspace"),
+  ]);
+  return { default: workspace.Workspace };
+});
 
 export function App() {
   const status = useAppStore((state) => state.status);
