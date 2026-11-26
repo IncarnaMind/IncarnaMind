@@ -107,16 +107,32 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       );
     });
 
-    test("a Chinese told name replaces nothing, everyday words that read the same included", () => {
-      for (const [plain, told, names] of [
-        ["保洁阿姨下午来。", "宝洁阿姨下午来。", ["宝洁"]],
-        ["我们往里走。", "我们王丽走。", chinese],
-        ["黎明的时候出发。", "李明的时候出发。", chinese],
-        ["这事理明白了。", "这事李明白了。", chinese],
-        ["我是星河科技的王力。", "我是星河科技的王丽。", chinese],
-      ] as const) {
-        expect(withToldWords(plain, told, names)).toBe(plain);
-      }
+    test("a Chinese told name replaces its aligned Han span, keeping every other word as first read", () => {
+      expect(
+        withToldWords(
+          "周总，你好，我是林小文。今天确认一下冷库改造的方案。",
+          "周总你好，我是林晓雯。今天确认一下冷库改造的方案。",
+          ["林晓雯", "周志远", "郑雅琪", "周总"],
+        ),
+      ).toBe("周总，你好，我是林晓雯。今天确认一下冷库改造的方案。");
+      expect(
+        withToldWords(
+          "好的，齐燕慈负责审核合同附件，下周四下午三点前给恒悦冷链回复。",
+          "好的，祁砚辞负责审核，下周四给衡岳冷链回复。",
+          ["祁砚辞", "衡岳冷链"],
+        ),
+      ).toBe("好的，祁砚辞负责审核合同附件，下周四下午三点前给衡岳冷链回复。");
+      // When the told reading leaves an everyday word alone (保洁, 往里), nothing changes.
+      expect(withToldWords("保洁阿姨下午来。", "保洁阿姨下午来。", ["宝洁"])).toBe(
+        "保洁阿姨下午来。",
+      );
+      expect(withToldWords("我们往里走。", "我们往里走。", chinese)).toBe("我们往里走。");
+      // A stretch that is just the name itself still mends.
+      expect(withToldWords("林小文。", "林晓雯。", ["林晓雯"])).toBe("林晓雯。");
+      // A completely disconnected told reading shares no context and replaces nothing.
+      expect(withToldWords("我们明天开会讨论预算。", "请找林晓雯确认一下。", ["林晓雯"])).toBe(
+        "我们明天开会讨论预算。",
+      );
     });
 
     test("a told name never replaces a word that sounds otherwise: another name, or the same name misheard further", () => {
@@ -138,11 +154,6 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       expect(
         withToldWords("Rotterdam can handle that.", "Rotherham can handle that.", ["Rotherham"]),
       ).toBe("Rotterdam can handle that.");
-      // A syllable heard otherwise may be another person: 程 isn't 陈 misheard.
-      expect(withToldWords("陈经理，你好。", "程经理，你好。", ["程经理"])).toBe("陈经理，你好。");
-      expect(withToldWords("我是新和科技的。", "我是星河科技的。", chinese)).toBe(
-        "我是新和科技的。",
-      );
       expect(withToldWords("Thanks, Creer.", "Thanks, Priya.", english)).toBe("Thanks, Creer.");
     });
 
@@ -196,17 +207,20 @@ describe("The words the transcriber on this computer is told (#1031)", () => {
       expect(withToldWords("神经理，你好。", "陈经理，星河科技，王丽，王总，李明。", chinese)).toBe(
         "神经理，你好。",
       );
-      expect(withToldWords("王力，你好。", "王丽，你好。", chinese)).toBe("王力，你好。");
+      // A told Han name never replaces a shorter span when plain missed syllables.
+      expect(withToldWords("我是林。", "我是林晓雯。", ["林晓雯"])).toBe("我是林。");
     });
 
-    test("a stretch is read again only where its first reading holds a told name misheard", () => {
+    test("a stretch is read again only where its first reading holds a told name misheard or Han agenda words", () => {
       expect(mayMend("This is Priyaman from Lumen Foods.", english)).toBe(true);
       expect(mayMend("Our operations lead, Sophia Lindvist will send it.", english)).toBe(true);
       expect(mayMend("Thanks, see you on Friday.", english)).toBe(false);
       expect(mayMend("Sofia Lindqvist will send it, Priya.", english)).toBe(false);
       expect(mayMend("I will send it. Hope so.", ["Will", "Hope"])).toBe(false);
       expect(mayMend("Send it to Daniel.", ["Daniel Weiss", "Danielle West"])).toBe(false);
-      expect(mayMend("我们的项目经理李名会把施工图发给你。", chinese)).toBe(false);
+      expect(mayMend("我们的项目经理李名会把施工图发给你。", chinese)).toBe(true);
+      expect(mayMend("我们的项目经理李明会把施工图发给你。", ["李明"])).toBe(false);
+      expect(mayMend("Thanks, see you on Friday.", chinese)).toBe(false);
       expect(mayMend("This is Priyaman.", [])).toBe(false);
     });
 

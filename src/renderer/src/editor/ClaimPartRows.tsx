@@ -251,6 +251,13 @@ export function partReason(
     );
   if (part.unsupported?.kind === "forecast-certainty") return t("claim.forecast");
   if (part.unsupported?.kind === "unbacked-cause") return t("claim.unbackedCause");
+  if (part.unsupported?.kind === "units" && part.unsupported.units) {
+    return t(
+      part.unsupported.units === "another"
+        ? "claim.unsupported.unitsDiffer"
+        : "claim.unsupported.unitsNotGiven",
+    );
+  }
   if (part.unsupported?.unconfirmed)
     return [t("claim.unsupported.notConfirmed"), part.unsupported.reason]
       .filter(Boolean)

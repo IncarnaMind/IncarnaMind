@@ -286,6 +286,7 @@ export function readUnsupportedReason(value: unknown): UnsupportedReason | null 
       value.kind === "units") && {
       kind: value.kind,
     }),
+    ...((value.units === "another" || value.units === "unstated") && { units: value.units }),
     ...((value.word === "overstated" ||
       value.word === "partly-supported" ||
       value.word === "not-found" ||

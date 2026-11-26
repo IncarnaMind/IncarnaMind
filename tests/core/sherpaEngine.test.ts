@@ -182,20 +182,37 @@ describe("The sherpa-onnx recognizer", () => {
     toldResult = null;
   });
 
-  test("reads once a stretch whose first reading holds no told name misheard: a name already right, other words, or Chinese (#1031)", async () => {
+  test("reads once a stretch whose first reading holds no told name misheard: a name already right, other words, or an English stretch with Chinese agenda names (#1031)", async () => {
     const engine = await createSherpaEngine(model);
     toldResult = '{"lang": "", "text": "Thanks, Priya Raman.", "tokens": []}';
     for (const [text, words] of [
       ["Thanks, see you on Friday.", ["Priya Raman", "Lumen Foods"]],
       ["Thanks, Priya Raman.", ["Priya Raman", "Lumen Foods"]],
       ["I will send it.", ["Will", "Hope"]],
-      ["我们的项目经理李名会把施工图发给你。", ["李明", "星河科技"]],
+      ["Thanks, see you on Friday.", ["李明", "星河科技"]],
+      ["我们的项目经理李明会把施工图发给你。", ["李明"]],
     ] as const) {
       STREAMS.length = 0;
       RESULTS.push(JSON.stringify({ lang: "", text, tokens: [] }));
       expect(await engine.recognizer.decode(samples, "meeting:1:mic", words)).toBe(text);
       expect(STREAMS).toEqual([{}]);
     }
+    toldResult = null;
+  });
+
+  test("reads a Chinese stretch again with Han agenda names and copies only the aligned name from the told reading (#1031)", async () => {
+    const engine = await createSherpaEngine(model);
+    STREAMS.length = 0;
+    RESULTS.push(
+      '{"lang": "", "text": "我们的项目经理李名，会在下周三之前把施工图发给你。", "tokens": []}',
+    );
+    toldResult =
+      '{"lang": "", "text": "我们的项目经理李明会在下周三把施工图发给你。", "tokens": []}';
+
+    expect(await engine.recognizer.decode(samples, "meeting:1:mic", ["李明", "星河科技"])).toBe(
+      "我们的项目经理李明，会在下周三之前把施工图发给你。",
+    );
+    expect(STREAMS).toEqual([{}, { hotwords: "李明,星河科技" }]);
     toldResult = null;
   });
 
