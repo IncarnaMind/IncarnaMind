@@ -38,6 +38,8 @@ import { nodesByPlace, noteXmlIn, readWordDocument } from "../../documents/forma
 import { WORD_LOOK_VERSION } from "../../documents/formats/docxLook";
 import { openWordPackage, reviewOf } from "../../documents/formats/docxPackage";
 import { relationshipsOf } from "../../documents/formats/officePackage";
+import { listOfParagraph, readWordNumbering } from "../../documents/formats/wordNumbering";
+import { readStyleTable } from "../../documents/formats/wordStyleTable";
 import {
   child,
   descendants,
@@ -78,10 +80,11 @@ import {
   pageNumberFooter,
   watermarkHeader,
 } from "../wordFurniture";
-import { Review, type ReviewChoices } from "../wordReview";
+import { Review, type ReviewChoices, trackInline } from "../wordReview";
 import { AtomPlan, copiedText } from "./atoms";
 import { styleWritten, type Written } from "./citations";
 import { DocumentPatch } from "./document";
+import { refreshFields } from "./fields";
 import {
   type Counterpart,
   changesWithin,
@@ -267,6 +270,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   const documentRelationships = await writer.relationshipsOf(pkg.part);
   const styles = await DocumentStyles.read(writer, pkg.part, documentRelationships);
   const numbering = await DocumentNumbering.read(writer, pkg.part, documentRelationships);
+  const fileNumbering = readWordNumbering(numbering.fileRoot, styles.table);
   const footnotes = await DocumentFootnotes.read(writer, pkg.part, documentRelationships);
   const comments = await DocumentComments.read(writer, pkg.part, documentRelationships);
   const commentsExtended = await DocumentCommentsExtended.read(
@@ -445,6 +449,7 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
       if (!element) throw new Error("A list being written isn't one of the Note's.");
       return firstNumberOf(element, nested);
     },
+    listOf: (paragraph) => listOfParagraph(fileNumbering, styles.table, paragraph),
     writer: docxWriter,
     bookmarkOf,
     target,
@@ -514,6 +519,25 @@ export async function exportWordPatch(input: WordPatchInput): Promise<WordPatchR
   await comments.flush(review.comments);
   await commentsExtended.flush(review.extended);
   await target.flush();
+  if (text !== base.text) {
+    // Read after the lists and styles new Blocks needed are written: the numbers are the file's now.
+    const writtenStyles = readStyleTable((await writer.part(styles.name))?.root);
+    const refreshed = refreshFields(
+      { text: base.text, root: base.root, numbering: fileNumbering, styles: styles.table },
+      {
+        text,
+        numbering: readWordNumbering((await writer.part(numbering.name))?.root, writtenStyles),
+        styles: writtenStyles,
+      },
+      input.review.trackAs === null
+        ? undefined
+        : (xml, kind) => {
+            const tracking = review.user(kind);
+            return tracking ? trackInline(xml, tracking, target.ids) : xml;
+          },
+    );
+    if (refreshed !== text) writer.set(pkg.part, refreshed);
+  }
   if (placedWatermark) await enableDisplayBackgroundShape(writer, pkg.part);
   if (hasContents(current)) await enableUpdateFields(writer, pkg.part);
 

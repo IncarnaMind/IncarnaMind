@@ -26,7 +26,8 @@ import {
 } from "../../api";
 import type { WordDocument } from "../../documents/formats/docxImport";
 import type { Relationship } from "../../documents/formats/officePackage";
-import { child, elements, walk, type XmlElement } from "../../documents/formats/xml";
+import type { ParagraphList } from "../../documents/formats/wordNumbering";
+import { child, elements, parseXml, walk, type XmlElement } from "../../documents/formats/xml";
 import {
   type Block,
   isWordChange,
@@ -38,6 +39,7 @@ import {
   type TableCell,
   tableLayout,
 } from "../../mindText";
+import { diffSteps } from "../../proposals/diff";
 import { type DocxWriter, INDENT, piecesOf, WRITER_NAMESPACES } from "../docx";
 import {
   appendInside,
@@ -70,6 +72,7 @@ import {
   asCharacters,
   baseTokens,
   keptKindOf,
+  lineBreak,
   type ParagraphContext,
   sourceOf,
   special,
@@ -94,6 +97,8 @@ export interface DocumentPatchInput {
   blocksOf(node: NodeJSON): Block[];
   /** The number a numbered list's first item is drawn with, `nested` in a numbered list's item or not. */
   firstNumberOf(list: NodeJSON, nested: boolean): number;
+  /** The list and level a paragraph of the document is numbered at, as the import reads it. */
+  listOf(paragraph: XmlElement): ParagraphList | null;
   /** The bookmark a table of contents links to, for a heading: none for other Blocks. */
   bookmarkOf(node: NodeJSON): { id: number; name: string } | null;
   writer: DocxWriter;
@@ -252,9 +257,17 @@ export class DocumentPatch {
   private readonly lists = new Map<NodeJSON, number>();
   /** Each list of the Mind's items, in order. */
   private readonly listItems = new Map<NodeJSON, Counterpart[]>();
+  /**
+   * The Mind's counterparts in document order, those in cells too, by node: each reading of the
+   * Mind makes its counterparts again, around the same nodes.
+   */
+  private readonly order: Counterpart[] = [];
+  private readonly orderOf = new Map<NodeJSON, number>();
   private readonly context: ParagraphContext;
   /** Paragraphs and tables holding something kept as is that is no longer written there. */
   private readonly forced = new Set<XmlElement>();
+  /** New paragraphs' characters that Enter carried out of an imported paragraph (`carry`). */
+  private readonly carried = new Map<Counterpart, (Token | null)[]>();
 
   constructor(private readonly input: DocumentPatchInput) {
     const { base } = input;
@@ -284,6 +297,8 @@ export class DocumentPatch {
       counterpartsOf(input.current, input.currentKey, input.reading),
       input.currentKey,
       (counterpart) => {
+        this.orderOf.set(counterpart.node, this.order.length);
+        this.order.push(counterpart);
         this.forceForComments(counterpart);
         if (!counterpart.list) return;
         this.listItems.set(counterpart.list.list, [
@@ -638,6 +653,7 @@ export class DocumentPatch {
       }
       return false;
     };
+    this.carry(spec.current);
     let anchor = spec.contentStart;
     /** The counterpart written last: whether it is a table, and its place among the base's if it stayed. */
     let previous: { table: boolean; index: number | null } | null = null;
@@ -699,6 +715,51 @@ export class DocumentPatch {
       }
     }
     return splices;
+  }
+
+  /**
+   * What Enter carried out of an imported paragraph into the new ones right after it: its text
+   * as imported, aligned character by character with its text now and theirs (Enter can fall
+   * inside a word), gives each carried character the run it was in, so its formatting goes with it.
+   */
+  private carry(counterparts: readonly Counterpart[]): void {
+    counterparts.forEach((head, index) => {
+      const based = head.key ? this.based.get(head.key) : undefined;
+      if (!based || head.kind !== "paragraph" || based.element.name !== "w:p") return;
+      const after: Counterpart[] = [];
+      for (let at = index + 1; at < counterparts.length; at++) {
+        const next = counterparts[at];
+        if (!next || next.key !== null || next.kind !== "paragraph") break;
+        after.push(next);
+      }
+      if (after.length === 0 || !this.needsWriting(head, based)) return;
+      const base = this.baseTokensOf(based);
+      const own = this.tokensOfWritten(head, based);
+      const theirs = after.map((each) => this.tokensOfWritten(each, null));
+      // Each paragraph ends at a mark nothing in the imported text is.
+      const ending = (at: number): Token => ({ ...lineBreak(), key: `\u0003${at}` });
+      const joined = [...own, ...theirs.flatMap((tokens, at) => [ending(at), ...tokens])];
+      const from = new Array<Token | null>(joined.length).fill(null);
+      let x = 0;
+      let y = 0;
+      for (const step of diffSteps(
+        base.map((token) => token.key),
+        joined.map((token) => token.key),
+      )) {
+        const token = base[x];
+        if (step === "equal" && token && token.kind !== "atom") from[y] = token;
+        if (step !== "insert") x++;
+        if (step !== "delete") y++;
+      }
+      let at = own.length;
+      after.forEach((each, which) => {
+        at += 1;
+        const length = theirs[which]?.length ?? 0;
+        const carried = from.slice(at, at + length);
+        if (carried.some((token) => token !== null)) this.carried.set(each, carried);
+        at += length;
+      });
+    });
   }
 
   /** The changes to a counterpart the Mind kept in its place: none unless it changed. */
@@ -868,6 +929,7 @@ export class DocumentPatch {
         pPr,
         pPrChanged: pPr !== filePPr,
         fallbackRun: rPr,
+        ...(!based && this.carried.has(counterpart) && { carried: this.carried.get(counterpart) }),
         scope,
         track: !counterpart.pending.inserted,
       },
@@ -925,10 +987,7 @@ export class DocumentPatch {
     basePPr: string,
   ): { pPr: string; rPr: string } {
     const { styles } = this.input;
-    const level =
-      counterpart.node.type === "heading"
-        ? Math.min(Math.max(Number(counterpart.node.attrs?.level) || 1, 1), 6)
-        : null;
+    const level = noteHeadingLevel(counterpart.node);
     let properties: Properties;
     let rPr = "";
     let formatBefore: ParagraphFormat = {};
@@ -936,25 +995,7 @@ export class DocumentPatch {
       properties = Properties.paragraph(basePPr);
       formatBefore = formatOf(based.counterpart.node);
       rPr = runOfMark(properties.get("w:rPr"));
-      const baseLevel =
-        based.counterpart.node.type === "heading"
-          ? Number(based.counterpart.node.attrs?.level) || 1
-          : null;
-      if (level !== baseLevel) {
-        const direct = properties.has("w:outlineLvl");
-        if (level !== null && direct && baseLevel !== null) {
-          properties.set("w:outlineLvl", `<w:outlineLvl w:val="${level - 1}"/>`);
-        } else if (level !== null) {
-          properties.remove("w:outlineLvl");
-          properties.set(
-            "w:pStyle",
-            `<w:pStyle w:val="${escapeXml(styles.id(`heading${level}` as "heading1"))}"/>`,
-          );
-        } else {
-          properties.remove("w:outlineLvl");
-          if (!direct) properties.remove("w:pStyle");
-        }
-      }
+      this.relevel(properties, based, level);
       if (
         !sameList(counterpart.list, based.counterpart.list) ||
         counterpart.inListText !== based.counterpart.inListText
@@ -963,11 +1004,21 @@ export class DocumentPatch {
         else this.setList(properties, counterpart.list, based);
       }
     } else if (level !== null) {
-      properties = Properties.paragraph("");
-      properties.set(
-        "w:pStyle",
-        `<w:pStyle w:val="${escapeXml(styles.id(`heading${level}` as "heading1"))}"/>`,
-      );
+      // A clause heading the User adds is numbered as the file's headings of its level are,
+      // through their own numbering or their style.
+      const sibling = this.headingOf(counterpart, level);
+      if (sibling) {
+        properties = Properties.paragraph(cleaned(this.pPrOf(sibling.element), { numbered: true }));
+        this.relevel(properties, sibling, level);
+        formatBefore = formatOf(sibling.counterpart.node);
+        rPr = this.lastRunOf(sibling);
+      } else {
+        properties = Properties.paragraph("");
+        properties.set(
+          "w:pStyle",
+          `<w:pStyle w:val="${escapeXml(styles.id(`heading${level}` as "heading1"))}"/>`,
+        );
+      }
     } else if (counterpart.list) {
       const sibling = this.siblingOf(counterpart);
       properties = Properties.paragraph(sibling ? cleaned(this.pPrOf(sibling.element)) : "");
@@ -1076,13 +1127,14 @@ export class DocumentPatch {
   }
 
   /**
-   * The Word level an imported item goes at in `place`: its level in the file, moved by as many
-   * levels as the item was, so a list that starts deeper in the file than in the Note keeps it.
+   * The Word level an imported item goes at in `place`: its level in the file, through its own
+   * numbering or its style's, moved by as many levels as the item was, so a list that starts
+   * deeper in the file than in the Note keeps it.
    */
   private importedLevel(based: Based, place: ListPlace): number | null {
     const was = based.counterpart.list;
-    const level = levelIn(this.pPrOf(based.element));
-    if (!was || level === null) return null;
+    const level = this.input.listOf(based.element)?.level;
+    if (!was || level === undefined) return null;
     const started = place.startLevel === null ? 0 : place.startLevel - (was.startLevel ?? 0);
     return Math.min(Math.max(level + place.nesting - was.nesting + started, 0), 8);
   }
@@ -1091,9 +1143,45 @@ export class DocumentPatch {
     for (const item of this.listItems.get(place.list) ?? []) {
       const based = item.key ? this.based.get(item.key) : undefined;
       if (!based?.counterpart.list || based.counterpart.list.ordered !== place.ordered) continue;
-      const numId = numIdIn(this.pPrOf(based.element));
-      if (numId !== null && numId !== "0")
+      const numId = this.input.listOf(based.element)?.numId;
+      if (numId !== undefined)
         return { numId: Number(numId), level: this.importedLevel(based, place) ?? place.depth };
+    }
+    return null;
+  }
+
+  /**
+   * An imported paragraph's properties moved to the heading level the Mind has it at (null for
+   * no heading): its outline level or heading style, and its own numbering as many levels.
+   */
+  private relevel(properties: Properties, based: Based, level: number | null): void {
+    const was = noteHeadingLevel(based.counterpart.node);
+    if (level === was) return;
+    const direct = properties.has("w:outlineLvl");
+    if (level !== null && direct && was !== null) {
+      properties.set("w:outlineLvl", `<w:outlineLvl w:val="${level - 1}"/>`);
+    } else if (level !== null) {
+      properties.remove("w:outlineLvl");
+      properties.set(
+        "w:pStyle",
+        `<w:pStyle w:val="${escapeXml(this.input.styles.id(`heading${level}` as "heading1"))}"/>`,
+      );
+    } else {
+      properties.remove("w:outlineLvl");
+      if (!direct) properties.remove("w:pStyle");
+    }
+    if (level !== null && was !== null)
+      shiftNumbering(properties, this.input.listOf(based.element)?.level ?? 0, level - was);
+  }
+
+  /** The imported heading the Mind has at `level` nearest before a counterpart, else after: a new heading takes its properties. */
+  private headingOf(counterpart: Counterpart, level: number): Based | null {
+    const at = this.orderOf.get(counterpart.node);
+    if (at === undefined) return null;
+    const around = [...this.order.slice(0, at).reverse(), ...this.order.slice(at + 1)];
+    for (const each of around) {
+      const based = each.key ? this.based.get(each.key) : undefined;
+      if (based?.element.name === "w:p" && noteHeadingLevel(each.node) === level) return based;
     }
     return null;
   }
@@ -1593,29 +1681,41 @@ const isHeaderRow = (row: NodeJSON) =>
   (row.content ?? []).length > 0 &&
   (row.content ?? []).every((cell) => cell.type === "tableHeader");
 
-/** The numId a paragraph's own numbering names, if it has any. */
-function numIdIn(pPr: string): string | null {
-  return /<w:numId\b[^>]*\bw:val="([^"]*)"/.exec(pPr)?.[1] ?? null;
-}
+/** A heading's level, 1 to 6, as the export writes it; null for any other Block. */
+const noteHeadingLevel = (node: NodeJSON): number | null =>
+  node.type === "heading" ? Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6) : null;
 
-function levelIn(pPr: string): number | null {
-  const value = /<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(pPr)?.[1];
-  return value === undefined ? null : Math.min(Number(value), 8);
+/**
+ * Moves a paragraph's own numbering from its Word level `from` (its own, or its style's) `by`
+ * levels, as Tab does a list item's, when the User changes its heading's level. Numbering only
+ * its style gives comes with the new style.
+ */
+function shiftNumbering(properties: Properties, from: number, by: number): void {
+  const numPr = properties.get("w:numPr");
+  if (!numPr || by === 0) return;
+  const element = parseXml(numPr);
+  const numId = child(element, "w:numId")?.attrs["w:val"];
+  if (numId === undefined || numId === "0") return;
+  const moved = Math.min(Math.max(from + by, 0), 8);
+  properties.set(
+    "w:numPr",
+    `<w:numPr><w:ilvl w:val="${moved}"/><w:numId w:val="${escapeXml(numId)}"/></w:numPr>`,
+  );
 }
 
 /**
  * Properties to start a new paragraph from: what makes a paragraph the one it
  * is (its section, a frame, a page break before it, a tracked change to it)
- * left out.
+ * left out, and its numbering and outline level unless `numbered`: a new
+ * heading is numbered as the heading it takes them from.
  */
-function cleaned(pPr: string): string {
+function cleaned(pPr: string, { numbered = false } = {}): string {
   const properties = Properties.paragraph(pPr).remove(
     "w:sectPr",
     "w:pPrChange",
     "w:framePr",
     "w:pageBreakBefore",
-    "w:numPr",
-    "w:outlineLvl",
+    ...(numbered ? [] : ["w:numPr", "w:outlineLvl"]),
   );
   const rPr = properties.get("w:rPr");
   if (rPr) {

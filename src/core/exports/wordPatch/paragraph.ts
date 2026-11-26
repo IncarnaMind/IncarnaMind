@@ -506,6 +506,11 @@ export interface ParagraphInput {
   pPrChanged: boolean;
   /** Run properties for text with no character before or after it to take its formatting from. */
   fallbackRun: string;
+  /**
+   * For a new paragraph, the imported character each of its characters is, where Enter carried
+   * it out of an imported paragraph: it keeps that character's run and formatting.
+   */
+  carried?: readonly (Token | null)[];
   /** Where the paragraph is written: the namespaces in scope there. */
   scope: Namespaces;
   /**
@@ -623,7 +628,7 @@ export function writeParagraph(
       homeOf[y] = lastPiece;
       if (!lastPiece) waiting.push(y);
       if (isText(current[y])) {
-        formatRun[y] = replacing ?? previousRun;
+        formatRun[y] = input.carried?.[y]?.run ?? replacing ?? previousRun;
         previousRun = formatRun[y] ?? previousRun;
       }
       continue;
@@ -887,8 +892,8 @@ class RunWriter {
     private readonly scope: Namespaces,
     private readonly paragraph: XmlElement | null,
   ) {
-    for (const token of input.base?.tokens ?? []) {
-      if (token.kind === "char" && token.run && !this.importedMarks.has(token.run)) {
+    for (const token of [...(input.base?.tokens ?? []), ...(input.carried ?? [])]) {
+      if (token?.kind === "char" && token.run && !this.importedMarks.has(token.run)) {
         this.importedMarks.set(token.run, token.marks);
       }
     }
@@ -906,6 +911,18 @@ class RunWriter {
       chain.unshift(at);
     }
     return this.inside(element) ? chain : [];
+  }
+
+  /** The link a run Enter carried text out of is in, in its own paragraph: the text keeps that link's look. */
+  private carriedLink(run: XmlElement | null): string | null {
+    for (
+      let at = run ? this.context.parents.get(run) : undefined;
+      at && at.name !== "w:p";
+      at = this.context.parents.get(at)
+    ) {
+      if (at.name === "w:hyperlink") return this.context.hrefOf(at);
+    }
+    return null;
   }
 
   private inside(element: XmlElement): boolean {
@@ -1014,11 +1031,12 @@ class RunWriter {
     const original = this.wrappersOf(formatRun).filter(
       (each) => use === "kept" || !CHANGES.has(each.name),
     );
-    const inheritedLink =
-      original
-        .filter((each) => each.name === "w:hyperlink")
-        .map(hrefOf)
-        .at(-1) ?? null;
+    const inheritedLink = this.paragraph
+      ? (original
+          .filter((each) => each.name === "w:hyperlink")
+          .map(hrefOf)
+          .at(-1) ?? null)
+      : this.carriedLink(formatRun);
     const around = original.filter(
       (each) => each.name !== "w:hyperlink" || hrefOf(each) === token.marks.link,
     );

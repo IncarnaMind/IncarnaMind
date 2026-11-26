@@ -1222,8 +1222,8 @@ type AskedChange =
   | { kind: "remove"; name: string; n: number }
   | { kind: "add"; name: string; n: number | null; text: string };
 
-/** "¶3", "¶3+" or "¶+". */
-const PARAGRAPH_NAME = /^¶(?:(\d{1,5})(\+?)|\+)$/;
+/** "¶3", "¶3+" or "¶+"; "¶3✓", as read_mind marks this run's own change, is ¶3. */
+const PARAGRAPH_NAME = /^¶(?:(\d{1,5})[✓✗]?(\+?)|\+)$/;
 
 /** A message in the interface language. */
 type Say = (key: MessageKey, params?: MessageParams) => string;
