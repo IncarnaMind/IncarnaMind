@@ -119,7 +119,7 @@ function bookmarkedText(document: string, name: string): string | null {
 }
 
 describe("a Word file's cross-references after its clauses are renumbered", () => {
-  // protects=a sub-clause added above the bookmarked one gives a REF to it the new number, written and so not marked, while the PAGEREF to it, whose page needs Word's layout, is asked to refresh, in English and Chinese; fails_when=the REF still shows 2.3 or （三）, or is marked though written, or the PAGEREF isn't marked, or the package has a problem Word's repair prompt is about; no_claim=what Word shows after it refreshes, which is the manual check.
+  // protects=a sub-clause added above the bookmarked one gives a REF to it the new number, written and so not marked, while the PAGEREF to it keeps the page the file saved, unmarked, since Word works a page out at opening before it lays the pages out: the file asks Word nothing, in English and Chinese; fails_when=the REF still shows 2.3 or （三）, or any field is marked, or the package has a problem Word's repair prompt is about; no_claim=the page Word shows once the User updates the field.
   test.each([
     ["English", ENGLISH_CONTRACT, "2.4"],
     ["Chinese", CHINESE_CONTRACT, "（四）"],
@@ -130,7 +130,9 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
       const [ref, pageRef] = fieldsOf(document);
       expect(ref).toMatchObject({ result: number, dirty: false });
       expect(ref?.instruction).toMatch(/^REF _Ref\d+ \\r \\h$/);
-      expect(pageRef).toMatchObject({ result: "1", dirty: true });
+      expect(pageRef).toMatchObject({ result: "1", dirty: false });
+      expect(document).not.toContain("w:dirty");
+      expect(unzip(data).get("word/settings.xml")?.toString() ?? "").not.toContain("updateFields");
       expect((await inspectPackage(data)).problems).toEqual([]);
     },
   );
@@ -171,7 +173,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
       expect(bookmarkedText(document, name)).toBe(words);
       const [ref, pageRef] = fieldsOf(document);
       expect(ref).toMatchObject({ result: number, dirty: false });
-      expect(pageRef).toMatchObject({ dirty: true });
+      expect(pageRef).toMatchObject({ result: "1", dirty: false });
       expect(acceptedParagraphs(document)).toEqual(
         expect.arrayContaining([...(typed ? [typed] : []), words]),
       );
@@ -187,7 +189,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     },
   );
 
-  // protects=a file whose only changed field is a REF the export writes holds no w:dirty at all, so Word opens it without asking whether to update its fields, in English and Chinese; fails_when=any field is marked, or the REF keeps its old number; no_claim=a file with a page reference, whose page only Word can know.
+  // protects=a file whose only changed field is a REF the export writes holds no w:dirty at all, so Word opens it without asking whether to update its fields, in English and Chinese; fails_when=any field is marked, or the REF keeps its old number; no_claim=a REF whose new number can't be known, which is marked.
   test.each([
     [
       "English",
@@ -538,7 +540,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
 
   // protects=a field the file already marks not dirty with single quotes (w:dirty='false') gets one w:dirty="true", not a second attribute, which would make the part malformed; fails_when=the begin holds two w:dirty, or none set to true; no_claim=other attributes' quoting, which is kept as the file had it.
   test("a field marked not dirty in single quotes is marked once", async () => {
-    const reference = `${run("Either party may end this agreement; see page ")}${field("PAGEREF _Ref201 \\h", "1").replace('w:fldCharType="begin"/>', "w:fldCharType=\"begin\" w:dirty='false'/>")}${run(".")}`;
+    const reference = `${run("See ")}${field("REF _Ref201 \\w \\h", "Clause 2.3 of the Fees").replace('w:fldCharType="begin"/>', "w:fldCharType=\"begin\" w:dirty='false'/>")}${run(".")}`;
     const { document } = await exported(
       contractFile(ENGLISH_CONTRACT, reference),
       renumber(ENGLISH_CONTRACT),
@@ -546,7 +548,7 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     const begin = /<w:fldChar w:fldCharType="begin"[^>]*\/>/.exec(document)?.[0] ?? "";
     expect(begin.match(/w:dirty/g)).toHaveLength(1);
     expect(fieldsOf(document)).toEqual([
-      { instruction: "PAGEREF _Ref201 \\h", result: "1", dirty: true },
+      { instruction: "REF _Ref201 \\w \\h", result: "Clause 2.3 of the Fees", dirty: true },
     ]);
   });
 
@@ -644,50 +646,82 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
   );
 });
 
-/** A table of contents as Word writes one: the field from the first entry's paragraph to the last's, each entry its heading and page. */
-const contents = (entries: readonly string[]) =>
-  entries
-    .map((entry, at) => {
-      const begin =
-        at === 0
-          ? `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-3" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>`
-          : "";
-      const end = at === entries.length - 1 ? '<w:r><w:fldChar w:fldCharType="end"/></w:r>' : "";
-      return `<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>${begin}${run(entry)}<w:r><w:tab/></w:r>${run("1")}${end}</w:p>`;
-    })
-    .join("");
+/**
+ * A table of contents as Word writes one: the field from the first entry's paragraph to the
+ * last's, each entry a link to its heading's bookmark holding its number (when it has one), the
+ * heading's words and a PAGEREF to its page; and the headings, bookmarked.
+ */
+const withContents = (headings: readonly [string, string], numbered = false) => {
+  const name = (at: number) => `_Toc9000${at}`;
+  const entries = headings.map((heading, at) => {
+    const begin =
+      at === 0
+        ? `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-3" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>`
+        : "";
+    const end = at === headings.length - 1 ? '<w:r><w:fldChar w:fldCharType="end"/></w:r>' : "";
+    const number = numbered ? `${run(String(at + 1))}<w:r><w:tab/></w:r>` : "";
+    return `<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>${begin}<w:hyperlink w:anchor="${name(at)}" w:history="1">${number}${run(heading)}<w:r><w:tab/></w:r>${field(`PAGEREF ${name(at)} \\h`, String(at + 2))}</w:hyperlink>${end}</w:p>`;
+  });
+  const heading = (text: string, at: number) =>
+    `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:bookmarkStart w:id="${90 + at}" w:name="${name(at)}"/>${run(text)}<w:bookmarkEnd w:id="${90 + at}"/></w:p>`;
+  return wordFile({
+    body: [
+      ...entries,
+      heading(headings[0], 0),
+      paragraph("The studio designs the packaging."),
+      heading(headings[1], 1),
+      paragraph("The fee is due each month."),
+    ].join(""),
+  });
+};
+
+const renamed = (from: string, to: string) => (blocks: JSONContent[]) =>
+  blocks.map((block) =>
+    block.type === "heading" && textOf(block) === from
+      ? {
+          ...block,
+          content: (block.content ?? []).map((each) =>
+            each.type === "text" ? { ...each, text: to } : each,
+          ),
+        }
+      : block,
+  );
 
 describe("a Word file's table of contents after an edit", () => {
-  const withContents = (headings: readonly [string, string]) =>
-    wordFile({
-      body: [
-        contents(headings),
-        paragraph(run(headings[0]), { style: "Heading1" }),
-        paragraph("The studio designs the packaging."),
-        paragraph(run(headings[1]), { style: "Heading1" }),
-        paragraph("The fee is due each month."),
-      ].join(""),
-    });
-
-  // protects=a heading renamed asks Word to refresh the table of contents, whose entries stay as the file had them until it does, in English and Chinese; fails_when=the TOC isn't marked dirty, or its entries are rewritten; no_claim=the page numbers, which need Word's layout.
+  // protects=a heading renamed gives its contents entry the heading's new words, before its page, which keeps the page the file saved: nothing in the file asks Word to refresh at opening, where Word works pages out before laying them out, in English and Chinese; fails_when=the entry keeps the old words, a page changes, or any field is marked; no_claim=the pages Word shows once the User updates the table.
   test.each([
     ["English", ["Services", "Fees"], "Fees and costs"],
     ["Chinese", ["服务内容", "费用"], "费用与支付"],
   ] as const)(
-    "%s: a heading renamed marks the table of contents",
-    async (_language, headings, renamed) => {
-      const file = withContents(headings);
-      const { document } = await exported(file, (blocks) =>
-        blocks.map((block) =>
-          block.type === "heading" && textOf(block) === headings[1]
-            ? { ...block, content: [{ type: "text", text: renamed }] }
-            : block,
-        ),
+    "%s: a heading renamed is renamed in the table of contents",
+    async (_language, headings, words) => {
+      const { data, document } = await exported(
+        withContents(headings),
+        renamed(headings[1], words),
       );
-      const [toc] = fieldsOf(document);
-      expect(toc).toMatchObject({ dirty: true, result: fieldsIn(file)[0]?.result });
+      const lines = acceptedParagraphs(document);
+      expect(lines.slice(0, 2)).toEqual([`${headings[0]}\t2`, `${words}\t3`]);
+      expect(document).not.toContain("w:dirty");
+      expect(unzip(data).get("word/settings.xml")?.toString() ?? "").not.toContain("updateFields");
+      expect((await inspectPackage(data)).problems).toEqual([]);
     },
   );
+
+  // protects=with the User's edits tracked, a renamed heading's entry is their tracked change: every change accepted it reads the new words, every change rejected the old, its number and page kept as they were; fails_when=the new words are written untracked, or the number or page is touched; no_claim=an entry whose words share a run with its number.
+  test("with the User's edits tracked, an entry's new words are their tracked change", async () => {
+    const { data, document } = await exported(
+      withContents(["Services", "Fees"], true),
+      renamed("Fees", "Fees and costs"),
+      true,
+    );
+    expect(acceptedParagraphs(document).slice(0, 2)).toEqual([
+      "1\tServices\t2",
+      "2\tFees and costs\t3",
+    ]);
+    expect(rejectedParagraphs(document).slice(0, 2)).toEqual(["1\tServices\t2", "2\tFees\t3"]);
+    expect(document).not.toContain("w:dirty");
+    expect((await inspectPackage(data)).problems).toEqual([]);
+  });
 
   // protects=an edit after the last heading can change neither a heading nor a page the table lists: the TOC stays as the file had it; fails_when=it is marked dirty; no_claim=an edit that makes the last page longer, which can't move a heading.
   test("an edit after the last heading leaves the table of contents as it was", async () => {

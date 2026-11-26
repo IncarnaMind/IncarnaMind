@@ -415,27 +415,33 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
       return { ok: false, detail: `left out ${missing.join(", ")}`, exported: result.data };
 
     // Every other paragraph and table of the body is as it was, in order, and so is everything
-    // before the body: the root's namespaces, mc:Ignorable among them, are never pruned. The one
-    // difference allowed is the mark (w:dirty) on a TOC, REF or PAGEREF field the edit can have
-    // changed, which asks Word to refresh it (#746); a field whose result was written again is in
-    // a paragraph the edit holds or fails here.
+    // before the body: the root's namespaces, mc:Ignorable among them, are never pruned. The
+    // differences allowed (#746): the mark (w:dirty) on a REF whose new result can't be known,
+    // which asks Word to refresh it, and the words of a table of contents' entries, written again
+    // when the edit renamed their heading. A field whose result was written again is in a
+    // paragraph the edit holds or fails here.
     const main = new TextDecoder().decode(exported.get(pkg.part));
     const head = (xml: string) => xml.slice(0, xml.search(/<(?:[\w.-]+:)?body[\s>]/));
     if (head(main) !== head(new TextDecoder().decode(original.get(pkg.part)))) {
       return { ok: false, detail: "the document's start changed", exported: result.data };
     }
     const unmarked = (xml: string) => xml.replace(/\sw:dirty\s*=\s*(["'])[^"']*\1/g, "");
-    const comparable = unmarked(main);
+    const contents = (xml: string) => /<w:instrText[^>]*>\s*TOC\b/.test(xml);
+    const wordless = (xml: string) => xml.replace(/<w:t(?:\s[^>]*)?>[^<]*<\/w:t>/g, "<w:t/>");
+    const written = (await bodyPieces(result.data, null)).map((piece) => unmarked(piece.xml));
     let at = 0;
     let kept = 0;
     for (const piece of await bodyPieces(bytes, edited)) {
       if (piece.holdsEdit) continue;
       const xml = unmarked(piece.xml);
-      const found = comparable.indexOf(xml, at);
+      const found = written.findIndex(
+        (each, index) =>
+          index >= at && (each === xml || (contents(xml) && wordless(each) === wordless(xml))),
+      );
       if (found < 0) {
         return { ok: false, detail: `${piece.place} isn't as it was`, exported: result.data };
       }
-      at = found + xml.length;
+      at = found + 1;
       kept++;
     }
 

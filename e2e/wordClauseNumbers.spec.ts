@@ -34,8 +34,8 @@ import {
  * A contract whose clauses Word numbers, imported, a clause added with Enter after one clause or
  * before another, and exported to Word from Export (#746). In the file, as Word works its numbers
  * out: the new clause has its number, the clauses after it count on, the cross-reference to the
- * clause it pushed down shows that clause's new number, and the page reference is marked for Word
- * to work out again.
+ * clause it pushed down shows that clause's new number, and the page reference keeps the page the
+ * file saved, the file asking Word nothing as it opens.
  */
 
 let dataDir: string;
@@ -145,8 +145,12 @@ for (const { language, contract, file, numbered, referring } of CASES) {
     const shown = acceptedParagraphs(document).join("\n");
     expect(shown).toContain(contract.renumbered);
     expect(shown).not.toContain(contract.before);
+    // The page reference keeps the page the file saved, and nothing asks Word to work fields out
+    // as it opens the file: it does that before laying the pages out.
     const pageRef = fieldsOf(document).find((each) => each.instruction.startsWith("PAGEREF"));
-    expect(pageRef).toMatchObject({ result: "1", dirty: true });
+    expect(pageRef).toMatchObject({ result: "1", dirty: false });
+    expect(document).not.toContain("w:dirty");
+    expect(unzip(data).get("word/settings.xml")?.toString() ?? "").not.toContain("updateFields");
     await app.close();
   });
 }
@@ -188,5 +192,33 @@ test("a clause put before 1.1 with Enter at its start is 1.1 in the exported fil
   // The clause keeps its own paragraph in the file: nothing of it is struck out.
   expect(rejectedParagraphs(document)).toContain(DEFINITION);
   expect(document).not.toMatch(/<w:delText[^>]*>[^<]*Confidential/);
+  expect(document).not.toContain("w:dirty");
+  await app.close();
+});
+
+test("a heading renamed is renamed in the exported file's contents list, whose pages stay as the file saved them, and the file asks Word nothing as it opens", async () => {
+  const { app, window } = await start();
+  await useOutputLocation(window, out);
+  await importWordFile(
+    app,
+    window,
+    files,
+    "Chapters.docx",
+    await readFile(join(__dirname, "../eval/word/documents/libreoffice/multi-page-toc.docx")),
+  );
+  const heading = window.getByTestId("mind-editor").locator("h1", { hasText: "Chapter 2" });
+  await clickEndOf(window, heading);
+  await window.keyboard.type(": Results");
+  await expect(heading).toHaveText("Chapter 2: Results");
+  const data = await exportedWith(window, "Chapter 2: Results");
+
+  const document = part(unzip(data), "word/document.xml");
+  expect(acceptedParagraphs(document).slice(0, 3)).toEqual([
+    "Contents",
+    "Chapter 1\t2",
+    "Chapter 2: Results\t2",
+  ]);
+  expect(document).not.toContain("w:dirty");
+  expect(unzip(data).get("word/settings.xml")?.toString() ?? "").not.toContain("updateFields");
   await app.close();
 });
