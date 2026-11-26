@@ -123,6 +123,8 @@ export interface WordFileInput {
   rels?: string;
   /** The main part's content type, if not a .docx's. */
   contentType?: string;
+  /** false: no content type of their own for the other parts, as files made before Word was shown them had. */
+  partContentTypes?: boolean;
   /** More entries in the package. */
   parts?: ZipInput[];
   /** The inside of the body's last w:sectPr, the last section's layout: its header and footer references; `null` writes no w:sectPr at all. */
@@ -139,7 +141,8 @@ export function wordFile(input: WordFileInput): Buffer {
   const overrides: string[] = [];
   const add = (name: string, data: string | Buffer, type?: string) => {
     entries.push({ name, data });
-    if (type) overrides.push(`<Override PartName="/${name}" ContentType="${WML}.${type}+xml"/>`);
+    if (type && input.partContentTypes !== false)
+      overrides.push(`<Override PartName="/${name}" ContentType="${WML}.${type}+xml"/>`);
   };
   add(
     "word/styles.xml",
