@@ -9,6 +9,7 @@ import { FAKE_LINES, FAKE_THEIR_LINES } from "../src/core/transcription/fake";
 import { INTERVIEW } from "../src/main/fakeChat/meetingInterview";
 import { translate } from "../src/shared/i18n";
 import {
+  acceptPlainTextKeys,
   addDocuments,
   createDataFolder,
   dismissChatSetup,
@@ -812,6 +813,7 @@ for (const language of ["en", "zh-CN"] as const) {
     try {
       await setWindowSize(app, window, 1280, 800);
       await dismissChatSetup(window);
+      await acceptPlainTextKeys(window);
       await window.evaluate(async () => {
         const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
         const provider = await core.saveChatProvider({
