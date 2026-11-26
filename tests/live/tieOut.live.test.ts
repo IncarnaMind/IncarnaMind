@@ -502,7 +502,8 @@ function score(rows: readonly FigureScheduleRow[], truth: readonly Figure[]) {
       if (met) counts.totalsFound++;
     } else if (expected === "rounded") {
       counts.rounded++;
-      met = state === "supported" && row?.roundedFrom !== null;
+      // ADR-0028 (#3081) removed figure-by-figure rounding gates (`roundedFrom` is only kept for old marks).
+      met = state === "supported";
       if (met) counts.roundedShown++;
       else if (look) counts.falseAlarms++;
     } else {
@@ -611,8 +612,8 @@ for (const language of LANGUAGES) {
         expect(schedule.rows.map((row) => row.reading.chars)).toEqual(
           truth.map(([chars]) => chars),
         );
-        // #1932's bar: every wrong figure and every total off needs a look, and every rounded
-        // figure shows "Rounded from …" while Supported. A run that reads nothing fails it.
+        // #1932's bar (updated for ADR-0028, #3081): every wrong figure and every total off needs
+        // a look, and every rounded figure reads Supported without false alarms.
         const missed = JSON.stringify(misses);
         expect(counts.wrongFound, missed).toBe(counts.wrong);
         expect(counts.totalsFound, missed).toBe(counts.totalsOff);
