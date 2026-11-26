@@ -42,6 +42,11 @@ function scriptsOf(text: string) {
   return { han, kana, hangul, latin, units: han + kana + hangul + latin.length };
 }
 
+/** How many Han, kana and Hangul characters and Latin words `text` holds. */
+export function spokenUnits(text: string): number {
+  return scriptsOf(text).units;
+}
+
 const inEnglish = (latin: readonly string[]) =>
   new Set(latin.filter((word) => ENGLISH.has(word))).size >= 2;
 
