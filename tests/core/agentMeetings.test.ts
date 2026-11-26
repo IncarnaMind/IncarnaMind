@@ -21,14 +21,14 @@ import {
   startMeetingAgentsCore,
 } from "../helpers/agents";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { connectToMind } from "../helpers/mindClient";
-import { readMind } from "../helpers/minds";
 import {
   addAndProcess,
   createSourceFolder,
   waitForProcessing,
   writeSourceFile,
 } from "../helpers/documents";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
 import { until } from "../helpers/transcription";
 
 type Agent = Awaited<ReturnType<typeof connectLegacyAgent>>;
