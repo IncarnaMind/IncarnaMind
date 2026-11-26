@@ -90,15 +90,24 @@ describe("corrections from the Documents, live", () => {
       expect(long.verdict !== "not-checked" && long.correction?.choices[0]?.wording).toContain(
         "Westmarch",
       );
+      // Under ADR-0028 (#3081), a Contradicted reply carries one Change 1 / To 1 correction
+      // (`prompt.ts`, `claimCheck.ts`), choosing the newer Document's value.
       expect(conflict).toMatchObject({
         verdict: "contradicted",
         correction: {
           from: "陈晨",
-          choices: [{ wording: "王芳" }, { wording: "李明" }],
+          choices: [{ wording: "王芳", evidence: { check: "found" } }],
         },
       });
-      // Claude Haiku 5.5 calls the other quarter's rate Contradicted; it offers no correction to it.
-      expect(nearMiss.verdict === "not-checked" ? undefined : nearMiss.correction).toBeUndefined();
+      // Under ADR-0028 (#3081), Claude Haiku 5.5 calls the other quarter's rate Contradicted and
+      // carries its own single Change 1 / To 1 correction for it.
+      expect(nearMiss).toMatchObject({
+        verdict: "contradicted",
+        correction: {
+          from: expect.stringContaining("36.8%"),
+          choices: [{ wording: expect.stringContaining("38.6%"), evidence: { check: "found" } }],
+        },
+      });
     },
   );
 });
