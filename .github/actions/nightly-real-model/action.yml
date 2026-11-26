@@ -1,0 +1,96 @@
+name: Run nightly real-model checks
+description: Install dependencies, build the app's Python runtime, run the selected nightly real-model steps, and upload the public summary artifact.
+
+inputs:
+  steps:
+    description: Comma-separated steps to run (empty for all).
+    required: false
+    default: ""
+  skip-steps:
+    description: Comma-separated steps to exclude from this job.
+    required: false
+    default: ""
+  live-shard:
+    description: Optional Vitest shard for the live step (e.g. 1/4).
+    required: false
+    default: ""
+  requests:
+    description: Optional INCARNAMIND_EVAL_EVERYDAY filter.
+    required: false
+    default: ""
+  artifact-name:
+    description: Name of the uploaded summary artifact.
+    required: true
+  save-cache:
+    description: Whether to save the everyday model and Document cache.
+    required: false
+    default: "false"
+  anthropic-key-1:
+    required: false
+    default: ""
+  anthropic-key-2:
+    required: false
+    default: ""
+  kimi-key:
+    required: false
+    default: ""
+  deepseek-key:
+    required: false
+    default: ""
+
+outputs:
+  status:
+    description: JSON status summary handed to scripts/nightlyIssue.ts.
+    value: ${{ steps.checks.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+    - shell: bash
+      run: npm ci
+    # The Analysis live tests run the Python the app's build puts in resources/python
+    # (tests/helpers/pyodideAnalysis.ts).
+    - name: Build the app's Python
+      shell: bash
+      run: npm run build
+    - name: Restore the models and the fetched Documents
+      uses: actions/cache/restore@v5
+      with:
+        path: ~/.cache/incarnamind-eval
+        key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
+    - name: Run the checks
+      id: checks
+      shell: bash
+      run: npm run nightly:real-model
+      env:
+        NIGHTLY_ANTHROPIC_KEY_1: ${{ inputs.anthropic-key-1 }}
+        NIGHTLY_ANTHROPIC_KEY_2: ${{ inputs.anthropic-key-2 }}
+        NIGHTLY_KIMI_KEY: ${{ inputs.kimi-key }}
+        NIGHTLY_DEEPSEEK_KEY: ${{ inputs.deepseek-key }}
+        NIGHTLY_STEPS: ${{ inputs.steps }}
+        NIGHTLY_SKIP_STEPS: ${{ inputs.skip-steps }}
+        NIGHTLY_LIVE_SHARD: ${{ inputs.live-shard }}
+        INCARNAMIND_EVAL_EVERYDAY: ${{ inputs.requests }}
+    - name: Keep the models and the fetched Documents
+      if: inputs.save-cache == 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ~/.cache/incarnamind-eval
+        key: incarnamind-everyday-${{ hashFiles('src/core/embedding/model.ts', 'src/core/reranking/model.ts') }}
+    # Not the steps' own reports (vitest.json, everyday/): they hold what the providers answered,
+    # with account and key ids in it, and anyone can download an artifact of a public run.
+    - name: Upload the summary
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          eval/results/nightly-real-model/summary.md
+          eval/results/nightly-real-model/status.json
+          eval/results/nightly-real-model/**/usage.jsonl
+        if-no-files-found: ignore
+        retention-days: 30

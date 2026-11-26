@@ -18,8 +18,21 @@ const SECONDS_A_BYTE = 0.00027;
  */
 const SECONDS_TO_START = 0.3;
 
-export const secondsOf = (id: string, bytes: number): number =>
-  DURATIONS[id] ?? bytes * SECONDS_A_BYTE;
+export const secondsOf = (
+  id: string,
+  bytes: number,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number => {
+  // Unit CI runs without keys and records tests/live/* as skipped (0 s) or tiny helper checks;
+  // balance real-model runs by file size instead.
+  if (
+    id.startsWith("tests/live/") &&
+    (env.INCARNAMIND_LIVE_ANTHROPIC_KEY || env.NIGHTLY_LIVE_SHARD)
+  ) {
+    return bytes * SECONDS_A_BYTE;
+  }
+  return DURATIONS[id] ?? bytes * SECONDS_A_BYTE;
+};
 
 export function slowestFirst<File extends { id: string; seconds: number }>(
   files: readonly File[],

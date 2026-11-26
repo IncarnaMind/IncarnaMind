@@ -849,10 +849,15 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     );
   });
 
-  // protects=a whole paragraph this run takes out reads as taken out by it, under its own name, in the Note asked from; a second change to it is refused as the run's own; in another Note, where the removal waits for the User, it reads as waiting with its words; fails_when=the paragraph reads as words this request keeps, or as an empty paragraph of its own
+  // protects=a whole paragraph this run takes out reads as taken out by it, under its own name, in the Note asked from; a second change to it in the same request replaces the removal, and the Note ends with that change; in another Note, where the removal waits for the User, it reads as waiting with its words; fails_when=the paragraph reads as words this request keeps, or as an empty paragraph of its own, or the run can't put back what it took out
   it("reads a paragraph it took out as taken out, and one waiting elsewhere as waiting", async () => {
     let otherId = "";
-    const seen: { result?: string; again?: string; twice?: string; elsewhere?: string } = {};
+    const seen: {
+      result?: string;
+      again?: string;
+      twice?: { status: string; markdown: string };
+      elsewhere?: string;
+    } = {};
     const run = runner(async (agent, request) => {
       const mindId = mindIdOf(request);
       const read = structured<{ version: string }>(
@@ -874,7 +879,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
       );
       seen.again = again.markdown;
-      seen.twice = refusal(
+      seen.twice = structured(
         await agent.callTool({
           name: "propose_changes",
           arguments: {
@@ -902,7 +907,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     const paired = await written(run.adapter);
     otherId = paired.otherId;
     await paired.core.askInNote({ mindId: paired.mindId, words: "drop the fares" });
-    await paired.ended();
+    const end = await paired.ended();
     const removed = translate("en", "agents.mind.yoursRemoved");
     const yours = translate("en", "agents.mind.yours");
     for (const markdown of [seen.result, seen.again]) {
@@ -910,13 +915,25 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       expect(markdown).not.toContain(FARES);
       expect(markdown).not.toContain(`¶2 ${yours}`);
     }
-    expect(seen.twice).toBe(translate("en", "agents.problem.yours", { paragraph: "¶2" }));
+    // Written again in the same request, the paragraph comes back with its new words.
+    expect(seen.twice?.status).toBe("applied");
+    expect(seen.twice?.markdown).toContain(`¶2 ${yours} Fares rose by a tenth.`);
+    expect(seen.twice?.markdown).not.toContain(removed);
+    await paired.core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId: paired.mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await paired.client.settled();
+    expect(shownWithChanges(paired.client)).toEqual([FERRY, "Fares rose by a tenth."]);
+    // One paragraph changed in all, not one taken out and another written.
+    expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(1);
     expect(seen.elsewhere).toContain(`¶1 ${translate("en", "agents.mind.waiting")} ${FARES}`);
     expect(seen.elsewhere).not.toContain(removed);
     expect(translate("zh-CN", "agents.mind.yoursRemoved")).not.toBe(removed);
   });
 
-  // protects=a change that applies at once in the Note asked from reads, in the same run, as in the Note: in the result and in a later read, with the Note's names and version; a second change to that paragraph is refused as the agent's own, never as one for the User to accept; a change that waits, here or in another Note, and an outside agent's, read as waiting; fails_when=the agent is shown the Note as if its change hadn't landed, and may write it again
+  // protects=a change that applies at once in the Note asked from reads, in the same run, as in the Note: in the result and in a later read, with the Note's names and version, and nothing of it counted as waiting for the User; a second change to that paragraph replaces the first, and the Note ends with it once; a change that waits, here or in another Note, and an outside agent's, read as waiting; fails_when=the agent is shown the Note as if its change hadn't landed, or told its own change waits, and may write it again
   it("reads the Note with this request's own change in, and never as if it hadn't landed", async () => {
     const seen: Record<string, unknown> = {};
     let outside: Agent | null = null;
@@ -977,13 +994,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       seen.again = structured<{ markdown: string; version: string }>(
         await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
       );
-      seen.twice = refusal(
+      seen.twice = structured(
         await agent.callTool({
           name: "propose_changes",
           arguments: {
             mindId,
             version: (seen.again as { version: string }).version,
-            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth this year." }],
           },
         }),
       );
@@ -997,9 +1014,15 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     const end = await ended();
     const yours = translate("en", "agents.mind.yours");
     const waiting = translate("en", "agents.mind.waiting");
-    const result = seen.result as { status: string; markdown: string; version: string };
+    const result = seen.result as {
+      status: string;
+      markdown: string;
+      version: string;
+      waitingInNote: number;
+    };
     const again = seen.again as { markdown: string; version: string };
     expect(result.status).toBe("applied");
+    expect(result.waitingInNote).toBe(0);
     // The result and a later read show the change in, marked as this request's own: not waiting,
     // its Citation read back as a token, as an ordinary read gives it.
     for (const markdown of [result.markdown, again.markdown]) {
@@ -1019,10 +1042,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(elsewhere.status).toBe("waiting");
     expect(elsewhere.markdown).toContain(`¶1 ${waiting}`);
     expect(elsewhere.markdown).not.toContain(yours);
-    // Its names and version are the Note's, so a next change is placed as it reads.
+    // Its names and version are the Note's, so a next change is placed as it reads, and replaces
+    // the first there: in the Note once the request ends, never for the User to accept.
     expect(again.version).toBe(result.version);
-    expect(seen.twice).toBe(translate("en", "agents.problem.yours", { paragraph: "¶2" }));
-    expect(seen.twice).not.toContain("Accept or reject");
+    const twice = seen.twice as { status: string; markdown: string; waitingInNote: number };
+    expect(twice.status).toBe("applied");
+    expect(twice.waitingInNote).toBe(0);
+    expect(twice.markdown).toContain(`¶2 ${yours} Fares rose by a tenth this year.`);
     // The window that asked puts it in once the request ends: once, the paragraph added once.
     await core.applyAskedChanges({
       answerId: end?.turnId ?? "",
@@ -1031,11 +1057,447 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     });
     await client.settled();
     await client.settled();
-    expect(shownWithChanges(client).slice(0, 2)).toEqual([FERRY, "Fares rose by a tenth."]);
+    expect(shownWithChanges(client).slice(0, 2)).toEqual([
+      FERRY,
+      "Fares rose by a tenth this year.",
+    ]);
     expect(shownWithChanges(client)).toHaveLength(3);
     expect(shownWithChanges(client)[2]).toContain(
       "The council meets the ferry company in January.",
     );
+  });
+
+  // protects=in an empty Note, as Write notes writes one after Stop, a later change of the same request finds the paragraphs its first change wrote named, rewrites one with the right owner, cites another, takes one out and adds after one; each result says it applies and nothing waits for the User; once the window applies the request the Note holds the last word once, the line counts the paragraphs written, and one Undo takes the whole request back; in English and Chinese; fails_when=the later change is refused while the first waits (#3762), the first change's words stay beside the second's, the line counts a paragraph twice, or Undo leaves part of it
+  it("lets a later change of the same request correct what it wrote into an empty Note", async () => {
+    const said = {
+      en: {
+        asked: "Write the notes from the call",
+        heading: "Actions",
+        wrong: "Ana sends the rota by Friday.",
+        right: "Tom sends the rota by Friday.",
+        more: "The ferry runs twice a day in winter.",
+        gone: "Ana books the hall.",
+      },
+      "zh-CN": {
+        asked: "根据通话整理笔记",
+        heading: "待办",
+        wrong: "小周周五前把排班表发给大家。",
+        right: "老陈周五前把排班表发给大家。",
+        more: "冬天渡轮每天开两班。",
+        gone: "小周订好礼堂。",
+      },
+    } as const;
+    type Proposed = { status: string; waitingInNote: number; markdown: string; version: string };
+    for (const language of ["en", "zh-CN"] as const) {
+      const words = said[language];
+      const seen: { first?: Proposed; second?: Proposed } = {};
+      const run = runner(async (agent, request) => {
+        const mindId = mindIdOf(request);
+        const read = structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        );
+        const first = structured<Proposed>(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId,
+              version: read.version,
+              changes: [
+                {
+                  paragraph: "¶0+",
+                  text: `## ${words.heading}\n\n${words.wrong}\n\n${FERRY}\n\n${words.gone}`,
+                },
+              ],
+            },
+          }),
+        );
+        seen.first = first;
+        const found = structured<{ passages: { passageId: string }[] }>(
+          await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+        ).passages;
+        const cite =
+          structured<{ citations: { cite: string | null }[] }>(
+            await agent.callTool({
+              name: "cite",
+              arguments: { citations: found.map(({ passageId }) => ({ passageId, quote: FERRY })) },
+            }),
+          ).citations.find((each) => each.cite !== null)?.cite ?? "";
+        seen.second = structured<Proposed>(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: {
+              mindId,
+              version: first.version,
+              changes: [
+                { paragraph: "¶1", text: words.right },
+                { paragraph: "¶1+", text: words.more },
+                { paragraph: "¶2", text: `${FERRY} ${cite}` },
+                { paragraph: "¶3", remove: true },
+              ],
+            },
+          }),
+        );
+        return { kind: "finished", reply: "Done." };
+      });
+      const { core, mindId, client, ended } = await written(run.adapter);
+      await core.updateSettings({ user: { language } });
+      writeMind(client, [note("")]);
+      await client.settled();
+      await core.askInNote({ mindId, words: words.asked });
+      const end = await ended();
+      const yours = translate(language, "agents.mind.yours");
+      // The first change's paragraphs read as in the Note, each by its name, none waiting.
+      expect(seen.first?.status, language).toBe("applied");
+      expect(seen.first?.waitingInNote, language).toBe(0);
+      expect(seen.first?.markdown, language).toContain(`¶0 ${yours} ## ${words.heading}`);
+      expect(seen.first?.markdown, language).toContain(`¶1 ${yours} ${words.wrong}`);
+      expect(seen.first?.markdown, language).toContain(`¶3 ${yours} ${words.gone}`);
+      expect(seen.second?.status, language).toBe("applied");
+      expect(seen.second?.waitingInNote, language).toBe(0);
+      expect(seen.second?.markdown, language).toContain(`¶1 ${yours} ${words.right}`);
+      expect(seen.second?.markdown, language).toContain(`¶2 ${yours} ${words.more}`);
+      expect(seen.second?.markdown, language).toMatch(/¶3 [^\n]*212,000[^\n]*\[cite:[a-z0-9]+\]/);
+      expect(seen.second?.markdown, language).not.toContain(words.wrong);
+      expect(seen.second?.markdown, language).not.toContain(words.gone);
+      // The line counts the three paragraphs the Note ends with, each once.
+      const counted = (end?.applied ?? []).reduce((sum, each) => sum + each.added, 0);
+      expect(counted, language).toBe(3);
+      const applied = await core.applyAskedChanges({
+        answerId: end?.turnId ?? "",
+        mindId,
+        requests: (end?.applied ?? []).map((each) => each.request),
+      });
+      await client.settled();
+      const lines = shownWithChanges(client);
+      expect(lines.slice(0, 3), language).toEqual([words.heading, words.right, words.more]);
+      expect(lines, language).toHaveLength(4);
+      expect(lines[3], language).toContain("212,000");
+      expect(lines[3], language).toContain("⟨found⟩");
+      expect(lines.join("\n"), language).not.toMatch(/\{\+|\[-/);
+      // One Undo takes the whole request back: the Note is the empty line it was.
+      await core.undoAskedChanges(applied?.undoId ?? "");
+      await client.settled();
+      expect(shownWithChanges(client), language).toEqual([""]);
+    }
+  });
+
+  // protects=a later change of the same request to a User's paragraph its first change rewrote, adding a Citation before one the paragraph had, keeps by handle the Citation it read, as the Note numbers them, and the first change's Citation goes with the words it replaced; fails_when=the handle keeps the Citation the first change added, and the User's goes
+  it("keeps by handle the Citation it read when it rewrites again what it rewrote", async () => {
+    let shown = "";
+    let again: { status: string } | undefined;
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages;
+      const cite =
+        structured<{ citations: { cite: string | null }[] }>(
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.map(({ passageId }) => ({ passageId, quote: FERRY })) },
+          }),
+        ).citations.find((each) => each.cite !== null)?.cite ?? "";
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const first = structured<{ version: string; markdown: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: `Spring tides ${cite} delay the ferry [kept:1] [note:1] by $x+1$ minutes.`,
+              },
+            ],
+          },
+        }),
+      );
+      shown = first.markdown;
+      again = structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: first.version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: "Spring tides delay the ferry [kept:1] [note:1] by $x+2$ minutes.",
+              },
+            ],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    writeMind(client, [heldParagraph(), note(FARES)]);
+    await client.settled();
+    await core.askInNote({ mindId, words: "say the tides delay it two minutes" });
+    const end = await ended();
+    const yours = translate("en", "agents.mind.yours").replace(/[()]/g, "\\$&");
+    // As it will be: the token the first change cited, then the User's Citation, kept as the first.
+    expect(shown).toMatch(
+      new RegExp(
+        `¶1 ${yours} Spring tides \\[cite:[a-z0-9]+\\] delay the ferry \\[kept:1\\] \\[note:1\\]`,
+      ),
+    );
+    expect(again?.status).toBe("applied");
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    const cited: string[] = [];
+    let words = "";
+    readMind(client)
+      .child(0)
+      .forEach((node) => {
+        if (node.type.name === "citation") cited.push(String(node.attrs.documentName));
+        if (node.isText) words += node.text ?? "";
+      });
+    expect(cited).toEqual(["Tides"]);
+    expect(words).toContain("Spring tides delay the ferry");
+    expect(words).toContain("x+2");
+    expect(words).not.toContain("x+1");
+    expect(shownWithChanges(client).join("\n")).not.toMatch(/\{\+|\[-/);
+  });
+
+  // protects=a later change of the same request that puts other Blocks in the place of the heading its first change put in place of a User's paragraph counts, with it, as one paragraph changed, and the Note ends with the last Blocks alone; fails_when=the line counts that paragraph twice, or the heading or the User's paragraph stays
+  it("counts a paragraph put in place of twice in one request once", async () => {
+    let again: { status: string; markdown: string } | undefined;
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const first = structured<{ version: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [{ paragraph: "¶2", text: "## Draft fares" }],
+          },
+        }),
+      );
+      again = structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: first.version,
+            changes: [{ paragraph: "¶3", text: "- Fares rose by a tenth." }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "turn the fares into a list" });
+    const end = await ended();
+    const yours = translate("en", "agents.mind.yours");
+    expect(again?.status).toBe("applied");
+    expect(again?.markdown).toContain(`¶3 ${yours} - Fares rose by a tenth.`);
+    expect(again?.markdown).not.toContain("Draft fares");
+    expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(1);
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, "Fares rose by a tenth."]);
+  });
+
+  // protects=each change counts what it moved, read in its own write, so once the window has applied an earlier change of the same connection, as it does at a request's end and would for a run kept across the User's requests, a later change counts only its own paragraphs: a rewrite of the paragraph the earlier one wrote, the Note's own text by then, is one changed, and an addition one added; fails_when=a later change is counted against the earlier one's applied total, and the line says a number below 0 or too small
+  it("counts a change by its own paragraphs once the window has applied an earlier one", async () => {
+    const window: { applyFirst?: () => Promise<void> } = {};
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = async () =>
+        structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        ).version;
+      const propose = async (paragraph: string, text: string) =>
+        structured(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: { mindId, version: await named(), changes: [{ paragraph, text }] },
+          }),
+        );
+      await propose("¶2+", "The ferry runs twice a day.");
+      await window.applyFirst?.();
+      await propose("¶3", "The ferry runs three times a day.");
+      await propose("¶3+", "The last one leaves at nine.");
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, turns, ended } = await written(run.adapter);
+    window.applyFirst = async () => {
+      const first = await vi.waitFor(() => {
+        const told = turns.at(-1)?.applied[0];
+        if (!told) throw new Error("The first change isn't told yet.");
+        return told;
+      });
+      await core.applyAskedChanges({
+        answerId: turns.at(-1)?.turnId ?? "",
+        mindId,
+        requests: [first.request],
+      });
+      await client.settled();
+    };
+    await core.askInNote({ mindId, words: "add how often the ferry runs" });
+    const end = await ended();
+    expect((end?.applied ?? []).map(({ changed, added }) => ({ changed, added }))).toEqual([
+      { changed: 0, added: 1 },
+      { changed: 1, added: 0 },
+      { changed: 0, added: 1 },
+    ]);
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([
+      FERRY,
+      FARES,
+      "The ferry runs three times a day.",
+      "The last one leaves at nine.",
+    ]);
+  });
+
+  // protects=a later change of the same request that writes a User's paragraph back as they had it takes the earlier change there out of the Note, though it makes no Proposal of its own, and the line counts nothing changed; fails_when=the earlier change stays and the window applies words the request took back
+  it("writes a paragraph back as the User had it, and no earlier change of the request stays", async () => {
+    let again: { status: string; markdown: string } | undefined;
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = async () =>
+        structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        ).version;
+      await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: await named(),
+          changes: [{ paragraph: "¶2", text: "Fares fell." }],
+        },
+      });
+      again = structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: await named(),
+            changes: [{ paragraph: "¶2", text: FARES }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "say fares fell, then leave them as they were" });
+    const end = await ended();
+    expect(again?.status).toBe("applied");
+    expect(again?.markdown).toContain(`¶2 ${FARES}`);
+    expect(again?.markdown).not.toContain("Fares fell.");
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, FARES]);
+    expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(0);
+  });
+
+  // protects=with words selected, a later change of the same request that goes beyond them, so would wait for the User, is refused where the request's own change to the selected words is, in words that say why, and that change still applies; fails_when=the change that would wait takes the applied one back, so rejecting it leaves neither
+  it("refuses a change beyond the selection over its own change to the selected words", async () => {
+    let refused = "";
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = async () =>
+        structured<{ version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        ).version;
+      structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: await named(),
+            changes: [{ paragraph: "¶2", text: "Fares rose by a tenth." }],
+          },
+        }),
+      );
+      refused = refusal(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: await named(),
+            changes: [{ paragraph: "¶2", text: "Fares fell by a tenth." }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended, selectionOf } = await written(run.adapter);
+    await core.askInNote({
+      mindId,
+      words: "say it as a tenth",
+      selection: selectionOf(1, "ten percent"),
+    });
+    const end = await ended();
+    expect(refused).toBe(
+      translate("en", "agents.propose.ownOutsideSelection", { paragraph: "¶2" }),
+    );
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, "Fares rose by a tenth."]);
+  });
+
+  // protects=a later request writing into an empty Note while an earlier request's notes still wait there for the User, its run stopped, is refused as before, and the waiting notes stay once; fails_when=the later request reads the earlier one's notes as its own and writes beside them
+  it("refuses a later request's first paragraphs while an earlier one's wait in an empty Note", async () => {
+    const wrote = gate();
+    let refused = "";
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const named = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const result = await agent.callTool({
+        name: "propose_changes",
+        arguments: {
+          mindId,
+          version: named.version,
+          changes: [{ paragraph: "¶0+", text: "Ana sends the rota by Friday." }],
+        },
+      });
+      if (run.runs.length === 1) {
+        structured(result);
+        wrote.reached();
+        return untilStopped(agent, request);
+      }
+      refused = refusal(result);
+      return { kind: "finished", reply: "" };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    writeMind(client, [note("")]);
+    await client.settled();
+    await core.askInNote({ mindId, words: "write the notes" });
+    await wrote.at;
+    await core.stopInNote(mindId);
+    await ended();
+    await core.askInNote({ mindId, words: "write the notes again" });
+    await ended(2);
+    expect(refused).toBe(translate("en", "agents.propose.firstWaiting"));
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual(["+ Ana sends the rota by Friday.", "- "]);
   });
 
   // protects=after Stop the change stays waiting, and the next request reads it truthfully as waiting, not as its own; fails_when=a later run reads another run's change as in the Note

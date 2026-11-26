@@ -8837,8 +8837,6 @@ export const en = {
     "This agent may only read. To let it write new notes and propose changes to your notes, allow it in Settings → AI.",
   "agents.problem.changed":
     "This note changed after the agent read it. Read it again, then propose the changes again.",
-  "agents.problem.yours":
-    "{paragraph} already has your change from this request, which is in the note once the request ends. Change another paragraph, or say what else to change in your reply.",
   "agents.problem.waiting":
     "{paragraph} already has changes waiting in IncarnaMind. Accept or reject them there first.",
   "agents.problem.busy": "IncarnaMind is writing {paragraph} now. Try again once it’s done.",
@@ -8979,6 +8977,8 @@ export const en = {
   "agents.propose.version": "Give the version read_mind returned with named.",
   "agents.propose.outsideSelection":
     "It waits for the User in the note: it changes more than the words they selected. A change to those words alone, sent in a call of its own, applies at once.",
+  "agents.propose.ownOutsideSelection":
+    "{paragraph} has your change from this request to the words the User selected, in the note once the request ends. A change beyond those words waits for the User, so it can’t replace yours there: change only the selected words, in a call of its own.",
   "agents.propose.firstAdd":
     "¶+ adds after the change before it: name a paragraph first, or write at the top of the note, as into an empty one, with ¶0+.",
   "agents.propose.firstWaiting":
