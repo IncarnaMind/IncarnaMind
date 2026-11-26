@@ -189,7 +189,7 @@ describe("a change that cites in one call", () => {
     await buildAgentShim();
   }, 60_000);
 
-  // protects=a quote written inline is cited as cite cites it: the same Citation in the Note as with cite's token, for words that hold "]" or "|", Chinese with full-width punctuation, a quote across a line break or a table's cells, two quotes of one Passage in one sentence, the same quote twice, and one in a table cell of the change; nothing of it is left as words (#3753); fails_when=a Citation differs from cite's, one is lost, or "[cite:" or the quote's words are left in the Note
+  // protects=a quote written inline is cited as cite cites it: the same Citation in the Note as with cite's token, for words that hold "]" or "|", Chinese with full-width punctuation, a quote across a line break or a table's cells, two quotes of one Passage in one sentence, several after one sentence, the same quote twice, and one in a table cell of the change; nothing of it is left as words (#3753); fails_when=a Citation differs from cite's, one is lost, or "[cite:" or the quote's words are left in the Note
   it("cites each quote written inline as cite cites it, and leaves nothing of it in the Note", async () => {
     const { agent, mindId, client } = await setUp();
     const fees = await passageOf(agent, "mooring fees large boat", "Mooring fees");
@@ -246,7 +246,8 @@ describe("a change that cites in one call", () => {
       expect(asInline, name).toEqual(asCited);
     }
 
-    // Two quotes of one Passage in one sentence, the same quote twice, and one in a table's cell.
+    // Two quotes of one Passage in one sentence, several after it, the same quote twice, and one in
+    // a table's cell.
     const carried = "carried 212,000 passengers in 2025";
     const before = "up from 198,000 in 2024";
     const a = (await citeFirst(agent, riders.passageId, carried)).cite ?? "";
@@ -256,6 +257,11 @@ describe("a change that cites in one call", () => {
         "two quotes of one Passage in one sentence",
         `The ferry carried 212,000 passengers ${a}, against 198,000 a year before ${b}.`,
         `The ferry carried 212,000 passengers ${inline(riders.passageId, carried)}, against 198,000 a year before ${inline(riders.passageId, before)}.`,
+      ],
+      [
+        "several quotes after one sentence",
+        `Ridership rose to 212,000 from 198,000 ${a}${b}.`,
+        `Ridership rose to 212,000 from 198,000 ${inline(riders.passageId, carried)}${inline(riders.passageId, before)}.`,
       ],
       [
         "the same quote twice",

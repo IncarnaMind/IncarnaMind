@@ -21,6 +21,8 @@ import {
   startMeetingAgentsCore,
 } from "../helpers/agents";
 import { createTempDataFolder, startCore } from "../helpers/core";
+import { connectToMind } from "../helpers/mindClient";
+import { readMind } from "../helpers/minds";
 import {
   addAndProcess,
   createSourceFolder,
@@ -302,6 +304,59 @@ describe("an outside agent and the User's meetings", { timeout: 120_000 }, () =>
       "Meeting about the harbour | Coast | Coast",
       "Meeting about the refit | Engineering | Coast / Engineering",
     ]);
+  });
+
+  // protects=a Note written from a meeting, its sentence followed by each Transcript line it draws on quoted inline, cites those lines as cite's tokens do, each at its speaker and time, none dropped (#3753); fails_when=a line's Citation is lost or differs from cite's, or "[cite:" is left in the Note
+  it("cites several Transcript lines quoted inline after one sentence as cite's tokens do", async () => {
+    const { core, recorded, coast } = await library();
+    const { launch } = await core.connectAgent({
+      name: "Claude Code",
+      folderIds: [coast.id],
+      propose: true,
+    });
+    const agent = await connectLegacyAgent(launch);
+    const { harbour } = recorded;
+    const [read] = structured<{ passages: { passageId: string }[] }>(
+      await agent.callTool({
+        name: "read_passages",
+        arguments: { documentId: harbour.transcriptId },
+      }),
+    ).passages;
+    const passageId = read?.passageId ?? "";
+    const lines = [...MEETINGS.harbour];
+    const tokens = structured<{ citations: { cite: string | null }[] }>(
+      await agent.callTool({
+        name: "cite",
+        arguments: { citations: lines.map((quote) => ({ passageId, quote })) },
+      }),
+    ).citations.map((each) => each.cite ?? "");
+    const sentence =
+      "The first North crossing moves to ten past seven once the slipway opens earlier";
+    const written: { text: string; citations: unknown[] }[] = [];
+    for (const [title, cites] of [
+      ["With tokens", tokens.join("")],
+      ["With quotes", lines.map((line) => `[cite:${passageId}|${line}]`).join("")],
+    ] as const) {
+      const { mindId } = structured<{ mindId: string }>(
+        await agent.callTool({
+          name: "create_mind",
+          arguments: { title, markdown: `${sentence} ${cites}.`, folderId: coast.id },
+        }),
+      );
+      const client = await connectToMind(core, mindId);
+      await client.settled();
+      const said = readMind(client).lastChild;
+      const citations: unknown[] = [];
+      said?.descendants((node) => {
+        if (node.type.name === "citation") {
+          citations.push({ quote: node.attrs.quote, location: node.attrs.location });
+        }
+      });
+      written.push({ text: said?.textContent ?? "", citations });
+    }
+    expect(written[0]?.citations).toHaveLength(2);
+    expect(written[1]).toEqual(written[0]);
+    expect(written[1]?.text).not.toContain("[cite:");
   });
 
   it("reads, searches and cites the same speaker words as the Chinese Transcript", async () => {
