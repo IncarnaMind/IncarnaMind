@@ -149,7 +149,7 @@ function Row({
       data-state={state}
       className="flex flex-col border-t border-rule first:border-t-0"
     >
-      <div className="flex min-h-11 min-w-0 items-center gap-3 px-3 py-2">
+      <div className="relative flex min-h-11 min-w-0 items-center gap-3 px-3 py-2">
         <AppMark name={CLAUDE_CODE} />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-ui text-ink">{CLAUDE_CODE}</span>
@@ -174,17 +174,17 @@ function Row({
               </>
             )}
           </span>
-          {progress && (
-            <span
-              data-testid="setup-install-progress"
-              aria-hidden="true"
-              className="mt-1.5 block h-[3px] max-w-[220px] overflow-hidden rounded-full bg-rule"
-            >
-              <span className={`block h-full rounded-full bg-accent ${progress}`} />
-            </span>
-          )}
         </span>
         {action}
+        {progress && (
+          <span
+            data-testid="setup-install-progress"
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-[2px] left-[52px] block h-[3px] w-[220px] max-w-[calc(100%-140px)] overflow-hidden rounded-full bg-rule"
+          >
+            <span className={`block h-full rounded-full bg-accent ${progress}`} />
+          </span>
+        )}
       </div>
       {more && open && <div className="px-3 pb-2 pl-[52px]">{more}</div>}
     </li>

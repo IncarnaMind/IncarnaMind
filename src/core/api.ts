@@ -13476,6 +13476,8 @@ export type OwnAiCheckProblem =
   | "no-marks"
   | "isolation"
   | "access"
+  /** The Note is checked against Documents outside the Folders shared with this agent (#3819). */
+  | "beyond-reach"
   | "local-mode"
   | "taken-back"
   /** It showed something other than its words, its reasoning and the check's Tools, and was stopped. */

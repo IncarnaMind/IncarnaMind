@@ -9399,6 +9399,8 @@ export const en = {
   "agents.ownCheck.problem.isolation":
     "A hook or plugin your organization set stops {agent} here. Ask in {agent} instead.",
   "agents.ownCheck.problem.access": "{agent} can no longer read this note, so the check stopped.",
+  "agents.ownCheck.problem.beyond-reach":
+    "This note checks against Documents {agent} can’t read. Check its Folders in Settings.",
   "agents.ownCheck.problem.local-mode":
     "{agent} stopped: “Keep everything on this computer” is on.",
   "agents.ownCheck.problem.taken-back":
@@ -9679,6 +9681,8 @@ export const en = {
   "noteAsk.problem.isolation":
     "{agent} can’t run here beside a hook or plugin your organization set.",
   "noteAsk.problem.access": "{agent} can no longer read this note, so it stopped.",
+  "noteAsk.problem.beyond-reach":
+    "This note checks against Documents {agent} can’t read. Check its Folders in Settings.",
   "noteAsk.problem.local-mode": "{agent} stopped: “Keep everything on this computer” is on.",
   "noteAsk.problem.taken-back":
     "{agent} stopped: running it in the background was turned off in Settings › Privacy.",

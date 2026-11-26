@@ -7,11 +7,13 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import { translate } from "../src/shared/i18n";
 import { installAgent } from "../tests/helpers/agentInstalls";
 import {
+  acceptPlainTextKeys,
   createDataFolder,
   frontMindName,
   interceptOpenExternal,
   interceptOpenPath,
   launchApp,
+  leaveFirstOpen,
   newMind,
   removeDataFolder,
   setWindowSize,
@@ -109,6 +111,7 @@ async function start(
     }),
   });
   app = launched.app;
+  await acceptPlainTextKeys(launched.window);
   await interceptOpenPath(app);
   await interceptOpenExternal(app);
   await setWindowSize(app, launched.window, windowSize.width, windowSize.height);
@@ -136,13 +139,17 @@ for (const language of LANGUAGES) {
     }
     await shot(window, `walk-no-ai-${language}`);
 
-    // Box 3: Install shows stage progress + bar while running, then fixed sign-in line + Reopen.
+    // Box 3: Install shows stage progress + bar while running without growing the row, then fixed
+    // sign-in line + Reopen.
     const row = panel.getByTestId("setup-install-row");
+    const heightBeforeInstall = (await row.boundingBox())?.height ?? 0;
     await row.getByTestId("setup-install-claude-code").click();
     await expect(row.getByTestId("setup-install-line")).toContainText(
       say(language, "setupPage.ai.install.downloading"),
     );
     await expect(row.getByTestId("setup-install-progress")).toBeVisible();
+    const heightWhileInstalling = (await row.boundingBox())?.height ?? 0;
+    expect(Math.abs(heightWhileInstalling - heightBeforeInstall)).toBeLessThanOrEqual(1);
     await shot(window, `walk-install-progress-${language}`);
 
     installer.releaseInstall("succeed");
@@ -274,10 +281,11 @@ for (const language of LANGUAGES) {
       const codeRow = panel.locator('[data-testid="setup-app"][data-value="claude-code"]');
       await codeRow.getByTestId("setup-app-tick").uncheck();
       await panel.getByTestId("setup-connect").click();
-      await expect(claudeRow.getByTestId("setup-app-waiting")).toHaveText(
+      const doneRow = panel.locator('[data-testid="setup-done-row"][data-client="claude-desktop"]');
+      await expect(doneRow).toContainText(
         say(language, "setupPage.ai.row.install", { agent: "Claude" }),
       );
-      await expect(claudeRow.getByTestId("setup-app-connected")).toHaveCount(0);
+      await expect(doneRow).not.toContainText(say(language, "setupPage.ai.connected"));
       await expect(panel.getByTestId("setup-next")).toBeDisabled();
       await shot(window, `walk-awaiting-install-${language}`);
 
@@ -436,9 +444,13 @@ for (const language of LANGUAGES) {
   });
 }
 
-test("every Your work answer opens an example with one contradicted mark and its foot line", async () => {
-  test.setTimeout(180_000);
+test("every Your work answer opens an example with one contradicted mark, foot line, and checks cleanly on Claude Code", async () => {
+  test.setTimeout(240_000);
+  await installAgent("claude-code", { applications: apps, commands: apps, home }, "command");
+  await writeFile(join(home, ".claude.json"), "{}\n");
+  await writeFile(modeFile, "check");
   const cases: readonly { work: WorkKind; group: keyof typeof EXAMPLE_SETS }[] = [
+    { work: "legal", group: "contracts" },
     { work: "research", group: "papers" },
     { work: "reports", group: "reports" },
     { work: "meetings", group: "meetings" },
@@ -449,14 +461,15 @@ test("every Your work answer opens an example with one contradicted mark and its
     const prev = dataDir;
     dataDir = dir;
     try {
-      const window = await start({ width: 900, height: 760 }, { language: "zh-CN" });
+      const window = await start({ width: 900, height: 760 }, { language: "zh-CN", ownAi: true });
       const panel = window.getByTestId("setup-panel");
       await panel.locator(`[data-testid="setup-work"][data-value="${work}"]`).click();
       await panel.getByTestId("setup-next").click();
       await expect(panel).toHaveAttribute("data-step", "ai");
-      await panel.getByTestId("setup-skip").click();
+      await panel.getByTestId("setup-connect").click();
       await expect(panel).toHaveAttribute("data-step", "meetings");
       await panel.getByTestId("setup-skip").click();
+      await expect(window.getByTestId("setup-page")).toHaveCount(0);
       await expect(frontMindName(window)).toHaveText(EXAMPLE_SETS[group]["zh-CN"].title);
       await expect(window.getByTestId("example-line")).toContainText(
         say("zh-CN", "examples.line.credit"),
@@ -464,6 +477,35 @@ test("every Your work answer opens an example with one contradicted mark and its
       await expect(
         window.locator('[data-testid="claim-mark"][data-check="contradicted"]'),
       ).toHaveCount(1, { timeout: 15_000 });
+
+      // Wait for the example's Documents to finish processing before pressing Check.
+      await expect
+        .poll(
+          () =>
+            window.evaluate(async () => {
+              const docs = await (
+                globalThis as unknown as { incarnamind: CoreBridge }
+              ).incarnamind.listDocuments();
+              return docs.length > 0 && docs.every((each) => each.status === "ready");
+            }),
+          { timeout: 30_000 },
+        )
+        .toBe(true);
+
+      // End quiet first open so the Note's Check badge is shown, then press Check: marks land on
+      // Claude Code without a beyond-reach refusal.
+      await leaveFirstOpen(window);
+      if (!(await window.getByTestId("check-card").isVisible())) {
+        await window.getByTestId("check-badge-open").click();
+      }
+      await window.getByTestId("badge-check-mind").click();
+      await expect
+        .poll(
+          () => window.locator('[data-testid="claim-mark"][data-check="unsupported"]').count(),
+          { timeout: 25_000 },
+        )
+        .toBeGreaterThan(0);
+      await expect(window.getByTestId("checks-asked")).toHaveCount(0);
     } finally {
       await closeApp();
       dataDir = prev;

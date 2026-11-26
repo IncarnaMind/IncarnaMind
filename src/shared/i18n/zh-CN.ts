@@ -8778,6 +8778,8 @@ export const zhCN = {
   "agents.ownCheck.problem.isolation":
     "你所在组织设置的钩子或插件让 {agent} 无法在这里运行。改为在 {agent} 中提问。",
   "agents.ownCheck.problem.access": "{agent} 已无法读取这篇笔记，核对已停止。",
+  "agents.ownCheck.problem.beyond-reach":
+    "这篇笔记要核对的文档超出了 {agent} 的可读范围。请在“设置”中检查它的文件夹权限。",
   "agents.ownCheck.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
   "agents.ownCheck.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
   "agents.ownCheck.problem.failed": "{agent} 未完成就停止了。再试一次。",
@@ -9036,6 +9038,8 @@ export const zhCN = {
   "noteAsk.problem.no-marks": "{agent} 已结束，但没有做任何修改。",
   "noteAsk.problem.isolation": "{agent} 带有你所在组织设置的钩子或插件，无法在这里运行。",
   "noteAsk.problem.access": "{agent} 已无法读取这篇笔记，已停止。",
+  "noteAsk.problem.beyond-reach":
+    "这篇笔记要核对的文档超出了 {agent} 的可读范围。请在“设置”中检查它的文件夹权限。",
   "noteAsk.problem.local-mode": "{agent} 已停止：已开启“所有内容都留在这台电脑上”。",
   "noteAsk.problem.taken-back": "{agent} 已停止：已在“设置 › 隐私”中关闭后台运行。",
   "noteAsk.problem.failed": "{agent} 未完成就停止了。",

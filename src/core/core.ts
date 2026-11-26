@@ -1992,11 +1992,16 @@ export function createCore(adapters: CoreAdapters): Core {
   const unscopedDocuments = (mindId: string | null, focusOnly = false): string[] | null => {
     const made = examples.made();
     const exampleNote = mindId !== null && made.mindIds.includes(mindId);
-    if (made.documentIds.length === 0 || (exampleNote && !focusOnly)) return null;
+    if (made.documentIds.length === 0) return null;
     const left = new Set(made.documentIds);
     // The examples are the User's Library until a Document of their own exists (#1942), a
     // meeting's Transcript among them: a first meeting's Note searches its own words only.
     const own = documents.ids({}).filter((id) => !left.has(id));
+    // An example Note searches the User's own Documents and its own example's Documents, never
+    // another example's (#3819), so lending that one example keeps Check within reach.
+    if (exampleNote && !focusOnly) {
+      return [...new Set([...own, ...(examples.documentsOf(mindId) ?? [])])];
+    }
     if (own.length === 0) return null;
     if (mindId === null || exampleNote) return own;
     // A Note the User wrote against an example is their own work, so what it cites stays in its
