@@ -5983,14 +5983,24 @@ export type ExampleGroup = (typeof EXAMPLE_GROUPS)[number];
 export const WORK_KINDS = ["finance", "legal", "research", "reports", "meetings", "other"] as const;
 export type WorkKind = (typeof WORK_KINDS)[number];
 
+export const FIRST_RUN_STEPS = ["work", "ai", "meetings"] as const;
+export type FirstRunStep = (typeof FIRST_RUN_STEPS)[number];
+
 /**
  * Whether the window opens on the first run's setup (#3296), and, when it does, the order its
  * kinds of work are shown in: picked once per install, Something else last. `picksSent`: this
- * install has sent the picks already, which go once per install.
+ * install has sent the picks already, which go once per install. `step` and `work` keep where the
+ * User left off if the window closed or the app quit before finishing (#3819).
  */
 export type FirstRunSetup =
   | { show: false }
-  | { show: true; workOrder: WorkKind[]; picksSent: boolean };
+  | {
+      show: true;
+      workOrder: WorkKind[];
+      picksSent: boolean;
+      step: FirstRunStep;
+      work: WorkKind[];
+    };
 
 /**
  * An example Mind (onboarding, see src/core/examples.ts): "Draft: credit
@@ -14889,6 +14899,11 @@ export interface CoreApi {
    */
   firstRunSetup(): Promise<FirstRunSetup>;
   /**
+   * Remembers the step and Your work picks of an unfinished first-run setup (#3819), so closing
+   * the window or quitting and reopening returns to the same step with the picks kept.
+   */
+  saveFirstRunProgress(progress: { step: FirstRunStep; work: readonly WorkKind[] }): Promise<void>;
+  /**
    * Ends the first run's setup, finished or skipped through (#3296): keeps what the User works on
    * (`DeviceSettings.work`), never shows the setup again, and makes the example of each pick, the
    * first pick's first, which it returns (null when this copy ships none). Nothing picked makes
@@ -17261,6 +17276,7 @@ const methods: Record<CoreApiMethod, true> = {
   isExampleDocument: true,
   offerExamples: true,
   firstRunSetup: true,
+  saveFirstRunProgress: true,
   finishFirstRunSetup: true,
   sendWorkPicked: true,
   createExamples: true,

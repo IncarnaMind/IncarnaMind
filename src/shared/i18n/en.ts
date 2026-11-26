@@ -3499,23 +3499,40 @@ export const en = {
   "setupPage.agents.failed": "Couldn\u2019t list the agents on this computer",
   "setupPage.agent.found": "On this computer",
   "setupPage.agent.connected": "{agent} is connected",
-  // First run's Your AI, one list of the AI apps found here (#3791).
+  // First run's Your AI, one list of the AI apps found here (#3791, #3819).
   "setupPage.ai.lead.found": "Connect the AI app you already use.",
-  "setupPage.ai.lead.none": "IncarnaMind works with an AI app you have.",
+  "setupPage.ai.lead.none": "IncarnaMind uses your own AI app.",
   "setupPage.ai.moreFound": "{count} more found",
   "setupPage.ai.another": "Another app…",
   "setupPage.ai.another.title": "Another app",
   "setupPage.ai.consent.one":
-    "It can read all your Documents and notes. What it reads goes to its AI model.",
+    "{agent} can read all your Documents and notes, sending what it reads to {agent}’s AI model.",
+  "setupPage.ai.consent.one.write":
+    "{agent} can read all your Documents and notes, write notes and propose changes, sending what it reads to {agent}’s AI model.",
   "setupPage.ai.consent.many":
-    "They can read all your Documents and notes. What each reads goes to its AI model.",
+    "{agents} can read all your Documents and notes, sending what they read to their AI models.",
+  "setupPage.ai.consent.many.write":
+    "{agents} can read all your Documents and notes, write notes and propose changes, sending what they read to their AI models.",
+  "setupPage.ai.details.reads.one":
+    "{agent} can read every Folder you have—including Folders and notes you add later—along with meetings, Transcripts and Canvases inside them. Folders set to stay separate aren’t included, and examples are only read after you ask or run Check in one.",
+  "setupPage.ai.details.reads.many":
+    "{agents} can read every Folder you have—including Folders and notes you add later—along with meetings, Transcripts and Canvases inside them. Folders set to stay separate aren’t included, and examples are only read after you ask or run Check in one.",
+  "setupPage.ai.details.where.one":
+    "IncarnaMind can run local calculations over spreadsheets, CSVs and counts on this computer and send only the results. Everything {agent} reads goes to {agent}’s AI service under its terms; some plans may train on it. When you ask {agent} to organize Documents, it reads their opening text and existing Tags; suggestions always wait for you.",
+  "setupPage.ai.details.where.many":
+    "IncarnaMind can run local calculations over spreadsheets, CSVs and counts on this computer and send only the results. Everything each app reads goes to its AI service under that service’s terms; some plans may train on it. When you ask one to organize Documents, it reads their opening text and existing Tags; suggestions always wait for you.",
+  "setupPage.ai.details.technical": "Technical details",
+  "setupPage.ai.details.metadata":
+    "Listing sends each Folder’s name, internal id and place in the tree; each Document’s name, kind and internal id; each note’s name, internal id and last-change time (plus meeting start time); each Canvas’s title, internal id, version, last-change time, HTML and file sizes; and Tag names and internal ids when organizing.",
   "setupPage.ai.connect": "Connect",
   "setupPage.ai.connected": "Connected",
   "setupPage.ai.alsoInstalls": "Also downloads Claude Code from Anthropic, so you can ask here",
   "setupPage.ai.install": "Install",
   "setupPage.ai.install.line": "Downloads from Anthropic into your user folder.",
-  "setupPage.ai.install.installing": "Installing…",
-  "setupPage.ai.install.signIn": "Sign in in your browser",
+  "setupPage.ai.install.starting": "Starting download…",
+  "setupPage.ai.install.downloading": "Downloading from Anthropic…",
+  "setupPage.ai.install.installing": "Installing into your user folder…",
+  "setupPage.ai.install.signIn": "Finish signing in with your browser",
   "setupPage.ai.install.notYet": "Not signed in yet",
   "setupPage.ai.install.stopped": "Not installed",
   "setupPage.ai.install.sends":

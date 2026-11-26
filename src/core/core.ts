@@ -8363,6 +8363,7 @@ export function createCore(adapters: CoreAdapters): Core {
     isExampleDocument: async (documentId) => isExampleDocument(documentId),
     offerExamples: async () => examples.offer(minds.list().length > 0),
     firstRunSetup: async () => firstRun.status(),
+    saveFirstRunProgress: async (progress) => firstRun.saveProgress(progress),
     finishFirstRunSetup: (work) => firstRun.finish(work),
     sendWorkPicked: async (work) => firstRun.sendPicks(work),
     createExamples: async (group) => examples.create(group),

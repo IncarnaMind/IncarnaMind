@@ -23,18 +23,14 @@ import { buttonStyle, dialogTextClass } from "../ui";
 import { InstallingRow } from "./ClaudeCodeInstallLine";
 import { SetupPanel, type StepPlace } from "./SetupPanel";
 import { stillNeedsUser } from "./yourAiList";
-import { AppMark, type Choice, type Done, listClass, StepFoot } from "./yourAiParts";
-
-/** The pairings that wait for their app's own Install, as Settings › AI is told of them; null until read. */
-function useAwaitingInstall(): readonly string[] | null {
-  const [awaiting, setAwaiting] = useState<readonly string[] | null>(null);
-  const reportError = useAppStore((state) => state.reportError);
-  useEffect(() => {
-    core.getAgents().then((settings) => setAwaiting(settings.awaitingInstall), reportError);
-    return core.on("agents.changed", (settings) => setAwaiting(settings.awaitingInstall));
-  }, [reportError]);
-  return awaiting;
-}
+import {
+  AppMark,
+  type Choice,
+  type Done,
+  listClass,
+  StepFoot,
+  useAwaitingInstall,
+} from "./yourAiParts";
 
 const outcomeOf = (outcome: AgentConnectOutcome, client: AgentClient): Done =>
   outcome.kind === "connected"

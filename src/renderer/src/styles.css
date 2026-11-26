@@ -15121,3 +15121,9 @@ body.assistant-dragging * {
     0 0 0 2px var(--color-accent),
     var(--shadow-popover);
 }
+
+/* Clicking Skip on Work can leave the pointer over Set up later on Your AI when 2+ apps are found (#3819). */
+[data-testid="setup-foot"][data-fresh-step] [data-testid="setup-skip"]:hover {
+  background: transparent;
+  color: var(--color-ink-secondary);
+}

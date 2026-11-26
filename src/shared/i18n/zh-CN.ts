@@ -3313,16 +3313,34 @@ export const zhCN = {
   "setupPage.ai.moreFound": "还找到 {count} 个",
   "setupPage.ai.another": "其他应用…",
   "setupPage.ai.another.title": "其他应用",
-  "setupPage.ai.consent.one": "它可以读取你的全部文档和笔记，读到的内容会发给它的 AI 模型。",
+  "setupPage.ai.consent.one":
+    "{agent} 可以读取你的全部文档和笔记，读到的内容会发给 {agent} 使用的 AI 模型。",
+  "setupPage.ai.consent.one.write":
+    "{agent} 可以读取你的全部文档和笔记，也可以新建笔记和提出修改，读到的内容会发给 {agent} 使用的 AI 模型。",
   "setupPage.ai.consent.many":
-    "它们可以读取你的全部文档和笔记，各自读到的内容会发给自己的 AI 模型。",
+    "{agents} 可以读取你的全部文档和笔记，各自读到的内容会发给对应的 AI 模型。",
+  "setupPage.ai.consent.many.write":
+    "{agents} 可以读取你的全部文档和笔记，也可以新建笔记和提出修改，各自读到的内容会发给对应的 AI 模型。",
+  "setupPage.ai.details.reads.one":
+    "{agent} 可以读取你的每个文件夹（包括以后新建的文件夹和笔记），以及其中的会议、转写稿和页面。只在本文件夹内工作的文件夹不会自动共享；示例也只在你在其中提问或核对后才会被读取。",
+  "setupPage.ai.details.reads.many":
+    "{agents} 可以读取你的每个文件夹（包括以后新建的文件夹和笔记），以及其中的会议、转写稿和页面。只在本文件夹内工作的文件夹不会自动共享；示例也只在你在其中提问或核对后才会被读取。",
+  "setupPage.ai.details.where.one":
+    "IncarnaMind 可以在这台电脑上对表格、CSV 和统计数据运行代码，只把结果发给 {agent}。{agent} 读取的内容会发给对应服务的 AI 模型，适用该服务的条款，部分套餐可能用于训练。让它整理文档时，会读取文档开头和已有标签，所有建议都会等你确认。",
+  "setupPage.ai.details.where.many":
+    "IncarnaMind 可以在这台电脑上对表格、CSV 和统计数据运行代码，只把结果发给这些应用。每个应用读取的内容会发给对应服务的 AI 模型，适用该服务的条款，部分套餐可能用于训练。让它们整理文档时，会读取文档开头和已有标签，所有建议都会等你确认。",
+  "setupPage.ai.details.technical": "技术细节",
+  "setupPage.ai.details.metadata":
+    "列出内容时会发送每个文件夹的名称、内部 ID 和层级位置，每个文档的名称、类型和内部 ID，每篇笔记的名称、内部 ID 和最后修改时间（会议笔记含开始时间），每个页面的标题、内部 ID、版本号、最后修改时间、HTML 及文件大小，以及整理时所用标签的名称和内部 ID。",
   "setupPage.ai.connect": "连接",
   "setupPage.ai.connected": "已连接",
   "setupPage.ai.alsoInstalls": "同时从 Anthropic 下载 Claude Code，这样就能在这里提问",
   "setupPage.ai.install": "安装",
   "setupPage.ai.install.line": "从 Anthropic 下载到你的用户文件夹。",
-  "setupPage.ai.install.installing": "正在安装…",
-  "setupPage.ai.install.signIn": "在浏览器里登录",
+  "setupPage.ai.install.starting": "正在开始下载…",
+  "setupPage.ai.install.downloading": "正在从 Anthropic 下载…",
+  "setupPage.ai.install.installing": "正在安装到你的用户文件夹…",
+  "setupPage.ai.install.signIn": "在浏览器里完成登录",
   "setupPage.ai.install.notYet": "尚未登录",
   "setupPage.ai.install.stopped": "未安装",
   "setupPage.ai.install.sends": "下载时会把你的操作系统和架构发给 Anthropic。",

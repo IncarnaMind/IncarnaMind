@@ -209,7 +209,7 @@ for (const language of LANGUAGES) {
     await expect(tick).toBeChecked();
     await expect(tick).toBeFocused();
     await expect(ai.getByTestId("setup-consent")).toContainText(
-      say(language, "setupPage.ai.consent.one"),
+      say(language, "setupPage.ai.consent.one.write", { agent: "Claude Code" }),
     );
     await expect(ai.getByTestId("setup-another-app")).toContainText(
       say(language, "setupPage.ai.another"),
@@ -222,12 +222,13 @@ for (const language of LANGUAGES) {
     const connect = ai.getByTestId("setup-connect");
     await expect(connect).toHaveText(say(language, "setupPage.ai.connect"));
     await mainButtonInView(window, connect);
-    // Details holds what else it reads, that it may write, and the change to its settings file.
+    // Details reads top-down in plain words, with technical details folded at the bottom (#3819).
     await ai.getByTestId("setup-consent-details").click();
     await expect(ai.getByTestId("setup-consent-more")).toContainText(
-      say(language, "agents.connect.body", { agent: "Claude Code" }),
+      say(language, "setupPage.ai.details.reads.one", { agent: "Claude Code" }),
     );
     await expect(ai.getByTestId("setup-consent-propose")).toBeChecked();
+    await expect(ai.getByTestId("setup-consent-technical")).not.toHaveAttribute("open");
     expect((await bridge(window).agents()).pairings).toEqual([]);
 
     await connect.click();
@@ -280,8 +281,9 @@ for (const language of LANGUAGES) {
       { timeout: 30_000 },
     );
     expect(await urlsOpened(running())).toEqual([]);
-    // That first ask of their own AI ends the first open: the Library is named again.
-    await expect(library).toBeVisible();
+    // That first ask in the example ends the quiet check margin without rearranging the sidebar (#3819).
+    await expect(window.getByTestId("check-badge")).toBeVisible();
+    await expect(library).toHaveCount(0);
   });
 
   // protects=two apps found start with one ticked, and an app that still needs the User keeps the step with its row saying what is left and its one button, Continue held until it is done or the User goes on; fails_when=both start ticked, the main button falls below the window, the step moves on with an app unfinished, or a raw command shows on the row
@@ -297,7 +299,9 @@ for (const language of LANGUAGES) {
 
     await row("claude-desktop").getByTestId("setup-app-tick").check();
     await expect(ai.getByTestId("setup-consent")).toContainText(
-      say(language, "setupPage.ai.consent.many"),
+      say(language, "setupPage.ai.consent.many.write", {
+        agents: language === "zh-CN" ? "Claude Code 和 Claude" : "Claude Code and Claude",
+      }),
     );
     await ai.getByTestId("setup-connect").click();
     // Claude Code works at once; Claude waits for Install in its own window, which opened.
@@ -451,6 +455,9 @@ for (const language of LANGUAGES) {
     const claudeCodeSettings = more.locator(
       '[data-testid="setup-consent-app"][data-client="claude-code"]',
     );
+    const technical = more.getByTestId("setup-consent-technical");
+    await expect(technical).not.toHaveAttribute("open");
+    await technical.locator(":scope > summary").click();
     await expect(claudeCodeSettings.getByTestId("setup-consent-change")).toBeVisible();
     await expect(claudeCodeSettings.getByTestId("setup-consent-skill")).toBeVisible();
     expect(await consented(window)).toEqual([]);
@@ -623,12 +630,15 @@ test("only the Claude app found, back on the step after a Cancel: the connected 
 
   const again = await atStep(window, "ai");
   const claude = again.locator('[data-testid="setup-app"][data-value="claude-desktop"]');
-  await expect(claude.getByTestId("setup-app-connected")).toHaveText(
-    say("en", "setupPage.ai.connected"),
+  // Install wasn't clicked in Claude yet, so the row never reads Connected (#3819).
+  await expect(claude.getByTestId("setup-app-connected")).toHaveCount(0);
+  await expect(claude.getByTestId("setup-app-waiting")).toHaveText(
+    say("en", "setupPage.ai.row.install", { agent: "Claude" }),
   );
+  await expect(claude.getByTestId("setup-app-open")).toBeVisible();
   await expect(claude.getByTestId("setup-app-installs")).toHaveCount(0);
   await expect(again.getByTestId("setup-consent")).toHaveCount(0);
-  await expect(again.getByTestId("setup-next")).toBeEnabled();
+  await expect(again.getByTestId("setup-next")).toBeDisabled();
   await claude.getByTestId("setup-app-undo").click();
   await expect(claude.getByTestId("setup-app-tick")).toBeVisible();
   expect((await bridge(window).agents()).pairings).toEqual([]);
@@ -646,7 +656,9 @@ test("Back while Connect runs: what connected stays, with Undo, and what hadn't 
   await ai.getByTestId("setup-connect").click();
   await expect.poll(() => controlReads(running(), "core:setUpAgent", {})).toBe(1);
   await expect(ai.getByTestId("setup-consent")).toContainText(
-    say("en", "setupPage.ai.consent.many"),
+    say("en", "setupPage.ai.consent.many.write", {
+      agents: "Claude Code and ChatGPT app and Codex",
+    }),
   );
   await expect(ai.getByTestId("setup-connect")).toBeDisabled();
   await expect(ai.getByTestId("setup-next")).toHaveCount(0);

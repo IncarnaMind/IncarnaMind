@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { Document } from "../../core/api";
+import { useCanvases } from "./canvases";
 import { useFirstOpen } from "./firstOpen";
 import { isListedDocument } from "./meetingTranscript";
 import {
@@ -76,16 +77,42 @@ export const ownsATag = (state: Pick<AppState, "documents" | "examples" | "other
   state.documents.some((each) => each.tags.length > 0 && isOwnDocument(each, allExamples(state)));
 
 /**
- * Whether the sidebar names the Library. It waits while the first open's steps show and the User
- * has nothing of their own; once they have a Document or a Note, it is there, where Recently
- * deleted and every file are (#2376).
+ * Whether the workspace holds only examples so far: no Documents, Notes, Folders or Canvases of
+ * the User's own, and at least one example Mind or Document. Asking in an example ends the quiet
+ * first open without rearranging the sidebar into Library and Documents (#3819).
+ */
+export function useOnlyExamples(): boolean {
+  const hasOwnDocuments = useAppStore((state) =>
+    state.documents.some((each) => isOwnDocument(each, allExamples(state))),
+  );
+  const hasOwnNote = useAppStore((state) => {
+    const examples = new Set(exampleMindIds(state));
+    return state.minds.some((mind) => !examples.has(mind.id));
+  });
+  const hasOwnFolders = useAppStore((state) => (state.library?.groups.length ?? 0) > 0);
+  const hasExample = useAppStore((state) => {
+    const made = allExamples(state);
+    const hasMind = made.some(
+      (each) => each.mindId !== null && state.minds.some((mind) => mind.id === each.mindId),
+    );
+    return hasMind || state.documents.some((each) => isExampleDocument(each, made));
+  });
+  const hasCanvases = useCanvases((state) => state.canvases.length > 0);
+  return !hasOwnDocuments && !hasOwnNote && !hasOwnFolders && !hasCanvases && hasExample;
+}
+
+/**
+ * Whether the sidebar names the Library. It waits while the workspace holds only examples or the
+ * first open's steps show and the User has nothing of their own; once they have a Document or a
+ * Note, it is there, where Recently deleted and every file are (#2376, #3819).
  */
 export function useLibraryShown(): boolean {
   const firstOpen = useFirstOpen();
+  const onlyExamples = useOnlyExamples();
   const documents = useOwnDocuments();
   const hasOwnNote = useAppStore((state) => {
     const examples = new Set(exampleMindIds(state));
     return state.minds.some((mind) => !examples.has(mind.id));
   });
-  return !firstOpen || documents.length > 0 || hasOwnNote;
+  return documents.length > 0 || hasOwnNote || (!firstOpen && !onlyExamples);
 }
