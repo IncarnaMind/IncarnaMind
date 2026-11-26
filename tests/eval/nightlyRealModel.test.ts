@@ -1504,6 +1504,45 @@ describe("known failing (frozen built-in assistant) allowlist (#3000)", () => {
     expect(out.status.red).toEqual([`${liveShard.name}: active check regression`]);
   });
 
+  test("an independent file-level error alongside a known-failing assertion still turns the night red", async () => {
+    const folder = await createTempDataFolder();
+    await writeFile(
+      join(folder, "vitest.json"),
+      JSON.stringify({
+        testResults: [
+          {
+            name: "tests/live/example.live.test.ts",
+            status: "failed",
+            message: "Error: afterAll hook failed",
+            assertionResults: [
+              {
+                fullName: "frozen deterministic test",
+                status: "failed",
+                failureMessages: ["AssertionError: expected 1 to be 2"],
+              },
+            ],
+          },
+          {
+            name: "tests/live/knownOnly.live.test.ts",
+            status: "failed",
+            message: "",
+            assertionResults: [
+              {
+                fullName: "frozen intermittent test",
+                status: "failed",
+                failureMessages: ["AssertionError: expected 1 to be 2"],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const { cases } = casesOf(liveShard, folder);
+    const out = summary([baseResult(cases, 1)], "2026-11-26", { knownFailing: list });
+    expect(out.passed).toBe(false);
+    expect(out.status.red).toEqual([`${liveShard.name}: tests/live/example.live.test.ts`]);
+  });
+
   test("the checked-in allowlist holds only unique frozen built-in assistant entries with issues, and few passesSomeRuns entries", () => {
     const names = new Set<string>();
     let partial = 0;

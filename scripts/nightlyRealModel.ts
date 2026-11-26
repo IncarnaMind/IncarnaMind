@@ -944,14 +944,16 @@ export function casesOf(step: Step, folder: string): { cases: Case[]; skipped: n
       };
     });
   for (const file of files) {
-    if (
-      file.status === "failed" &&
-      !(file.assertionResults ?? []).some((each) => each.status === "failed")
-    ) {
+    if (file.status !== "failed") continue;
+    const hasFailedAssertion = (file.assertionResults ?? []).some(
+      (each) => each.status === "failed",
+    );
+    const fileMessage = file.message?.trim() ?? "";
+    if (!hasFailedAssertion || fileMessage !== "") {
       cases.push({
         name: file.name ?? "test file failed to load",
         passed: false,
-        ...(file.message && { detail: describeFailure(file.message) }),
+        ...(fileMessage !== "" && { detail: describeFailure(fileMessage) }),
       });
     }
   }
