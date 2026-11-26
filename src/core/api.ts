@@ -3742,9 +3742,9 @@ export interface GettingStarted {
   mistakeSeen: boolean;
   /** A Document of the User's own has been read, not only added, or the User connected an app. */
   indexed: boolean;
-  /** The User asked a Question of their own, not the example's. */
+  /** The User asked an AI something of their own: the built-in assistant, or their own AI (#3791). */
   askedOwn: boolean;
-  /** The User asked the first open's ready Question (`readyQuestion`). */
+  /** The User asked the ready Question an earlier version's first open offered; nothing sets it now. */
   askedReady: boolean;
   /** An own note was exported successfully on this device. */
   exported: boolean;
@@ -6013,47 +6013,6 @@ export interface Examples {
   /** The example Answer, written in advance, while the example Mind exists. */
   answerId: string | null;
   more: ExampleGroup[];
-}
-
-/**
- * The first open's ready Question: the one its card offers to ask in one click. One reader
- * decides it (`readyQuestion`), for every place that shows it.
- */
-export interface ReadyQuestion {
-  /** What to ask, in the interface's language. */
-  question: string;
-  /**
-   * What its Answer reads, as the Question's Search scope: the User's own Document it is about,
-   * asked with a model. Null for the example's, whose Answer is written in advance.
-   */
-  scope: SearchScope | null;
-  /**
-   * The Document still being read before the Answer can be written, named; null when asking it
-   * answers now. Asking waits for it, saying so, rather than doing nothing (#2218).
-   */
-  waitingFor: string | null;
-}
-
-/**
- * What the first open's Ask step shows (#2127): the ready Question, and the User's own Document
- * still being read, named, so the line that says so needs no second read.
- */
-export interface FirstOpenQuestion {
-  /** The ready Question; null while there is none, as when the only Document of theirs is being read. */
-  ready: ReadyQuestion | null;
-  /** The User's own newest Document still being read; the step shows it in place of the Question. */
-  reading: string | null;
-}
-
-/**
- * What asking the example's ready Question did: the conversation its Question and Answer are in.
- * `stopped`: Stop came while it waited for the example's Documents to be read, so its Answer says
- * "Stopped" and has no text.
- */
-export interface ExampleReadyAsked {
-  conversationId: string;
-  answerId: string;
-  stopped: boolean;
 }
 
 /**
@@ -9215,7 +9174,10 @@ export interface AnswerSteps {
   calculateUnavailable?: true;
   /** Its first reply said so, and the model was asked once more with what its calls did. */
   askedAgainFor?: ClaimedTool[];
-  /** Written in advance for the example (`askExampleReadyQuestion`): no model wrote it, and nothing was searched. */
+  /**
+   * Written in advance for the example's ready Question, which earlier versions asked from the
+   * first open: no model wrote it, and nothing was searched.
+   */
   example?: true;
   /**
    * It covered only some of the Documents in scope, or one of those a name fits, and offers the
@@ -13435,13 +13397,11 @@ export interface AskedSelection {
  * What the User asks their own AI from IncarnaMind (#3373): to fix the sentences of the Note that
  * need a look (one, or all of them, #3419), the words they typed in the chat box, or only the Note
  * named, to go on in their AI; or to check the Note, with no model set up in IncarnaMind to do it
- * (#3533); or, from Get started, to write a short summary of one Document as a new Note (#3572); or
- * to do something with the words they selected (#3612). A question's words may be none, for one
- * the User types in their AI about the Documents named (#3612).
+ * (#3533); or to do something with the words they selected (#3612). A question's words may be
+ * none, for one the User types in their AI about the Documents named (#3612).
  */
 export type AgentAsk =
   | { kind: "organize"; target: OrganizeTarget }
-  | { kind: "summary"; documentId: string }
   | { kind: "meeting"; meetingId: string }
   | { kind: "fix"; sentences: AskedSentence[] }
   | { kind: "question"; text: string }
@@ -14432,17 +14392,6 @@ export interface CoreApi {
    */
   askInConversation(input: AskInConversationInput): Promise<ConversationAskResult>;
   /**
-   * Asks the example's ready Question, whose Answer is written in advance and needs no model, in
-   * a new conversation: whatever the User's own Documents are, as in a library that has some
-   * before the example is made. Waits while its Documents are still being read, then writes the
-   * Answer; Stop in the meantime (`stopExampleReadyQuestion`) writes the Question with a stopped
-   * Answer. Throws once the example isn't made, a Document it cites can't be read, or the read
-   * hasn't finished in time.
-   */
-  askExampleReadyQuestion(): Promise<ExampleReadyAsked>;
-  /** Stops a waiting `askExampleReadyQuestion`: its Question is kept, and its Answer says Stopped. */
-  stopExampleReadyQuestion(): Promise<void>;
-  /**
    * Writes an Answer of a conversation again, in place, for its Question as it was asked,
    * reading the Mind it was asked from as that Mind is now.
    */
@@ -14923,13 +14872,6 @@ export interface CoreApi {
 
   /** An example Mind and its Documents, if made (see `Examples`); the credit paper by default. */
   getExamples(group?: ExampleGroup): Promise<Examples>;
-  /**
-   * The first open's Ask step (see `FirstOpenQuestion`): its ready Question, about the most
-   * recently added of the User's own Documents that a search can answer from, and the example's
-   * only while they have none; and, named, the Document of theirs still being read, which the
-   * step shows in its place until it can be answered.
-   */
-  readyQuestion(): Promise<FirstOpenQuestion>;
   /**
    * Whether a Document is one of the examples' (see `Examples`): read with them,
    * and left out of the User's own Folders, Tags and search (#1942).
@@ -16520,8 +16462,6 @@ export interface CoreApi {
   openAgentInstallAgain(pairingId: string): Promise<void>;
   /** The agents the User can ask about this Note now, or about none (null): the one connected or used last first (#3373). */
   listAgentsToAsk(mindId: string | null, documentId?: string): Promise<AgentPairing[]>;
-  /** Of these Documents, those at least one connected agent can be asked about now, in the order given (#3572). */
-  listDocumentsToAsk(documentIds: string[]): Promise<string[]>;
   /** With no Organize model, the connected agents that can read the whole target the User chose. */
   agentsForOrganize(target: OrganizeTarget): Promise<OrganizeAgents>;
   /**
@@ -17028,8 +16968,6 @@ const methods: Record<CoreApiMethod, true> = {
   restoreCheckpoint: true,
   renameCheckpoint: true,
   askInConversation: true,
-  askExampleReadyQuestion: true,
-  stopExampleReadyQuestion: true,
   regenerateConversationAnswer: true,
   countScopeDocuments: true,
   stopConversationAnswer: true,
@@ -17320,7 +17258,6 @@ const methods: Record<CoreApiMethod, true> = {
   listConnectors: true,
   addConnector: true,
   getExamples: true,
-  readyQuestion: true,
   isExampleDocument: true,
   offerExamples: true,
   firstRunSetup: true,
@@ -17497,7 +17434,6 @@ const methods: Record<CoreApiMethod, true> = {
   openAgentInstallAgain: true,
   agentsForOrganize: true,
   listAgentsToAsk: true,
-  listDocumentsToAsk: true,
   askAgent: true,
   frontAgent: true,
   checkWithOwnAi: true,

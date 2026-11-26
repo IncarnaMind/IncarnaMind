@@ -19,6 +19,7 @@ import {
   borrowedInto,
   shareAWord,
   spokenLanguageOf,
+  spokenUnits,
   unnamedLatin,
   writtenOutside,
 } from "./spokenLanguage";
@@ -64,6 +65,13 @@ const TOLD_LANGUAGE_UNDER_MS = 3000;
 const LANGUAGE_FROM_MS = 4000;
 const AGREEING = 2;
 const LATEST = 3;
+/**
+ * A stretch read untold (`>= TOLD_LANGUAGE_UNDER_MS`) that writes only another script at under
+ * this many units per second (e.g., "提纲" for 14 s of English speech) collapsed rather than
+ * switched languages (#1031). Real speech in another language runs around 2 to 5 units a second,
+ * so it is not re-read.
+ */
+const COLLAPSED_UNITS_PER_SECOND = 1;
 /**
  * What a long reading in Latin letters shows when its words name no language: nothing against
  * English, the one language named here that is written in them, and that it is no other. One
@@ -402,6 +410,16 @@ export async function createSherpaEngine(
       : undefined;
 
   /**
+   * Whether an untold long reading collapsed into another script (too sparse to be real speech in
+   * that language, #1031).
+   */
+  function collapsedOutside(text: string, samples: Float32Array, streamLanguage: string): boolean {
+    if (!writtenOutside(text, streamLanguage) || borrowedInto(text, streamLanguage)) return false;
+    const seconds = samples.length / MEETING_SAMPLE_RATE;
+    return seconds > 0 && spokenUnits(text) / seconds < COLLAPSED_UNITS_PER_SECOND;
+  }
+
+  /**
    * A stretch read plainly, as long as it is: told its stream's language when short, learned from
    * when long, left out when its words are doubted. `inParts`: a reading that reaches a limit is
    * read again in two parts, each read plainly as a stretch of its length is, and their words are
@@ -414,7 +432,38 @@ export async function createSherpaEngine(
       const parts = await partsOf(samples, stream);
       if (parts !== null) return parts;
     }
-    const plain = first.text;
+    let plain = first.text;
+    const streamLanguage = languageOf(stream);
+    if (!language && streamLanguage && collapsedOutside(plain, samples, streamLanguage)) {
+      let retried: { text: string; atLimit: boolean } | null = null;
+      try {
+        retried = await reading(samples, [], streamLanguage);
+      } catch (error) {
+        console.warn(
+          "The speech model couldn't read a collapsed stretch again in its call's language; it keeps its first reading.",
+          error instanceof Error ? error.name : typeof error,
+        );
+      }
+      if (retried) {
+        if (inParts && retried.atLimit) {
+          const parts = await partsOf(samples, stream);
+          if (parts !== null) return parts;
+        }
+        if (
+          !writtenOutside(retried.text, streamLanguage) &&
+          spokenUnits(retried.text) >= Math.max(2, spokenUnits(plain) * 2)
+        ) {
+          console.warn(
+            "A stretch that collapsed into another script was read again in its call's language.",
+            {
+              language: streamLanguage,
+              seconds: Math.round((samples.length / MEETING_SAMPLE_RATE) * 10) / 10,
+            },
+          );
+          plain = retried.text;
+        }
+      }
+    }
     // A stream not yet known to be English counts as not English: a word left out is the
     // smaller harm than one written that nobody said (#1031).
     if (onlyPromptWord(plain) && languageOf(stream) !== "English") return "";

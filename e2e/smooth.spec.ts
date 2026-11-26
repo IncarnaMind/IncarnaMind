@@ -269,9 +269,7 @@ test("a status the first open held back shows after 300 ms and stays 500 ms from
       ),
     }),
   );
-  const scan = join(sources, "Lease scan.pdf");
   const picture = await readFile(join(__dirname, "../tests/fixtures/scans/en-clean.jpg"));
-  await writeFile(scan, buildPdf(Array.from({ length: pages }, () => ({ scan: picture }))));
   const { app, window } = await launchApp(dataDir, {
     examples: true,
     fakeChat: true,
@@ -282,10 +280,19 @@ test("a status the first open held back shows after 300 ms and stays 500 ms from
   await dismissChatSetup(window);
   await useLocalChatModel(window);
   await watchSidebar(window);
-  await window.evaluate(async (path) => {
+  // A file of the User's own ends the quiet first open; what it holds back is the example's own
+  // work, so the scan is read as one of the example's, in its Linked folder (#3791).
+  const examplesFolder = await window.evaluate(async () => {
     const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    await bridge.addDocuments([path]);
-  }, scan);
+    const examples = await bridge.getExamples();
+    const linked = await bridge.listLinkedFolders();
+    return linked.find((each) => each.id === examples.linkedFolderId)?.path ?? null;
+  });
+  if (!examplesFolder) throw new Error("The example has no Linked folder.");
+  await writeFile(
+    join(examplesFolder, "Lease scan.pdf"),
+    buildPdf(Array.from({ length: pages }, () => ({ scan: picture }))),
+  );
   const lease = () =>
     window.evaluate(async () => {
       const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;

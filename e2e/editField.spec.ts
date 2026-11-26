@@ -1079,6 +1079,69 @@ test("in a short window the menu fits the Mind's view, and the field stays in si
   await app.close();
 });
 
+// protects=with the keyboard in the menu's field, the menu stays beside the words the User selected as the window changes, measured from the Note's selection, not the field's caret; fails_when=placing the menu again, as a resize does, slides it over the selected words or takes the keyboard from the field
+test("in a short window the menu stays clear of the selected words while the User types in its field, through a resize", async () => {
+  const { app, window } = await launchApp(dataDir, { fakeChat: true });
+  await dismissChatSetup(window);
+  await useLocalChatModel(window);
+  await setWindowSize(app, window, 1440, 560);
+  // Words halfway down the view: the whole menu fits neither above them nor below.
+  const { editor } = await mindWith(window, "Harbour notes");
+  for (const line of [
+    "The north quay floods at spring tides.",
+    "Boats wait for the flood.",
+    "The pilot boards at the outer mark.",
+    "The tides here are very strong and really regular.",
+  ]) {
+    await window.keyboard.press("Enter");
+    await window.keyboard.type(line);
+  }
+  const note = editor.locator(":scope > p").last();
+  const menu = window.getByTestId("selection-menu");
+  const field = menu.getByTestId("selection-edit-field");
+  const words = "The tides here are very strong";
+  const room = () =>
+    window.evaluate(() =>
+      document
+        .querySelector<HTMLElement>(".selection-menu-frame")
+        ?.style.getPropertyValue("--selection-menu-room"),
+    );
+  /** Whether the menu is wholly above or below the selected words, as the Note holds them. */
+  const clearOfWords = async () => {
+    const selected = await editor.evaluate((dom) => {
+      const { view, state } = (dom as unknown as { editor: Editor }).editor;
+      const start = view.coordsAtPos(state.selection.from);
+      const end = view.coordsAtPos(state.selection.to);
+      return { top: Math.min(start.top, end.top), bottom: Math.max(start.bottom, end.bottom) };
+    });
+    const box = await menu.boundingBox();
+    if (!box) throw new Error("The menu isn't visible.");
+    return box.y >= selected.bottom - 1 || box.y + box.height <= selected.top + 1;
+  };
+
+  await slideSelect(window, note, words);
+  await pointAndClick(window, field);
+  await window.keyboard.type("make it");
+  await expect(field).toBeFocused();
+  // Too tall for either side, it stands on the larger one, its rows scrolling.
+  expect(await menu.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await clearOfWords()).toBe(true);
+
+  const before = await room();
+  // Still too short for the whole menu on either side, so it is placed again beside the words.
+  await setWindowSize(app, window, 1440, 600);
+  await expect.poll(room).not.toBe(before);
+  await window.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  expect(await clearOfWords()).toBe(true);
+  await expect(field).toBeFocused();
+  await window.keyboard.type(" shorter");
+  await expect(field).toHaveValue("make it shorter");
+  expect(await selectedInMind(editor)).toBe(words);
+  await app.close();
+});
+
 test("at 900 px the menu is over the page's bottom fade, and its field is not under it", async () => {
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await dismissChatSetup(window);

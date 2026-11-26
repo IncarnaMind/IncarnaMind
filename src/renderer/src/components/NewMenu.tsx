@@ -19,7 +19,7 @@ import {
   RecordingLineIcon,
   VerifyLineIcon,
 } from "./lineIcons";
-import { iconButtonClass, menuClass, menuItemClass, primaryButtonClass } from "./ui";
+import { buttonClass, iconButtonClass, menuClass, menuItemClass } from "./ui";
 import { usePopoverMenu, useSubmenu } from "./usePopoverMenu";
 
 interface NewItem {
@@ -127,7 +127,7 @@ export function NewMenu({ place = "sidebar" }: { place?: "sidebar" | "home" }) {
           data-testid="home-new-menu"
           aria-label={t("home.newMind.more")}
           title={t("home.newMind.more")}
-          className={`${primaryButtonClass} w-8 rounded-l-none px-0`}
+          className={`${buttonClass} -ml-px w-8 rounded-l-none px-0`}
         >
           <ChevronDownLineIcon className="size-3.5" />
         </button>

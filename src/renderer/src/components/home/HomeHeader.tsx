@@ -1,13 +1,7 @@
 import { formatLongDay, partOfDay } from "../../../../shared/dates";
-import { menuKeysLabel } from "../../commands/keymap";
-import { commands } from "../../commands/registry";
-import { withKeys } from "../../editor/withShortcut";
 import { useHomeNeeds, useOwnMinds } from "../../home";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { PencilLineIcon } from "../lineIcons";
-import { NewMenu } from "../NewMenu";
-import { primaryButtonClass } from "../ui";
 
 const linkClass =
   "rounded-sm font-semibold text-ink underline-offset-2 hover:underline hover:decoration-rule-strong";
@@ -17,9 +11,6 @@ export function HomeHeader({ now }: { now: Date }) {
   const language = useLanguage();
   const own = useOwnMinds().length;
   const { reading } = useHomeNeeds();
-  const command = commands.get("mind.new");
-  const keys = command ? menuKeysLabel(command) : null;
-  const newMind = t("menu.newMind");
   const needs = [
     ...(reading > 0
       ? [
@@ -32,7 +23,7 @@ export function HomeHeader({ now }: { now: Date }) {
   ];
 
   return (
-    <header className="mt-2 mb-8 flex items-start gap-4 @max-[480px]/home:flex-col">
+    <header className="mt-2 mb-6 flex items-start gap-4 @max-[480px]/home:flex-col">
       <div className="min-w-0 flex-1">
         <h1
           data-testid="home-greeting"
@@ -67,19 +58,6 @@ export function HomeHeader({ now }: { now: Date }) {
             </>
           )}
         </p>
-      </div>
-      <div className="mt-1.5 flex shrink-0 gap-px">
-        <button
-          type="button"
-          data-testid="home-new-mind"
-          title={withKeys(t, newMind, keys)}
-          onClick={() => void commands.run("mind.new").catch(useAppStore.getState().reportError)}
-          className={`${primaryButtonClass} rounded-r-none`}
-        >
-          <PencilLineIcon className="size-3.5" />
-          {newMind}
-        </button>
-        <NewMenu place="home" />
       </div>
     </header>
   );

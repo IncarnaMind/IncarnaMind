@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { useAgentsToAskRead, useNoModel, useReadAgentsToAsk } from "../../askYourAi";
 import { useExports } from "../../exports";
 import { useHomeView, useMindNoteStates, useOwnMinds } from "../../home";
 import { useMinuteClock } from "../../minuteClock";
@@ -8,6 +9,7 @@ import { useHomeNextStep } from "../../useHomeNextStep";
 import { CallOffersTip } from "./CallOffersTip";
 import { ComingUp } from "./ComingUp";
 import { FolderCards } from "./FolderCards";
+import { HomeAsk } from "./HomeAsk";
 import { HomeHeader } from "./HomeHeader";
 import { HomeNextStep } from "./HomeNextStep";
 import { MeetingOfferLine } from "./MeetingOfferLine";
@@ -26,6 +28,10 @@ export function HomePane() {
       ? { mindId: result.mindId, path: result.path, at: result.at }
       : null;
   const next = useHomeNextStep(minds, notes, exported, saved);
+  useReadAgentsToAsk(null);
+  const agents = useAgentsToAskRead(null);
+  const noModel = useNoModel();
+  const asksHere = (agents?.length ?? 0) > 0 || noModel;
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = useHomeView.getState().scrollTop;
@@ -49,7 +55,10 @@ export function HomePane() {
       >
         <div className="mx-auto w-full max-w-[760px] px-6 pt-10 pb-24 @max-[760px]/home:px-4 @max-[760px]/home:pt-8">
           <HomeHeader now={now} />
-          {next && (
+          <HomeAsk />
+          {/* Adding files is the buttons above, and asking is their input or its line, unless a
+              model in IncarnaMind is the way to ask (#3791). */}
+          {next && next.kind !== "add" && !(next.kind === "ask" && asksHere) && (
             <div className="mb-6 text-[13px] leading-5">
               <HomeNextStep step={next} />
             </div>

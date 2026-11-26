@@ -79,7 +79,7 @@ test("a release build asks after the first Answer to the User's own Question, se
 
   // A first run asks nothing before the example, nor does an Answer that fails.
   const card = window.getByTestId("usage-data-card");
-  await expect(window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(window.getByTestId("example-line")).toBeVisible();
   await expect(card).toBeHidden();
   await useLocalChatModel(window);
   await askOwnQuestion(window, card);
@@ -154,12 +154,12 @@ test("a release build asks after the first Answer to the User's own Question, se
   await second.app.close();
 });
 
-test("a release waits for the steps: with them open the card comes at the next launch (#123)", async () => {
+test("a release waits for the first open: while it goes on the card comes at the next launch (#123)", async () => {
   const first = await launchApp(dataDir, releaseOptions());
   await openExample(first.window);
   await useLocalChatModel(first.window);
   await askInAssistant(first.window, "Where does tea come from?");
-  await expect(first.window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(first.window.getByTestId("example-line")).toBeVisible();
   await expect(first.window.getByTestId("usage-data-card")).toBeHidden();
   await flushUsageData(first.app);
   expect(posthog.requests).toEqual([]);
@@ -186,11 +186,12 @@ test("nothing is sent or kept to send before Send; after it, an example opened c
 
   await card.getByTestId("usage-data-send").click();
   await expect(card).toBeHidden();
-  // The Examples row is only in the quiet first open; the example Mind's banner has the others.
   await leaveFirstOpen(window);
   await pointAndClick(
     window,
-    window.locator('[data-testid="example-more-link"][data-group="contracts"]').first(),
+    (await examplesMenu(window)).locator(
+      '[data-testid="example-more-link"][data-group="contracts"]',
+    ),
   );
   await expect
     .poll(() => posthog.events().map((each) => each.event), { timeout: 10_000 })
@@ -250,7 +251,7 @@ test("a test build says so from the first run, in the sidebar, with the switch, 
   });
   await expect(again.window.getByTestId("home")).toBeVisible();
   await again.window.getByTestId("mind-tab").click();
-  await expect(again.window.getByTestId("first-open-steps")).toBeVisible();
+  await expect(again.window.getByTestId("example-line")).toBeVisible();
   await expect(again.window.getByTestId("usage-data-card")).toBeHidden();
   await again.app.close();
 });

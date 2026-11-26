@@ -6,7 +6,6 @@ import { useCitationStylePicker } from "../citationStylePicker";
 import { claudeSignInOffered } from "../claudeSignIn";
 import { startContradictionCheck } from "../contradictions";
 import { originOf } from "../editor/blockOrigins";
-import { goToCitation } from "../editor/citationMark";
 import { blockAt } from "../editor/noteKeymap";
 import { openOrigin } from "../editor/originActions";
 import { openFigureSchedule, tieOutFigures } from "../figures";
@@ -18,7 +17,6 @@ import { checkFromAssistant, showCheckCard } from "../mindCheck";
 import { useMindTools } from "../mindTools";
 import { forgetNewMindKeys, holdNewMindKeys } from "../newMindKeys";
 import { useHeldOutlines, useNoteOutlines } from "../noteOutline";
-import { citationStepOpen, stepsShownOf } from "../nudges";
 import { useReferenceImport } from "../referenceImport";
 import { useAppStore } from "../store";
 import { verifyDocument } from "../verify";
@@ -145,35 +143,6 @@ const appCommands: readonly Command[] = [
     group: "open",
     reversible: true,
     run: () => useAppStore.getState().openHome(),
-  },
-  {
-    id: "firstOpen.checkCitation",
-    label: "firstOpen.step.citation.title",
-    group: "open",
-    reversible: true,
-    when: () => citationStepOpen(useAppStore.getState().settings?.device.gettingStarted),
-    run: () => goToCitation(),
-  },
-  {
-    // The card's ✕ is on the example's page alone; this hides it from any tab, with Undo (#2376).
-    id: "firstOpen.hide",
-    label: "firstOpen.hideSteps",
-    keywords: ["firstOpen.hideKeywords"],
-    group: "open",
-    reversible: true,
-    assistant: false,
-    when: () => stepsShownOf(useAppStore.getState().settings?.device.gettingStarted),
-    run: () => {
-      const setHidden = (hidden: boolean) =>
-        useAppStore.getState().updateGettingStarted({ hidden });
-      setHidden(true);
-      return {
-        said: (t) => t("firstOpen.hidden"),
-        name: (t) => t("firstOpen.hideSteps"),
-        undo: async () => setHidden(false),
-        redo: async () => setHidden(true),
-      };
-    },
   },
   {
     id: "word.import",

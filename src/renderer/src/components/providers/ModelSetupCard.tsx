@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentClient, ChatProvider } from "../../../../core/api";
+import type { ChatProvider } from "../../../../core/api";
 import type { KeyTarget } from "../../../../core/providers/catalog/keyForms";
-import { SHOW_CLAUDE_APP_SETUP } from "../../../../shared/agentConnection";
 import { core } from "../../core";
-import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import { turnOffLocalMode } from "../../localMode";
-import { giveUpWaiting, useModelSetup } from "../../modelSetup";
+import { giveUpWaiting } from "../../modelSetup";
 import { useAppStore } from "../../store";
 import { ProblemLine } from "../ProblemLine";
-import { buttonStyle, hintClass } from "../ui";
+import { buttonStyle } from "../ui";
 import { ChatGptSignInState, useContinueWithChatGpt } from "./ChatGptSignIn";
 import { ClaudePlanWay } from "./ClaudePlan";
 import { CopilotSetupWay } from "./CopilotPlan";
@@ -17,8 +15,6 @@ import { KeyEntry } from "./KeyEntry";
 import { useOllama } from "./OllamaCard";
 import { ProviderForm } from "./ProviderForm";
 import { ChatGptPlanWay, LocalWay } from "./SetupWays";
-
-const CLAUDE_DOWNLOAD = "https://claude.ai/download";
 
 /**
  * The first own Question with no model set (#103): the assistant's composer becomes this card
@@ -129,7 +125,6 @@ export function ModelSetupCard() {
                 <div className="mt-2 flex flex-col gap-2">
                   {chinese && plans}
                   <CopilotSetupWay onKey={useKeyInstead} />
-                  {SHOW_CLAUDE_APP_SETUP && !chinese && <ClaudeWay />}
                 </div>
               </details>
             )}
@@ -170,93 +165,5 @@ export function ModelSetupCard() {
         </button>
       </div>
     </section>
-  );
-}
-
-function ClaudeWay() {
-  const t = useT();
-  const reportError = useAppStore((state) => state.reportError);
-  const showPage = useAppStore((state) => state.showSettingsPage);
-  const [client, setClient] = useState<AgentClient | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<"copy" | "connected" | null>(null);
-  // Only the Folder of the Mind the Question was asked from is shared.
-  const folderId = useAppStore((state) => {
-    const mindId = useModelSetup.getState().waiting?.mindId;
-    return state.minds.find((mind) => mind.id === mindId)?.folderId ?? null;
-  });
-  useEffect(() => {
-    core.listAgentClients().then(
-      (all) => setClient(all.find((each) => each.id === "claude-desktop") ?? null),
-      (error: unknown) => {
-        console.error("The agent list couldn't be read for the setup card.", error);
-        setClient(null);
-      },
-    );
-  }, []);
-  const connect = async () => {
-    if (!folderId) return;
-    setBusy(true);
-    setProblem(null);
-    try {
-      await core.setAgentsEnabled(true);
-      const { result } = await core.setUpAgent({ client: "claude-desktop", folderIds: [folderId] });
-      if (result.kind === "copy") {
-        await navigator.clipboard.writeText(result.text).catch(reportError);
-        setDone("copy");
-      } else setDone("connected");
-    } catch (error) {
-      setProblem(errorMessage(error, t));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div data-testid="setup-claude" className="flex flex-col items-start gap-1 px-2 py-1.5">
-      <span className="text-ui font-semibold text-ink">{t("setup.claude.title")}</span>
-      <span className="text-[13px] leading-5 text-ink-secondary">{t("setup.claude.line")}</span>
-      {client?.installed === false ? (
-        <>
-          <span className={hintClass}>{t("setup.claude.missing")}</span>
-          <a
-            href={CLAUDE_DOWNLOAD}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
-          >
-            {t("setup.claude.download")} ↗
-          </a>
-        </>
-      ) : done ? (
-        <p data-testid="setup-claude-done" role="status" className={hintClass}>
-          {t(done === "copy" ? "setup.claude.copied" : "setup.claude.connected")}
-        </p>
-      ) : folderId ? (
-        <button
-          type="button"
-          data-testid="setup-claude-connect"
-          disabled={busy}
-          onClick={() => void connect()}
-          className={buttonStyle("secondary", "sm")}
-        >
-          {t("setup.claude.connect")}
-        </button>
-      ) : (
-        <>
-          <span data-testid="setup-claude-nofolder" className={hintClass}>
-            {t("setup.claude.noFolder")}
-          </span>
-          <button
-            type="button"
-            onClick={() => showPage("ai")}
-            className={buttonStyle("secondary", "sm")}
-          >
-            {t("setup.claude.openAgents")}
-          </button>
-        </>
-      )}
-      {problem && <ProblemLine testId="setup-claude-problem">{problem}</ProblemLine>}
-    </div>
   );
 }

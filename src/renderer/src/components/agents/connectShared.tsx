@@ -46,9 +46,11 @@ export function useShareFolders() {
   const allowed = shared
     ? [ALL_SHARED_ID]
     : rows.filter((row) => chosen.has(row.id)).map((row) => row.id);
-  const reset = () => {
-    setAll(true);
-    setPicked(null);
+  /** Back to all, or to the Folders a connection reads now, so connecting it again widens nothing. */
+  const reset = (folderIds?: readonly string[]) => {
+    const all = folderIds === undefined || folderIds.includes(ALL_SHARED_ID);
+    setAll(all);
+    setPicked(all ? null : new Set(folderIds));
   };
   return { all, setAll, rows, leftOut, anyFolder, shared, chosen, toggle, allowed, reset };
 }

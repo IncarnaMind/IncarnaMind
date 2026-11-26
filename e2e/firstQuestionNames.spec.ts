@@ -1,4 +1,3 @@
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { CoreBridge } from "../src/core/api";
@@ -6,23 +5,17 @@ import {
   busyOllama,
   createDataFolder,
   dismissChatSetup,
-  expectReadyDocuments,
   launchApp,
   nameMind,
   newMind,
-  openExample,
-  pointAndClick,
   removeDataFolder,
   setLanguage,
   setWindowSize,
-  welcomeStep as step,
 } from "./app";
 
 /**
- * What the assistant says it reads (#2245): the first Question about the
- * User's own Document names that Document on the line while it waits, and an
- * empty conversation names the composer's Question, as DESIGN.md has it; a
- * Question asked inside a Note names that Note in both lines.
+ * What the assistant says it reads (#2245): an empty conversation names the composer's Question,
+ * as DESIGN.md has it, and a Question asked inside a Note names that Note in both lines.
  */
 
 const SCREENSHOTS = process.env.INCARNAMIND_SCREENSHOTS;
@@ -31,26 +24,12 @@ async function screenshot(window: Page, name: string): Promise<void> {
 }
 
 let dataDir: string;
-let sources: string;
 test.beforeEach(async () => {
   dataDir = await createDataFolder();
-  sources = await createDataFolder();
 });
 test.afterEach(async () => {
   await removeDataFolder(dataDir);
-  await removeDataFolder(sources);
 });
-
-/** Marks the first open's steps done, as the User doing them would. */
-async function markSteps(window: Page, done: object): Promise<void> {
-  await window.evaluate(async (patch) => {
-    const bridge = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
-    const { device } = await bridge.getSettings();
-    await bridge.updateSettings({
-      device: { gettingStarted: { ...device.gettingStarted, ...patch } },
-    });
-  }, done);
-}
 
 /**
  * A model on this computer whose probe the test holds, so a Question stays on
@@ -64,63 +43,6 @@ async function heldModel(window: Page) {
     await bridge.saveChatProvider({ kind: "ollama", baseUrl: url, modelId: "fake-model" });
   }, model.url);
   return model;
-}
-
-for (const language of ["en", "zh-CN"] as const) {
-  const example = language === "en" ? "Draft: credit committee paper" : "授信委员会报告（草稿）";
-  test(`the first Question about the User's own Document names it, never the Note it is asked beside (${language})`, async () => {
-    const file = join(sources, "Harbour times.md");
-    await writeFile(
-      file,
-      "# Harbour times\n\nHarbours publish the times of high water every 12 months.\n",
-    );
-    const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
-    await openExample(window);
-    let model: Awaited<ReturnType<typeof heldModel>> | null = null;
-    try {
-      await setWindowSize(app, window, 1440, 900);
-      await setLanguage(window, language);
-      await dismissChatSetup(window);
-      await expectReadyDocuments(window, 2);
-      model = await heldModel(window);
-      await window.getByTestId("add-documents-input").setInputFiles([file]);
-      await markSteps(window, { indexed: true });
-      const ready = step(window, "question").getByTestId("first-open-ready");
-      await expect(ready).toHaveAttribute("title", /Harbour times/, { timeout: 30_000 });
-
-      // The empty conversation describes the composer's Question: the Note in focus and its
-      // scope, as DESIGN.md has it, not the card's Question beside it.
-      await window.keyboard.press("ControlOrMeta+j");
-      const reads = window.getByTestId("assistant-reads");
-      await expect(reads).toHaveText(
-        language === "en" ? `Reads “${example}” and All Documents` : `读“${example}”和全部文档`,
-      );
-      await screenshot(window, `2245-empty-${language}-1440`);
-      await setWindowSize(app, window, 900, 900);
-      await screenshot(window, `2245-empty-${language}-900`);
-      await setWindowSize(app, window, 1440, 900);
-
-      // The card's Question is about their Document: the line names it, and never the example Note.
-      await pointAndClick(window, ready);
-      const writing = window
-        .getByTestId("assistant-answer-on-its-way")
-        .getByTestId("answer-writing");
-      await expect(writing).toBeVisible();
-      await screenshot(window, `2245-line-${language}-1440`);
-      await setWindowSize(app, window, 900, 900);
-      await screenshot(window, `2245-line-${language}-900`);
-      await expect(writing).toHaveText(
-        language === "en" ? "Searching “Harbour times”…" : "正在搜索“Harbour times”…",
-      );
-      await expect(writing).not.toContainText(language === "en" ? example : "授信");
-    } finally {
-      // Release the held probe before the app goes, so its last request finishes rather than
-      // being cut off; the server closes once nothing uses it.
-      model?.release();
-      await app.close();
-      model?.close();
-    }
-  });
 }
 
 test("a Note deleted while its Question waits is named no more: the line says what it searches", async () => {
