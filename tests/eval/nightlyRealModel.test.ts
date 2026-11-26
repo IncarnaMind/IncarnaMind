@@ -16,6 +16,7 @@ import {
   missingSecrets,
   OUT_OF_CREDIT,
   type Probe,
+  parseLiveShard,
   probeKey,
   RATES,
   type Result,
@@ -24,6 +25,7 @@ import {
   SECRETS,
   STEPS,
   type Step,
+  selectSteps,
   spendOf,
   summary,
 } from "../../scripts/nightlyRealModel";
@@ -349,15 +351,43 @@ describe("a night that goes wrong", () => {
       .toBe("gone");
   });
 
-  // protects=the steps' own limits fit in the job's, with room for installing and caching; fails_when=a step's limit is raised past what the job allows, so the job's end cuts a night off with no report; no_claim=none beyond protects.
-  test("the steps' limits fit in the job's", async () => {
+  // protects=each job's timeout fits the steps it runs, with room for installing and caching, and every live shard runs with its own shard argument; fails_when=a step's limit is raised past what its job allows, so the job's end cuts a night off with no report; no_claim=none beyond protects.
+  test("the steps' limits fit in each job's timeout", async () => {
     const workflow = await readFile(
       new URL("../../.github/workflows/nightly-real-model.yml", import.meta.url),
       "utf8",
     );
-    const job = Number(/timeout-minutes: (\d+)/.exec(workflow)?.[1]);
-    const steps = STEPS.reduce((sum, step) => sum + step.minutes, 0);
-    expect(steps + 15).toBeLessThanOrEqual(job);
+    const timeoutOf = (jobId: string): number => {
+      const start = workflow.indexOf(`\n  ${jobId}:\n`);
+      expect(start, jobId).toBeGreaterThan(-1);
+      const rest = workflow.slice(start + 1);
+      const next = rest.search(/\n  [\w-]+:\n/);
+      const block = next === -1 ? rest : rest.slice(0, next);
+      return Number(/timeout-minutes: (\d+)/.exec(block)?.[1]);
+    };
+    const otherSteps = STEPS.filter((step) => step.id !== "live").reduce(
+      (sum, step) => sum + step.minutes,
+      0,
+    );
+    expect(otherSteps + 15).toBeLessThanOrEqual(timeoutOf("real-models"));
+    for (const shard of ["live-1", "live-2", "live-3", "live-4"]) {
+      expect(live.minutes + 15, shard).toBeLessThanOrEqual(timeoutOf(shard));
+    }
+  });
+
+  // protects=NIGHTLY_LIVE_SHARD validates index/count and passes --shard to Vitest while NIGHTLY_SKIP_STEPS leaves out named steps; fails_when=an invalid shard runs silently or the live step ignores the shard; no_claim=how Vitest balances the files.
+  test("selectSteps applies NIGHTLY_LIVE_SHARD and NIGHTLY_SKIP_STEPS", () => {
+    expect(parseLiveShard(undefined)).toBeNull();
+    expect(parseLiveShard(" 2/4 ")).toBe("2/4");
+    for (const bad of ["0/4", "5/4", "1/0", "two/four", "1"]) {
+      expect(() => parseLiveShard(bad), bad).toThrow(/NIGHTLY_LIVE_SHARD/);
+    }
+    const [sharded] = selectSteps({ NIGHTLY_STEPS: "live", NIGHTLY_LIVE_SHARD: "2/4" });
+    expect(sharded?.name).toBe("Live tests on Claude (2/4)");
+    expect(sharded?.command("/tmp/out")).toContain("--shard=2/4");
+    const withoutLive = selectSteps({ NIGHTLY_SKIP_STEPS: "live" });
+    expect(withoutLive.map((step) => step.id)).not.toContain("live");
+    expect(withoutLive.map((step) => step.id)).toContain("everyday");
   });
 
   const none = (over: Partial<Result>): Result => ({
@@ -985,11 +1015,11 @@ describe("a provider's words stay out of the summary and the log", () => {
 
   /** The files the workflow uploads from a night's folder: only the shapes its upload step names. */
   const uploadedFrom = async (out: string): Promise<string[]> => {
-    const workflow = await readFile(
-      new URL("../../.github/workflows/nightly-real-model.yml", import.meta.url),
+    const action = await readFile(
+      new URL("../../.github/actions/nightly-real-model/action.yml", import.meta.url),
       "utf8",
     );
-    const upload = workflow.slice(workflow.indexOf("actions/upload-artifact"));
+    const upload = action.slice(action.indexOf("actions/upload-artifact"));
     const lines = /path: \|\n((?: +\S+\n)+)/.exec(upload)?.[1]?.split("\n").filter(Boolean) ?? [];
     const patterns = lines.map((line) =>
       line.trim().replace("eval/results/nightly-real-model/", ""),

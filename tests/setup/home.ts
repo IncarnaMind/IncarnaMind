@@ -28,6 +28,7 @@ const chosen = [
   "INCARNAMIND_WORD_PDFS",
   "INCARNAMIND_EXCEL_OUT",
   "INCARNAMIND_LIVE_REPORT",
+  "NIGHTLY_USAGE_FILE",
 ].flatMap((name) => process.env[name]?.trim() || []);
 const guard = createHomeGuard(realHome, [
   fileURLToPath(new URL("../..", import.meta.url)),

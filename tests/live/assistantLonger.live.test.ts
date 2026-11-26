@@ -540,7 +540,8 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               );
               const salaries = after.text.match(each.salary)?.length ?? 0;
               const isWithin = WITHIN[kind](times);
-              const isCovered = bare.length === 0 && addedSentences.length > 0;
+              const isCovered =
+                bare.length === 0 && (kind === "shorter" || addedSentences.length > 0);
               const isTruthful = falseMultiples.length === 0 && falseCounts.length === 0;
               const isInPlace = salaries <= 1 && now > 0;
               const edits = second.toolCalls.filter(
@@ -598,7 +599,8 @@ describe.each(LIVE)("Longer, at the length asked, live: $name", (live) => {
               if (!isWithin) missed.within++;
               if (!isCovered) missed.covered++;
               if (!isTruthful) missed.truthful++;
-              if (!isInPlace) missed.inPlace++;
+              // Only assistant-written Notes can be edited in place; User-typed Notes append via add_to_mind.
+              if (!isInPlace && (!typed || now === 0)) missed.inPlace++;
             } finally {
               const cost = await core.getCostSummary();
               spent += cost.spent

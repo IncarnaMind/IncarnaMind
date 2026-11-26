@@ -12,6 +12,7 @@ import {
   type Night,
   nightFromJobs,
   nightFromStatus,
+  nightFromStatuses,
   nightOf,
   plan,
   type Run,
@@ -329,6 +330,71 @@ describe("only the job's own words", () => {
     expect(nightFromStatus(run, "failure", { red: [], gaps: [], measured: true }).red).toHaveLength(
       1,
     );
+  });
+
+  // protects=sharded live jobs and the other real-model checks merge into one Night: every red case and gap from every active shard is kept, skipped shards are ignored, and a silent failure on one shard names that shard; fails_when=only one job's status is read, a skipped job counts as a gap, or a failed shard without a status reads green; no_claim=none.
+  test("sharded real-model jobs merge their statuses and name any silent shard failure", () => {
+    const merged = nightFromStatuses(
+      run,
+      {
+        "live-1": {
+          result: "success",
+          outputs: { status: JSON.stringify({ red: [], gaps: [], measured: true }) },
+        },
+        "live-2": {
+          result: "failure",
+          outputs: {
+            status: JSON.stringify({
+              red: ["Live tests on Claude (2/4): a case"],
+              gaps: [],
+              measured: true,
+            }),
+          },
+        },
+        "live-3": {
+          result: "failure",
+          outputs: {},
+        },
+        "live-4": {
+          result: "skipped",
+          outputs: {},
+        },
+        "real-models": {
+          result: "failure",
+          outputs: {
+            status: JSON.stringify({
+              red: [],
+              gaps: [
+                {
+                  what: "Kimi International answers (Kimi)",
+                  why: "no key was accepted: the first request got status 429",
+                  keeps: "Kimi International answers: ",
+                },
+              ],
+              measured: true,
+            }),
+          },
+        },
+      },
+      [
+        job(11, "Live tests on Claude (1/4)", "success"),
+        job(12, "Live tests on Claude (2/4)", "failure", "Run the checks"),
+        job(13, "Live tests on Claude (3/4)", "failure", "Run npm ci"),
+        job(14, "Real-model checks", "failure", "Run the checks"),
+      ],
+    );
+    expect(merged.red).toEqual([
+      "Live tests on Claude (2/4): a case",
+      "Live tests on Claude (3/4): Run npm ci",
+    ]);
+    expect(merged.gaps).toEqual([
+      {
+        what: "Kimi International answers (Kimi)",
+        why: "no key was accepted: the first request got status 429",
+        keeps: "Kimi International answers: ",
+      },
+    ]);
+    expect(merged.measured).toBe(true);
   });
 
   // protects=a status that is not the run's own shape is refused, not guessed at; fails_when=a status with a number where a name belongs is accepted; no_claim=none.

@@ -1515,6 +1515,11 @@ async function libraryFor(
   const old = await core.createTag({ name: "Old" });
   const minutes = documents.find((each) => each.name === "Board minutes");
   if (minutes) await core.addTagToDocuments([minutes.id], old.id);
+  // Turn Tagging on after setup so nothing tags during addAndProcess, while Tag with AI sees these Documents (#2339, #3353).
+  if (tagging) {
+    const current = (await core.getLibrary()).settings;
+    await core.saveLibrarySettings({ ...current, automatic: true, turnOn: true });
+  }
   const mind = await core.createMind({ title: "Lease review" });
   const client = await connectToMind(core, mind.id);
   writeMind(
