@@ -2621,13 +2621,11 @@ export async function setSilentWaitMs(window: Page, ms: number): Promise<void> {
 
 /** How long a Document may take to open before the viewer says it couldn't (15 seconds), so a test needn't wait that long. */
 export async function setViewerOpenLimitMs(window: Page, ms: number): Promise<void> {
-  await window.evaluate(
-    (value) =>
-      (
-        globalThis as { incarnamindTestHooks?: TestHooks }
-      ).incarnamindTestHooks?.setViewerOpenLimitMs(value),
-    ms,
-  );
+  await window.evaluate((value) => {
+    const hooks = (globalThis as { incarnamindTestHooks?: TestHooks }).incarnamindTestHooks;
+    if (!hooks) throw new Error("The app has no test hooks.");
+    hooks.setViewerOpenLimitMs(value);
+  }, ms);
 }
 
 /** How the latest Answer's wait showed as it ran: joined on its step's row, or alone on the second. */
