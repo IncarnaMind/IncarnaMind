@@ -144,16 +144,16 @@ const controlsOf = (menu: HTMLElement | null) =>
     ) ?? [],
   );
 
-function fitToView(frame: HTMLElement | null) {
+/** Sets the menu's room for where it is now; true when that changed, so it is placed again. */
+function fitToView(frame: HTMLElement | null): boolean {
   const view = frame?.closest(".mind-scroller");
-  if (!frame || !view) {
-    frame?.style.setProperty("--selection-menu-room", "100vh");
-    return;
-  }
+  const before = frame?.style.getPropertyValue("--selection-menu-room");
   // A short view can't hold the whole menu: its rows scroll and the field stays at its foot. The
   // room leaves the 8px padding at both ends of the view, and the 8px offset that comes after the slide.
-  const room = besideSelection(frame, view) ?? view.clientHeight - 24;
-  frame.style.setProperty("--selection-menu-room", `${room}px`);
+  const room =
+    frame && view ? `${besideSelection(frame, view) ?? view.clientHeight - 24}px` : "100vh";
+  frame?.style.setProperty("--selection-menu-room", room);
+  return before !== room;
 }
 
 /** The least the menu shrinks to: its field and a row above it (styles.css, `.selection-menu`). */
@@ -418,7 +418,12 @@ export function SelectionMenu({
       shown.current = true;
       fitToView(frame.current);
     },
-    onUpdate: () => fitToView(frame.current),
+    // Its room set after it was placed, it is placed again for the room it has now.
+    onUpdate: () => {
+      if (fitToView(frame.current) && !editor.isDestroyed) {
+        editor.view.dispatch(editor.state.tr.setMeta(PLUGIN_KEY, "updatePosition"));
+      }
+    },
     onHide: () => {
       shown.current = false;
       fieldNow.current.reset();
