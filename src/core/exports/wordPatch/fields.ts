@@ -1,6 +1,6 @@
 /**
  * The main document's TOC, REF and PAGEREF fields after an export changed it (#746). A field's
- * result is what Word last worked out. ECMA-376 (17.16.18) asks an application to work a field
+ * result is what Word last worked out. ECMA-376 (`w:dirty`) asks an application to work a field
  * marked dirty out again as it reads the file, and a viewer that doesn't shows the result as
  * saved. So each field whose result the change can have altered is marked dirty:
  *
@@ -410,7 +410,7 @@ function earlierFields(then: readonly Field[], now: readonly Field[]): Map<Field
 /**
  * A REF to a paragraph's number: whether the change can have altered what it shows, and what
  * it shows now when that can be known. A `\r` number leaves out the levels the paragraph shares
- * with the one the field is in (ECMA-376 17.16.5.58), so `from` is the field before the change,
+ * with the one the field is in (ECMA-376's REF field), so `from` is the field before the change,
  * null when it can't be found; undefined for a number that doesn't depend on where it is.
  */
 function numberResult(

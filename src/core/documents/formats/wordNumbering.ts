@@ -231,7 +231,7 @@ export class WordListCounter {
     counters[list.level] = (counters[list.level] ?? 0) + 1;
     for (let deeper = list.level + 1; deeper <= DEEPEST; deeper++) {
       const restart = levelOf(this.numbering, list.numId, deeper).restart;
-      // ECMA-376 17.9.10: a restart level that is the level itself or a deeper one is ignored.
+      // ECMA-376's w:lvlRestart: a restart level that is the level itself or a deeper one is ignored.
       const restarts =
         restart === null || restart > deeper ? true : restart > 0 && list.level < restart;
       if (restarts) counters[deeper] = start(deeper) - 1;
