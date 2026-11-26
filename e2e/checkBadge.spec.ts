@@ -8,12 +8,14 @@ import {
   addToNote,
   askInAssistant,
   checkCard,
+  checkNote,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -21,11 +23,12 @@ import {
 } from "./app";
 
 /*
- * The check badge (#909, #1909, D266): at a Mind's bottom right, its state on every note
- * with a sentence a check reads ("Not checked", "1 needs a look", "Checked 14:25"), never
- * bare while one waits. Its card opens from it, and from ⌘K. The scripted model
- * (src/main/fakeChat/checks.ts) finds a sentence supported when it shares
- * three words with a line of a Document, and otherwise unsupported. Set
+ * The Note's check (#909, #1909, #3794): its Check button with the Note's own controls,
+ * saying the Note's state on every note with a sentence a check reads ("Check 1" while one waits,
+ * "1 needs a look", "Checked"), its tooltip the state in full ("1 sentence not checked yet",
+ * "Checked 14:25"). One press checks while sentences wait; otherwise its press opens the Checks
+ * card, which ⌘K opens too. The scripted model (src/main/fakeChat/checks.ts) finds a sentence
+ * supported when it shares three words with a line of a Document, and otherwise unsupported. Set
  * INCARNAMIND_SCREENSHOTS to a folder to also save screenshots.
  */
 
@@ -61,66 +64,65 @@ async function launchWithTides() {
   return running;
 }
 
-test("a Note of plain notes says its state; its card, from ⌘K, has one count per state and one action, checks, and says what it checked until you type", async () => {
+test("a Note of plain notes says its state; its card, from ⌘K, has one count per state and no Check of its own; the button checks, and says what it checked until you type", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
   const editor = window.getByTestId("mind-editor");
   await editor.click();
   await window.keyboard.type("Thanks!");
-  const badge = window.getByTestId("check-badge");
-  const open = window.getByTestId("check-badge-open");
+  const button = noteCheck(window);
   await expect(editor).toContainText("Thanks!");
   // "Thanks!" makes no claim a check reads: nothing to say.
-  await expect(badge).toHaveCount(0);
+  await expect(button).toHaveCount(0);
 
-  // A claim in the User's own notes is one to check: the badge says so, with no Citation (D266).
+  // A claim in the User's own notes is one to check: the button says so, with no Citation.
   await window.keyboard.type(` ${SUPPORTED}`);
   await expect(editor).toContainText(SUPPORTED);
-  await expect(badge).toHaveAttribute("data-state", "not-checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText("1 sentence not checked yet");
+  await expect(button).toHaveAttribute("data-state", "check");
+  await expect(button.locator(".note-check-count")).toHaveText("1");
+  await expect(button).toHaveAttribute("title", "1 sentence not checked yet");
   const card = await checkCard(window);
   await expect(card.getByTestId("health-toCheck")).toContainText("1 not checked yet");
   await expect(card.getByTestId("health-noCitation")).toHaveCount(0);
-  // One action, and nothing under it: Check for contradictions is in ⌘K and the page menu.
-  await expect(card.getByTestId("badge-check-mind")).toHaveText("Check");
-  await expect(card.locator('[data-testid^="badge-check"]')).toHaveCount(1);
+  // No action of its own to check: the Note's button is the one way in, and Check for
+  // contradictions is in ⌘K and the page menu.
+  await expect(card.getByRole("button", { name: "Check", exact: true })).toHaveCount(0);
   await expect(card).not.toContainText("Check for contradictions");
   await expect(card).not.toContainText("Whether each claim");
-  await screenshot(window, "check-badge-card-en");
+  await screenshot(window, "note-check-card-en");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
 
-  await pointAndClick(window, (await checkCard(window)).getByTestId("badge-check-mind"));
-  // Every claim checked and none to look at: the green, with its time (D266).
+  await checkNote(window);
+  // Every claim checked and none to look at: the green, with its time in full.
   await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
-  await expect(badge).toHaveAttribute("data-state", "checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText(/^Checked /);
-  await window.keyboard.press("Escape");
+  await expect(button).toHaveAttribute("data-state", "checked");
+  await expect(button).toHaveAttribute("title", /^Checked /);
   await expect(card).toHaveCount(0);
   // It sits with the Note's own controls in its tab strip (#3765), never past the Mind's pane.
   const pane = await window.getByTestId("mind-pane").boundingBox();
-  const box = await badge.boundingBox();
-  if (!pane || !box) throw new Error("The badge isn't drawn.");
+  const box = await button.boundingBox();
+  if (!pane || !box) throw new Error("The button isn't drawn.");
   expect(box.x + box.width).toBeLessThanOrEqual(pane.x + pane.width + 1);
   // At 1,100 px the card stays over the Mind's page.
   await setWindowSize(app, window, 1100, 720);
-  await pointAndClick(window, open);
+  await pointAndClick(window, button);
   await expect(card).toBeVisible();
   const narrowPane = await window.locator(".mind-scroller").first().boundingBox();
   const cardBox = await card.boundingBox();
   if (!narrowPane || !cardBox) throw new Error("The card isn't drawn.");
   expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(narrowPane.x + narrowPane.width + 1);
-  await screenshot(window, "check-badge-card-en-1100");
+  await screenshot(window, "note-check-card-en-1100");
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await setWindowSize(app, window, 1440, 900);
   await editor.click();
   await window.keyboard.press("End");
   await window.keyboard.type(" The harbour is quiet in winter.");
-  // Another claim arrives with no check: the note is not checked any more (D266).
-  await expect(badge).toHaveAttribute("data-state", "not-checked");
-  await expect(badge.locator(".check-badge-words")).toHaveText("1 sentence not checked yet");
+  // Another claim arrives with no check: the note waits for Check again.
+  await expect(button).toHaveAttribute("data-state", "check");
+  await expect(button).toHaveAttribute("title", /1 sentence not checked yet/);
 
   // ⌘K reaches the card from anywhere, named Checks, and its old name still finds it; Esc from
   // inside it puts the focus back.
@@ -133,7 +135,7 @@ test("a Note of plain notes says its state; its card, from ⌘K, has one count p
   );
   await expect(card).toBeVisible();
   await expect(card.getByTestId("health-found")).toHaveCount(0);
-  await expect(card.getByTestId("badge-check-mind")).toBeVisible();
+  await expect(card.getByTestId("health-toCheck")).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
   await app.close();
@@ -166,7 +168,7 @@ const checkedText = (
   ],
 });
 
-test("a checked Note with a sentence a check cannot settle rests on that sentence's own mark and count, never the ✓, and says it in full in its name, in a narrow pane too (#2313, #3677)", async () => {
+test("a checked Note with a sentence a check cannot settle says Checked with that sentence's own mark, never the ✓, and says it in full in its tooltip, in a narrow pane too (#2313, #3677, #3794)", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
@@ -198,14 +200,11 @@ test("a checked Note with a sentence a check cannot settle rests on that sentenc
       },
     ],
   );
-  const badge = window.getByTestId("check-badge");
-  await expect(badge).toHaveAttribute("data-state", "checked");
-  // At rest it is the unsettled sentence's own mark and its count, not the ✓; its words, the
-  // caveat with them, are its name (#3677).
-  const left = badge.locator('.check-badge-quiet [data-part="not-checked"]');
-  await expect(left).toHaveText("1");
-  await expect(badge.locator('.check-badge-mark[data-part="checked"]')).toBeHidden();
-  // In the margin's tone for those sentences, never the checked green, in both themes.
+  const button = noteCheck(window);
+  await expect(button).toHaveAttribute("data-state", "checked");
+  await expect(button.locator(".note-check-words")).toHaveText("Checked");
+  // Its mark is the unsettled sentence's own, in the margin's tone for it, never the checked
+  // green, in both themes.
   for (const appearance of ["light", "dark"] as const) {
     await window.evaluate(
       (theme) =>
@@ -228,7 +227,7 @@ test("a checked Note with a sentence a check cannot settle rests on that sentenc
             return color;
           };
           const icon = document.querySelector(
-            '.check-badge-quiet [data-part="not-checked"] .mind-health-icon',
+            '[data-testid="note-check-place"] [data-testid="note-check"] .note-check-mark',
           );
           const color = icon ? getComputedStyle(icon).color : "";
           return {
@@ -239,9 +238,7 @@ test("a checked Note with a sentence a check cannot settle rests on that sentenc
       )
       .toEqual({ meta: true, green: false });
   }
-  await expect(window.getByTestId("check-badge-open")).toHaveAccessibleName(
-    /^Checks: Checked .*1 sentence can’t be checked/,
-  );
+  await expect(button).toHaveAttribute("title", /^Checked .*1 sentence can’t be checked/);
   await pointAndClick(window, window.getByTestId("split-group"));
   const pages = window.locator(".mind-scroller:visible");
   await expect(pages).toHaveCount(2);
@@ -249,18 +246,15 @@ test("a checked Note with a sentence a check cannot settle rests on that sentenc
   for (const width of await pages.evaluateAll((all) => all.map((page) => page.clientWidth))) {
     expect(width).toBeLessThan(400);
   }
-  // At a narrow pane it is the same: the mark and the count, the caveat in its name.
-  const narrow = window.getByTestId("check-badge").first();
-  await expect(narrow.locator('.check-badge-quiet [data-part="not-checked"]')).toHaveText("1");
-  await expect(narrow.locator(".check-badge-words")).toBeHidden();
-  await expect(narrow.getByTestId("check-badge-open")).toHaveAccessibleName(
-    /1 sentence can’t be checked/,
-  );
-  await screenshot(window, "check-badge-caveat-narrow");
+  // At a narrow pane it is the same: the word, the mark, the caveat in its tooltip.
+  const narrow = noteCheck(window.getByTestId("tab-group").first());
+  await expect(narrow).toHaveAttribute("data-state", "checked");
+  await expect(narrow).toHaveAttribute("title", /1 sentence can’t be checked/);
+  await screenshot(window, "note-check-caveat-narrow");
   await app.close();
 });
 
-test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab reaches its card and Esc brings the focus back", async () => {
+test("in Chinese and a narrow pane the button keeps its word and number; the keyboard checks with it, Tab reaches its card and Esc brings the focus back", async () => {
   const { app, window } = await launchWithTides();
   await setWindowSize(app, window, 1440, 900);
   await newMind(window);
@@ -269,22 +263,16 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   // A cited claim no check has looked at is one to check: an Answer added to the note has one.
   await addToNote(window, await askInAssistant(window, "When do spring tides happen?"));
   await expect(editor.getByTestId("citation")).toHaveCount(1);
-  const open = window.getByTestId("check-badge-open");
-  const words = window.getByTestId("check-badge").locator(".check-badge-words");
-  await expect(open).toHaveAccessibleName("Checks: 1 sentence not checked yet");
-  await expect(words).toHaveText("1 sentence not checked yet");
+  const button = noteCheck(window);
+  await expect(button).toHaveAccessibleName("Check 1");
+  await expect(button).toHaveAttribute("title", "1 sentence not checked yet");
   await setLanguage(window, "zh-CN");
-  await expect(open).toHaveAccessibleName("核对结果：1 句未核对");
-  await expect(words).toHaveText("1 句未核对");
-  // At rest the words are its name and tooltip; it shows its mark and its count (#3677).
-  await expect(words).toBeHidden();
-  await expect(open).toHaveAttribute("title", "核对结果：1 句未核对");
-  const count = window.getByTestId("check-badge").locator(".check-badge-quiet");
-  await expect(count).toHaveText("1");
+  await expect(button).toHaveAccessibleName("核对 1");
+  await expect(button).toHaveAttribute("title", "1 句未核对");
   await setWindowSize(app, window, 1100, 720);
-  await expect(count).toBeVisible();
+  await expect(button.locator(".note-check-count")).toBeVisible();
   await setWindowSize(app, window, 1440, 900);
-  // The Mind beside itself in a narrower window: each page under 400 px keeps the mark, not the words.
+  // The Mind beside itself in a narrower window: each page under 400 px keeps the word and number.
   await pointAndClick(window, window.getByTestId("split-group"));
   const pages = window.locator(".mind-scroller:visible");
   await expect(pages).toHaveCount(2);
@@ -292,16 +280,23 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   for (const width of await pages.evaluateAll((all) => all.map((page) => page.clientWidth))) {
     expect(width).toBeLessThan(400);
   }
-  await expect(words).toHaveCount(2);
-  for (const each of await words.all()) await expect(each).toBeHidden();
-  await expect(
-    window.getByTestId("check-badge").first().locator(".mind-health-icon"),
-  ).toBeVisible();
-  await screenshot(window, "check-badge-zh-narrow");
+  const buttons = window.getByTestId("note-check-place").getByTestId("note-check");
+  await expect(buttons).toHaveCount(2);
+  for (const each of await buttons.all()) {
+    await expect(each.locator(".note-check-words")).toBeVisible();
+    await expect(each.locator(".note-check-count")).toHaveText("1");
+  }
+  await screenshot(window, "note-check-zh-narrow");
 
-  await open.first().focus();
+  // The keyboard reaches the Check and checks with it; then its press opens the card.
+  const first = buttons.first();
+  await first.focus();
   await window.keyboard.press("Enter");
-  // Only the badge's own pane opens its card.
+  await expect(first).not.toHaveAttribute("data-state", "check", { timeout: 30_000 });
+  await expect(first).not.toHaveAttribute("data-state", "checking", { timeout: 30_000 });
+  await expect(first).toBeFocused();
+  await window.keyboard.press("Enter");
+  // Only the button's own pane opens its card.
   const card = window.getByTestId("check-card");
   await expect(card).toHaveCount(1);
   await expect(card).toBeVisible();
@@ -311,14 +306,14 @@ test("in Chinese and a narrow pane the badge keeps its state to its mark; Tab re
   // ↓ and ↑ go through its rows and buttons, round to the first.
   const focusedId = () =>
     card.evaluate((element) => element.querySelector(":focus")?.getAttribute("data-testid") ?? "");
-  const first = await focusedId();
+  const firstFocused = await focusedId();
   await window.keyboard.press("ArrowDown");
-  await expect.poll(focusedId).not.toBe(first);
+  await expect.poll(focusedId).not.toBe(firstFocused);
   await window.keyboard.press("ArrowUp");
-  await expect.poll(focusedId).toBe(first);
+  await expect.poll(focusedId).toBe(firstFocused);
   await window.keyboard.press("Escape");
   await expect(card).toHaveCount(0);
-  await expect(open.first()).toBeFocused();
+  await expect(first).toBeFocused();
   await app.close();
 });
 
@@ -338,13 +333,12 @@ test("each row's Next goes through its sentences in order and round to the first
   await editor.click();
   const first = "Penguins nest on the harbour cliffs.";
   await window.keyboard.type(`${first} Whales sing in the deep bay.`);
-  const card = await checkCard(window);
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
+  await checkNote(window);
   const marks = window.getByTestId("claim-mark");
   await expect(marks.and(window.locator('[data-check="unsupported"]'))).toHaveCount(2);
   const unsupported = async () => (await checkCard(window)).getByTestId("health-look");
   await expect(await unsupported()).toContainText("2 need a look");
-  // Each Next ends as a click on the sentence's mark does: its card open, the badge's card closed.
+  // Each Next ends as a click on the sentence's mark does: its card open, the Checks card closed.
   const sentenceCard = window.getByTestId("claim-card");
   await pointAndClick(window, await unsupported());
   await expect.poll(() => cursorAt(window)).toBe(0);
@@ -357,16 +351,15 @@ test("each row's Next goes through its sentences in order and round to the first
   await window.keyboard.press("Escape");
   await expect(sentenceCard).toHaveCount(0);
 
-  // A sentence the scripted model checks slowly: the badge counts, and Stop ends the run.
+  // Sentences the scripted model checks slowly: the button counts, and Stop ends the run.
   await editor.click();
   await window.keyboard.press("End");
   await window.keyboard.type(" Seals sleep on the rocks slowly. Gulls circle the pier slowly.");
-  const again = await checkCard(window);
-  await pointAndClick(window, again.getByTestId("badge-check-mind"));
-  const stop = window.getByTestId("badge-stop");
+  await checkNote(window);
+  const stop = window.getByTestId("note-check-stop");
   await expect(stop).toBeVisible();
-  await expect(window.getByTestId("badge-progress")).toContainText("Checking");
-  await screenshot(window, "check-badge-running-en");
+  await expect(noteCheck(window).locator(".note-check-words")).toContainText("Checking");
+  await screenshot(window, "note-check-running-en");
   await pointAndClick(window, stop);
   await expect(stop).toHaveCount(0);
   await expect(marks.and(window.locator('[data-check="checking"]'))).toHaveCount(0);

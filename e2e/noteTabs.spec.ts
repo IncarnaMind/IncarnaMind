@@ -1,11 +1,13 @@
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   motionSettled,
   type NoteBlock,
+  noteCheck,
   pointAndClick,
   pointAt,
   removeDataFolder,
@@ -205,7 +207,7 @@ test("a Note in three tabs: one shown at a time, each keeping its place; moved b
     await expect(headings).toHaveText(words.headings[0] ?? []);
     await expect(editor.getByText(words.checked)).toBeHidden();
     // The Note's check counts every tab: the sentence in Fleet needs a look.
-    await expect(window.getByTestId("check-badge")).toBeVisible();
+    await expect(noteCheck(window)).toBeVisible();
 
     // Each tab keeps its scroll place.
     const page = window.getByTestId("mind-scroller");
@@ -316,8 +318,8 @@ test("a Note in three tabs: one shown at a time, each keeping its place; moved b
     // The Note's health, from the first tab: Next goes to the sentence that needs a look, in Fleet.
     await pointAndClick(window, tabRows(outline).first());
     await window.mouse.move(2, 2);
-    await pointAndClick(window, window.getByTestId("check-badge-open").first());
-    await pointAndClick(window, window.getByTestId("check-card").getByTestId("health-look"));
+    const card = await checkCard(window);
+    await pointAndClick(window, card.getByTestId("health-look"));
     await expect(openTab(outline)).toHaveText("Fleet");
     await expect(window.getByTestId("claim-card")).toBeVisible();
     await motionSettled(window);

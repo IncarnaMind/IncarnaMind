@@ -3113,8 +3113,33 @@ export async function verifyRows(window: Page): Promise<Locator> {
 }
 
 /**
- * A Mind's check badge card (#909): open already, as a question opens it,
- * or opened as a person opens it: from the badge, or from ⌘K while no badge shows.
+ * The Note's Check button (#3794) in the tab strip of the Note in front, or of the strip in
+ * `scope`: "Check 2" while sentences wait, then "Checking… 1 of 2", then what the check found.
+ */
+export function noteCheck(scope: Page | Locator): Locator {
+  return scope.getByTestId("note-check-place").getByTestId("note-check").first();
+}
+
+/** The same Check on the line above the Note's input that says what the User's AI just wrote. */
+export function noteCheckOnLine(scope: Page | Locator): Locator {
+  return scope.getByTestId("note-check-line").getByTestId("note-check").first();
+}
+
+/**
+ * Checks the Note in front, as a person does: one press on its Check button while it reads
+ * "Check N" (#3794). It returns once the press is made; the run's end is the spec's to wait for.
+ */
+export async function checkNote(window: Page, scope: Page | Locator = window): Promise<void> {
+  const button = noteCheck(scope);
+  await expect(button).toHaveAttribute("data-state", "check");
+  await motionSettled(window);
+  await pointAndClick(window, button);
+}
+
+/**
+ * A Mind's Checks card (#909): open already, as a question opens it, or opened as a person opens
+ * it: from the Check button once it says what a check found, or from ⌘K while the button would
+ * check instead, or no button shows.
  */
 export async function checkCard(
   window: Page,
@@ -3123,14 +3148,16 @@ export async function checkCard(
 ): Promise<Locator> {
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
-    const badge = scope.getByTestId("check-badge-open").first();
-    if (await badge.isVisible()) {
-      // "Checking 2 of 2 · Stop" shrinks to the counts as a check ends: aim once it has.
-      await expect(scope.getByTestId("badge-stop")).toHaveCount(0, { timeout: stopTimeout });
+    const button = noteCheck(scope);
+    // A run's words change as it ends: aim once it has.
+    await expect(scope.getByTestId("note-check-stop")).toHaveCount(0, { timeout: stopTimeout });
+    const opens =
+      (await button.isVisible()) && (await button.getAttribute("data-state")) !== "check";
+    if (opens) {
       await motionSettled(window);
-      // The counts are worked out a moment after a change, and the badge can narrow under the pointer: aim again.
+      // The counts are worked out a moment after a change, and the button can change under the pointer: aim again.
       await expect(async () => {
-        if (!(await card.isVisible())) await pointAndClick(window, badge);
+        if (!(await card.isVisible())) await pointAndClick(window, button);
         await expect(card).toBeVisible({ timeout: 1000 });
       }).toPass();
     } else {

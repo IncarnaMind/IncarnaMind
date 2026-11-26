@@ -17,6 +17,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  noteCheck,
   openDocumentAt,
   placeAssistant,
   pointAndClick,
@@ -32,8 +33,8 @@ import {
 /*
  * The undo line with the sidebar out of sight (#1776): a User working with the
  * mouse still has Undo, the same line in the same words, as a small pill at
- * the window's bottom left. It takes the change back, stays clear of the check
- * badge and the assistant's composer, goes back to the sidebar's foot when the
+ * the window's bottom left. It takes the change back, stays clear of the Note's Check
+ * button and the assistant's composer, goes back to the sidebar's foot when the
  * sidebar shows, and the pointer resting on it keeps it.
  *
  * It covers no text (#1914): in a card with room it sits in the gutter left of
@@ -177,7 +178,7 @@ for (const language of ["en", "zh-CN"] as const) {
         await motionSettled(window);
 
         // In the card's bottom left corner: 16px from the window's left, and clear of the composer, the
-        // check badge and the Mind's text, whose foot the card keeps below the writing.
+        // Check button and the Mind's text, whose foot the card keeps below the writing.
         const size = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
         const box = await boxOf(pill);
         const card = await boxOf(window.getByTestId("card"));
@@ -192,8 +193,8 @@ for (const language of ["en", "zh-CN"] as const) {
           window.getByTestId("mind-editor").locator(":scope > *").last(),
         );
         expect(box.y).toBeGreaterThanOrEqual(lastLine.y + lastLine.height);
-        const badge = window.getByTestId("check-badge");
-        if ((await badge.count()) > 0) expect(overlaps(box, await boxOf(badge))).toBe(false);
+        const check = noteCheck(window);
+        if ((await check.count()) > 0) expect(overlaps(box, await boxOf(check))).toBe(false);
         // The assistant docked at the bottom leaves the card above its composer; docked on a side,
         // the pill is 16px from the window's bottom edge too.
         const dock = await window.getByTestId("workbench").getAttribute("data-dock");
@@ -627,7 +628,7 @@ test("at 900 px with the first open's Ask pill, the pill sits beside it, at the 
   }
 });
 
-test("the pill at 900 px stays clear of the check badge at the Mind's foot", async () => {
+test("the pill at 900 px stays clear of the Note's Check button", async () => {
   test.setTimeout(180_000);
   const sources = await createDataFolder();
   await writeFile(join(sources, "Tides.pdf"), TIDES);
@@ -639,21 +640,21 @@ test("the pill at 900 px stays clear of the check badge at the Mind's foot", asy
     await setWindowSize(app, window, 900, 700);
     await newMind(window);
     await nameMind(window, "Tides");
-    // A cited claim no check has looked at puts the badge at the foot's other end.
+    // A cited claim no check has looked at puts the Check button in the Note's row, at the other end from the pill.
     await addToNote(window, await askInAssistant(window, "When do spring tides happen?"));
-    const badge = window.getByTestId("check-badge");
-    await expect(badge).toBeVisible();
+    const button = noteCheck(window);
+    await expect(button).toBeVisible();
 
     await setSidebarShown(window, false);
     await renameInTab(window, "Tides renamed");
     const pill = window.getByTestId("undo-pill");
     await expect(pill).toBeVisible();
     await motionSettled(window);
-    const [pillBox, badgeBox] = await Promise.all([boxOf(pill), boxOf(badge)]);
-    expect(overlaps(pillBox, badgeBox)).toBe(false);
-    expect(pillBox.x + pillBox.width).toBeLessThan(badgeBox.x);
+    const [pillBox, buttonBox] = await Promise.all([boxOf(pill), boxOf(button)]);
+    expect(overlaps(pillBox, buttonBox)).toBe(false);
+    expect(pillBox.x + pillBox.width).toBeLessThan(buttonBox.x);
     if (SCREENSHOTS) {
-      await window.screenshot({ path: join(SCREENSHOTS, "undo-pill-en-900-badge.png") });
+      await window.screenshot({ path: join(SCREENSHOTS, "undo-pill-en-900-check.png") });
     }
   } finally {
     await app.close();

@@ -12,6 +12,7 @@ import {
   launchApp,
   motionSettled,
   newMind,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setLanguage,
@@ -134,16 +135,16 @@ for (const [language, width] of [
     await pointAndClick(window, fix);
     await expect(line).toContainText(words.quote, { timeout: 30_000 });
     const chip = line.getByTestId("citation-chip");
-    const badge = window.getByTestId("check-badge");
+    const button = noteCheck(window);
     if (language === "en") {
       // The scripted check finds the English Document's line word for word: the new sentence is
       // Supported by the quote it rests on, which is placed as its Citation in the same step.
       await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
-      await expect(badge).toContainText(translate(language, "health.state.checked.noTime"));
+      await expect(button).toContainText(translate(language, "health.state.checked.noTime"));
     } else {
-      // No Chinese line is found: the new sentence still needs a look, as the badge counts it.
+      // No Chinese line is found: the new sentence still needs a look, as the Check button says.
       await expect(marks.first()).toHaveAttribute("data-check", "unsupported", { timeout: 30_000 });
-      await expect(badge).toContainText(translate(language, "health.state.look.one"));
+      await expect(button).toContainText(translate(language, "health.state.look.one"));
       await expect(window.getByText(translate(language, "claim.fix.needsLook"))).toBeVisible();
       await expect(chip).toHaveCount(0);
     }

@@ -11,6 +11,7 @@ import {
   dismissChatSetup,
   launchApp,
   newMindAndType,
+  noteCheck,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -61,6 +62,7 @@ const WORDS = {
     faster: "Check faster with Decider v1.2",
     fasterAction: "Turn on in Settings ›",
     sentence: "Underlying EBITDA was 96 million in the quarter.",
+    check: "Check",
   },
   "zh-CN": {
     label: "核对句子",
@@ -80,6 +82,7 @@ const WORDS = {
     faster: "用 Decider v1.2 更快核对",
     fasterAction: "去设置开启 ›",
     sentence: "本季度基础 EBITDA 为 9,600 万。",
+    check: "核对",
   },
 } as const;
 
@@ -310,12 +313,13 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(action).toHaveText(words.fasterAction);
     // The link is whole on one row, whichever row the line's break leaves it on.
     expect((await action.boundingBox())?.height).toBeLessThanOrEqual(20);
-    // The line stays inside the card, whose press stays in view under it.
+    // The line stays inside the card, which has no Check of its own: the Note's button is the press, in view.
     const [cardBox, lineBox] = [await card.boundingBox(), await line.boundingBox()];
     if (!cardBox || !lineBox) throw new Error("The card isn't laid out.");
     expect(lineBox.x).toBeGreaterThanOrEqual(cardBox.x);
     expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
-    await expect(card.getByTestId("badge-check-mind")).toBeInViewport();
+    await expect(card.getByRole("button", { name: words.check, exact: true })).toHaveCount(0);
+    await expect(noteCheck(window)).toBeInViewport();
     await picture(window, `check-faster-line-${language}-1440`);
 
     // The keyboard reaches it, and it opens Settings at the switch: nothing is turned on.
@@ -338,7 +342,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await window.keyboard.press("Escape");
     await expect(card).toBeHidden();
     await checkCard(window);
-    await expect(card.getByTestId("badge-check-mind")).toBeVisible();
+    await expect(card.getByRole("button", { name: words.check, exact: true })).toHaveCount(0);
+    await expect(noteCheck(window)).toBeVisible();
     await expect(line).toHaveCount(0);
     expect(await chosen(window)).toBeNull();
     expect(sentToHost()).toEqual([]);

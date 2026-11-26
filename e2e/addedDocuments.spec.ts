@@ -217,7 +217,7 @@ for (const widened of [false, true]) {
     ).toHaveCount(1);
 
     if (widened) {
-      // The check card opens down from the badge at the Note's top right, over the claim card's
+      // The check card opens down from the Note's Check at its top right, over the claim card's
       // place (#3677): it closes first.
       await window.keyboard.press("Escape");
       await expect(window.getByTestId("check-card")).toHaveCount(0);
@@ -227,7 +227,7 @@ for (const widened of [false, true]) {
       await pointAndClick(window, unsupported);
       const card = window.getByTestId("claim-card");
       await pointAndClick(window, card.getByTestId("claim-search-all"));
-      await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
       await expect(unsupported).toHaveCount(1);
       await pointAndClick(window, unsupported);
       await expect(card).toBeVisible();
@@ -289,7 +289,7 @@ for (const widened of [false, true]) {
       await setLanguage(window, "en");
     }
     await pointAndClick(window, ask.getByTestId("mind-check-check"));
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0);
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
     await checkCard(window);
     await expect(line).toHaveCount(0);
     await expect(

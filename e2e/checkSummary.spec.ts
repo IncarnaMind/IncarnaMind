@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 import type { CoreBridge } from "../src/core/api";
+import { translate } from "../src/shared/i18n";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
@@ -13,6 +14,7 @@ import {
   newMind,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   useLocalChatModel,
@@ -207,7 +209,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(ring).toBeVisible();
     await expect(ring.locator("svg")).toHaveCount(1);
 
-    // Its card still opens from the badge's row for the claims not checked yet.
+    // Its card still opens from the card's row for the claims not checked yet.
     await pointAndClick(window, card.getByTestId("health-toCheck"));
     const claimCard = window.getByTestId("claim-card");
     await expect(claimCard).toHaveAttribute("data-check", "not-checked");
@@ -318,9 +320,11 @@ test("Check again on a Note whose checks keep no time says nothing changed, with
   for (const language of ["en", "zh-CN"] as const) {
     await setLanguage(window, language);
     const card = await checkCard(window);
-    const again = card.getByTestId("badge-check-mind");
-    await expect(again).toHaveText(language === "en" ? "Check again" : "重新核对");
-    await pointAndClick(window, again);
+    // The card has no Check of its own: nothing changed says so once a Check from ⌘K has run.
+    for (const name of language === "en" ? ["Check", "Check again"] : ["核对", "重新核对"]) {
+      await expect(card.getByRole("button", { name, exact: true })).toHaveCount(0);
+    }
+    await runCommand(window, "mind.check", translate(language, "mindCheck.command"));
     const unchanged = card.getByTestId("mind-check-unchanged");
     await expect(unchanged).toContainText(language === "en" ? "Nothing changed" : "没有改动");
     await expect(unchanged).not.toContainText(language === "en" ? "since" : "起");

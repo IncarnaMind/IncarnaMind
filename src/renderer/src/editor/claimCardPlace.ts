@@ -49,26 +49,26 @@ export function movedClearOfBadge(
 }
 
 /**
- * Where the page's check badge stands, which a card keeps clear of: with the Note's own controls in
- * its tab strip (#3765), or at the page's foot.
+ * Where the Note's Check stands, which a card keeps clear of: with the Note's own controls in its
+ * tab strip (#3765, #3794), or at the page's foot.
  */
 export function badgeCorner(anchor: Element | VirtualElement): Element | null | undefined {
   const context = anchor instanceof Element ? anchor : anchor.contextElement;
   const page = context?.closest(".mind-tab-page");
   return (
-    page?.querySelector(".mind-foot-badge:has(.check-badge)") ??
+    page?.querySelector(".mind-foot-badge:has(.note-check)") ??
     page
       ?.closest('[data-testid="tab-group"]')
-      ?.querySelector('[data-testid="note-controls"] .note-head-badge:has(.check-badge)')
+      ?.querySelector('[data-testid="note-controls"] .note-head-badge:has(.note-check)')
   );
 }
 
-/** Moves a card off the page's check badge, as `movedClearOfBadge` says. */
+/** Moves a card off the Note's Check, as `movedClearOfBadge` says. */
 export function clearOfBadge(anchor: Element | VirtualElement): Middleware {
   return {
     name: "clearOfBadge",
     fn({ x, y, rects }) {
-      const badge = badgeCorner(anchor)?.querySelector(".check-badge")?.getBoundingClientRect();
+      const badge = badgeCorner(anchor)?.querySelector(".note-check")?.getBoundingClientRect();
       if (!badge) return {};
       const { width, height } = rects.floating;
       return movedClearOfBadge({ x, y, width, height }, rects.reference.y, badge) ?? {};

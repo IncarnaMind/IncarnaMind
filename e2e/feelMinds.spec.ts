@@ -5,9 +5,11 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   askInAssistant,
+  checkCard,
   createDataFolder,
   dismissChatSetup,
   mindWrittenBefore,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   setWindowSize,
@@ -96,12 +98,10 @@ test("first open, a Question, its Citation, and the Mind checked", async () => {
       window,
       window.getByTestId("palette-item").filter({ hasText: "Checks this note" }).first(),
     );
-    // The one Check runs from its one press; its card opens when it is done.
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 30_000 });
-    await pointAndClick(window, window.getByTestId("check-badge-open").first());
-    await expect(window.getByTestId("check-card").getByTestId("health-checked-all")).toBeVisible({
-      timeout: 30_000,
-    });
+    // The one Check runs from its one press; its card opens from the Check button when it is done.
+    await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check", { timeout: 30_000 });
+    const card = await checkCard(window, window, { stopTimeout: 30_000 });
+    await expect(card.getByTestId("health-checked-all")).toBeVisible({ timeout: 30_000 });
   });
 
   await endFeel(run);

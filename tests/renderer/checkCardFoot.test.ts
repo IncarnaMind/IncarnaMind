@@ -5,24 +5,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type * as Y from "yjs";
 import type { AgentPairing, ChatReadiness } from "../../src/core/api";
-import type { CheckEstimateView } from "../../src/renderer/src/editor/checkEstimateState";
 import type { Planned } from "../../src/renderer/src/mindCheck";
 
 /*
- * The badge card's one Check (#2313): its press hands the plan the card showed a price for to
- * `startCheck`, so a plan made since that price asks again instead of running at once on the new
- * plan's cost, unseen. A press with no price yet asks with the couldn't-estimate line instead.
+ * The Checks card's foot (#3794): the Note's Check is its button in the Note's row, so the card
+ * has none of its own. Its foot says when nothing changed since the last check, holds the press
+ * that fixes what a check found, and Stop while a run goes; with none of those it is not drawn.
  */
 
 const pressed = vi.hoisted(() => ({
-  check: vi.fn(),
-  unpriced: vi.fn(),
   running: { value: false },
   unchanged: { value: undefined as true | undefined },
 }));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
-  startCheck: pressed.check,
-  startCheckUnpriced: pressed.unpriced,
   useMindCheck: () => pressed.unchanged.value,
   useMindCheckRun: () => null,
 }));
@@ -98,26 +93,23 @@ vi.mock("../../src/renderer/src/unreadFiles", () => ({ useCheckUnread: () => [] 
 vi.mock("../../src/renderer/src/useWindowWidth", () => ({ useGroupsMerged: () => false }));
 vi.mock("../../src/renderer/src/verify", () => ({
   checkClaims: vi.fn(),
+  findClaims: vi.fn(),
   stopVerify: vi.fn(),
 }));
 vi.mock("../../src/renderer/src/editor/AddedDocumentsLine", () => ({
   useWatchAddedDocuments: () => {},
 }));
 vi.mock("../../src/renderer/src/editor/changedSentences", () => ({
-  checkTitle: () => undefined,
-  useCheckEstimate: () => ({ line: null, state: "none" }),
   useCheckThisMindPlan: () => null,
 }));
 vi.mock("../../src/renderer/src/editor/checkPlace", () => ({ useCardPlace: () => "card" }));
 vi.mock("../../src/renderer/src/editor/MindCheckLine", () => ({
   MindCheckAsk: () => null,
   MindUnchanged: () => createElement("p", { "data-testid": "mind-unchanged" }),
-  RunningText: () => null,
+  useRunningCheck: () => null,
 }));
 vi.mock("../../src/renderer/src/editor/NoteHealth", () => ({
   HealthCard: () => null,
-  PartMark: () => null,
-  partLabel: () => "",
   useHealth: () => ({
     contradicted: [],
     unsupported: [],
@@ -146,49 +138,32 @@ const planned: Planned = {
     model: null,
   },
 };
-const price: CheckEstimateView["line"] = { parts: ["About $1.40"], title: "About $1.40" };
 
 /** As the card takes them; the card itself is imported at run time, as a .tsx file. */
-interface PressProps {
+interface FootProps {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   askingMind: boolean;
   planned: Planned | null;
-  estimate: CheckEstimateView["line"];
-  estimateState: CheckEstimateView["state"];
 }
 
 let root: Root | null = null;
 let container: HTMLElement;
-let Press: ComponentType<PressProps>;
+let Foot: ComponentType<FootProps>;
 
-async function render(
-  estimateState: CheckEstimateView["state"],
-  at: Planned | null,
-  line: CheckEstimateView["line"] = price,
-) {
+async function render(at: Planned | null) {
   await act(() =>
     root?.render(
-      createElement(Press, {
+      createElement(Foot, {
         editor: {} as Editor,
         doc: {} as Y.Doc,
         mindId: "mind",
         askingMind: false,
         planned: at,
-        estimate: line,
-        estimateState,
       }),
     ),
   );
-}
-
-async function press() {
-  const button = container.querySelector('[data-testid="badge-check-mind"]');
-  if (!button) throw new Error("The card draws no Check button.");
-  await act(() => {
-    button.dispatchEvent(new window.Event("click", { bubbles: true }));
-  });
 }
 
 beforeEach(async () => {
@@ -211,12 +186,10 @@ beforeEach(async () => {
   container = document.createElement("div", {});
   document.body.append(container);
   root = createRoot(container);
-  pressed.check.mockClear();
-  pressed.unpriced.mockClear();
   pressed.running.value = false;
   const modulePath = "../../src/renderer/src/editor/CheckBadge.tsx";
-  const module: { CheckActions: ComponentType<PressProps> } = await import(modulePath);
-  Press = module.CheckActions;
+  const module: { CheckActions: ComponentType<FootProps> } = await import(modulePath);
+  Foot = module.CheckActions;
 });
 
 afterEach(async () => {
@@ -227,93 +200,32 @@ afterEach(async () => {
   pressed.unchanged.value = undefined;
 });
 
-// protects=#3756: a Check that finds nothing changed says so, with its way to check every sentence again, even when no time of the last check is known, and the quiet Check again stays under it; fails_when=the line goes when the plan names no time, so the press runs nothing and nothing says why
+// protects=#3756: a Check that finds nothing changed says so, with its way to check every sentence again, even when no time of the last check is known; fails_when=the line goes when the plan names no time, so the press runs nothing and nothing says why
 test("nothing changed is said even with no time to name", async () => {
   pressed.unchanged.value = true;
-  await render("none", { ...planned, plan: { kind: "unchanged", since: null } }, null);
+  await render({ ...planned, plan: { kind: "unchanged", since: null } });
   expect(container.querySelector('[data-testid="mind-unchanged"]')).not.toBeNull();
-  expect(container.querySelector('[data-testid="badge-check-mind"]')?.textContent).toBe(
-    "mindCheck.again",
-  );
 });
 
-// protects=#2313: the card's press hands `startCheck` the plan its price line was for; fails_when=it presses without that plan, so a plan made since the price runs at once, unpriced; no_claim=the press waiting for a price.
-test("the card's press hands over the plan its price was for", async () => {
-  await render("price", planned);
-  await press();
-
-  expect(pressed.check).toHaveBeenCalledWith("mind", planned);
-  expect(pressed.unpriced).not.toHaveBeenCalled();
+// protects=#3794: the card has no Check of its own, so at rest with nothing to fix its foot is not drawn at all; fails_when=a Check, or an empty band, is drawn in the card's foot
+test("at rest, with nothing to fix, the card has no foot and no Check", async () => {
+  await render(planned);
+  expect(container.innerHTML).toBe("");
 });
 
-// protects=#2313: with no price yet the card asks instead of running, with no plan to hand over; fails_when=it presses the priced way while the estimate is pending; no_claim=the priced press above.
-test("the card's press with no price asks instead", async () => {
-  await render("pending", planned);
-  await press();
-
-  expect(pressed.unpriced).toHaveBeenCalledWith("mind");
-  expect(pressed.check).not.toHaveBeenCalled();
-});
-
-// protects=#2313: at rest the foot shows the Check alone, with no progress line or Stop to make an empty band; fails_when=the run's line is laid out before a run; no_claim=the card's press.
-test("the foot shows no run line or Stop before a run", async () => {
-  await render("price", planned);
-  expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
-  expect(container.querySelector('[data-testid="card-foot-stop"]')).toBeNull();
-  expect(container.querySelector('[data-testid="badge-check-mind"]')).not.toBeNull();
-});
-
-// protects=#2313: at the press the run's words take Check's own row, and the hidden Check keeps the row's height; fails_when=the run's line is drawn as a new row, or the Check's room goes, so the foot moves; no_claim=the rest above.
-test("the run's line takes Check's own row", async () => {
-  await render("price", planned);
+// protects=#3794: while a run goes the card's foot has its Stop, and no Check beside it; fails_when=the run can't be stopped from the open card, or a Check is drawn there
+test("while a run goes, the foot has its Stop", async () => {
   pressed.running.value = true;
-  await render("price", null);
-
+  await render(null);
   expect(container.querySelector('[data-testid="card-foot-progress"]')).not.toBeNull();
-  expect(container.querySelector('[data-testid="card-foot-stop"]')).not.toBeNull();
-  const check = container.querySelector('[data-testid="badge-check-mind"]');
-  expect(check?.getAttribute("data-hidden")).toBe("");
-  expect(check?.getAttribute("disabled")).not.toBeNull();
-});
-
-// protects=#2313: while the run is on the price line stays as it was, shown, so no blank band takes its room; fails_when=the price line is hidden or removed at the press; no_claim=the price line shown before the run above.
-test("the price line stays through the run", async () => {
-  await render("price", planned);
-  pressed.running.value = true;
-  await render("price", null);
-
-  const price = container.querySelector(".check-card-estimate");
-  if (!price) throw new Error("The price line's room went at the press.");
-  expect(price.getAttribute("data-hidden")).toBeNull();
-  expect(container.querySelector('[data-testid="check-estimate"]')?.textContent).toBe(
-    "About $1.40",
+  expect(container.querySelector('[data-testid="card-foot-stop"]')?.textContent).toBe(
+    "checks.stop",
   );
+  expect(container.querySelectorAll("button")).toHaveLength(1);
 });
 
-// protects=#2313: after the run ends a card with no new price keeps the last price line shown, and the Check comes back; fails_when=the price line goes at the end of the run, so the foot goes blank; no_claim=the run above.
-test("the last price line stays after the run ends", async () => {
-  await render("price", planned);
-  pressed.running.value = true;
-  await render("price", null);
-  pressed.running.value = false;
-  await render("none", planned, null);
-
-  const price = container.querySelector(".check-card-estimate");
-  if (!price) throw new Error("The card went blank when the run ended.");
-  expect(price.getAttribute("data-hidden")).toBeNull();
-  expect(container.querySelector('[data-testid="check-estimate"]')).not.toBeNull();
-  const check = container.querySelector('[data-testid="badge-check-mind"]');
-  expect(check?.getAttribute("data-hidden")).toBeNull();
-});
-
-// protects=#2313: a card that never showed a price line keeps no empty line above Check; fails_when=the progress line's room is laid out at rest; no_claim=the price line's card above.
-test("a card with no price line keeps no empty line at rest", async () => {
-  await render("none", planned, null);
-  expect(container.querySelector('[data-testid="card-foot-progress"]')).toBeNull();
-});
-
-// protects=a check asked of the User's own AI leaves the card no Check only while no model is set up (the asked line offers the next step, #3756): once one is, Check is back and the badge has no asked state left to show, while a summary asked of that AI stays (#3587); fails_when=Check stays away after a model is set up, the asked check outlives it, or the summary's ask goes with it
-test("the card's Check is back once a model is set up while the User's own AI was asked", async () => {
+// protects=a check asked of the User's own AI is forgotten once a model is set up, while a summary asked of that AI stays (#3587); fails_when=the asked check outlives the model being set up, or the summary's ask goes with it
+test("a check asked of the User's own AI goes once a model is set up; a summary's stays", async () => {
   const { rememberAsked, useAgentAsked } = await import("../../src/renderer/src/askedAgent");
   const codex = { id: "pairing-codex", name: "Codex", client: "codex" } as AgentPairing;
   const asked = () => Object.values(useAgentAsked.getState().byKey).map((each) => each.for.kind);
@@ -327,21 +239,18 @@ test("the card's Check is back once a model is set up while the User's own AI wa
   const at = new Date().toISOString();
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
   rememberAsked(codex, { kind: "summary", documentId: "harbour" }, { copied: true, at });
-  await render("price", planned);
-  const check = () => container.querySelector('[data-testid="badge-check-mind"]');
-  expect(check()).toBeNull();
+  await render(planned);
+  expect(asked().sort()).toEqual(["check", "summary"]);
 
   await readiness({ ready: true } as ChatReadiness);
-  expect(check()?.hasAttribute("data-hidden")).toBe(false);
-  expect(check()?.hasAttribute("disabled")).toBe(false);
   expect(asked()).toEqual(["summary"]);
   // An ask that answers after the model was set up leaves no check asked either.
   rememberAsked(codex, { kind: "check", mindId: "mind" }, { copied: true, at });
   expect(asked()).toEqual(["summary"]);
 });
 
-// protects=#3756: a check run on the User's own AI in the background is stopped where Check was, as a run on a model is, and a card whose line offers the next step has no foot at all; fails_when=the run's Stop is missing from the foot, sits beside a Check, or an empty foot is drawn under the line
-test("a background run's Stop takes Check's place, and a card with nothing in its foot has none", async () => {
+// protects=#3756: a check run on the User's own AI in the background is stopped from the card's foot, as a run on a model is, and a card whose line offers the next step has no foot at all; fails_when=the run's Stop is missing from the foot, or an empty foot is drawn under the line
+test("a background run's Stop is the foot's, and a card with nothing in its foot has none", async () => {
   const { useAgentAsked } = await import("../../src/renderer/src/askedAgent");
   const claude = {
     id: "pairing-claude",
@@ -369,13 +278,10 @@ test("a background run's Stop takes Check's place, and a card with nothing in it
     for (const listener of app.listeners) listener(app.state);
   });
   await run("working");
-  await render("none", planned, null);
+  await render(planned);
   expect(container.querySelector('[data-testid="checks-asked-stop"]')?.textContent).toBe(
     "checks.stop",
   );
-  expect(
-    container.querySelector('[data-testid="badge-check-mind"]')?.hasAttribute("data-hidden"),
-  ).toBe(true);
 
   await run("failed");
   expect(container.querySelector('[data-testid="checks-asked-stop"]')).toBeNull();

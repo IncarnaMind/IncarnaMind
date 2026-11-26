@@ -5,7 +5,7 @@ import { GROUP_MIN_WIDTH } from "../src/renderer/src/assistantPlace";
 import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
-  checkCard,
+  checkNote,
   useLocalChatModel as connectLocalChatModel,
   createDataFolder,
   dismissChatSetup,
@@ -13,6 +13,7 @@ import {
   motionSettled,
   nameMind,
   newMind,
+  noteCheck,
   placeAssistant,
   pointAndClick,
   removeDataFolder,
@@ -24,13 +25,14 @@ import {
 import { holdModel, modelHeld } from "./heldModel";
 
 /*
- * The check's control in a Note's tab strip has one room in every state (#3765, #2519): at rest
- * its marks; while a check runs, a dot, the part checked once it is counted, and Stop, with the
- * run's words as its name and tooltip. A check run from start to end with no input moves nothing
- * in the strip, nor its card. At a group's least width the control is whole and the shown tab
- * keeps its title. In a group narrower than that, the strip gives way in one order whatever its
- * width: Export and the conversation's button leave before the tab goes under its least width,
- * the tab gives up its name before the Note's controls give up theirs, and the ⋯ and Stop stay.
+ * The Note's Check in its tab strip (#3794, #3765, #2519): from the press on, a check run to its
+ * end with no input moves nothing in the strip, nor its card: the Check and its Stop keep the
+ * widest room they had until the User types. At a group's least width the Check is whole and the
+ * shown tab keeps its title. In a group narrower than that, the strip gives way in one order
+ * whatever its width: Export and the conversation's button leave, the Note's other controls give
+ * up their room, then the Check gives up its word, before the tab goes under its least width; only
+ * past the tab's icon and ✕ does the Check give up its start, never its end; the ⋯ and its Stop
+ * stay.
  */
 
 const TIDES = buildPdf([
@@ -47,8 +49,18 @@ const SENTENCES = [
 ];
 
 const WORDS = {
-  en: { stop: "Stop", running: /^Checking \d+ of \d+$/, name: "Tides" },
-  "zh-CN": { stop: "停止", running: /^正在核对 \d+\/\d+$/, name: "潮汐" },
+  en: {
+    stop: "Stop",
+    running: /^Checking… \d+ of 4$/,
+    runningTitle: /^Checking \d+ of 4$/,
+    name: "Tides",
+  },
+  "zh-CN": {
+    stop: "停止",
+    running: /^正在核对 \d+\/4…$/,
+    runningTitle: /^正在核对 \d+\/4$/,
+    name: "潮汐",
+  },
 } as const;
 
 /** The least width DESIGN.md gives the shown tab, so its title stays readable. */
@@ -78,7 +90,7 @@ async function noteToCheck(window: Page, language: "en" | "zh-CN") {
   await pointAndClick(window, editor);
   await window.keyboard.type(SENTENCES.join(" "));
   await expect(editor).toContainText(SENTENCES.at(-1) ?? "");
-  await expect(window.getByTestId("check-badge").first()).toBeVisible();
+  await expect(noteCheck(window)).toHaveAttribute("data-state", "check");
 }
 
 /** The test ids in the strip now: what is drawn there, for what may not move. */
@@ -100,7 +112,7 @@ const placesOf = (strip: Locator) =>
     return {
       tab: box(band.querySelector('[role="tab"][aria-selected="true"]')),
       plus: box(band.querySelector('[data-testid="new-tab"]')),
-      room: box(band.querySelector('[data-testid="note-head-badge"]')),
+      room: box(band.querySelector('[data-testid="note-check-place"]')),
       controls: box(band.querySelector('[data-testid="note-controls"]')),
       export: box(band.querySelector('[data-testid="export-mind"]')),
       more: box(band.querySelector('[data-testid="page-menu"]')),
@@ -127,13 +139,13 @@ const stripsNow = (window: Page) =>
       const tab = strip.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
       const title = tab?.querySelector<HTMLElement>('[data-testid="tab-title"]');
       const controls = strip.querySelector<HTMLElement>('[data-testid="note-controls"]');
-      const badge = controls?.querySelector('[data-testid="check-badge"]');
-      const stop = controls?.querySelector('[data-testid="badge-stop"]');
+      const check = controls?.querySelector('[data-testid="note-check"]');
+      const stop = controls?.querySelector('[data-testid="note-check-stop"]');
       const more = strip.querySelector('[data-testid="page-menu"]');
       const others = controls
         ? [...controls.children].filter((each) => !each.matches(".note-head-badge"))
         : [];
-      const badgeBox = box(badge);
+      const checkBox = box(check);
       const controlsBox = box(controls);
       return {
         strip: box(strip),
@@ -146,15 +158,17 @@ const stripsNow = (window: Page) =>
         conversationShown: drawn(
           strip.querySelector('[data-testid="note-ask-conversation-toggle"]'),
         ),
+        compact: strip.hasAttribute("data-check-compact"),
         controls: controlsBox,
-        badge: badgeBox,
+        check: checkBox,
+        checkHit: check ? hit(check) : null,
         stop: box(stop),
         stopHit: stop ? hit(stop) : null,
         more: box(more),
         moreHit: hit(more),
-        clipped:
-          (badgeBox !== null && controlsBox !== null && badgeBox.left < controlsBox.left - 0.5) ||
-          others.some((each) => each.scrollWidth > each.clientWidth + 0.5),
+        checkCut:
+          checkBox !== null && controlsBox !== null && checkBox.left < controlsBox.left - 0.5,
+        othersCut: others.some((each) => each.scrollWidth > each.clientWidth + 0.5),
       };
     });
   });
@@ -162,7 +176,7 @@ const stripsNow = (window: Page) =>
 for (const language of ["en", "zh-CN"] as const) {
   const words = WORDS[language];
 
-  test(`a check runs start to end with no input and nothing in a full strip moves; Stop by its name stops one, and the control opens the card (${language})`, async () => {
+  test(`from the press on, a check runs to its end with no input and nothing in a full strip moves; Stop by its name stops one, and the Check then opens the card (${language})`, async () => {
     test.setTimeout(150_000);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
@@ -171,54 +185,41 @@ for (const language of ["en", "zh-CN"] as const) {
       for (let other = 0; other < 4; other++) await newMind(window);
       await noteToCheck(window, language);
       const strip = window.getByTestId("tab-strip");
-      const card = await checkCard(window);
-      await expect(card.getByTestId("health-toCheck")).toBeVisible();
+      const button = noteCheck(window);
+      const stop = strip.getByTestId("note-check-stop");
 
       // Stop, by its name, stops a run.
       await holdModel(app, "hold", true);
-      await pointAndClick(window, card.getByTestId("badge-check-mind"));
+      await checkNote(window);
       await expect.poll(() => modelHeld(app)).toBe(true);
-      // The control's own Stop: its card, open under it, has one in its foot as well.
-      const control = strip.getByTestId("check-badge");
-      const stop = control.getByRole("button", { name: words.stop, exact: true });
       await expect(stop).toBeVisible();
+      await expect(stop).toHaveAccessibleName(words.stop);
       await expect(stop).toHaveAttribute("title", words.stop);
       await pointAndClick(window, stop);
-      await expect(strip.getByTestId("badge-stop")).toHaveCount(0);
+      await expect(stop).toHaveCount(0);
       await holdModel(app, "hold", false);
       await expect(
         window.getByTestId("claim-mark").and(window.locator('[data-check="checking"]')),
       ).toHaveCount(0);
+      await expect(button).toHaveAttribute("data-state", "check");
       await motionSettled(window);
 
       // A whole run: the press is the only input.
-      const before = await placesOf(strip);
       await holdModel(app, "hold", true);
-      await pointAndClick(window, card.getByTestId("badge-check-mind"));
+      await checkNote(window);
       await expect.poll(() => modelHeld(app)).toBe(true);
-      // Running: the dot, the part checked and Stop; its words are its name and tooltip, not drawn.
-      const open = strip.getByTestId("check-badge-open");
-      const progress = strip.getByTestId("badge-progress");
-      await expect(progress).toHaveText(words.running);
-      const said = (await progress.textContent()) ?? "";
-      await expect(open).toHaveAccessibleName(said);
-      await expect(open).toHaveAttribute("title", said);
-      await expect(strip.locator(".check-badge-share")).toHaveText(/^\d{1,3}%$/);
-      // Nothing of the words is drawn: where they would start, the control is what the pointer finds.
-      const drawnWords = await progress.evaluate((element) => {
-        const words = element.getBoundingClientRect();
-        const at = document.elementFromPoint(words.left + 2, words.top + words.height / 2);
-        return at !== null && element.contains(at);
-      });
-      expect(drawnWords).toBe(false);
-      await expect(control.getByRole("button", { name: words.stop, exact: true })).toBeVisible();
-      expect(await placesOf(strip)).toEqual(before);
+      // Running: how far it has got, drawn, with the run's words in full as its tooltip, and Stop.
+      await expect(button.locator(".note-check-words")).toHaveText(words.running);
+      await expect(button).toHaveAttribute("title", words.runningTitle);
+      await expect(stop).toBeVisible();
+      await motionSettled(window);
+      const before = await placesOf(strip);
       const kept = new Set([...(await idsIn(strip)), "check-card"]);
 
       const shifts = await watchShifts(window);
       await holdModel(app, "hold", false);
-      await expect(strip.getByTestId("badge-stop")).toHaveCount(0, { timeout: 30_000 });
-      await expect(progress).toHaveCount(0);
+      await expect(stop).toHaveCount(0, { timeout: 30_000 });
+      await expect(button).not.toHaveAttribute("data-state", "checking");
       await motionSettled(window);
       for (const id of await idsIn(strip)) kept.add(id);
       // The strip's parts and the card's own box; the card's rows take what the check found.
@@ -232,11 +233,11 @@ for (const language of ["en", "zh-CN"] as const) {
       expect(moved, `what moved with no input: ${trail}`).toEqual([]);
       expect(await placesOf(strip)).toEqual(before);
 
-      // A press on the control opens its card, and never lands on "+".
-      await window.keyboard.press("Escape");
+      // A press on what the check found opens its card, and never lands on "+".
+      await expect(button).toHaveAttribute("data-state", "look");
       await expect(window.getByTestId("check-card")).toHaveCount(0);
       const tabs = await window.getByTestId("mind-tab").count();
-      const target = await open.evaluate((element) => {
+      const target = await button.evaluate((element) => {
         const rect = element.getBoundingClientRect();
         const at = document.elementFromPoint(
           rect.left + rect.width / 2,
@@ -244,8 +245,8 @@ for (const language of ["en", "zh-CN"] as const) {
         );
         return at?.closest("[data-testid]")?.getAttribute("data-testid") ?? "";
       });
-      expect(["check-badge-open", "check-badge"]).toContain(target);
-      await pointAndClick(window, open);
+      expect(target).toBe("note-check");
+      await pointAndClick(window, button);
       await expect(window.getByTestId("check-card")).toBeVisible();
       await expect(window.getByTestId("mind-tab")).toHaveCount(tabs);
     } finally {
@@ -253,7 +254,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 
-  test(`at a group's least width the check's control is whole and the tab keeps its title; narrower, the strip gives way in its one order, and Stop stays in view (${language})`, async () => {
+  test(`at a group's least width the Check is whole and the tab keeps its title; narrower, the strip gives way in its one order, the Check before the tab, and Stop stays in view (${language})`, async () => {
     test.setTimeout(240_000);
     const { app, window } = await launchApp(dataDir, { fakeChat: true });
     try {
@@ -277,22 +278,22 @@ for (const language of ["en", "zh-CN"] as const) {
       }
       await motionSettled(window);
 
-      // At the least width, once the strips have fitted it: the tab at its least width with its
-      // title whole, the control whole.
-      await expect
-        .poll(async () =>
-          (await stripsNow(window)).slice(0, 2).map((strip) => Math.round(strip.tab?.width ?? 0)),
-        )
-        .toEqual([SHOWN_LEAST_PX, SHOWN_LEAST_PX]);
-      const atLeast = await stripsNow(window);
-      for (const [at, strip] of atLeast.slice(0, 2).entries()) {
-        const about = `group ${at + 1}: ${JSON.stringify(strip)}`;
-        expect(strip.tab?.width ?? 0, about).toBeGreaterThanOrEqual(SHOWN_LEAST_PX - 0.5);
-        expect(strip.titleWhole, about).toBe(true);
-        expect(strip.clipped, about).toBe(false);
-        expect(strip.badge, about).not.toBeNull();
-        expect(strip.moreHit, about).toBe(true);
-      }
+      // At the least width, once the strips have fitted it: the tab at its least width or wider,
+      // with its title whole, and the Check whole.
+      await expect(async () => {
+        const atLeast = await stripsNow(window);
+        for (const [at, strip] of atLeast.slice(0, 2).entries()) {
+          const about = `group ${at + 1}: ${JSON.stringify(strip)}`;
+          expect(strip.tab?.width ?? 0, about).toBeGreaterThanOrEqual(SHOWN_LEAST_PX - 0.5);
+          expect(strip.titleWhole, about).toBe(true);
+          expect(strip.checkCut, about).toBe(false);
+          expect(strip.othersCut, about).toBe(false);
+          expect(strip.check, about).not.toBeNull();
+          expect(strip.checkHit, about).toBe(true);
+          expect(strip.moreHit, about).toBe(true);
+          if (strip.compact) expect(strip.exportShown, about).toBe(false);
+        }
+      }).toPass();
 
       // Narrower, as the window narrows and each group keeps its share.
       const holds = (strips: Awaited<ReturnType<typeof stripsNow>>, width: number) => {
@@ -302,15 +303,23 @@ for (const language of ["en", "zh-CN"] as const) {
           if (tab < SHOWN_LEAST_PX - 0.5) {
             expect(strip.exportShown, about).toBe(false);
             expect(strip.conversationShown, about).toBe(false);
+            // The Check gave up its word before the tab went under its least width.
+            expect(strip.compact, about).toBe(true);
           }
-          if (strip.clipped) expect(tab, about).toBeLessThanOrEqual(strip.chrome + 1);
+          // Its word goes only once Export has left the row, and the Note's other controls give up
+          // their room only in a tight strip.
+          if (strip.compact) expect(strip.exportShown, about).toBe(false);
+          if (strip.othersCut) expect(strip.exportShown, about).toBe(false);
+          // The Check gives up its start only past the tab's icon and ✕.
+          if (strip.checkCut) expect(tab, about).toBeLessThanOrEqual(strip.chrome + 1);
           expect(strip.moreHit, about).toBe(true);
           expect(strip.more?.right ?? 0, about).toBeLessThanOrEqual(
             (strip.strip?.right ?? 0) + 0.5,
           );
-          if (strip.badge && strip.controls) {
-            expect(strip.badge.right, about).toBeLessThanOrEqual(strip.controls.right + 0.5);
-            expect(strip.badge.right - 22, about).toBeGreaterThanOrEqual(strip.controls.left - 0.5);
+          if (strip.check && strip.controls) {
+            // Its end, where its number or Stop is, stays in view.
+            expect(strip.check.right, about).toBeLessThanOrEqual(strip.controls.right + 0.5);
+            expect(strip.check.right - 22, about).toBeGreaterThanOrEqual(strip.controls.left - 0.5);
           }
           expect(strip.close?.right ?? 0, about).toBeLessThanOrEqual((strip.plus?.left ?? 0) + 0.5);
         }
@@ -324,10 +333,9 @@ for (const language of ["en", "zh-CN"] as const) {
 
       // Running in the narrowest groups: Stop whole and in view in every strip.
       await holdModel(app, "hold", true);
-      const card = await checkCard(window, groups.last());
-      await pointAndClick(window, card.getByTestId("badge-check-mind"));
+      await checkNote(window, groups.last());
       await expect.poll(() => modelHeld(app)).toBe(true);
-      await expect(window.getByTestId("badge-stop")).toHaveCount(3);
+      await expect(window.getByTestId("note-check-stop")).toHaveCount(3);
       await motionSettled(window);
       await expect(async () => {
         const running = await stripsNow(window);
@@ -344,7 +352,7 @@ for (const language of ["en", "zh-CN"] as const) {
         }
       }).toPass();
       await holdModel(app, "hold", false);
-      await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 30_000 });
+      await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 30_000 });
     } finally {
       await app.close();
     }

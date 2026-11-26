@@ -5,11 +5,12 @@ import { buildPdf } from "../tests/helpers/pdf";
 import {
   addDocuments,
   checkCard,
+  checkNote,
   createDataFolder,
   dismissChatSetup,
   launchApp,
   newMind,
-  pointAndClick,
+  noteCheck,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -123,13 +124,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect.poll(() => rowsTogether(card)).toBe(4);
 
     await holdChecks(app);
-    await pointAndClick(window, card.getByTestId("badge-check-mind"));
+    await checkNote(window);
     await expect.poll(() => heldSteps(app)).toBeGreaterThan(0);
-    // The badge says how far the run is; the card's foot keeps only its Stop (#3756).
-    const foot = window.getByTestId("badge-progress");
+    // The Check button says how far the run is; the card's foot keeps only its Stop (#3756).
+    const button = noteCheck(window);
+    await expect(button).toHaveAttribute("data-state", "checking");
     await expect(card.getByTestId("health-checking")).toContainText(words.checking);
     await expect(card.getByTestId("health-toCheck")).toHaveCount(0);
-    await expect(foot).toHaveText(words.foot(0));
+    await expect(button).toHaveAttribute("title", words.foot(0));
     await expect(card.getByTestId("card-foot-stop")).toBeVisible();
 
     // One step at a time, until a sentence's check ends: it leaves "being checked" for its row.
@@ -142,7 +144,7 @@ for (const language of ["en", "zh-CN"] as const) {
     }
     const left = await countOf(card, "checking");
     expect(left).toBeGreaterThan(0);
-    await expect(foot).toHaveText(words.foot(4 - left));
+    await expect(button).toHaveAttribute("title", words.foot(4 - left));
     await expect.poll(() => rowsTogether(card)).toBe(4);
     expect(
       (await countOf(card, "supported")) +
@@ -152,16 +154,17 @@ for (const language of ["en", "zh-CN"] as const) {
     // The rows say what moved: no line under them counts the landed sentences a second time.
     await expect(card.locator(".check-card-note")).toHaveCount(0);
 
-    // From here, every frame: what the badge says once the run is over (#3487).
+    // From here, every frame: what the button says once the run is over (#3487).
     await window.evaluate(() => {
       const seen: { running: boolean; state: string | null }[] = [];
-      (globalThis as unknown as { badgeFrames: typeof seen }).badgeFrames = seen;
+      (globalThis as unknown as { buttonFrames: typeof seen }).buttonFrames = seen;
       const frame = () => {
         seen.push({
           running: document.querySelector('[data-testid="card-foot-stop"]') !== null,
           state:
-            document.querySelector('[data-testid="check-badge"]')?.getAttribute("data-state") ??
-            null,
+            document
+              .querySelector('[data-testid="note-check-place"] [data-testid="note-check"]')
+              ?.getAttribute("data-state") ?? null,
         });
         requestAnimationFrame(frame);
       };
@@ -169,20 +172,20 @@ for (const language of ["en", "zh-CN"] as const) {
     });
     await releaseChecks(app);
     await expect(card.getByTestId("health-checking")).toHaveCount(0);
-    await expect(foot).toHaveCount(0);
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0);
     // Supported, but citing nothing yet: the row of what can be cited holds them (#3358).
     await expect(card.getByTestId("health-notYetCited")).toContainText(words.canBeCited);
     await expect(card.getByTestId("health-look")).toContainText(words.look);
     await expect.poll(() => rowsTogether(card)).toBe(4);
-    // The badge never said "Not checked yet" over a card that had its results: once the run ended
-    // its state was the card's, in every frame.
+    // The button never said "Check 4" over a card that had its results: once the run ended its
+    // state was the card's, in every frame.
     const ended = await window.evaluate(() =>
       (
-        globalThis as unknown as { badgeFrames: { running: boolean; state: string | null }[] }
-      ).badgeFrames.filter((each) => !each.running),
+        globalThis as unknown as { buttonFrames: { running: boolean; state: string | null }[] }
+      ).buttonFrames.filter((each) => !each.running),
     );
     expect(ended.length).toBeGreaterThan(0);
-    expect(ended.filter((each) => each.state !== "needs-look")).toEqual([]);
+    expect(ended.filter((each) => each.state !== "look")).toEqual([]);
     await app.close();
   });
 }

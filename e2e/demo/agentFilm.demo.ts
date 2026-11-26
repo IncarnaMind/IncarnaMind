@@ -29,7 +29,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { expect, test } from "@playwright/test";
 import type { AgentLaunch, CoreBridge } from "../../src/core/api";
-import { createDataFolder, launchApp, removeDataFolder, setLanguage, urlsOpened } from "../app";
+import {
+  createDataFolder,
+  launchApp,
+  noteCheck,
+  removeDataFolder,
+  setLanguage,
+  urlsOpened,
+} from "../app";
 import { writeNorthwindPapers } from "./agentDocuments";
 import {
   atSurface,
@@ -483,7 +490,7 @@ test(`records a take of the agent film in ${language}`, async () => {
     await window.keyboard.press("Enter");
     // The command asks first when the check has a cost to estimate; otherwise it starts at once.
     const confirm = window.getByTestId("mind-check-check");
-    const stop = window.getByTestId("badge-stop");
+    const stop = window.getByTestId("note-check-stop");
     await expect(confirm.or(stop).first()).toBeVisible({ timeout: 90_000 });
     if (await confirm.isVisible()) {
       await sleep(500);
@@ -499,11 +506,11 @@ test(`records a take of the agent film in ${language}`, async () => {
     await window.keyboard.press("Escape");
     await sleep(3500);
     await shot("08-rechecked");
-    const badge = window.locator('[data-testid="check-badge"]').first();
-    if ((await badge.count()) > 0) await boxOf(badge, "badge");
+    const button = noteCheck(window);
+    if ((await button.count()) > 0) await boxOf(button, "check-button");
     const after = await labels();
     take.labelsAfter = after;
-    take.badge = await badge.textContent().catch(() => null);
+    take.checkButton = await button.textContent().catch(() => null);
     take.noteAfter = (await window.getByTestId("mind-editor").textContent())?.slice(0, 4000);
     await finish(
       after.some((label) => /Needs a look|需要留意/.test(label))

@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { translate } from "../src/shared/i18n";
 import { wordFile, paragraph as wordParagraph } from "../tests/helpers/word";
 import {
   addDocuments,
@@ -18,6 +19,7 @@ import {
   openDocumentMenu,
   pointAndClick,
   removeDataFolder,
+  runCommand,
   setLanguage,
   setWindowSize,
   slideSelect,
@@ -300,8 +302,11 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
     window.getByTestId("selection-menu").getByTestId("selection-action-check-against-documents"),
   ).toContainText("添加文档后才能核对");
   await window.keyboard.press("Escape");
-  const card = await checkCard(window);
-  await pointAndClick(window, card.getByTestId("badge-check-mind"));
+  // Its sentences are checked already, so the Note's button would open the card: Check is asked
+  // from ⌘K, and the card opens by itself with what it found.
+  await runCommand(window, "mind.check", translate("zh-CN", "mindCheck.command"));
+  const card = window.getByTestId("check-card");
+  await expect(card).toBeVisible();
   const empty = card.getByTestId("checks-problem");
   await expect(empty).toContainText("没有可核对的文档：请先添加文档。");
   await expect(empty.getByTestId("checks-add-files")).toBeVisible();

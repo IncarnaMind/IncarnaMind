@@ -20,6 +20,7 @@ import {
   interceptOpenPath,
   launchApp,
   motionSettled,
+  noteCheck,
   openExample,
   openSettings,
   removeDataFolder,
@@ -658,7 +659,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
     await stills(window, "5-card-agent-second-done");
 
     // With no model set up, the Note's own Check asks Claude Code at once, as it does from the
-    // Note, and the Note's badge says so until the marks land (#3587).
+    // Note, and the Note's Check button says so until the marks land (#3587).
     await card.getByTestId("first-open-agent-look-check").click();
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", made.mindId);
     await expect
@@ -667,13 +668,15 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         AGENT_LINE,
         "Check my note “Harbour summary” in IncarnaMind against my Documents.",
       ]);
-    const badge = window.getByTestId("badge-asked");
-    await expect(badge).toHaveText("Asked Claude Code");
+    const button = noteCheck(window);
+    const buttonWords = button.locator(".note-check-words");
+    await expect(button).toHaveAttribute("data-state", "said");
+    await expect(buttonWords).toHaveText("Asked Claude Code");
 
     const given = structured<{ task: string; sentences: { n: number; text: string }[] }>(
       await agent.callTool({ name: "check_mind_yourself", arguments: { mindId: made.mindId } }),
     );
-    await expect(badge).toHaveText("Claude Code is checking");
+    await expect(buttonWords).toHaveText("Claude Code is checking");
     const results = given.sentences.map((sentence) =>
       sentence.text.startsWith(CARGO)
         ? { n: sentence.n, verdict: "supported", cites: [cargo] }
@@ -687,7 +690,7 @@ test("the agent's Note ticks the second step, and its check opens the Note at wh
         arguments: { mindId: made.mindId, task: given.task, results },
       }),
     );
-    await expect(badge).toHaveCount(0);
+    await expect(button).toHaveAttribute("data-state", "look");
     // Back at Get started, the step shows what Claude Code's check found.
     await window
       .locator(`[data-testid="mind-tab"]:not([data-mind-id="${made.mindId}"])`)

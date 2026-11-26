@@ -12,6 +12,7 @@ import {
   launchApp,
   mindWrittenBefore,
   motionSettled,
+  noteCheck,
   pointAndClick,
   removeDataFolder,
   runCommand,
@@ -95,8 +96,13 @@ for (const language of ["en", "zh-CN"] as const) {
       const early = window.getByTestId("claim-mark-early");
       await expect(early).toHaveCount(1, { timeout: 30_000 });
       await expect(window.getByTestId("claim-mark")).toHaveCount(0);
-      // The line keeps saying the claims are being found until the run's total is known.
-      await expect(window.getByTestId("badge-progress").first()).toHaveText(
+      // The button keeps saying the claims are being found until the run's total is known.
+      await expect(noteCheck(window)).toHaveAttribute("data-state", "checking");
+      await expect(noteCheck(window).locator(".note-check-words")).toHaveText(
+        translate(language, "checkButton.checking.uncounted"),
+      );
+      await expect(noteCheck(window)).toHaveAttribute(
+        "title",
         translate(language, "verify.finding"),
       );
       // Beside its paragraph's first line, in the margin.
@@ -133,9 +139,10 @@ test("Stop while the claims are named takes the early checking mark away, and le
     const early = window.getByTestId("claim-mark-early");
     await expect(early).toHaveCount(1, { timeout: 30_000 });
 
-    await pointAndClick(window, window.getByTestId("badge-stop").first());
+    await pointAndClick(window, window.getByTestId("note-check-stop").first());
     await holdSort(app, false);
-    await expect(window.getByTestId("badge-progress")).toHaveCount(0, { timeout: 30_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 30_000 });
+    await expect(noteCheck(window)).toHaveAttribute("data-state", "check");
     await expect(early).toHaveCount(0);
     await expect(window.getByTestId("claim-mark")).toHaveCount(0);
   } finally {

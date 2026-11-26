@@ -1345,7 +1345,6 @@ function MindEditorView({
               mindId={mindId}
               verification={verification}
               quiet={firstOpen && isExample}
-              inStrip={headSlot !== null}
             />,
             badgeTarget,
           )}
