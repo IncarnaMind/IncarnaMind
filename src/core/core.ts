@@ -10168,11 +10168,7 @@ export function createCore(adapters: CoreAdapters): Core {
     setAgentsEnabled: (enabled) => agents.setEnabled(enabled),
     connectAgent: (input) => agents.connect(input),
     updateAgent: async (pairingId, input) => agents.update(pairingId, input),
-    disconnectAgent: async (pairingId) => {
-      const left = await agentSetup.removeFromSettings(pairingId);
-      await agents.disconnect(pairingId);
-      return left;
-    },
+    disconnectAgent: (pairingId) => agentSetup.disconnect(pairingId),
     replaceAgentSkill: (pairingId) => agentSetup.replaceSkill(pairingId),
     agentNeedsRepair: (pairingId) => agentSetup.needsRepair(pairingId),
     repairAgent: (pairingId) => agentSetup.repair(pairingId),

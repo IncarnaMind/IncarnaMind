@@ -5,7 +5,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { MockLanguageModelV4 } from "ai/test";
 import { build } from "vite";
 import { onTestFinished } from "vitest";
-import type { AgentLaunch, CoreAdapters, Logger } from "../../src/core";
+import type { AgentLaunch, AgentPairing, Core, CoreAdapters, Logger } from "../../src/core";
 import { agentSocketPath } from "../../src/core/agents";
 import { createFakeCapture } from "../../src/core/meetings/fakeCapture";
 import { legacyAgentClient, modernAgentClient } from "./agentClients";
@@ -58,6 +58,21 @@ function captureLog(): LogCapture {
       lines.push(`${level} ${event} ${JSON.stringify(fields ?? {})}`);
     };
   return { lines, info: keep("info"), warn: keep("warn"), error: keep("error") };
+}
+
+/**
+ * A second connection of an app that is connected already, as a profile from before one
+ * connection per app can hold: paired, and set up in the app as its own set-up did then.
+ */
+export async function connectedTwice(
+  core: Core,
+  client: string,
+  name: string,
+  folderIds: string[],
+): Promise<AgentPairing> {
+  const { pairing } = await core.connectAgent({ name, client, folderIds });
+  await core.repairAgent(pairing.id);
+  return pairing;
 }
 
 /** Outside agents for a core on `dataDir`: they start the shim with this Node. */
