@@ -206,6 +206,23 @@ describe("a reply's Citation, drawn as a Note's chip", () => {
     );
   });
 
+  test("in a window too narrow for a group beside the Note: a Transcript's opens in the sheet, any other's card only", async () => {
+    const { useCardWidth } = await import("../../src/renderer/src/layoutSlice");
+    useCardWidth.setState({ width: 600 });
+    try {
+      await press(SAID, true);
+      expect(opened.inSheet).toHaveBeenCalledTimes(1);
+      expect(opened.inSheet).toHaveBeenCalledWith(
+        expect.objectContaining({ documentId: "transcript", request: 0 }),
+      );
+      await press(TENDER, true);
+      expect(opened.inSheet).toHaveBeenCalledTimes(2);
+      expect(opened.beside).not.toHaveBeenCalled();
+    } finally {
+      useCardWidth.setState({ width: null });
+    }
+  });
+
   test("in a Note, a Transcript's Citation opens as a Note's does, never in a reply's sheet first", async () => {
     await press(SAID, false);
     expect(opened.inSheet).not.toHaveBeenCalled();
