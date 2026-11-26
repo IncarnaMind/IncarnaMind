@@ -166,7 +166,30 @@ describe("English numbers in a transcript", () => {
       "it fell fifteen percent to nine last year",
     );
     expect(writtenNumbers("five percent or six of them")).toBe("five percent or six of them");
-    expect(writtenNumbers("the rate is twenty percent or thirty")).toBe("the rate is 20% or 30");
+    expect(writtenNumbers("the rate is twenty percent or thirty")).toBe(
+      "the rate is twenty percent or thirty",
+    );
+    expect(writtenNumbers("it fell fifteen percent to twenty")).toBe(
+      "it fell fifteen percent to twenty",
+    );
+    expect(writtenNumbers("from fifteen percent to twenty")).toBe("from fifteen percent to twenty");
+    expect(writtenNumbers("between twenty percent and thirty")).toBe(
+      "between twenty percent and thirty",
+    );
+    expect(writtenNumbers("five percent and six")).toBe("five percent and six");
+    expect(writtenNumbers("five percent, six")).toBe("five percent, six");
+    expect(writtenNumbers("twenty percent and thirty")).toBe("twenty percent and thirty");
+    expect(writtenNumbers("twenty percent, thirty")).toBe("twenty percent, thirty");
+    expect(writtenNumbers("twenty percent or thirty of them")).toBe(
+      "twenty percent or thirty of them",
+    );
+    expect(writtenNumbers("fifty to sixty percent, seventy")).toBe(
+      "fifty to sixty percent, seventy",
+    );
+    expect(writtenNumbers("twenty percent or thirty percent")).toBe("20% or 30%");
+    expect(writtenNumbers("five percent, six percent")).toBe("5%, 6%");
+    expect(writtenNumbers("five percent and ten dollars")).toBe("5% and 10 dollars");
+    expect(writtenNumbers("twenty percent or two hundred dollars")).toBe("20% or 200 dollars");
     expect(writtenNumbers("twenty percent and a hundred percent")).toBe("20% and 100%");
     expect(writtenNumbers("it fell from fifteen percent to nine")).toBe(
       "it fell from fifteen percent to nine",
@@ -336,6 +359,13 @@ describe("Chinese numbers in a transcript", () => {
     ["二十、三十个", "20、30个"],
     ["三月、四月", "3月、4月"],
     ["三十个到五十个", "30个到50个"],
+    [
+      "六月底，我们的杠杆率是二点七倍，低于三点五倍的上限。",
+      "6月底，我们的杠杆率是2.7倍，低于3.5倍的上限。",
+    ],
+    ["到今年年底，上限会降到三点二五倍。", "到今年年底，上限会降到3.25倍。"],
+    ["年底，我们的杠杆率预计是二点九倍。", "年底，我们的杠杆率预计是2.9倍。"],
+    ["年底预计是两点九倍。", "年底预计是2.9倍。"],
   ])("%s is %s", (said, written) => {
     expect(writtenNumbers(said)).toBe(written);
   });
@@ -385,14 +415,31 @@ describe("Chinese numbers in a transcript", () => {
     expect(writtenNumbers("前几年到二十年")).toBe("前几年到二十年");
   });
 
-  // protects=amounts said one after another are written at every end or at none: one before an amount that goes on (两块五) stays as said with it, and the next amount never starts at the digit that goes on (#1031); fails_when=五块两块五 becomes 5块两块五, 两块五五块 2块五五块, 两块五一百块都行 2块五一百块都行, or 五块两块 is no longer 5块2块; no_claim=that 两块五 could not be written 2.5块 one day.
-  test("an amount before one that goes on stays as said, a digit that goes on starts no amount, and whole amounts are written", () => {
+  // protects=amounts said one after another are written at every end or at none: one before or after an amount that goes on (两块五, 三元五角, 五毛) or that may split at 十 (两块五十块) stays as said with it, and whole amounts are written (#1031); fails_when=五块两块五 becomes 5块两块五, 三元五角五块 becomes 三元五角5块, 两块五十块 becomes 2块50块, 两块五五块 becomes 2块五五块, 两块五一百块都行 becomes 2块五一百块都行, or 五块两块 is no longer 5块2块; no_claim=that 两块五 could not be written 2.5块 one day.
+  test("an amount before or after one that goes on stays as said, a digit that goes on starts no amount, and whole amounts are written", () => {
     expect(writtenNumbers("五块两块五")).toBe("五块两块五");
     expect(writtenNumbers("三块五块两块五")).toBe("三块五块两块五");
     expect(writtenNumbers("两块五五块")).toBe("两块五五块");
     expect(writtenNumbers("两块五一百块都行")).toBe("两块五一百块都行");
+    expect(writtenNumbers("三元五角五块")).toBe("三元五角五块");
+    expect(writtenNumbers("三元五毛五块")).toBe("三元五毛五块");
+    expect(writtenNumbers("三元五角五分五块")).toBe("三元五角五分五块");
+    expect(writtenNumbers("三元五角五块两块")).toBe("三元五角五块两块");
+    expect(writtenNumbers("五角五块")).toBe("五角五块");
+    expect(writtenNumbers("五毛五块")).toBe("五毛五块");
+    expect(writtenNumbers("五块三元五角")).toBe("五块三元五角");
+    expect(writtenNumbers("五块十五角")).toBe("五块十五角");
+    expect(writtenNumbers("三元五角、五块")).toBe("三元五角、五块");
+    expect(writtenNumbers("五块、三元五角")).toBe("五块、三元五角");
+    expect(writtenNumbers("两块五十块")).toBe("两块五十块");
+    expect(writtenNumbers("两块五十五块")).toBe("两块五十五块");
+    expect(writtenNumbers("五块两块五十块")).toBe("五块两块五十块");
+    expect(writtenNumbers("两块五十块两块")).toBe("两块五十块两块");
     expect(writtenNumbers("五块两块")).toBe("5块2块");
+    expect(writtenNumbers("五块十块")).toBe("5块10块");
     expect(writtenNumbers("一百块两百块都行")).toBe("100块200块都行");
+    expect(writtenNumbers("五十块两百块")).toBe("50块200块");
+    expect(writtenNumbers("三元五角买了五块")).toBe("三元五角买了5块");
   });
 
   test("a line that is only a number, a number at each end of a line, and both languages in one line", () => {

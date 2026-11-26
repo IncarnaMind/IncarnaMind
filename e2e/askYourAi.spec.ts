@@ -8,6 +8,8 @@ import { SHOW_AGENT_CONNECTION } from "../src/shared/agentConnection";
 import {
   acceptPlainTextKeys,
   catchCopies,
+  checkCard,
+  checkNote,
   closeSettings,
   copied,
   createDataFolder,
@@ -16,6 +18,7 @@ import {
   frontMind,
   launchApp,
   motionSettled,
+  noteCheck,
   openDocumentAt,
   openSettings,
   pointAndClick,
@@ -237,7 +240,7 @@ test("an agent-only User finds a bare page, the assistant folded and a pill that
     expect(await urlsOpened(app)).toHaveLength(2);
 
     // Every sentence that needs a look, in one request from the Note's check.
-    await pointAndClick(window, window.getByTestId("check-badge-open"));
+    await checkCard(window);
     const askAll = window.getByTestId("badge-ask-agent-all");
     await expect(askAll).toHaveText("Ask Claude Code to fix 2");
     await shot(window, "ask-all-en");
@@ -509,33 +512,31 @@ test("with no model, one press of Check asks the User's own AI and the Note says
       await expect(frontMind(window)).toHaveAttribute("data-mind-id", id);
     };
     await openNote(mindId);
-    const press = async () => {
-      if (!(await window.getByTestId("check-card").isVisible())) {
-        await pointAndClick(window, window.getByTestId("check-badge-open"));
-      }
-      await pointAndClick(window, window.getByTestId("badge-check-mind"));
-    };
+    const button = noteCheck(window);
 
     // One press asks Claude Code, the one the Ask pill asks: its app opens with the line typed, and
-    // the badge and the card say so, offering VS Code behind; no second button to press, and no
-    // model to set up, since the User's own AI is the way this card checks (#3756).
-    await press();
+    // the button and the card say so, offering VS Code behind; no card opens by the press, no second
+    // button to press, and no model to set up, since the User's own AI is the way this Note checks
+    // (#3756, #3794).
+    await checkNote(window);
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(
       `Check my note “${TITLE}” in IncarnaMind against my Documents.`,
     );
     const ASKED = "Asked Claude Code: send the request there.";
     const asked = window.getByTestId("checks-asked");
-    const badge = window.getByTestId("badge-asked");
+    await expect(button).toHaveAttribute("data-state", "said");
+    await expect(button.locator(".note-check-words")).toHaveText("Asked Claude Code");
+    await expect(button).toHaveAttribute("title", ASKED);
+    await expect(window.getByTestId("check-card")).toHaveCount(0);
+    const checks = await checkCard(window);
     await expect(asked).toHaveText(ASKED);
-    await expect(badge).toHaveText("Asked Claude Code");
-    await expect(badge).toHaveAttribute("title", ASKED);
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("checks-asked-line-ask")).toHaveText("Ask again");
     await expect(window.getByTestId("checks-asked-line-others")).toBeVisible();
     await expect(window.getByTestId("checks-asked-set-up")).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Set up a model");
-    await expect(window.getByTestId("badge-check-mind")).toHaveCount(0);
+    await expect(checks.getByRole("button", { name: "Check", exact: true })).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Asking needs your AI");
     await shot(window, "check-no-model-asked-en");
     await setLanguage(window, "zh-CN");
@@ -551,11 +552,12 @@ test("with no model, one press of Check asks the User's own AI and the Note says
         await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } })
       ).structuredContent as { task: string; sentences: { n: number; text: string }[] };
       await expect(asked).toHaveText("Checking this note in Claude Code.");
-      await expect(badge).toHaveText("Claude Code is checking");
+      await expect(button.locator(".note-check-words")).toHaveText("Claude Code is checking");
+      await expect(button).toHaveAttribute("title", "Checking this note in Claude Code.");
       await shot(window, "check-no-model-checking-en");
       await setLanguage(window, "zh-CN");
       await expect(asked).toHaveText("Claude Code 正在核对这篇笔记。");
-      await expect(badge).toHaveText("Claude Code 正在核对");
+      await expect(button.locator(".note-check-words")).toHaveText("Claude Code 正在核对");
       await shot(window, "check-no-model-checking-zh-CN");
       await setLanguage(window, "en");
 
@@ -603,10 +605,10 @@ test("with no model, one press of Check asks the User's own AI and the Note says
         },
       });
       await expect(asked).toHaveCount(0);
-      await expect(badge).toHaveCount(0);
-      await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
-      // The check card opens down from the badge at the Note's top right, over the marks beside the
-      // Note's first lines (#3677): it closes first.
+      await expect(button).toHaveAttribute("data-state", "look");
+      await expect(button).not.toHaveAttribute("title", /not checked/);
+      // The check card opens down from the Check button at the Note's top right, over the marks
+      // beside the Note's first lines (#3677): it closes first.
       if ((await window.getByTestId("check-card").count()) > 0) {
         await window.keyboard.press("Escape");
         await expect(window.getByTestId("check-card")).toHaveCount(0);
@@ -632,7 +634,7 @@ test("with no model, one press of Check asks the User's own AI and the Note says
       return pairings.length;
     });
     expect(connectedAgents).toBe(2);
-    await press();
+    await checkNote(window);
     const alone = window.getByTestId("checks-problem");
     await expect(alone).toContainText("Checking needs your AI");
     await expect(alone).not.toContainText("Asking");
@@ -645,7 +647,7 @@ test("with no model, one press of Check asks the User's own AI and the Note says
     // With a model set up the Check runs: neither line shows.
     // biome-ignore lint/correctness/useHookAtTopLevel: an e2e helper whose name begins with "use", not a React hook.
     await useLocalChatModel(window);
-    await press();
+    await checkNote(window);
     await expect(window.getByTestId("checks-ask-agent")).toHaveCount(0);
     await expect(window.getByTestId("check-card")).not.toContainText("Checking needs your AI");
     await shot(window, "check-with-model-en");
@@ -685,15 +687,13 @@ test("with no model, a check the User asks of their own AI lands its marks on a 
       window.locator(`[data-testid="mind-row"][data-mind-id="${mindId}"]`).first(),
     );
     await expect(frontMind(window)).toHaveAttribute("data-mind-id", mindId);
-    if (!(await window.getByTestId("check-card").isVisible())) {
-      await pointAndClick(window, window.getByTestId("check-badge-open"));
-    }
-    await pointAndClick(window, window.getByTestId("badge-check-mind"));
+    await checkNote(window);
     await expect.poll(() => urlsOpened(app)).toHaveLength(1);
     expect(typedIn((await urlsOpened(app))[0])).toBe(
       `Check my note “${OWN_TITLE}” in IncarnaMind against my Documents.`,
     );
     const asked = window.getByTestId("checks-asked");
+    await checkCard(window);
     await expect(asked).toHaveText("Asked Claude Code: send the request there.");
 
     const agent = await claudeCode(launch);
@@ -743,9 +743,10 @@ test("with no model, a check the User asks of their own AI lands its marks on a 
       });
       expect(reported.isError ?? false).toBe(false);
       await expect(asked).toHaveCount(0);
-      await expect(window.getByTestId("check-badge")).not.toContainText("not checked");
-      // The check card opens down from the badge at the Note's top right, over the marks beside the
-      // Note's first lines (#3677): it closes first.
+      await expect(noteCheck(window)).toHaveAttribute("data-state", "look");
+      await expect(noteCheck(window)).not.toHaveAttribute("title", /not checked/);
+      // The check card opens down from the Check button at the Note's top right, over the marks
+      // beside the Note's first lines (#3677): it closes first.
       if ((await window.getByTestId("check-card").count()) > 0) {
         await window.keyboard.press("Escape");
         await expect(window.getByTestId("check-card")).toHaveCount(0);

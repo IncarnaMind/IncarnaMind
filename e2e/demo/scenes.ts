@@ -6,7 +6,14 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { type ElectronApplication, expect, type Locator, type Page } from "@playwright/test";
 import type { CoreBridge } from "../../src/core/api";
-import { assistantAnswers, leaveText, markShownFor, openDocumentAt, openSteps } from "../app";
+import {
+  assistantAnswers,
+  leaveText,
+  markShownFor,
+  noteCheck,
+  openDocumentAt,
+  openSteps,
+} from "../app";
 import { say } from "./call";
 import type { Film, Hand } from "./film";
 import { SCENE_TABLE } from "./sceneTable";
@@ -349,7 +356,7 @@ async function analyse(take: Take): Promise<void> {
     await clearAside(window);
     await openMind(window, script.paper.title);
     await openAssistant(window);
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 240_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 240_000 });
   }, PARK);
   await hand.hold(200);
   // The Question is typed off camera: the film keeps the steps and the chart, not the typing.
@@ -431,7 +438,7 @@ async function call(take: Take): Promise<void> {
     await clearAside(window);
     await openMind(window, script.paper.title);
     // The Mind redraws while an earlier check or Answer is still running: wait for it to settle.
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 240_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 240_000 });
     await expect(assistantAnswers(window).last()).toHaveAttribute("data-status", "done", {
       timeout: 240_000,
     });
@@ -601,7 +608,7 @@ async function notes(take: Take): Promise<void> {
 }
 
 /**
- * Scene 4: Check this Note. The badge counts the results as they arrive, the wrong figure's card
+ * Scene 4: Check this Note. The Note's Check counts the results as they arrive, the wrong figure's card
  * opens the page it contradicts, the figure is fixed and its mark turns green, then a calculated
  * figure's card shows its formula and the page each input came from.
  */
@@ -631,12 +638,12 @@ async function check(take: Take): Promise<void> {
   );
   const counted = film.kept;
   film.speed(2);
-  while ((await window.getByTestId("badge-stop").count()) > 0 && film.kept - counted < 1.6) {
+  while ((await window.getByTestId("note-check-stop").count()) > 0 && film.kept - counted < 1.6) {
     await hand.hold(100);
   }
   film.speed(1);
   await hand.cut(async () => {
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 240_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 240_000 });
     await window.keyboard.press("Escape");
   });
   const wrong = window.locator('[data-testid="claim-mark"][data-check="contradicted"]');
@@ -687,7 +694,7 @@ async function check(take: Take): Promise<void> {
       .then(() => true)
       .catch(() => false);
     if (shown) await againAsk.click();
-    await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 240_000 });
+    await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 240_000 });
     await expect(window.getByTestId("claim-mark").first()).toBeAttached();
     await window.keyboard.press("Escape");
   });
@@ -702,7 +709,7 @@ async function check(take: Take): Promise<void> {
   // The check can also flag what the draft wrote itself: a sentence no Document supports, or a
   // Citation the page does not hold. It is the analyst's call, settled on camera by the mark's own
   // card: Keep as my view for a sentence, Remove for a Citation the page does not hold.
-  const badgeState = window.getByTestId("check-badge");
+  const checkState = noteCheck(window);
   const settle = async (): Promise<boolean> => {
     for (const state of ["unsupported", "contradicted"] as const) {
       const mark = window.locator(`[data-testid="claim-mark"][data-check="${state}"]`).first();
@@ -724,16 +731,16 @@ async function check(take: Take): Promise<void> {
     return false;
   };
   for (let round = 0; round < 2; round++) {
-    if ((await badgeState.getAttribute("data-state")) !== "needs-look") break;
+    if ((await checkState.getAttribute("data-state")) !== "look") break;
     if (!(await settle())) break;
     await hand.cut(() =>
       expect
-        .poll(async () => badgeState.getAttribute("data-state"), { timeout: 30_000 })
-        .not.toBe("needs-look")
+        .poll(async () => checkState.getAttribute("data-state"), { timeout: 30_000 })
+        .not.toBe("look")
         .catch(() => undefined),
     );
   }
-  if ((await badgeState.getAttribute("data-state")) === "needs-look") {
+  if ((await checkState.getAttribute("data-state")) === "look") {
     throw new Error("The check still has something to look at after its card's actions.");
   }
 

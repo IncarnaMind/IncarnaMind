@@ -1770,7 +1770,14 @@ export function ClaimCard({
                   !decisionMissing &&
                   (check.unsupported?.reason || (check.unsupported?.found && !nothingFound))
                 ? {
-                    text: check.unsupported?.reason || t("claim.unsupported.noReason"),
+                    text:
+                      (check.unsupported?.kind === "units" && check.unsupported.units
+                        ? t(
+                            check.unsupported.units === "another"
+                              ? "claim.unsupported.unitsDiffer"
+                              : "claim.unsupported.unitsNotGiven",
+                          )
+                        : check.unsupported?.reason) || t("claim.unsupported.noReason"),
                     testId: "claim-why",
                   }
                 : null;

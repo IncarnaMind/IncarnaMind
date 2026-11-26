@@ -61,19 +61,41 @@ export interface NoteParagraphs {
   facts(language: string | null): readonly FigureFacts[];
 }
 
+/** The language of a Note's opening words, matching `partsFigureContext`. */
+export function languageOfWords(words: readonly string[]): string | null {
+  const head: string[] = [];
+  let length = 0;
+  for (const text of words) {
+    if (length > LANGUAGE_SAMPLE) break;
+    head.push(text);
+    length += text.length + 1;
+  }
+  return noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+}
+
+function languageOf(blocks: readonly NoteParagraphs[]): string | null {
+  const head: string[] = [];
+  let length = 0;
+  for (const block of blocks) {
+    for (const words of block.words) {
+      if (length > LANGUAGE_SAMPLE) break;
+      head.push(words);
+      length += words.length + 1;
+    }
+    if (length > LANGUAGE_SAMPLE) break;
+  }
+  return noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+}
+
 /**
  * `documentFigureContext` of a Note's paragraphs, added up from each Block's: the whole Note is
  * read for its separators and language on every change to it (#746).
  */
-export function partsFigureContext(blocks: readonly NoteParagraphs[]): FigureContext {
-  const head: string[] = [];
-  let length = 0;
-  for (const words of blocks.flatMap((block) => block.words)) {
-    if (length > LANGUAGE_SAMPLE) break;
-    head.push(words);
-    length += words.length + 1;
-  }
-  const language = noteLanguage(head.join("\n").slice(0, LANGUAGE_SAMPLE));
+export function partsFigureContext(
+  blocks: readonly NoteParagraphs[],
+  languageBlocks: readonly NoteParagraphs[] = blocks,
+): FigureContext {
+  const language = languageOf(languageBlocks);
   return figureContextOfFacts(
     blocks.flatMap((block) => block.facts(language)),
     language,

@@ -1281,8 +1281,6 @@ test("a Question waiting for a model is kept if the app quits before a model wor
 
   const { app, window } = await launchApp(dataDir, { fakeChat: true });
   await setWindowSize(app, window, 1100, 900);
-  await expect(window.getByTestId("home")).toBeVisible();
-  await window.getByTestId("mind-tab").click();
   await expect(window.getByTestId("composer-input")).toHaveValue("What is in my Documents?");
   await app.close();
 });

@@ -1,11 +1,12 @@
-import { type MouseEvent, useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import type { Mind } from "../../core/api";
 import { isProcessing } from "../../shared/documentStatus";
 import { isListedMind } from "../../shared/listedMinds";
 import { core } from "./core";
+import { createHomeNoteStateReader } from "./homeNoteStates";
 import { isListedDocument } from "./meetingTranscript";
-import { homeReading, type NoteReading } from "./noteState";
+import type { NoteReading } from "./noteState";
 import { useSelection } from "./selection";
 import { type AppState, exampleMindIds, useAppStore } from "./store";
 
@@ -92,59 +93,38 @@ export function useMindNoteStates(
   );
   const keptCitationTexts = useAppStore((state) => state.keptCitationTexts);
   const library = useAppStore((state) => state.library);
-  const [saves, setSaves] = useState(0);
   const [states, setStates] = useState<ReadonlyMap<string, NoteReading>>(new Map());
+  const readerRef = useRef<ReturnType<typeof createHomeNoteStateReader> | null>(null);
   useEffect(() => {
+    const reader = createHomeNoteStateReader({
+      readMindContents: (ids) => core.readMindContents(ids),
+      onChange: setStates,
+      onError: (error) => useAppStore.getState().reportError(error),
+    });
+    readerRef.current = reader;
     let pause: ReturnType<typeof setTimeout> | undefined;
-    const stop = core.on("mind.update", () => {
+    const dirty = new Set<string>();
+    const stop = core.on("mind.update", ({ mindId }) => {
+      dirty.add(mindId);
       clearTimeout(pause);
-      pause = setTimeout(() => setSaves((count) => count + 1), SAVED_MS);
+      pause = setTimeout(() => {
+        const ids = [...dirty];
+        dirty.clear();
+        reader.refresh(ids);
+      }, SAVED_MS);
     });
     return () => {
       clearTimeout(pause);
       stop();
+      reader.dispose();
+      readerRef.current = null;
     };
   }, []);
   const wanted = minds.map((mind) => `${mind.id}:${mind.folderId ?? ""}`).join("|");
   // biome-ignore lint/correctness/useExhaustiveDependencies: `wanted` stands for the Minds and their Folders.
   useEffect(() => {
-    let current = true;
-    const folders = new Map(minds.map((mind) => [mind.id, mind.folderId]));
-    const ids = minds.map((mind) => mind.id);
-    if (ids.length === 0) {
-      setStates(new Map());
-      return;
-    }
-    core
-      .readMindContents(ids)
-      .then((snapshots) => {
-        const found = new Map<string, NoteReading>();
-        for (const snapshot of snapshots) {
-          try {
-            found.set(
-              snapshot.mindId,
-              homeReading(snapshot, {
-                documents,
-                keptCitationTexts,
-                library,
-                folderId: folders.get(snapshot.mindId) ?? null,
-              }),
-            );
-          } catch (error) {
-            // One Mind's content this version can't read must not blank every other row's state.
-            console.warn(
-              `Couldn't read the state of Mind ${snapshot.mindId}; its row shows the snippet.`,
-              error,
-            );
-          }
-        }
-        if (current) setStates(found);
-      })
-      .catch(useAppStore.getState().reportError);
-    return () => {
-      current = false;
-    };
-  }, [wanted, documents, keptCitationTexts, library, saves]);
+    readerRef.current?.sync(minds, { documents, keptCitationTexts, library });
+  }, [wanted, documents, keptCitationTexts, library]);
   return states;
 }
 

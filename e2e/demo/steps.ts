@@ -88,7 +88,7 @@ export async function checkTheMind(window: Page, script: DemoScript): Promise<vo
   const ask = window.getByTestId("mind-check-check");
   await expect(ask).toBeVisible({ timeout: 90_000 });
   await ask.click();
-  await expect(window.getByTestId("badge-stop")).toHaveCount(0, { timeout: 240_000 });
+  await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 240_000 });
   await expect(window.getByTestId("claim-mark").first()).toBeAttached();
   await window.keyboard.press("Escape");
 }

@@ -175,6 +175,16 @@ export function createOwnAiChecks(options: OwnAiChecksOptions) {
       ) {
         landed = true;
       }
+      if (
+        activity.pairingId === pairing.id &&
+        activity.tool === "check_mind_yourself" &&
+        activity.outcome === "refused" &&
+        activity.problem === "outside-scope" &&
+        aboutNote
+      ) {
+        lost ??= "beyond-reach";
+        stop.abort();
+      }
     });
     const offReach = options.onReachChange(() => {
       lost ??= options.heldBack(pairing, mindId);

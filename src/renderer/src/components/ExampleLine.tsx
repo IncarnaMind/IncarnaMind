@@ -15,9 +15,10 @@ export function ExampleLine({ mindId }: { mindId: string }) {
   const t = useT();
   const gap = useGap();
   const addMenu = useAddYourDocuments("example-add");
-  const credit = useAppStore(
-    (state) => allExamples(state).find((each) => each.mindId === mindId)?.group === "credit",
-  );
+  const hasCheck = useAppStore((state) => {
+    const group = allExamples(state).find((each) => each.mindId === mindId)?.group;
+    return group !== undefined && group !== "tea";
+  });
   const unseen = useAppStore((state) => state.settings?.device.gettingStarted.seen === false);
   const updateGettingStarted = useAppStore((state) => state.updateGettingStarted);
   const openSettings = useAppStore((state) => state.openSettings);
@@ -28,9 +29,9 @@ export function ExampleLine({ mindId }: { mindId: string }) {
   useEffect(() => {
     if (unseen) updateGettingStarted({ seen: true });
   }, [unseen, updateGettingStarted]);
-  const said = t(credit ? "examples.line.credit" : "examples.line");
+  const said = t(hasCheck ? "examples.line.credit" : "examples.line");
   return (
-    <div className="mind-measure example-line">
+    <div data-mind-id={mindId} className="mind-measure example-line">
       <p data-testid="example-line">
         {said}
         {gap(said, t("examples.line.add"))}

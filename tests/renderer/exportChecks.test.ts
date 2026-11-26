@@ -3,6 +3,8 @@ import type { SentenceChecksExported } from "../../src/core/api";
 import {
   checkComments,
   commentsHint,
+  fileCommentsHint,
+  fileCommentsPart,
   myCommentsPart,
   rewrittenLine,
   trackedChanges,
@@ -71,6 +73,26 @@ describe("The line after saving, for what a file says of its checked sentences",
     // The fold the cards go into, in both languages, with 批注 and never 评论 (#328).
     expect(t("en")("comments.fold", { count: 3 })).toBe("Comments (3)");
     expect(t("zh-CN")("comments.fold", { count: 3 })).toBe("批注（3）");
+  });
+
+  test("comments already in the original Word file are disclosed in Export options and on the Saved line, in English and Chinese (#3821)", () => {
+    expect(fileCommentsHint(0, t("en"))).toBeNull();
+    expect(fileCommentsHint(0, t("zh-CN"))).toBeNull();
+    expect(fileCommentsHint(1, t("en"))).toBe(
+      "1 comment from the Word file stays in the exported file.",
+    );
+    expect(fileCommentsHint(1, t("zh-CN"))).toBe("原 Word 文件中的 1 条批注会保留在导出文件中。");
+    expect(fileCommentsHint(3, t("en"))).toBe(
+      "3 comments from the Word file stay in the exported file.",
+    );
+    expect(fileCommentsHint(3, t("zh-CN"))).toBe("原 Word 文件中的 3 条批注会保留在导出文件中。");
+
+    expect(fileCommentsPart(0, t("en"))).toBeNull();
+    expect(fileCommentsPart(0, t("zh-CN"))).toBeNull();
+    expect(fileCommentsPart(1, t("en"))).toBe("Kept 1 comment from the Word file");
+    expect(fileCommentsPart(1, t("zh-CN"))).toBe("已保留原文件中的 1 条批注");
+    expect(fileCommentsPart(3, t("en"))).toBe("Kept 3 comments from the Word file");
+    expect(fileCommentsPart(3, t("zh-CN"))).toBe("已保留原文件中的 3 条批注");
   });
 
   test("the undo line of a file written again says what changed in it, one or more, in English and Chinese (#110)", () => {

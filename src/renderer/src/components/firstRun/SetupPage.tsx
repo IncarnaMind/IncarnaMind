@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import appIcon from "../../../../../build/icon/png/128x128.png";
-import type { WorkKind } from "../../../../core/api";
+import type { FirstRunStep, WorkKind } from "../../../../core/api";
 import { useAgentClients, useAgentPairings } from "../../agentNote";
+import { core } from "../../core";
 import { useAppStore } from "../../store";
 import { ConsentDialog } from "../ConsentDialog";
 import { ErrorNotices } from "../ErrorNotices";
@@ -29,31 +30,61 @@ export function SetupSteps({
   close,
 }: {
   steps: readonly SetupStep[];
-  /** The first step's order, and whether this install sent its picks: absent without that step. */
-  first?: { workOrder: readonly WorkKind[]; picksSent: boolean };
+  /** The first step's order, whether this install sent its picks, and any kept progress (#3819). */
+  first?: {
+    workOrder: readonly WorkKind[];
+    picksSent: boolean;
+    step: FirstRunStep;
+    work: readonly WorkKind[];
+  };
   onEnd(work: readonly WorkKind[]): void;
   close?(): void;
 }) {
-  const [at, setAt] = useState(0);
-  const [work, setWork] = useState<WorkKind[]>([]);
+  const initialIndex = first ? Math.max(0, steps.indexOf(first.step)) : 0;
+  const [at, setAt] = useState(initialIndex);
+  const [work, setWork] = useState<WorkKind[]>(() => [...(first?.work ?? [])]);
+  const workRef = useRef<WorkKind[]>(work);
+  workRef.current = work;
   const [sent, setSent] = useState(first?.picksSent === true);
   const [ending, setEnding] = useState(false);
   // Read on the first step shown, so Your AI has its agents as it opens.
   useAgentClients();
   useAgentPairings();
+  const persist = (nextAt: number, nextWork: readonly WorkKind[]) => {
+    if (!first) return;
+    const step = steps[nextAt];
+    if (step === "work" || step === "ai" || step === "meetings") {
+      core
+        .saveFirstRunProgress({ step, work: nextWork })
+        .catch((error: unknown) => console.error("Couldn't keep first-run setup progress.", error));
+    }
+  };
+  const updateWork = (nextWork: WorkKind[]) => {
+    workRef.current = nextWork;
+    setWork(nextWork);
+    persist(at, nextWork);
+  };
   const place: StepPlace = {
     steps,
     at,
     next: () => {
       if (at + 1 < steps.length) {
-        setAt(at + 1);
+        const nextAt = at + 1;
+        setAt(nextAt);
+        persist(nextAt, workRef.current);
         return;
       }
       if (ending) return;
       setEnding(true);
-      onEnd(work);
+      onEnd(workRef.current);
     },
-    ...(at > 0 && { back: () => setAt(at - 1) }),
+    ...(at > 0 && {
+      back: () => {
+        const prevAt = at - 1;
+        setAt(prevAt);
+        persist(prevAt, workRef.current);
+      },
+    }),
     ...(close && { close }),
   };
   const step = steps[at];
@@ -63,7 +94,7 @@ export function SetupSteps({
         place={place}
         order={first.workOrder}
         work={work}
-        onWork={setWork}
+        onWork={updateWork}
         sent={sent}
         onSent={() => setSent(true)}
       />
@@ -80,7 +111,17 @@ export function SetupSteps({
  * The dialogs a step can raise (a consent, a local model's download, a problem) draw over it as
  * they do over the app.
  */
-export function SetupPage({ workOrder, picksSent }: { workOrder: WorkKind[]; picksSent: boolean }) {
+export function SetupPage({
+  workOrder,
+  picksSent,
+  initialStep,
+  initialWork,
+}: {
+  workOrder: WorkKind[];
+  picksSent: boolean;
+  initialStep: FirstRunStep;
+  initialWork: WorkKind[];
+}) {
   const finishSetup = useAppStore((state) => state.finishSetup);
   return (
     <div
@@ -96,7 +137,7 @@ export function SetupPage({ workOrder, picksSent }: { workOrder: WorkKind[]; pic
         </p>
         <SetupSteps
           steps={FIRST_RUN}
-          first={{ workOrder, picksSent }}
+          first={{ workOrder, picksSent, step: initialStep, work: initialWork }}
           onEnd={(work) => void finishSetup(work)}
         />
       </main>

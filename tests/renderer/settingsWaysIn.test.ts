@@ -141,6 +141,8 @@ describe("every place that opens Settings › AI with no spot named", () => {
     expect(naming(/(openSettings|showSettingsPage|showPage)\(\s*["']ai["']\s*\)/)).toEqual([
       // One-press Claude Code install from empty states and ⌘K (#3638).
       "claudeCodeInstall.ts",
+      // ⌘J with no AI app connected and no model leads to Connect your AI (#3819).
+      "commands/assistant.ts",
       "commands/settings.ts",
       // The example's line, with no AI app connected and no model: Connect (#3791).
       "components/ExampleLine.tsx",

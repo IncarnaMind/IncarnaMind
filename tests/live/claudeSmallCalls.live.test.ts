@@ -67,9 +67,17 @@ const thinkingOffForm = (modelId: string) =>
     catalogProvider("anthropic")?.request?.thinkingOff?.options
   )?.anthropic;
 
+const judgingThinkingForm = () => {
+  const request = catalogProvider("anthropic")?.request;
+  return {
+    thinking: request?.reasoningSummary?.options.anthropic?.thinking,
+    effort: request?.effort?.kinds?.answer?.anthropic?.effort,
+  };
+};
+
 describe.each(MODELS)("%s, live", (model) => {
   test.skipIf(KEY === undefined)(
-    "tags a Document and checks a claim, each asked not to think as the model takes it",
+    "tags a Document with thinking off and checks a claim with judging thinking as the model takes it",
     { timeout: 600_000 },
     async () => {
       const requests = recordRequests();
@@ -111,12 +119,19 @@ describe.each(MODELS)("%s, live", (model) => {
         new Set([catalogProvider("anthropic")?.roles.quickTasks]),
       );
       expect(new Set(checked.map((each) => each.model))).toEqual(new Set([model]));
-      for (const each of requests.sent) {
+      for (const each of tagging) {
         const form = thinkingOffForm(each.model);
-        expect({ thinking: each.thinking, effort: each.effort }, each.model).toEqual({
+        expect({ thinking: each.thinking, effort: each.effort }, `tagging ${each.model}`).toEqual({
           thinking: form?.thinking,
           effort: form?.effort,
         });
+      }
+      // On a cloud service, claim judging runs with thinking on at answer effort (#3257).
+      const judgingForm = judgingThinkingForm();
+      for (const each of checked) {
+        expect({ thinking: each.thinking, effort: each.effort }, `check ${each.model}`).toEqual(
+          judgingForm,
+        );
       }
     },
   );

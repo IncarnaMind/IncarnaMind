@@ -1011,10 +1011,27 @@ describe("the example Minds of each group", { timeout: 90_000 }, () => {
           set.quotes.map((each) => each.document),
         );
 
-        // The first Question is there for the User to ask.
+        // The first Question is there for the User to ask, and every group carries one contradicted sentence check.
         const doc = await exampleMind(core, made.mindId as string);
         const question = doc.content.content.find((block) => block.type.name === QUESTION_BLOCK);
         expect(question?.textContent).toBe(set.question);
+        if (language === "zh-CN") {
+          expect(question?.textContent.endsWith("\uFF1F")).toBe(true);
+          expect(question?.textContent).not.toContain("?");
+        }
+        const marks = checksOf(doc);
+        expect(marks).toHaveLength(1);
+        expect(marks[0]).toMatchObject({
+          text: set.checks?.[0]?.sentence,
+          check: {
+            state: "contradicted",
+            evidence: {
+              documentName: set.checks?.[0]?.evidence.document,
+              quote: set.checks?.[0]?.evidence.quote,
+              check: "found",
+            },
+          },
+        });
       });
     }
   }

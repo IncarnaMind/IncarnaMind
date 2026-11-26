@@ -1,10 +1,11 @@
 /**
- * The check badge stands with the Note's own controls at its top right (#3677): a Citation's
- * card, a footnote's card and the format menu opened near it leave it uncovered, at 900 and
- * 1440 px, in English and Chinese, with the conversation closed and open as a column, and
- * pressing it opens the checks. Each card is opened where, hanging from its anchor, it would reach
- * the badge's row. At 900 px the open conversation rises from the input's box at the Note's foot:
- * the badge opens the checks, and Show conversation folds it. Every press lands
+ * The Note's Check button stands with the Note's own controls at its top right (#3677, #3794): a
+ * Citation's card, a footnote's card and the format menu opened near it leave it uncovered, at 900
+ * and 1440 px, in English and Chinese, with the conversation closed and open as a column, and
+ * pressing it takes its press: the Library holds no Document to check against, so its Check opens
+ * the checks to say so. Each card is opened where, hanging from its anchor, it would reach the
+ * button's row. At 900 px the open conversation rises from the input's box at the Note's foot:
+ * the button opens the checks, and Show conversation folds it. Every press lands
  * where its target stands: with a Citation on every line, a pointer sliding across the Note rests
  * on some on the way, and the card one opens would take the press. Test data only: Kestrel Bay.
  */
@@ -23,6 +24,7 @@ import {
   mindNode,
   motionSettled,
   newMind,
+  noteCheck,
   removeDataFolder,
   setLanguage,
   setWindowSize,
@@ -107,12 +109,12 @@ async function boxOf(locator: Locator): Promise<Box> {
 
 /**
  * Of `anchors` in the middle of the Note, so it can be scrolled to any height, the one a card
- * hanging from it would reach the badge from: `reach` left of the badge's left edge; with `under`,
- * the one closest under the badge's middle.
+ * hanging from it would reach the button from: `reach` left of the button's left edge; with `under`,
+ * the one closest under the button's middle.
  */
-async function anchorNear(anchors: Locator, badge: Box, reach: number, under = false) {
+async function anchorNear(anchors: Locator, button: Box, reach: number, under = false) {
   const index = await anchors.evaluateAll(
-    (elements, { badge, reach, under }) => {
+    (elements, { button, reach, under }) => {
       let best = -1;
       let score = Number.POSITIVE_INFINITY;
       elements.forEach((element, at) => {
@@ -120,8 +122,8 @@ async function anchorNear(anchors: Locator, badge: Box, reach: number, under = f
         const box = element.getBoundingClientRect();
         const middle = box.left + box.width / 2;
         const off = under
-          ? Math.abs(middle - (badge.x + badge.width / 2))
-          : Math.abs(middle - (badge.x - reach));
+          ? Math.abs(middle - (button.x + button.width / 2))
+          : Math.abs(middle - (button.x - reach));
         if (box.width > 0 && off < score) {
           score = off;
           best = at;
@@ -129,7 +131,7 @@ async function anchorNear(anchors: Locator, badge: Box, reach: number, under = f
       });
       return best;
     },
-    { badge, reach, under },
+    { button, reach, under },
   );
   expect(index).toBeGreaterThanOrEqual(0);
   return anchors.nth(index);
@@ -180,7 +182,7 @@ async function openFrom(window: Page, anchor: Locator, cardId: string): Promise<
 }
 
 /**
- * Opens `card` from `anchor` where, hanging above it, its top would come 10 px into the badge's
+ * Opens `card` from `anchor` where, hanging above it, its top would come 10 px into the button's
  * row; or as high as the room in the Note lets it, which is said.
  */
 async function openNear(
@@ -188,12 +190,12 @@ async function openNear(
   group: Locator,
   anchor: Locator,
   cardId: string,
-  badge: Box,
+  button: Box,
 ): Promise<void> {
   const card = window.getByTestId(cardId);
   const scroller = group.getByTestId("mind-scroller");
   const bottom = await roomBottom(group);
-  const below = badge.y + badge.height;
+  const below = button.y + button.height;
   await scrollTo(scroller, anchor, Math.min(below + 140, bottom - 60));
   await openFrom(window, anchor, cardId);
   const { height } = await boxOf(card);
@@ -203,8 +205,8 @@ async function openNear(
   const at = Math.min(reach, bottom - (await boxOf(anchor)).height - 4);
   if (at < reach) {
     test.info().annotations.push({
-      type: "out of the badge's reach",
-      description: `a card ${Math.round(height)} px tall can't reach the badge's row: the Note's text ends at ${Math.round(bottom)}`,
+      type: "out of the button's reach",
+      description: `a card ${Math.round(height)} px tall can't reach the button's row: the Note's text ends at ${Math.round(bottom)}`,
     });
   }
   await scrollTo(scroller, anchor, at);
@@ -212,20 +214,23 @@ async function openNear(
   await motionSettled(window);
 }
 
-/** The badge is drawn on top where it stands, and pressing it opens the checks. */
-async function pressable(window: Page, badge: Locator, card: Locator | null): Promise<void> {
+/**
+ * The button is drawn on top where it stands, and pressing it takes the press: its Check has no
+ * Document to check against and opens the checks to say so.
+ */
+async function pressable(window: Page, button: Locator, card: Locator | null): Promise<void> {
   if (card) {
-    const [badgeBox, cardBox] = [await boxOf(badge), await boxOf(card)];
-    expect(apart(badgeBox, cardBox), "the card covers the badge").toBe(true);
+    const [buttonBox, cardBox] = [await boxOf(button), await boxOf(card)];
+    expect(apart(buttonBox, cardBox), "the card covers the Check button").toBe(true);
   }
   expect(
-    await badge.evaluate((element) => {
+    await button.evaluate((element) => {
       const box = element.getBoundingClientRect();
       const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
       return top !== null && element.contains(top);
     }),
   ).toBe(true);
-  await badge.click();
+  await button.click();
   const checks = window.getByTestId("check-card");
   await expect(checks).toBeVisible();
   await window.keyboard.press("Escape");
@@ -287,7 +292,7 @@ async function still(window: Page, name: string): Promise<void> {
   await window.screenshot({ path: test.info().outputPath(`${name}.png`) });
 }
 
-async function cardsNearTheBadge(
+async function cardsNearTheButton(
   app: ElectronApplication,
   window: Page,
   language: "en" | "zh-CN",
@@ -295,7 +300,7 @@ async function cardsNearTheBadge(
   const group = window.locator('[data-testid="tab-group"][data-focused]');
   const editor = group.getByTestId("mind-editor");
   const scroller = group.getByTestId("mind-scroller");
-  const badge = group.getByTestId("check-badge-open");
+  const button = noteCheck(group);
   const chips = editor.getByTestId("citation-chip");
   const markers = editor.getByTestId("footnote-marker");
   for (const width of [900, 1440]) {
@@ -303,34 +308,34 @@ async function cardsNearTheBadge(
       await setWindowSize(app, window, width, 900);
       await setColumn(window, group, column);
       const place = `${language}, ${width} px, conversation ${column ? "open" : "closed"}`;
-      await expect(badge).toBeVisible();
-      const badgeBox = await boxOf(badge);
+      await expect(button).toBeVisible();
+      const buttonBox = await boxOf(button);
       // In a narrow window the conversation rises from the input's box at the Note's foot: the
-      // badge opens the checks with it open, and Show conversation folds it.
+      // button opens the checks with it open, and Show conversation folds it.
       if (column) {
         if (width === 900) await still(window, `conversation-open-${language}-900`);
-        await pressable(window, badge, null);
+        await pressable(window, button, null);
       }
 
       // A Citation's card and a footnote's card hang above their anchor: each is opened where its
-      // top would come 10 px into the badge's row, from an anchor a little left of the badge.
+      // top would come 10 px into the button's row, from an anchor a little left of the button.
       for (const [kind, anchors, cardId] of [
         ["Citation", chips, "citation-card"],
         ["footnote", markers, "footnote-popover"],
       ] as const) {
-        const anchor = await anchorNear(anchors, badgeBox, 100);
+        const anchor = await anchorNear(anchors, buttonBox, 100);
         const card = window.getByTestId(cardId);
         await test.step(`${kind}'s card, ${place}`, () =>
-          openNear(window, group, anchor, cardId, badgeBox));
+          openNear(window, group, anchor, cardId, buttonBox));
         if (kind === "Citation" && width === 900 && !column) {
-          await still(window, `citation-card-near-badge-${language}-900`);
+          await still(window, `citation-card-near-button-${language}-900`);
         }
-        await pressable(window, badge, card);
+        await pressable(window, button, card);
       }
 
       // The format menu, from words near the top right just under the Note's own controls.
-      const chip = await anchorNear(chips, badgeBox, 60);
-      await scrollTo(scroller, chip, badgeBox.y + badgeBox.height + 24);
+      const chip = await anchorNear(chips, buttonBox, 60);
+      await scrollTo(scroller, chip, buttonBox.y + buttonBox.height + 24);
       const word = await boxOf(chip);
       await window.mouse.dblclick(word.x - 24, word.y + word.height / 2);
       const selectionMenu = window.getByTestId("selection-menu");
@@ -338,25 +343,25 @@ async function cardsNearTheBadge(
       await selectionMenu.getByTestId("format-aa").click();
       const format = window.getByTestId("format-menu");
       await expect(format, `format menu, ${place}`).toBeVisible();
-      await pressable(window, badge, format);
+      await pressable(window, button, format);
       await editor.focus();
       await focusSettled(window, editor);
       await window.keyboard.press("ArrowRight");
       await expect(selectionMenu).toBeHidden();
 
-      // A Citation right under the badge: its card can't come left of the badge and still hang
+      // A Citation right under the button: its card can't come left of the button and still hang
       // over it. What it does is kept as a still.
       if (width === 900 && !column) {
-        const under = await anchorNear(chips, badgeBox, 0, true);
+        const under = await anchorNear(chips, buttonBox, 0, true);
         const card = window.getByTestId("citation-card");
-        await openNear(window, group, under, "citation-card", badgeBox);
-        await still(window, `citation-card-under-badge-${language}-900`);
+        await openNear(window, group, under, "citation-card", buttonBox);
+        await still(window, `citation-card-under-button-${language}-900`);
         const [anchorBox, cardBox] = [await boxOf(under), await boxOf(card)];
         test.info().annotations.push({
-          type: "under the badge",
-          description: `${language}: Citation ${Math.round(anchorBox.x)} to ${Math.round(anchorBox.x + anchorBox.width)}, card ${Math.round(cardBox.x)} to ${Math.round(cardBox.x + cardBox.width)}, badge ${Math.round(badgeBox.x)} to ${Math.round(badgeBox.x + badgeBox.width)}`,
+          type: "under the button",
+          description: `${language}: Citation ${Math.round(anchorBox.x)} to ${Math.round(anchorBox.x + anchorBox.width)}, card ${Math.round(cardBox.x)} to ${Math.round(cardBox.x + cardBox.width)}, button ${Math.round(buttonBox.x)} to ${Math.round(buttonBox.x + buttonBox.width)}`,
         });
-        await pressable(window, badge, card);
+        await pressable(window, button, card);
       }
 
       // Folded by Show conversation, or already by a press in the Note, as one opened upward is.
@@ -366,7 +371,7 @@ async function cardsNearTheBadge(
 }
 
 for (const language of ["en", "zh-CN"] as const) {
-  test(`a Citation's card, a footnote's card and the format menu near the check badge leave it pressable (${language})`, async () => {
+  test(`a Citation's card, a footnote's card and the format menu near the Note's Check button leave it pressable (${language})`, async () => {
     test.setTimeout(240_000);
     // The Note's input, and with it Show conversation, comes with the User's own AI connected.
     await writeFile(join(bin, "mode"), "explain");
@@ -396,7 +401,7 @@ for (const language of ["en", "zh-CN"] as const) {
         window.locator('[data-testid="tab-group"][data-focused]').getByTestId("citation-chip"),
       ).toHaveCount(24 * 3);
       await asked(window, language);
-      await cardsNearTheBadge(app, window, language);
+      await cardsNearTheButton(app, window, language);
     } finally {
       await app.close();
     }

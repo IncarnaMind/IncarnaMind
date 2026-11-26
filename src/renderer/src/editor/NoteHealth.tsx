@@ -31,7 +31,6 @@ import { useKeptInsideOf } from "../turnWall";
 import { useCheckUnread } from "../unreadFiles";
 import { AddedDocumentsLine } from "./AddedDocumentsLine";
 import { AnswerError } from "./AnswerView";
-import type { BadgeMark } from "./badgeState";
 import { AskedCheckLine, CheckNotReady } from "./CheckNotReady";
 import { roomBeside, textUnder } from "./checkCardHold";
 import { useCardPlace } from "./checkPlace";
@@ -43,7 +42,7 @@ import {
   healthSummary,
   noteHealth,
 } from "./healthCounts";
-import { CheckMarkIcon, ClaimMarkIcon, NotYetCitedIcon } from "./icons";
+import { ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { CheckedMore, CheckedWhen } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { NotYetCitedRow } from "./NotYetCitedRow";
@@ -94,50 +93,6 @@ export function Counted({ text, count }: { text: string; count: string }) {
       {text.slice(at + count.length)}
     </>
   );
-}
-
-/**
- * A badge mark's words, with its count as `shown`. Unsupported sentences "need a look", as Verify
- * counts them, whether their card says not found or unsupported (#1608).
- */
-export function partLabel(
-  t: ReturnType<typeof useT>,
-  part: BadgeMark,
-  count: number,
-  shown: string,
-): string {
-  const params = { count: shown };
-  switch (part) {
-    case "notFound":
-      return count === 1 ? t("health.notFound.one") : t("health.notFound", params);
-    case "unsupported":
-      return count === 1 ? t("health.needLook.one") : t("health.needLook", params);
-    case "contradicted":
-      return count === 1 ? t("health.contradicted.one") : t("health.contradicted", params);
-    case "notChecked":
-      // Verify's own part: the Mind folds a failed check into its sentences to check (#1909).
-      return t("verify.notChecked", params);
-    case "notYetCited":
-      return count === 1
-        ? t("health.state.notYetCited.one")
-        : t("health.state.notYetCited", params);
-  }
-}
-
-/** Each badge mark's small icon, as the margin draws its state. */
-export function PartMark({ part }: { part: BadgeMark }) {
-  switch (part) {
-    case "notFound":
-      return <CheckMarkIcon check="not-found" className="mind-health-icon" />;
-    case "unsupported":
-      return <ClaimMarkIcon state="unsupported" className="mind-health-icon" />;
-    case "contradicted":
-      return <ClaimMarkIcon state="contradicted" className="mind-health-icon" />;
-    case "notChecked":
-      return <ClaimMarkIcon state="not-checked" className="mind-health-icon" />;
-    case "notYetCited":
-      return <NotYetCitedIcon className="mind-health-icon mind-health-icon--wide" />;
-  }
 }
 
 /** The Mind's health as drawn, and whether it is counted from the Mind as it is now. */

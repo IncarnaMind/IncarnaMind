@@ -146,6 +146,8 @@ export type ExportResult = { tableId?: string } & (
       /** The User's own comments and replies in the Note (#328), and whether the file holds them. */
       myComments: number;
       myCommentsShown: boolean;
+      /** Comments and replies already in the original Word file, which Word exports keep (#3821). */
+      fileComments: number;
       /** Open: the choices that made this file, to change and export again (#1945). */
       changing?: ExportChanging;
     }
@@ -466,6 +468,7 @@ function savedResult(
       markAiText: "markAiText" in saved ? saved.markAiText : null,
       myComments: "myComments" in saved ? saved.myComments : 0,
       myCommentsShown: !("myCommentsShown" in saved) || saved.myCommentsShown,
+      fileComments: "fileComments" in saved ? saved.fileComments : 0,
     };
   }
   if (saved.status === "not-allowed") {

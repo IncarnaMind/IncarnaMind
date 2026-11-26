@@ -141,7 +141,7 @@ describe.each(LANGUAGES as Language[])("a summary row's figures, live: %s", (lan
         const core = startCore(await createTempDataFolder(), { createChatModel });
         core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
         await core.saveChatProvider({ kind: "anthropic", apiKey: KEY ?? "", modelId: MODEL });
-        await core.updateSettings({ user: { language } });
+        await core.updateSettings({ user: { language, checkAssistantWrites: true } });
         const sources = await createTempDataFolder();
         const files = await writeResearchFiles(sources, language);
         const documents = await addAndProcess(core, [
