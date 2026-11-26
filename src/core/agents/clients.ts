@@ -19,7 +19,7 @@
  * documentation each setup follows is cited beside it, as it stood on 2026-11-19.
  */
 import { join } from "node:path";
-import { HIDDEN_KEY } from "../../shared/agentSocket";
+import { AGENT_SOCKET_ENV, HIDDEN_KEY } from "../../shared/agentSocket";
 import type { AgentClientId, AgentLaunch, AgentSetupKind } from "../api";
 import { isRecord } from "../errors";
 import { SKILL_NAME } from "./skill";
@@ -764,12 +764,55 @@ export function withoutCodexTable(text: string): string {
   return [...lines.slice(0, start), ...lines.slice(end)].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+/** A TOML basic string, as `tomlString` writes one. */
+const BASIC = /"(?:[^"\\]|\\.)*"/.source;
+const COMMAND_LINE = new RegExp(`^\\s*command\\s*=\\s*(${BASIC})\\s*(?:#.*)?$`);
+const ENV_LINE = /^\s*env\s*=(.*)$/;
+/** One `NAME = "value"` of an inline table, and the comma after it or the brace that closes it. */
+const INLINE_PAIR = new RegExp(`([A-Za-z0-9_-]+)\\s*=\\s*(${BASIC})\\s*(?:,\\s*|(?=\\}))`, "y");
+
+/** A basic string's value; null where its escapes aren't the ones JSON shares with TOML. */
+function basicValue(quoted: string): string | null {
+  try {
+    const value: unknown = JSON.parse(quoted);
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * The program IncarnaMind's entry in a settings file starts, as written there, where that entry
- * holds `token` (the pairing's key); null otherwise, or where the file can't be read. Nothing else
- * in the file is read.
+ * A TOML inline table of basic strings as `codexTable` writes one (`{ NAME = "value", … }`, with a
+ * comment allowed after it), read pair by pair from its opening brace to its closing one; null for
+ * anything else.
  */
-export function writtenCommand(format: SettingsFormat, text: string, token: string): string | null {
+function inlineStrings(text: string): Map<string, string> | null {
+  const open = /^\s*\{\s*/.exec(text);
+  if (!open) return null;
+  const pairs = new Map<string, string>();
+  INLINE_PAIR.lastIndex = open[0].length;
+  let at = INLINE_PAIR.lastIndex;
+  for (let found = INLINE_PAIR.exec(text); found !== null; found = INLINE_PAIR.exec(text)) {
+    const [, name = "", quoted = ""] = found;
+    const value = basicValue(quoted);
+    if (value === null) return null;
+    pairs.set(name, value);
+    at = INLINE_PAIR.lastIndex;
+  }
+  return /^\}\s*(?:#.*)?$/.test(text.slice(at)) ? pairs : null;
+}
+
+/**
+ * IncarnaMind's entry in a settings file, as written there, where that entry holds `token` (the
+ * pairing's key, or "" for any): the program it starts and the socket it reaches, each null where
+ * the entry gives it in no form this reads; null where the file holds no such entry or can't be
+ * read. Nothing else in the file is read.
+ */
+export function writtenEntry(
+  format: SettingsFormat,
+  text: string,
+  token: string,
+): { command: string | null; socket: string | null } | null {
   if (format === "codex-toml") {
     const lines = text.split("\n");
     const start = lines.findIndex((line) => line.trim() === `[mcp_servers.${SERVER_KEY}]`);
@@ -777,25 +820,32 @@ export function writtenCommand(format: SettingsFormat, text: string, token: stri
     const end = lines.findIndex((line, index) => index > start && /^\s*\[/.test(line));
     const table = lines.slice(start + 1, end === -1 ? undefined : end);
     if (!table.some((line) => line.includes(token))) return null;
-    for (const line of table) {
-      const command = /^\s*command\s*=\s*("(?:[^"\\]|\\.)*")\s*$/.exec(line)?.[1];
-      if (command) return JSON.parse(command) as string;
-    }
-    return null;
+    const command = table.map((line) => COMMAND_LINE.exec(line)?.[1]).find(Boolean);
+    const env = table.map((line) => ENV_LINE.exec(line)?.[1]).find((found) => found !== undefined);
+    return {
+      command: command === undefined ? null : basicValue(command),
+      socket: env === undefined ? null : (inlineStrings(env)?.get(AGENT_SOCKET_ENV) ?? null),
+    };
   }
   try {
     const parsed: unknown = JSON.parse(text);
     const servers = isRecord(parsed) ? parsed.mcpServers : null;
-    const entry = isRecord(servers) ? servers[SERVER_KEY] : null;
-    return isRecord(entry) &&
-      typeof entry.command === "string" &&
-      JSON.stringify(entry).includes(token)
-      ? entry.command
-      : null;
+    const entry = isRecord(servers) ? servers[SERVER_KEY] : undefined;
+    if (entry === undefined || !JSON.stringify(entry).includes(token)) return null;
+    if (!isRecord(entry)) return { command: null, socket: null };
+    const socket = isRecord(entry.env) ? entry.env[AGENT_SOCKET_ENV] : null;
+    return {
+      command: typeof entry.command === "string" ? entry.command : null,
+      socket: typeof socket === "string" ? socket : null,
+    };
   } catch {
     return null;
   }
 }
+
+/** The program IncarnaMind's entry starts, as `writtenEntry` reads it. */
+export const writtenCommand = (format: SettingsFormat, text: string, token: string) =>
+  writtenEntry(format, text, token)?.command ?? null;
 
 /** Whether a settings file holds nothing but the empty frame IncarnaMind's entry left. */
 export function isEmptySettings(format: SettingsFormat, text: string): boolean {

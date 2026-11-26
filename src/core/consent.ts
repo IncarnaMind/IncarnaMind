@@ -67,6 +67,16 @@ interface ConsentRow {
   updated_at: string;
 }
 
+/**
+ * A flow's decision for one service as `choose` found it, for `putBack`: its row as it stood, to
+ * write back, or null where there was none, so the choice made since is taken back.
+ */
+export interface ReplacedDecision {
+  flowId: DataFlowId;
+  serviceId: string;
+  row: (ConsentRow & { id: string; service_name: string }) | null;
+}
+
 interface Pending {
   key: string;
   request: ConsentRequest;
@@ -393,21 +403,59 @@ export function createConsent(
      * each of `flowIds` to it is allowed, as chosen, and requests waiting for
      * one are answered. The choice is the consent, so it replaces an earlier
      * decline too. `unnamed`: kinds of data the line doesn't name, which
-     * still ask. A flow that isn't registered is left out.
+     * still ask. A flow that isn't registered is left out. Returns each
+     * decision it replaced, for `putBack`.
      */
     choose(
       flowIds: readonly DataFlowId[],
       service: ExternalService,
       unnamed: readonly DataKind[] = [],
-    ): void {
+    ): ReplacedDecision[] {
+      const replaced: ReplacedDecision[] = [];
       for (const flowId of flowIds) {
         if (!definitions.has(flowId)) continue;
+        const row = db.get<NonNullable<ReplacedDecision["row"]>>(
+          `SELECT id, decision, data_kinds, chosen, service_name, updated_at FROM data_flow_consents
+           WHERE flow = ? AND service_id = ? AND deleted_at IS NULL`,
+          [flowId, service.id],
+        );
+        replaced.push({ flowId, serviceId: service.id, row: row ?? null });
         const flow = flowFor(flowId, service);
         const named = { ...flow, sends: flow.sends.filter((kind) => !unnamed.includes(kind)) };
         const waiting = waitingFor(flow);
         if (waiting && named.sends.length === flow.sends.length) answer(waiting, true, true);
         else recordAccepted(named, true);
       }
+      return replaced;
+    },
+
+    /**
+     * Sets each flow's decision for its service back to what `choose` replaced, the User having
+     * taken that choice back: the row as it stood, with its kinds, date and how it was given; where
+     * there was none, the decision made since is taken back as `revoke` takes one back, so the flow
+     * reads as taken back (`takenBack`) until the User allows it again. A decision forgotten since
+     * stays forgotten.
+     */
+    putBack(replaced: readonly ReplacedDecision[]): void {
+      const at = now();
+      db.transaction(() => {
+        for (const { flowId, serviceId, row } of replaced) {
+          if (row === null) {
+            db.run(
+              `UPDATE data_flow_consents SET deleted_at = ?
+               WHERE flow = ? AND service_id = ? AND deleted_at IS NULL`,
+              [at, flowId, serviceId],
+            );
+            continue;
+          }
+          db.run(
+            `UPDATE data_flow_consents
+             SET decision = ?, data_kinds = ?, chosen = ?, service_name = ?, updated_at = ?
+             WHERE id = ? AND deleted_at IS NULL`,
+            [row.decision, row.data_kinds, row.chosen, row.service_name, row.updated_at, row.id],
+          );
+        }
+      });
     },
 
     respond(requestId: unknown, accept: unknown): ConsentRequest | null {
