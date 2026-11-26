@@ -97,6 +97,7 @@ const reply = (language: Language) =>
   [
     "Reply in exactly this form, the verdict word in English:",
     'Details: what the sentence states, one thing after another (each figure with its unit and scale, each date, name, party and condition, each word for a direction or a comparison), each followed by what the Passages give for it and "same" or "differs": "3,400 staff / 3,400 employees, same; fell from 12 sites / 12 sites before and 15 now is a rise, differs".',
+    'Units: same, none, another, or unstated — "none" when the sentence states no currency, unit or scale; "same" when the Passages state the same currency, unit and scale for those figures; "another" when the Passages state a different one; "unstated" when the sentence (or its heading or unit line) gives a currency, unit or scale the Passages never state for that figure, or state only for another table.',
     `Verdict: ${VERDICTS.slice(0, -1).join(", ")} or ${VERDICTS.at(-1)}`,
     `Explanation: one plain sentence in ${LANGUAGE_NAMES[language]}, whatever language the Documents and the User's sentence are in. For supported or contradicted, say what the Document says, with the markers of the quotes that decide it at its end ("… [^1]"); for contradicted, name the thing, and give the Document's value and the sentence's. For overstated, say what the Document says and how the sentence goes further; for partly supported, say which part the Documents don't state; for not found, say what the Documents don't say; for own view, say what the Documents hold on it, with the markers of the quotes: the facts that are a reason for it and the facts that point the other way, or that they hold nothing on it. Never mention the search, the Passages or how you found it.`,
     "Evidence: [1, 2] naming the cite markers of the quotes that decide it, or Evidence: [] when no quote does.",
@@ -291,11 +292,16 @@ export interface ReadCorrection {
   marker: number | null;
 }
 
+/** Whether the Passages state the same currency, unit and scale as the sentence for its amounts (#3806). */
+export type StatedUnits = "same" | "none" | "another" | "unstated";
+
 /** What a reply says: its verdict, its one sentence, and the markers of the quotes it rests on. */
 export interface ReadVerdict {
   verdict: ClaimVerdict;
   /** Which of the three ways a sentence goes unsupported the reply named; absent when it named none. */
   word?: Finer;
+  /** Whether the sentence's currencies, units and scales match the Passages for those same figures (#3806). */
+  units?: StatedUnits;
   says: string | null;
   /** The markers its Evidence line names; null when it gives no line that reads. */
   evidence: number[] | null;
@@ -307,6 +313,7 @@ export interface ReadVerdict {
 const MARKERS = /\s*\[[\^=]?\d{1,4}\]/g;
 const label = (names: string) =>
   new RegExp(`^[\\s>*_#\`"'“”-]*(?:${names})[\\s*_]*[:：][\\s*_"'“”\`]*(.*)$`, "i");
+const UNITS = label("units|单位");
 const VERDICT = label("verdict|结论|判断");
 const EXPLANATION = label("explanation|说明|解释");
 const EVIDENCE = label("evidence|证据");
@@ -322,9 +329,15 @@ const BARE = new RegExp(`^[\\s>*_#\`"'“”-]*((?:${WORD})\\b.*)`, "i");
  * ("这是作者的判断：…"), so it names a field only at a line's start.
  */
 const FIELD_START =
-  /(?<=\S)[ \t]*(?=(?:Details|Verdict|Explanation|Evidence|Working|Change 1|To 1)[ \t]*[:：])/g;
+  /(?<=\S)[ \t]*(?=(?:Details|Units|Verdict|Explanation|Evidence|Working|Change 1|To 1)[ \t]*[:：])/g;
 
 type Finer = NonNullable<UnsupportedReason["word"]>;
+
+const unitsIn = (words: string | undefined): StatedUnits | undefined => {
+  const said = /^(same|none|another|unstated)\b/i.exec(words ?? "")?.[1]?.toLowerCase();
+  if (said === "same" || said === "none" || said === "another" || said === "unstated") return said;
+  return undefined;
+};
 
 /** A reply's verdict word: one of the six it is asked for, or "unsupported" as older replies say. */
 const verdictIn = (words: string | undefined): Pick<ReadVerdict, "verdict" | "word"> | null => {
@@ -378,6 +391,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
   const given = verdictIn(field(VERDICT)) ?? verdictIn(BARE.exec(lines[0] ?? "")?.[1]);
   if (!given) return jsonVerdict(withoutThinking(reply));
   const { verdict } = given;
+  const units = unitsIn(field(UNITS));
   const evidence = field(EVIDENCE);
   const from = clean(field(CHANGE));
   const to = field(TO);
@@ -386,6 +400,7 @@ export function readVerdict(reply: string): ReadVerdict | null {
   const working = verdict === "unsupported" ? null : clean(field(WORKING));
   return {
     ...given,
+    ...(units && { units }),
     says: clean(field(EXPLANATION)),
     evidence: evidence === undefined ? null : markersOf(parseJson(evidence)?.value),
     ...(working && !/^(?:none|无)(?![\p{L}\p{N}])/iu.test(working) && { working }),
@@ -407,11 +422,13 @@ function jsonVerdict(reply: string): ReadVerdict | null {
   if (start < 0 || end <= start) return null;
   const value = parseJson(reply.slice(start, end + 1))?.value;
   if (typeof value !== "object" || value === null) return null;
-  const { verdict, says, evidence } = value as Record<string, unknown>;
+  const { verdict, units, says, evidence } = value as Record<string, unknown>;
   const known = verdictIn(typeof verdict === "string" ? verdict : undefined);
+  const statedUnits = unitsIn(typeof units === "string" ? units : undefined);
   return (
     known && {
       ...known,
+      ...(statedUnits && { units: statedUnits }),
       says: typeof says === "string" ? clean(says) : null,
       evidence: markersOf(evidence),
     }
@@ -435,6 +452,12 @@ const replyLine = (label: string, value: unknown): string[] => {
 /** The reply a check's model may hand over in `cite`, with the quotes that call records (#3381). */
 export const CITE_REPLY: CiteReply = {
   properties: {
+    units: {
+      type: "string",
+      enum: ["same", "none", "another", "unstated"],
+      description:
+        'What your reply\'s Units line would say: "none" when the sentence states no currency, unit or scale; "same" when the Passages state the same one; "another" when the Passages state a different one; "unstated" when the sentence (or its heading or unit line) gives one the Passages never state for that figure, or state only for another table.',
+    },
     verdict: {
       type: "string",
       enum: [...VERDICTS],
@@ -459,6 +482,7 @@ export const CITE_REPLY: CiteReply = {
     );
     if (!given) return null;
     return [
+      ...replyLine("Units", given.units),
       ...replyLine("Verdict", given.verdict),
       ...Object.entries(CARRIED_LINES).flatMap(([field, label]) => replyLine(label, given[field])),
       `Evidence: [${markers.join(", ")}]`,

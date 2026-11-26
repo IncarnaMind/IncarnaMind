@@ -1429,6 +1429,8 @@ export const zhCN = {
   "claim.unsupported.unit.library": "你的资料库有{amount}，不是{figure}。",
   "claim.unsupported.otherMeasure": "文档中的{amount}指的是{measure}，而不是{claimed}。",
   "claim.unsupported.unitsMayDiffer": "单位可能不同：来源为 {amount}",
+  "claim.unsupported.unitsNotGiven": "文档未注明这一数字的币种、单位或量级。",
+  "claim.unsupported.unitsDiffer": "文档对这一数字给出了不同的币种、单位或量级。",
   "claim.unsupported.whichDollar": "“{document}”写的是“{amount}”，没有注明币种",
   "claim.unsupported.yuanSign": "“{document}”写的是“{amount}”，中文里 ¥ 指人民币",
   "claim.currencyClause": "文档注明了币种（{source}）：{quote}",

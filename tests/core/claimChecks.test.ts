@@ -1590,3 +1590,160 @@ describe("Why a sentence is unsupported", () => {
     });
   });
 });
+
+describe("Stated units check (#3806)", () => {
+  const QUOTE = "Spring tides happen at new moon and at full moon";
+
+  const runCheck = async (
+    reply: { text: string } | { citeReply: Record<string, unknown> },
+    language: "en" | "zh-CN" = "en",
+  ) => {
+    const model = scriptedModel((call) => {
+      const search = call.results.find((result) => result.tool === "search_documents");
+      if (!search)
+        return { calls: [{ tool: "search_documents", input: { query: "spring tides" } }] };
+      const passage = shownPassages(search.text)[0];
+      if (!call.results.some((result) => result.tool === "cite")) {
+        return {
+          calls: [
+            {
+              tool: "cite",
+              input: {
+                citations: [
+                  {
+                    marker: 1,
+                    passage: passage?.id ?? "P1",
+                    location: passage?.location ?? "§ Tides",
+                    quote: QUOTE,
+                  },
+                ],
+                ...("citeReply" in reply ? reply.citeReply : {}),
+              },
+            },
+          ],
+        };
+      }
+      return "text" in reply ? reply : { text: "" };
+    });
+    const core = startCore(await createTempDataFolder(), { createChatModel: () => model });
+    core.on("consent.requested", (asked) => void core.respondToConsent(asked.requestId, true));
+    await core.saveChatProvider({
+      kind: "anthropic",
+      apiKey: "test-key",
+      modelId: "claude-haiku-5-5",
+    });
+    await core.updateSettings({ user: { language } });
+    const sources = await createTempDataFolder();
+    await addAndProcess(core, [await writeSourceFile(sources, TIDES.name, TIDES.contents)]);
+    const result = await core.checkClaim({ claim: SUPPORTED });
+    core.close();
+    return result;
+  };
+
+  test("lowers Supported to Unsupported (kind: units) when Units is unstated or another, in en and zh-CN", async () => {
+    const enUnstated = await runCheck(
+      {
+        text: "Units: unstated\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]",
+      },
+      "en",
+    );
+    expect(enUnstated).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "units",
+        reason: translate("en", "claim.unsupported.unitsNotGiven"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+
+    const zhUnstated = await runCheck(
+      {
+        text: "Units: unstated\nVerdict: supported\nExplanation: 符合。\nEvidence: [1]",
+      },
+      "zh-CN",
+    );
+    expect(zhUnstated).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "units",
+        reason: translate("zh-CN", "claim.unsupported.unitsNotGiven"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+
+    const enAnother = await runCheck(
+      {
+        text: "Units: another\nVerdict: supported\nExplanation: Matches.\nEvidence: [1]",
+      },
+      "en",
+    );
+    expect(enAnother).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "units",
+        reason: translate("en", "claim.unsupported.unitsDiffer"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+
+    const zhAnother = await runCheck(
+      {
+        text: "Units: another\nVerdict: supported\nExplanation: 符合。\nEvidence: [1]",
+      },
+      "zh-CN",
+    );
+    expect(zhAnother).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "units",
+        reason: translate("zh-CN", "claim.unsupported.unitsDiffer"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+  });
+
+  test("lowers Supported when cite carries units: unstated in the tool call", async () => {
+    const lowered = await runCheck(
+      {
+        citeReply: {
+          units: "unstated",
+          verdict: "supported",
+          explanation: "Matches.",
+        },
+      },
+      "en",
+    );
+    expect(lowered).toMatchObject({
+      verdict: "unsupported",
+      unsupported: {
+        kind: "units",
+        reason: translate("en", "claim.unsupported.unitsNotGiven"),
+        found: true,
+        quoted: { quote: QUOTE },
+      },
+    });
+  });
+
+  test("keeps Supported for Units: same, none, or omitted, and never raises a non-Supported verdict", async () => {
+    for (const line of ["Units: same\n", "Units: none\n", ""]) {
+      const kept = await runCheck({
+        text: `${line}Verdict: supported\nExplanation: Matches.\nEvidence: [1]`,
+      });
+      expect(kept.verdict).toBe("supported");
+    }
+
+    const contradicted = await runCheck({
+      text: "Units: same\nVerdict: contradicted\nExplanation: Differs.\nEvidence: [1]",
+    });
+    expect(contradicted.verdict).toBe("contradicted");
+
+    const unsupported = await runCheck({
+      text: "Units: same\nVerdict: partly supported\nExplanation: Missing detail.\nEvidence: [1]",
+    });
+    expect(unsupported.verdict).toBe("unsupported");
+  });
+});

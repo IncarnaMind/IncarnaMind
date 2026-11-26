@@ -13,6 +13,7 @@
  * sentence it leaves undecided comes here.
  */
 import { partWithResult, resultFromParts } from "../../../shared/claimParts";
+import { translate } from "../../../shared/i18n";
 import { joinUnits, locationOf, quoteInUnits } from "../../../shared/locations";
 import { workingAddsUp } from "../../../shared/plainFigures";
 import { isClaim } from "../../../shared/sentences";
@@ -467,6 +468,30 @@ async function judged(deps: ClaimCheckDependencies, request: ClaimCheckRequest):
   const evidence =
     quoted ?? (worked ? (rowsOf(worked)[0]?.citation ?? lists?.citation) : undefined);
   const result = ((): Judged => {
+    if (read.verdict === "supported" && (read.units === "unstated" || read.units === "another")) {
+      return {
+        verdict: "unsupported",
+        evidence: null,
+        says: null,
+        unsupported: {
+          kind: "units",
+          reason: translate(
+            language,
+            read.units === "another"
+              ? "claim.unsupported.unitsDiffer"
+              : "claim.unsupported.unitsNotGiven",
+          ),
+          covered: null,
+          uncovered: null,
+          ...(quoted && { found: true as const, quoted }),
+        },
+        calculation: null,
+        ...(working && { working }),
+        ...court.citedCase(null),
+        ...facts(),
+        excluded: [...facts().excluded, ...results.ownWorkings()],
+      };
+    }
     if (read.verdict === "unsupported")
       return {
         verdict: "unsupported",
