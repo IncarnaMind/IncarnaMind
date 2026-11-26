@@ -3336,6 +3336,12 @@ export function createAgentAccess(
           throw new AgentRefusedError("invalid", t("agents.propose.version"));
         }
         const asked = parseChanges(input?.changes, t);
+        // The request this call was made for, as it is now: the AI may take one sent meanwhile
+        // while the pictures are read, which moves the run on to that request's words (#3765).
+        const madeFor =
+          grant?.kind === "conversation" && grant.front.mindId === mind.id
+            ? { ...grant.front }
+            : null;
         const visuals = await visualsFor(
           asked.flatMap((change) => (change.kind === "remove" ? [] : [change.text])),
         );
@@ -3355,10 +3361,7 @@ export function createAgentAccess(
         const own = wrote(pairing, mind.id);
         // The Note the User asked from at its foot takes the change at once, as an edit asked of
         // the assistant does; with words selected, only a change inside them (ADR-0034).
-        const front =
-          grant?.kind === "conversation" && grant.front.mindId === mind.id && !own
-            ? grant.front
-            : null;
+        const front = own ? null : madeFor;
         let askedHere = false;
         const naming = namingOf(own);
         const key = versionKey(pairing, mind.id);
@@ -3420,8 +3423,7 @@ export function createAgentAccess(
         }
         deps.versions.set(key, written.now.version);
         // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
-        const ownFront =
-          own && grant?.kind === "conversation" && grant.front.mindId === mind.id && step !== null;
+        const ownFront = own && madeFor !== null && step !== null;
         if ((askedHere || ownFront) && grant?.kind === "conversation") {
           const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
           grant.asked?.({
