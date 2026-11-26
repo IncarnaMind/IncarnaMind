@@ -1123,6 +1123,7 @@ export function createOwnAiConversations(options: OwnAiConversationsOptions) {
         of.calls += 1;
         heard();
         return {
+          own: of.own,
           // Applied in the Note while a request works on it: never between one's end and the next.
           asked: (change) => of.applied.push(change),
           called: (call) => heardCall(of, call),
@@ -1589,6 +1590,8 @@ interface Taken {
   /** Its calls still running, and its end, once its AI took a later request, kept until they end. */
   calls: number;
   closing: (() => void) | null;
+  /** The changes it applied in the Note asked from, by their request ids. */
+  own: Set<string>;
 }
 
 const taking = (turnId: string, startedAt: string): Taken => ({
@@ -1608,4 +1611,5 @@ const taking = (turnId: string, startedAt: string): Taken => ({
   calledSince: false,
   calls: 0,
   closing: null,
+  own: new Set(),
 });

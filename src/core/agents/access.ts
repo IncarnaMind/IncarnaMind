@@ -50,6 +50,7 @@ import type { CheckRow } from "../../shared/noteHealth";
 import { noteWriterOf, recordNoteWriter } from "../../shared/noteWriter";
 import {
   addsOnly,
+  type ChangeKind,
   changeKinds,
   countChanged,
   decideProposals,
@@ -141,7 +142,6 @@ import {
   type CitedToken,
   HANDLE,
   HeldParagraph,
-  heldByOwn,
   type NamedChange,
   type NamedNote,
   type NamedOptions,
@@ -374,13 +374,14 @@ export interface AgentProposeInput {
 export interface AgentProposed {
   mindId: string;
   /**
-   * "applied": the changes are in the Note now, one step the User can undo, since this agent
-   * wrote it (#3371); "waiting": they wait for the User to accept or reject.
+   * "applied": the changes are in the Note, one step the User can undo: at once in a Note this
+   * agent wrote (#3371), once the request ends in the Note it was asked from (ADR-0034);
+   * "waiting": they wait for the User to accept or reject.
    */
   status: "applied" | "waiting";
   /** How many of its changes wait for the User in the Note; 0 once they applied. */
   waiting: number;
-  /** How many changes wait in the Note in all, this agent's and any before them. */
+  /** How many changes wait for the User in the Note in all, this agent's and any before them. */
   waitingInNote: number;
   /** The Note as it is now, read by name as `read_mind` with `named` reads it: its next change names these. */
   markdown: string;
@@ -1322,6 +1323,36 @@ function insideSelection(
       now.endsWith(words.after)
     );
   });
+}
+
+interface ChangeCounts {
+  changed: number;
+  added: number;
+  tables: number;
+}
+
+const NONE_COUNTED: ChangeCounts = { changed: 0, added: 0, tables: 0 };
+
+/** A change's paragraphs as the line that says what it did counts them: added whole, or changed. */
+function countsOf(kinds: readonly ChangeKind[]): ChangeCounts {
+  const added = addsOnly(kinds) ? countChanged(kinds) : 0;
+  return {
+    changed: added > 0 ? 0 : countChanged(kinds),
+    added,
+    tables: kinds.filter((kind) => kind === "table-added").length,
+  };
+}
+
+/** What the changes of these requests in a Note count, each as it counts alone (`countsOf`). */
+function countedBy(blocks: Y.XmlFragment, requests: Iterable<string>): ChangeCounts {
+  const total = { ...NONE_COUNTED };
+  for (const request of requests) {
+    const each = countsOf(changeKinds(blocks, (ref) => ref.request === request));
+    total.changed += each.changed;
+    total.added += each.added;
+    total.tables += each.tables;
+  }
+  return total;
 }
 
 /** The changes, each for the named paragraph it is for, by its place in `note`. */
@@ -2307,28 +2338,6 @@ export function createAgentAccess(
    * How a Note is named for an agent: its title as ¶0, and in a Note the agent wrote, what the
    * User wrote there marked as theirs (#3371).
    */
-  /**
-   * As `proposeNamed`; a paragraph held by this run's own change is the agent's, in the Note once
-   * the request ends, not one for the User to accept or reject first.
-   */
-  const proposeYours: typeof proposeNamed = (blocks, ...rest) => {
-    try {
-      return proposeNamed(blocks, ...rest);
-    } catch (error) {
-      if (
-        error instanceof HeldParagraph &&
-        error.held === "waiting" &&
-        heldByOwn(blocks, error.paragraph.blockId, ownPending)
-      ) {
-        throw new AgentRefusedError(
-          "waiting",
-          t("agents.problem.yours", { paragraph: error.paragraph.name }),
-        );
-      }
-      throw error;
-    }
-  };
-
   const namingOf = (own: boolean): NamedOptions => ({
     title: true,
     ownPending,
@@ -3496,14 +3505,35 @@ export function createAgentAccess(
               deps.versions.get(key) === note.version ? "changedByYou" : "changedByUser";
             throw new AgentRefusedError("changed", t(`agents.problem.${cause}`));
           }
-          if (note.paragraphs.length === 0 && waitingChanges(blocks) > 0) {
+          // This run's own changes don't wait for the User: it reads them as in the Note (#3762).
+          const forUser = (ref: { request: string }) => !ownPending.has(ref.request);
+          if (note.paragraphs.length === 0 && waitingChanges(blocks, forUser) > 0) {
             throw new AgentRefusedError("waiting", t("agents.propose.firstWaiting"));
           }
           const placed = placeChanges(asked, note, t);
           askedHere =
             front !== null &&
             (front.selection === null || insideSelection(placed, note, front.selection));
-          const proposed = proposeYours(blocks, note, placed, {
+          // A change that waits for the User never takes back this run's own, which applies: rejected,
+          // it would leave neither.
+          const overOwn = askedHere
+            ? []
+            : placed.flatMap((change) =>
+                change.kind === "add" || note.paragraphs[change.at]?.yours === undefined
+                  ? []
+                  : [note.paragraphs[change.at]?.name ?? ""],
+              );
+          if (overOwn[0] !== undefined) {
+            throw new AgentRefusedError(
+              "waiting",
+              t("agents.propose.ownOutsideSelection", { paragraph: overOwn[0] }),
+            );
+          }
+          // What the request itself applied: the run's other requests' changes, though they read as
+          // in, are theirs to count and to take back (#3765).
+          const requestOwn = hears?.own ?? ownPending;
+          const before = countedBy(blocks, requestOwn);
+          const proposed = proposeNamed(blocks, note, placed, {
             request,
             made: {
               source: "outside-agent",
@@ -3517,12 +3547,28 @@ export function createAgentAccess(
             visuals,
             newId: deps.newId,
             ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
+            ...(askedHere && { own: requestOwn }),
           });
           const kinds = changeKinds(blocks, mine);
           if (own) decideProposals(blocks, mine, "accept");
-          if (askedHere) ownPending.add(request);
+          if (askedHere) {
+            ownPending.add(request);
+            requestOwn.add(request);
+          }
+          // The line adds up what each change reports: this one reports what it moved the count of
+          // the run's changes still waiting here by, read before and after it in this one write,
+          // so one that rewrites or takes out its own is never counted twice, and one the window
+          // applied meanwhile is never counted against it.
+          const after = countedBy(blocks, requestOwn);
+          const moved = askedHere
+            ? {
+                changed: after.changed - before.changed,
+                added: after.added - before.added,
+                tables: after.tables - before.tables,
+              }
+            : null;
           const now = namedNote(blocks, namedWords(pairing, inScope, []), naming);
-          return { ...proposed, kinds, now, waitingInNote: waitingChanges(blocks) };
+          return { ...proposed, kinds, moved, now, waitingInNote: waitingChanges(blocks, forUser) };
         };
         let written: ReturnType<typeof write>;
         let step: string | null = null;
@@ -3546,25 +3592,19 @@ export function createAgentAccess(
         // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
         const ownFront = own && madeFor !== null && step !== null;
         if ((askedHere || ownFront) && hears) {
-          const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
           hears.asked({
             mindId: mind.id,
             request,
-            changed: added > 0 ? 0 : countChanged(written.kinds),
-            added,
-            tables: written.kinds.filter((kind) => kind === "table-added").length,
+            ...(written.moved ?? countsOf(written.kinds)),
             ...(ownFront && { own: true as const }),
           });
         }
         if (own && step !== null) {
-          const added = addsOnly(written.kinds) ? countChanged(written.kinds) : 0;
           deps.noteChanged({
             mindId: mind.id,
             agent: pairing.name,
             kind: "changed",
-            changed: added > 0 ? 0 : countChanged(written.kinds),
-            added,
-            tables: written.kinds.filter((kind) => kind === "table-added").length,
+            ...countsOf(written.kinds),
             step,
           });
         }

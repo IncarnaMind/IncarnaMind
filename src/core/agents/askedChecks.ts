@@ -84,6 +84,12 @@ export interface ConversationHears {
 
 /** What a conversation's run hears of one call it started. */
 export interface CallHears {
+  /**
+   * The changes the request applied in the Note asked from, by their request ids: only these may a
+   * later change of the same request take back, and only these count on its line. Another request
+   * of the run, taken meanwhile, has its own (#3765).
+   */
+  own: Set<string>;
   /** A request of changes made in the front Note that applied at once, with what it changed. */
   asked(made: AskedInFront): void;
   /** The call, as its activity row records it. */

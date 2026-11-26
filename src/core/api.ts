@@ -13596,6 +13596,11 @@ export type NoteRequestStart =
 export interface NoteChangeApplied {
   mindId: string;
   request: string;
+  /**
+   * Paragraphs changed, added whole, and tables added: what this change moved the request's count
+   * in the Note by, so the request's changes added up count each paragraph once. Below 0 when it
+   * takes out what an earlier change of the request wrote (#3762).
+   */
   changed: number;
   added: number;
   tables: number;
