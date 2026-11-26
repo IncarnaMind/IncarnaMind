@@ -224,7 +224,15 @@ function accessChecking(
     pairingId: "pairing",
     createdAt: "2026-11-01T09:00:00.000Z",
   });
-  const mind = { id: "note", title: "Tide notes", folderId: "coast" };
+  const mind: Mind = {
+    id: "note",
+    title: "Tide notes",
+    autoTitle: "",
+    kind: "note",
+    createdAt: AT,
+    updatedAt: AT,
+    folderId: "coast",
+  };
   return accessAnswering(
     { asked: false, reason: "not-ready" },
     {
@@ -235,7 +243,7 @@ function accessChecking(
         createdAt: AT,
         propose: true,
       }),
-      minds: () => [mind] as ReturnType<AgentAccessDeps["minds"]>,
+      minds: () => [mind],
       mindBlocks: (_mindId, look) => look(doc.getXmlFragment(MIND_CONTENT_FIELD)),
       checkNote,
       checkWaitMs: 20,

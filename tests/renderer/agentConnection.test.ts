@@ -19,9 +19,31 @@ import {
 import { doneWords, setupProblem } from "../../src/renderer/src/components/agents/agentWords";
 import { type MessageKey, type MessageParams, translate } from "../../src/shared/i18n";
 
+interface Agents {
+  enabled: boolean;
+  pairings: AgentPairing[];
+}
+
+const noAgents = (): Agents => ({ enabled: false, pairings: [] });
+
+/** What the core gives for an app it connected, its connection kept in `state`. */
+function connected(state: Agents, client: string): SetUpAgent {
+  const pairing: AgentPairing = {
+    id: `pairing-${client}`,
+    name: client,
+    folderIds: ["not-in-a-folder"],
+    client,
+    propose: true,
+    lastUsedAt: null,
+    createdAt: "2026-11-25T00:00:00.000Z",
+  };
+  state.pairings.push(pairing);
+  return { pairing, result: { kind: "wrote", path: "" } };
+}
+
 /** A core whose setups wait until the test settles them, one by one. */
 function bridgeOf() {
-  const state = { enabled: false, pairings: [] as AgentPairing[] };
+  const state = noAgents();
   const waiting = new Map<string, { connect(): void; fail(): void }>();
   const bridge: AgentBridge = {
     getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
@@ -31,11 +53,7 @@ function bridgeOf() {
     setUpAgent: (input: SetUpAgentInput) =>
       new Promise<SetUpAgent>((resolve, reject) => {
         waiting.set(String(input.client), {
-          connect: () => {
-            const pairing = { id: `pairing-${input.client}` } as AgentPairing;
-            state.pairings.push(pairing);
-            resolve({ pairing, result: { kind: "wrote", path: "" } } as SetUpAgent);
-          },
+          connect: () => resolve(connected(state, input.client)),
           fail: () => reject(new Error("Couldn't set it up.")),
         });
       }),
@@ -123,7 +141,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
 
   test("connects each app sequentially, and one failure leaves the others connected", async () => {
     const order: string[] = [];
-    const state = { enabled: false, pairings: [] as AgentPairing[] };
+    const state = noAgents();
     const bridge: AgentBridge = {
       getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
       setAgentsEnabled: async (enabled) => {
@@ -132,9 +150,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
       setUpAgent: async (each) => {
         order.push(String(each.client));
         if (each.client === "cursor") throw new Error("No app can open this link.");
-        const pairing = { id: `pairing-${each.client}`, client: each.client } as AgentPairing;
-        state.pairings.push(pairing);
-        return { pairing, result: { kind: "wrote", path: "" } } as SetUpAgent;
+        return connected(state, each.client);
       },
     };
     const rollbackProblems: unknown[] = [];
@@ -160,7 +176,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
   test("stops before the next app once the press is no longer wanted", async () => {
     const order: string[] = [];
     let wanted = true;
-    const state = { enabled: false, pairings: [] as AgentPairing[] };
+    const state = noAgents();
     const bridge: AgentBridge = {
       getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
       setAgentsEnabled: async (enabled) => {
@@ -169,9 +185,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
       setUpAgent: async (each) => {
         order.push(String(each.client));
         wanted = false;
-        const pairing = { id: `pairing-${each.client}`, client: each.client } as AgentPairing;
-        state.pairings.push(pairing);
-        return { pairing, result: { kind: "wrote", path: "" } } as SetUpAgent;
+        return connected(state, each.client);
       },
     };
     const connectMany = manyAgentsConnector(bridge, () => undefined);
@@ -187,7 +201,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
   });
 
   test("turns connecting agents back off when every app in the batch fails", async () => {
-    const state = { enabled: false, pairings: [] as AgentPairing[] };
+    const state = noAgents();
     const bridge: AgentBridge = {
       getAgents: async () => ({ enabled: state.enabled, pairings: [...state.pairings] }),
       setAgentsEnabled: async (enabled) => {
@@ -259,7 +273,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
   });
 
   test("many-app copy instructions never claim the clipboard was written, even for unreadable settings files", () => {
-    const pairing = {
+    const pairing: AgentPairing = {
       id: "p1",
       name: "Claude Code",
       client: "claude-code",
@@ -267,7 +281,7 @@ describe("connecting several AI apps in one press (#3644)", () => {
       propose: true,
       lastUsedAt: null,
       createdAt: "2026-11-25T00:00:00.000Z",
-    } as AgentPairing;
+    };
     const cases: AgentSetupResult[] = [
       {
         kind: "copy",

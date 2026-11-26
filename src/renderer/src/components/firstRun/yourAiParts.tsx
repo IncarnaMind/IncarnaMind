@@ -35,21 +35,16 @@ export function AppMark({ name }: { name: string }) {
   );
 }
 
-/**
- * The step's foot: Back (or `start`), Set up later unless `later` is false, and `main`.
- * `onLater`: what Set up later stops first, before the step moves on.
- */
+/** The step's foot: Back (or `start`), Set up later unless `later` is false, and `main`. */
 export function StepFoot({
   place,
   start,
   later,
-  onLater,
   main,
 }: {
   place: StepPlace;
   start?: ReactNode;
   later?: boolean;
-  onLater?(): void;
   main?: ReactNode;
 }) {
   const t = useT();
@@ -71,10 +66,7 @@ export function StepFoot({
         <button
           type="button"
           data-testid="setup-skip"
-          onClick={() => {
-            onLater?.();
-            place.next();
-          }}
+          onClick={place.next}
           className={buttonStyle("ghost", "lg")}
         >
           {t("providers.setup.later")}

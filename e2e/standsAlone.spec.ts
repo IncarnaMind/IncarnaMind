@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { EXAMPLE_SETS } from "../src/core/exampleSets";
 import {
   askInAssistant,
   createDataFolder,
@@ -62,6 +63,9 @@ for (const walk of WALKS) {
     await expect(checks.nth(1)).toHaveAttribute("data-check", "found", { timeout: 60_000 });
     await dismissChatSetup(window);
     await useLocalChatModel(window);
+    // The conversation already holds the example's turns, its own Question asked first (#1172).
+    const example = await askInAssistant(window, EXAMPLE_SETS.credit[walk.language].question);
+    await expect(example).toHaveAttribute("data-status", "done");
     const path = join(sources, walk.file);
     await writeFile(path, walk.text);
     await window.getByTestId("add-documents-input").setInputFiles([path]);

@@ -766,7 +766,17 @@ test("Home's input keeps the question: no AI to read a new note is said, and a f
     await window.keyboard.press("Enter");
     await expect(window.getByTestId("error-notice")).toBeVisible();
     await expect(input).toHaveValue("Summarize the ferry interviews");
-    expect(await notes()).toBe(before);
+    await expect.poll(notes).toBe(before);
+    // The User never made that Note: nothing of it waits in Recently deleted either.
+    await expect
+      .poll(() =>
+        window.evaluate(async () =>
+          (
+            await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listDeleted()
+          ).map((each) => each.kind),
+        ),
+      )
+      .toEqual([]);
     await expect(window.getByTestId("home")).toBeVisible();
   } finally {
     await app.close();

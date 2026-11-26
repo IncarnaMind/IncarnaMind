@@ -30,6 +30,15 @@ const newNoteReaders = (agents: readonly AgentPairing[]) =>
   agents.filter((each) => each.folderIds.includes(ALL_SHARED_ID));
 
 /**
+ * The Note made for an ask that never went: the User didn't make it, so none of it waits in
+ * Recently deleted.
+ */
+async function discardNote(mindId: string): Promise<void> {
+  await core.deleteMind(mindId);
+  await core.deletePermanently([{ kind: "mind", id: mindId }]);
+}
+
+/**
  * Home's one input and its three ways to start (#3791): asking there starts a Note in no Folder and
  * asks the User's own AI in it, as its own input does; with no AI app connected and no model set
  * up, one line says to connect one (with a model, Home's next step asks it), and with none that may
@@ -74,14 +83,14 @@ export function HomeAsk() {
       if (asked === "none" || asked === "failed") {
         // Nothing went: the empty Note goes, and the words stay here to send again. Why is said
         // here: no AI may read the new note, or the failure's own notice.
-        await core.deleteMind(mindId);
+        await discardNote(mindId);
         if (asked === "none") setRefused(true);
         return;
       }
       store.openMind(mindId);
       setWords("");
     } catch (error) {
-      if (mindId) await core.deleteMind(mindId).catch(store.reportError);
+      if (mindId) await discardNote(mindId).catch(store.reportError);
       store.reportError(error);
     } finally {
       setSending(false);
