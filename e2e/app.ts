@@ -3135,9 +3135,10 @@ export async function checkNote(window: Page, scope: Page | Locator = window): P
 }
 
 /**
- * A Mind's Checks card (#909): open already, as a question opens it, or opened as a person opens
- * it: from the Check button once it says what a check found, or from ⌘K while the button would
- * check instead, or no button shows.
+ * A Mind's Checks card (#909): open already, as a question opens it, or opened from ⌘K's Checks
+ * once a run in `scope` has ended. Never from the Check button: its press checks whenever
+ * sentences wait, and the count a change makes lands a moment later, so the button can turn to
+ * Check under the pointer. checkButton.spec.ts opens the card from the button.
  */
 export async function checkCard(
   window: Page,
@@ -3146,35 +3147,29 @@ export async function checkCard(
 ): Promise<Locator> {
   const card = window.getByTestId("check-card");
   if (!(await card.isVisible())) {
-    const button = noteCheck(scope);
-    // A run's words change as it ends: aim once it has.
     await expect(scope.getByTestId("note-check-stop")).toHaveCount(0, { timeout: stopTimeout });
-    const opens =
-      (await button.isVisible()) && (await button.getAttribute("data-state")) !== "check";
-    if (opens) {
-      await motionSettled(window);
-      // The counts are worked out a moment after a change, and the button can change under the pointer: aim again.
-      await expect(async () => {
-        if (!(await card.isVisible())) await pointAndClick(window, button);
-        await expect(card).toBeVisible({ timeout: 1000 });
-      }).toPass();
-    } else {
-      const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
-      // The card's old name still finds its command, now named Checks (#2831).
-      await window.keyboard.press("ControlOrMeta+k");
-      await expect(window.getByTestId("palette-search")).toBeFocused();
-      await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
-      await pointAndClick(
-        window,
-        window
-          .getByTestId("palette-item")
-          .filter({ hasText: chinese ? "核对结果" : "Checks" })
-          .first(),
-      );
-    }
+    // ⌘K over text selected in a Note adds a link: the caret goes to the selection's end first.
+    const selected = await window.evaluate(() => {
+      const selection = document.getSelection();
+      const editable = document.activeElement?.closest('[contenteditable="true"]');
+      return selection !== null && !selection.isCollapsed && editable != null;
+    });
+    if (selected) await window.keyboard.press("ArrowRight");
+    const chinese = (await window.evaluate(() => document.documentElement.lang)) === "zh-CN";
+    // The card's old name still finds its command, now named Checks (#2831).
+    await window.keyboard.press("ControlOrMeta+k");
+    await expect(window.getByTestId("palette-search")).toBeFocused();
+    await window.keyboard.type(chinese ? "说法和引用" : "Claims and Citations");
+    await pointAndClick(
+      window,
+      window
+        .getByTestId("palette-item")
+        .filter({ hasText: chinese ? "核对结果" : "Checks" })
+        .first(),
+    );
   }
   await expect(card).toBeVisible();
-  // It grows from the badge: a click while it moves could land on the page behind.
+  // It grows from the Check button: a click while it moves could land on the page behind.
   await motionSettled(window);
   return card;
 }

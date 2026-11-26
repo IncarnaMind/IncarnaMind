@@ -11,7 +11,6 @@ import {
   dismissChatSetup,
   launchApp,
   newMindAndType,
-  noteCheck,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -313,13 +312,14 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(action).toHaveText(words.fasterAction);
     // The link is whole on one row, whichever row the line's break leaves it on.
     expect((await action.boundingBox())?.height).toBeLessThanOrEqual(20);
-    // The line stays inside the card, which has no Check of its own: the Note's button is the press, in view.
+    // The line stays inside the card, which has no Check of its own to push out: the press is the
+    // Note's button (#3794), which a Note with no Document to check against doesn't show.
     const [cardBox, lineBox] = [await card.boundingBox(), await line.boundingBox()];
     if (!cardBox || !lineBox) throw new Error("The card isn't laid out.");
     expect(lineBox.x).toBeGreaterThanOrEqual(cardBox.x);
     expect(lineBox.x + lineBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
     await expect(card.getByRole("button", { name: words.check, exact: true })).toHaveCount(0);
-    await expect(noteCheck(window)).toBeInViewport();
+    await expect(card).toBeInViewport({ ratio: 1 });
     await picture(window, `check-faster-line-${language}-1440`);
 
     // The keyboard reaches it, and it opens Settings at the switch: nothing is turned on.
@@ -343,7 +343,6 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(card).toBeHidden();
     await checkCard(window);
     await expect(card.getByRole("button", { name: words.check, exact: true })).toHaveCount(0);
-    await expect(noteCheck(window)).toBeVisible();
     await expect(line).toHaveCount(0);
     expect(await chosen(window)).toBeNull();
     expect(sentToHost()).toEqual([]);

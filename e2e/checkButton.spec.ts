@@ -19,6 +19,7 @@ import {
   newMind,
   noteCheck,
   noteCheckOnLine,
+  openExample,
   openSettings,
   pointAndClick,
   removeDataFolder,
@@ -267,7 +268,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
   // protects=#3794: in a row short of room the other controls give way first, Export losing its word before Check loses its, and the Check never leaves the row for the ⋯ menu; fails_when=Check loses its word while Export keeps its, Check is clipped or covered, or it can only be reached from ⋯
   test(`a row short of room takes Export's word first, at 900 wide, then Check keeps its mark and number in a narrow group, never in the ⋯ (${language})`, async () => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
     const { app, window } = await launchWithTides(language);
     try {
       // The narrowest window the app has: other Notes in the group first, so its strip is full.
@@ -316,9 +317,15 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect
         .poll(() => divider.getAttribute("aria-valuenow"))
         .toBe(await divider.getAttribute("aria-valuemax"));
+      // A second Note in the narrow group, back behind the Note: its tab folds into the strip's ⌄,
+      // so the row is short of room whichever language names the Check.
+      const strip = groups.last().getByTestId("tab-strip");
+      await pointAndClick(window, strip.getByTestId("new-tab"));
+      await expect(noteCheck(groups.last())).toHaveCount(0);
+      await motionSettled(window);
+      await window.keyboard.press("Control+Shift+Tab");
       await motionSettled(window);
       const narrow = noteCheck(groups.last());
-      const strip = groups.last().getByTestId("tab-strip");
       await expect(narrow).toHaveAttribute("data-state", "check");
       const holds = async () => {
         await expect(strip).toHaveAttribute("data-check-compact", "");
@@ -441,8 +448,11 @@ const insideOf = async (inner: Locator, outer: Locator) => {
   return a.x >= b.x - 0.5 && a.x + a.width <= b.x + b.width + 0.5;
 };
 
-/** "Kestrel Bay" with its interviews, and Claude Code connected to it, allowed to propose changes. */
-async function connected(window: Page, home: string): Promise<string> {
+/**
+ * "Kestrel Bay" with its interviews, and Claude Code connected to it, allowed to propose changes;
+ * `ready` is how many Documents the Library then holds.
+ */
+async function connected(window: Page, home: string, ready = 1): Promise<string> {
   const report = join(home, "Ferry interviews.md");
   await writeFile(
     report,
@@ -461,7 +471,7 @@ async function connected(window: Page, home: string): Promise<string> {
     });
     return folder.id;
   }, report);
-  await expectReadyDocuments(window, 1);
+  await expectReadyDocuments(window, ready);
   return folderId;
 }
 
@@ -596,6 +606,47 @@ test.describe("with the User's own AI", () => {
         if (!top || !above) throw new Error("The strip's Check or its card isn't drawn.");
         expect(top.y).toBeGreaterThanOrEqual(above.y + above.height);
         await expect(checkCard(window)).resolves.toBeTruthy();
+      } finally {
+        await app.close();
+      }
+    });
+
+    // protects=#3794 on the example a new User opens first: with their own AI connected and a file of their own, the example's Check is the labelled one dark button of the Note's row, over the example's line and its input, and one press checks with no card first; fails_when=the example's Check has no word, is hidden, another control in the row is as dark, or its press opens a card instead of checking
+    test(`on the example, the Check is the one dark labelled button of the Note's row, over the example's line and its input, and checks in one press (${language})`, async () => {
+      test.setTimeout(180_000);
+      const { app, window } = await launchApp(dataDir, {
+        home,
+        ownAi: join(bin, "claude"),
+        examples: true,
+        extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+      });
+      try {
+        await acceptPlainTextKeys(window);
+        await dismissChatSetup(window);
+        await setLanguage(window, language);
+        await setWindowSize(app, window, SIZES[0][0], SIZES[0][1]);
+        // The example's two Documents, and the User's first of their own.
+        await connected(window, home, 3);
+        await openExample(window);
+        const button = noteCheck(window);
+        await atEachSize(app, window, `example-${language}`, async () => {
+          await expect(button).toHaveAttribute("data-state", "check");
+          await expect(button.locator(".note-check-words")).toHaveText(words.check);
+          await expect(button.locator(".note-check-count")).toHaveText(/^[1-9]\d*$/);
+          expect(await wordDrawn(button)).toBe(true);
+          expect(await hittable(button)).toBe(true);
+          expect(await darkButtons(window)).toEqual(["note-check"]);
+          await expect(window.getByTestId("example-line")).toBeVisible();
+          await expect(window.getByTestId("note-ask-input")).toBeVisible();
+        });
+        await writeFile(join(bin, "mode"), "wait");
+        await pointAndClick(window, button);
+        await expect(button).toHaveAttribute("data-state", "checking");
+        await expect(window.getByTestId("note-check-stop")).toBeVisible();
+        await expect(window.getByTestId("check-card")).toHaveCount(0);
+        await shot(window, `example-checking-${language}-1440`);
+        await pointAndClick(window, window.getByTestId("note-check-stop"));
+        await expect(button).toHaveAttribute("data-state", "check");
       } finally {
         await app.close();
       }

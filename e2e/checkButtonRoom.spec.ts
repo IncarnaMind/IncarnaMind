@@ -306,20 +306,26 @@ for (const language of ["en", "zh-CN"] as const) {
             // The Check gave up its word before the tab went under its least width.
             expect(strip.compact, about).toBe(true);
           }
-          // Its word goes only once Export has left the row, and the Note's other controls give up
-          // their room only in a tight strip.
+          // Its word goes only once Export has left the row.
           if (strip.compact) expect(strip.exportShown, about).toBe(false);
-          if (strip.othersCut) expect(strip.exportShown, about).toBe(false);
-          // The Check gives up its start only past the tab's icon and ✕.
-          if (strip.checkCut) expect(tab, about).toBeLessThanOrEqual(strip.chrome + 1);
+          // The Note's other controls give up their room, and then the Check its start, only past
+          // the tab's icon and ✕, and only once the Check has given up its word.
+          if (strip.othersCut || strip.checkCut) {
+            expect(tab, about).toBeLessThanOrEqual(strip.chrome + 1);
+            expect(strip.compact, about).toBe(true);
+            expect(strip.exportShown, about).toBe(false);
+          }
           expect(strip.moreHit, about).toBe(true);
           expect(strip.more?.right ?? 0, about).toBeLessThanOrEqual(
             (strip.strip?.right ?? 0) + 0.5,
           );
           if (strip.check && strip.controls) {
-            // Its end, where its number or Stop is, stays in view.
             expect(strip.check.right, about).toBeLessThanOrEqual(strip.controls.right + 0.5);
-            expect(strip.check.right - 22, about).toBeGreaterThanOrEqual(strip.controls.left - 0.5);
+            // Its end stays in view: its number, or while it runs its Stop (checked below).
+            if (!strip.stop)
+              expect(strip.check.right - 22, about).toBeGreaterThanOrEqual(
+                strip.controls.left - 0.5,
+              );
           }
           expect(strip.close?.right ?? 0, about).toBeLessThanOrEqual((strip.plus?.left ?? 0) + 0.5);
         }

@@ -1183,8 +1183,8 @@
   .tab-strip[data-tight] :is(.tab-export, .note-conversation-button) {
     display: none;
   }
-  /* Short of room, the Note's other controls give up theirs (useTabStripFit), and only past the
-     tab's icon and ✕ the Check its start, keeping its number or its Stop in view (#3765). */
+  /* Short of the shown tab's icon and ✕, the Note's other controls give up their room, then the
+     Check its start, keeping its number or its Stop in view (useTabStripFit, #3765). */
   .tab-strip[data-tight] .tab-strip-note {
     justify-content: flex-end;
     max-width: var(--note-controls-room, none);
@@ -2040,9 +2040,9 @@
       background: var(--color-hover);
     }
   }
-  /* A tight strip still short of room (useTabStripFit): Check gives way after the other controls
-     and never leaves the row (#3794). Its word goes, kept for a screen reader; its mark and number
-     stay. */
+  /* A tight strip still short of room (useTabStripFit): the Check gives up its word before the
+     shown tab goes under its least width, and never leaves the row (#3794). Its word is kept for a
+     screen reader; its mark and number stay. */
   .tab-strip[data-check-compact] .note-head-badge {
     .note-check {
       min-width: 0;

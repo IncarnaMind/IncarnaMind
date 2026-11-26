@@ -268,13 +268,23 @@ export function CheckActions({
   // A model fixes the sentences; with none, Change to corrects them, or the User's own AI does (#3383).
   const fixes = noModel ? correctable : fixable;
   const askLeads = askAll !== null && noModel && correctable === 0;
-  if (askingMind) return <MindCheckAsk mindId={mindId} />;
-  if (askingContradictions) return <ContradictionAsk doc={doc} mindId={mindId} />;
+  if (askingMind)
+    return (
+      <CardFoot>
+        <MindCheckAsk mindId={mindId} />
+      </CardFoot>
+    );
+  if (askingContradictions)
+    return (
+      <CardFoot>
+        <ContradictionAsk doc={doc} mindId={mindId} />
+      </CardFoot>
+    );
   const unchangedPlan = unchanged && planned?.plan.kind === "unchanged" ? planned.plan : null;
   // A foot with nothing in it would be an empty band under the card's line (#3756).
   if (!running && !backgroundRun && fixes === 0 && !askAll && unchangedPlan === null) return null;
   return (
-    <>
+    <CardFoot>
       {unchangedPlan && <MindUnchanged mindId={mindId} since={unchangedPlan.since} />}
       {(fixes > 0 || askAll || running || backgroundRun) && (
         <div className="check-card-actions">
@@ -335,6 +345,18 @@ export function CheckActions({
           )}
         </div>
       )}
+    </CardFoot>
+  );
+}
+
+/** The card's foot under its scrolling body, drawn only when something stands in it. */
+function CardFoot({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <div className="check-card-sep" />
+      <div data-testid="check-card-foot" className="check-card-end">
+        {children}
+      </div>
     </>
   );
 }
@@ -447,26 +469,30 @@ function VerifyBadge({
         holdKey === "brief" &&
         state.outcome?.kind !== "no-documents" &&
         state.outcome?.kind !== "nothing" ? (
-          <VerifyAsk
-            mindId={mindId}
-            doc={doc}
-            total={state.total}
-            estimate={state.estimate}
-            onNotNow={() => setCheckCardOpen(place, false)}
-          />
+          <CardFoot>
+            <VerifyAsk
+              mindId={mindId}
+              doc={doc}
+              total={state.total}
+              estimate={state.estimate}
+              onNotNow={() => setCheckCardOpen(place, false)}
+            />
+          </CardFoot>
         ) : (
           handed &&
           askAll && (
-            <div className="check-card-actions">
-              <AskAgentAllButton
-                editor={editor}
-                mindId={mindId}
-                ask={askAll}
-                primary
-                disabled={state.running !== null || backgroundRun}
-                onAsked={() => setCheckCardOpen(place, false)}
-              />
-            </div>
+            <CardFoot>
+              <div className="check-card-actions">
+                <AskAgentAllButton
+                  editor={editor}
+                  mindId={mindId}
+                  ask={askAll}
+                  primary
+                  disabled={state.running !== null || backgroundRun}
+                  onAsked={() => setCheckCardOpen(place, false)}
+                />
+              </div>
+            </CardFoot>
           )
         )
       }
@@ -721,14 +747,7 @@ function BadgeFrame({
               )}
             </div>
           </div>
-          {actions && (
-            <>
-              <div className="check-card-sep" />
-              <div data-testid="check-card-foot" className="check-card-end">
-                {actions}
-              </div>
-            </>
-          )}
+          {actions}
         </Popover>
       )}
     </div>

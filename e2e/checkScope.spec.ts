@@ -303,7 +303,9 @@ test("when the Mind's own scope holds nothing, the check says so and offers all 
   ).toContainText("添加文档后才能核对");
   await window.keyboard.press("Escape");
   // Its sentences are checked already, so the Note's button would open the card: Check is asked
-  // from ⌘K, and the card opens by itself with what it found.
+  // from ⌘K, and the card opens by itself with what it found. ⌘K over selected text adds a link,
+  // so the caret goes to the selection's end first.
+  await window.keyboard.press("ArrowRight");
   await runCommand(window, "mind.check", translate("zh-CN", "mindCheck.command"));
   const card = window.getByTestId("check-card");
   await expect(card).toBeVisible();
