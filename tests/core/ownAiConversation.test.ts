@@ -43,7 +43,7 @@ import {
   writeSourceFile,
 } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
-import { note, readMind, shownWithChanges, writeMind } from "../helpers/minds";
+import { editMind, note, readMind, shownWithChanges, writeMind } from "../helpers/minds";
 import { plainDeck } from "../helpers/pptx";
 
 const FERRY = "The ferry carried 212,000 passengers in 2025.";
@@ -916,6 +916,96 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect(seen.again).toContain(
       `${yours} The report counts them. ${FERRY} ${seen.cite} by $y^2$.`,
     );
+  });
+
+  // protects=the mark of the run's own change is on its paragraph's name only, ✓ or ✗ in both languages: a paragraph whose own words begin or end with ✓ or ✗ reads them as words, after a space, unmarked; a rewrite, an add after and a removal sent back under a marked name name that paragraph; the User's words typed meanwhile into the changed paragraph are read there; once the window applied the request and the User undid it, the next request reads no mark (#3753); fails_when=the mark is read as the Note's words or the Note's words as the mark, a marked name is refused, or a mark outlives the change it marks
+  it("marks only the run's own change, on its paragraph's name", async () => {
+    const seen: string[] = [];
+    const MARKED = /¶\d+[✓✗]/;
+    let userTypes = () => {};
+    const nameOf = (markdown: string, words: string) =>
+      markdown
+        .split("\n\n")
+        .find((line) => line.includes(words))
+        ?.split(" ")[0] ?? "¶9";
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = async () =>
+        structured<{ markdown: string; version: string }>(
+          await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+        );
+      const change = async (version: string, changes: Record<string, unknown>[]) =>
+        structured<{ markdown: string; version: string }>(
+          await agent.callTool({
+            name: "propose_changes",
+            arguments: { mindId, version, changes },
+          }),
+        );
+      const first = await read();
+      seen.push(first.markdown);
+      if (request.prompt.includes("read it again")) return { kind: "finished", reply: "Read." };
+      const one = await change(first.version, [
+        { paragraph: nameOf(first.markdown, FERRY), text: "The ferry carried 214,500 passengers." },
+      ]);
+      seen.push(one.markdown);
+      const ferry = nameOf(one.markdown, "214,500");
+      const two = await change(one.version, [
+        { paragraph: ferry, text: "The ferry carried 214,500 passengers, a record." },
+        { paragraph: `${ferry}+`, text: "Most of them travel before nine." },
+        { paragraph: nameOf(one.markdown, FARES), remove: true },
+      ]);
+      seen.push(two.markdown);
+      userTypes();
+      seen.push((await read()).markdown);
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    writeMind(client, [
+      note(FERRY),
+      note("✓ Booked the hall for the open day."),
+      note("Seats ordered for the hall ✗"),
+      note(FARES),
+    ]);
+    await client.settled();
+    // The User types at the end of the paragraph the run changed, while the run goes on.
+    userTypes = () =>
+      editMind(client, (blocks) =>
+        blocks.map((block) =>
+          JSON.stringify(block).includes("record")
+            ? { ...block, content: [...(block.content ?? []), { type: "text", text: " Checked." }] }
+            : block,
+        ),
+      );
+    await core.askInNote({ mindId, words: "correct the passenger figure" });
+    const end = await ended();
+    expect(end?.state).toBe("landed");
+    const [before, one, two, typed] = seen;
+    // Words of the Note's own that begin or end with a mark read as words, after a space.
+    expect(before).toContain("¶2 ✓ Booked the hall for the open day.");
+    expect(before).toContain("¶3 Seats ordered for the hall ✗");
+    expect(before).not.toMatch(MARKED);
+    expect(one).toContain("¶1✓ The ferry carried 214,500 passengers.");
+    expect(one).toContain("¶2 ✓ Booked the hall");
+    // A rewrite, an add after and a removal sent under the marked name each named that paragraph.
+    expect(two).toContain("¶1✓ The ferry carried 214,500 passengers, a record.");
+    expect(two).toContain("¶2✓ Most of them travel before nine.");
+    expect(two).toContain("¶5✗");
+    expect(two).not.toContain(FARES);
+    // The User's own words typed meanwhile are read in the paragraph the run's change is in.
+    expect(typed).toContain("¶1✓ The ferry carried 214,500 passengers, a record. Checked.");
+    const applied = await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    await core.undoAskedChanges(applied?.undoId ?? "");
+    await client.settled();
+    // Undone, the Note has no change of a run in it, and the next request reads no mark.
+    await core.askInNote({ mindId, words: "read it again" });
+    await ended(2);
+    expect(seen[4]).toContain("¶1 The ferry carried 212,000 passengers in 2025.");
+    expect(seen[4]).not.toMatch(MARKED);
   });
 
   // protects=a whole paragraph this run takes out reads as taken out by it, under its own name, in the Note asked from; a second change to it in the same request replaces the removal, and the Note ends with that change; in another Note, where the removal waits for the User, it reads as waiting with its words; fails_when=the paragraph reads as words this request keeps, or as an empty paragraph of its own, or the run can't put back what it took out
