@@ -1,8 +1,9 @@
 import { useEffect, useId, useState } from "react";
 import type { AgentClient, AgentSetupPreview } from "../../../../core/api";
+import type { Language } from "../../../../core/language";
 import { clientInSentence } from "../../../../shared/agentNames";
 import { core } from "../../core";
-import { useGap, useT } from "../../i18n";
+import { useGap, useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { clientName } from "../agents/agentWords";
 import { FileChangePreview } from "../agents/connectShared";
@@ -12,12 +13,22 @@ import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass } from "../ui";
 import { linkClass } from "./yourAiParts";
 
+/** Joins one or more app names cleanly in English ("A and B", "A, B and C") or Chinese ("A 和 B", "A、B 和 C"). */
+export function joinAppNames(names: readonly string[], language: Language): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (language === "zh-CN") {
+    if (names.length === 2) return `${names[0]} 和 ${names[1]}`;
+    return `${names.slice(0, -1).join("、")} 和 ${names.at(-1)}`;
+  }
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 /**
- * The one sentence of what connecting lets the chosen apps read, and where it goes, with Details
- * (#3791): what else they read and what is sent, that they may write notes, how the background run
- * behaves, and what IncarnaMind adds to each app's settings file. `installs`: Claude Code, which
- * the same press downloads from Anthropic and connects once signed in, so all of it covers Claude
- * Code too, before the press, as its own connect sheet would.
+ * The one sentence of what connecting lets the chosen apps read (and write, when on), naming them,
+ * with Details (#3791, #3819): plain words top-down, and technical metadata, file paths and raw
+ * settings folded at the bottom. `installs`: Claude Code, which the same press downloads from
+ * Anthropic and connects once signed in, so the sentence and Details cover it too.
  */
 export function YourAiConsent({
   chosen,
@@ -31,15 +42,21 @@ export function YourAiConsent({
   onPropose(propose: boolean): void;
 }) {
   const t = useT();
+  const language = useLanguage();
   const gap = useGap();
   const panel = useId();
   const [open, setOpen] = useState(false);
   const connects = installs ? [...chosen, installs] : chosen;
   const one = connects.length === 1 ? connects[0] : undefined;
-  const agent = one ? clientInSentence(one, t) : "";
+  const names = connects.map((client) => clientName(client, t));
+  const agent = one ? clientName(one, t) : "";
+  const agents = joinAppNames(names, language);
   const claudeCode = connects.find((client) => client.id === "claude-code");
   const codex = connects.some((client) => client.id === "codex");
-  const said = t(one ? "setupPage.ai.consent.one" : "setupPage.ai.consent.many");
+  const said = one
+    ? t(propose ? "setupPage.ai.consent.one.write" : "setupPage.ai.consent.one", { agent })
+    : t(propose ? "setupPage.ai.consent.many.write" : "setupPage.ai.consent.many", { agents });
+  const fileClients = connects.filter((client) => client.setup === "file");
   return (
     <div className="-mt-1 flex flex-col gap-2">
       <p data-testid="setup-consent" className="text-[13px] leading-5 text-ink-secondary">
@@ -70,9 +87,16 @@ export function YourAiConsent({
             testId="setup-consent-propose"
           />
           <p className={dialogTextClass}>
-            {one ? t("agents.connect.body", { agent }) : t("agents.connectAll.body")}
+            {one
+              ? t("setupPage.ai.details.reads.one", { agent })
+              : t("setupPage.ai.details.reads.many", { agents })}
           </p>
           <p className={dialogTextClass}>{t("agents.propose.hint")}</p>
+          <p className={dialogTextClass}>
+            {one
+              ? t("setupPage.ai.details.where.one", { agent })
+              : t("setupPage.ai.details.where.many")}
+          </p>
           {claudeCode && (
             <div data-testid="setup-consent-background" className="flex flex-col gap-2.5">
               <p className={dialogTextClass}>
@@ -97,11 +121,17 @@ export function YourAiConsent({
             </p>
           )}
           {installs && <InstallDisclosure testId="setup-consent-install" />}
-          {connects
-            .filter((client) => client.setup === "file")
-            .map((client) => (
-              <SettingsChange key={client.id} client={client} />
-            ))}
+          <details data-testid="setup-consent-technical" className="flex flex-col">
+            <summary className="cursor-pointer text-[13px] leading-5 font-medium text-ink-secondary">
+              {t("setupPage.ai.details.technical")}
+            </summary>
+            <div className="mt-2 flex flex-col gap-2.5">
+              <p className={dialogTextClass}>{t("setupPage.ai.details.metadata")}</p>
+              {fileClients.map((client) => (
+                <SettingsChange key={client.id} client={client} />
+              ))}
+            </div>
+          </details>
         </div>
       )}
     </div>

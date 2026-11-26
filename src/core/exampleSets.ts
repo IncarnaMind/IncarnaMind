@@ -147,6 +147,25 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "Retrieval for language models: a short literature review",
       intro:
         "Three open-access papers on retrieval-augmented generation (RAG), the way language models look things up before they answer. They are linked as Documents.",
+      draft: [
+        "## Notes",
+        "",
+        "Self-RAG trains 7B and 34B models to retrieve on demand and critique their own answers. Ragas evaluates a pipeline without human ground-truth labels.",
+      ].join("\n"),
+      checks: [
+        {
+          sentence:
+            "Self-RAG trains 7B and 34B models to retrieve on demand and critique their own answers.",
+          verdict: "contradicted",
+          evidence: {
+            document: "Self-RAG (Asai et al., 2023)",
+            quote:
+              "Experiments show that SELF-RAG (7B and 13B parameters) significantly outperforms state-of-the-art LLMs and retrieval-augmented models on a diverse set of tasks.",
+          },
+          says: "The Self-RAG paper evaluates 7B and 13B parameter models, not 34B.",
+          correction: { from: "34B", to: "13B" },
+        },
+      ],
       question:
         "What do these papers say about when a language model should retrieve, whether retrieval beats fine-tuning, and how to evaluate it?",
       answer: [
@@ -180,6 +199,24 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "从中药里筛选活性成分：一份简短的文献综述",
       intro:
         "三篇发表在《色谱》上的开放获取综述，讲的是怎样从中药和天然产物里找出有活性的成分。它们作为文档链接在这里。",
+      draft: [
+        "## 摘要",
+        "",
+        "综述重点围绕 5 种色谱模式，讨论了 2020 年以来新型高效色谱分离材料在中药复杂体系中的应用。生物亲和垂钓则把分离和活性筛选结合在一起。",
+      ].join("\n"),
+      checks: [
+        {
+          sentence:
+            "综述重点围绕 5 种色谱模式，讨论了 2020 年以来新型高效色谱分离材料在中药复杂体系中的应用。",
+          verdict: "contradicted",
+          evidence: {
+            document: "高效色谱材料在本草物质组中的应用(丰静等,2026)",
+            quote: "重点围绕反相液相色谱、亲水作用液相色谱和超临界流体色谱 3 种色谱模式",
+          },
+          says: "综述写的是围绕 3 种色谱模式，不是 5 种。",
+          correction: { from: "5 种", to: "3 种" },
+        },
+      ],
       question: "这几篇综述分别介绍了哪些筛选活性成分的方法？各自靠什么起作用？",
       answer: [
         "亲和超滤-液相色谱-质谱的思路，是利用药用植物或中草药提取物与靶标之间的亲和力差异，从复杂的成分里把有活性的挑出来 [^1]。",
@@ -212,6 +249,25 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "Three regions, one spring: comparing World Bank outlooks",
       intro:
         "The executive summaries of three World Bank regional economic updates from April 2026: Africa, Latin America and the Caribbean, and South Asia. They are linked as Documents.",
+      draft: [
+        "## Key points",
+        "",
+        "South Asia is projected to grow 5.3 percent in 2026, slower than last year amid global energy headwinds. Sub-Saharan Africa is expected to hold at 4.1 percent.",
+      ].join("\n"),
+      checks: [
+        {
+          sentence:
+            "South Asia is projected to grow 5.3 percent in 2026, slower than last year amid global energy headwinds.",
+          verdict: "contradicted",
+          evidence: {
+            document: "South Asia Economic Update, April 2026 (executive summary)",
+            quote:
+              "South Asia’s growth again surprised on the upside but is expected to slow to 6.3 percent in 2026 amid headwinds from global energy market dislocations.",
+          },
+          says: "The South Asia update projects 6.3 percent growth in 2026, not 5.3 percent.",
+          correction: { from: "5.3 percent", to: "6.3 percent" },
+        },
+      ],
       question:
         "How do the growth outlooks for 2026 compare across the three regions, and which of them leans most on industrial policy?",
       answer: [
@@ -253,6 +309,23 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "三年的政府工作报告：目标怎么变？",
       intro:
         "国务院总理在全国人民代表大会上所作的政府工作报告，2024、2025、2026 年各一份，全文来自中国政府网。它们作为文档链接在这里。",
+      draft: [
+        "## 要点",
+        "",
+        "2026 年赤字率拟按 3.5% 左右安排，赤字规模 5.89 万亿元。全年经济增长预期目标为 4.5%－5%。",
+      ].join("\n"),
+      checks: [
+        {
+          sentence: "2026 年赤字率拟按 3.5% 左右安排，赤字规模 5.89 万亿元。",
+          verdict: "contradicted",
+          evidence: {
+            document: "2026年政府工作报告",
+            quote: "今年赤字率拟按4%左右安排，赤字规模5.89万亿元",
+          },
+          says: "2026 年政府工作报告写的是赤字率按 4% 左右安排，不是 3.5%。",
+          correction: { from: "3.5%", to: "4%" },
+        },
+      ],
       question: "对比 2024 到 2026 年的政府工作报告，经济增长目标和赤字率是怎么变的？",
       answer: [
         "2024 年的报告把全年经济增长的预期目标定为 5% 左右 [^1]。",
@@ -303,6 +376,25 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "Three agreements: term, ending and liability",
       intro:
         "Three commercial agreements filed with the US Securities and Exchange Commission and shared in the CUAD dataset (CC BY 4.0). They are linked as Documents.",
+      draft: [
+        "## Summary",
+        "",
+        "Either party can end the hosting agreement without cause on 60 days’ written notice. Both distributor agreements run for a fixed initial period.",
+      ].join("\n"),
+      checks: [
+        {
+          sentence:
+            "Either party can end the hosting agreement without cause on 60 days’ written notice.",
+          verdict: "contradicted",
+          evidence: {
+            document: "Web Site Hosting Agreement (i-on interactive and Centrack)",
+            quote:
+              "Either party may terminate this Agreement without cause at any time effective upon thirty (30) days' written notice.",
+          },
+          says: "The hosting agreement requires thirty (30) days’ written notice, not 60 days.",
+          correction: { from: "60 days’", to: "30 days’" },
+        },
+      ],
       question:
         "How long does each agreement last, how can it be ended, and who limits their liability?",
       answer: [
@@ -345,6 +437,23 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "三份合同：期限、解除和责任限制",
       intro:
         "三份为这个示例写的合同：设备租赁、软件开发服务和货物采购。公司和人物都是虚构的，内容不是法律意见。它们作为文档链接在这里。",
+      draft: [
+        "## 摘要",
+        "",
+        "软件开发服务合同约定，乙方逾期交付超过 15 日时甲方即可书面解除合同。设备租赁合同的期限为十二个月，到期前如连续两个月未付租金也可解除。",
+      ].join("\n"),
+      checks: [
+        {
+          sentence: "软件开发服务合同约定，乙方逾期交付超过 15 日时甲方即可书面解除合同。",
+          verdict: "contradicted",
+          evidence: {
+            document: "软件开发服务合同",
+            quote: "乙方逾期交付超过三十日的，甲方有权书面通知乙方解除本合同",
+          },
+          says: "软件开发服务合同写的是逾期交付超过三十日，不是 15 日。",
+          correction: { from: "15 日", to: "三十日" },
+        },
+      ],
       question: "这三份合同的期限、解除和责任限制各是怎么约定的？",
       answer: [
         "设备租赁合同的期限是十二个月，从 2026 年 4 月 1 日到 2027 年 3 月 31 日 [^1]；乙方连续两个月不付租金，甲方就可以解除合同并收回设备 [^2]。",
@@ -385,6 +494,25 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "Launch sync, 12 March",
       intro:
         "A transcript and agenda written for this example. Fernwood Pantry is a made-up company, and the people in the call are made up too. They are linked as Documents.",
+      draft: [
+        "## Summary",
+        "",
+        "The starter box is priced at 39 euros, with 10 euros off the first box using a welcome code. Launch stays on 7 April if payment approval lands by 27 March.",
+      ].join("\n"),
+      checks: [
+        {
+          sentence:
+            "The starter box is priced at 39 euros, with 10 euros off the first box using a welcome code.",
+          verdict: "contradicted",
+          evidence: {
+            document: "Launch sync transcript · 12 March",
+            quote:
+              "Decision, then: the starter box costs 34 euros, and new customers get 10 euros off their first box with a welcome code.",
+          },
+          says: "The transcript sets the starter box at 34 euros, not 39 euros.",
+          correction: { from: "39 euros", to: "34 euros" },
+        },
+      ],
       question: "What did the launch sync decide, and what has to happen by when?",
       answer: [
         "The starter box costs 34 euros, and new customers get 10 euros off their first box with a welcome code [^1].",
@@ -422,6 +550,23 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
       title: "大促备货会，9月17日",
       intro:
         "为这个示例写的会议记录和议程。澄溪文具是虚构的公司，会上的人也都是虚构的。它们作为文档链接在这里。",
+      draft: [
+        "## 纪要",
+        "",
+        "推广预算按 10 万元算，超出部分需先报林慧同意。首批备货 6.5 万件，由唐小满和供应商落实。",
+      ].join("\n"),
+      checks: [
+        {
+          sentence: "推广预算按 10 万元算，超出部分需先报林慧同意。",
+          verdict: "contradicted",
+          evidence: {
+            document: "大促备货会议记录 · 9月17日",
+            quote: "推广预算按 8 万元算，超过的部分必须先报我，我同意了才能花。",
+          },
+          says: "会议记录写的是推广预算按 8 万元算，不是 10 万元。",
+          correction: { from: "10 万元", to: "8 万元" },
+        },
+      ],
       question: "这次备货会定了哪些事？谁要在什么时候做完？",
       answer: [
         "首批备货 6.5 万件，另外留 5000 件的追加额度，由唐小满和供应商落实 [^1]。",

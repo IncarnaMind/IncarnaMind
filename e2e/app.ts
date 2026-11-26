@@ -1381,8 +1381,9 @@ export async function busyOllama() {
  */
 export async function askFirstQuestion(window: Page): Promise<Locator> {
   await newMind(window);
-  await window.getByTestId("mind-editor").focus();
-  await window.keyboard.press("ControlOrMeta+j");
+  const input = window.getByTestId("composer-input");
+  if (!(await input.isVisible())) await window.keyboard.press("ControlOrMeta+Shift+O");
+  await input.click();
   await window.keyboard.type("What is in my Documents?");
   await window.keyboard.press("Enter");
   const card = window.getByTestId("model-setup");

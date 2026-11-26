@@ -6,9 +6,9 @@
  * hear how it ended; and a User the background can't serve keeps the link.
  */
 
-import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
-import { DATABASE_FILE } from "../../src/core";
+import { join, resolve } from "node:path";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { ALL_SHARED_ID, DATABASE_FILE } from "../../src/core";
 import type { OwnAiClient, OwnAiRunner, OwnAiStatus } from "../../src/core/adapters";
 import type { AgentLaunch, OwnAiCheckEnd } from "../../src/core/api";
 import { openDatabase } from "../../src/core/storage";
@@ -16,9 +16,16 @@ import { createCanvasFiles } from "../../src/main/canvasFiles";
 import { claimSpans } from "../../src/renderer/src/editor/claimChecks";
 import { claimCheckShown } from "../../src/shared/claimChecks";
 import { translate } from "../../src/shared/i18n";
-import { buildAgentShim, connectLegacyAgent, startAgentsCore } from "../helpers/agents";
+import { setMindScope } from "../../src/shared/mindScope";
+import { folderScope } from "../../src/shared/searchScope";
+import {
+  agentsAdapter,
+  buildAgentShim,
+  connectLegacyAgent,
+  startAgentsCore,
+} from "../helpers/agents";
 import { checkingModel } from "../helpers/checks";
-import { createTempDataFolder } from "../helpers/core";
+import { createTempDataFolder, startCore } from "../helpers/core";
 import { addAndProcess, createSourceFolder, writeSourceFile } from "../helpers/documents";
 import { connectToMind } from "../helpers/mindClient";
 import { note, readMind, writeMind } from "../helpers/minds";
@@ -817,5 +824,106 @@ describe("Undo of a second press on Claude Code puts its check's consent back as
 
     await pressedAndUndone(started);
     expect(await hosted(started)).toEqual(before);
+  });
+});
+
+describe("example Notes and outside-scope refusals on the User's own Claude Code (#3819)", () => {
+  // protects=checking any example Note when other examples also exist stays within the agent's lent reach rather than failing beyond-reach (#3819); fails_when=unscopedDocuments includes another unlent example's Documents so check_mind_yourself refuses outside-scope
+  it("checks every example Note with Claude Code connected to all Folders even when multiple examples exist (#3819)", async () => {
+    const errors: unknown[] = [];
+    const run = runner(async (agent, request) => {
+      try {
+        const mindId = request.prompt.match(/mindId: ([^)]+)\)/)?.[1] ?? "";
+        const given = await sentencesOf(agent, mindId);
+        expect(given.sentences.length).toBeGreaterThan(0);
+        structured(
+          await agent.callTool({
+            name: "report_check",
+            arguments: {
+              mindId,
+              task: given.task,
+              results: given.sentences.map(({ n }) => ({ n, verdict: "not found" })),
+            },
+          }),
+        );
+        return { kind: "finished", reply: "Checked." };
+      } catch (error) {
+        errors.push(error);
+        throw error;
+      }
+    });
+    const dataDir = await createTempDataFolder();
+    const core = startCore(dataDir, {
+      paths: { dataDir, examples: resolve(__dirname, "../../resources/examples") },
+      agents: await agentsAdapter(dataDir),
+      ownAi: run.adapter,
+    });
+    try {
+      const ends: OwnAiCheckEnd[] = [];
+      core.on("agents.ownCheck", (end) => ends.push(end));
+      await core.setAgentsEnabled(true);
+      await core.connectAgent({
+        name: "Claude Code",
+        client: "claude-code",
+        folderIds: [ALL_SHARED_ID],
+      });
+      const groups = ["credit", "contracts", "papers", "reports", "meetings"] as const;
+      const created: { mindId: string; linkedFolderId: string }[] = [];
+      for (const group of groups) {
+        const made = await core.createExamples(group);
+        if (!made.mindId || !made.linkedFolderId) {
+          throw new Error(`Example ${group} was not created.`);
+        }
+        created.push({ mindId: made.mindId, linkedFolderId: made.linkedFolderId });
+      }
+      await vi.waitFor(
+        async () => {
+          for (const made of created) {
+            const docs = await core.listDocuments({ linkedFolderId: made.linkedFolderId });
+            expect(docs.length).toBeGreaterThan(0);
+            expect(docs.every((doc) => doc.status === "ready")).toBe(true);
+          }
+        },
+        { timeout: 30_000 },
+      );
+      for (const [index, made] of created.entries()) {
+        const start = await core.checkWithOwnAi(made.mindId);
+        expect(start.kind).toBe("started");
+        await vi.waitFor(() => expect(ends).toHaveLength(index + 1), { timeout: 15_000 });
+        expect(errors).toEqual([]);
+        expect(ends[index]).toMatchObject({
+          mindId: made.mindId,
+          outcome: "landed",
+          problem: null,
+        });
+      }
+    } finally {
+      core.close();
+    }
+  });
+
+  // protects=when check_mind_yourself refuses outside-scope (beyond-reach), ownRun ends with problem "beyond-reach" rather than generic "failed" or "no-marks" (#3819); fails_when=the refusal surfaces as "stopped before it finished"
+  it("reports beyond-reach when check_mind_yourself refuses a Note whose check scope includes unshared Documents (#3819)", async () => {
+    const run = runner(async (agent, request) => {
+      const mindId = request.prompt.match(/mindId: ([^)]+)\)/)?.[1] ?? "";
+      const res = await agent.callTool({ name: "check_mind_yourself", arguments: { mindId } });
+      expect((res as { isError?: boolean }).isError).toBe(true);
+      return { kind: "failed", reason: "other" };
+    });
+    const started = await written(run.adapter);
+    const otherDir = await createSourceFolder();
+    const otherFolder = await started.core.createLibraryGroup({ name: "Private", description: "" });
+    const [otherDoc] = await addAndProcess(started.core, [
+      await writeSourceFile(otherDir, "Secret.md", "# Secret\n\nPrivate tides.\n"),
+    ]);
+    if (!otherDoc) throw new Error("Secret document wasn't added.");
+    await started.core.assignDocumentGroup(otherDoc.id, otherFolder.id);
+    // Point the Note's own check scope at the unshared Folder so check_mind_yourself refuses beyond-reach.
+    const client = await connectToMind(started.core, started.mindId);
+    setMindScope(client.doc, folderScope(otherFolder.id));
+    await client.settled();
+    const checkStart = await started.core.checkWithOwnAi(started.mindId);
+    expect(checkStart.kind).toBe("started");
+    expect(await started.ended()).toMatchObject({ outcome: "failed", problem: "beyond-reach" });
   });
 });

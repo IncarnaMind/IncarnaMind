@@ -90,7 +90,14 @@ export function App() {
   // The frame shows at once; the data fills it in as it arrives.
   if (status.kind === "loading") return <AppShell />;
   if (setup?.from === "work") {
-    return <SetupPage workOrder={setup.workOrder} picksSent={setup.picksSent} />;
+    return (
+      <SetupPage
+        workOrder={setup.workOrder}
+        picksSent={setup.picksSent}
+        initialStep={setup.step}
+        initialWork={setup.work}
+      />
+    );
   }
   if (status.kind === "failed") {
     return (

@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type AgentClient, type AgentPairing, ALL_SHARED_ID } from "../../../../core/api";
+import { clientInSentence } from "../../../../shared/agentNames";
 import { useAgentClients, useAgentPairingsRead } from "../../agentNote";
 import {
   cancelClaudeCodeInstall,
@@ -25,7 +26,15 @@ import { SortingModelLine } from "./SortingModelLine";
 import { YourAiAfter } from "./YourAiAfter";
 import { YourAiConsent } from "./YourAiConsent";
 import { firstTicked, foundApps, notConnected, shownApps } from "./yourAiList";
-import { AppMark, type Choice, type Done, listClass, rowClass, StepFoot } from "./yourAiParts";
+import {
+  AppMark,
+  type Choice,
+  type Done,
+  listClass,
+  rowClass,
+  StepFoot,
+  useAwaitingInstall,
+} from "./yourAiParts";
 
 type View =
   | { kind: "list" }
@@ -227,6 +236,7 @@ function FoundList({
   onConnected(done: readonly Done[], choice: Choice, installed: boolean): void;
 }) {
   const t = useT();
+  const awaiting = useAwaitingInstall();
   const [ticks, setTicks] = useState<ReadonlySet<string> | null>(null);
   const [open, setOpen] = useState(false);
   // A press still connecting: its consent and its button stay as they were when it was pressed.
@@ -249,6 +259,13 @@ function FoundList({
   const ticked = ticks ?? new Set(first ? [first] : []);
   const chosen = notConnected(found, pairings).filter((client) => ticked.has(client.id));
   const pairingOf = (client: AgentClient) => pairings.find((each) => each.client === client.id);
+  const waitingForUser = (client: AgentClient, pairing: AgentPairing | null): boolean => {
+    if (!pairing) return false;
+    if (client.setup === "bundle" || client.setup === "link") {
+      return awaiting === null ? true : awaiting.includes(pairing.id);
+    }
+    return (client.setup === "command" || client.setup === "manual") && pairing.lastUsedAt === null;
+  };
   // Claude Code comes with the Claude app's Connect only while that app is ticked and not connected.
   const installsNow = chosen.some((client) => client.id === "claude-desktop") ? installs : null;
   const asked = pressed?.apps ?? chosen;
@@ -256,7 +273,11 @@ function FoundList({
   const { storage, canKeepKey, accept } = useSecretStorage(asked.map((each) => each.id).join(","));
   const shown = shownApps(found, ticked, open);
   const folded = found.length - shown.length;
-  const anyConnected = pairings.length > 0;
+  const anyConnected = pairings.some((pairing) => {
+    const client = found.find((each) => each.id === pairing.client);
+    return !client || !waitingForUser(client, pairing);
+  });
+  const anyWaiting = found.some((client) => waitingForUser(client, pairingOf(client) ?? null));
 
   const toggle = (client: AgentClient, on: boolean) => {
     const next = new Set(ticked);
@@ -317,7 +338,7 @@ function FoundList({
   const main =
     found.length === 0 && !anyConnected && !pressed ? undefined : pressed ||
       chosen.length > 0 ||
-      !anyConnected ? (
+      (!anyConnected && !anyWaiting) ? (
       <button
         type="button"
         data-testid="setup-connect"
@@ -331,6 +352,7 @@ function FoundList({
       <button
         type="button"
         data-testid="setup-next"
+        disabled={!anyConnected}
         onClick={place.next}
         className={buttonStyle("primary", "lg")}
       >
@@ -355,18 +377,22 @@ function FoundList({
       {problem}
       <ul data-testid="setup-apps" aria-label={t("setupPage.ai.title")} className={listClass}>
         {offersInstall && <InstallOfferRow onStart={onInstallStart} />}
-        {shown.map((client) => (
-          <FoundRow
-            key={client.id}
-            client={client}
-            pairing={pairingOf(client) ?? null}
-            ticked={ticked.has(client.id)}
-            installs={askedInstalls !== null && client.id === "claude-desktop"}
-            busy={pressed !== null}
-            onTick={(on) => toggle(client, on)}
-            onUndo={(pairing) => void undo(pairing)}
-          />
-        ))}
+        {shown.map((client) => {
+          const pairing = pairingOf(client) ?? null;
+          return (
+            <FoundRow
+              key={client.id}
+              client={client}
+              pairing={pairing}
+              waiting={waitingForUser(client, pairing)}
+              ticked={ticked.has(client.id)}
+              installs={askedInstalls !== null && client.id === "claude-desktop"}
+              busy={pressed !== null}
+              onTick={(on) => toggle(client, on)}
+              onUndo={(each) => void undo(each)}
+            />
+          );
+        })}
         {folded > 0 && (
           <li className={rowClass}>
             <button
@@ -433,12 +459,14 @@ function FoundList({
 }
 
 /**
- * One app found: its tick, or Connected with Undo once it is; with only the Claude app, what
- * Connect downloads too.
+ * One app found: its tick, or Connected with Undo once it works, or what is still left with Open
+ * and Undo while it waits for the User (Install not yet clicked in its own app, #3819); with only
+ * the Claude app, what Connect downloads too.
  */
 function FoundRow({
   client,
   pairing,
+  waiting,
   ticked,
   installs,
   busy,
@@ -447,6 +475,7 @@ function FoundRow({
 }: {
   client: AgentClient;
   pairing: AgentPairing | null;
+  waiting: boolean;
   ticked: boolean;
   installs: boolean;
   /** A press is still connecting: Undo waits for it. */
@@ -455,7 +484,10 @@ function FoundRow({
   onUndo(pairing: AgentPairing): void;
 }) {
   const t = useT();
+  const reportError = useAppStore((state) => state.reportError);
   const name = clientName(client, t);
+  const agent = clientInSentence(client, t);
+  const canOpenAgain = client.setup === "bundle" || client.setup === "link";
   const words = (
     <>
       <AppMark name={name} />
@@ -471,6 +503,21 @@ function FoundRow({
             {t("setupPage.ai.alsoInstalls")}
           </span>
         )}
+        {pairing && waiting && (
+          <span
+            data-testid="setup-app-waiting"
+            className="text-[12px] leading-[18px] text-ink-secondary"
+          >
+            {t(
+              canOpenAgain
+                ? "setupPage.ai.row.install"
+                : client.setup === "command"
+                  ? "setupPage.ai.row.command"
+                  : "setupPage.ai.row.settings",
+              { agent },
+            )}
+          </span>
+        )}
       </span>
     </>
   );
@@ -478,18 +525,33 @@ function FoundRow({
     <li
       data-testid="setup-app"
       data-value={client.id}
-      data-connected={pairing ? true : undefined}
+      data-connected={pairing && !waiting ? true : undefined}
+      data-waiting={pairing && waiting ? true : undefined}
       className={rowClass}
     >
       {pairing ? (
         <div className="flex min-w-0 flex-1 items-center gap-3">
           {words}
-          <span
-            data-testid="setup-app-connected"
-            className="shrink-0 text-[13px] leading-5 text-ink-meta"
-          >
-            {t("setupPage.ai.connected")}
-          </span>
+          {waiting ? (
+            canOpenAgain && (
+              <button
+                type="button"
+                data-testid="setup-app-open"
+                disabled={busy}
+                onClick={() => void core.openAgentInstallAgain(pairing.id).catch(reportError)}
+                className={buttonStyle("secondary", "sm")}
+              >
+                {t("setupPage.ai.row.open", { agent })}
+              </button>
+            )
+          ) : (
+            <span
+              data-testid="setup-app-connected"
+              className="shrink-0 text-[13px] leading-5 text-ink-meta"
+            >
+              {t("setupPage.ai.connected")}
+            </span>
+          )}
           <button
             type="button"
             data-testid="setup-app-undo"

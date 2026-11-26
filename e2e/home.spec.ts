@@ -126,8 +126,10 @@ for (const [language, width] of [
 
       ({ app, window } = await launchApp(dataDir, { examples: true }));
       await setWindowSize(app, window, width, 760);
-      await expectHomeInFront(window);
+      // Reopening keeps the open Note in front (#3819); Home opens from the sidebar.
+      await expect(window.getByTestId("mind-pane")).toBeVisible();
       await expect(window.getByTestId("mind-tab")).toHaveCount(1);
+      await goHome(window);
       await expect(window.getByRole("tab").first()).toHaveAttribute("data-kind", "home");
       await expect(window.getByTestId("home-greeting")).toHaveText(
         new RegExp(

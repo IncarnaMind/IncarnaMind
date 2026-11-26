@@ -249,8 +249,6 @@ test("a test build says so from the first run, in the sidebar, with the switch, 
     usageData: { host: posthog.host, testerBuild: true },
     examples: true,
   });
-  await expect(again.window.getByTestId("home")).toBeVisible();
-  await again.window.getByTestId("mind-tab").click();
   await expect(again.window.getByTestId("example-line")).toBeVisible();
   await expect(again.window.getByTestId("usage-data-card")).toBeHidden();
   await again.app.close();
