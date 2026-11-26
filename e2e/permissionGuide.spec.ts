@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import type { FakeCapture } from "../src/core/meetings/fakeCapture";
 import {
@@ -100,16 +102,61 @@ for (const language of ["en", "zh-CN"] as const) {
     await expect(sheet.getByTestId("meeting-line-system")).toBeVisible();
     await expect(window.getByTestId("meeting-line-guide")).toHaveCount(0);
 
-    const closed = guide.waitForEvent("close");
     await grant(app, "system");
     await expect(card).toHaveAttribute("data-status", "granted");
     await expect(card.getByTestId("permission-guide-status")).toHaveText(
       language === "en"
-        ? "Done. Quit and reopen IncarnaMind, then record again, to record the computer’s sound."
-        : "好了。退出并重新打开 IncarnaMind，再重新录制，就能录到电脑声音。",
+        ? "Done. Restart to record the computer’s sound."
+        : "好了。重启后就能录到电脑声音。",
     );
+    const restartButton = card.getByTestId("permission-guide-restart");
+    await expect(restartButton).toBeVisible();
+    await expect(restartButton).toHaveText(language === "en" ? "Restart" : "重启");
+    if (process.env.INCARNAMIND_SCREENSHOTS) {
+      await mkdir(process.env.INCARNAMIND_SCREENSHOTS, { recursive: true });
+      await guide.screenshot({
+        path: join(process.env.INCARNAMIND_SCREENSHOTS, `permission-guide-restart-${language}.png`),
+      });
+    }
+    // Spy on relaunch + quit so clicking Restart proves the restart flow without exiting the test host.
+    await app.evaluate(({ app: electronApp }) => {
+      const scope = globalThis as {
+        __relaunchCount?: number;
+        __quitCount?: number;
+        __origRelaunch?: typeof electronApp.relaunch;
+        __origQuit?: typeof electronApp.quit;
+      };
+      scope.__relaunchCount = 0;
+      scope.__quitCount = 0;
+      scope.__origRelaunch = electronApp.relaunch.bind(electronApp);
+      scope.__origQuit = electronApp.quit.bind(electronApp);
+      electronApp.relaunch = () => {
+        scope.__relaunchCount = (scope.__relaunchCount ?? 0) + 1;
+      };
+      electronApp.quit = () => {
+        scope.__quitCount = (scope.__quitCount ?? 0) + 1;
+      };
+    });
+    const closed = guide.waitForEvent("close");
+    await restartButton.click().catch(() => undefined);
     await closed;
     expect(guideOf(app)).toBeUndefined();
+    await expect
+      .poll(() =>
+        app.evaluate(() => {
+          const scope = globalThis as { __relaunchCount?: number; __quitCount?: number };
+          return { relaunch: scope.__relaunchCount ?? 0, quit: scope.__quitCount ?? 0 };
+        }),
+      )
+      .toEqual({ relaunch: 1, quit: 1 });
+    await app.evaluate(({ app: electronApp }) => {
+      const scope = globalThis as {
+        __origRelaunch?: typeof electronApp.relaunch;
+        __origQuit?: typeof electronApp.quit;
+      };
+      if (scope.__origRelaunch) electronApp.relaunch = scope.__origRelaunch;
+      if (scope.__origQuit) electronApp.quit = scope.__origQuit;
+    });
     await app.close();
   });
 }
@@ -169,12 +216,14 @@ test("where the guide can't sit beside System Settings, the steps show in the wi
   await expect(sheet.getByTestId("meeting-line-system")).toBeVisible();
 
   await grant(app, "system");
-  await expect(steps).toContainText("Done. Quit and reopen IncarnaMind");
+  await expect(steps).toContainText("Done. Restart to record the computer’s sound.");
+  await expect(steps.getByTestId("meeting-line-guide-restart")).toHaveText("Restart");
   // It stays, with the page where it was, until the User dismisses it.
   await pointAndClick(window, sheet.getByTestId("meeting-line-guide-close"));
   await expect(steps).toHaveCount(0);
 
   await pointAndClick(window, sheet.getByTestId("meeting-settings-system"));
-  await expect(steps).toContainText("Done. Quit and reopen IncarnaMind");
+  await expect(steps).toContainText("Done. Restart to record the computer’s sound.");
+  await expect(steps.getByTestId("meeting-line-guide-restart")).toBeVisible();
   await app.close();
 });

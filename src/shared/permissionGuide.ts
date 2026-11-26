@@ -26,6 +26,8 @@ export const PERMISSION_GUIDE_CHANNELS = {
   size: "permissionGuide:size",
   /** Page → main: the User closed it (✕ or Esc). */
   close: "permissionGuide:close",
+  /** Page → main: the User asked to restart IncarnaMind after granting system sound (#3756). */
+  restart: "permissionGuide:restart",
   /** Page → main: what the guide is showing now (`PermissionGuideState`), or null. */
   state: "permissionGuide:state",
 } as const;
@@ -33,6 +35,7 @@ export const PERMISSION_GUIDE_CHANNELS = {
 export interface PermissionGuideBridge {
   resize(width: number, height: number): void;
   close(): void;
+  restart(): void;
   state(): Promise<PermissionGuideState | null>;
   onState(listener: (state: PermissionGuideState | null) => void): () => void;
 }

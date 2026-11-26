@@ -10,7 +10,7 @@ import { UPDATE_RECOVERY_PREFIX } from "./instanceUpdate";
 const STARTED_AGAIN = "--started-again-after-stall";
 const STALL_MS = 5_000;
 
-function relaunchOptions(extra: string[] = []): RelaunchOptions {
+export function relaunchOptions(extra: string[] = []): RelaunchOptions {
   const args = [
     ...process.argv
       .slice(1)

@@ -73,12 +73,14 @@ import { chooseExecutor, createElectronAdapters, homeFolder, systemBrowser } fro
 import { acquireInstance } from "./singleInstance";
 import {
   exitAfterFailedUpdate,
+  relaunchOptions,
   reopenAfterQuit,
   restartAfterFailedUpdate,
   startAgainIfStalled,
 } from "./startDuringQuit";
 import {
   DOWNLOAD_BUTTON,
+  RELAUNCH_BUTTON,
   RELEASES_PAGE,
   startupDialog,
   startupProblem,
@@ -602,15 +604,18 @@ async function showStartupError(error: unknown): Promise<void> {
   logger.exception("app.startFailed", error);
   const language = resolveLanguage("system", app.getPreferredSystemLanguages());
   const options = startupDialog(error, language);
-  if (!(error instanceof DataFromNewerVersionError)) {
-    dialog.showErrorBox(options.title, options.detail);
+  const { response } = await dialog.showMessageBox({ type: "error", ...options });
+  if (error instanceof DataFromNewerVersionError) {
+    if (response === DOWNLOAD_BUTTON) {
+      await systemBrowser.open(RELEASES_PAGE).catch((openError: unknown) => {
+        logger.exception("app.startFailed", openError);
+      });
+    }
     return;
   }
-  const { response } = await dialog.showMessageBox({ type: "error", ...options });
-  if (response === DOWNLOAD_BUTTON) {
-    await systemBrowser.open(RELEASES_PAGE).catch((openError: unknown) => {
-      logger.exception("app.startFailed", openError);
-    });
+  if (response === RELAUNCH_BUTTON) {
+    app.releaseSingleInstanceLock();
+    app.relaunch(relaunchOptions());
   }
 }
 
@@ -732,7 +737,31 @@ app.whenReady().then(async () => {
     log: logger,
     testHooks,
   });
-  servePermissionGuide({ rendererUrl, appWindows, trusted: isFromOurRenderer, testHooks });
+  let restartingForPermission = false;
+  const restartForPermission = () => {
+    if (restartingForPermission) return;
+    restartingForPermission = true;
+    void settleQuit()
+      .then((ok) => {
+        if (!ok) {
+          restartingForPermission = false;
+          return;
+        }
+        app.relaunch(relaunchOptions());
+        appEnd.quit("permissionRestart");
+      })
+      .catch((error: unknown) => {
+        restartingForPermission = false;
+        logger.exception("app.permissionRestartFailed", error);
+      });
+  };
+  servePermissionGuide({
+    rendererUrl,
+    appWindows,
+    trusted: isFromOurRenderer,
+    restart: restartForPermission,
+    testHooks,
+  });
   const background = serveBackground({
     core,
     dataDir: app.getPath("userData"),

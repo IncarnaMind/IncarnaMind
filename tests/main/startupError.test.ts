@@ -26,23 +26,29 @@ describe("startupDialog", () => {
     expect(`${dialog.message}${dialog.detail}`).not.toMatch(/58|migration/);
   });
 
-  it.each(["en", "zh-CN"] as const)("gives the next step and native detail (%s)", (language) => {
-    const dialog = startupDialog(new Error("disk I/O error"), language);
-    expect(dialog.title).toBe(
-      language === "en" ? "IncarnaMind couldn’t start" : "IncarnaMind 无法启动",
-    );
-    expect(dialog.detail).toBe(
-      language === "en"
-        ? "Your data folder couldn’t be opened. Open IncarnaMind again.\n\ndisk I/O error"
-        : "无法打开你的数据文件夹。请重新打开 IncarnaMind。\n\ndisk I/O error",
-    );
-    expect(dialog.buttons).toEqual([]);
-  });
+  it.each(["en", "zh-CN"] as const)(
+    "offers Relaunch and Quit with native detail (%s)",
+    (language) => {
+      const dialog = startupDialog(new Error("disk I/O error"), language);
+      expect(dialog.title).toBe(
+        language === "en" ? "IncarnaMind couldn’t start" : "IncarnaMind 无法启动",
+      );
+      expect(dialog.detail).toBe(
+        language === "en"
+          ? "Your data folder couldn’t be opened.\n\ndisk I/O error"
+          : "无法打开你的数据文件夹。\n\ndisk I/O error",
+      );
+      expect(dialog.buttons).toEqual(
+        language === "en" ? ["Relaunch", "Quit"] : ["重新启动", "退出"],
+      );
+      expect(dialog.defaultId).toBe(0);
+      expect(dialog.cancelId).toBe(1);
+    },
+  );
 
   const sqliteError = (errcode: number, message: string) =>
     Object.assign(new Error(message), { code: "ERR_SQLITE_ERROR", errcode });
-  const native = (message: string) =>
-    `Your data folder couldn’t be opened. Open IncarnaMind again.\n\n${message}`;
+  const native = (message: string) => `Your data folder couldn’t be opened.\n\n${message}`;
   const onPlatform = (value: NodeJS.Platform, run: () => void) => {
     const platform = Object.getOwnPropertyDescriptor(process, "platform");
     if (!platform) throw new Error("The test could not read the native platform.");
@@ -60,12 +66,14 @@ describe("startupDialog", () => {
     ["a lock the migration worker met", new DatabaseHeldError(sqliteError(517, "x"))],
   ])("says another program holds the data, and that it is safe, for %s", (_name, error) => {
     onPlatform("win32", () => {
-      expect(startupDialog(error, "en").detail).toBe(
-        "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
-      );
-      expect(startupDialog(error, "zh-CN").detail).toBe(
-        "另一个程序正在使用 IncarnaMind 的数据。数据不会丢失，请稍后重新打开。",
-      );
+      expect(startupDialog(error, "en")).toMatchObject({
+        detail: "Another program is using IncarnaMind’s data. Nothing is lost.",
+        buttons: ["Relaunch", "Quit"],
+      });
+      expect(startupDialog(error, "zh-CN")).toMatchObject({
+        detail: "另一个程序正在使用 IncarnaMind 的数据。数据不会丢失。",
+        buttons: ["重新启动", "退出"],
+      });
     });
   });
 
@@ -80,7 +88,7 @@ describe("startupDialog", () => {
         native("disk I/O error"),
       );
       expect(startupDialog(sqliteError(5, "database is locked"), "en").detail).toBe(
-        "Another program is using IncarnaMind’s data. Nothing is lost: open it again in a moment.",
+        "Another program is using IncarnaMind’s data. Nothing is lost.",
       );
     });
   });

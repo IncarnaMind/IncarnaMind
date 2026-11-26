@@ -12594,6 +12594,9 @@ export interface MeetingFillProblem {
   message: string;
   /** For "not-allowed": the service's name, as the User knows it. */
   service?: string;
+  /** For "not-allowed": the data flow and service id that Allow grants (#3756). */
+  serviceId?: string;
+  flow?: DataFlowId;
   /**
    * For "no-model" when the User's own AI is connected but wasn't given the meeting's Note, so it
    * can't write the notes: its connection's name. `message` then says so, and what to do.
