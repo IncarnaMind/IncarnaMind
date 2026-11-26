@@ -896,7 +896,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     await ended();
     const yours = translate("en", "agents.mind.yours");
     expect(seen.again).toContain(
-      `¶1 ${yours} Spring tides delay the ferry [kept:1] [note:1] by $x+1$ minutes.`,
+      `¶1${yours} Spring tides delay the ferry [kept:1] [note:1] by $x+1$ minutes.`,
     );
     expect(seen.again).toContain(
       `${yours} The report counts them. ${FERRY} ${seen.cite} by $y^2$.`,
@@ -965,13 +965,13 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     const removed = translate("en", "agents.mind.yoursRemoved");
     const yours = translate("en", "agents.mind.yours");
     for (const markdown of [seen.result, seen.again]) {
-      expect(markdown).toContain(`¶2 ${removed}`);
+      expect(markdown).toContain(`¶2${removed}`);
       expect(markdown).not.toContain(FARES);
-      expect(markdown).not.toContain(`¶2 ${yours}`);
+      expect(markdown).not.toContain(`¶2${yours}`);
     }
     // Written again in the same request, the paragraph comes back with its new words.
     expect(seen.twice?.status).toBe("applied");
-    expect(seen.twice?.markdown).toContain(`¶2 ${yours} Fares rose by a tenth.`);
+    expect(seen.twice?.markdown).toContain(`¶2${yours} Fares rose by a tenth.`);
     expect(seen.twice?.markdown).not.toContain(removed);
     await paired.core.applyAskedChanges({
       answerId: end?.turnId ?? "",
@@ -984,7 +984,8 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(1);
     expect(seen.elsewhere).toContain(`¶1 ${translate("en", "agents.mind.waiting")} ${FARES}`);
     expect(seen.elsewhere).not.toContain(removed);
-    expect(translate("zh-CN", "agents.mind.yoursRemoved")).not.toBe(removed);
+    // One mark in both languages: none is read as the Note's words (#3753).
+    expect(translate("zh-CN", "agents.mind.yoursRemoved")).toBe(removed);
   });
 
   // protects=a change that applies at once in the Note asked from reads, in the same run, as in the Note: in the result and in a later read, with the Note's names and version, and nothing of it counted as waiting for the User; a second change to that paragraph replaces the first, and the Note ends with it once; a change that waits, here or in another Note, and an outside agent's, read as waiting; fails_when=the agent is shown the Note as if its change hadn't landed, or told its own change waits, and may write it again
@@ -1080,7 +1081,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     // The result and a later read show the change in, marked as this request's own: not waiting,
     // its Citation read back as a token, as an ordinary read gives it.
     for (const markdown of [result.markdown, again.markdown]) {
-      expect(markdown).toContain(`¶2 ${yours} Fares rose by a tenth.`);
+      expect(markdown).toContain(`¶2${yours} Fares rose by a tenth.`);
       expect(markdown).toContain(`${yours} The council meets the ferry company in January.`);
       expect(markdown).toMatch(
         new RegExp(
@@ -1102,7 +1103,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     const twice = seen.twice as { status: string; markdown: string; waitingInNote: number };
     expect(twice.status).toBe("applied");
     expect(twice.waitingInNote).toBe(0);
-    expect(twice.markdown).toContain(`¶2 ${yours} Fares rose by a tenth this year.`);
+    expect(twice.markdown).toContain(`¶2${yours} Fares rose by a tenth this year.`);
     // The window that asked puts it in once the request ends: once, the paragraph added once.
     await core.applyAskedChanges({
       answerId: end?.turnId ?? "",
@@ -1226,7 +1227,8 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
               mindId,
               version: first.version,
               changes: [
-                { paragraph: "¶1", text: words.right },
+                // A name copied with the mark of the run's own change names that paragraph.
+                { paragraph: "¶1✓", text: words.right },
                 { paragraph: "¶1+", text: words.more },
                 { paragraph: "¶2", text: `${FERRY} ${cite}` },
                 { paragraph: "¶3", remove: true },
@@ -1246,17 +1248,17 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       // The first change's paragraphs read as in the Note, each by its name, none waiting.
       expect(seen.first?.status, language).toBe("applied");
       expect(seen.first?.waitingInNote, language).toBe(0);
-      expect(seen.first?.markdown, language).toContain(`¶0 ${yours} ## ${words.heading}`);
-      // Its status in the "(…)" read_mind's description names one by: in Chinese too, never in
-      // brackets the run reads as words left in the Note (#3753).
-      expect(seen.first?.markdown, language).toMatch(/^¶0 \([^()（）\n]+\) ## /);
-      expect(seen.first?.markdown, language).toContain(`¶1 ${yours} ${words.wrong}`);
-      expect(seen.first?.markdown, language).toContain(`¶3 ${yours} ${words.gone}`);
+      expect(seen.first?.markdown, language).toContain(`¶0${yours} ## ${words.heading}`);
+      // Its own change is marked on the name, the same in both languages, never in words beside
+      // the paragraph's that the run reads as words left in the Note (#3753).
+      expect(seen.first?.markdown, language).toMatch(/^¶0✓ ## /);
+      expect(seen.first?.markdown, language).toContain(`¶1${yours} ${words.wrong}`);
+      expect(seen.first?.markdown, language).toContain(`¶3${yours} ${words.gone}`);
       expect(seen.second?.status, language).toBe("applied");
       expect(seen.second?.waitingInNote, language).toBe(0);
-      expect(seen.second?.markdown, language).toContain(`¶1 ${yours} ${words.right}`);
-      expect(seen.second?.markdown, language).toContain(`¶2 ${yours} ${words.more}`);
-      expect(seen.second?.markdown, language).toMatch(/¶3 [^\n]*212,000[^\n]*\[cite:[a-z0-9]+\]/);
+      expect(seen.second?.markdown, language).toContain(`¶1${yours} ${words.right}`);
+      expect(seen.second?.markdown, language).toContain(`¶2${yours} ${words.more}`);
+      expect(seen.second?.markdown, language).toMatch(/¶3✓ [^\n]*212,000[^\n]*\[cite:[a-z0-9]+\]/);
       expect(seen.second?.markdown, language).not.toContain(words.wrong);
       expect(seen.second?.markdown, language).not.toContain(words.gone);
       // The line counts the three paragraphs the Note ends with, each once.
@@ -1342,7 +1344,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     // As it will be: the token the first change cited, then the User's Citation, kept as the first.
     expect(shown).toMatch(
       new RegExp(
-        `¶1 ${yours} Spring tides \\[cite:[a-z0-9]+\\] delay the ferry \\[kept:1\\] \\[note:1\\]`,
+        `¶1${yours} Spring tides \\[cite:[a-z0-9]+\\] delay the ferry \\[kept:1\\] \\[note:1\\]`,
       ),
     );
     expect(again?.status).toBe("applied");
@@ -1402,7 +1404,7 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     const end = await ended();
     const yours = translate("en", "agents.mind.yours");
     expect(again?.status).toBe("applied");
-    expect(again?.markdown).toContain(`¶3 ${yours} - Fares rose by a tenth.`);
+    expect(again?.markdown).toContain(`¶3${yours} - Fares rose by a tenth.`);
     expect(again?.markdown).not.toContain("Draft fares");
     expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(1);
     await core.applyAskedChanges({
