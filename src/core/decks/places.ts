@@ -1,12 +1,15 @@
 /**
- * Where a deck edited by hand is written (#149; ADR-0010, 2026-11-24). A deck IncarnaMind keeps
- * in its data folder (one an agent handed over) takes a new version, one a sitting. A deck of the
- * User's own is written itself, as PowerPoint saves it, only by the User's own hand: before a
- * sitting's first write the file as it stands is kept whole in the data folder (./kept), and every
- * write goes to a file beside it that is then renamed over it, with the file's permissions, so it
- * is never left half written. Each write first checks that the file still holds what was last
- * written there, or what the viewer showed, so nothing another program or agent saved is written
- * over. A file that can't be written says why, and the edit waits to be saved as a copy beside it.
+ * Where a deck edited by hand or confirmed from an AI Proposal is written (#149; ADR-0010,
+ * 2026-11-24; owner decision 2026-11-25). A deck IncarnaMind keeps in its data folder (one an
+ * agent handed over) takes a new version. A deck of the User's own is written itself, as
+ * PowerPoint saves it, only when edited by hand or when the User confirms an AI Proposal: before
+ * the first write the file as it stands is kept whole in the data folder (./kept), and every write
+ * goes to a file beside it that is then renamed over it, with the file's permissions, so it is
+ * never left half written. Each write first checks that the file is not locked and still holds
+ * what was last written there, or what the viewer showed, so nothing another program saved is
+ * written over. For hand edits, a file that can't be written says why and the edit waits to be
+ * saved as a copy beside it; for an AI Proposal, Confirm refuses in plain words with nothing
+ * written.
  */
 import { constants } from "node:fs";
 import { access, readFile, realpath, stat } from "node:fs/promises";
@@ -106,6 +109,8 @@ export interface DeckPlaceDeps {
   kept: Pick<KeptDecks, "add" | "find" | "letGo" | "fileFor" | "byId" | "beganFrom">;
   /** Writes of a deck IncarnaMind keeps take turns with agents' hand-overs of it. */
   inHandOverTurn<T>(run: () => Promise<T>): Promise<T>;
+  /** Records an app-own write transition (`fromHash` -> `toHash`) on `documentId`. */
+  onWritten?(documentId: string, fromHash: string, toHash: string): void;
   files?: DeckFiles;
   platform?: NodeJS.Platform;
   now(): string;
@@ -188,7 +193,7 @@ async function checkHolds(
  * the item's folder, as an agent's are kept), and every write puts the bytes in the Document's own
  * file and reads it again, as a hand-over does.
  */
-function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
+export function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
   const files = filesOf(deps);
   let wrote = hashBytes(base);
   let version: { id: string; number: number; file: string } | null = null;
@@ -237,7 +242,9 @@ function keptVersion(deps: DeckPlaceDeps, documentId: string, base: Uint8Array):
           if (why) return { kind: "unwritable", why, name };
           throw error;
         }
+        const previous = wrote;
         wrote = contentHash;
+        deps.onWritten?.(documentId, previous, contentHash);
         await afterWriting("reading the file again", () => deps.readAgain(path));
         return {
           kind: "written",
@@ -418,7 +425,9 @@ export function ownFile(
         throw error;
       }
       verifiedLocal = true;
+      const previous = wrote;
       wrote = hashBytes(bytes);
+      deps.onWritten?.(documentId, previous, wrote);
       if (!began && keptId) deps.kept.beganFrom(keptId);
       began = true;
       let letGo: string[] = [];
@@ -489,16 +498,23 @@ export async function copyBeside(
   return { documentId: copyId, file, beside, place: ownFile(deps, copyId, bytes, { kept: true }) };
 }
 
-/** The one place that decides where a sitting on this Document writes. */
-export function deckPlaceFor(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
+/** Whether `documentId` is a deck IncarnaMind keeps in its own handed-over storage (not a User's own file). */
+export function isKeptDeck(deps: DeckPlaceDeps, documentId: string): boolean {
   const { path, linkedFolderId } = deps.document(documentId);
-  // Only an item an agent handed over has versions; any other file, the data folder's copies of
-  // converted decks among them, is written itself, kept first.
-  const handed =
+  return (
     linkedFolderId === null &&
     isInside(deps.dataDir, path) &&
-    deps.handed.holding(documentId).length > 0;
-  return handed ? keptVersion(deps, documentId, base) : ownFile(deps, documentId, base);
+    deps.handed.holding(documentId).length > 0
+  );
+}
+
+/** The one place that decides where a sitting on this Document writes. */
+export function deckPlaceFor(deps: DeckPlaceDeps, documentId: string, base: Uint8Array): DeckPlace {
+  // Only an item an agent handed over has versions; any other file, the data folder's copies of
+  // converted decks among them, is written itself, kept first.
+  return isKeptDeck(deps, documentId)
+    ? keptVersion(deps, documentId, base)
+    : ownFile(deps, documentId, base);
 }
 
 /**

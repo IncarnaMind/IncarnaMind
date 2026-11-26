@@ -284,3 +284,154 @@
 .viewer-deck-refusal {
   @apply px-6 text-[13px] text-ink-meta;
 }
+/* Live on-slide outline of shapes touched by a waiting AI Proposal (#149 part 2). */
+.slide-proposal-outline {
+  pointer-events: none;
+  border-radius: 3px;
+  border: calc(2px / var(--slide-scale, 1)) solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+}
+.viewer-deck-notes--proposed {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 10px;
+}
+/* Foot container aligned to the slide column's exact edges on the same grey backdrop (#149 part 2). */
+.viewer-deck-foot {
+  flex: none;
+  background: var(--color-page-backdrop);
+  padding-top: 8px;
+  padding-bottom: 14px;
+  &:empty {
+    display: none;
+  }
+}
+.viewer-deck-foot-inner {
+  max-width: 100%;
+  &:empty {
+    display: none;
+  }
+}
+.viewer-deck-ask-box {
+  box-shadow: var(--shadow-popover);
+}
+.viewer-deck-ask-top {
+  padding-bottom: 6px;
+}
+.viewer-deck-proposal-top {
+  @apply flex w-full flex-col gap-2 py-0.5;
+}
+.viewer-deck-proposal-summary-row {
+  @apply flex flex-wrap items-center justify-between gap-2;
+}
+.viewer-deck-proposal-meta {
+  @apply flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5;
+}
+.viewer-deck-proposal-title {
+  @apply text-[13px] font-medium text-ink;
+}
+.viewer-deck-proposal-place {
+  @apply text-[12px] text-ink-secondary;
+}
+.viewer-deck-proposal-controls {
+  @apply flex items-center gap-2;
+}
+.viewer-deck-proposal-link {
+  @apply cursor-pointer border-0 bg-transparent p-0 text-[12px] font-medium text-ink-secondary;
+  &:hover {
+    color: var(--color-ink);
+    text-decoration: underline;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+.viewer-deck-proposal-details {
+  @apply flex max-h-56 flex-col gap-2 overflow-auto px-4 pt-3 pb-2;
+  border-bottom: 1px solid var(--color-rule);
+}
+.viewer-deck-proposal-summary {
+  @apply m-0 text-[12px] text-ink-secondary;
+}
+.viewer-deck-proposal-items {
+  @apply m-0 flex list-none flex-col gap-2 p-0;
+}
+.viewer-deck-proposal-item {
+  @apply flex flex-col gap-1 rounded-lg p-2 text-[12px];
+  background: var(--color-page-backdrop);
+  border: 1px solid var(--color-rule);
+}
+.viewer-deck-proposal-where {
+  @apply flex flex-wrap items-center justify-between gap-2 text-ink-meta;
+}
+.viewer-deck-proposal-overflow {
+  @apply text-[12px] font-medium;
+  color: var(--color-warning);
+}
+.viewer-deck-proposal-diff {
+  @apply grid grid-cols-1 gap-1.5 sm:grid-cols-2;
+}
+.viewer-deck-proposal-before,
+.viewer-deck-proposal-after {
+  @apply flex flex-col gap-0.5 rounded-md px-2 py-1 text-[12px] whitespace-pre-wrap;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-rule);
+}
+.viewer-deck-proposal-label {
+  @apply text-[11px] font-medium text-ink-meta;
+}
+.viewer-deck-proposal-actions {
+  @apply flex flex-wrap items-center gap-1.5;
+}
+.viewer-deck-proposal-btn {
+  @apply cursor-pointer rounded-full px-3 py-1 text-[12px] font-medium text-ink;
+  background: var(--color-sheet);
+  border: 1px solid var(--color-rule-strong);
+  &:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+.viewer-deck-proposal-btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-primary);
+  &:hover:not(:disabled) {
+    background: var(--color-accent-strong);
+    border-color: var(--color-accent-strong);
+  }
+}
+.viewer-deck-working,
+.viewer-deck-receipt {
+  @apply flex w-full items-center justify-between gap-3 py-0.5 text-[13px] text-ink;
+}
+.viewer-deck-working-text {
+  @apply min-w-0 flex-1 text-ink-secondary;
+}
+.viewer-deck-receipt-text {
+  @apply min-w-0 flex-1 text-ink;
+}
+.viewer-deck-proposal-error {
+  @apply mx-3 mt-2 rounded-lg px-3 py-1.5 text-[12px] text-ink;
+  background: var(--color-warning-wash);
+  border: 1px solid var(--color-warning);
+}
+.viewer-deck-agent-select {
+  @apply max-w-36 cursor-pointer rounded-full border-0 bg-transparent px-2 py-1 text-[12px] text-ink-secondary;
+  &:hover {
+    background: var(--color-hover);
+    color: var(--color-ink);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+}
