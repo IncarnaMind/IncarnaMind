@@ -423,7 +423,7 @@ export async function checkExport(bytes: Uint8Array): Promise<ExportCheck> {
     if (head(main) !== head(new TextDecoder().decode(original.get(pkg.part)))) {
       return { ok: false, detail: "the document's start changed", exported: result.data };
     }
-    const unmarked = (xml: string) => xml.replace(/ w:dirty="true"/g, "");
+    const unmarked = (xml: string) => xml.replace(/\sw:dirty\s*=\s*(["'])[^"']*\1/g, "");
     const comparable = unmarked(main);
     let at = 0;
     let kept = 0;

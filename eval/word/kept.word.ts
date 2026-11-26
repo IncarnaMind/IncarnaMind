@@ -11,8 +11,8 @@
  * - **Fields**: the file's TOC, REF and PAGEREF fields, and how many each export marks to refresh.
  * - **Formatting**: three exports, every paragraph edited one way each: a word changed, a word
  *   made bold, and the paragraph split in two with Enter. Every character the edit didn't touch
- *   must keep its run properties (the bold word all but its bold), counted by character and by
- *   property.
+ *   must be there and keep its run properties (the bold word all but its bold), counted by
+ *   character and by property.
  *
  * It prints a line per file and the totals, then holds the bars: nothing unedited changes, every
  * file with numbering keeps it, and at least 95% of the untouched characters keep all their
@@ -192,15 +192,27 @@ function like(element: Y.XmlElement): Y.XmlElement {
   return fresh;
 }
 
-/** Puts `fresh` after `element`: in a list, as a new item after its item. */
+/**
+ * Puts `fresh` after `element`, as Enter does: in a list, as a new item after its item, which
+ * takes what followed the paragraph in it (a list inside it), so `fresh` is the next paragraph.
+ */
 function insertAfter(element: Y.XmlElement, fresh: Y.XmlElement): boolean {
   const parent = element.parent;
   if (parent instanceof Y.XmlElement && parent.nodeName === "listItem") {
     const list = parent.parent;
     if (!(list instanceof Y.XmlElement)) return false;
+    const siblings = parent.toArray();
+    const from = siblings.indexOf(element) + 1;
+    const rest = siblings
+      .slice(from)
+      .flatMap((each) =>
+        each instanceof Y.XmlElement || each instanceof Y.XmlText ? [each.clone()] : [],
+      );
+    if (rest.length !== siblings.length - from) return false;
     const item = new Y.XmlElement("listItem");
-    item.insert(0, [fresh]);
+    item.insert(0, [fresh, ...rest]);
     list.insert(list.toArray().indexOf(parent) + 1, [item]);
+    if (rest.length > 0) parent.delete(from, rest.length);
     return true;
   }
   if (parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment) {
@@ -210,15 +222,19 @@ function insertAfter(element: Y.XmlElement, fresh: Y.XmlElement): boolean {
   return false;
 }
 
-/** Edits each imported paragraph `chosen` picks, by its place, as `kind` says; returns the places edited. */
+/**
+ * Edits each imported paragraph `chosen` picks, by its place, as `kind` says; returns the places
+ * edited, each with the word replaced or made bold ("" for a split).
+ */
 function editParagraphs(
   doc: Y.Doc,
   kind: EditKind,
   chosen: (place: string) => boolean,
-): Set<string> {
-  const edited = new Set<string>();
+): Map<string, string> {
+  const edited = new Map<string, string>();
   doc.transact(() => {
-    for (const { element, place } of importedParagraphs(doc)) {
+    // Last first: Enter in an item moves the list inside it, so the items in that list go before.
+    for (const { element, place } of importedParagraphs(doc).reverse()) {
       if (!chosen(place)) continue;
       const content = element.toArray();
       if (kind === "split") {
@@ -237,7 +253,7 @@ function editParagraphs(
         if (!insertAfter(element, second)) continue;
         only.delete(at, only.length - at);
         carried.applyDelta(rest);
-        edited.add(place);
+        edited.set(place, "");
         continue;
       }
       for (const text of content) {
@@ -253,7 +269,7 @@ function editParagraphs(
             word.attributes,
           );
         }
-        edited.add(place);
+        edited.set(place, word.word);
         break;
       }
     }
@@ -342,16 +358,28 @@ const addFormats = (into: FormatOutcome, more: FormatOutcome): FormatOutcome => 
 
 const BOLD = /^w:bC?s?\{/;
 
+/** Where in the matched characters the word made bold is: the first place its text gained bold. */
+function boldedAt(matched: readonly [RunCharacter, RunCharacter][], word: string): number {
+  const chars = [...word];
+  return matched.findIndex((_, from) =>
+    chars.every((char, at) => {
+      const pair = matched[from + at];
+      return pair?.[0].char === char && pair[1].format.some((each) => BOLD.test(each));
+    }),
+  );
+}
+
 /**
  * Each edited paragraph as it was and as it is now (the two a split made, joined), compared
- * character by character outside what the edit replaced; a bold word's bold is the edit itself.
+ * character by character outside what the edit replaced; the bold of the word made bold is the
+ * edit itself. A character the export lost counts as one whose formatting wasn't kept.
  */
 function compareFormats(
   kind: EditKind,
-  pairs: readonly { was: RunCharacter[]; now: RunCharacter[] }[],
+  pairs: readonly { was: RunCharacter[]; now: RunCharacter[]; word: string }[],
 ): FormatOutcome {
   const outcome: FormatOutcome = { ...NO_FORMAT, changed: [] };
-  for (const { was, now } of pairs) {
+  for (const { was, now, word } of pairs) {
     outcome.paragraphs++;
     let prefix = 0;
     while (prefix < was.length && prefix < now.length && was[prefix]?.char === now[prefix]?.char)
@@ -368,8 +396,23 @@ function compareFormats(
       matched.push([was[at] as RunCharacter, now[at] as RunCharacter]);
     for (let at = 1; at <= suffix; at++)
       matched.push([was[was.length - at] as RunCharacter, now[now.length - at] as RunCharacter]);
-    for (const [old, kept] of matched) {
-      const ignore = (each: string) => kind === "bold" && BOLD.test(each);
+    const untouched = was.length - (kind === "word" ? [...word].length : 0);
+    const lost = was.slice(prefix, was.length - suffix);
+    for (let missing = untouched - matched.length; missing > 0; missing--) {
+      outcome.characters++;
+      outcome.properties += lost[missing - 1]?.format.length ?? 0;
+      if (outcome.changed.length < 2)
+        outcome.changed.push(
+          `${kind}: lost "${lost
+            .map((each) => each.char)
+            .join("")
+            .slice(0, 40)}"`,
+        );
+    }
+    const bolded = kind === "bold" ? boldedAt(matched, word) : -1;
+    for (const [index, [old, kept]] of matched.entries()) {
+      const inWord = bolded >= 0 && index >= bolded && index < bolded + [...word].length;
+      const ignore = (each: string) => inWord && BOLD.test(each);
       const before = old.format.filter((each) => !ignore(each));
       const after = kept.format.filter((each) => !ignore(each));
       outcome.characters++;
@@ -462,7 +505,7 @@ async function measure(notes: Notes, file: string): Promise<FileOutcome> {
 
   const same = await identical(bytes, await (await notes(bytes, name)).export());
 
-  const exported = async (edit: (doc: Y.Doc) => Set<string> | boolean) => {
+  const exported = async (edit: (doc: Y.Doc) => Map<string, string> | boolean) => {
     const note = await notes(bytes, name);
     const edited = edit(note.client.doc);
     return { edited, again: await readPackage(await note.export()) };
@@ -474,7 +517,7 @@ async function measure(notes: Notes, file: string): Promise<FileOutcome> {
     const { edited, again } = await exported((doc) =>
       editParagraphs(doc, "word", (place) => place === first),
     );
-    if (edited instanceof Set && edited.size > 0) one = compareNumbers(numbers, numbersOf(again));
+    if (edited instanceof Map && edited.size > 0) one = compareNumbers(numbers, numbersOf(again));
   }
 
   // A clause added after the first paragraph of each list: the file then numbers as Word numbers
@@ -510,24 +553,24 @@ async function measure(notes: Notes, file: string): Promise<FileOutcome> {
   let dirtyAfterWords = 0;
   for (const kind of KINDS) {
     const { edited, again } = await exported((doc) => editParagraphs(doc, kind, () => true));
-    if (!(edited instanceof Set)) continue;
+    if (!(edited instanceof Map)) continue;
     if (kind === "word") {
       all = compareNumbers(numbers, numbersOf(again));
       dirtyAfterWords = fieldsIn(again.root).filter((each) => each.dirty).length;
     }
-    const pairs: { was: RunCharacter[]; now: RunCharacter[] }[] = [];
+    const pairs: { was: RunCharacter[]; now: RunCharacter[]; word: string }[] = [];
     let at = 0;
     for (const p of original.paragraphs) {
       const place = placeOf(p);
-      const isEdited = place !== null && edited.has(place);
+      const word = place === null ? undefined : edited.get(place);
       const now = again.paragraphs[at];
-      const second = kind === "split" && isEdited ? again.paragraphs[at + 1] : undefined;
+      const second = kind === "split" && word !== undefined ? again.paragraphs[at + 1] : undefined;
       at += second ? 2 : 1;
-      if (!isEdited || !now) continue;
-      pairs.push({
-        was: runCharacters(p),
-        now: [...runCharacters(now), ...(second ? runCharacters(second) : [])],
-      });
+      if (word === undefined) continue;
+      // A field's result is Word's to write, and a REF's rightly shows its bookmark's new words.
+      const own = (paragraph: XmlElement | undefined) =>
+        paragraph ? runCharacters(paragraph).filter((each) => !each.field) : [];
+      pairs.push({ was: own(p), now: [...own(now), ...own(second)], word });
     }
     formats[kind] = compareFormats(kind, pairs);
   }

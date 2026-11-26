@@ -727,8 +727,9 @@ export class DocumentPatch {
       const based = head.key ? this.based.get(head.key) : undefined;
       if (!based || head.kind !== "paragraph" || based.element.name !== "w:p") return;
       const after: Counterpart[] = [];
-      for (const next of counterparts.slice(index + 1)) {
-        if (next.key !== null || next.kind !== "paragraph") break;
+      for (let at = index + 1; at < counterparts.length; at++) {
+        const next = counterparts[at];
+        if (!next || next.key !== null || next.kind !== "paragraph") break;
         after.push(next);
       }
       if (after.length === 0 || !this.needsWriting(head, based)) return;
@@ -986,10 +987,7 @@ export class DocumentPatch {
     basePPr: string,
   ): { pPr: string; rPr: string } {
     const { styles } = this.input;
-    const level =
-      counterpart.node.type === "heading"
-        ? Math.min(Math.max(Number(counterpart.node.attrs?.level) || 1, 1), 6)
-        : null;
+    const level = headingLevelOf(counterpart.node);
     let properties: Properties;
     let rPr = "";
     let formatBefore: ParagraphFormat = {};
@@ -997,26 +995,7 @@ export class DocumentPatch {
       properties = Properties.paragraph(basePPr);
       formatBefore = formatOf(based.counterpart.node);
       rPr = runOfMark(properties.get("w:rPr"));
-      const baseLevel =
-        based.counterpart.node.type === "heading"
-          ? Number(based.counterpart.node.attrs?.level) || 1
-          : null;
-      if (level !== baseLevel) {
-        const direct = properties.has("w:outlineLvl");
-        if (level !== null && direct && baseLevel !== null) {
-          properties.set("w:outlineLvl", `<w:outlineLvl w:val="${level - 1}"/>`);
-        } else if (level !== null) {
-          properties.remove("w:outlineLvl");
-          properties.set(
-            "w:pStyle",
-            `<w:pStyle w:val="${escapeXml(styles.id(`heading${level}` as "heading1"))}"/>`,
-          );
-        } else {
-          properties.remove("w:outlineLvl");
-          if (!direct) properties.remove("w:pStyle");
-        }
-        if (level !== null && baseLevel !== null) shiftNumbering(properties, level - baseLevel);
-      }
+      this.relevel(properties, based, level);
       if (
         !sameList(counterpart.list, based.counterpart.list) ||
         counterpart.inListText !== based.counterpart.inListText
@@ -1030,6 +1009,7 @@ export class DocumentPatch {
       const sibling = this.headingOf(counterpart, level);
       if (sibling) {
         properties = Properties.paragraph(cleaned(this.pPrOf(sibling.element), { numbered: true }));
+        this.relevel(properties, sibling, level);
         formatBefore = formatOf(sibling.counterpart.node);
         rPr = this.lastRunOf(sibling);
       } else {
@@ -1170,15 +1150,38 @@ export class DocumentPatch {
     return null;
   }
 
-  /** The imported heading of `level` nearest before a counterpart, else after: a new heading takes its properties. */
+  /**
+   * An imported paragraph's properties moved to the heading level the Mind has it at (null for
+   * no heading): its outline level or heading style, and its own numbering as many levels.
+   */
+  private relevel(properties: Properties, based: Based, level: number | null): void {
+    const was = headingLevelOf(based.counterpart.node);
+    if (level === was) return;
+    const direct = properties.has("w:outlineLvl");
+    if (level !== null && direct && was !== null) {
+      properties.set("w:outlineLvl", `<w:outlineLvl w:val="${level - 1}"/>`);
+    } else if (level !== null) {
+      properties.remove("w:outlineLvl");
+      properties.set(
+        "w:pStyle",
+        `<w:pStyle w:val="${escapeXml(this.input.styles.id(`heading${level}` as "heading1"))}"/>`,
+      );
+    } else {
+      properties.remove("w:outlineLvl");
+      if (!direct) properties.remove("w:pStyle");
+    }
+    if (level !== null && was !== null)
+      shiftNumbering(properties, this.input.listOf(based.element)?.level ?? 0, level - was);
+  }
+
+  /** The imported heading the Mind has at `level` nearest before a counterpart, else after: a new heading takes its properties. */
   private headingOf(counterpart: Counterpart, level: number): Based | null {
     const at = this.orderOf.get(counterpart.node);
     if (at === undefined) return null;
     const around = [...this.order.slice(0, at).reverse(), ...this.order.slice(at + 1)];
     for (const each of around) {
       const based = each.key ? this.based.get(each.key) : undefined;
-      if (based?.element.name === "w:p" && headingLevelOf(based.counterpart.node) === level)
-        return based;
+      if (based?.element.name === "w:p" && headingLevelOf(each.node) === level) return based;
     }
     return null;
   }
@@ -1683,17 +1686,17 @@ const headingLevelOf = (node: NodeJSON): number | null =>
   node.type === "heading" ? Math.min(Math.max(Number(node.attrs?.level) || 1, 1), 6) : null;
 
 /**
- * Moves a paragraph's own numbering `by` levels, as Tab does a list item's, when the User
- * changes its heading's level. Numbering only its style gives comes with the new style.
+ * Moves a paragraph's own numbering from its Word level `from` (its own, or its style's) `by`
+ * levels, as Tab does a list item's, when the User changes its heading's level. Numbering only
+ * its style gives comes with the new style.
  */
-function shiftNumbering(properties: Properties, by: number): void {
+function shiftNumbering(properties: Properties, from: number, by: number): void {
   const numPr = properties.get("w:numPr");
   if (!numPr || by === 0) return;
   const element = parseXml(numPr);
   const numId = child(element, "w:numId")?.attrs["w:val"];
   if (numId === undefined || numId === "0") return;
-  const level = Number(child(element, "w:ilvl")?.attrs["w:val"]) || 0;
-  const moved = Math.min(Math.max(level + by, 0), 8);
+  const moved = Math.min(Math.max(from + by, 0), 8);
   properties.set(
     "w:numPr",
     `<w:numPr><w:ilvl w:val="${moved}"/><w:numId w:val="${escapeXml(numId)}"/></w:numPr>`,

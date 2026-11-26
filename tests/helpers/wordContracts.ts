@@ -15,10 +15,12 @@ export const clauseNumbering = (top: [string, string], under: [string, string], 
     )
     .join("")}</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>`;
 
-const clause = (text: string) => paragraph(run(text), { style: "Heading1", numId: 1, ilvl: 0 });
-const sub = (content: string) =>
+/** A clause heading, numbered at the first level; a sub-clause under it; one with a bookmark on it. */
+export const clause = (text: string) =>
+  paragraph(run(text), { style: "Heading1", numId: 1, ilvl: 0 });
+export const sub = (content: string) =>
   paragraph(content.startsWith("<") ? content : run(content), { numId: 1, ilvl: 1 });
-const bookmarked = (name: string, text: string) =>
+export const bookmarked = (name: string, text: string) =>
   `<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr><w:bookmarkStart w:id="0" w:name="${name}"/>${run(text)}<w:bookmarkEnd w:id="0"/></w:p>`;
 
 export interface Contract {

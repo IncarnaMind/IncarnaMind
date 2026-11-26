@@ -9,16 +9,20 @@ import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
 import { inspectPackage } from "../../eval/word/corpus";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { part, unzip } from "../helpers/docx";
+import { numbersIn, part, unzip } from "../helpers/docx";
 import { editMind } from "../helpers/minds";
 import { escapeXml, field, paragraph, run, STYLES, wordFile } from "../helpers/word";
 import {
   addItemAfter,
+  bookmarked,
   CHINESE_CONTRACT,
   CHINESE_PAST_NINE,
   type Contract,
+  clause,
+  clauseNumbering,
   contractFile,
   ENGLISH_CONTRACT,
+  sub,
 } from "../helpers/wordContracts";
 import { importWordBytes } from "../helpers/wordMinds";
 
@@ -150,6 +154,89 @@ describe("a Word file's cross-references after its clauses are renumbered", () =
     );
     expect(fieldsOf(document)).toEqual([
       { instruction: "REF _Ref301 \\r \\h", result: "（九）", dirty: true },
+    ]);
+  });
+
+  // protects=a REF whose number goes from （十） to （十一）, neither of which Word's Chinese counting is certain to write so, is still asked to refresh, its result kept; fails_when=it isn't marked because no written form of either number could be compared; no_claim=what Word writes when it refreshes it.
+  test("a REF whose number changes where neither number can be written is marked", async () => {
+    const contract: Contract = {
+      ...CHINESE_CONTRACT,
+      numbering: clauseNumbering(["chineseCounting", "第%1条"], ["chineseCounting", "（%2）"], 8),
+      reference: `${run("未按第")}${field("REF _Ref301 \\r \\h", "（十）")}${run("项支付利息的，任何一方可解除本合同。")}`,
+    };
+    const { document } = await exported(contractFile(contract), renumber(contract));
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref301 \\r \\h", result: "（十）", dirty: true },
+    ]);
+  });
+
+  // protects=a `\r` number leaves out the levels the bookmarked paragraph shares with the one the REF is in, so when a clause heading added between them moves the REF's paragraph to another clause, the REF is asked to refresh though its bookmark keeps 2.3, and its result is kept; fails_when=it isn't marked, or its result is rewritten; no_claim=what Word writes for a relative number, which the export doesn't work out.
+  test("a `\\r` REF whose own paragraph moves to another clause is marked", async () => {
+    const reference = `${run("Interest under clause ")}${field("REF _Ref201 \\r \\h", "2.3")}${run(" is due monthly.")}`;
+    const contract: Contract = {
+      ...ENGLISH_CONTRACT,
+      body: (words) =>
+        [
+          clause("Services"),
+          sub("Brightwater Studio designs the packaging Alder & Finch Ltd orders."),
+          clause("Fees"),
+          sub("Alder & Finch Ltd pays the fee each month."),
+          sub(ENGLISH_CONTRACT.after),
+          bookmarked("_Ref201", "Unpaid fees carry interest at 2% a month."),
+          sub(words),
+        ].join(""),
+      reference,
+    };
+    const { data, document } = await exported(contractFile(contract), (blocks) =>
+      blocks.flatMap((block) => {
+        const items = block.content ?? [];
+        const at = items.findIndex((each) => textOf(each).startsWith("Interest under clause"));
+        if (block.type !== "orderedList" || at <= 0) return [block];
+        const { id: _id, ...attrs } = block.attrs ?? {};
+        return [
+          { ...block, content: items.slice(0, at) },
+          { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Interest" }] },
+          { ...block, attrs, content: items.slice(at) },
+        ];
+      }),
+    );
+    expect(numbersIn(data).find((line) => line.includes("Interest under clause"))).toMatch(
+      /^3\.1 /,
+    );
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\r \\h", result: "2.3", dirty: true },
+    ]);
+  });
+
+  // protects=a simple field holding another, both naming a renumbered clause: each text of a result is the innermost field's, so the inner one gets the new number, and the outer one is only asked to refresh, rather than both writing the same text and the export failing; fails_when=the export throws, the inner result keeps 2.3, or either field isn't marked; no_claim=what Word shows in the outer field.
+  test("a simple field inside another is renumbered, the outer one only marked", async () => {
+    const inner = `<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${run("2.3")}</w:fldSimple>`;
+    const reference = `${run("Either party may end this agreement under clause ")}<w:fldSimple w:instr=" REF _Ref201 \\r \\h ">${inner}</w:fldSimple>${run(".")}`;
+    const { data, document } = await exported(
+      contractFile(ENGLISH_CONTRACT, reference),
+      renumber(ENGLISH_CONTRACT),
+    );
+    const nested =
+      /<w:fldSimple ([^>]*)><w:fldSimple ([^>]*)>(.*?)<\/w:fldSimple><\/w:fldSimple>/.exec(
+        document,
+      );
+    expect(nested?.[1]).toContain('w:dirty="true"');
+    expect(nested?.[2]).toContain('w:dirty="true"');
+    expect(nested?.[3]).toContain(">2.4<");
+    expect((await inspectPackage(data)).problems).toEqual([]);
+  });
+
+  // protects=a field the file already marks not dirty with single quotes (w:dirty='false') gets one w:dirty="true", not a second attribute, which would make the part malformed; fails_when=the begin holds two w:dirty, or none set to true; no_claim=other attributes' quoting, which is kept as the file had it.
+  test("a field marked not dirty in single quotes is marked once", async () => {
+    const reference = `${run("Either party may end this agreement under clause ")}${field("REF _Ref201 \\r \\h", "2.3").replace('w:fldCharType="begin"/>', "w:fldCharType=\"begin\" w:dirty='false'/>")}${run(".")}`;
+    const { document } = await exported(
+      contractFile(ENGLISH_CONTRACT, reference),
+      renumber(ENGLISH_CONTRACT),
+    );
+    const begin = /<w:fldChar w:fldCharType="begin"[^>]*\/>/.exec(document)?.[0] ?? "";
+    expect(begin.match(/w:dirty/g)).toHaveLength(1);
+    expect(fieldsOf(document)).toEqual([
+      { instruction: "REF _Ref201 \\r \\h", result: "2.4", dirty: true },
     ]);
   });
 

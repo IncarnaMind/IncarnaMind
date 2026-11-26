@@ -5,8 +5,8 @@
  * with the User's edits tracked; LibreOffice opens each export and saves its text, in which the
  * referring clause must show the new number. LibreOffice shows a field's result as the file saved
  * it, and doesn't read the mark that asks Word to work a field out again, so this checks the
- * number the export writes: what any viewer that doesn't refresh fields shows. Word, which works
- * out again each field marked dirty, is the manual check: with INCARNAMIND_WORD_PDFS set to a
+ * number the export writes: what any viewer that doesn't refresh fields shows. Whether Word works
+ * out again each field marked dirty is the manual check: with INCARNAMIND_WORD_PDFS set to a
  * folder, the exports are kept there for it, as `fields-<language>.docx` and
  * `fields-<language>-tracked.docx`, with `fields-Chinese-past-nine.docx`, whose REF keeps the
  * file's （九） for Word to make （十）, and LibreOffice's PDFs. Without LibreOffice its part is

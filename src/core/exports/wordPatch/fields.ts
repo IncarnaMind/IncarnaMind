@@ -1,10 +1,11 @@
 /**
  * The main document's TOC, REF and PAGEREF fields after an export changed it (#746). A field's
- * result is what Word last worked out; Word works it out again as the file opens only for a
- * field marked dirty, as Word marks one itself, and a viewer that never does shows the result as
+ * result is what Word last worked out. ECMA-376 (17.16.18) asks an application to work a field
+ * marked dirty out again as it reads the file, and a viewer that doesn't shows the result as
  * saved. So each field whose result the change can have altered is marked dirty:
  *
- * - a REF, when its bookmark's paragraph number (`\r`, `\n`, `\w`) or its bookmark's text changed;
+ * - a REF, when its bookmark's paragraph number (`\r`, `\n`, `\w`) or its bookmark's text changed,
+ *   or for `\r` the levels that number shares with the paragraph the REF is in;
  * - a PAGEREF, when anything at or before its bookmark changed, which can move its page;
  * - a TOC, when the headings changed, or anything before the last of them.
  *
@@ -50,6 +51,8 @@ interface Field {
   begin: XmlElement;
   /** The texts of its result, its own and not a field's inside it. */
   result: XmlElement[];
+  /** Its result holds another field, so it is never written again, only marked. */
+  nested: boolean;
 }
 
 const REFRESHED = new Set(["TOC", "REF", "PAGEREF"]);
@@ -60,8 +63,18 @@ const NUMBER_SWITCHES = ["r", "n", "w"] as const;
 const textIn = (element: XmlElement) =>
   element.children.filter((part): part is string => typeof part === "string").join("");
 
-function fieldOf(instruction: string, begin: XmlElement, result: XmlElement[]): Field | null {
-  const words = instruction.trim().split(/\s+/);
+/** Any field as a part is read: its instruction, and the texts of its result that are its own. */
+interface Read {
+  begin: XmlElement;
+  instruction: string;
+  separated: boolean;
+  ended: boolean;
+  result: XmlElement[];
+  nested: boolean;
+}
+
+function fieldOf(read: Read): Field | null {
+  const words = read.instruction.trim().split(/\s+/);
   const type = (words[0] ?? "").toUpperCase();
   if (!REFRESHED.has(type)) return null;
   const switches = new Set<string>();
@@ -71,40 +84,60 @@ function fieldOf(instruction: string, begin: XmlElement, result: XmlElement[]): 
     switches.add(name === "*" ? `*${(words[at + 1] ?? "").toUpperCase()}` : name);
   }
   const bookmark = type === "TOC" ? null : words[1] && !words[1].startsWith("\\") ? words[1] : null;
-  return { type, bookmark, switches, begin, result };
+  const { begin, result, nested } = read;
+  return { type, bookmark, switches, begin, result, nested };
 }
 
-/** The TOC, REF and PAGEREF fields of a part, in order. */
+/**
+ * The TOC, REF and PAGEREF fields of a part, in order. A text of a result is the innermost
+ * field's: a simple field (`w:fldSimple`) holds what is inside it, a complex one what is between
+ * its separate and its end.
+ */
 function fieldsIn(root: XmlElement): Field[] {
-  const fields: Field[] = [];
-  const open: {
-    begin: XmlElement;
-    instruction: string;
-    separated: boolean;
-    result: XmlElement[];
-  }[] = [];
+  const parents = parentsOf(root);
+  const read: Read[] = [];
+  const simple = new Map<XmlElement, Read>();
+  const open: Read[] = [];
+  /** The field whose result an element is in: the innermost of the simple field around it and the open one. */
+  const ownerOf = (element: XmlElement): Read | undefined => {
+    let around: Read | undefined;
+    for (let at = parents.get(element); at && !around; at = parents.get(at))
+      around = simple.get(at);
+    const top = open.at(-1);
+    const inner = !around || (top && startOf(top.begin) > startOf(around.begin)) ? top : around;
+    return inner?.separated ? inner : undefined;
+  };
   for (const element of walk(root)) {
     const top = open.at(-1);
-    if (element.name === "w:fldSimple") {
-      const field = fieldOf(element.attrs["w:instr"] ?? "", element, descendants(element, "w:t"));
-      if (field) fields.push(field);
-    } else if (element.name === "w:fldChar") {
-      const kind = element.attrs["w:fldCharType"];
-      if (kind === "begin")
-        open.push({ begin: element, instruction: "", separated: false, result: [] });
-      else if (kind === "separate" && top) top.separated = true;
-      else if (kind === "end" && top) {
-        open.pop();
-        const field = fieldOf(top.instruction, top.begin, top.result);
-        if (field) fields.push(field);
-      }
+    const kind = element.name === "w:fldChar" ? element.attrs["w:fldCharType"] : undefined;
+    if (element.name === "w:fldSimple" || kind === "begin") {
+      const outer = ownerOf(element);
+      if (outer) outer.nested = true;
+      const field: Read = {
+        begin: element,
+        instruction: element.name === "w:fldSimple" ? (element.attrs["w:instr"] ?? "") : "",
+        separated: element.name === "w:fldSimple",
+        ended: element.name === "w:fldSimple",
+        result: [],
+        nested: false,
+      };
+      read.push(field);
+      if (element.name === "w:fldSimple") simple.set(element, field);
+      else open.push(field);
+    } else if (kind === "separate" && top) top.separated = true;
+    else if (kind === "end" && top) {
+      top.ended = true;
+      open.pop();
     } else if (element.name === "w:instrText" && top && !top.separated) {
       top.instruction += textIn(element);
-    } else if (element.name === "w:t" && top?.separated) {
-      top.result.push(element);
+    } else if (element.name === "w:t") {
+      ownerOf(element)?.result.push(element);
     }
   }
-  return fields;
+  return read.flatMap((each) => {
+    const field = each.ended ? fieldOf(each) : null;
+    return field ? [field] : [];
+  });
 }
 
 /** One side of the change, read for what its fields show. */
@@ -155,20 +188,35 @@ class Reading {
     return end ? endOf(end) : null;
   }
 
+  private paragraphAround(element: XmlElement): XmlElement | null {
+    for (let at = this.parents.get(element); at; at = this.parents.get(at)) {
+      if (at.name === "w:p") return at;
+    }
+    return null;
+  }
+
   /** The paragraph a bookmark starts in, or the one after it when it starts between paragraphs. */
   private paragraphOf(name: string): XmlElement | null {
     const start = this.starts.get(name);
     if (!start) return null;
-    for (let at = this.parents.get(start); at; at = this.parents.get(at)) {
-      if (at.name === "w:p") return at;
-    }
-    return this.paragraphs.find((p) => startOf(p) >= endOf(start)) ?? null;
+    return (
+      this.paragraphAround(start) ?? this.paragraphs.find((p) => startOf(p) >= endOf(start)) ?? null
+    );
   }
 
-  /** A bookmark's paragraph number, every paragraph counted, then with tracked deletions accepted. */
-  numberOf(name: string): [ParagraphNumber | null, ParagraphNumber | null] {
-    const p = this.paragraphOf(name);
+  /** A paragraph's number, every paragraph counted, then with tracked deletions accepted. */
+  private numbersOf(p: XmlElement | null): Counted {
     return p ? [this.numbers.get(p) ?? null, this.accepted.get(p) ?? null] : [null, null];
+  }
+
+  /** A bookmark's paragraph number, both ways. */
+  numberOf(name: string): Counted {
+    return this.numbersOf(this.paragraphOf(name));
+  }
+
+  /** The number of the paragraph an element is in, both ways. */
+  numberAround(element: XmlElement): Counted {
+    return this.numbersOf(this.paragraphAround(element));
   }
 
   /** A bookmark's text, when it is all in one paragraph; null for one that isn't. */
@@ -214,6 +262,24 @@ class Reading {
 
 /** A paragraph's number in each way Word writes it in a cross-reference; null where one can't be written. */
 type Ways = (string | null)[];
+
+/** A paragraph's number with every paragraph counted, and with tracked deletions accepted. */
+type Counted = [ParagraphNumber | null, ParagraphNumber | null];
+
+const sameNumber = (a: ParagraphNumber | null, b: ParagraphNumber | null) =>
+  a === null || b === null
+    ? a === b
+    : a.list.abstract === b.list.abstract &&
+      a.list.level === b.list.level &&
+      a.numbers.join(".") === b.numbers.join(".");
+
+/** How many of its first levels a paragraph's number shares with the referring paragraph's. */
+function sharedLevels(target: ParagraphNumber | null, from: ParagraphNumber | null): number {
+  if (!target || !from || target.list.abstract !== from.list.abstract) return 0;
+  let at = 0;
+  while (at < target.numbers.length && target.numbers[at] === from.numbers[at]) at++;
+  return at;
+}
 
 /** A paragraph whose mark is deleted as a tracked change: with it accepted, the paragraph is gone. */
 function deletedMark(p: XmlElement): boolean {
@@ -266,6 +332,11 @@ export function refreshFields(
   if (fields.length === 0) return after.text;
   const was = new Reading(before, before.root);
   const now = new Reading(after, root);
+  let earlierMap: Map<Field, Field> | null = null;
+  const earlier = () => {
+    earlierMap ??= earlierFields(fieldsIn(before.root), fields);
+    return earlierMap;
+  };
 
   let headings: boolean | null = null;
   const headingsChanged = () => {
@@ -291,27 +362,8 @@ export function refreshFields(
       const end = was.endOfBookmark(field.bookmark);
       dirty = end === null || now.endOfBookmark(field.bookmark) === null || changedAt < end;
     } else if (NUMBER_SWITCHES.some((each) => field.switches.has(each))) {
-      // Each way of writing the number, every paragraph counted and with tracked deletions accepted.
-      const [thenNumber, thenAcceptedNumber] = was.numberOf(field.bookmark);
-      const [nowNumber, nowAcceptedNumber] = now.numberOf(field.bookmark);
-      const thenAll = numberWays(thenNumber, before.numbering);
-      const thenAccepted = numberWays(thenAcceptedNumber, before.numbering);
-      const nowAll = numberWays(nowNumber, after.numbering);
-      const nowAccepted = numberWays(nowAcceptedNumber, after.numbering);
-      const result = shown.trim();
-      const way = thenAll.findIndex(
-        (each, at) => result !== "" && (each === result || thenAccepted[at] === result),
-      );
-      if (way >= 0) {
-        const all = nowAll[way] ?? null;
-        const accepted = nowAccepted[way] ?? null;
-        dirty = all !== thenAll[way] || accepted !== thenAccepted[way];
-        if (dirty && all !== null && all === accepted && all !== result) written = all;
-      } else {
-        dirty =
-          nowAll.some((each, at) => each !== thenAll[at]) ||
-          nowAccepted.some((each, at) => each !== thenAccepted[at]);
-      }
+      const from = field.switches.has("r") ? (earlier().get(field)?.begin ?? null) : undefined;
+      ({ dirty, written } = numberResult(field, was, now, from));
     } else {
       const then = was.textOf(field.bookmark);
       const next = now.textOf(field.bookmark);
@@ -323,17 +375,97 @@ export function refreshFields(
     const formatted = [...field.switches].some(
       (each) => each.startsWith("*") && !PLAIN_FORMATS.has(each.slice(1)),
     );
-    if (written !== null && !formatted) splices.push(...rewritten(field.result, written));
+    if (written !== null && !formatted && !field.nested)
+      splices.push(...rewritten(field.result, written));
   }
   return splices.length > 0 ? applySplices(after.text, splices) : after.text;
 }
 
+/**
+ * Each field of the part after the change, with the same field before it: the one with its
+ * instruction at its place among those, when the change left as many of them.
+ */
+function earlierFields(then: readonly Field[], now: readonly Field[]): Map<Field, Field> {
+  const grouped = (fields: readonly Field[]) => {
+    const groups = new Map<string, Field[]>();
+    for (const field of fields) {
+      const key = `${field.type} ${field.bookmark ?? ""} ${[...field.switches].sort().join(" ")}`;
+      groups.set(key, [...(groups.get(key) ?? []), field]);
+    }
+    return groups;
+  };
+  const thenGroups = grouped(then);
+  const earlier = new Map<Field, Field>();
+  for (const [key, fields] of grouped(now)) {
+    const was = thenGroups.get(key);
+    if (was?.length !== fields.length) continue;
+    fields.forEach((field, at) => {
+      const same = was[at];
+      if (same) earlier.set(field, same);
+    });
+  }
+  return earlier;
+}
+
+/**
+ * A REF to a paragraph's number: whether the change can have altered what it shows, and what
+ * it shows now when that can be known. A `\r` number leaves out the levels the paragraph shares
+ * with the one the field is in (ECMA-376 17.16.5.58), so `from` is the field before the change,
+ * null when it can't be found; undefined for a number that doesn't depend on where it is.
+ */
+function numberResult(
+  field: Field,
+  was: Reading,
+  now: Reading,
+  from: XmlElement | null | undefined,
+): { dirty: boolean; written: string | null } {
+  const bookmark = field.bookmark ?? "";
+  const result = field.result.map(textIn).join("").trim();
+  const then = was.numberOf(bookmark);
+  const next = now.numberOf(bookmark);
+  const counts = [0, 1] as const;
+  const thenWays: [Ways, Ways] = [
+    numberWays(then[0], was.part.numbering),
+    numberWays(then[1], was.part.numbering),
+  ];
+  const nowWays: [Ways, Ways] = [
+    numberWays(next[0], now.part.numbering),
+    numberWays(next[1], now.part.numbering),
+  ];
+  let placed = from === undefined;
+  if (from) {
+    const thenFrom = was.numberAround(from);
+    const nowFrom = now.numberAround(field.begin);
+    placed = counts.every(
+      (at) => sharedLevels(then[at], thenFrom[at]) === sharedLevels(next[at], nowFrom[at]),
+    );
+  }
+  const way = thenWays[0].findIndex(
+    (_, at) => result !== "" && thenWays.some((ways) => ways[at] === result),
+  );
+  if (way < 0) {
+    const changed = counts.some(
+      (at) =>
+        !sameNumber(then[at], next[at]) || nowWays[at].some((each, w) => each !== thenWays[at][w]),
+    );
+    return { dirty: changed || !placed, written: null };
+  }
+  const all = nowWays[0][way] ?? null;
+  const accepted = nowWays[1][way] ?? null;
+  const dirty = !placed || all !== thenWays[0][way] || accepted !== thenWays[1][way];
+  const known = dirty && placed && all !== null && all === accepted && all !== result;
+  return { dirty, written: known ? all : null };
+}
+
+const DIRTY = /\sw:dirty\s*=\s*(["'])(.*?)\1/;
+
 /** Marks a field dirty, as Word marks one whose result is out of date: on its begin, or its simple field. */
 function markDirty(text: string, begin: XmlElement): Splice[] {
   const tag = text.slice(startOf(begin), begin.openEnd ?? endOf(begin));
-  if (/\sw:dirty="(?:true|1|on)"/.test(tag)) return [];
-  const marked = /\sw:dirty="[^"]*"/.test(tag)
-    ? tag.replace(/\sw:dirty="[^"]*"/, ' w:dirty="true"')
+  const found = DIRTY.exec(tag);
+  if (found && ["true", "1", "on"].includes(found[2] ?? "")) return [];
+  const marked = found
+    ? tag.replace(DIRTY, ' w:dirty="true"')
     : tag.replace(/\s*(\/?>)$/, ' w:dirty="true"$1');
   return [{ from: startOf(begin), to: startOf(begin) + tag.length, text: marked }];
 }

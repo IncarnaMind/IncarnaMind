@@ -913,6 +913,18 @@ class RunWriter {
     return this.inside(element) ? chain : [];
   }
 
+  /** The link a run Enter carried text out of is in, in its own paragraph: the text keeps that link's look. */
+  private carriedLink(run: XmlElement | null): string | null {
+    for (
+      let at = run ? this.context.parents.get(run) : undefined;
+      at && at.name !== "w:p";
+      at = this.context.parents.get(at)
+    ) {
+      if (at.name === "w:hyperlink") return this.context.hrefOf(at);
+    }
+    return null;
+  }
+
   private inside(element: XmlElement): boolean {
     for (let at: XmlElement | undefined = element; at; at = this.context.parents.get(at)) {
       if (at === this.paragraph) return true;
@@ -1019,11 +1031,12 @@ class RunWriter {
     const original = this.wrappersOf(formatRun).filter(
       (each) => use === "kept" || !CHANGES.has(each.name),
     );
-    const inheritedLink =
-      original
-        .filter((each) => each.name === "w:hyperlink")
-        .map(hrefOf)
-        .at(-1) ?? null;
+    const inheritedLink = this.paragraph
+      ? (original
+          .filter((each) => each.name === "w:hyperlink")
+          .map(hrefOf)
+          .at(-1) ?? null)
+      : this.carriedLink(formatRun);
     const around = original.filter(
       (each) => each.name !== "w:hyperlink" || hrefOf(each) === token.marks.link,
     );

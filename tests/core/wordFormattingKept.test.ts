@@ -239,4 +239,24 @@ describe("formatting the editor doesn't show, after an edit to its paragraph", (
     );
     for (const [before, after] of formats(pairs)) expect(after).toBe(before);
   });
+
+  // protects=Enter before a link carries it into the new paragraph still a link, its run exactly as the file had it: the link style isn't added to a link the file formats by hand; fails_when=the carried link's run gains w:rStyle Hyperlink, or the link is lost; no_claim=a link the User adds, which takes the link style.
+  test("Enter before a link carries it with its own look", async () => {
+    const red = '<w:color w:val="C00000"/>';
+    const link = `<w:hyperlink r:id="rIdLink">${formatted('<w:color w:val="0563C1"/><w:u w:val="single"/>', "the schedule")}</w:hyperlink>`;
+    const bytes = wordFile({
+      styles: STYLES,
+      rels: '<Relationship Id="rIdLink" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="https://example.com/schedule" TargetMode="External"/>',
+      body: `${paragraph(`${formatted(red, "The rent is set out in ")}${link}${formatted(red, ".")}`)}${paragraph("The next clause stays as it was.")}`,
+    });
+    const data = await exported(bytes, enterAt("The rent is set out in ".length));
+    const [, second] = descendants(parseXml(part(unzip(data), "word/document.xml")), "w:p");
+    expect(second ? descendants(second, "w:hyperlink") : []).toHaveLength(1);
+    const was = writtenCharacters(bytes, false);
+    const now = writtenCharacters(data, true);
+    const pairs = was.map(
+      (character, at) => [character, now[at] as RunCharacter] as [RunCharacter, RunCharacter],
+    );
+    for (const [before, after] of formats(pairs)) expect(after).toBe(before);
+  });
 });

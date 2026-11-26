@@ -1,6 +1,18 @@
 import { crc32, inflateRawSync } from "node:zlib";
 import { DOMParser, type Element, type Node } from "@xmldom/xmldom";
-import { child, elements, type XmlElement } from "../../src/core/documents/formats/xml";
+import {
+  paragraphNumbers,
+  readWordNumbering,
+} from "../../src/core/documents/formats/wordNumbering";
+import { readStyleTable } from "../../src/core/documents/formats/wordStyleTable";
+import {
+  child,
+  descendants,
+  elements,
+  parseXml,
+  textOf as textOfElement,
+  type XmlElement,
+} from "../../src/core/documents/formats/xml";
 
 /**
  * The files in a ZIP archive (a .docx), by path. Checks each entry's CRC-32
@@ -42,6 +54,21 @@ export function part(files: Map<string, Buffer>, name: string): string {
   const content = files.get(name);
   if (!content) throw new Error(`The package has no ${name}.`);
   return content.toString("utf8");
+}
+
+/** Each paragraph of a .docx with the number Word draws before it: "2.1 The fee…", or its text alone. */
+export function numbersIn(data: Uint8Array): string[] {
+  const files = unzip(data);
+  const styles = readStyleTable(parseXml(part(files, "word/styles.xml")));
+  const numbering = readWordNumbering(
+    files.has("word/numbering.xml") ? parseXml(part(files, "word/numbering.xml")) : undefined,
+    styles,
+  );
+  const paragraphs = descendants(parseXml(part(files, "word/document.xml")), "w:p");
+  return paragraphNumbers(numbering, styles, paragraphs).map((number, index) => {
+    const text = textOfElement(paragraphs[index] ?? { name: "", attrs: {}, children: [] });
+    return number ? `${number.text} ${text}` : text;
+  });
 }
 
 /**
@@ -133,6 +160,8 @@ export interface RunCharacter {
   char: string;
   /** Each property written out with its attributes sorted, the properties sorted; a tracked format change left out. */
   format: string[];
+  /** In a field's result, which Word writes, rather than in the paragraph's own text. */
+  field: boolean;
 }
 
 const writtenOut = (element: XmlElement): string =>
@@ -156,11 +185,13 @@ const NOT_SHOWN = new Set(["w:p", "w:pPr", "w:del", "w:moveFrom", "w:txbxContent
  */
 export function runCharacters(p: XmlElement): RunCharacter[] {
   const out: RunCharacter[] = [];
-  const visit = (node: XmlElement) => {
+  /** Each complex field open here: whether its result has begun. */
+  const open: boolean[] = [];
+  const visit = (node: XmlElement, simple: boolean) => {
     for (const each of elements(node)) {
       if (NOT_SHOWN.has(each.name)) continue;
       if (each.name !== "w:r") {
-        visit(each);
+        visit(each, simple || each.name === "w:fldSimple");
         continue;
       }
       const rPr = child(each, "w:rPr");
@@ -169,15 +200,20 @@ export function runCharacters(p: XmlElement): RunCharacter[] {
         .map(writtenOut)
         .sort();
       for (const inner of elements(each)) {
+        const kind = inner.name === "w:fldChar" ? inner.attrs["w:fldCharType"] : undefined;
+        if (kind === "begin") open.push(false);
+        else if (kind === "separate" && open.length > 0) open[open.length - 1] = true;
+        else if (kind === "end") open.pop();
         const text =
           inner.name === "w:t"
             ? inner.children.filter((piece): piece is string => typeof piece === "string").join("")
             : RUN_CHARACTERS[inner.name];
-        for (const char of text ?? "") out.push({ char, format });
+        const field = simple || open.includes(true);
+        for (const char of text ?? "") out.push({ char, format, field });
       }
     }
   };
-  visit(p);
+  visit(p, false);
   return out;
 }
 

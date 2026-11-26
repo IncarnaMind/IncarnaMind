@@ -7,32 +7,11 @@
  */
 import type { JSONContent } from "@tiptap/core";
 import { describe, expect, test } from "vitest";
-import {
-  paragraphNumbers,
-  readWordNumbering,
-} from "../../src/core/documents/formats/wordNumbering";
-import { readStyleTable } from "../../src/core/documents/formats/wordStyleTable";
-import { descendants, parseXml, textOf } from "../../src/core/documents/formats/xml";
 import { createTempDataFolder, startCore } from "../helpers/core";
-import { part, unzip } from "../helpers/docx";
+import { numbersIn } from "../helpers/docx";
 import { editMind } from "../helpers/minds";
 import { paragraph, run, STYLES, wordFile } from "../helpers/word";
 import { importWordBytes } from "../helpers/wordMinds";
-
-/** Each paragraph of a .docx with the number Word draws before it: "2.1 The fee…", or its text alone. */
-function numbersIn(data: Uint8Array): string[] {
-  const files = unzip(data);
-  const styles = readStyleTable(parseXml(part(files, "word/styles.xml")));
-  const numbering = readWordNumbering(
-    files.has("word/numbering.xml") ? parseXml(part(files, "word/numbering.xml")) : undefined,
-    styles,
-  );
-  const paragraphs = descendants(parseXml(part(files, "word/document.xml")), "w:p");
-  return paragraphNumbers(numbering, styles, paragraphs).map((number, index) => {
-    const text = textOf(paragraphs[index] ?? { name: "", attrs: {}, children: [] });
-    return number ? `${number.text} ${text}` : text;
-  });
-}
 
 const definition = (levels: readonly [string, string][], id = 0, extra = "") =>
   `<w:abstractNum w:abstractNumId="${id}"><w:multiLevelType w:val="multilevel"/>${extra}${levels
@@ -281,6 +260,61 @@ describe("a contract's numbered clauses after an edit", () => {
     },
   );
 
+  // protects=a heading the User adds after a clause heading they made a sub-heading is numbered as that one now is, a level deeper, rather than falling back to an unnumbered heading style because no heading had that level in the file; fails_when=the new heading comes back unnumbered or at the first level; no_claim=a heading of a level no heading has, before or after the edit.
+  test.each(LANGUAGES)(
+    "%s: a heading added after one made a sub-heading is numbered at its level",
+    async (_language, contract) => {
+      const data = await editedExport(fileOf(OWN, contract), (blocks) => {
+        const at = blocks.findIndex(
+          (each) => each.type === "heading" && textOfNode(each) === contract.clauses[1],
+        );
+        const moved = blocks.map((block, index) =>
+          index === at ? { ...block, attrs: { ...block.attrs, level: 2 } } : block,
+        );
+        const added = {
+          type: "heading",
+          attrs: { level: 2 },
+          content: [{ type: "text", text: contract.newClause }],
+        };
+        return [...moved.slice(0, at + 1), added, ...moved.slice(at + 1)];
+      });
+      const lines = numbersIn(data);
+      expect(lines[contract.subs[0].length + 3]).toBe(
+        `${contract.sub(1, 3)} ${contract.newClause}`,
+      );
+    },
+  );
+
+  // protects=a heading with its own list but its level from its style (the style says level 2, the paragraph only the list) moves a level deeper from its style's level when the User makes it a sub-heading; fails_when=it moves from the first level instead and keeps a clause number; no_claim=a heading whose style alone numbers it.
+  test("a heading numbered at its style's level moves a level deeper from there", async () => {
+    const styles = `${STYLES.replace(/<w:style w:type="paragraph" w:styleId="Heading1">.*?<\/w:style>/, "")}${style("Heading1", '<w:numPr><w:ilvl w:val="1"/></w:numPr>', 0)}`;
+    const heading = (text: string) =>
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr>${run(text)}</w:p>`;
+    const bytes = wordFile({
+      styles,
+      numbering:
+        definition([
+          ["upperRoman", "Part %1"],
+          ["decimal", "%2."],
+          ["decimal", "%2.%3"],
+        ]) + num(1, 0),
+      body: [
+        paragraph(run("General"), { numId: 1, ilvl: 0 }),
+        heading("Services"),
+        heading("Fees"),
+      ].join(""),
+    });
+    expect(numbersIn(new Uint8Array(bytes))).toEqual(["Part I General", "1. Services", "2. Fees"]);
+    const data = await editedExport(bytes, (blocks) =>
+      blocks.map((block) =>
+        block.type === "heading" && textOfNode(block) === "Fees"
+          ? { ...block, attrs: { ...block.attrs, level: 2 } }
+          : block,
+      ),
+    );
+    expect(numbersIn(data)).toEqual(["Part I General", "1. Services", "1.1 Fees"]);
+  });
+
   // protects=typed clause numbers and a bold line standing for a heading stay the file's text after an edit: the export gives them no numbering; fails_when=either becomes a numbered paragraph; no_claim=how the import reads them, which the import test covers.
   test("typed numbers and a bold heading stay text", async () => {
     const bytes = wordFile({
@@ -303,5 +337,42 @@ describe("a contract's numbered clauses after an edit", () => {
       "第一条 定义!",
       "本合同用语含义如下。!",
     ]);
+  });
+});
+
+describe("Word's numbering rules, as the shared reader counts a file", () => {
+  const fileWith = (levels: string) =>
+    wordFile({
+      numbering: `<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="multilevel"/>${levels}</w:abstractNum>${num(1, 0)}`,
+      body: [
+        paragraph("Services", { numId: 1, ilvl: 0 }),
+        paragraph("The studio designs the packaging.", { numId: 1, ilvl: 1 }),
+        paragraph("Fees", { numId: 1, ilvl: 0 }),
+        paragraph("The fee is due each month.", { numId: 1, ilvl: 1 }),
+      ].join(""),
+    });
+  const level = (ilvl: number, format: string, text: string, more = "") =>
+    `<w:lvl w:ilvl="${ilvl}"><w:start w:val="1"/><w:numFmt w:val="${format}"/>${more}<w:lvlText w:val="${text}"/></w:lvl>`;
+
+  // protects=a level whose restart is 0 (w:lvlRestart) never starts again, so its count goes on across the items above it, as Word counts it, and an item's other levels start again as without it; fails_when=the second sub-clause is numbered 2.1; no_claim=a restart at a level two above, which counts the same way.
+  test("a level that never starts again counts on under the next item", () => {
+    const bytes = fileWith(
+      level(0, "decimal", "%1.") + level(1, "decimal", "%1.%2", '<w:lvlRestart w:val="0"/>'),
+    );
+    expect(numbersIn(new Uint8Array(bytes))).toEqual([
+      "1. Services",
+      "1.1 The studio designs the packaging.",
+      "2. Fees",
+      "2.2 The fee is due each month.",
+    ]);
+  });
+
+  // protects=legal numbering (w:isLgl) writes every level of the number in Arabic numerals, the level's own too, and w:isLgl w:val="0" leaves the levels' own formats; fails_when=the sub-clause is written 1.a under legal numbering, or 1.1 with it off; no_claim=levels with a bullet or no number.
+  test.each([
+    ["<w:isLgl/>", "1.1"],
+    ['<w:isLgl w:val="0"/>', "I.a"],
+  ])("legal numbering %s writes the sub-clause %s", (legal, number) => {
+    const bytes = fileWith(level(0, "upperRoman", "%1.") + level(1, "lowerLetter", "%1.%2", legal));
+    expect(numbersIn(new Uint8Array(bytes))[1]).toBe(`${number} The studio designs the packaging.`);
   });
 });

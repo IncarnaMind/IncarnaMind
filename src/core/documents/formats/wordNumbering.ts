@@ -8,7 +8,7 @@
  */
 import { wordNumberText } from "../../../shared/numbering";
 import type { WordStyleTable } from "./wordStyleTable";
-import { child, elements, type XmlElement } from "./xml";
+import { child, elements, onOff, type XmlElement } from "./xml";
 
 export interface WordListLevel {
   format: string;
@@ -19,6 +19,11 @@ export interface WordListLevel {
   style: string | null;
   /** Every level's number in Arabic numerals, as legal numbering writes them (`w:isLgl`). */
   legal: boolean;
+  /**
+   * The level, from 1, whose items or those of any level above it start this one again
+   * (`w:lvlRestart`); 0 for never; null for any level above it, as without one.
+   */
+  restart: number | null;
 }
 
 export interface WordNumbering {
@@ -47,12 +52,17 @@ function readLevel(lvl: XmlElement): Partial<WordListLevel> {
   const format = value("w:numFmt");
   const text = value("w:lvlText");
   const style = value("w:pStyle");
+  const restart = value("w:lvlRestart");
+  const legal = onOff(child(lvl, "w:isLgl"));
   return {
     ...(format !== undefined && { format }),
     ...(text !== undefined && { text }),
     ...(start !== undefined && Number.isFinite(Number(start)) && { start: Number(start) }),
     ...(style !== undefined && { style }),
-    ...(child(lvl, "w:isLgl") && { legal: true }),
+    ...(legal !== undefined && { legal }),
+    ...(restart !== undefined &&
+      Number.isInteger(Number(restart)) &&
+      Number(restart) >= 0 && { restart: Number(restart) }),
   };
 }
 
@@ -79,6 +89,7 @@ export function readWordNumbering(
           text: level.text ?? "",
           style: level.style ?? null,
           legal: level.legal ?? false,
+          restart: level.restart ?? null,
         });
       }
       abstracts.set(id, levels);
@@ -182,6 +193,7 @@ export function levelOf(numbering: WordNumbering, numId: string, at: number): Wo
     text: "",
     style: null,
     legal: false,
+    restart: null,
     ...base,
     ...num?.overrides.get(at),
   };
@@ -190,7 +202,7 @@ export function levelOf(numbering: WordNumbering, numId: string, at: number): Wo
 /**
  * Counts a document's numbered paragraphs in order, as Word does: each definition's levels count
  * on across the lists that share it; a list's start override starts it again where it is first
- * used; an item starts every deeper level again.
+ * used; an item starts every deeper level again, but one whose restart level is above it.
  */
 export class WordListCounter {
   private readonly counters = new Map<string, number[]>();
@@ -217,8 +229,13 @@ export class WordListCounter {
       }
     }
     counters[list.level] = (counters[list.level] ?? 0) + 1;
-    for (let deeper = list.level + 1; deeper <= DEEPEST; deeper++)
-      counters[deeper] = start(deeper) - 1;
+    for (let deeper = list.level + 1; deeper <= DEEPEST; deeper++) {
+      const restart = levelOf(this.numbering, list.numId, deeper).restart;
+      // ECMA-376 17.9.10: a restart level that is the level itself or a deeper one is ignored.
+      const restarts =
+        restart === null || restart > deeper ? true : restart > 0 && list.level < restart;
+      if (restarts) counters[deeper] = start(deeper) - 1;
+    }
     return counters.slice(0, list.level + 1);
   }
 }
@@ -238,7 +255,7 @@ export function levelText(
   let known = true;
   const text = level.text.replace(/%([1-9])/g, (_, digit: string) => {
     const of = Number(digit) - 1;
-    const format = level.legal && of < at ? "decimal" : levelOf(numbering, numId, of).format;
+    const format = level.legal ? "decimal" : levelOf(numbering, numId, of).format;
     const written = wordNumberText(format, numbers[of] ?? 0);
     if (written === null) known = false;
     return written ?? "";
