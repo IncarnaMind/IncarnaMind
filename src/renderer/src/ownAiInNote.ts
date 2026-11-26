@@ -322,6 +322,8 @@ export async function askInNote(
     ...(asked.caret && !asked.selection && { caret: asked.caret }),
   });
   if (start.kind === "link") return "link";
+  // The User's ask of their own AI, as an Answer is of the assistant's: the first open ends.
+  if (start.kind === "started") useAppStore.getState().updateGettingStarted({ askedOwn: true });
   const base: NoteAsk = {
     turnId: start.kind === "started" ? start.turnId : null,
     pairingId: start.pairing.id,

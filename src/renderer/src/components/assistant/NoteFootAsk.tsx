@@ -2,6 +2,7 @@ import { useAgentsToAskRead, useNoModel, useReadAgentsToAsk } from "../../askYou
 import { useT } from "../../i18n";
 import { useNoAiForNote, useOwnAiPillAt } from "../../ownAiPanel";
 import { useAppStore } from "../../store";
+import { noAiFor } from "../ExampleLine";
 import { ProblemLine } from "../ProblemLine";
 import { NoteCantReadLine } from "./NoteCantReadLine";
 import { OwnAiPill } from "./OwnAiPill";
@@ -11,7 +12,7 @@ import { OwnAiPill } from "./OwnAiPill";
  * is the way to ask (#3764): the pill that asks an AI of theirs IncarnaMind can't run here, or,
  * with none of theirs that reads the Note, one line with the one thing that fixes it. Either way
  * it is the Note's one place to ask. In an example, with no AI app connected and no model set up,
- * that line says to connect one (#3791).
+ * the example's own line says to connect one (#3791).
  */
 export function NoteFootAsk({ mindId, example = false }: { mindId: string; example?: boolean }) {
   const t = useT();
@@ -29,23 +30,8 @@ export function NoteFootAsk({ mindId, example = false }: { mindId: string; examp
     );
   }
   if (connected === null) return null;
-  if (example && noModel && connected.length === 0) {
-    return (
-      <div data-testid="note-foot-ask" data-mind-id={mindId} className="mind-measure note-foot-ask">
-        <ProblemLine
-          role="status"
-          testId="note-ask-no-ai"
-          action={{
-            label: t("noteAsk.connect"),
-            testId: "note-ask-connect",
-            onClick: () => openSettings("ai"),
-          }}
-        >
-          {t("noteAsk.connectToAsk")}
-        </ProblemLine>
-      </div>
-    );
-  }
+  // The example's own line says it, in the same block (ExampleLine).
+  if (example && noAiFor(noModel, connected)) return null;
   if (!noAi) return null;
   if (connected.length > 0) {
     return (

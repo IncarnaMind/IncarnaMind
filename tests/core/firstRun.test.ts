@@ -162,17 +162,6 @@ describe("the first run's setup: what finishing makes (#3296)", { timeout: 60_00
     expect((await core.firstRunSetup()).show).toBe(true);
     expect(await madeGroups(core)).toEqual([]);
   });
-
-  test("the credit paper's ready Question is the card's only while that example leads", async () => {
-    const credit = await fresh();
-    await credit.core.finishFirstRunSetup(["finance", "legal"]);
-    await expect
-      .poll(async () => (await credit.core.readyQuestion())?.ready?.question ?? null)
-      .not.toBeNull();
-    const legal = await fresh();
-    await legal.core.finishFirstRunSetup(["legal", "finance"]);
-    expect((await legal.core.readyQuestion())?.ready ?? null).toBeNull();
-  });
 });
 
 describe("the first run's picks as usage data (#3296)", { timeout: 30_000 }, () => {

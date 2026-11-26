@@ -3029,13 +3029,20 @@
   .note-ask {
     position: relative;
   }
-  /* An example's one line, just above its input, starting where the input's words start (#3791). */
+  /*
+   * An example's one line, just above its input, starting where the input's words start (#3791),
+   * 8px above the input's border, as the AI's line stands inside it. With no input, the line saying
+   * how to ask stands under it in the same block, on the same edge, and the block ends the page.
+   */
   .example-line {
-    padding: 10px 0 0 18px;
+    padding: 6px 0 8px 18px;
     font-family: var(--font-sans);
-    font-size: 12.5px;
-    line-height: 18px;
+    font-size: 13px;
+    line-height: 20px;
     color: var(--color-ink-meta);
+    .note-ask-foot:not(:has(.note-ask)) > & {
+      padding-bottom: 16px;
+    }
   }
   /* Where the input can't show, the pill or the line that stands in its place, centred. */
   .note-foot-ask {

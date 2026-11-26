@@ -67,7 +67,10 @@ describe("the apps found", () => {
   // protects=an app Connect would connect is always in sight: a ticked app the list re-read past the first three stays shown, not folded under "N more found"; fails_when=a ticked row is folded out of sight and still connected
   it("never folds a ticked app out of sight", () => {
     const ids: AgentClientId[] = ["claude-code", "codex", "claude-desktop", "cursor", "zed"];
-    const found = foundApps(ids.map((id) => client(id)), false);
+    const found = foundApps(
+      ids.map((id) => client(id)),
+      false,
+    );
     expect(shownApps(found, new Set(), false).map((each) => each.id)).toEqual([
       "claude-code",
       "codex",

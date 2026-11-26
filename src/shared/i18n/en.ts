@@ -381,6 +381,8 @@ export const en = {
   "home.reading.one": "1 Document being read",
   "home.newMind.more": "More ways to start",
   "home.ask.placeholder": "Ask {agent} about your files…",
+  "home.ask.cantRead.one": "{agent} can’t read new notes",
+  "home.ask.cantRead": "Your AI can’t read new notes",
   "home.comingUp": "Coming up",
   "comingUp.none": "No meetings coming up",
   "comingUp.connect": "Connect a calendar",
@@ -6072,13 +6074,6 @@ export const en = {
   "error.startup.newer.quit": "Quit",
 
   "error.connector.notInDirectory": "That Connector isn’t in the directory.",
-  "error.examples.reading": "The example’s Documents are still being read. Try again in a moment.",
-  "error.examples.unreadable":
-    "Couldn’t read the example’s “{document}”. Add a file of your own, or remove the examples.",
-  "error.examples.gone":
-    "The example’s “{document}” was deleted. Add a file of your own, or remove the examples.",
-  "error.examples.absent":
-    "The example isn’t there any more. Add a file of your own to ask about it.",
   "error.selection.none": "No text is selected.",
   "error.annotation.refused":
     "That text can’t be highlighted: the Document doesn’t have it where it was selected.",
@@ -7306,9 +7301,6 @@ export const en = {
   "editor.hint.afterAnswer": "Keep writing, or {ask}",
   "editor.hint.afterAnswer.ask": "press {shortcut} to ask a follow-up",
   "examples.chip": "Example",
-  "readyQuestion.document": "What does ‘{document}’ say?",
-  "readyQuestion.documents": "What do your {count} Documents say?",
-  "firstOpen.agent.line": "Write a short summary of {document} as a new note in IncarnaMind.",
   "assistant.pill": "Ask anything",
   "sidebar.examples": "Examples",
   "sidebar.documents": "Documents",
@@ -8689,7 +8681,6 @@ export const en = {
   "command.answer.copy": "Copy the Answer",
   "command.answer.regenerate": "Regenerate the Answer",
   "command.answer.stop": "Stop the Answer",
-  "command.ready.stop": "Stop waiting for the Documents",
   "command.answer.stop.unavailable": "No Answer is being written",
   "command.model.changeRemoved": "Choose another model for this note",
   "origin.open": "Open the source conversation",
@@ -9239,7 +9230,7 @@ export const en = {
   "agents.reason.no-python": "this computer can’t run code for it",
   "agents.connect.title": "Let {agent} read your Documents?",
   "agents.connect.body":
-    "It can read the Folders you share, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. All your Documents and notes means every Folder, those you make later too, and what is in no Folder, your notes there included, but not the examples: it reads an example’s note and Documents only once you ask it something in that example. A Folder that keeps its work inside it is never part of that, and is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it. When you ask it to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
+    "It can read the Folders you share, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases it writes there. All your Documents and notes means every Folder, those you make later too, and what is in no Folder, your notes there included, but not the examples: it reads an example’s note and its own Documents only once you ask it something in that example or press Check there with it. A Folder that keeps its work inside it is never part of that, and is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for it on this computer: over a sheet or CSV file in those Folders, sending it what the code gives, and over the names, kinds, Folders and Tags of what it may read, sending it only the numbers. Everything it lists or reads goes to the AI model {agent} uses, under that service’s terms; some plans may train on it. When you ask it to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
   "agents.connect.name": "Name",
   "agents.connect.namePlaceholder": "My agent",
   "agents.connect.folders": "What it may read",
@@ -9286,7 +9277,7 @@ export const en = {
   "agents.connectAll.button": "Connect all {count}",
   "agents.connectAll.title": "Let your AI apps read your Documents?",
   "agents.connectAll.body":
-    "They can read the Folders you share, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases they write there. All your Documents and notes means every Folder, those you make later too, and what is in no Folder, your notes there included, but not the examples: an app reads an example’s note and Documents only once you ask it something in that example. A Folder that keeps its work inside it is never part of that, and is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for them on this computer: over a sheet or CSV file in those Folders, sending them what the code gives, and over the names, kinds, Folders and Tags of what they may read, sending them only the numbers. Everything each app lists or reads goes to the AI model it uses, under that service’s terms; some plans may train on it. When you ask one to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
+    "They can read the Folders you share, with the Folders inside them, and the notes, meetings and Canvases in them, with each meeting’s Transcript and the speakers’ names it holds; with Not in a Folder, also the notes and Canvases they write there. All your Documents and notes means every Folder, those you make later too, and what is in no Folder, your notes there included, but not the examples: an app reads an example’s note and its own Documents only once you ask it something in that example or press Check there with it. A Folder that keeps its work inside it is never part of that, and is shared only on its own. Listing them sends each Folder’s name, internal id and place among them, the name, kind and internal id of each Document in it, each note’s name, internal id and last-change time, with when a meeting started, and each Canvas’s title, internal id, version and last-change time; reading a Canvas sends its HTML and its files’ names, kinds and sizes. IncarnaMind can also run code for them on this computer: over a sheet or CSV file in those Folders, sending them what the code gives, and over the names, kinds, Folders and Tags of what they may read, sending them only the numbers. Everything each app lists or reads goes to the AI model it uses, under that service’s terms; some plans may train on it. When you ask one to organize Documents, it can read their opening text and the names and ids of Tags used on Documents in its shared Folders. Its suggestions wait for your confirmation.",
   "agents.connectAll.reads.all":
     "Each may read all your Documents and notes. What each reads goes to its AI model.",
   "agents.connectAll.reads": "What each reads goes to the AI model it uses.",
@@ -9366,7 +9357,6 @@ export const en = {
   "agents.asked.opened": "Asked {agent}: send the request there.",
   "agents.asked.copied": "Copied for {agent}: paste the request there and send it.",
   "agents.asked.checking": "Checking this note in {agent}.",
-  "agents.asked.writing": "Writing the note in {agent}.",
   "agents.asked.changing": "Changing the words you selected in {agent}.",
   "agents.asked.organizing": "Organizing your Documents in {agent}.",
   "agents.asked.quiet": "Nothing from {agent} yet. Send the request, or ask again.",

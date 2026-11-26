@@ -11,6 +11,7 @@ import {
   AgentRefusedError,
   createAgentAccess,
   createCheckRuns,
+  lentExamples,
   MAX_CHECKED_CLAIMS,
   MAX_CHECKS_AN_HOUR,
 } from "../../src/core/agents/access";
@@ -27,6 +28,7 @@ import {
   type CitationLocation,
   type MarkedCitation,
   MIND_CONTENT_FIELD,
+  type Mind,
 } from "../../src/core/api";
 import { transcriptUnits } from "../../src/core/documents/formats/vtt";
 import type { WindowedPassage } from "../../src/core/documents/search";
@@ -1108,17 +1110,104 @@ describe("an example the User asks their AI in (#3791)", () => {
     wallOf: (folderId) => (folderId === "vault" ? "vault" : null),
     documentsIn: (folderIds) =>
       folderIds.includes("vault") ? (what === "documents" ? ["credit-results"] : []) : ["tides"],
-    minds: () =>
-      [
-        {
-          id: EXAMPLE,
-          title: "Draft: credit committee paper",
-          folderId: what === "note" ? "vault" : null,
-        },
-      ] as ReturnType<AgentAccessDeps["minds"]>,
+    minds: () => [exampleMind(what === "note" ? "vault" : null)],
+  });
+  const exampleMind = (folderId: string | null): Mind => ({
+    id: EXAMPLE,
+    title: "Draft: credit committee paper",
+    autoTitle: "",
+    kind: "note",
+    createdAt: AT,
+    updatedAt: AT,
+    folderId,
   });
   const searched = async (access: ReturnType<typeof exampleAccess>) =>
     (await access.search({ query: "gross margin" })).passages.map((each) => each.documentId);
+
+  // protects=a connection the User shared no Folders with reads nothing, the example included, so it is never offered in the example only to refuse there; fails_when=a lend reaches a connection given no Folders
+  it("lends nothing to a connection given no Folders", () => {
+    const deps = {
+      exampleNotes: () => [EXAMPLE],
+      exampleDocuments: () => ["credit-results"],
+      requests: { forMind: () => [askedIn("pairing")], ofPairing: () => [], markRead: () => null },
+      minds: () => [exampleMind(null)],
+      folders: () => [],
+      wallOf: () => null,
+      documentsIn: () => [],
+    };
+    expect(lentExamples(deps, { id: "pairing", folderIds: [] }).mindIds.size).toBe(0);
+    const lent = lentExamples(deps, { id: "pairing", folderIds: [ALL_SHARED_ID] });
+    expect([...lent.mindIds]).toEqual([EXAMPLE]);
+    expect(lent.documentIds).toEqual(["credit-results"]);
+    // About to be asked in it, the example is lent before any request is kept.
+    const ahead = { ...deps, requests: { ...deps.requests, forMind: () => [] } };
+    expect([...lentExamples(ahead, { id: "pairing", folderIds: [ALL_SHARED_ID] }).mindIds]).toEqual(
+      [],
+    );
+    expect([
+      ...lentExamples(ahead, { id: "pairing", folderIds: [ALL_SHARED_ID] }, { askedIn: EXAMPLE })
+        .mindIds,
+    ]).toEqual([EXAMPLE]);
+  });
+
+  // protects=a call reads what is lent once, not once per Note or Transcript it weighs: a Library of many Notes stays as quick to list with the examples kept as without; fails_when=the examples' requests are read again for every Note a call lists
+  it("reads what is lent once a call, however many Notes it lists", async () => {
+    // Given all, the connection weighs each Note in no Folder, the User's and the example's.
+    const notes = (count: number): Mind[] => [
+      exampleMind(null),
+      ...Array.from({ length: count }, (_, at) => ({
+        ...exampleMind(null),
+        id: `note-${at}`,
+        title: `Tide note ${at}`,
+      })),
+    ];
+    const readsFor = async (count: number) => {
+      let reads = 0;
+      const access = exampleAccess([askedIn("pairing")], undefined, {
+        admit: (pairingId) => ({
+          id: pairingId,
+          name: "Codex",
+          folderIds: [ALL_SHARED_ID],
+          createdAt: AT,
+          propose: false,
+        }),
+        folders: () => [{ id: "coast", name: "Coast", parentId: null, keepInside: false }],
+        minds: () => notes(count),
+        mindBlocks: (_mindId, look) => look(new Y.Doc().getXmlFragment(MIND_CONTENT_FIELD)),
+        requests: {
+          ofPairing: () => [],
+          markRead: () => null,
+          forMind: (mindId) => {
+            reads += 1;
+            return mindId === EXAMPLE ? [askedIn("pairing")] : [];
+          },
+        },
+      });
+      await access.listMinds();
+      return reads;
+    };
+    expect(await readsFor(2)).toBe(1);
+    expect(await readsFor(200)).toBe(1);
+  });
+
+  // protects=a lend is the example's Note and its own Documents: a meeting the User recorded in the example is theirs, so no lend sends its Transcript, and no background summary of it can reach an agent through the example; fails_when=asking in the example makes the Transcript of a meeting recorded there readable
+  it("never lends the Transcript of a meeting recorded in the example", async () => {
+    const access = exampleAccess([askedIn("pairing")], undefined, {
+      admit: (pairingId) => ({
+        id: pairingId,
+        name: "Codex",
+        folderIds: [ALL_SHARED_ID],
+        createdAt: AT,
+        propose: false,
+      }),
+      minds: () => [exampleMind(null)],
+      documentsIn: () => ["tides", "example-call"],
+      noteTranscripts: () => [
+        { mindId: EXAMPLE, documentId: "example-call", kind: null, startedAt: null },
+      ],
+    });
+    expect(await searched(access)).toEqual(["tides", "credit-results"]);
+  });
 
   // protects=the examples reach no connection the User didn't ask in one of them, so a search of their own Library never brings the app's examples; fails_when=an example's Documents are searched with no request from it
   it("lends nothing to a connection never asked in one", async () => {

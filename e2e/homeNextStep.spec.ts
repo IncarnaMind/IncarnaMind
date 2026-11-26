@@ -99,7 +99,7 @@ for (const language of ["en", "zh-CN"] as const)
         const addFiles = window.getByTestId("home-add-files");
         await expect(addFiles).toHaveText(t("startGuide.documents.addFiles"));
         await expect(row(window)).toHaveCount(0);
-        // A first launch reads the example's Documents before its ready Answer can be asked.
+        // The example read to the end adds no next step: only the User's own work does.
         const core = await coreOf(window);
         await expect
           .poll(() =>
@@ -108,7 +108,6 @@ for (const language of ["en", "zh-CN"] as const)
             ),
           )
           .toBe(true);
-        await core.evaluate((each) => each.askExampleReadyQuestion());
         await expect(row(window)).toHaveCount(0);
         await window.getByTestId("mind-tab").first().click();
         await exportFromMenu(window, "markdown");

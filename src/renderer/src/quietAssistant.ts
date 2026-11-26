@@ -2,11 +2,10 @@ import { create } from "zustand";
 import { useAgentsToAskRead, useReadAgentsToAsk } from "./askYourAi";
 import { useComposer } from "./composer";
 import { useConversations } from "./conversations";
-import { useFirstOpen } from "./firstOpen";
 import { noModelSetUp } from "./noModelSetUp";
 import { stepsShownOf } from "./nudges";
 import { hiddenForOwnAiNow, ownAiOnlyNow, useHiddenForOwnAi, useOwnAiOnly } from "./ownAiPanel";
-import { useAppStore } from "./store";
+import { type AppState, useAppStore } from "./store";
 
 const useRevealed = create<{ revealed: boolean }>(() => ({ revealed: false }));
 
@@ -25,9 +24,14 @@ export function revealAssistant(): void {
 const isQuiet = (firstOpen: boolean, revealed: boolean, asked: boolean, askedOwn: boolean) =>
   firstOpen && !revealed && !asked && !askedOwn;
 
+// The assistant comes on by its own trigger, the User's first ask or opening it, not with the first
+// file of their own that ends the rest of the first open (`firstOpenNow`).
+const exampleShown = (state: Pick<AppState, "examples" | "settings">) =>
+  Boolean(state.examples?.mindId) && stepsShownOf(state.settings?.device.gettingStarted);
+
 // For a User with only their own AI it is quiet while folded for that AI, until they open it (#3373).
 export function useQuietAssistant(): boolean {
-  const firstOpen = useFirstOpen();
+  const firstOpen = useAppStore(exampleShown);
   const asked = useConversations((state) => state.list.length > 0 || state.openId !== null);
   const askedOwn = useAppStore((state) => state.settings?.device.gettingStarted.askedOwn === true);
   const revealed = useRevealed((state) => state.revealed);
@@ -54,8 +58,9 @@ export function useAskPillShown(): boolean {
 
 /** The same, read once rather than followed, for a change that isn't a render (#2270). */
 export function quietAssistantNow(): boolean {
-  const { examples, settings } = useAppStore.getState();
-  const firstOpen = Boolean(examples?.mindId) && stepsShownOf(settings?.device.gettingStarted);
+  const state = useAppStore.getState();
+  const { settings } = state;
+  const firstOpen = exampleShown(state);
   const conversations = useConversations.getState();
   const asked = conversations.list.length > 0 || conversations.openId !== null;
   if (ownAiOnlyNow()) return hiddenForOwnAiNow();

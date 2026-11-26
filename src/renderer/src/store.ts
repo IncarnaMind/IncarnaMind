@@ -2570,6 +2570,12 @@ core.on("answer.finished", ({ answerId, status }) => {
   }
 });
 
+// A request kept for the User's own AI is their ask of it, as an Answer is of the assistant's: the
+// first open ends with it (#3791).
+core.on("agents.request", () => {
+  useAppStore.getState().updateGettingStarted({ askedOwn: true });
+});
+
 core.on("chatReadiness.changed", (chatReadiness) => {
   pushed("chatReadiness");
   useAppStore.setState({ chatReadiness });

@@ -1489,11 +1489,6 @@ export interface CoreAdapters {
     sortTimeLimit?: () => AbortSignal;
   };
   /**
-   * How long asking the example's ready Question waits for its Documents to be read before it
-   * says it is still reading (#2218). Defaults to 20 seconds; tests shorten it.
-   */
-  exampleReadyWaitMs?: number;
-  /**
    * How long a request at a Note's foot may hear nothing from the User's AI before its line says
    * it is still waiting for it (#3677). Defaults to 30 seconds; tests shorten it.
    */

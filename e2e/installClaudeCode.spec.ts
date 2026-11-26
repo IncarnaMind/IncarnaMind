@@ -85,8 +85,14 @@ test("First Run offers one-press Claude Code install in EN and ZH-CN when no com
   const offer = window.getByTestId("setup-install-row");
   await expect(offer).toBeVisible();
   await expect(offer).toContainText("Claude Code");
-  await expect(offer).toContainText("Uses your Claude plan");
+  await expect(offer.getByTestId("setup-install-line")).toContainText(
+    "Downloads from Anthropic into your user folder.",
+  );
   await expect(offer.getByTestId("setup-install-claude-code")).toHaveText("Install");
+  await offer.getByTestId("setup-install-details").click();
+  await expect(offer.getByTestId("setup-install-disclosure")).toContainText(
+    "Downloads and installs Claude Code from Anthropic into your user folder. Your operating system and architecture go to Anthropic for the download.",
+  );
   await assertNoHorizontalOverflow(window);
   await shot(window, "first-run-offer-en-1440");
 
@@ -97,8 +103,13 @@ test("First Run offers one-press Claude Code install in EN and ZH-CN when no com
   await setWindowSize(app, window, 900, 760);
   await setLanguage(window, "zh-CN");
   await expect(offer).toContainText("Claude Code");
-  await expect(offer).toContainText("使用你的 Claude 订阅");
+  await expect(offer.getByTestId("setup-install-line")).toContainText(
+    "从 Anthropic 下载到你的用户文件夹。",
+  );
   await expect(offer.getByTestId("setup-install-claude-code")).toHaveText("安装");
+  await expect(offer.getByTestId("setup-install-disclosure")).toContainText(
+    "下载时会把你的操作系统和架构发给 Anthropic。",
+  );
   await assertNoHorizontalOverflow(window);
   await shot(window, "first-run-offer-zh-900");
 

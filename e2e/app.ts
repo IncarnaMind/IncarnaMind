@@ -2718,9 +2718,12 @@ export async function expectReadyDocuments(window: Page, count: number): Promise
     .toBe(count);
 }
 
-/** Ends the first open, so the shell shows everything, as it does for a returning User. */
+/**
+ * Ends the first open as a User does, so the shell shows everything, as it does for a returning
+ * User: their first ask of an AI, a file of their own read, a Citation checked.
+ */
 export async function leaveFirstOpen(window: Page): Promise<void> {
-  await markSteps(window, { hidden: true });
+  await markSteps(window, { askedOwn: true, indexed: true, citationChecked: true });
 }
 
 /** Marks steps of the first open done (or hides it), as the User doing them would. */

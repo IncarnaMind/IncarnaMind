@@ -97,6 +97,21 @@ test("the quiet first open keeps the example's marks to its margin, but a check 
   await app.close();
 });
 
+// protects=the first open ends with the first file of the User's own, as it does with their first ask of any AI: the example's check comes out of its quiet margin; fails_when=the quiet first open goes on for good for a User who only adds files and asks their own AI
+test("the first file of the User's own ends the quiet first open (#3791)", async () => {
+  await writeFile(join(sources, "Harbour notes.md"), "# Harbour notes\n\nTide tables.\n");
+  const { app, window } = await launchApp(dataDir, { examples: true });
+  await openExample(window);
+  await setWindowSize(app, window, 1440, 900);
+  await expect(window.getByTestId("claim-mark")).toHaveCount(1, { timeout: 30_000 });
+  await expect(window.getByTestId("check-badge")).toHaveCount(0);
+  await window
+    .getByTestId("add-documents-input")
+    .setInputFiles([join(sources, "Harbour notes.md")]);
+  await expect(window.getByTestId("check-badge")).toBeVisible();
+  await app.close();
+});
+
 test("the tab strip shows its one tab from the start, and the Library comes with the User's first Note or Document (#123, #2376)", async () => {
   const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await expect(window.getByTestId("tab-list")).toBeVisible();

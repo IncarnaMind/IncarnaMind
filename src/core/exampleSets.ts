@@ -49,8 +49,6 @@ export interface ExampleSet {
   /** Markdown; `[^n]` is the nth quote's Citation. */
   answer: string;
   quotes: readonly ExampleQuote[];
-  /** The first open's ready Question (#123), answered in the assistant as `answer` is here. */
-  ready?: { question: string; answer: string; quotes: readonly ExampleQuote[] };
 }
 
 export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = {
@@ -98,23 +96,6 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
             "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
         },
       ],
-      ready: {
-        question: "What’s the leverage cap?",
-        answer:
-          "Clause 7.1 caps Leverage at 3.5 times EBITDA in each Relevant Period [^1]. At the end of Q3, net debt to EBITDA was 3.1 times, inside the limit [^2].",
-        quotes: [
-          {
-            document: "Northwind Retail · Senior facilities agreement (excerpt)",
-            quote:
-              "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
-          },
-          {
-            document: "Northwind Retail · Q3 2026 results",
-            quote:
-              "Net debt to EBITDA was 3.1 times at the end of the quarter, up from 2.7 times at the half year.",
-          },
-        ],
-      },
     },
     "zh-CN": {
       source: "credit/zh-CN",
@@ -156,21 +137,6 @@ export const EXAMPLE_SETS: Record<ExampleGroup, Record<Language, ExampleSet>> = 
           quote: "公司应确保每一相关期间的杠杆率不超过 3.5 倍。",
         },
       ],
-      ready: {
-        question: "贷款协议对杠杆率上限是怎么规定的？",
-        answer:
-          "第 7.1 条规定，每一相关期间的杠杆率不超过 3.5 倍 [^1]。第三季度末，净债务与 EBITDA 之比为 3.1 倍，在上限之内 [^2]。",
-        quotes: [
-          {
-            document: "Northwind Retail · 优先级贷款协议（节选）",
-            quote: "公司应确保每一相关期间的杠杆率不超过 3.5 倍。",
-          },
-          {
-            document: "Northwind Retail · 2026 年第三季度业绩",
-            quote: "季末净债务与 EBITDA 之比为 3.1 倍，半年末为 2.7 倍。",
-          },
-        ],
-      },
     },
   },
 

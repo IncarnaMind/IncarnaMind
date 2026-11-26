@@ -416,13 +416,17 @@ describe("the line that says the User has more than the agent was given (#3544)"
     const mindId = made.mindId ?? "";
     const asked = await connect("Claude Code", [ALL_SHARED_ID]);
     const other = await connect("Cursor", [ALL_SHARED_ID]);
+    // Given no Folders, a connection reads nothing, the example included: it isn't offered there.
+    await connect("Zed", []);
     const readExample = (agent: Agent) =>
       agent.callTool({ name: "read_mind", arguments: { mindId } });
     const readsExamples = async (agent: Agent) =>
       (await found(agent, "gross margin")).some((id) => exampleDocuments.includes(id));
-    expect((await core.listAgentsToAsk(mindId)).map((each) => each.id).sort()).toEqual(
-      [asked.pairing.id, other.pairing.id].sort(),
-    );
+    const askable = async (documentId?: string) =>
+      (await core.listAgentsToAsk(mindId, documentId)).map((each) => each.id).sort();
+    expect(await askable()).toEqual([asked.pairing.id, other.pairing.id].sort());
+    // The example's own Documents go with it: one open there can be asked about, as the Note can.
+    expect(await askable(exampleDocuments[0])).toEqual([asked.pairing.id, other.pairing.id].sort());
     expect((await readExample(asked.agent)).isError).toBe(true);
     expect(await readsExamples(asked.agent)).toBe(false);
 

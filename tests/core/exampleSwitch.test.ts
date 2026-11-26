@@ -67,7 +67,6 @@ async function exampleOverFakes() {
   const documents = new Map<string, Document[]>();
   const cited = new Map<string, string | null>();
   let language: Language = "en";
-  let listingFails = false;
   let shown: Examples | undefined;
   /** The next folder link waits for this, once it has started. */
   let linkHeld: { reached: () => void; until: Promise<void> } | null = null;
@@ -120,8 +119,8 @@ async function exampleOverFakes() {
       }
       const id = outer?.id ?? randomUUID();
       folders.add(id);
-      // The names the ready Question cites, in the language just asked for.
-      const quotes = EXAMPLE_SETS.credit[language].ready?.quotes ?? [];
+      // The names the example's Answer cites, in the language just asked for.
+      const { quotes } = EXAMPLE_SETS.credit[language];
       documents.set(
         id,
         quotes.map((quote) => documentOf(id, quote.document)),
@@ -145,10 +144,7 @@ async function exampleOverFakes() {
       throw new Error("not used");
     },
     linkedFolderExists: (linkedFolderId) => folders.has(linkedFolderId),
-    documentsIn: (linkedFolderId) => {
-      if (listingFails) throw new Error("The folders couldn't be listed.");
-      return documents.get(linkedFolderId) ?? [];
-    },
+    documentsIn: (linkedFolderId) => documents.get(linkedFolderId) ?? [],
     mindFolder: () => null,
     now: () => "2026-10-16T09:00:00.000Z",
     checksRelyOn: () => false,
@@ -186,8 +182,22 @@ async function exampleOverFakes() {
       linkHeld = { reached: () => reached.resolve(), until: until.promise };
       return { reached: reached.promise, release: () => until.resolve() };
     },
-    failListing: () => {
-      listingFails = true;
+    /**
+     * The language the credit paper is in now: its Mind titled in it, and its Linked folder there
+     * with the Documents its Answer cites in it; null when neither language's is whole.
+     */
+    languageShown: (): Language | null => {
+      const { mindId, linkedFolderId } = examples.status();
+      const title = mindId ? minds.get(mindId)?.mind.title : undefined;
+      const names = (linkedFolderId ? (documents.get(linkedFolderId) ?? []) : []).map(
+        (each) => each.name,
+      );
+      return (
+        (["en", "zh-CN"] as const).find((each) => {
+          const set = EXAMPLE_SETS.credit[each];
+          return set.title === title && set.quotes.every((quote) => names.includes(quote.document));
+        }) ?? null
+      );
     },
     cite: (documentIds: readonly string[], mindId: string | null = null) => {
       for (const id of documentIds) cited.set(id, mindId);
@@ -215,7 +225,7 @@ test("an example's Documents are known to be the example's before they are repor
 
 // protects=an untouched example whose Documents an existing Conversation Citation points at keeps its language and its Documents when the interface language changes (#1794); fails_when=the Documents are swapped, so the Citation's page can no longer open; no_claim=what the Citation's card shows.
 test("an example whose Documents a Conversation Citation uses keeps its language and Documents", async () => {
-  const { examples, switchTo, cite, uncite } = await exampleOverFakes();
+  const { examples, switchTo, cite, uncite, languageShown } = await exampleOverFakes();
 
   const made = await examples.create();
   const documents = examples.documentsOf(made.mindId as string) ?? [];
@@ -223,18 +233,18 @@ test("an example whose Documents a Conversation Citation uses keeps its language
   cite(documents);
 
   await switchTo("zh-CN");
-  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+  expect(languageShown()).toBe("en");
 
   // Once the Citation is gone, the next change of language swaps the example as usual.
   uncite();
   await switchTo("en");
   await switchTo("zh-CN");
-  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(languageShown()).toBe("zh-CN");
 });
 
 // protects=an untouched example is swapped while only its own Mind's Citations quote its Documents, and kept while a Citation in another Mind does; fails_when=the example's own Mind is not left out, so its Answer's Citations keep it from following the language, or a Citation in another Mind is not counted; no_claim=what the Citation's card shows.
 test("an example's own Mind doesn't keep it from following the language, another Mind does", async () => {
-  const { examples, switchTo, cite, uncite } = await exampleOverFakes();
+  const { examples, switchTo, cite, uncite, languageShown } = await exampleOverFakes();
 
   const made = await examples.create();
   const mindId = made.mindId as string;
@@ -242,25 +252,17 @@ test("an example's own Mind doesn't keep it from following the language, another
   cite(documents, mindId);
 
   await switchTo("zh-CN");
-  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
+  expect(languageShown()).toBe("zh-CN");
 
   uncite();
   cite(examples.documentsOf(mindId) ?? [], randomUUID());
   await switchTo("en");
-  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit["zh-CN"].ready?.question);
-});
-
-// protects=a listing that fails ends in a reason, not in no Question at all; fails_when=readyState swallows the failure and reads as absent.
-test("a listing that fails says so rather than reading as no example", async () => {
-  const { examples, failListing } = await exampleOverFakes();
-  await examples.create();
-  failListing();
-  expect(() => examples.readyState()).toThrow("The folders couldn't be listed.");
+  expect(languageShown()).toBe("zh-CN");
 });
 
 // protects=two quick changes of language end in the one chosen last (#2302); fails_when=the second change reads the example before the first has swapped it, does nothing, and the first then swaps it to the language left behind; no_claim=what the window shows meanwhile.
 test("two quick changes of language end in the language chosen last", async () => {
-  const { examples, setLanguage, holdLink } = await exampleOverFakes();
+  const { examples, setLanguage, holdLink, languageShown } = await exampleOverFakes();
   await examples.create();
 
   const link = holdLink();
@@ -272,7 +274,7 @@ test("two quick changes of language end in the language chosen last", async () =
   link.release();
   await Promise.all([toChinese, back]);
 
-  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+  expect(languageShown()).toBe("en");
 });
 
 // protects=Remove pressed while the example follows the language leaves no example (#2302); fails_when=the swap writes into the deleted Mind, or links its folder and says the example is there after it was removed; no_claim=Undo of the removal (covered in examples.test.ts).
@@ -296,7 +298,8 @@ test("an example removed while it follows the language is gone, with its Documen
 
 // protects=what the User writes in the example while it follows the language is kept (#2302); fails_when=the swap checks the example only before copying the files, then writes the other language's over the User's words; no_claim=an edit made before the change (covered in examples.test.ts).
 test("an example written in while it follows the language keeps what was written", async () => {
-  const { examples, setLanguage, holdLink, minds, folders } = await exampleOverFakes();
+  const { examples, setLanguage, holdLink, minds, folders, languageShown } =
+    await exampleOverFakes();
   const made = await examples.create();
   const mind = minds.get(made.mindId as string);
   if (!mind) throw new Error("The example Mind wasn't made.");
@@ -313,7 +316,7 @@ test("an example written in while it follows the language keeps what was written
 
   expect(mind.blocks.toString()).toContain("My own note on the covenants.");
   expect(mind.mind.title).toBe(EXAMPLE_SETS.credit.en.title);
-  expect(examples.readyQuestion()?.question).toBe(EXAMPLE_SETS.credit.en.ready?.question);
+  expect(languageShown()).toBe("en");
   expect([...folders]).toEqual([made.linkedFolderId]);
 });
 

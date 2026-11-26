@@ -296,9 +296,6 @@ for (const language of ["en", "zh-CN"] as const) {
           await setWindowSize(app, window, width, 900);
           await setLanguage(window, language);
           await leaveFirstOpen(window);
-          // At 900 px the assistant docks under the Note, and the example's foot holds its line and
-          // the way to ask (#3791): folded, it leaves the selection menu room off the line pressed.
-          if (width === 900) await window.getByTestId("assistant-fold").click();
           const chip = editor(window).getByTestId("citation-chip").first();
           await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
           await chip.evaluate((element) => element.scrollIntoView({ block: "center" }));

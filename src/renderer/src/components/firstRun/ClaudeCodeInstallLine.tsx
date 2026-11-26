@@ -193,7 +193,9 @@ export function InstallOfferRow({ onStart }: { onStart(): void }) {
       testId="setup-install-row"
       state={state.kind}
       line={status?.line ?? t("setupPage.ai.install.line")}
-      action={status ? status.action : installButton(t, "setup-install-claude-code", starting, onStart)}
+      action={
+        status ? status.action : installButton(t, "setup-install-claude-code", starting, onStart)
+      }
       more={status ? undefined : <InstallDisclosure testId="setup-install-disclosure" />}
     />
   );

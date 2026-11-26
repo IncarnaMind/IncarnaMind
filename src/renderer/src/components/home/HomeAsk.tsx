@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useState } from "react";
+import { type AgentPairing, ALL_SHARED_ID } from "../../../../core/api";
 import {
   askFirstAgent,
   useAgentsToAskRead,
@@ -8,6 +9,7 @@ import {
 } from "../../askYourAi";
 import { menuKeysLabel } from "../../commands/keymap";
 import { commands } from "../../commands/registry";
+import { core } from "../../core";
 import { AskArrowIcon } from "../../editor/icons";
 import { withKeys } from "../../editor/withShortcut";
 import { useT } from "../../i18n";
@@ -20,10 +22,19 @@ import { TypingTextarea } from "../TypingTextarea";
 import { buttonStyle } from "../ui";
 
 /**
- * Home's one input and its three ways to start (#3791): asking there starts a Note and asks the
- * User's own AI in it, as its own input does; with no AI app connected and no model set up, one
- * line says to connect one (with a model, Home's next step asks it). Add files…, Link a folder…
- * and New note sit under it.
+ * The connected AI apps that may read a Note Home starts, which is in no Folder: those given all of
+ * the User's Documents and Notes. One given chosen Folders, or Not in a Folder, reads only the
+ * Notes in those Folders and those it wrote itself (`pairingReaches` in src/core/agents/access.ts).
+ */
+const newNoteReaders = (agents: readonly AgentPairing[]) =>
+  agents.filter((each) => each.folderIds.includes(ALL_SHARED_ID));
+
+/**
+ * Home's one input and its three ways to start (#3791): asking there starts a Note in no Folder and
+ * asks the User's own AI in it, as its own input does; with no AI app connected and no model set
+ * up, one line says to connect one (with a model, Home's next step asks it), and with none that may
+ * read a new note, one line says so, as a Note's own input does. The words stay until the ask has
+ * gone; the Note opens then. Add files…, Link a folder… and New note sit under it.
  */
 export function HomeAsk() {
   const t = useT();
@@ -36,9 +47,13 @@ export function HomeAsk() {
   const openSettings = useAppStore((state) => state.openSettings);
   const [words, setWords] = useState("");
   const [sending, setSending] = useState(false);
+  // An ask the core found no AI to read, though one seemed to: said as when none may, the words kept.
+  const [refused, setRefused] = useState(false);
   const newMind = commands.get("mind.new");
   const newMindKeys = newMind ? menuKeysLabel(newMind) : null;
-  const agent = agents?.find((each) => runsInBackground(each, runsHere)) ?? agents?.[0] ?? null;
+  const readers = agents ? newNoteReaders(agents) : null;
+  const agent = readers?.find((each) => runsInBackground(each, runsHere)) ?? readers?.[0] ?? null;
+  const cantRead = agents !== null && agents.length > 0 && (refused || agent === null);
   const placeholder = agent ? t("home.ask.placeholder", { agent: agent.name }) : "";
 
   const send = async () => {
@@ -46,16 +61,27 @@ export function HomeAsk() {
     if (typed === "" || sending || !agent) return;
     setSending(true);
     const store = useAppStore.getState();
+    let mindId: string | null = null;
     try {
-      const mindId = await store.createMind();
-      if (!mindId) return;
-      setWords("");
+      mindId = (await core.createMind()).id;
       const went = runsInBackground(agent, runsHere)
         ? await askInNote(mindId, { words: typed, quote: "", selection: null, caret: "" })
         : "link";
-      if (went === "link") await askFirstAgent(mindId, { kind: "question", text: typed });
+      // Started, or stopped with its problem: either way it is the Note's now, which shows it
+      // with the question, as its own input does.
+      const asked =
+        went === "link" ? await askFirstAgent(mindId, { kind: "question", text: typed }) : went;
+      if (asked === "none" || asked === "failed") {
+        // Nothing went: the empty Note goes, and the words stay here to send again. Why is said
+        // here: no AI may read the new note, or the failure's own notice.
+        await core.deleteMind(mindId);
+        if (asked === "none") setRefused(true);
+        return;
+      }
+      store.openMind(mindId);
+      setWords("");
     } catch (error) {
-      setWords(typed);
+      if (mindId) await core.deleteMind(mindId).catch(store.reportError);
       store.reportError(error);
     } finally {
       setSending(false);
@@ -70,7 +96,7 @@ export function HomeAsk() {
 
   return (
     <section data-testid="home-ask" className="mb-8 flex flex-col gap-3">
-      {agents === null ? null : agent ? (
+      {agent && (
         <div className="flex items-end gap-2 rounded-[22px] bg-sheet py-2 pr-2 pl-[18px] shadow-[inset_0_0_0_1px_var(--color-rule-strong),0_1px_3px_var(--color-shadow-soft)] focus-within:shadow-[inset_0_0_0_1px_var(--color-accent)]">
           <TypingTextarea
             data-testid="home-ask-input"
@@ -78,7 +104,10 @@ export function HomeAsk() {
             placeholder={placeholder}
             rows={1}
             value={words}
-            onChange={(event) => setWords(event.target.value)}
+            onChange={(event) => {
+              setWords(event.target.value);
+              setRefused(false);
+            }}
             onKeyDown={onKeyDown}
             className="max-h-40 min-h-7 flex-1 resize-none bg-transparent py-1 text-ui text-ink outline-none [field-sizing:content] placeholder:text-ink-placeholder"
           />
@@ -94,7 +123,23 @@ export function HomeAsk() {
             <AskArrowIcon className="size-3" />
           </button>
         </div>
-      ) : !noModel ? null : (
+      )}
+      {cantRead && agents && (
+        <ProblemLine
+          role="status"
+          testId="home-ask-cant-read"
+          action={{
+            label: t("meetings.notesAgent.settings"),
+            testId: "home-ask-settings",
+            onClick: () => openSettings("ai"),
+          }}
+        >
+          {agents.length === 1 && agents[0]
+            ? t("home.ask.cantRead.one", { agent: agents[0].name })
+            : t("home.ask.cantRead")}
+        </ProblemLine>
+      )}
+      {agents !== null && agents.length === 0 && noModel && (
         <ProblemLine
           role="status"
           testId="home-ask-no-ai"

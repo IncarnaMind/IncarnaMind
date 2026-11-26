@@ -7,6 +7,8 @@ import { useAppStore } from "../../store";
 import { clientName } from "../agents/agentWords";
 import { FileChangePreview } from "../agents/connectShared";
 import { ProposeChoice } from "../agents/ProposeChoice";
+import { InlinePath } from "../PathText";
+import { SLOT, Slotted } from "../Slotted";
 import { dialogTextClass } from "../ui";
 import { linkClass } from "./yourAiParts";
 
@@ -72,12 +74,12 @@ export function YourAiConsent({
           </p>
           <p className={dialogTextClass}>{t("agents.propose.hint")}</p>
           {claudeCode && (
-            <>
+            <div data-testid="setup-consent-background" className="flex flex-col gap-2.5">
               <p className={dialogTextClass}>
                 {t("agents.connect.background", { agent: clientInSentence(claudeCode, t) })}
               </p>
               <p className={dialogTextClass}>{t("agents.connect.background.details")}</p>
-            </>
+            </div>
           )}
           {codex && (
             <p className={dialogTextClass}>
@@ -87,6 +89,11 @@ export function YourAiConsent({
                 t("agents.connect.background.codex.details"),
               )}
               {t("agents.connect.background.codex.details")}
+              {gap(
+                t("agents.connect.background.codex.details"),
+                t("agents.connect.codexInstructions"),
+              )}
+              {t("agents.connect.codexInstructions")}
             </p>
           )}
           {installs && <InstallDisclosure testId="setup-consent-install" />}
@@ -115,6 +122,7 @@ export function InstallDisclosure({ testId }: { testId: string }) {
   );
 }
 
+/** What connecting writes into the app's settings file, and where its Skill goes, as its own sheet shows. */
 function SettingsChange({ client }: { client: AgentClient }) {
   const t = useT();
   const reportError = useAppStore((state) => state.reportError);
@@ -130,9 +138,20 @@ function SettingsChange({ client }: { client: AgentClient }) {
   }, [client.id, reportError]);
   if (!preview) return null;
   return (
-    <div className="flex flex-col gap-1">
+    <div data-testid="setup-consent-app" data-client={client.id} className="flex flex-col gap-1">
       <p className="text-[12px] leading-[18px] font-semibold text-ink">{clientName(client, t)}</p>
       <FileChangePreview preview={preview} testIdPrefix="setup-consent" />
+      {client.skillPath && (
+        <p data-testid="setup-consent-skill" className={dialogTextClass}>
+          <Slotted
+            message={t("agents.connect.skill", {
+              path: SLOT,
+              agent: clientInSentence(client, t),
+            })}
+            slot={<InlinePath path={client.skillPath} />}
+          />
+        </p>
+      )}
     </div>
   );
 }

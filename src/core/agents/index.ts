@@ -57,7 +57,9 @@ import {
   createAgentAccess,
   createCheckRuns,
   deckReachedByPairing,
-  documentsForPairing,
+  documentsReadBy,
+  type Lent,
+  lentExamples,
   pairingReaches,
   reachedFolders,
 } from "./access";
@@ -679,6 +681,21 @@ export function createAgents(options: AgentsOptions) {
   };
 
   /**
+   * What the pairing reads asked in this Note now: with the examples lent to it, this one too,
+   * read only once something is out of its Folders' reach.
+   */
+  const lendingIn = (pairing: AdmittedPairing, mindId: string | null): AgentAccessDeps => {
+    let lent: Lent | null = null;
+    return {
+      ...accessDeps,
+      lent: () => {
+        lent ??= lentExamples(accessDeps, pairing, { askedIn: mindId });
+        return lent;
+      },
+    };
+  };
+
+  /**
    * The grants of runs IncarnaMind started (`checkGrant`, `conversationGrant`), by their token's
    * digest, each with the connections opened with it.
    */
@@ -970,19 +987,13 @@ export function createAgents(options: AgentsOptions) {
     /**
      * The agents the User can ask about this Note now (#3373): each would be let in, and reads it
      * as `read_mind` does; with no Note, each that would be let in. The one connected or used
-     * last comes first. Any of them in an example outside every work wall, which asking there
-     * lends it (#3791).
+     * last comes first. In an example, those asking there would lend it (`lentExamples`, #3791).
      */
     askable(mindId: string | null, documentId?: string): AgentPairing[] {
       if (listenProblem !== null) return [];
-      const found =
+      const mind =
         mindId === null ? null : options.access.minds().find((each) => each.id === mindId);
-      if (found === undefined) return [];
-      const lent =
-        found !== null &&
-        options.access.exampleNotes().includes(found.id) &&
-        (found.folderId === null || options.access.wallOf(found.folderId) === null);
-      const mind = lent ? null : found;
+      if (mind === undefined) return [];
       const latest = (pairing: AgentPairing) =>
         pairing.lastUsedAt !== null && pairing.lastUsedAt > pairing.createdAt
           ? pairing.lastUsedAt
@@ -992,14 +1003,13 @@ export function createAgents(options: AgentsOptions) {
         .filter((pairing) => {
           try {
             const admitted = admissible(pairing.id);
-            const reached = reachedFolders(accessDeps, admitted);
-            if (mind && !pairingReaches(accessDeps, admitted, mind, reached)) return false;
+            const deps = lendingIn(admitted, mindId);
+            const reached = reachedFolders(deps, admitted);
+            if (mind && !pairingReaches(deps, admitted, mind, reached)) return false;
             return (
               !documentId ||
-              documentsForPairing(accessDeps, admitted, [...reached], reached).includes(
-                documentId,
-              ) ||
-              deckReachedByPairing(accessDeps, admitted, documentId, reached)?.kind === "pptx"
+              documentsReadBy(deps, admitted, reached).has(documentId) ||
+              deckReachedByPairing(deps, admitted, documentId, reached)?.kind === "pptx"
             );
           } catch (error) {
             if (error instanceof AgentRefusedError) return false;
@@ -1009,15 +1019,20 @@ export function createAgents(options: AgentsOptions) {
         .sort((a, b) => latest(b).localeCompare(latest(a)));
     },
 
-    /** Of these Folders and Documents, those this pairing can read now (#3533). */
+    /**
+     * Of these Folders and Documents, those this pairing can read now (#3533), asked in the Note
+     * `mindId` names, which lends it when it is an example (#3791).
+     */
     reads(
       pairingId: string,
       named: { folderIds: readonly string[]; documentIds: readonly string[] },
+      mindId: string | null = null,
     ): { folderIds: string[]; documentIds: string[] } {
       try {
         const admitted = admissible(pairingId);
-        const reached = reachedFolders(accessDeps, admitted);
-        const readable = new Set(documentsForPairing(accessDeps, admitted, [...reached], reached));
+        const deps = lendingIn(admitted, mindId);
+        const reached = reachedFolders(deps, admitted);
+        const readable = documentsReadBy(deps, admitted, reached);
         return {
           folderIds: named.folderIds.filter((id) => reached.has(id)),
           documentIds: named.documentIds.filter((id) => readable.has(id)),

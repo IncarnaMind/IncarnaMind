@@ -57,7 +57,8 @@ export function YourAiStep({ place }: { place: StepPlace }) {
   // hasn't happened yet doesn't. Its download stops, and so does a sign-in still waiting.
   const ours = useRef(false);
   const pending = useRef(false);
-  pending.current = starting || install.kind === "installing" || install.kind === "awaiting-sign-in";
+  pending.current =
+    starting || install.kind === "installing" || install.kind === "awaiting-sign-in";
   useEffect(
     () => () => {
       if (ours.current && pending.current) void cancelClaudeCodeInstall();

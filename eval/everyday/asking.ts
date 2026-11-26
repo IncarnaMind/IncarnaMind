@@ -422,14 +422,19 @@ export async function judgedAnswer(
   return latest;
 }
 
-async function askExample(core: Core, language: "en" | "zh-CN") {
+async function makeExample(core: Core, language: "en" | "zh-CN") {
   await core.updateSettings({ user: { language } });
-  const { mindId } = await core.createExamples();
-  const asked = await vi.waitFor(() => core.askExampleReadyQuestion(), {
-    timeout: 2 * 60_000,
-    interval: 500,
-  });
-  return { conversationId: asked.conversationId, mindId };
+  const { mindId, linkedFolderId } = await core.createExamples();
+  await vi.waitFor(
+    async () => {
+      const documents = await core.listDocuments({ linkedFolderId });
+      if (documents.length === 0 || documents.some((each) => each.status !== "ready")) {
+        throw new Error("The example's Documents are still being read.");
+      }
+    },
+    { timeout: 2 * 60_000, interval: 500 },
+  );
+  return { mindId };
 }
 
 async function importWord(library: Library, word: NonNullable<EverydayCase["word"]>) {
@@ -557,7 +562,7 @@ export async function runCase(
     usage.cachedInputTokens += event.usage.cachedInputTokens;
     usage.cacheWriteTokens += event.usage.cacheWriteTokens;
   });
-  const example = each.afterExample ? await askExample(core, each.language) : null;
+  const example = each.afterExample ? await makeExample(core, each.language) : null;
   const imported = each.word ? await importWord(library, each.word) : null;
   const mindId =
     imported?.mindId ??
@@ -612,7 +617,7 @@ export async function runCase(
     (each.selectAll || each.selectNote) && client
       ? { selection: [...before.values()].join("\n\n"), blockIds: ids }
       : null;
-  let conversationId: string | null = example?.conversationId ?? null;
+  let conversationId: string | null = null;
   const earlierCalls: ConversationAnswer["toolCalls"] = [];
   let last: ConversationAnswer | null = null;
   const pageOf = (): "empty" | "text" | "none" =>

@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import {
+  askInAssistant,
   assistantAnswers,
   coreOf,
   createDataFolder,
@@ -10,9 +11,26 @@ import {
   removeDataFolder,
   setLanguage,
   setWindowSize,
+  useLocalChatModel,
 } from "./app";
 
 const mindTitle = (window: Page) => window.getByTestId("mind-editor").locator("h1");
+
+/** The credit paper's two Documents in each language, as its Citations name them. */
+const DOCUMENTS = {
+  en: [
+    "Northwind Retail · Q3 2026 results",
+    "Northwind Retail · Senior facilities agreement (excerpt)",
+  ],
+  "zh-CN": ["Northwind Retail · 2026 年第三季度业绩", "Northwind Retail · 优先级贷款协议（节选）"],
+} as const;
+
+/** A Citation as the core keeps it: the Document it names, the words it quotes and their page. */
+interface Cited {
+  documentName: string;
+  quote: string;
+  pageFrom: number | null;
+}
 
 let dataDir: string;
 test.beforeEach(async () => {
@@ -22,11 +40,34 @@ test.afterEach(async () => {
   await removeDataFolder(dataDir);
 });
 
+/** An Answer's Citations, in the order of their markers, as the core keeps them. */
+async function citationsOf(window: Page, answer: Locator): Promise<Cited[]> {
+  const answerId = await answer.getAttribute("data-answer-id");
+  return (await coreOf(window)).evaluate(async (core, id) => {
+    for (const conversation of await core.listConversations()) {
+      const { messages } = await core.getConversation(conversation.id);
+      const found = messages.find((each) => each.id === id);
+      if (found?.kind === "answer") {
+        return found.citations.map(({ documentName, quote, pageFrom }) => ({
+          documentName,
+          quote,
+          pageFrom,
+        }));
+      }
+    }
+    return [];
+  }, answerId);
+}
+
 /**
- * The example's own Question, asked as the core asks it, with its Answer written in advance; then
- * its Conversation opened from ⌘K by `find`, as a person comes back to one.
+ * A Question about the example asked in the assistant from its page, once its Citations show its
+ * Documents are read: the scripted model answers it from each of them.
  */
-async function askReady(window: Page, find: string): Promise<Locator> {
+async function askAboutExample(
+  window: Page,
+  question: string,
+  documents: readonly string[],
+): Promise<{ answer: Locator; cited: Cited[] }> {
   const checks = window
     .getByTestId("mind-pane")
     .getByTestId("mind-editor")
@@ -35,10 +76,12 @@ async function askReady(window: Page, find: string): Promise<Locator> {
   for (const chip of await checks.all()) {
     await expect(chip).toHaveAttribute("data-check", "found", { timeout: 30_000 });
   }
-  await (await coreOf(window)).evaluate((core) => core.askExampleReadyQuestion());
-  const answer = await openFromPalette(window, find);
+  const answer = await askInAssistant(window, question);
   await expect(answer).toHaveAttribute("data-status", "done");
-  return answer;
+  await expect(answer.getByTestId("citation-chip")).toHaveCount(2);
+  const cited = await citationsOf(window, answer);
+  expect(cited.map((each) => each.documentName).sort()).toEqual([...documents].sort());
+  return { answer, cited };
 }
 
 async function openFromPalette(window: Page, find: string): Promise<Locator> {
@@ -61,18 +104,17 @@ async function expectCitedPage(
   window: Page,
   answer: Locator,
   index: number,
-  document: string,
-  quote: string,
+  { documentName, quote, pageFrom }: Cited,
 ): Promise<void> {
   const chip = answer.getByTestId("citation-chip").nth(index);
   await expect(chip).toHaveAttribute("data-check", "found");
   await pointAndClick(window, chip);
   await expect(window.getByTestId("viewer-removed")).toHaveCount(0);
-  await expect(window.getByTestId("viewer-title")).toHaveText(document);
-  await expect(window.getByTestId("pdf-page-number")).toHaveValue("1");
+  await expect(window.getByTestId("viewer-title")).toHaveText(documentName);
+  await expect(window.getByTestId("pdf-page-number")).toHaveValue(String(pageFrom));
   const highlight = window
     .getByTestId("viewer")
-    .locator('[data-page-number="1"] [data-quote-highlight]');
+    .locator(`[data-page-number="${pageFrom}"] [data-quote-highlight]`);
   await expect(highlight.first()).toBeInViewport();
   // The PDF's text layer can leave out a space between two words of a quote.
   const unspaced = (text: string) => text.replace(/\s+/g, "");
@@ -82,105 +124,80 @@ async function expectCitedPage(
   await window.keyboard.press("Escape");
 }
 
+async function expectEachCitedPage(
+  window: Page,
+  answer: Locator,
+  cited: readonly Cited[],
+): Promise<void> {
+  for (const [index, citation] of cited.entries()) {
+    await expectCitedPage(window, answer, index, citation);
+  }
+}
+
 test("an English Conversation's Citations open their original pages after the interface language becomes Chinese, and after a restart (#1794)", async () => {
-  const first = await launchApp(dataDir, { examples: true });
+  const first = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
-  const answer = await askReady(first.window, "leverage");
+  await useLocalChatModel(first.window);
+  const { answer, cited } = await askAboutExample(
+    first.window,
+    "What does each Document say about leverage?",
+    DOCUMENTS.en,
+  );
   await first.window.keyboard.press("Escape");
 
   await setLanguage(first.window, "zh-CN");
-  await expectCitedPage(
-    first.window,
-    answer,
-    0,
-    "Northwind Retail · Senior facilities agreement (excerpt)",
-    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
-  );
-  await expectCitedPage(
-    first.window,
-    answer,
-    1,
-    "Northwind Retail · Q3 2026 results",
-    "Net debt to EBITDA was 3.1 times at the end of the quarter",
-  );
+  await expectEachCitedPage(first.window, answer, cited);
   await expect(mindTitle(first.window)).toHaveText("Draft: credit committee paper");
   await first.app.close();
 
-  const again = await launchApp(dataDir, { examples: true });
+  const again = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(again.app, again.window, 1440, 900);
   const reopened = await openFromPalette(again.window, "leverage");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
-  await expectCitedPage(
-    again.window,
-    reopened,
-    0,
-    "Northwind Retail · Senior facilities agreement (excerpt)",
-    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
-  );
-  await expectCitedPage(
-    again.window,
-    reopened,
-    1,
-    "Northwind Retail · Q3 2026 results",
-    "Net debt to EBITDA was 3.1 times at the end of the quarter",
-  );
+  expect(await citationsOf(again.window, reopened)).toEqual(cited);
+  await expectEachCitedPage(again.window, reopened, cited);
   await again.app.close();
 });
 
 test("a Chinese Conversation's Citations open their original pages after the interface language becomes English, and after a restart (#1794)", async () => {
-  const first = await launchApp(dataDir, { examples: true });
+  const first = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(first.window);
   await setWindowSize(first.app, first.window, 1440, 900);
   await setLanguage(first.window, "zh-CN");
   await expect(mindTitle(first.window)).toHaveText("授信委员会报告（草稿）", { timeout: 30_000 });
-  const answer = await askReady(first.window, "杠杆率上限");
+  await useLocalChatModel(first.window);
+  const { answer, cited } = await askAboutExample(
+    first.window,
+    "每份文档 each 对杠杆率上限怎么说？",
+    DOCUMENTS["zh-CN"],
+  );
   await first.window.keyboard.press("Escape");
 
   await setLanguage(first.window, "en");
-  await expectCitedPage(
-    first.window,
-    answer,
-    0,
-    "Northwind Retail · 优先级贷款协议（节选）",
-    "公司应确保每一相关期间的杠杆率不超过 3.5 倍。",
-  );
-  await expectCitedPage(
-    first.window,
-    answer,
-    1,
-    "Northwind Retail · 2026 年第三季度业绩",
-    "季末净债务与 EBITDA 之比为 3.1 倍",
-  );
+  await expectEachCitedPage(first.window, answer, cited);
   await expect(mindTitle(first.window)).toHaveText("授信委员会报告（草稿）");
   await first.app.close();
 
-  const again = await launchApp(dataDir, { examples: true });
+  const again = await launchApp(dataDir, { examples: true, fakeChat: true });
   await setWindowSize(again.app, again.window, 1440, 900);
   const reopened = await openFromPalette(again.window, "杠杆率上限");
   await expect(reopened.getByTestId("citation-chip")).toHaveCount(2);
-  await expectCitedPage(
-    again.window,
-    reopened,
-    0,
-    "Northwind Retail · 优先级贷款协议（节选）",
-    "公司应确保每一相关期间的杠杆率不超过 3.5 倍。",
-  );
-  await expectCitedPage(
-    again.window,
-    reopened,
-    1,
-    "Northwind Retail · 2026 年第三季度业绩",
-    "季末净债务与 EBITDA 之比为 3.1 倍",
-  );
+  expect(await citationsOf(again.window, reopened)).toEqual(cited);
+  await expectEachCitedPage(again.window, reopened, cited);
   await again.app.close();
 });
 
-test("a Citation copied from the example's Answer into a Mind opens its original page after the interface language becomes Chinese (#1830)", async () => {
-  const { app, window } = await launchApp(dataDir, { examples: true });
+test("a Citation copied from an Answer about the example into a Mind opens its original page after the interface language becomes Chinese (#1830)", async () => {
+  const { app, window } = await launchApp(dataDir, { examples: true, fakeChat: true });
   await openExample(window);
   await setWindowSize(app, window, 1440, 900);
-  const answer = await askReady(window, "leverage");
+  await useLocalChatModel(window);
+  const { answer, cited } = await askAboutExample(
+    window,
+    "What does each Document say about leverage?",
+    DOCUMENTS.en,
+  );
   await pointAndClick(window, answer.getByTestId("answer-write-note"));
   const copy = frontMind(window).getByTestId("mind-editor");
   await expect(copy.getByTestId("citation-chip")).toHaveCount(2);
@@ -200,19 +217,6 @@ test("a Citation copied from the example's Answer into a Mind opens its original
   );
   expect(titles).toContain("Draft: credit committee paper");
 
-  await expectCitedPage(
-    window,
-    copy,
-    0,
-    "Northwind Retail · Senior facilities agreement (excerpt)",
-    "The Company shall ensure that Leverage in respect of each Relevant Period does not exceed 3.5:1.",
-  );
-  await expectCitedPage(
-    window,
-    copy,
-    1,
-    "Northwind Retail · Q3 2026 results",
-    "Net debt to EBITDA was 3.1 times at the end of the quarter",
-  );
+  await expectEachCitedPage(window, copy, cited);
   await app.close();
 });

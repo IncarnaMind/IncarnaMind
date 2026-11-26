@@ -9,6 +9,7 @@ import type { MessageKey, MessageParams } from "../src/shared/i18n/types";
 import type { TestHooks } from "../src/shared/testHooks";
 import {
   acceptPlainTextKeys,
+  controlReads,
   createDataFolder,
   exampleRow,
   expectHomeInFront,
@@ -691,3 +692,84 @@ for (const language of ["en", "zh-CN"] as const) {
     }
   });
 }
+
+// protects=Home never loses a question: with an AI that reads chosen Folders only, Home says it can't read a new note instead of offering an input, and an ask that fails keeps the words and makes no empty Note; fails_when=the words are cleared before the ask went, an empty Note is left behind, or a question is typed where no AI can read it
+test("Home's input keeps the question: no AI to read a new note is said, and a failed ask keeps the words", async () => {
+  test.skip(
+    process.platform === "win32",
+    "The stand-in for Claude Code starts from a shell script.",
+  );
+  const bin = await realpath(await createDataFolder());
+  await writeFile(
+    join(bin, "claude"),
+    `#!/bin/sh\nexec "${process.execPath}" "${join(__dirname, "fixtures", "fakeClaudeCode.mjs")}" "$@"\n`,
+  );
+  await chmod(join(bin, "claude"), 0o755);
+  const { app, window } = await launchApp(dataDir, {
+    ownAi: join(bin, "claude"),
+    extraEnv: { INCARNAMIND_TEST_OWN_AI_MODE_FILE: join(bin, "mode") },
+  });
+  try {
+    await acceptPlainTextKeys(window);
+    await setWindowSize(app, window, 1440, 900);
+    const connect = (folderIds: string[]) =>
+      window.evaluate(async (ids) => {
+        const core = (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind;
+        await core.setAgentsEnabled(true);
+        const { pairing } = await core.connectAgent({
+          name: "Claude Code",
+          client: "claude-code",
+          folderIds: ids,
+          propose: true,
+        });
+        return pairing.id;
+      }, folderIds);
+    const coast = await window.evaluate(
+      async () =>
+        (
+          await (
+            globalThis as unknown as { incarnamind: CoreBridge }
+          ).incarnamind.createLibraryGroup({ name: "Coast", description: "" })
+        ).id,
+    );
+    const chosen = await connect([coast]);
+    await goHome(window);
+    const ask = window.getByTestId("home-ask");
+    // Given one Folder, the AI can't read a Note Home would start in none: said, with Settings.
+    await expect(ask.getByTestId("home-ask-cant-read")).toContainText(
+      translate("en", "home.ask.cantRead.one", { agent: "Claude Code" }),
+    );
+    await expect(ask.getByTestId("home-ask-settings")).toBeVisible();
+    await expect(ask.getByTestId("home-ask-input")).toHaveCount(0);
+
+    await window.evaluate(
+      (id) =>
+        (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.disconnectAgent(id),
+      chosen,
+    );
+    await connect([ALL_SHARED_ID]);
+    const input = ask.getByTestId("home-ask-input");
+    await expect(input).toBeVisible();
+    await expect(ask.getByTestId("home-ask-cant-read")).toHaveCount(0);
+    const notes = () =>
+      window.evaluate(
+        async () =>
+          (await (globalThis as unknown as { incarnamind: CoreBridge }).incarnamind.listMinds())
+            .length,
+      );
+    const before = await notes();
+    await controlReads(app, "core:askInNote", { failNext: 1 });
+    await pointAt(window, input);
+    await window.mouse.down();
+    await window.mouse.up();
+    await window.keyboard.type("Summarize the ferry interviews");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("error-notice")).toBeVisible();
+    await expect(input).toHaveValue("Summarize the ferry interviews");
+    expect(await notes()).toBe(before);
+    await expect(window.getByTestId("home")).toBeVisible();
+  } finally {
+    await app.close();
+    await removeDataFolder(bin);
+  }
+});

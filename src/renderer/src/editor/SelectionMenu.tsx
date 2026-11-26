@@ -146,9 +146,31 @@ const controlsOf = (menu: HTMLElement | null) =>
 
 function fitToView(frame: HTMLElement | null) {
   const view = frame?.closest(".mind-scroller");
+  if (!frame || !view) {
+    frame?.style.setProperty("--selection-menu-room", "100vh");
+    return;
+  }
   // A short view can't hold the whole menu: its rows scroll and the field stays at its foot. The
   // room leaves the 8px padding at both ends of the view, and the 8px offset that comes after the slide.
-  frame?.style.setProperty("--selection-menu-room", view ? `${view.clientHeight - 24}px` : "100vh");
+  const room = besideSelection(frame, view) ?? view.clientHeight - 24;
+  frame.style.setProperty("--selection-menu-room", `${room}px`);
+}
+
+/**
+ * Where the whole menu fits neither below the selection nor above it in the view, the room on the
+ * larger side: it shrinks to stand there, its rows scrolling, rather than slide over the words the
+ * User is selecting. Null where it fits on one side, or nothing is selected to keep clear of.
+ */
+function besideSelection(frame: HTMLElement, view: Element): number | null {
+  const selection = document.getSelection();
+  const menu = frame.querySelector<HTMLElement>(".selection-menu");
+  if (!menu || !selection || selection.rangeCount === 0) return null;
+  const selected = selection.getRangeAt(0).getBoundingClientRect();
+  if (selected.width === 0 && selected.height === 0) return null;
+  const within = view.getBoundingClientRect();
+  // The 8px offset from the selection, and the 8px padding the slide keeps from the view's edge.
+  const larger = Math.max(selected.top - within.top, within.bottom - selected.bottom) - 16;
+  return menu.scrollHeight <= larger ? null : Math.max(larger, 0);
 }
 
 function hideMenu(editor: Editor) {

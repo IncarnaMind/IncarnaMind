@@ -833,8 +833,8 @@ export interface AgentAccessDeps {
   exampleNotes(): readonly string[];
   /** The Documents of the example whose Mind this is; null for a Mind that is no example's. */
   exampleDocuments(mindId: string): readonly string[] | null;
-  /** The examples the User lent this connection (`lentExamples`); set for each connection alone. */
-  lent?(): Lent;
+  /** The examples the User lent this pairing (`lentExamples`); set for each connection alone. */
+  lent?(pairing: AdmittedPairing): Lent;
   /** The Mind a Mind was duplicated from; null for one that is no copy. */
   duplicatedFrom(mindId: string): string | null;
   /** These Documents' names and kinds, those that are live, in this order. */
@@ -1437,27 +1437,26 @@ export interface Lent {
 
 const NOTHING_LENT: Lent = { mindIds: new Set(), documentIds: [] };
 
+type LendDeps = Pick<
+  AgentAccessDeps,
+  "exampleNotes" | "exampleDocuments" | "requests" | "minds" | "folders" | "wallOf" | "documentsIn"
+>;
+
 /**
- * The examples the User lent a connection by asking it in one (#3791): the Note a run was started
- * from, and each Note the User asked this pairing about, with their Documents. An example holds
- * nothing of the User's, so asking in it is enough to share it; no share of Folders reaches it.
+ * The examples the User lent a pairing by asking it in one (#3791), the one rule for what a lend
+ * reaches: an example's Note and its own Documents, never a Transcript (`documentsForPairing`).
+ * Lent are the Note a run was started from (its input, or a Check pressed in it) while that run
+ * lasts, each Note a request the pairing keeps names, and `askedIn`, the Note the User is about to
+ * ask it in. No share of Folders reaches an example in no Folder; asking in it is what shares it.
  * An example the User moved behind a work wall, or its Documents there, is never lent: a wall is
- * shared only on its own.
+ * shared only on its own. A pairing given no Folders reads nothing, so it is lent nothing.
  */
 export function lentExamples(
-  deps: Pick<
-    AgentAccessDeps,
-    | "exampleNotes"
-    | "exampleDocuments"
-    | "requests"
-    | "minds"
-    | "folders"
-    | "wallOf"
-    | "documentsIn"
-  >,
-  pairingId: string,
-  grant: RunGrant | undefined,
+  deps: LendDeps,
+  pairing: Pick<AdmittedPairing, "id" | "folderIds">,
+  { grant, askedIn = null }: { grant?: RunGrant; askedIn?: string | null } = {},
 ): Lent {
+  if (pairing.folderIds.length === 0) return NOTHING_LENT;
   const examples = deps.exampleNotes();
   if (examples.length === 0) return NOTHING_LENT;
   const front =
@@ -1472,7 +1471,8 @@ export function lentExamples(
     (mindId) =>
       !walled(folderOf.get(mindId) ?? null) &&
       (mindId === front ||
-        deps.requests.forMind(mindId).some((request) => request.pairingId === pairingId)),
+        mindId === askedIn ||
+        deps.requests.forMind(mindId).some((request) => request.pairingId === pairing.id)),
   );
   if (asked.length === 0) return NOTHING_LENT;
   const walls = deps
@@ -1557,8 +1557,16 @@ export const pairingReaches = (
   pairing: AdmittedPairing,
   mind: Mind,
   reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): boolean =>
+  filedReach(deps, pairing, mind, reached) || deps.lent?.(pairing).mindIds.has(mind.id) === true;
+
+/** Whether the pairing reaches this Mind by where the User filed it and what they shared, lent or not. */
+const filedReach = (
+  deps: ReachDeps,
+  pairing: AdmittedPairing,
+  mind: Mind,
+  reached: ReadonlySet<string>,
 ): boolean => {
-  if (deps.lent?.().mindIds.has(mind.id)) return true;
   if (mind.folderId !== null) return reached.has(mind.folderId);
   if (!reached.has(NOT_IN_A_FOLDER_ID)) return false;
   return sharesAll(pairing)
@@ -1585,17 +1593,29 @@ export function documentsForPairing(
     held
       .filter(({ mindId }) => {
         const mind = minds.get(mindId);
-        // No Note it wrote is older than the pairing, which spares reading the others' records.
+        // No Note it wrote is older than the pairing, which spares reading the others' records. A
+        // lend never reaches a Transcript: its words are the User's, never the example's (#3791).
         return (
           !mind ||
           (mind.folderId === null && !sharesAll(pairing) && mind.createdAt < pairing.createdAt) ||
-          !pairingReaches(deps, pairing, mind, reached)
+          !filedReach(deps, pairing, mind, reached)
         );
       })
       .map(({ documentId }) => documentId),
   );
   return documentIds.filter((id) => !apart.has(id));
 }
+
+/** The Documents a pairing reads: those its Folders hold, and those lent to it (`lentExamples`). */
+export const documentsReadBy = (
+  deps: AgentAccessDeps,
+  pairing: AdmittedPairing,
+  reached: ReadonlySet<string> = reachedFolders(deps, pairing),
+): Set<string> =>
+  new Set([
+    ...documentsForPairing(deps, pairing, [...reached], reached),
+    ...(deps.lent?.(pairing).documentIds ?? []),
+  ]);
 
 /**
  * Resolves a deck (by `documentId` or a handed file's `fileId`) if the pairing reaches it:
@@ -1619,7 +1639,10 @@ export function deckReachedByPairing(
         : reached.has(NOT_IN_A_FOLDER_ID);
     return placementReached ? { id: doc.id, name: doc.name, kind: doc.kind } : null;
   }
-  if (documentsForPairing(deps, pairing, [...reached], reached).includes(doc.id)) {
+  if (
+    deps.lent?.(pairing).documentIds.includes(doc.id) ||
+    documentsForPairing(deps, pairing, [...reached], reached).includes(doc.id)
+  ) {
     return { id: doc.id, name: doc.name, kind: doc.kind };
   }
   return null;
@@ -1657,6 +1680,23 @@ export function holdsMore(
 // The implementation
 
 /**
+ * `read`, its answer kept until the work that asked for it next waits: within one stretch of
+ * synchronous work nothing it reads can change. For a connection's own reads, one pairing each.
+ */
+function oncePerStretch<A extends unknown[], T>(read: (...args: A) => T): (...args: A) => T {
+  let kept: { value: T } | null = null;
+  return (...args) => {
+    if (kept) return kept.value;
+    const value = read(...args);
+    kept = { value };
+    queueMicrotask(() => {
+      kept = null;
+    });
+    return value;
+  };
+}
+
+/**
  * The core interface for one pairing's calls. `checkRun`: the connection is a check the User
  * pressed, started by IncarnaMind (./askedChecks): it takes only the check's Tools, for that Note
  * alone, and reads only the pairing's Folders, never a file by its path.
@@ -1666,10 +1706,15 @@ export function createAgentAccess(
   pairingId: string,
   grant?: RunGrant,
 ): AgentAccess {
-  const deps: AgentAccessDeps = {
-    ...shared,
-    lent: () => lentExamples(shared, pairingId, grant),
-  };
+  // What is lent, and which Notes are the examples, are read once for each stretch of a call that
+  // runs without waiting: its loops ask for them once a Note and once a Transcript, and nothing they
+  // read can change before the call next waits.
+  const exampleNotes = oncePerStretch(() => shared.exampleNotes());
+  const reach = { ...shared, exampleNotes };
+  const lent = oncePerStretch((pairing: AdmittedPairing) =>
+    lentExamples(reach, pairing, { grant }),
+  );
+  const deps: AgentAccessDeps = { ...reach, lent };
   const t: Say = (key, params) => deps.say(key, params);
   /**
    * The requests of this run whose changes the window that asked applies once the request ends
@@ -1838,7 +1883,7 @@ export function createAgentAccess(
       throw new AgentRefusedError("no-folders", t("agents.problem.no-folders"));
     }
     const reached = reachedFolders(deps, pairing);
-    const lent = deps.lent?.().documentIds ?? [];
+    const lent = deps.lent?.(pairing).documentIds ?? [];
     const holding = (folders: Iterable<string>, withLent = false) => [
       ...new Set([
         ...documentsForPairing(deps, pairing, [...folders], reached),
@@ -2691,10 +2736,7 @@ export function createAgentAccess(
    */
   const lookingNow = (pairing: AdmittedPairing, named: RequestNamed): Looking => {
     const reached = reachedFolders(deps, pairing);
-    const readable = new Set([
-      ...documentsForPairing(deps, pairing, [...reached], reached),
-      ...(deps.lent?.().documentIds ?? []),
-    ]);
+    const readable = documentsReadBy(deps, pairing, reached);
     const folders = new Map(deps.folders().map((folder) => [folder.id, folder.name]));
     const documents = new Map(
       deps.documentsNamed([...named.open, ...named.documents]).map((each) => [each.id, each.name]),
