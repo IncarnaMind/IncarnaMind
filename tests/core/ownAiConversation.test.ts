@@ -1121,6 +1121,49 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     );
   });
 
+  // protects=a change asked from a Note cites the quote it writes where its Citation goes in that one call, with no cite call first: the Note the window applies holds the Citation, found, and nothing of the quote as words (#3753); fails_when=the Citation is missing or not found, or "[cite:" is left in the Note
+  it("cites a quote the change writes inline, in the call that writes it", async () => {
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages[0];
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [
+              {
+                paragraph: "¶2+",
+                text: `Ridership reached 212,000 [cite:${found?.passageId}|${FERRY}].`,
+              },
+            ],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Added it." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "Add a line on ridership, with its source" });
+    const end = await ended();
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    const lines = shownWithChanges(client);
+    expect(lines).toHaveLength(3);
+    expect(lines[2]).toContain("Ridership reached 212,000");
+    expect(lines[2]).toContain("⟨found⟩");
+    expect(lines.join("\n")).not.toContain("[cite:");
+  });
+
   // protects=in an empty Note, as Write notes writes one after Stop, a later change of the same request finds the paragraphs its first change wrote named, rewrites one with the right owner, cites another, takes one out and adds after one; each result says it applies and nothing waits for the User; once the window applies the request the Note holds the last word once, the line counts the paragraphs written, and one Undo takes the whole request back; in English and Chinese; fails_when=the later change is refused while the first waits (#3762), the first change's words stay beside the second's, the line counts a paragraph twice, or Undo leaves part of it
   it("lets a later change of the same request correct what it wrote into an empty Note", async () => {
     const said = {
@@ -1204,6 +1247,9 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       expect(seen.first?.status, language).toBe("applied");
       expect(seen.first?.waitingInNote, language).toBe(0);
       expect(seen.first?.markdown, language).toContain(`¶0 ${yours} ## ${words.heading}`);
+      // Its status in the "(…)" read_mind's description names one by: in Chinese too, never in
+      // brackets the run reads as words left in the Note (#3753).
+      expect(seen.first?.markdown, language).toMatch(/^¶0 \([^()（）\n]+\) ## /);
       expect(seen.first?.markdown, language).toContain(`¶1 ${yours} ${words.wrong}`);
       expect(seen.first?.markdown, language).toContain(`¶3 ${yours} ${words.gone}`);
       expect(seen.second?.status, language).toBe("applied");

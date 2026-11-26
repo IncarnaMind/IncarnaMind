@@ -476,6 +476,35 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     expect(bodyParts(file.files)).toEqual(bodyParts(exported));
   });
 
+  // protects=Markdown whose quote is written where its Citation goes is saved as the Word file the token cite gives makes, footnote for footnote, with nothing of the quote left as words (#3753); fails_when=its footnote is missing or differs, or the result tells it otherwise
+  it("saves Markdown with its quote written inline as with cite's token", async () => {
+    const { core, coast, writer } = await started([], { asItLands: false });
+    await core.setOutputLocation(await createSourceFolder());
+    const agent = await connectLegacyAgent(writer.launch);
+    const quote = "The north quay holds 42 boats";
+    const north = await token(agent, "north quay boats", quote);
+    const { passages } = structured<{ passages: { passageId: string; text: string }[] }>(
+      await agent.callTool({ name: "search", arguments: { query: "north quay boats" } }),
+    );
+    const passageId = passages.find((each) => each.text.includes(quote))?.passageId ?? "";
+    const files: { body: string[]; footnotes: string[] }[] = [];
+    for (const [title, cite] of [
+      ["With a token", north],
+      ["With a quote", `[cite:${passageId}|${quote}]`],
+    ] as const) {
+      const saved = structured<Saved>(
+        await save(agent, { title, markdown: `${quote} ${cite}.`, folderId: coast.id }),
+      );
+      expect(saved.citations, title).toEqual([
+        expect.objectContaining({ cite: north, check: "found" }),
+      ]);
+      const file = await wordFileOf(core, saved);
+      files.push({ body: file.body.slice(1).map((each) => each.text), footnotes: file.footnotes });
+    }
+    expect(files[0]?.footnotes).toHaveLength(1);
+    expect(files[1]).toEqual(files[0]);
+  });
+
   // protects=a Note with headings, a table, a picture, a chart and Citations, all of it the agent's to read, gives the body Export › Word writes, part for part (#3751); fails_when=a heading, a cell, the picture, the chart's drawing or a footnote differs from Export › Word's
   it("writes a Note with a heading, a table, a picture and a chart as Export › Word does", async () => {
     const { core, coast, writer, files } = await started([], {

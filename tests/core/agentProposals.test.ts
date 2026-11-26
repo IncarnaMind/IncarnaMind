@@ -681,7 +681,8 @@ describe("an outside agent's proposed changes (#352)", () => {
     expect(proposed.uncited).toEqual(["港口管理处每年都会公布全年的潮汐时间表。"]);
     await client.settled();
     const again = await readNamed(agent, mind.id);
-    expect(again.markdown).toBe("¶0 ## 潮汐\n\n¶1 （修订待处理） 潮水每天涨落两次。");
+    // Its status in Chinese words, in the "(…)" read_mind's description names a status by (#3753).
+    expect(again.markdown).toBe("¶0 ## 潮汐\n\n¶1 (修订待处理) 潮水每天涨落两次。");
     expect(
       refusal(
         await agent.callTool({
