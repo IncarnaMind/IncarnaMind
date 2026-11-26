@@ -146,7 +146,7 @@ const EXCEPTIONS: readonly Exception[] = [
     keys: ["privacy.runtimeFolder"],
   },
   {
-    why: "Promises what becomes of the User's files: their Folder, new ones joining, none moved or deleted, a deck changed only by hand",
+    why: "Promises what becomes of the User's files: their Folder, new ones joining, none moved or deleted, changed only when edited by hand or confirmed from AI with one-step restore",
     keys: ["linkedFolders.preview.becomesFolder"],
   },
   {

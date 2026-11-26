@@ -11,7 +11,9 @@ import type {
   ShapeEdit,
 } from "../../../../core/exports/pptxPatch/shapeEdit";
 import type { TextRange } from "../../../../shared/quoteMatch";
+import { useT } from "../../i18n";
 import { beginChange } from "../../undo";
+import type { SelectedDeckShape } from "./DeckAskBox";
 import type { DeckGesture, Overflow } from "./deckEditing";
 import { type TextEditing, typedText } from "./editedText";
 import { SlideCanvas } from "./SlideCanvas";
@@ -249,6 +251,10 @@ export function SlideEditor({
   onEdit,
   onOverflow,
   onOpenPicture,
+  onSelectShape,
+  selectedElsewhere = false,
+  clearSelectionTick = 0,
+  proposedShapeIds = null,
 }: {
   slide: SlideDrawing;
   width: number;
@@ -263,8 +269,23 @@ export function SlideEditor({
   onOverflow?: (overflow: Overflow) => void;
   /** Opens a picture on the slide, as a click on one does where the deck can't be edited. */
   onOpenPicture?: (picture: HTMLImageElement) => void;
+  /** Tells the viewer which shape is selected, for AI change requests (#149 part 2). */
+  onSelectShape?: (selection: SelectedDeckShape | null) => void;
+  /** True when another slide currently holds the deck's selected shape (#149 part 2). */
+  selectedElsewhere?: boolean;
+  /** Incremented when the User clears the target chip in the ask footer (#149 part 2). */
+  clearSelectionTick?: number;
+  /** Shape ids touched by a waiting AI Proposal, outlined live on the slide (#149 part 2). */
+  proposedShapeIds?: ReadonlySet<string> | null;
 }) {
+  const t = useT();
   const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedElsewhere) setSelected(null);
+  }, [selectedElsewhere]);
+  useEffect(() => {
+    if (clearSelectionTick > 0) setSelected(null);
+  }, [clearSelectionTick]);
   const [draft, setDraft] = useState<{ path: string; box: ShapeBox } | null>(null);
   const [typed, setTyped] = useState<readonly TypedWords[]>([]);
   const [typing, setTyping] = useState<{
@@ -322,6 +343,62 @@ export function SlideEditor({
     (path: string) => located(slide.items, path)?.item.shapeId ?? null,
     [slide],
   );
+
+  const onSelectShapeNow = useRef(onSelectShape);
+  onSelectShapeNow.current = onSelectShape;
+  useEffect(() => {
+    if (!onSelectShapeNow.current) return;
+    if (!selected) {
+      onSelectShapeNow.current(null);
+      return;
+    }
+    const found = located(shown.items, selected)?.item;
+    if (!found?.shapeId) {
+      onSelectShapeNow.current(null);
+      return;
+    }
+    const text =
+      found.kind === "shape" && found.text
+        ? found.text.paragraphs
+            .map((p) => p.runs.map((r) => (r.lineBreak ? "\n" : r.text)).join(""))
+            .join("\n")
+        : found.kind === "table"
+          ? found.rows
+              .map((row) =>
+                row.cells
+                  .map((c) =>
+                    c.merged
+                      ? ""
+                      : c.text.paragraphs
+                          .map((p) => p.runs.map((r) => (r.lineBreak ? "\n" : r.text)).join(""))
+                          .join(" "),
+                  )
+                  .join("\t"),
+              )
+              .join("\n")
+          : found.kind === "chart"
+            ? found.lines.join("\n")
+            : "";
+    const firstLine =
+      text
+        .split("\n")
+        .find((line) => line.trim() !== "")
+        ?.trim() ?? "";
+    const snippet = firstLine.length > 36 ? `${firstLine.slice(0, 35).trimEnd()}…` : firstLine;
+    onSelectShapeNow.current({
+      slide: slide.number,
+      shapeId: found.shapeId,
+      shapeName:
+        found.kind === "shape" && found.title
+          ? t("viewer.deck.place.title")
+          : found.kind === "chart"
+            ? snippet || t("viewer.deck.place.chart")
+            : found.kind === "table"
+              ? t("viewer.deck.place.table")
+              : snippet || t("viewer.deck.place.text"),
+      text,
+    });
+  }, [selected, shown.items, slide.number, t]);
 
   const moved = useCallback(
     (path: string, box: ShapeBox) => {
@@ -670,6 +747,13 @@ export function SlideEditor({
         if (event.currentTarget.contains(event.relatedTarget)) return;
         // Working elsewhere (a line's action among it) takes the nudges so far as made.
         handOverNudge.current();
+        // Moving focus into the deck's ask box keeps the clicked shape targeted (#149 part 2).
+        if (
+          event.relatedTarget instanceof Element &&
+          event.relatedTarget.closest("[data-deck-ask-foot]")
+        ) {
+          return;
+        }
         // One shape is selected in the deck at a time: working elsewhere lets this one go.
         if (!typing) setSelected(null);
       }}
@@ -725,6 +809,7 @@ export function SlideEditor({
         images={images}
         ranges={ranges}
         editing={editing}
+        proposedShapeIds={proposedShapeIds}
       />
       {!typing && pressable.map(hit)}
       {!typing && edged.map(edge)}
