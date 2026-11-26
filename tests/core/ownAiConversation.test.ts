@@ -1181,6 +1181,139 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
     }
   });
 
+  // protects=a later change of the same request to a User's paragraph its first change rewrote, adding a Citation before one the paragraph had, keeps by handle the Citation it read, as the Note numbers them, and the first change's Citation goes with the words it replaced; fails_when=the handle keeps the Citation the first change added, and the User's goes
+  it("keeps by handle the Citation it read when it rewrites again what it rewrote", async () => {
+    let shown = "";
+    let again: { status: string } | undefined;
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const found = structured<{ passages: { passageId: string }[] }>(
+        await agent.callTool({ name: "search", arguments: { query: "ferry passengers 2025" } }),
+      ).passages;
+      const cite =
+        structured<{ citations: { cite: string | null }[] }>(
+          await agent.callTool({
+            name: "cite",
+            arguments: { citations: found.map(({ passageId }) => ({ passageId, quote: FERRY })) },
+          }),
+        ).citations.find((each) => each.cite !== null)?.cite ?? "";
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const first = structured<{ version: string; markdown: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: `Spring tides ${cite} delay the ferry [kept:1] [note:1] by $x+1$ minutes.`,
+              },
+            ],
+          },
+        }),
+      );
+      shown = first.markdown;
+      again = structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: first.version,
+            changes: [
+              {
+                paragraph: "¶1",
+                text: "Spring tides delay the ferry [kept:1] [note:1] by $x+2$ minutes.",
+              },
+            ],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    writeMind(client, [heldParagraph(), note(FARES)]);
+    await client.settled();
+    await core.askInNote({ mindId, words: "say the tides delay it two minutes" });
+    const end = await ended();
+    const yours = translate("en", "agents.mind.yours").replace(/[()]/g, "\\$&");
+    // As it will be: the token the first change cited, then the User's Citation, kept as the first.
+    expect(shown).toMatch(
+      new RegExp(
+        `¶1 ${yours} Spring tides \\[cite:[a-z0-9]+\\] delay the ferry \\[kept:1\\] \\[note:1\\]`,
+      ),
+    );
+    expect(again?.status).toBe("applied");
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    const cited: string[] = [];
+    let words = "";
+    readMind(client)
+      .child(0)
+      .forEach((node) => {
+        if (node.type.name === "citation") cited.push(String(node.attrs.documentName));
+        if (node.isText) words += node.text ?? "";
+      });
+    expect(cited).toEqual(["Tides"]);
+    expect(words).toContain("Spring tides delay the ferry");
+    expect(words).toContain("x+2");
+    expect(words).not.toContain("x+1");
+    expect(shownWithChanges(client).join("\n")).not.toMatch(/\{\+|\[-/);
+  });
+
+  // protects=a later change of the same request that puts other Blocks in the place of the heading its first change put in place of a User's paragraph counts, with it, as one paragraph changed, and the Note ends with the last Blocks alone; fails_when=the line counts that paragraph twice, or the heading or the User's paragraph stays
+  it("counts a paragraph put in place of twice in one request once", async () => {
+    let again: { status: string; markdown: string } | undefined;
+    const run = runner(async (agent, request) => {
+      const mindId = mindIdOf(request);
+      const read = structured<{ version: string }>(
+        await agent.callTool({ name: "read_mind", arguments: { mindId, named: true } }),
+      );
+      const first = structured<{ version: string }>(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: read.version,
+            changes: [{ paragraph: "¶2", text: "## Draft fares" }],
+          },
+        }),
+      );
+      again = structured(
+        await agent.callTool({
+          name: "propose_changes",
+          arguments: {
+            mindId,
+            version: first.version,
+            changes: [{ paragraph: "¶3", text: "- Fares rose by a tenth." }],
+          },
+        }),
+      );
+      return { kind: "finished", reply: "Done." };
+    });
+    const { core, mindId, client, ended } = await written(run.adapter);
+    await core.askInNote({ mindId, words: "turn the fares into a list" });
+    const end = await ended();
+    const yours = translate("en", "agents.mind.yours");
+    expect(again?.status).toBe("applied");
+    expect(again?.markdown).toContain(`¶3 ${yours} - Fares rose by a tenth.`);
+    expect(again?.markdown).not.toContain("Draft fares");
+    expect((end?.applied ?? []).reduce((sum, each) => sum + each.changed + each.added, 0)).toBe(1);
+    await core.applyAskedChanges({
+      answerId: end?.turnId ?? "",
+      mindId,
+      requests: (end?.applied ?? []).map((each) => each.request),
+    });
+    await client.settled();
+    expect(shownWithChanges(client)).toEqual([FERRY, "Fares rose by a tenth."]);
+  });
+
   // protects=a later request writing into an empty Note while an earlier request's notes still wait there for the User, its run stopped, is refused as before, and the waiting notes stay once; fails_when=the later request reads the earlier one's notes as its own and writes beside them
   it("refuses a later request's first paragraphs while an earlier one's wait in an empty Note", async () => {
     const wrote = gate();

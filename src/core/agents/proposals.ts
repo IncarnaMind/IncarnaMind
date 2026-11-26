@@ -40,6 +40,7 @@ import {
   readProposalAttribute,
   readProposalRef,
   resolveProposals,
+  TEXT_BLOCKS,
   targetHash,
   targetText,
   waitingChanges,
@@ -1294,7 +1295,9 @@ interface Opened {
 
 /**
  * Opens the Blocks this run's own changes add, so a later change of the same run writes in them as
- * in the Note's own text: their Proposals come off, for `closeOwn` to put back.
+ * in the Note's own text: their Proposals come off, for `closeOwn` to put back. What a change adds
+ * inside a paragraph's words, a Citation among them, stays as it is, for `takeBackOwnIn`: opened,
+ * it would count among the paragraph's own, and a handle would keep another than the one read.
  */
 function openOwn(blocks: Y.XmlFragment, own: ReadonlySet<string>): Opened[] {
   const opened: Opened[] = [];
@@ -1306,7 +1309,7 @@ function openOwn(blocks: Y.XmlFragment, own: ReadonlySet<string>): Opened[] {
         opened.push({ element: child, proposal });
         child.removeAttribute(PROPOSAL_ATTRIBUTE);
       }
-      visit(child);
+      if (!TEXT_BLOCKS.has(child.nodeName)) visit(child);
     }
   };
   visit(blocks);
@@ -1314,9 +1317,29 @@ function openOwn(blocks: Y.XmlFragment, own: ReadonlySet<string>): Opened[] {
 }
 
 /**
+ * Puts what Proposal `id` takes out with it into `into`: a Block that change put new Blocks in the
+ * place of, when a later change takes those out or puts others there, goes with the later one.
+ */
+function movedTakingOut(blocks: Y.XmlFragment, id: string, into: ProposalAttribute): void {
+  const visit = (parent: Y.XmlFragment | Y.XmlElement) => {
+    for (const child of parent.toArray()) {
+      if (!(child instanceof Y.XmlElement)) continue;
+      const proposal = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
+      if (proposal?.kind === "delete" && proposal.id === id) {
+        setProposal(child, { ...proposal, id: into.id, request: into.request });
+        continue;
+      }
+      if (!TEXT_BLOCKS.has(child.nodeName)) visit(child);
+    }
+  };
+  visit(blocks);
+}
+
+/**
  * Closes what `openOwn` opened, once `request` has written there: a Block it takes out goes, as it
- * was never in the Note; every other takes what it wrote in it, or with `reject` drops it, and
- * waits again, whole, as the earlier change that adds it.
+ * was never in the Note, and what the earlier change took out in its place goes with this change;
+ * every other takes what it wrote in it, or with `reject` drops it, and waits again, whole, as the
+ * earlier change that adds it.
  */
 function closeOwn(
   blocks: Y.XmlFragment,
@@ -1334,6 +1357,7 @@ function closeOwn(
       now.request === request &&
       (parent instanceof Y.XmlElement || parent instanceof Y.XmlFragment)
     ) {
+      movedTakingOut(blocks, proposal.id, now);
       parent.delete(parent.toArray().indexOf(element), 1);
       continue;
     }
