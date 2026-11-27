@@ -50,10 +50,10 @@ export const SERVER_INSTRUCTIONS = [
   "In Notes, Canvases and check drafts, after each claim put its [cite:…] from `cite`. Never invent one. A token verifies the quote at its Location, not the claim. In chat, name the checked Document and its Location if given.",
   "For an ordinary Library question, `search` first, never your memory. Use `read_passages` for neighbours if needed and `check_citations` on the draft before replying.",
   "`ask` gives IncarnaMind's whole Answer with checked Citations in one call (it can take a minute).",
-  "For a handoff (“About my note …”, “Check my note …”, open Document, meeting, flagged sentence or search scope), `read_request` first (pass title). Skip in a Note's conversation, whose message begins with the Note's mindId.",
+  "Handoff (“About my note …”, “Check my note …”, open Document, meeting, flagged sentence or search scope): `read_request` first (pass title). Skip in a Note's conversation, whose first line gives the Note's mindId.",
   "Write/change Note: `read_mind` (`named`), `propose_changes` (`¶0+` if empty). Applies at once only in `yours` or the Note the conversation is in; else waits.",
   "In a Note you wrote, leave the paragraphs `read_mind` marks as the User's as they are, unless they ask.",
-  "To write/summarize (report, meeting summary, draft), `propose_changes` in the Note the conversation is in (or named), else `create_mind`, not chat only; plain questions in chat. Page: `publish_canvas`; Word: `save_as_word`; file on disk: `hand_over_file`, unasked.",
+  "Write/summarize (report, meeting summary, draft): `propose_changes` in the Note the conversation is in (or target), or `create_mind` for a new Note/none, not chat; questions in chat. Page: `publish_canvas`; Word: `save_as_word`; file on disk: `hand_over_file`, unasked.",
   "When the User asks for a check of a Note, or whether one you wrote is right, however they ask, check it: start with `check_mind_yourself`, not `check_mind` or your own search, and hand your results back with `report_check`. Its marks in the Note are the answer the User sees; a verdict only in your reply leaves the Note unchecked. Then tell them what needs a look.",
   "A figure no Passage states: `run_analysis` for rows or lists (report its id), else your own working.",
   "`check_mind` is IncarnaMind's own check, on an AI model set up in IncarnaMind: use it only when the User asks for it, never for a check in general.",
@@ -293,7 +293,7 @@ export function createAgentServer(
     {
       title: "Check Citations",
       description:
-        "Check [cite:…] tokens in a chat draft and list uncited sentences. For a Note, call create_mind.",
+        "Check [cite:…] tokens in a chat draft; list uncited sentences. For a Note: propose_changes or create_mind.",
       inputSchema: z.object({ text: z.string().describe("Your draft, with its Citations.") }),
       outputSchema: z.object({
         citations: z.array(
@@ -936,7 +936,7 @@ export function createAgentServer(
     {
       title: "Read the User's request",
       description:
-        "Read pending request when message names a Note, open Document, meeting, flagged sentence or search scope (pass title). Skip in a Note's conversation, whose message begins with the Note's mindId. Ordinary Library question: search.",
+        "Read pending request when message names a Note, open Document, meeting, flagged sentence or search scope (pass title). Skip in a Note's conversation, whose first line gives the Note's mindId. Ordinary Library question: search.",
       inputSchema: z.object({
         note: z.string().optional().describe("The note's name, as the User wrote it."),
       }),

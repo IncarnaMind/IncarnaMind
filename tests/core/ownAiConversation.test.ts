@@ -3355,6 +3355,9 @@ describe("what the User's own AI asks in a Note's conversation, and does with it
     expect(end?.applied).toHaveLength(1);
     const [request] = run.runs;
     expect(request?.instructions).toMatch(/never call read_request/i);
+    expect(request?.instructions).toContain("whose first line gives the Note's mindId");
+    expect(request?.instructions).toContain("asks to write into another Note by name");
+    expect(request?.instructions).not.toContain("if the request names a different existing Note");
     expect(request?.instructions).toMatch(/summary[\s\S]*propose_changes/i);
     expect(request?.instructions).toContain("the note whose mindId the first line gives");
     expect(request?.instructions).toContain("the Note the conversation is in");
