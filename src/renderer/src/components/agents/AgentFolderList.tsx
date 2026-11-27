@@ -8,7 +8,7 @@ import {
 import { useLanguage, useT } from "../../i18n";
 import { formatCount } from "../../linkedFolders";
 import { allExamples, isExampleDocument, isOwnDocument, useAppStore } from "../../store";
-import { FolderLineIcon, LockLineIcon } from "../lineIcons";
+import { FolderLineIcon, LockLineIcon } from "../icons";
 
 /** What an agent may be allowed to read now: the Folders, then Not in a Folder (see `agentFolderRows`). */
 export function useAgentFolderRows(enabled = true, keepUnfiled = false): AgentFolderRow[] {
@@ -90,7 +90,7 @@ export function AgentFolderList({
               data-testid="agent-folder-row"
               data-shared-with={sharer}
               style={{ paddingInlineStart: `${12 + row.depth * 16}px` }}
-              className={`flex min-h-[34px] shrink-0 items-center gap-2.5 pr-3 text-[13px] leading-5 text-ink ${sharer ? "cursor-default" : "cursor-pointer"}`}
+              className={`flex min-h-[34px] shrink-0 items-center gap-2.5 pr-3 text-ui leading-5 text-ink ${sharer ? "cursor-default" : "cursor-pointer"}`}
             >
               <input
                 type="checkbox"
@@ -102,9 +102,7 @@ export function AgentFolderList({
                 onChange={(event) => onToggle(row.id, event.target.checked)}
                 className="size-4 shrink-0 accent-ink"
               />
-              <FolderLineIcon
-                className={`size-3.5 shrink-0 ${row.name === null ? "opacity-60" : ""}`}
-              />
+              <FolderLineIcon className={`shrink-0 ${row.name === null ? "opacity-60" : ""}`} />
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate" title={name}>
                   {name}
@@ -112,7 +110,7 @@ export function AgentFolderList({
                 {row.place && (
                   <span
                     data-testid="agent-folder-place"
-                    className="truncate text-[12px] leading-4 text-ink-meta"
+                    className="truncate text-small leading-4 text-ink-meta"
                     title={row.place}
                   >
                     {row.place}
@@ -127,13 +125,13 @@ export function AgentFolderList({
                   title={t("folder.wall.title")}
                   className="flex shrink-0"
                 >
-                  <LockLineIcon className="size-3.5 text-ink-meta" />
+                  <LockLineIcon className="text-ink-meta" />
                 </span>
               )}
               {withWords && (
                 <span
                   data-testid="agent-folder-shared-with"
-                  className="min-w-0 max-w-[45%] shrink truncate text-[12px] leading-4 text-ink-meta"
+                  className="min-w-0 max-w-[45%] shrink truncate text-small leading-4 text-ink-meta"
                   title={withWords}
                 >
                   {withWords}
@@ -141,7 +139,7 @@ export function AgentFolderList({
               )}
               <span
                 data-testid="agent-folder-count"
-                className="shrink-0 text-[12px] leading-4 tabular-nums text-ink-meta"
+                className="shrink-0 text-small leading-4 tabular-nums text-ink-meta"
               >
                 {t(row.documents === 1 ? "library.count.one" : "library.count", {
                   count: formatCount(row.documents, language),
@@ -154,7 +152,7 @@ export function AgentFolderList({
       {onlyNotInAFolder(rows) && (
         <p
           data-testid="agent-folders-all-unfiled"
-          className="mt-1.5 text-[13px] leading-[18px] text-ink-meta"
+          className="mt-1.5 text-ui leading-[18px] text-ink-meta"
         >
           {anyDocument ? t("agents.connect.allUnfiled") : t("agents.connect.noneYet")}
         </p>

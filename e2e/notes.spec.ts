@@ -325,14 +325,14 @@ test("the app and a Mind's writing are in the system's font and its scale, and i
     expect(sansChinese.map((font) => font.name)).toEqual([expect.stringMatching(/^PingFangSC-/)]);
   }
 
-  // The scale by computed style, not pictures: the title 34/42 weight 600 and tightened, a
-  // heading 22/30 weight 600, the writing 16/26.
+  // The scale by computed style, not pictures: the title 32/40 weight 600 and tightened, a
+  // heading 22/30 weight 600, the writing 16/26 (#3766).
   const [title, heading, body] = await Promise.all([
     typeOf('[data-testid="mind-editor"] h1'),
     typeOf('[data-testid="mind-editor"] h2'),
     typeOf(`${paragraph}:first-of-type`),
   ]);
-  expect(title).toMatchObject({ size: 34, leading: 42, weight: 600 });
+  expect(title).toMatchObject({ size: 32, leading: 40, weight: 600 });
   expect(heading).toMatchObject({ size: 22, leading: 30, weight: 600 });
   expect(body).toMatchObject({ size: 16, leading: 26 });
   expect(title.spacing).toBeLessThan(0);

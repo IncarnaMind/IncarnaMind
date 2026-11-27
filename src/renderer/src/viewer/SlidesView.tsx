@@ -24,7 +24,7 @@ import {
 import { withoutArea } from "../../../shared/locations";
 import { findQuoteInPieces, type TextRange } from "../../../shared/quoteMatch";
 import { useViewerHandle, ViewerTabContext } from "../commands/handles";
-import { ChatLineIcon } from "../components/lineIcons";
+import { ChatLineIcon } from "../components/icons";
 import { OutlineButton, type OutlineEntry, OutlinePanel } from "../components/OutlinePanel";
 import { core, files } from "../core";
 import { translateNow, useT } from "../i18n";
@@ -926,7 +926,7 @@ function SlideFrame({
             onClick={onAsk}
             className="viewer-slide-ask"
           >
-            <ChatLineIcon className="size-3.5" />
+            <ChatLineIcon />
             {t("viewer.slide.ask")}
           </button>
         )}

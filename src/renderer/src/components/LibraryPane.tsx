@@ -442,7 +442,7 @@ export function LibraryPane() {
             <ReferenceImportPanel />
             {request === "starters" && <StarterFolders close={closeForm} />}
             {!snapshot ? (
-              <p role="status" className="mt-6 text-[13px] text-ink-meta">
+              <p role="status" className="mt-6 text-ui text-ink-meta">
                 {t("library.loading")}
               </p>
             ) : documents.length === 0 ? (

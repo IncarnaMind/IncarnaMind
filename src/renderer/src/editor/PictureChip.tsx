@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import type * as Y from "yjs";
 import { INCLUDE_IN_CONTEXT_ATTRIBUTE, PICTURE_NODE } from "../../../core/api";
 import { useAnswers } from "../answers";
-import { ImageLineIcon } from "../components/lineIcons";
+import { ImageLineIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { useModelInUse } from "../modelInUse";
 import { useServiceName } from "../modelNames";

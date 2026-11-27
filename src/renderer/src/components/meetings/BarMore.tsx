@@ -1,18 +1,20 @@
 import type { Meeting } from "../../../../core/api";
+import { commandIcon } from "../../commands/commandIcons";
 import { menuKeysLabel } from "../../commands/keymap";
 import { type CommandContext, commands, isEnabled, labelOf } from "../../commands/registry";
 import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
-import { MoreLineIcon } from "../lineIcons";
+import { BookmarkLineIcon, FloatLineIcon, MoreLineIcon, PulseLineIcon } from "../icons";
+import { MenuItemParts } from "../MenuItemParts";
 import { menuClass, menuItemClass, menuItemUnavailableClass, menuRuleClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 
 import { applyMeetingWriteupTemplate, MeetingTemplateRows } from "./MeetingTemplatePicker";
 
 const FOLDING = [
-  { fold: "mark", id: "meeting.mark" },
-  { fold: "help", id: "meeting.panel" },
-  { fold: "details", id: "meeting.details" },
+  { fold: "mark", id: "meeting.mark", icon: BookmarkLineIcon },
+  { fold: "help", id: "meeting.panel", icon: FloatLineIcon },
+  { fold: "details", id: "meeting.details", icon: PulseLineIcon },
 ] as const;
 
 const CONTEXT: CommandContext = { selection: [], focus: null, surface: "mind" };
@@ -49,7 +51,7 @@ export function BarMore({ meeting }: { meeting: Meeting }) {
         title={t("meetings.bar.more")}
         className="meeting-button meeting-button--icon meeting-more"
       >
-        <MoreLineIcon className="size-4" />
+        <MoreLineIcon />
       </button>
       <div
         {...menu.menuProps}
@@ -58,7 +60,7 @@ export function BarMore({ meeting }: { meeting: Meeting }) {
         data-testid="meeting-more-menu"
         className={menuClass}
       >
-        {hidden.map(({ id }) => {
+        {hidden.map(({ id, icon }) => {
           const command = commands.get(id);
           if (!command) return null;
           const enabled = isEnabled(command, CONTEXT);
@@ -75,8 +77,11 @@ export function BarMore({ meeting }: { meeting: Meeting }) {
               }}
               className={`${menuItemClass} ${menuItemUnavailableClass} pl-2`}
             >
-              <span className="flex-1">{labelOf(command, CONTEXT, t)}</span>
-              {keys && <span className="pl-4 text-[13px] text-ink-meta">{keys}</span>}
+              <MenuItemParts
+                icon={commandIcon(command) ?? icon}
+                label={labelOf(command, CONTEXT, t)}
+                keys={keys}
+              />
             </button>
           );
         })}

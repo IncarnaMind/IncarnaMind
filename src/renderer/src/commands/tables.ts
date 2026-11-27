@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core";
 import { isInTable } from "@tiptap/pm/tables";
+import type { CommandId } from "../../../shared/commands";
 import { inAnalysisTable } from "../editor/analysisTableCommands";
 import {
   menuKeyApplies,
@@ -41,6 +42,22 @@ const spotOf = (ctx: CommandContext) => {
   return editor && tableSpot(editor.state);
 };
 
+/**
+ * What a table's ⋯ button and ⌘/ offer: its rows, columns and heading row, and deleting them
+ * (#3761). Making a chart and the totals are elsewhere: the right-click menu, ⌘K and the Figure
+ * schedule.
+ */
+export const TABLE_MENU: readonly CommandId[] = [
+  "table.rowAbove",
+  "table.rowBelow",
+  "table.columnLeft",
+  "table.columnRight",
+  "table.headerRow",
+  "table.deleteRow",
+  "table.deleteColumn",
+  "table.delete",
+];
+
 /** The heading row and the totals are switches: the menu ticks each one that is on. */
 const SWITCHES: Partial<Record<TableActionId, (spot: TableSpot) => boolean>> = {
   headerRow: (spot) => spot.headerRow,
@@ -80,7 +97,9 @@ export const tableCommands: readonly Command[] = [
         ? "danger"
         : action.id === "openCalculation"
           ? "open"
-          : "main",
+          : SWITCHES[action.id]
+            ? "edit"
+            : "main",
       // The note's own undo (⌘Z) takes it back.
       reversible: true,
       when: (ctx) => {

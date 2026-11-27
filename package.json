@@ -179,6 +179,7 @@
     "html-validate": "11.16.2",
     "hyparquet": "1.31.5",
     "hyparquet-compressors": "1.1.2",
+    "lucide-react": "1.72.0",
     "opencc-data": "1.4.2",
     "posthog-node": "5.54.1",
     "pyodide": "314.0.7",

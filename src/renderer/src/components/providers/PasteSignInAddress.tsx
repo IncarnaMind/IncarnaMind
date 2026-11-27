@@ -67,7 +67,7 @@ export function PasteSignInAddress({
 
   if (!open) {
     return (
-      <p className="text-[13px] leading-5 text-ink-secondary">
+      <p className="text-ui leading-5 text-ink-secondary">
         {question}
         {gap(question, action)}
         <button
@@ -75,7 +75,7 @@ export function PasteSignInAddress({
           type="button"
           data-testid={`${words.testId}-open`}
           onClick={() => setOpen(true)}
-          className="font-semibold text-accent underline-offset-2 hover:underline"
+          className="text-accent underline-offset-2 hover:underline"
         >
           {action}
         </button>
@@ -119,7 +119,7 @@ export function PasteSignInAddress({
 
   return (
     <div data-testid={words.testId} data-setup-foot className="flex w-full flex-col gap-1">
-      <label htmlFor={id} className="text-[13px] leading-5 text-ink-secondary">
+      <label htmlFor={id} className="text-ui leading-5 text-ink-secondary">
         {label}
       </label>
       <div className="flex w-full items-center gap-2">
@@ -140,7 +140,7 @@ export function PasteSignInAddress({
             setProblem(null);
           }}
           onKeyDown={onKeyDown}
-          className={`${fieldClass} h-7 min-w-0 flex-1 py-0 font-mono text-[13px]`}
+          className={`${fieldClass} h-7 min-w-0 flex-1 py-0 font-mono text-ui`}
         />
         <button
           type="button"

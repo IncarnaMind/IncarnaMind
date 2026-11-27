@@ -33,10 +33,10 @@ export function LaunchDetails({ pairingId }: { pairingId: string }) {
   const field = (id: string, label: string, shown: string, copiedText: string) => (
     <div className="flex items-start gap-2" data-testid={`agent-launch-${id}`}>
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="text-[12px] leading-[18px] text-ink-meta">{label}</span>
+        <span className="text-small leading-[18px] text-ink-meta">{label}</span>
         <code
           data-testid="agent-launch-value"
-          className="font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink"
+          className="font-mono text-small leading-[18px] break-all whitespace-pre-wrap text-ink"
         >
           {shown}
         </code>

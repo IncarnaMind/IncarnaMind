@@ -3,7 +3,6 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import type { NoteQuestion, NoteStep, NoteTurn } from "../../../../core/api";
 import { formatDateTime } from "../../../../shared/dates";
 import type { MessageKey } from "../../../../shared/i18n";
-import { AskArrowIcon } from "../../editor/icons";
 import { useLanguage, useT } from "../../i18n";
 import {
   askAgainInNote,
@@ -22,13 +21,14 @@ import {
 } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
 import {
+  AskArrowIcon,
   ChevronRightLineIcon,
   CopyLineIcon,
   MindLineIcon,
   PencilLineIcon,
   RetryLineIcon,
   TrashLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { SidebarToggle } from "../SidebarToggle";
 import { ConversationMenu } from "./ConversationMenu";
 import { EndAction, FailureLine, useWaitingInNote } from "./NoteAskPill";
@@ -599,7 +599,7 @@ function Turn({
                 }
                 className="note-column-icon"
               >
-                <CopyLineIcon className="size-3.5" />
+                <CopyLineIcon />
               </button>
               {trail?.model && <span>{shortModel(trail.model)}</span>}
             </span>
@@ -637,7 +637,7 @@ function SentActions({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
           }
           className="note-column-icon"
         >
-          <RetryLineIcon className="size-3.5" />
+          <RetryLineIcon />
         </button>
       )}
       <EditRequest mindId={mindId} words={turn.request} />
@@ -658,7 +658,7 @@ function EditRequest({ mindId, words }: { mindId: string; words: string }) {
       onClick={() => editRequest(mindId, words)}
       className="note-column-icon"
     >
-      <PencilLineIcon className="size-3.5" />
+      <PencilLineIcon />
     </button>
   );
 }
@@ -676,7 +676,7 @@ function CopyRequest({ words }: { words: string }) {
       }
       className="note-column-icon"
     >
-      <CopyLineIcon className="size-3.5" />
+      <CopyLineIcon />
     </button>
   );
 }
@@ -721,7 +721,7 @@ function NotSent({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
         onClick={() => void sendUnsent(mindId, turn).catch(report)}
         className="note-column-icon"
       >
-        <AskArrowIcon className="size-3" />
+        <AskArrowIcon />
       </button>
       <EditRequest mindId={mindId} words={turn.request} />
       <CopyRequest words={turn.request} />
@@ -733,7 +733,7 @@ function NotSent({ mindId, turn }: { mindId: string; turn: NoteTurn }) {
         onClick={() => void discardInNote(mindId, turn.id).catch(report)}
         className="note-column-icon"
       >
-        <TrashLineIcon className="size-3.5" />
+        <TrashLineIcon />
       </button>
     </div>
   );
@@ -785,7 +785,7 @@ function MadeCard({ step }: { step: NoteStep }) {
       className="note-column-made-card"
     >
       <span className="note-column-made-icon" aria-hidden="true">
-        <MindLineIcon className="size-[18px]" />
+        <MindLineIcon />
       </span>
       <span className="note-column-made-text">
         <span className="note-column-made-title">{step.summary}</span>

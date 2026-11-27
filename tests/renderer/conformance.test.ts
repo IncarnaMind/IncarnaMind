@@ -194,6 +194,17 @@ describe("every kind of object", () => {
     }
   });
 
+  test("shows an icon beside every item of its menu", async () => {
+    const { commandIcon } = await import("../../src/renderer/src/commands/commandIcons");
+    const missing = menuKinds().flatMap((kind) =>
+      menuIds(kind).filter((id) => {
+        const command = commands.get(id);
+        return command !== undefined && commandIcon(command) === undefined;
+      }),
+    );
+    expect(missing).toEqual([]);
+  });
+
   test("shows its menu in the order of rule 5, with a rule between groups", async () => {
     expect(COMMAND_GROUPS).toEqual(["open", "main", "move", "tags", "edit", "file", "danger"]);
     const { useAppStore } = await import("../../src/renderer/src/store");

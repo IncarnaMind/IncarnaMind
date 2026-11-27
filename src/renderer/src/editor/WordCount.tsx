@@ -20,7 +20,7 @@ import {
   countFor,
   parseTarget,
 } from "../../../shared/wordCount";
-import { CheckLineIcon } from "../components/lineIcons";
+import { CheckLineIcon, HashLineIcon } from "../components/icons";
 import { ProblemMark } from "../components/ProblemLine";
 import { usePopoverMenu } from "../components/usePopoverMenu";
 import { useLanguage, useT } from "../i18n";
@@ -356,6 +356,7 @@ export function CountShownSwitch({ doc }: { doc: Y.Doc }) {
         className="page-menu-switch"
         onClick={() => setCountShown(doc, !shown)}
       >
+        <HashLineIcon className="shrink-0" />
         <span className="flex-1">{t("page.countShown")}</span>
         <span className="switch" data-on={shown || undefined} aria-hidden="true" />
       </button>

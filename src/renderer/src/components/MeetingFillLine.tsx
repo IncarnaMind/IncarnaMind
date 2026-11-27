@@ -14,7 +14,7 @@ import { useModelNames, useServiceName } from "../modelNames";
 import { answerProblem } from "../problems";
 import { speechModelDownload } from "../speechModelDownload";
 import { useAppStore } from "../store";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 import { MeetingAgentNotes } from "./meetings/MeetingAgentNotes";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { useTabPlace } from "./tabs/tabItems";
@@ -188,7 +188,6 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       <ProblemLine
         testId="meeting-fill-line"
         role="alert"
-        className=""
         action={
           fill.state === "filled"
             ? undo
@@ -237,7 +236,6 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       <ProblemLine
         testId="meeting-fill-line"
         role="status"
-        className=""
         details={fill.state === "filling" ? telling : []}
         action={
           meeting.kind === "meeting" && fill.state === "filling"
@@ -328,7 +326,6 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
       <ProblemLine
         testId="meeting-fill-line"
         role="status"
-        className=""
         details={telling}
         action={undo}
         also={fill.mode === "transcript" ? allow : undefined}
@@ -337,9 +334,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
           t("memos.fill.asIs", { reason: reasonOf(fill.problem) })
         ) : (
           <>
-            {meeting.kind === "meeting" && (
-              <CheckLineIcon className="mr-1 inline size-3.5 align-[-2px]" />
-            )}
+            {meeting.kind === "meeting" && <CheckLineIcon className="mr-1 inline align-[-2px]" />}
             {t(words.filled)}
           </>
         )}
@@ -348,12 +343,7 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
   }
   if (fill.state === "undone") {
     return (
-      <ProblemLine
-        testId="meeting-fill-line"
-        role="status"
-        className=""
-        action={again(t(words.again))}
-      >
+      <ProblemLine testId="meeting-fill-line" role="status" action={again(t(words.again))}>
         {t(words.undone)}
       </ProblemLine>
     );
@@ -363,7 +353,6 @@ export function MeetingFillLine({ meeting, editor }: { meeting: Meeting; editor?
     <ProblemLine
       testId="meeting-fill-line"
       role={stoppedByUser ? "status" : "alert"}
-      className=""
       title={fill.problem?.kind === "model" ? fill.problem.message : undefined}
       action={allow ?? provider?.fix ?? again(t("meetings.fill.tryAgain"))}
       also={allow ? undefined : provider?.fix && again(t("meetings.fill.tryAgain"))}

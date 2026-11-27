@@ -157,7 +157,7 @@ export function DisconnectAll({
           data-testid="agents-disconnect-all-open"
           aria-expanded={asking}
           onClick={() => setAsking(true)}
-          className="rounded-sm text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline"
+          className="rounded-sm text-ui leading-5 text-accent underline-offset-2 hover:underline"
         >
           {t("agents.settings.disconnectAll")}
         </button>
@@ -167,7 +167,7 @@ export function DisconnectAll({
           data-testid="agents-disconnect-all-ask"
           className="mt-2 rounded-lg bg-wash px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--color-rule)]"
         >
-          <p className="mb-2 text-[13px] leading-5 text-ink-secondary">
+          <p className="mb-2 text-ui leading-5 text-ink-secondary">
             {t("agents.settings.disconnectAll.ask", { count: pairings.length })}
           </p>
           <div className="flex gap-2">

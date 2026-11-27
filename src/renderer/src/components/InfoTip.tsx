@@ -1,6 +1,6 @@
 import { useId, useRef } from "react";
 import { useT } from "../i18n";
-import { InfoLineIcon } from "./lineIcons";
+import { InfoLineIcon } from "./icons";
 import { TipPopover } from "./TipPopover";
 import { useTip } from "./useTip";
 
@@ -27,7 +27,7 @@ export function InfoTip({ text, id, testId }: { text: string; id?: string; testI
         onPointerLeave={tip.leave}
         className="ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-sm align-middle text-ink-meta hover:bg-hover hover:text-ink-secondary"
       >
-        <InfoLineIcon className="size-3.5" />
+        <InfoLineIcon />
       </button>
       {!tip.shown && (
         <span id={descriptionId} role="tooltip" hidden>

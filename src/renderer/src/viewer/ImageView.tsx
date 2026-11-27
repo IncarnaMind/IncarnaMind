@@ -14,6 +14,7 @@ import { displayName } from "../../../shared/documentNames";
 import type { MessageKey } from "../../../shared/i18n";
 import { findQuoteInPages } from "../../../shared/quoteMatch";
 import { DocumentFix } from "../components/DocumentFix";
+import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "../components/icons";
 import { files } from "../core";
 import { logCaught } from "../errorLog";
 import { useT } from "../i18n";
@@ -21,7 +22,6 @@ import { openDocumentPicture, pictureClickHandlers } from "../pictureViewer";
 import type { ViewerTarget } from "../store";
 import { quotesOf } from "./citedPlace";
 import { loadDocumentBytes, MissingDocumentError, TooLargeDocumentError } from "./documentBytes";
-import { FitWidthIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { CitationMark, quoteMarkOf } from "./quoteMark";
 import { OTHER_QUOTE, QuoteStepsLine, quotesIn, useQuoteSteps } from "./quoteSteps";
 import { scannedTextLayer, useScannedPages } from "./scannedText";
@@ -339,7 +339,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           onClick={() => zoomStep(-1)}
           className="viewer-icon-button"
         >
-          <ZoomOutIcon className="size-4" />
+          <ZoomOutIcon />
         </button>
         <span
           data-testid="image-zoom-level"
@@ -357,7 +357,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           onClick={() => zoomStep(1)}
           className="viewer-icon-button"
         >
-          <ZoomInIcon className="size-4" />
+          <ZoomInIcon />
         </button>
         <button
           type="button"
@@ -368,7 +368,7 @@ export function ImageView({ document, target }: { document: Document; target: Vi
           onClick={() => setZoom({ fit: true })}
           className="viewer-icon-button"
         >
-          <FitWidthIcon className="size-4" />
+          <FitWidthIcon />
         </button>
       </ViewerHeader>
       <UnreadPagesLine document={document} />

@@ -27,8 +27,16 @@ import { queueAsk } from "../askQueue";
 import { useAgentsToAsk, useReadAgentsToAsk } from "../askYourAi";
 import { composerHandle, useHandle } from "../commands/handles";
 import { shortcutLabel } from "../commands/keymap";
-import { SearchIcon, StopIcon } from "../components/icons";
-import { SearchLineIcon, SparkLineIcon } from "../components/lineIcons";
+import {
+  AskArrowIcon,
+  CollapseIcon,
+  ExpandIcon,
+  RemoveIcon,
+  SearchLineIcon,
+  SparkLineIcon,
+  StopLineIcon,
+  TableLineIcon,
+} from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { SkippedFilesLine } from "../components/SkippedFilesLine";
 import { answerAskFrom } from "../components/TaskTray";
@@ -88,7 +96,6 @@ import { ComposerAskAgent } from "./ComposerAskAgent";
 import { ComposerPlus } from "./ComposerPlus";
 import { EditStatus } from "./EditStatus";
 import { ExplainQueued } from "./ExplainQueued";
-import { AskArrowIcon, CollapseIcon, ExpandIcon, RemoveIcon, TableIcon } from "./icons";
 import { ModelChip } from "./ModelChip";
 import { useMindSelection } from "./mindSelection";
 import { PasteChip, usePasteLabel } from "./PasteChip";
@@ -1047,7 +1054,7 @@ export function Composer({
               onClick={() => mind && stopEditing(mind.editor, mind.mindId)}
               className="scope-chip-remove"
             >
-              <RemoveIcon className="size-2.5" />
+              <RemoveIcon />
             </button>
           </span>
         )}
@@ -1074,7 +1081,7 @@ export function Composer({
               onClick={() => update({ research: false })}
               className="scope-chip-remove"
             >
-              <RemoveIcon className="size-2.5" />
+              <RemoveIcon />
             </button>
           </span>
         )}
@@ -1084,7 +1091,7 @@ export function Composer({
             title={t("analysis.chip.hint")}
             className="question-skill"
           >
-            <TableIcon className="question-skill-icon" />
+            <TableLineIcon className="question-skill-icon" />
             <span className="truncate">{t("analysis.chip")}</span>
             <button
               type="button"
@@ -1096,7 +1103,7 @@ export function Composer({
               onClick={() => update({ analyse: false })}
               className="scope-chip-remove"
             >
-              <RemoveIcon className="size-2.5" />
+              <RemoveIcon />
             </button>
           </span>
         )}
@@ -1174,7 +1181,7 @@ export function Composer({
               aria-hidden="true"
               className="composer-chip composer-scope-waiting"
             >
-              <SearchIcon className="composer-chip-icon" />
+              <SearchLineIcon className="composer-chip-icon" />
               <span className="truncate">{allLabel}</span>
             </span>
           ) : hasSearchScope(resolvedScope) ? (
@@ -1214,7 +1221,7 @@ export function Composer({
               onClick={openScopePicker}
               className="composer-chip composer-scope-all"
             >
-              <SearchIcon className="composer-chip-icon" />
+              <SearchLineIcon className="composer-chip-icon" />
               <span className="truncate">{allLabel}</span>
             </button>
           )}
@@ -1232,7 +1239,7 @@ export function Composer({
               }}
               className="composer-ask"
             >
-              <StopIcon className="size-3.5" />
+              <StopLineIcon />
             </button>
           ) : (
             <button
@@ -1246,7 +1253,7 @@ export function Composer({
               onClick={() => void ask()}
               className="composer-ask"
             >
-              <AskArrowIcon className="size-3" />
+              <AskArrowIcon />
             </button>
           )}
         </div>
@@ -1265,7 +1272,7 @@ export function Composer({
             }}
             className="composer-expand"
           >
-            {expanded ? <CollapseIcon className="size-3.5" /> : <ExpandIcon className="size-3.5" />}
+            {expanded ? <CollapseIcon /> : <ExpandIcon />}
           </button>
         )}
       </div>

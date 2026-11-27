@@ -3,9 +3,9 @@ import type { AddedToNote, Meeting } from "../../../core/api";
 import { writingTime } from "../../../shared/blockTimes";
 import { clockTime } from "../../../shared/clock";
 import type { FieldMode } from "../../../shared/meetingPanel";
+import { AskArrowIcon } from "../components/icons";
 import { TypingTextarea } from "../components/TypingTextarea";
 import { fieldClass, segmentClass, segmentedClass } from "../components/ui";
-import { AskArrowIcon } from "../editor/icons";
 import { errorMessage } from "../errors";
 import { useT } from "../i18n";
 import type { QuickNotes } from "./quickNotes";
@@ -246,7 +246,7 @@ export function NoteField({
           onClick={send}
           className="composer-ask ask-field-send"
         >
-          <AskArrowIcon className="size-3" />
+          <AskArrowIcon />
         </button>
         <span role="status" className="sr-only">
           {said}

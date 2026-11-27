@@ -34,8 +34,7 @@ import { interleave, type ThreadStart, threadTasks } from "../../taskGroups";
 import { loadTasks, useTasks } from "../../tasks";
 import { aimAt } from "../../taskTell";
 import { useResolvedScope } from "../../useResolvedScope";
-import { SearchIcon } from "../icons";
-import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../lineIcons";
+import { PlanLineIcon, SearchLineIcon, SparkLineIcon } from "../icons";
 import { AddToMindPicker } from "./AddToMindPicker";
 import { WritingLine } from "./AnswerActions";
 import { LiveLine } from "./AnswerSteps";
@@ -213,7 +212,7 @@ export function ConversationThread({
                 title={reads}
                 className={readsWaiting ? "assistant-reads invisible" : "assistant-reads"}
               >
-                <SearchIcon aria-hidden="true" className="assistant-reads-icon" />
+                <SearchLineIcon aria-hidden="true" className="assistant-reads-icon" />
                 <span className="assistant-reads-text">{reads}</span>
               </p>
             </div>
@@ -266,7 +265,7 @@ export function ConversationThread({
                   type="button"
                   data-testid="assistant-waiting-choose"
                   onClick={chooseModelInPlace}
-                  className="font-semibold text-accent underline-offset-2 hover:underline"
+                  className="text-accent underline-offset-2 hover:underline"
                 >
                   {t("status.choose")}
                 </button>
@@ -394,13 +393,13 @@ function QuestionBubble({
         <AskedQuoteLines quotes={question?.quotes ?? quotes} />
         {skill && (
           <span data-testid="assistant-question-skill" className="assistant-question-skill">
-            <SparkLineIcon aria-hidden="true" className="size-3" />
+            <SparkLineIcon aria-hidden="true" />
             {skillTitle(skill, t)}
           </span>
         )}
         {research && (
           <span data-testid="assistant-question-research" className="assistant-question-skill">
-            <SearchLineIcon aria-hidden="true" className="size-3" />
+            <SearchLineIcon aria-hidden="true" />
             {t("research.chip")}
           </span>
         )}

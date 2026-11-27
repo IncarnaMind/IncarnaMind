@@ -20,7 +20,7 @@ import {
   checkTranscriptionKey,
   ROUTE_LABELS,
 } from "../transcriptionServices";
-import { FloatLineIcon, PauseLineIcon, ResumeLineIcon, StopLineIcon } from "./lineIcons";
+import { FloatLineIcon, PauseLineIcon, ResumeLineIcon, StopLineIcon } from "./icons";
 import { LevelBars } from "./meetings/LevelBars";
 import { type ProblemAction, ProblemLine } from "./ProblemLine";
 import { TranscriptLines } from "./TranscriptLines";
@@ -81,7 +81,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
           data-status={waiting ? "waiting" : meeting.status}
           className="recording-dot"
         />
-        <span data-testid="meeting-state" className="meeting-state-word font-semibold">
+        <span data-testid="meeting-state" className="meeting-state-word">
           {t(
             waiting
               ? "meetings.bar.waiting"
@@ -105,11 +105,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         onClick={toggle}
         className="meeting-button meeting-button--icon"
       >
-        {recording ? (
-          <PauseLineIcon className="size-3.5" />
-        ) : (
-          <ResumeLineIcon className="size-3.5" />
-        )}
+        {recording ? <PauseLineIcon /> : <ResumeLineIcon />}
       </button>
       <button
         type="button"
@@ -119,7 +115,7 @@ function MeetingControls({ meeting }: { meeting: Meeting }) {
         onClick={() => void stop(meeting.id)}
         className="meeting-button meeting-button--words"
       >
-        <StopLineIcon className="size-3.5" />
+        <StopLineIcon />
         <span className="meeting-button-word">{t("meetings.bar.stop")}</span>
       </button>
     </div>
@@ -147,7 +143,7 @@ export function CallHelpToggle() {
       onClick={() => files.showMeetingPanel(!shown)}
       className="meeting-button meeting-button--words"
     >
-      <FloatLineIcon className="size-4" />
+      <FloatLineIcon />
       <span className="meeting-button-word">{t("meetings.callHelp")}</span>
     </button>
   );

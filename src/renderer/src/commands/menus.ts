@@ -59,6 +59,14 @@ export const menuEntries = (kind: ObjectKind): readonly Registered[] => register
 export const menuIds = (kind: ObjectKind): readonly CommandId[] =>
   menuEntries(kind).map((each) => each.id);
 
+/** What a menu leaves out of its kind's commands: `without`, and with `only`, every command not in it. */
+export const menuLeavesOut = (
+  kind: ObjectKind,
+  without: readonly CommandId[],
+  only?: readonly CommandId[],
+): readonly CommandId[] =>
+  only ? [...without, ...menuIds(kind).filter((each) => !only.includes(each))] : without;
+
 /** An item of a menu: a command that applies here, and whether it can run now (else, why not). */
 export interface MenuItem {
   command: Command;

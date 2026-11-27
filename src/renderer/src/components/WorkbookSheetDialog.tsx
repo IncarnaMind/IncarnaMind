@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useId, useState } from "react";
 import type { WorkbookSheetChoice } from "../../../core/api";
 import { useLanguage, useT } from "../i18n";
 import { checkWorkbook, closeWorkbookChoice, useVerify, type WorkbookProblem } from "../verify";
-import { DocumentLineIcon } from "./lineIcons";
+import { DocumentLineIcon } from "./icons";
 import { ProblemLine } from "./ProblemLine";
 import {
   buttonClass,
@@ -107,8 +107,8 @@ export function WorkbookSheetDialog() {
           {t("verify.workbook.title")}
         </h2>
         <div className="flex min-w-0 items-center gap-3">
-          <DocumentLineIcon kind="xlsx" className="size-4 shrink-0 text-ink-meta" />
-          <p title={path ?? ""} className="min-w-0 truncate text-ui font-semibold text-ink">
+          <DocumentLineIcon kind="xlsx" className="shrink-0 text-ink-meta" />
+          <p title={path ?? ""} className="min-w-0 truncate text-ui text-ink">
             {path?.split(/[\\/]/).pop() ?? ""}
           </p>
         </div>
@@ -171,7 +171,7 @@ export function WorkbookSheetDialog() {
             autoCorrect="off"
             placeholder="B2:M40"
             onChange={(event) => setRange(event.target.value)}
-            className={`${inputClass} font-mono text-[13px]`}
+            className={`${inputClass} font-mono text-ui`}
           />
           <p className={choiceTextClass}>{t("verify.workbook.range.hint")}</p>
         </div>

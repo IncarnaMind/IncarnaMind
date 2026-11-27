@@ -24,7 +24,7 @@ const everyFound = (shown: readonly AgentClient[]) =>
   shown.every((client) => client.id === "other" || client.installed);
 
 const linkClass =
-  "rounded-sm font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
+  "rounded-sm text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
 
 /**
  * The setup's first way to an AI (#3362): the one the User already has. Its agents, those on this
@@ -128,7 +128,7 @@ export function AgentWays({
 
   return (
     <section aria-labelledby={`${id}-title`} className="flex flex-col gap-2">
-      <h2 id={`${id}-title`} className="text-ui font-semibold text-ink">
+      <h2 id={`${id}-title`} className="text-ui text-ink">
         {t("setupPage.ai.agents")}
       </h2>
       {!pairings.some((each) => each.client === "claude-code") && (
@@ -152,7 +152,7 @@ export function AgentWays({
               <p
                 data-testid="setup-agent-done"
                 role="status"
-                className="px-3 text-[12px] leading-[18px] text-ink-meta"
+                className="px-3 text-small leading-[18px] text-ink-meta"
               >
                 {doneWords(done, pairing, t)}
                 {done.kind === "wrote" && (
@@ -234,10 +234,10 @@ export function AgentWays({
                     className="mt-0.5 size-4 shrink-0 accent-ink"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-ui font-semibold text-ink">
+                    <span className="block text-ui text-ink">
                       {t("agents.connectAll.tile", { count: foundToConnect.length })}
                     </span>
-                    <span className="block text-[12px] leading-4 text-ink-meta">
+                    <span className="block text-small leading-4 text-ink-meta">
                       {unitsOf(
                         foundToConnect.map((client) => clientName(client, t)),
                         language,
@@ -265,11 +265,11 @@ export function AgentWays({
                     }}
                     className="size-4 shrink-0 accent-ink"
                   />
-                  <span className="min-w-0 flex-1 truncate text-ui font-semibold text-ink">
+                  <span className="min-w-0 flex-1 truncate text-ui text-ink">
                     {clientName(client, t)}
                   </span>
                   {client.installed && !everyFound(shown) && (
-                    <span className="shrink-0 text-[12px] leading-4 text-ink-meta">
+                    <span className="shrink-0 text-small leading-4 text-ink-meta">
                       {t("setupPage.agent.found")}
                     </span>
                   )}
@@ -285,7 +285,7 @@ export function AgentWays({
           data-testid="setup-agent-connect-all"
           className="flex scroll-mb-28 flex-col gap-3 rounded-lg px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--color-rule)]"
         >
-          <h3 className="text-ui font-semibold text-ink">{t("agents.connectAll.title")}</h3>
+          <h3 className="text-ui text-ink">{t("agents.connectAll.title")}</h3>
           <ConnectManyFields
             clients={foundToConnect}
             problem={many.problem}
@@ -311,7 +311,7 @@ export function AgentWays({
           data-testid="setup-agent-connect"
           className="flex scroll-mb-28 flex-col gap-3 rounded-lg px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--color-rule)]"
         >
-          <h3 className="text-ui font-semibold text-ink">
+          <h3 className="text-ui text-ink">
             {t("agents.connect.title", { agent: clientInSentence(chosen, t) })}
           </h3>
           <ConnectAgentFields

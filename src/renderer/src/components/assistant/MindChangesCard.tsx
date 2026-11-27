@@ -24,7 +24,7 @@ import {
 } from "../../mindChanges";
 import type { Translate } from "../../objects";
 import { useAppStore } from "../../store";
-import { MindLineIcon, PencilLineIcon } from "../lineIcons";
+import { MindLineIcon, PencilLineIcon } from "../icons";
 import { AppliedLine, AskedChangesCard } from "./AskedChangesCard";
 
 /** The names of Minds seen in a card, for a row whose Mind has since been removed. */

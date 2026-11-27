@@ -23,7 +23,7 @@ export function SidebarSelection() {
   );
   const several = items.length > 1;
   return (
-    <div className={several ? "flex h-7 items-center gap-2 px-2 text-[12px] text-ink-meta" : ""}>
+    <div className={several ? "flex h-7 items-center gap-2 px-2 text-small text-ink-meta" : ""}>
       <span role="status" data-testid="sidebar-selection" className="min-w-0 flex-1 truncate">
         {several && t("sidebar.selected", { count: formatCount(items.length, language) })}
       </span>

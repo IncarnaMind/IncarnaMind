@@ -4,6 +4,7 @@ import type { Decoration } from "@tiptap/pm/view";
 import type { WordAtomAttributes, WordAtomKind } from "../../../core/api";
 import type { MessageKey } from "../../../shared/i18n";
 import { BREAK_WORD_ATOMS, INVISIBLE_WORD_ATOMS, readWordAtom } from "../../../shared/wordFiles";
+import { iconMarkup } from "../components/icons";
 import { languageNow, translateNow } from "../i18n";
 import { pageDate } from "../webPages";
 import { footnoteNumberOf } from "./citationNumbers";
@@ -50,11 +51,9 @@ function describe(atom: WordAtomAttributes): string {
     .join("\n");
 }
 
-const LOCK =
-  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>';
+const LOCK = iconMarkup("lock");
 
-const COMMENT =
-  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"></path></svg>';
+const COMMENT = iconMarkup("chat");
 
 /** The label a box shows on hover and when reached by keyboard: a lock, and what it is. */
 function boxLabel(atom: WordAtomAttributes): HTMLElement {

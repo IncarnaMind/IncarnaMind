@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { ChatProvider } from "../../../../core/api";
-import { ComputerLineIcon } from "../lineIcons";
+import { ComputerLineIcon } from "../icons";
 import { PROVIDER_LOGOS } from "./providerLogos";
 
 /** A plan shows its company's logo. */
@@ -48,7 +48,7 @@ export function ProviderLogo({
           )}
         </svg>
       ) : (
-        (fallback ?? <ComputerLineIcon className={large ? "size-6" : "size-[18px]"} />)
+        (fallback ?? <ComputerLineIcon data-size="18" />)
       )}
     </span>
   );

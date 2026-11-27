@@ -3,7 +3,7 @@ import type { Language } from "../../../core/language";
 import { formatDateTime } from "../../../shared/dates";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { checkedByMe } from "../../../shared/signOffs";
-import { CheckIcon } from "../components/icons";
+import { CheckLineIcon } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
 
 /** Who checked an item and when, or that it changed since they did. */
@@ -56,7 +56,7 @@ export function SignOffToggle({
       className={`sign-off-toggle ${className}`}
       onClick={onToggle}
     >
-      {pressed && <CheckIcon className="sign-off-toggle-tick" />}
+      {pressed && <CheckLineIcon className="sign-off-toggle-tick" />}
       {t("signOff.action")}
     </button>
   );

@@ -67,7 +67,7 @@ export function WordExportLosses({ notKept }: { notKept: readonly WordExportLoss
         <ul
           aria-hidden="true"
           data-testid="export-not-kept-items"
-          className="flex list-disc flex-col gap-0.5 pl-5 font-sans text-[13px] leading-5 break-words text-ink-meta"
+          className="flex list-disc flex-col gap-0.5 pl-5 font-sans text-ui leading-5 break-words text-ink-meta"
         >
           {notKept.slice(0, LISTED).map((loss, index) => (
             <li key={loss.key}>{items[index]}</li>

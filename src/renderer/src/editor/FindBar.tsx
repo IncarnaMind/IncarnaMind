@@ -2,7 +2,7 @@ import { type Editor, useEditorState } from "@tiptap/react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { findHandle, useHandle } from "../commands/handles";
-import { ChevronDownLineIcon, ChevronUpLineIcon, CloseLineIcon } from "../components/lineIcons";
+import { ChevronDownLineIcon, ChevronUpLineIcon, CloseLineIcon } from "../components/icons";
 import { ProblemMark } from "../components/ProblemLine";
 import { useT } from "../i18n";
 import { useMindTools } from "../mindTools";
@@ -283,7 +283,7 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
           disabled={count === 0}
           onClick={handle.previous}
         >
-          <ChevronUpLineIcon className="size-4" />
+          <ChevronUpLineIcon />
         </button>
         <button
           type="button"
@@ -293,7 +293,7 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
           disabled={count === 0}
           onClick={handle.next}
         >
-          <ChevronDownLineIcon className="size-4" />
+          <ChevronDownLineIcon />
         </button>
         <button
           type="button"
@@ -302,7 +302,7 @@ export function FindBar({ editor, onClose }: { editor: Editor; onClose(): void }
           aria-label={t("editor.find.close")}
           onClick={close}
         >
-          <CloseLineIcon className="size-4" />
+          <CloseLineIcon />
         </button>
       </div>
       {withReplace && (

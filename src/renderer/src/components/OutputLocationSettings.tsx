@@ -92,7 +92,7 @@ export function OutputLocationSettings() {
               <PathText
                 path={location ?? settings.suggested}
                 testId="output-location-path"
-                className="font-mono text-[13px] leading-5 text-ink-secondary"
+                className="font-mono text-ui leading-5 text-ink-secondary"
               />
             }
             control={

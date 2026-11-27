@@ -4,7 +4,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useMeetingOf, useMeetings } from "../../meetings";
 import { useMinuteClock } from "../../minuteClock";
 import { useNoteEvent } from "../../noteEvents";
-import { CalendarLineIcon, RecordingLineIcon } from "../lineIcons";
+import { CalendarLineIcon, RecordingLineIcon } from "../icons";
 import { buttonStyle } from "../ui";
 import { MeetingBrief } from "./MeetingBrief";
 
@@ -38,18 +38,18 @@ export function EventBar({ mindId }: { mindId: string }) {
   return (
     <section data-testid="event-bar" aria-label={t("eventBar.label")} className="meeting-bar">
       <div className="flex h-8 items-center gap-2">
-        <CalendarLineIcon className="size-4 shrink-0 text-ink-meta" />
+        <CalendarLineIcon className="shrink-0 text-ink-meta" />
         <span
           data-testid="event-bar-when"
           title={people || undefined}
-          className="min-w-0 flex-1 truncate text-[13px] leading-5 text-ink-secondary"
+          className="min-w-0 flex-1 truncate text-ui leading-5 text-ink-secondary"
         >
           {whenLine(event, now, language, t)}
         </span>
         {soon && (
           <span
             data-testid="event-bar-soon"
-            className="shrink-0 text-[13px] leading-5 whitespace-nowrap text-ink-meta tabular-nums"
+            className="shrink-0 text-ui leading-5 whitespace-nowrap text-ink-meta tabular-nums"
           >
             {soon}
           </span>
@@ -61,7 +61,7 @@ export function EventBar({ mindId }: { mindId: string }) {
           onClick={join}
           className={buttonStyle(event.joinUrl ? "primary" : "secondary", "sm")}
         >
-          <RecordingLineIcon className="size-4" />
+          <RecordingLineIcon />
           {t(event.joinUrl ? "eventBar.join" : "eventBar.record")}
         </button>
       </div>

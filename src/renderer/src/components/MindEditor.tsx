@@ -219,7 +219,14 @@ import { keptInsideName } from "../walls";
 import { forgetReadMind, publishReadMindEmpty } from "./assistant/readMind";
 import { CompareSheet } from "./CompareSheet";
 import { StartGuide, useIsExample } from "./GettingStarted";
-import { CheckLineIcon, MineLineIcon } from "./lineIcons";
+import {
+  CircleCheckIcon,
+  ExplainIcon,
+  ImproveIcon,
+  MineLineIcon,
+  ShortenIcon,
+  TranslateIcon,
+} from "./icons";
 import { MeetingFillAt } from "./MeetingFillAt";
 import { MindNotice } from "./MindNotice";
 import { meetingTemplateSlashItems } from "./meetings/MeetingTemplatePicker";
@@ -991,21 +998,21 @@ function MindEditorView({
       {
         id: "improve",
         label: "editor.ai.improve",
-        icon: "✎",
+        icon: <ImproveIcon />,
         available,
         run: run("improve", "menu"),
       },
       {
         id: "shorten",
         label: "editor.ai.shorten",
-        icon: "≡",
+        icon: <ShortenIcon />,
         available,
         run: run("shorten", "menu"),
       },
       {
         id: "translate",
         label: "editor.ai.translate",
-        icon: "文",
+        icon: <TranslateIcon />,
         available,
         choices: TRANSLATE_LANGUAGES.map((language) => ({
           id: language.id,
@@ -1018,7 +1025,7 @@ function MindEditorView({
       {
         id: "explain",
         label: "editor.ai.explain",
-        icon: "?",
+        icon: <ExplainIcon />,
         available,
         // Answered in the assistant, with the selection as a chip: the Note is left as it is (#2348).
         run: (current) => void explainSelection(current, mindId, doc),
@@ -1026,7 +1033,7 @@ function MindEditorView({
       {
         id: "check-anyway",
         label: "claim.checkAnyway",
-        icon: <CheckLineIcon className="size-3.5" />,
+        icon: <CircleCheckIcon />,
         available: (current) =>
           !useChecks.getState().running[mindId] && opinionAt(current, doc) !== undefined,
         run: (current) => {
@@ -1037,7 +1044,7 @@ function MindEditorView({
       {
         id: "check-against-documents",
         label: hasDocuments ? "editor.ai.checkAgainstDocuments" : "editor.ai.addDocumentsToCheck",
-        icon: <CheckLineIcon className="size-3.5" />,
+        icon: <CircleCheckIcon />,
         available,
         run: (current) =>
           hasDocuments
@@ -1047,7 +1054,7 @@ function MindEditorView({
       {
         id: "mark-as-mine",
         label: "editor.ai.markAsMine",
-        icon: <MineLineIcon className="size-3.5" />,
+        icon: <MineLineIcon />,
         available: (current) => holdsAiText(current.state),
         run: (current) => void markSelectionAsMine(current),
       },

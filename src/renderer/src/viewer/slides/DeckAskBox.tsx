@@ -8,10 +8,9 @@
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentPairing, Document } from "../../../../core/api";
 import { useViewerHandle } from "../../commands/handles";
-import { StopIcon } from "../../components/icons";
+import { AskArrowIcon, RemoveIcon, StopLineIcon } from "../../components/icons";
 import { TypingTextarea } from "../../components/TypingTextarea";
 import { core } from "../../core";
-import { AskArrowIcon, RemoveIcon } from "../../editor/icons";
 import { errorMessage } from "../../errors";
 import { useLanguage, useT } from "../../i18n";
 import {
@@ -327,7 +326,7 @@ export function DeckAskBox({
                   onClick={onClearSelection}
                   className="scope-chip-remove"
                 >
-                  <RemoveIcon className="size-2.5" />
+                  <RemoveIcon />
                 </button>
               </span>
             </div>
@@ -374,7 +373,7 @@ export function DeckAskBox({
               onClick={() => setWorking(null)}
               className="note-ask-round"
             >
-              <StopIcon className="size-3" />
+              <StopLineIcon />
             </button>
           ) : (
             <button
@@ -387,7 +386,7 @@ export function DeckAskBox({
               onClick={submitCurrent}
               className="note-ask-round"
             >
-              <AskArrowIcon className="size-3" />
+              <AskArrowIcon />
             </button>
           )}
         </div>

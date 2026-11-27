@@ -279,16 +279,16 @@ export function SortingLine({
   const t = useT();
   const rows = (each: SortingOption | null) => {
     if (!each) {
-      return <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.none")}</p>;
+      return <p className="text-small leading-5 text-ink-meta">{t("setup.sorting.none")}</p>;
     }
     if (each.decisionModel) {
       return (
         <>
-          <p className="text-[12px] leading-5 text-ink-meta">
+          <p className="text-small leading-5 text-ink-meta">
             {t(each.provider ? "setup.sorting.uses" : "setup.sorting.here")}
           </p>
           {each.provider && (
-            <p className="text-[12px] leading-5 text-ink-meta">
+            <p className="text-small leading-5 text-ink-meta">
               {t("setup.sorting.sendsWhenOn", { service: each.provider })}
             </p>
           )}
@@ -297,14 +297,14 @@ export function SortingLine({
     }
     return (
       <>
-        <p className="text-[12px] leading-5 text-ink-meta">
+        <p className="text-small leading-5 text-ink-meta">
           {t(each.provider ? "setup.sorting.chat" : "setup.sorting.chatHere", {
             model: each.modelName ?? "",
           })}
         </p>
-        <p className="text-[12px] leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
+        <p className="text-small leading-5 text-ink-meta">{t("setup.sorting.chat.hints")}</p>
         {each.provider && (
-          <p className="text-[12px] leading-5 text-ink-meta">
+          <p className="text-small leading-5 text-ink-meta">
             {t("setup.sorting.sendsWhenOn", { service: each.provider })}
           </p>
         )}

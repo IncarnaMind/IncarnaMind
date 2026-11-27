@@ -299,7 +299,7 @@ function Uses({
             data-flow-id={use.flow}
             data-consent={use.status.consent}
           >
-            <p className="font-semibold text-ink">{flow}</p>
+            <p className="text-ink">{flow}</p>
             <ul aria-label={t("privacy.flows.sends")} className="list-disc pl-4">
               {use.sends.map((kind) => (
                 <li key={kind}>{t(`consent.data.${kind}`)}</li>

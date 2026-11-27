@@ -3,8 +3,8 @@ import { type RefObject, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { NodeJSON } from "../../../../shared/blockJson";
 import { TABLE_SLOT_CLASS, TABLE_SLOT_INDEX, tablesOf } from "../../editor/answerTables";
-import { ExpandIcon } from "../../editor/icons";
 import { useT } from "../../i18n";
+import { ExpandIcon } from "../icons";
 import { scrollsSideways } from "../useTableFades";
 
 interface TableSlot {
@@ -81,7 +81,7 @@ export function OpenAsTable({
             if (table) onOpen(table);
           }}
         >
-          <ExpandIcon className="size-3.5" />
+          <ExpandIcon />
         </button>
       </>,
       slot,

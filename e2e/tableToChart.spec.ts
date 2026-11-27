@@ -174,11 +174,13 @@ for (const [language, width] of [
     const { editor, grid } = await mindWithTable(window, words.lead, words.years);
 
     await pointAndClick(window, grid.locator("td").filter({ hasText: words.firstMetric }));
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    const chartItem = window.getByTestId("chart.fromTable");
+    await pointAndClick(window, grid.locator("td").filter({ hasText: words.firstMetric }), {
+      button: "right",
+    });
+    const chartItem = window.getByTestId("block-actions").getByTestId("chart.fromTable");
     await expect(chartItem).toHaveText(words.chartFromTable);
     await pointAndClick(window, chartItem);
-    await expect(window.getByTestId("table-actions")).toBeHidden();
+    await expect(window.getByTestId("block-actions")).toBeHidden();
     const chart = editor.getByTestId("chart");
     await expect(chart).toHaveCount(1);
     await expect(chart.getByTestId("chart-point")).toHaveCount(6);
@@ -274,9 +276,9 @@ for (const [language, width] of [
     const { editor, grid } = await mindWithTable(window, words.mixedLead, words.mixed);
 
     await pointAndClick(window, grid.locator("td").first());
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("chart.fromTable"));
-    await expect(window.getByTestId("table-actions")).toBeHidden();
+    await pointAndClick(window, grid.locator("td").first(), { button: "right" });
+    await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
+    await expect(window.getByTestId("block-actions")).toBeHidden();
     const chart = editor.getByTestId("chart");
     await expect(chart).toHaveCount(1);
     await expect(chart.getByTestId("chart-point")).toHaveCount(8);
@@ -342,8 +344,8 @@ for (const [language, width] of [
     const { editor, grid } = await mindWithTable(window, words.lead, words.quantities);
 
     await pointAndClick(window, grid.locator("td").first());
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("chart.fromTable"));
+    await pointAndClick(window, grid.locator("td").first(), { button: "right" });
+    await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await expect(chart.getByTestId("chart-point")).toHaveCount(3);
     await expect(point(chart, 1, 0)).toHaveAttribute("aria-label", /2,?000/);
@@ -360,13 +362,15 @@ for (const [language, width] of [
     await setWindowSize(app, window, width, 660);
     const { grid } = await mindWithTable(window, words.lead, words.working);
 
+    // The cell's right-click menu, where Chart from table is for any other table.
     await pointAndClick(window, grid.locator("td").first());
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await expect(window.getByTestId("table-actions")).toBeVisible();
-    await expect(window.getByTestId("table.rowBelow")).toBeVisible();
-    await expect(window.getByTestId("chart.fromTable")).toHaveCount(0);
+    await pointAndClick(window, grid.locator("td").first(), { button: "right" });
+    const menu = window.getByTestId("block-actions");
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId("table.rowBelow")).toBeVisible();
+    await expect(menu.getByTestId("chart.fromTable")).toHaveCount(0);
     await window.keyboard.press("Escape");
-    await expect(window.getByTestId("table-actions")).toBeHidden();
+    await expect(menu).toBeHidden();
     await app.close();
   });
 }

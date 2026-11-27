@@ -66,7 +66,7 @@ export function SuggestionSettings() {
                           type="button"
                           data-testid="suggestion-allow"
                           onClick={() => void turn(true)}
-                          className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                          className="rounded-sm text-accent underline-offset-2 hover:underline"
                         >
                           {t("suggestions.settings.allow")}
                         </button>

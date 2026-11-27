@@ -3,17 +3,17 @@ import type { AgentClient, AgentClientId } from "../../../../core/api";
 import { clientInSentence } from "../../../../shared/agentNames";
 import type { AgentConnectOutcome } from "../../agentConnection";
 import { core } from "../../core";
-import { ClaimMarkIcon } from "../../editor/icons";
 import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { WorksRow } from "../firstRun/SetupPanel";
+import { ClaimMarkIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { buttonStyle } from "../ui";
 import { clientName, doneWords, helpUrl, setupProblem, takesParts } from "./agentWords";
 import { LaunchDetails } from "./LaunchDetails";
 
 const linkClass =
-  "rounded-sm font-semibold text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
+  "rounded-sm text-accent-strong underline-offset-2 hover:underline focus-visible:outline-offset-0";
 
 /**
  * Per-app results after connecting several AI apps in one press (#3644): connected (with Undo),
@@ -80,12 +80,12 @@ export function ConnectManyResult({
             >
               <div
                 role="alert"
-                className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
+                className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-ui leading-5 text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
               >
                 <ProblemMark />
                 <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
               </div>
-              <p className="px-3 text-[12px] leading-[18px] text-ink-meta">
+              <p className="px-3 text-small leading-[18px] text-ink-meta">
                 {t("agents.connectAll.failed", { agent: label, reason })}
                 <span aria-hidden="true"> · </span>
                 <button
@@ -110,7 +110,7 @@ export function ConnectManyResult({
               data-client={outcome.client.id}
               data-outcome="undone"
               role="status"
-              className="px-3 text-[12px] leading-[18px] text-ink-meta"
+              className="px-3 text-small leading-[18px] text-ink-meta"
             >
               {t("agents.connectAll.undone", { agent })}
             </p>
@@ -131,7 +131,7 @@ export function ConnectManyResult({
                 text={t("setupPage.agent.connected", { agent: pairing.name })}
                 testId="connect-many-connected"
               />
-              <p role="status" className="px-3 text-[12px] leading-[18px] text-ink-meta">
+              <p role="status" className="px-3 text-small leading-[18px] text-ink-meta">
                 {doneWords(result, pairing, t)}
                 <span aria-hidden="true"> · </span>
                 <button
@@ -158,14 +158,14 @@ export function ConnectManyResult({
             >
               <div
                 data-testid="connect-many-waiting"
-                className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
+                className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-ui leading-5 text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
               >
                 <ClaimMarkIcon state="not-checked" className="size-4 shrink-0 text-ink-meta" />
                 <span className="min-w-0 [overflow-wrap:anywhere]">
                   {t("agents.connectAll.waitingPress", { agent: label })}
                 </span>
               </div>
-              <p role="status" className="px-3 text-[12px] leading-[18px] text-ink-meta">
+              <p role="status" className="px-3 text-small leading-[18px] text-ink-meta">
                 {doneWords(result, pairing, t)}
                 <span aria-hidden="true"> · </span>
                 <button
@@ -191,14 +191,14 @@ export function ConnectManyResult({
           >
             <div
               data-testid="connect-many-paste"
-              className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-[13px] leading-5 font-semibold text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
+              className="flex items-center gap-2 rounded-lg bg-wash px-3 py-2 text-ui leading-5 text-ink shadow-[inset_0_0_0_1px_var(--color-rule)]"
             >
               <ClaimMarkIcon state="not-checked" className="size-4 shrink-0 text-ink-meta" />
               <span className="min-w-0 [overflow-wrap:anywhere]">
                 {t("agents.connectAll.waitingPaste", { agent: label })}
               </span>
             </div>
-            <p role="status" className="px-3 text-[12px] leading-[18px] text-ink-meta">
+            <p role="status" className="px-3 text-small leading-[18px] text-ink-meta">
               {doneWords(result, pairing, t, { copied: false })}
               {pairing.client && (
                 <>
@@ -217,7 +217,7 @@ export function ConnectManyResult({
             <div className="flex items-start gap-2 px-3">
               <pre
                 data-testid="connect-many-paste-text"
-                className="min-w-0 flex-1 overflow-x-auto rounded-md bg-frame p-2 font-mono text-[12px] leading-[18px] break-all whitespace-pre-wrap text-ink"
+                className="min-w-0 flex-1 overflow-x-auto rounded-md bg-frame p-2 font-mono text-small leading-[18px] break-all whitespace-pre-wrap text-ink"
               >
                 {result.shown}
               </pre>

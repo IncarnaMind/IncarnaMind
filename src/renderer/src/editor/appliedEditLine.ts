@@ -27,7 +27,7 @@ import type { MessageKey, MessageParams } from "../../../shared/i18n";
 import { addsOnly, type ChangeKind, countChanged, onlyRemoves } from "../../../shared/proposals";
 import { paragraphsRemoved } from "../../../shared/sentenceChanges";
 import { type ChangeCounts, changeFact, removedFact } from "../changeFacts";
-import { SPARK_PATH } from "../components/iconPaths";
+import { iconMarkup } from "../components/icons";
 import type { EstimateLine } from "../cost";
 import { anchorOf } from "./arrivedChanges";
 import {
@@ -251,24 +251,10 @@ function lineElement(testId: string, className: string, parts: (Node | string)[]
   return line;
 }
 
-function sparkle(): SVGSVGElement {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  for (const [name, value] of Object.entries({
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": "2",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-    "aria-hidden": "true",
-    class: "proposals-bar-icon",
-  })) {
-    svg.setAttribute(name, value);
-  }
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", SPARK_PATH);
-  svg.append(path);
-  return svg;
+function sparkle(): Element {
+  const holder = document.createElement("span");
+  holder.innerHTML = iconMarkup("spark", "proposals-bar-icon");
+  return holder.firstElementChild ?? holder;
 }
 
 function keys(label: string): HTMLElement {
@@ -704,7 +690,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
   }
   if (line.kind === "applied") {
     const what = text(
-      "applied-count min-w-0 font-semibold",
+      "applied-count min-w-0",
       line.facts ? changeFact(t, line.facts, null) : appliedText(t, line.blocks),
       "applied-count",
     );
@@ -736,7 +722,7 @@ function mainLine(line: AppliedLine, options: Options, blocks: ChangedBlocks): H
     const element = lineElement("applied-line", "applied-line", [
       sparkle(),
       text(
-        "applied-count min-w-0 font-semibold",
+        "applied-count min-w-0",
         reviewText(t, blocks, line.byAssistant === true),
         "applied-count",
       ),

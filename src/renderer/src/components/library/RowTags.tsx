@@ -4,7 +4,7 @@ import { useLanguage, useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { chipsOf, hiddenTagsLine } from "../../tagEditing";
 import { DocumentTagFooter } from "../DocumentTags";
-import { CloseLineIcon, PlusLineIcon } from "../lineIcons";
+import { CloseLineIcon, PlusLineIcon } from "../icons";
 import { tagChipColour } from "../TagColour";
 import { chipClass, pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "../TagPicker";
 
@@ -55,7 +55,7 @@ export function RowTags({ document }: { document: Document }) {
         <span
           data-testid="tag-chip-more"
           title={hiddenTagsLine(t, language, hidden)}
-          className="shrink-0 text-[12px] text-ink-meta"
+          className="shrink-0 text-small text-ink-meta"
         >
           +{hidden.length}
         </span>
@@ -68,7 +68,7 @@ export function RowTags({ document }: { document: Document }) {
         title={t("tags.edit", { name: document.name })}
         className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-ink-meta opacity-0 group-hover/row:opacity-60 group-has-[:focus-visible]/row:opacity-60 hover:bg-hover hover:text-ink hover:opacity-100! focus-visible:opacity-100 aria-expanded:opacity-100"
       >
-        <PlusLineIcon className="size-3.5" />
+        <PlusLineIcon />
       </button>
       <div
         {...popover.popoverProps}
@@ -119,7 +119,7 @@ function RowChip({ document, tag, link }: { document: Document; tag: Tag; link: 
           onClick={() => void useAppStore.getState().removeDocumentTag(document.id, tag.id)}
           className={chipButtonClass}
         >
-          <CloseLineIcon className="size-2.5" />
+          <CloseLineIcon />
         </button>
       </span>
     </span>

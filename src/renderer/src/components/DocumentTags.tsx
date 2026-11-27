@@ -6,7 +6,7 @@ import { openReview, refreshReview, tagDocuments, useOrganizeReview } from "../o
 import { useAppStore } from "../store";
 import { taggingProblem } from "../taggingProblem";
 import { placeOf, resumeTagging } from "../taggingStop";
-import { TagLineIcon } from "./lineIcons";
+import { TagLineIcon } from "./icons";
 import { pickerLabel, TagPicker, tagPopoverClass, useTagPopover } from "./TagPicker";
 
 /**
@@ -39,7 +39,7 @@ export function DocumentTagMenu({
         tabIndex={tabIndex}
         className={buttonClassName}
       >
-        {children ?? <TagLineIcon className="size-[15px]" />}
+        {children ?? <TagLineIcon />}
       </button>
       <div
         {...popover.popoverProps}
@@ -88,7 +88,7 @@ function whyNoTags(item: Document, tags: readonly Tag[], waiting: boolean): NoTa
 }
 
 const footerButton =
-  "h-7 shrink-0 rounded-md px-2 text-[12px] font-semibold text-ink-secondary hover:bg-hover hover:text-ink";
+  "h-7 shrink-0 rounded-md px-2 text-small text-ink-secondary hover:bg-hover hover:text-ink";
 
 /**
  * Under a Document's Tag picker: why it has no Tags (Tagging stopped, Tags
@@ -125,7 +125,7 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
         <div
           data-testid="document-tagging-why"
           data-why={why}
-          className="flex min-h-7 min-w-0 items-center gap-1.5 px-1 text-[12px] text-ink-meta"
+          className="flex min-h-7 min-w-0 items-center gap-1.5 px-1 text-small text-ink-meta"
         >
           {why !== "noFit" && (
             <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-attention" />
@@ -188,7 +188,7 @@ export function DocumentTagFooter({ item, close }: { item: Document; close(): vo
           <span
             data-testid="document-tagging"
             title={item.taggingError ? taggingProblem(item.taggingError, t) : undefined}
-            className="flex max-w-28 items-center gap-1.5 px-1 text-[12px] text-ink-meta"
+            className="flex max-w-28 items-center gap-1.5 px-1 text-small text-ink-meta"
           >
             {item.tagging === "failed" && (
               <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-attention" />

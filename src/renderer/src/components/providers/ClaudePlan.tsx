@@ -13,7 +13,7 @@ import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useSettingsTarget } from "../../settingsTarget";
 import { useAppStore } from "../../store";
-import { ChevronDownLineIcon, ChevronRightLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon, ChevronRightLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { SettingsRow } from "../settings/SettingsGroup";
 import { buttonStyle } from "../ui";
@@ -34,7 +34,7 @@ const PASTE: PasteWords = {
 
 const TARGET = ["claude-account"] as const;
 
-const linkClass = "font-semibold text-accent underline-offset-2 hover:underline";
+const linkClass = "text-accent underline-offset-2 hover:underline";
 
 /** Whether this copy can sign in with a Claude plan. */
 export function useClaudePlanOffered(): boolean {
@@ -78,10 +78,8 @@ export function ClaudePlanWay({ onUseKey }: { onUseKey(): void }) {
         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-hover"
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-ui font-semibold text-ink">{t("claudePlan.way.title")}</span>
-          <span className="text-[13px] leading-5 text-ink-secondary">
-            {t("claudePlan.way.line")}
-          </span>
+          <span className="text-ui text-ink">{t("claudePlan.way.title")}</span>
+          <span className="text-ui leading-5 text-ink-secondary">{t("claudePlan.way.line")}</span>
         </span>
         <Chevron aria-hidden="true" className="size-3.5 shrink-0 text-ink-meta" />
       </button>
@@ -192,11 +190,11 @@ export function ClaudePlanSignIn({
   if (waiting) {
     return (
       <div data-testid="claude-plan-waiting" className="flex flex-col gap-2">
-        <p role="status" className="flex items-start gap-2 text-ui font-semibold text-ink">
+        <p role="status" className="flex items-start gap-2 text-ui text-ink">
           <span aria-hidden="true" className="mt-[7px] size-1.5 shrink-0 rounded-full bg-accent" />
           {t("claudePlan.waiting")}
         </p>
-        <p data-testid="claude-plan-usage" className="text-[13px] leading-5 text-ink-secondary">
+        <p data-testid="claude-plan-usage" className="text-ui leading-5 text-ink-secondary">
           {t("claudePlan.usage")}
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -234,7 +232,7 @@ export function ClaudePlanSignIn({
 
   return (
     <div data-testid="claude-plan-notice" className="flex flex-col gap-2">
-      <p data-testid="claude-plan-usage" className="text-[13px] leading-5 font-semibold text-ink">
+      <p data-testid="claude-plan-usage" className="text-ui leading-5 text-ink">
         {t("claudePlan.usage")}
       </p>
       <SendsLine provider="Anthropic" testId="claude-plan-sends" />
@@ -263,11 +261,7 @@ export function ClaudePlanSignIn({
         </button>
       </div>
       {failure && (
-        <div
-          role="alert"
-          data-testid="claude-plan-error"
-          className="text-[13px] leading-5 break-words"
-        >
+        <div role="alert" data-testid="claude-plan-error" className="text-ui leading-5 break-words">
           <p className="text-ink">
             <ProblemMark />
             {t(CLAUDE_SIGN_IN_FAILURES[failure.kind])}

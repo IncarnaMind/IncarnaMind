@@ -791,8 +791,10 @@ for (const language of ["en", "zh-CN"] as const) {
     const table = editor.locator("table");
     await expect(table.getByTestId("citation")).toHaveCount(7);
     await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }));
-    await pointAndClick(window, window.getByTestId("table-menu"));
-    await pointAndClick(window, window.getByTestId("chart.fromTable"));
+    await pointAndClick(window, table.locator("td").filter({ hasText: /^Q2$/ }), {
+      button: "right",
+    });
+    await pointAndClick(window, window.getByTestId("block-actions").getByTestId("chart.fromTable"));
     const chart = editor.getByTestId("chart");
     await expect(chart.getByTestId("chart-point")).toHaveCount(8);
     const card = window.getByTestId("chart-card");

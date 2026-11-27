@@ -40,7 +40,7 @@ import { helpAsked, type PendingHelp, revealHelpSource } from "../../meetingHelp
 import { useKeptScreens } from "../../meetings";
 import { useModelNames, useServiceName } from "../../modelNames";
 import { answerProblem } from "../../problems";
-import { DocumentLineIcon } from "../lineIcons";
+import { DocumentLineIcon } from "../icons";
 import { LineQuotes, MomentRoom, PlainMoment, QuoteLineRows, QuoteRows } from "./HelpQuotes";
 
 /**
@@ -597,7 +597,7 @@ function Sources({
           <li key={citation.marker} data-testid="help-source" className="help-source">
             <DocumentLineIcon
               kind={isTranscriptLocation(citation.location) ? "transcript" : "text"}
-              className="size-[13px] shrink-0"
+              className="shrink-0"
             />
             <span className="truncate">
               {[String(number), citation.documentName, where, starts.get(citation.documentId)]
@@ -693,12 +693,12 @@ export function HelpSuggestion({
     >
       <HelpHeading asked={help} heard={help.heard} />
       {answer.steps?.sent?.sharedScreen && (
-        <p className="text-xs text-ink-secondary">
+        <p className="text-small text-ink-secondary">
           {t(`meetings.screen.use.${answer.steps.sent.sharedScreen}`)}
         </p>
       )}
       {answer.steps?.meetingHelpAgent && answer.steps.sentAt && (
-        <p className="text-xs text-ink-secondary">
+        <p className="text-small text-ink-secondary">
           {t("meetings.help.agent.used", {
             agent: answer.steps.meetingHelpAgent.client === "codex" ? "Codex" : "Claude Code",
           })}

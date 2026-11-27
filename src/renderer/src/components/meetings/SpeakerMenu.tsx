@@ -17,7 +17,7 @@ import { useT } from "../../i18n";
 import type { WordsInLine } from "../../lineNames";
 import { useNoteEvent } from "../../noteEvents";
 import { type SpeakersStep, useAppStore } from "../../store";
-import { CheckLineIcon, PlusLineIcon } from "../lineIcons";
+import { CheckLineIcon, PlusLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import {
   menuFrameClass,
@@ -203,7 +203,7 @@ export function SpeakerMenu({
                   data-initials={initialsOf(named(label))}
                 />
                 <span className="min-w-0 flex-1 truncate">{named(label)}</span>
-                {label === now && <CheckLineIcon className="size-3.5 shrink-0 text-accent" />}
+                {label === now && <CheckLineIcon className="shrink-0 text-accent" />}
               </button>
             ))}
             {invited.length > 0 && (
@@ -253,7 +253,7 @@ export function SpeakerMenu({
                     id={refusedId}
                     role="alert"
                     data-testid="speaker-name-refused"
-                    className="m-0 pt-1 text-[12px] leading-[18px] text-ink"
+                    className="m-0 pt-1 text-small leading-[18px] text-ink"
                   >
                     <ProblemMark />
                     {t("error.transcript.speakerNameIsLabel", { name: refused })}
@@ -269,7 +269,7 @@ export function SpeakerMenu({
                 className={`${menuItemClass} pl-1.5`}
               >
                 <span aria-hidden="true" className="speaker-initials bg-transparent">
-                  <PlusLineIcon className="size-3.5" />
+                  <PlusLineIcon />
                 </span>
                 {t("transcript.speaker.new")}
               </button>
@@ -284,8 +284,8 @@ export function SpeakerMenu({
               className={`${tallMenuItemClass} pl-2`}
             >
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold">{t("transcript.speaker.all")}</span>
-                <span className="block text-[12px] leading-[18px] text-ink-meta">
+                <span className="block">{t("transcript.speaker.all")}</span>
+                <span className="block text-small leading-[18px] text-ink-meta">
                   {t("transcript.speaker.allHint")}
                 </span>
               </span>

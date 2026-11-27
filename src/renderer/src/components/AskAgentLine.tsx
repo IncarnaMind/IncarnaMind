@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { AgentPairing } from "../../../core/api";
 import { useT } from "../i18n";
-import { ChevronDownLineIcon } from "./lineIcons";
+import { ChevronDownLineIcon } from "./icons";
 import { MetaLine } from "./MetaLine";
 import { LineAction, type ProblemAction } from "./ProblemLine";
 import { menuClass, menuItemClass, menuRuleClass } from "./ui";
@@ -45,7 +45,7 @@ export function AskAgentLine({
     <div
       role="status"
       data-testid={testId}
-      className={`font-sans text-[13px] leading-5 break-words text-ink-meta ${className}`}
+      className={`font-sans text-ui leading-5 break-words text-ink-meta ${className}`}
     >
       <MetaLine
         as="div"
@@ -114,7 +114,7 @@ export function OtherAgents({
         title={name}
         className={`inline-flex items-center rounded-sm px-0.5 ${className}`}
       >
-        <ChevronDownLineIcon className="size-3.5" />
+        <ChevronDownLineIcon />
       </button>
       <div {...menu.menuProps} role="menu" aria-label={name} className={menuClass}>
         {menu.open && onContinue && (

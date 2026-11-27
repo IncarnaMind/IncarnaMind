@@ -29,14 +29,14 @@ import { BoundMark } from "./BoundMark";
 import { CanvasRow } from "./CanvasRow";
 import { ExamplesMenu } from "./ExamplesMenu";
 import { InlineName } from "./InlineName";
-import { UnboundLinkedFolderRows } from "./LinkedFolderRows";
 import {
   ChevronDownLineIcon,
   ChevronRightLineIcon,
   FolderLineIcon,
   LockLineIcon,
   PlusLineIcon,
-} from "./lineIcons";
+} from "./icons";
+import { UnboundLinkedFolderRows } from "./LinkedFolderRows";
 import { MindRow } from "./MindRow";
 import { ObjectMenu, useObjectMenu } from "./ObjectMenu";
 import { SidebarSection } from "./SidebarSection";
@@ -264,7 +264,7 @@ export function LibraryFolders({
               }
               className={rowActionButtonClass}
             >
-              <PlusLineIcon className="size-4" />
+              <PlusLineIcon />
             </button>
           }
         >
@@ -386,7 +386,7 @@ export function Contents({
             onClick={() => useFolds.getState().showMore(listKey, more)}
             // Its text on the rows' text edge at this depth.
             style={{ marginLeft: rowPadding(depth).paddingLeft + 24 }}
-            className="rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+            className="rounded-sm text-small leading-4 text-ink-meta hover:text-ink hover:underline"
           >
             {more === 1 ? t("sidebar.showMore.one") : t("sidebar.showMore", { count: more })}
           </button>
@@ -599,7 +599,7 @@ function FolderGroup({
                 title={t("folder.wall.title")}
                 className="flex shrink-0"
               >
-                <LockLineIcon className="size-3.5 text-ink-meta" />
+                <LockLineIcon className="text-ink-meta" />
               </span>
             )}
             {status ? (
@@ -607,7 +607,7 @@ function FolderGroup({
                 data-testid="folder-status"
                 data-state={diskState?.kind}
                 title={status.full}
-                className="min-w-0 shrink truncate text-label font-semibold text-ink-meta"
+                className="min-w-0 shrink truncate text-small text-ink-meta"
               >
                 <span aria-hidden="true" className="@max-[13rem]:hidden">
                   {status.short}
@@ -620,7 +620,7 @@ function FolderGroup({
             ) : (
               <span
                 data-testid="browse-count"
-                className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-ink-meta actions-shown:hidden"
+                className="shrink-0 whitespace-nowrap text-small tabular-nums text-ink-meta actions-shown:hidden"
               >
                 {count}
               </span>
@@ -670,7 +670,7 @@ function FolderGroup({
         <p
           role="status"
           data-testid="linked-folder-nothing-to-read"
-          className="pr-2 pb-1 text-[12px] leading-[18px] text-ink-meta"
+          className="pr-2 pb-1 text-small leading-[18px] text-ink-meta"
           style={{ paddingLeft: rowPadding(depth).paddingLeft + 24 }}
         >
           {t("linkedFolders.nothingToRead.notice", { folder: folder.name })}
@@ -826,9 +826,9 @@ function NotInAFolder({
                     void commands.run("folder.new").catch(useAppStore.getState().reportError)
                   }
                   style={{ marginLeft: rowPadding(0).paddingLeft + 24 }}
-                  className="flex min-w-0 items-center gap-2 rounded-sm text-[12px] leading-4 text-ink-meta hover:text-ink hover:underline"
+                  className="flex min-w-0 items-center gap-2 rounded-sm text-small leading-4 text-ink-meta hover:text-ink hover:underline"
                 >
-                  <PlusLineIcon className="size-3.5 shrink-0" />
+                  <PlusLineIcon className="shrink-0" />
                   <span className="truncate">{t("menu.newFolder")}</span>
                 </button>
               </li>

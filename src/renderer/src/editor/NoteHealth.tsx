@@ -16,6 +16,7 @@ import {
   setOpenClaim,
   useChecks,
 } from "../checks";
+import { ClaimMarkIcon, NotYetCitedIcon } from "../components/icons";
 import { type ProblemAction, ProblemLine } from "../components/ProblemLine";
 import { UnreadFilesLine } from "../components/UnreadFilesLine";
 import { useComposer } from "../composer";
@@ -39,7 +40,6 @@ import { type CardStage, rowShownAt } from "./checkCardStage";
 import { useCardPlace } from "./checkPlace";
 import { coverageOf, keptSpans, sameCoverage, shownClaims } from "./claimChecks";
 import { type CheckRow, checkRows, type NoteHealth as Health, noteHealth } from "./healthCounts";
-import { ClaimMarkIcon, NotYetCitedIcon } from "./icons";
 import { CheckedMore } from "./MindCheckLine";
 import { useRunModel } from "./ModelChip";
 import { NotYetCitedRow } from "./NotYetCitedRow";
@@ -601,7 +601,7 @@ function FailedCheckProblem({
                   aria-expanded={open}
                   aria-controls={panel}
                   onClick={() => setOpen(!open)}
-                  className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                  className="rounded-sm text-accent underline-offset-2 hover:underline"
                 >
                   {t("details.label")}
                 </button>

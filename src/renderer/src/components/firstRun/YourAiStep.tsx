@@ -15,7 +15,7 @@ import { useT } from "../../i18n";
 import { useAppStore } from "../../store";
 import { clientName, setupProblem } from "../agents/agentWords";
 import { AgentSecretNotice, connectManyAgents, useSecretStorage } from "../agents/connectShared";
-import { ChevronDownLineIcon } from "../lineIcons";
+import { ChevronDownLineIcon } from "../icons";
 import { ProblemMark } from "../ProblemLine";
 import { ReadProblem } from "../ReadProblem";
 import { buttonStyle, checkBoxClass, dialogTextClass } from "../ui";
@@ -404,14 +404,14 @@ function FoundList({
             >
               <span
                 aria-hidden="true"
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-chip text-[11px] leading-none font-semibold text-ink-secondary"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-chip text-small leading-none text-ink-secondary"
               >
                 +{folded}
               </span>
               <span className="min-w-0 flex-1">
                 {t("setupPage.ai.moreFound", { count: folded })}
               </span>
-              <ChevronDownLineIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <ChevronDownLineIcon aria-hidden="true" className="shrink-0" />
             </button>
           </li>
         )}
@@ -424,7 +424,7 @@ function FoundList({
           >
             <span
               aria-hidden="true"
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-chip text-[13px] leading-none text-ink-secondary"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-chip text-ui leading-none text-ink-secondary"
             >
               …
             </span>
@@ -498,7 +498,7 @@ function FoundRow({
         {installs && !pairing && (
           <span
             data-testid="setup-app-installs"
-            className="text-[12px] leading-[18px] text-ink-meta"
+            className="text-small leading-[18px] text-ink-meta"
           >
             {t("setupPage.ai.alsoInstalls")}
           </span>
@@ -506,7 +506,7 @@ function FoundRow({
         {pairing && waiting && (
           <span
             data-testid="setup-app-waiting"
-            className="text-[12px] leading-[18px] text-ink-secondary"
+            className="text-small leading-[18px] text-ink-secondary"
           >
             {t(
               canOpenAgain
@@ -547,7 +547,7 @@ function FoundRow({
           ) : (
             <span
               data-testid="setup-app-connected"
-              className="shrink-0 text-[13px] leading-5 text-ink-meta"
+              className="shrink-0 text-ui leading-5 text-ink-meta"
             >
               {t("setupPage.ai.connected")}
             </span>

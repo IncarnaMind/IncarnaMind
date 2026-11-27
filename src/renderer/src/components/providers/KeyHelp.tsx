@@ -69,7 +69,7 @@ export function KeyHelp({
         <div className="mt-1 flex flex-col gap-1 pl-3">
           {firstRun && notes}
           {steps.length > 0 && (
-            <ol className="list-decimal pl-4 text-[12px] leading-[18px] text-ink-meta">
+            <ol className="list-decimal pl-4 text-small leading-[18px] text-ink-meta">
               {steps.map((step) => (
                 <li key={step.en}>{step[words]}</li>
               ))}

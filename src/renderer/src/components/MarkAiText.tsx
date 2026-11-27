@@ -21,7 +21,7 @@ export function MarkAiTextLine({ mindId, format }: { mindId: string; format: "do
         id={`${id}-question`}
         data-testid="export-mark-question"
         title={t("export.markAiText.hint")}
-        className="min-w-0 text-[14px] leading-5 text-ink-secondary"
+        className="min-w-0 text-ui leading-5 text-ink-secondary"
       >
         {t("export.markAiText")}
       </p>

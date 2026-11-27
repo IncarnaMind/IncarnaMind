@@ -26,7 +26,7 @@ import { useModelNames } from "../../modelNames";
 import type { SettingsTarget } from "../../settingsPages";
 import { useAppStore } from "../../store";
 import { ROUTE_LABELS, useTranscriptionServices } from "../../transcriptionServices";
-import { ChevronRightLineIcon, MicLineIcon, PlusLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon, MicLineIcon, PlusLineIcon } from "../icons";
 import { TranscriptionKeyForm } from "../meetings/TranscriptionKeyForm";
 import { ProblemLine } from "../ProblemLine";
 import { useChatGptPlan } from "../providers/ChatGptSignIn";
@@ -345,7 +345,7 @@ export function AccountsSection({
           onClick={onAdd}
           className={buttonStyle("secondary", "sm")}
         >
-          <PlusLineIcon className="size-3.5" />
+          <PlusLineIcon />
           {t("ai.accounts.add")}
         </button>
       </div>
@@ -427,7 +427,7 @@ function ProviderRow({
       data-opens={`provider:${provider.id}`}
       leading={<ProviderLogo id={logoIdOf(provider)} />}
       label={
-        <span className="block truncate font-semibold" title={name}>
+        <span className="block truncate" title={name}>
           {name}
           {region && <span className="font-normal text-ink-meta"> · {region}</span>}
         </span>
@@ -440,7 +440,7 @@ function ProviderRow({
       trailing={
         <span className="flex shrink-0 items-center gap-2">
           {state && <AccountState state={state} />}
-          <ChevronRightLineIcon className="size-4 shrink-0 text-ink-placeholder" />
+          <ChevronRightLineIcon className="shrink-0 text-ink-placeholder" />
         </span>
       }
       onClick={onOpen}
@@ -531,7 +531,7 @@ function TranscriptionKeyRow({
       id={service.route}
       name={name}
       logo={null}
-      fallback={<MicLineIcon className="size-[18px]" />}
+      fallback={<MicLineIcon />}
       status={status}
       state={
         paused ??
@@ -714,7 +714,7 @@ function BuiltInRow({ line }: { line: string }) {
       role="listitem"
       data-testid="built-in-row"
       leading={<ProviderLogo id={null} />}
-      label={<span className="block truncate font-semibold">{t("ai.accounts.builtIn")}</span>}
+      label={<span className="block truncate">{t("ai.accounts.builtIn")}</span>}
       detail={
         <span data-testid="built-in-row-status" className="block truncate" title={line}>
           {line}

@@ -326,7 +326,7 @@ export function ClientForm({
         )}
       </div>
       {error && (
-        <p role="alert" className="px-4 text-[12px] leading-[18px] text-ink">
+        <p role="alert" className="px-4 text-small leading-[18px] text-ink">
           <ProblemMark />
           {error}
         </p>

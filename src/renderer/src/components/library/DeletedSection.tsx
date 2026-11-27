@@ -17,7 +17,7 @@ import {
   MindLineIcon,
   TagLineIcon,
   TrashLineIcon,
-} from "../lineIcons";
+} from "../icons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { rowActionButtonClass } from "../sidebarRows";
 import { buttonStyle } from "../ui";
@@ -117,7 +117,7 @@ export function DeletedSection() {
         label={label}
         open={open}
         onToggle={toggle}
-        icon={<TrashLineIcon className="size-4" />}
+        icon={<TrashLineIcon />}
         name={
           <button
             type="button"
@@ -164,7 +164,7 @@ export function DeletedSection() {
               onKeyDown={(event) => {
                 if (event.key === "Escape") useSelection.getState().clear("deleted");
               }}
-              className="sticky top-0 z-10 mb-1 flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-frame px-2 py-1 text-[13px]"
+              className="sticky top-0 z-10 mb-1 flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-frame px-2 py-1 text-ui"
             >
               <input
                 type="checkbox"
@@ -181,7 +181,7 @@ export function DeletedSection() {
                 }
                 className={boxClass}
               />
-              <span role="status" className="font-semibold text-ink">
+              <span role="status" className="text-ink">
                 {t("deleted.selected", { count: chosenCount })}
               </span>
               <button
@@ -312,11 +312,11 @@ function DeletedRow({
         </span>
         <span
           data-testid="deleted-was-in"
-          className="w-[150px] shrink-0 truncate text-[13px] text-ink-secondary @max-[624px]/page:hidden"
+          className="w-[150px] shrink-0 truncate text-ui text-ink-secondary @max-[624px]/page:hidden"
         >
           {wasIn}
         </span>
-        <span className="flex w-[170px] shrink-0 items-baseline gap-1 text-[13px] whitespace-nowrap text-ink-secondary @max-[512px]/page:hidden">
+        <span className="flex w-[170px] shrink-0 items-baseline gap-1 text-ui whitespace-nowrap text-ink-secondary @max-[512px]/page:hidden">
           <span data-testid="deleted-when" className="truncate">
             {when}
           </span>

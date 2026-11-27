@@ -13,7 +13,7 @@ import {
   type TranscriptLine,
   withSpeakerChosen,
 } from "../../../shared/speakers";
-import { CloseLineIcon } from "../components/lineIcons";
+import { CloseLineIcon } from "../components/icons";
 import { LineAction, ProblemLine } from "../components/ProblemLine";
 import { estimateText } from "../cost";
 import { describeError } from "../errors";
@@ -150,14 +150,14 @@ export function TranscriptSpeakerReview({
   const running = review?.phase.kind === "running" || review?.phase.kind === "cancelling";
   if (!opener && !phase) return null;
   return (
-    <div className="transcript-review-row max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-[13px] leading-5">
+    <div className="transcript-review-row max-h-[75%] shrink-0 overflow-auto border-b border-rule bg-sheet px-4 py-1.5 text-ui leading-5">
       {opener && (
         <button
           ref={trigger}
           type="button"
           aria-expanded={expanded}
           aria-controls={expanded ? panelId : undefined}
-          className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+          className="rounded-sm text-accent underline-offset-2 hover:underline"
           onClick={() => (expanded ? close() : openSpeakerReview(meetingId, document.id, owner))}
         >
           {t(running && !expanded ? "meetings.review.running" : "meetings.review.open")}
@@ -179,7 +179,7 @@ export function TranscriptSpeakerReview({
           className="relative mx-auto my-2 max-w-3xl rounded-md border border-rule bg-sheet px-3 py-2"
         >
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-semibold text-ink">{t("meetings.review.title")}</h2>
+            <h2 className="text-ink">{t("meetings.review.title")}</h2>
             <button
               aria-label={t("meetings.review.close")}
               title={t("meetings.review.close")}
@@ -187,7 +187,7 @@ export function TranscriptSpeakerReview({
               type="button"
               onClick={close}
             >
-              <CloseLineIcon className="size-4" />
+              <CloseLineIcon />
             </button>
           </div>
           {phase.kind === "quoting" && (

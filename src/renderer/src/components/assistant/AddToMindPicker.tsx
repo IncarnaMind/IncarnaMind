@@ -5,8 +5,7 @@ import { type AddTarget, noteChoices } from "../../addToNote";
 import { Popover } from "../../editor/Popover";
 import { useT } from "../../i18n";
 import { exampleMindIds, useAppStore } from "../../store";
-import { SearchIcon } from "../icons";
-import { MindLineIcon, PlusLineIcon } from "../lineIcons";
+import { MindLineIcon, PlusLineIcon, SearchLineIcon } from "../icons";
 
 /** Under "Recent", this many Minds; a search shows up to this many. */
 const RECENT = 4;
@@ -133,11 +132,7 @@ export function AddToMindPicker({
       className="add-to-option"
     >
       <span className="add-to-option-icon">
-        {option.icon === "new" ? (
-          <PlusLineIcon className="size-4" />
-        ) : (
-          <MindLineIcon className="size-4" />
-        )}
+        {option.icon === "new" ? <PlusLineIcon /> : <MindLineIcon />}
       </span>
       <span className="add-to-option-text">
         <span className="add-to-option-title" title={option.title}>
@@ -168,7 +163,7 @@ export function AddToMindPicker({
     >
       <div className="add-to-search">
         <label className="add-to-field">
-          <SearchIcon className="size-3.5 shrink-0" />
+          <SearchLineIcon className="shrink-0" />
           <span className="sr-only">{t("answer.addTo.find")}</span>
           <input
             ref={field}

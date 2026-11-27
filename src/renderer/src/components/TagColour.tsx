@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { isTagColour, TAG_COLOURS, type TagColour } from "../../../shared/tagColours";
 import { useT } from "../i18n";
-import { CheckLineIcon } from "./lineIcons";
+import { CheckLineIcon } from "./icons";
 
 /** A chip's fill and text in a Tag's colour. Literal classes, so Tailwind finds them. */
 const CHIP: Record<TagColour, string> = {
@@ -131,7 +131,7 @@ export function TagColourPicker({
   const name = useId();
   return (
     <fieldset data-testid="tag-colour-picker" className="flex flex-col gap-1">
-      <legend className="mb-1 text-[13px] leading-5 text-ink-secondary">
+      <legend className="mb-1 text-ui leading-5 text-ink-secondary">
         {t("tags.colour.label")}
       </legend>
       <div className="flex flex-wrap gap-1.5">
@@ -155,7 +155,7 @@ export function TagColourPicker({
             <span
               className={`flex size-6 items-center justify-center rounded-full border text-ink ${DOT[colour]} peer-checked:shadow-[0_0_0_2px_var(--color-sheet),0_0_0_3px_var(--color-ink-meta)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent`}
             >
-              {value === colour && <CheckLineIcon className="size-3.5" />}
+              {value === colour && <CheckLineIcon />}
             </span>
           </label>
         ))}

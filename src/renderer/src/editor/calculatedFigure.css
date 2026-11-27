@@ -28,24 +28,27 @@
   color: var(--color-ink);
   box-shadow: var(--shadow-popover);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
+}
+.calculated-figure-input strong {
+  font-weight: 400;
 }
 :is(.calculated-figure-card, .chart-card-figure) h3 {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--text-ui);
   font-weight: 400;
   color: var(--color-ink-meta);
 }
 :is(.calculated-figure-card, .chart-card-figure) h3 strong {
   color: var(--color-ink);
-  font-weight: 600;
+  font-weight: 400;
 }
 :is(.calculated-figure-card, .chart-card-figure) p {
   margin: 0;
 }
 .calculated-figure-state {
-  font-size: 12px;
+  font-size: var(--text-small);
   color: var(--color-ink-meta);
 }
 /* A calculated figure the core's own check stands behind reads as a found Citation does. */
@@ -84,7 +87,7 @@
   align-items: start;
   margin-top: 2px;
   color: var(--color-ink-meta);
-  font-size: 12px;
+  font-size: var(--text-small);
 }
 .calculated-figure-source > span {
   flex: 1;
@@ -98,22 +101,22 @@
 :is(.calculated-figure-card, .chart-card-figure) blockquote {
   margin: 6px 0 0;
   font-family: var(--font-serif);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 :is(.calculated-figure-card, .chart-card-figure) .calculated-figure-note {
   color: var(--color-ink-meta);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
   margin: 6px 0;
 }
 .calculated-figure-unit {
   border-left: 2px solid var(--color-rule);
   padding-left: 8px;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-small);
 }
 .calculated-figure-code summary {
   cursor: pointer;
@@ -125,7 +128,7 @@
   padding: 8px;
   background: var(--color-frame);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-small);
 }
 .calculated-figure-problem {
   color: var(--color-warning);

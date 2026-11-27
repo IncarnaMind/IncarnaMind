@@ -31,7 +31,7 @@ export function ComingUp({ now }: { now: Date }) {
 
   return (
     <section data-testid="home-coming-up" className="mb-7">
-      <h2 className="mb-1.5 text-label font-semibold text-ink-meta">{t("home.comingUp")}</h2>
+      <h2 className="mb-1.5 text-small text-ink-meta">{t("home.comingUp")}</h2>
       {rows.length > 0 ? (
         <ul className="grid grid-cols-[max-content_minmax(0,1fr)_auto_auto] border-t border-rule">
           {rows.map((meeting) => (
@@ -39,14 +39,14 @@ export function ComingUp({ now }: { now: Date }) {
           ))}
         </ul>
       ) : (
-        <div data-testid="home-coming-up-none" className="text-[13px] leading-5 text-ink-meta">
+        <div data-testid="home-coming-up-none" className="text-ui leading-5 text-ink-meta">
           {t("comingUp.none")}
           {connectable && (
             <>
               <span aria-hidden="true"> · </span>
               <ConnectCalendarMenu
                 services={unconnected}
-                className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                className="rounded-sm text-accent underline-offset-2 hover:underline"
               >
                 {t("comingUp.connect")}
               </ConnectCalendarMenu>
@@ -58,7 +58,7 @@ export function ComingUp({ now }: { now: Date }) {
         <p
           role="status"
           data-testid="calendar-signing-in"
-          className="mt-1.5 text-[13px] leading-5 text-ink-meta"
+          className="mt-1.5 text-ui leading-5 text-ink-meta"
         >
           {t("calendars.signingIn")}
           <span aria-hidden="true"> · </span>
@@ -92,14 +92,14 @@ function MeetingRow({ meeting, now }: { meeting: CalendarEvent; now: Date }) {
     >
       <span
         data-testid="home-meeting-time"
-        className="text-[13px] whitespace-nowrap text-ink-meta tabular-nums"
+        className="text-ui whitespace-nowrap text-ink-meta tabular-nums"
       >
         {rowTime(meeting, now, language, t)}
       </span>
       <span
         data-testid="home-meeting-title"
         title={meeting.title}
-        className="min-w-0 truncate font-semibold text-ink"
+        className="min-w-0 truncate text-ink"
       >
         {meeting.title}
       </span>
@@ -121,7 +121,7 @@ function MeetingRow({ meeting, now }: { meeting: CalendarEvent; now: Date }) {
           <span
             key={attendee.email ?? attendee.name}
             aria-hidden="true"
-            className={`inline-flex size-6 items-center justify-center rounded-full bg-chip text-[10px] leading-none font-semibold text-ink-secondary ring-2 ring-sheet ${at > 0 ? "-ml-1" : ""}`}
+            className={`inline-flex size-6 items-center justify-center rounded-full bg-chip text-small leading-none text-ink-secondary ring-2 ring-sheet ${at > 0 ? "-ml-1" : ""}`}
           >
             {initialsOf(attendee.name)}
           </span>

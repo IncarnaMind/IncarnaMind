@@ -4,7 +4,7 @@ import { files } from "../core";
 import { withKeys } from "../editor/withShortcut";
 import { useT } from "../i18n";
 import { useTaggingAlert } from "../taggingAlert";
-import { SidebarLineIcon } from "./lineIcons";
+import { SidebarLineIcon } from "./icons";
 import { iconButtonClass } from "./ui";
 
 /** What the window tells the sidebar's toggle buttons (see `Workspace` in App.tsx). */
@@ -62,7 +62,7 @@ export function SidebarToggle({ place }: { place: "header" | "band" }) {
       data-needs-you={alert || undefined}
       className={`${iconButtonClass} sidebar-toggle relative text-ink-secondary`}
     >
-      <SidebarLineIcon className="size-4" />
+      <SidebarLineIcon />
       {alert && (
         <span
           aria-hidden="true"

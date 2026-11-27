@@ -77,7 +77,7 @@ export function MakeSkillCard({ mindId }: { mindId: string }) {
           <button
             type="button"
             onClick={close}
-            className="rounded-sm text-[13px] leading-5 font-semibold text-accent underline-offset-2 hover:underline"
+            className="rounded-sm text-ui leading-5 text-accent underline-offset-2 hover:underline"
           >
             {t("skills.make.close")}
           </button>

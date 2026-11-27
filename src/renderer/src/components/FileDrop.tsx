@@ -138,9 +138,7 @@ export function DropOverlay({ links = false }: { links?: boolean }) {
       data-testid="drop-overlay"
       className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-wash"
     >
-      <p className="text-ui font-semibold text-accent">
-        {t(links ? "webPages.drop" : "documents.drop")}
-      </p>
+      <p className="text-ui text-accent">{t(links ? "webPages.drop" : "documents.drop")}</p>
     </div>
   );
 }

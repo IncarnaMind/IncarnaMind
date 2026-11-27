@@ -94,7 +94,7 @@ export function CheckNotReady({
         role="status"
         className="mind-health-line flex flex-col gap-2"
       >
-        <p className="font-semibold text-ink">{t("checks.problem.no-provider")}</p>
+        <p className="text-ink">{t("checks.problem.no-provider")}</p>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -116,7 +116,7 @@ export function CheckNotReady({
             {connectAi.label}
           </button>
         </div>
-        <p className="text-[11.5px] leading-4 text-ink-meta">{t("agents.install.disclosure")}</p>
+        <p className="text-small leading-4 text-ink-meta">{t("agents.install.disclosure")}</p>
       </div>
     );
   }

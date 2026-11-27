@@ -9,7 +9,7 @@ import {
   useRef,
 } from "react";
 import { actOnAppliedEdit, restoreChange } from "../appliedEdits";
-import { PencilLineIcon, SparkLineIcon } from "../components/lineIcons";
+import { PencilLineIcon, SparkLineIcon } from "../components/icons";
 import { drawnNoteAskBox, watchDrawnNoteAskBox } from "../components/noteAsk/noteAskBox";
 import { regenerateChange, resolveProposalsIn, speak, useEdits } from "../editWithAi";
 import { useLanguage, useT } from "../i18n";

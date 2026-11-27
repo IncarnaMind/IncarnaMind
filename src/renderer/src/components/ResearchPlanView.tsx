@@ -5,7 +5,7 @@ import { core } from "../core";
 import { useT } from "../i18n";
 import { closePlanView } from "../research";
 import { useAppStore } from "../store";
-import { CheckLineIcon, SearchLineIcon } from "./lineIcons";
+import { CheckLineIcon, SearchLineIcon } from "./icons";
 import { buttonStyle } from "./ui";
 
 /** The plan, asked again as the Task moves on; done, it stays as it ran. */
@@ -89,7 +89,7 @@ export function ResearchPlanView({ task }: { task: Task }) {
     >
       <div className="research-plan-body">
         <p className="research-plan-kind">
-          <SearchLineIcon aria-hidden="true" className="size-3.5" />
+          <SearchLineIcon aria-hidden="true" />
           {t("research.plan.heading")}
         </p>
         <p className="research-plan-title">{plan.title}</p>

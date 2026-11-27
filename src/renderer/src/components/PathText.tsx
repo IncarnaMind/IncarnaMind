@@ -7,7 +7,7 @@ import { Fragment } from "react";
  */
 export function InlinePath({ path }: { path: string }) {
   return (
-    <code className="font-mono text-[12px] [overflow-wrap:anywhere]">
+    <code className="font-mono text-small [overflow-wrap:anywhere]">
       {[...path.matchAll(/[^/\\]+[/\\]?|[/\\]/g)].map((piece) => (
         <Fragment key={piece.index}>
           {piece[0]}

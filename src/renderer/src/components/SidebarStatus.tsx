@@ -54,7 +54,7 @@ import {
   useWebPages,
 } from "../webPages";
 import { failedEverySource, useDownloadSources } from "./DownloadSources";
-import { CloseLineIcon } from "./lineIcons";
+import { CloseLineIcon } from "./icons";
 import { useMeetingsLeftApartDetails } from "./MeetingsLeftApart";
 import { embeddingProviderLabel, testErrorKey } from "./providers/shared";
 import { useSkippedFilesDetails } from "./SkippedFilesLine";
@@ -63,7 +63,7 @@ import { useTaggingService } from "./useTaggingService";
 import { useTip } from "./useTip";
 
 const statusActionClass =
-  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold text-ink-secondary focus-visible:outline-offset-0 aria-disabled:cursor-default aria-disabled:opacity-50";
+  "group inline-flex h-7 min-w-7 shrink-0 items-center justify-center rounded-md text-small text-ink-secondary focus-visible:outline-offset-0 aria-disabled:cursor-default aria-disabled:opacity-50";
 
 const statusActionPillClass =
   "inline-flex h-6 items-center rounded-md px-2 group-hover:bg-rule group-hover:text-ink";
@@ -197,7 +197,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
       role={tone === "error" ? "alert" : "status"}
       data-testid={status.testId}
       title={sends === undefined ? full : undefined}
-      className={`flex shrink-0 gap-2 pr-1 pl-2 text-[13px] leading-5 text-ink-meta ${
+      className={`flex shrink-0 gap-2 pr-1 pl-2 text-ui leading-5 text-ink-meta ${
         wraps ? "min-h-7 items-start py-1" : "h-7 items-center"
       }`}
     >
@@ -227,7 +227,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
                 onClick={action.run}
                 aria-busy={action.busy || undefined}
                 aria-disabled={action.busy || undefined}
-                className="rounded-sm px-0.5 font-semibold text-accent hover:text-accent-strong aria-disabled:cursor-default aria-disabled:opacity-50"
+                className="rounded-sm px-0.5 text-accent hover:text-accent-strong aria-disabled:cursor-default aria-disabled:opacity-50"
               >
                 {action.label}
               </button>
@@ -288,7 +288,7 @@ function StatusRow({ status, children }: { status: Status; children?: ReactNode 
           onClick={dismiss}
           className={rowActionButtonClass}
         >
-          <CloseLineIcon className="size-3.5" />
+          <CloseLineIcon />
         </button>
       )}
     </div>
@@ -359,7 +359,7 @@ function StatusSends({
           >
             <div
               data-testid="status-sends"
-              className="w-max max-w-[min(20rem,calc(100vw-32px))] rounded-md bg-sheet px-3 py-2 text-[12px] leading-5 text-ink shadow-popover"
+              className="w-max max-w-[min(20rem,calc(100vw-32px))] rounded-md bg-sheet px-3 py-2 text-small leading-5 text-ink shadow-popover"
             >
               {sends}
             </div>

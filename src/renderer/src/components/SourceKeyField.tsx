@@ -29,7 +29,7 @@ export function SourceKeyField({ provider }: { provider: SourceProviderInfo }) {
   };
   const name = { provider: provider.name };
   return (
-    <div data-provider={provider.id} className="mt-2 text-[13px] leading-5 text-ink-secondary">
+    <div data-provider={provider.id} className="mt-2 text-ui leading-5 text-ink-secondary">
       <button
         type="button"
         aria-expanded={open}

@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { shortcutLabel } from "../commands/keymap";
-import { CheckMarkIcon } from "../editor/icons";
 import { useOwnMinds } from "../home";
 import { useGap, useT } from "../i18n";
 import { useLaterPromptsAllowed } from "../laterPrompts";
@@ -8,7 +7,7 @@ import { useMindInFront } from "../mindInFront";
 import { useSettingsPageOffered } from "../settingsOffered";
 import { allExamples, useAppStore } from "../store";
 import { closeTip, useFeatureTip } from "../tips";
-import { AskIcon, PlugIcon } from "./icons";
+import { AskIcon, CheckMarkIcon, PlugIcon } from "./icons";
 import { SLOT, Slotted } from "./Slotted";
 import { Tip } from "./Tip";
 import { buttonStyle } from "./ui";
@@ -25,7 +24,7 @@ export function ExampleChip() {
   return (
     <span
       data-testid="example-chip"
-      className="h-[18px] shrink-0 rounded-sm bg-chip px-1.5 text-[11px] leading-[18px] font-semibold text-ink-secondary"
+      className="h-[18px] shrink-0 rounded-sm bg-chip px-1.5 text-small leading-[18px] text-ink-secondary"
     >
       {t("examples.chip")}
     </span>
@@ -48,7 +47,7 @@ function GuideStep({
     <li data-testid="start-step" className="grid grid-cols-[24px_minmax(0,1fr)] gap-x-3">
       <span
         aria-hidden="true"
-        className={`flex size-6 items-center justify-center rounded-full text-[12px] font-bold ${
+        className={`flex size-6 items-center justify-center rounded-full text-small ${
           state === "next"
             ? "bg-ink text-on-primary"
             : state === "done"
@@ -59,7 +58,7 @@ function GuideStep({
         {state === "done" ? <CheckMarkIcon check="found" className="size-3" /> : number}
       </span>
       <div className="flex min-w-0 flex-col gap-2">
-        <h3 className="text-[16px] leading-6 font-semibold text-ink">{title}</h3>
+        <h3 className="text-body leading-6 text-ink">{title}</h3>
         {children}
       </div>
     </li>
@@ -100,7 +99,7 @@ export function StartGuide({ mindId }: { mindId: string }) {
       data-testid="start-guide"
       className="mt-10 flex flex-col gap-1 font-sans"
     >
-      <h2 id="start-guide-title" className="mb-2 text-[13px] leading-5 font-semibold text-ink-meta">
+      <h2 id="start-guide-title" className="mb-2 text-ui leading-5 text-ink-meta">
         {t("startGuide.title")}
       </h2>
       <ol className="flex flex-col gap-5">
@@ -135,9 +134,9 @@ export function StartGuide({ mindId }: { mindId: string }) {
                   closeTip("connect-app");
                   openSettings("connectors");
                 }}
-                className="inline-flex items-center gap-1 rounded-sm font-semibold text-accent underline-offset-2 hover:underline"
+                className="inline-flex items-center gap-1 rounded-sm text-accent underline-offset-2 hover:underline"
               >
-                <PlugIcon className="size-3.5" />
+                <PlugIcon />
                 {t("startGuide.documents.connectApp")}
               </button>
             </Tip>
@@ -149,7 +148,7 @@ export function StartGuide({ mindId }: { mindId: string }) {
             <Slotted
               message={t("startGuide.ask.body", { shortcut: SLOT })}
               slot={
-                <kbd className="rounded-sm bg-chip px-[5px] py-px font-sans text-[12px] text-ink-strong">
+                <kbd className="rounded-sm bg-chip px-[5px] py-px font-sans text-small text-ink-strong">
                   {shortcutLabel("composer.focus")}
                 </kbd>
               }
@@ -157,10 +156,10 @@ export function StartGuide({ mindId }: { mindId: string }) {
           </p>
           <div
             aria-hidden="true"
-            className="relative rounded-lg bg-frame py-2 pr-3 pl-11 text-[15px] leading-6 text-ink-placeholder"
+            className="relative rounded-lg bg-frame py-2 pr-3 pl-11 text-ui leading-6 text-ink-placeholder"
           >
             <span className="absolute top-2 left-2.5 flex size-6 items-center justify-center rounded-md bg-tab-divider text-on-primary">
-              <AskIcon className="size-3" />
+              <AskIcon />
             </span>
             {t("startGuide.ask.example")}
           </div>
@@ -173,7 +172,7 @@ export function StartGuide({ mindId }: { mindId: string }) {
               slot={
                 <span
                   aria-hidden="true"
-                  className="inline-flex h-[18px] items-center gap-0.5 rounded-sm bg-success-wash pr-[5px] pl-[3px] align-[1px] text-[11px] leading-[18px] font-bold text-success"
+                  className="inline-flex h-[18px] items-center gap-0.5 rounded-sm bg-success-wash pr-[5px] pl-[3px] align-[1px] text-small leading-[18px] text-success"
                 >
                   <CheckMarkIcon check="found" className="size-[11px]" />1
                 </span>

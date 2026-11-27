@@ -4,7 +4,7 @@ import { core } from "../../core";
 import { useT } from "../../i18n";
 import { useNoteAsks, useNoteColumns, useNoteTrails } from "../../ownAiInNote";
 import { useAppStore } from "../../store";
-import { CheckLineIcon, ChevronRightLineIcon } from "../lineIcons";
+import { CheckLineIcon, ChevronRightLineIcon } from "../icons";
 import { menuClass } from "../ui";
 import { usePopoverMenu } from "../usePopoverMenu";
 import { shortModel } from "./NoteColumn";
@@ -79,7 +79,7 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
         className="note-ask-model note-ask-model--button"
       >
         <span className="note-ask-model-name">{label}</span>
-        <ChevronRightLineIcon className="size-3 flex-none rotate-90" aria-hidden="true" />
+        <ChevronRightLineIcon className="flex-none rotate-90" aria-hidden="true" />
       </button>
       <div
         {...menu.menuProps}
@@ -104,7 +104,7 @@ export function NoteModelChoice({ mindId, busy }: { mindId: string; busy: boolea
               className="note-column-model-item"
             >
               <span className="note-column-model-check">
-                {each.value === current?.value && <CheckLineIcon className="size-3.5" />}
+                {each.value === current?.value && <CheckLineIcon />}
               </span>
               <span className="flex min-w-0 flex-col items-start">
                 <span className="text-ink">{each.displayName}</span>

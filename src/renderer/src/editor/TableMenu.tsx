@@ -1,13 +1,13 @@
 import { autoUpdate } from "@floating-ui/dom";
 import { type Editor, useEditorState } from "@tiptap/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { withoutOwnDelete } from "../commands/blocks";
 import { shortcutLabel } from "../commands/keymap";
+import { TABLE_MENU } from "../commands/tables";
 import { ObjectMenu } from "../components/ObjectMenu";
 import { openMenuFromRightClick } from "../components/usePopoverMenu";
 import { useT } from "../i18n";
-import { findBlock } from "./blockCommands";
 import { BLOCK_ID_ATTRIBUTE } from "./noteSchema";
+import { TableHandles } from "./TableHandles";
 import { sameSpot, type TableSpot, tableSpot } from "./tableCommands";
 import { withKeys } from "./withShortcut";
 
@@ -31,11 +31,11 @@ function placeOnCell(cell: HTMLElement, anchor: HTMLElement, frame: HTMLElement)
 }
 
 /**
- * The table's ⋯ button at the top-right corner of the cell the cursor is in, as Confluence has,
- * or ⌘/ (its command, `table.menu`). It opens the Block's menu, the one the Block handle and a
- * right-click open, whose table commands add rows and columns where the cursor is, turn the
- * heading row on and off, and delete rows, columns or the table, each an Undo step of its own.
- * Drawn inside `.mind-editor-frame`.
+ * The table's ⋯ button at the top-right corner of the cell the cursor is in, or ⌘/ (its command,
+ * `table.menu`), and the table's hover handles. It opens the Block's menu, trimmed to editing the
+ * table (`TABLE_MENU`): add rows and columns where the cursor is, turn the heading row on and off,
+ * and delete rows, columns or the table, each an Undo step of its own. The Block handle and a
+ * right-click open the whole Block menu. Drawn inside `.mind-editor-frame`.
  */
 export function TableMenu({ editor }: { editor: Editor }) {
   const t = useT();
@@ -84,32 +84,34 @@ export function TableMenu({ editor }: { editor: Editor }) {
   }, [editor, cell, shown]);
 
   const label = t("editor.table.menu");
-  const node = block === null ? null : findBlock(editor.state.doc, block)?.node;
 
   return (
-    <div
-      ref={anchor}
-      className="table-menu-anchor"
-      hidden={!shown}
-      // Keep the cursor in the cell: the menu acts where it is.
-      onMouseDownCapture={(event) => {
-        if (event.target instanceof Element && event.target.closest("[data-object-menu]")) {
-          event.preventDefault();
-        }
-      }}
-    >
-      {block !== null && spot !== null && (
-        <ObjectMenu
-          target={{ kind: "block", id: block }}
-          note={editor}
-          label={label}
-          hint={withKeys(t, label, shortcutLabel("table.menu"))}
-          testId="table"
-          className="table-menu-button"
-          onOpenChange={setOpen}
-          without={node ? withoutOwnDelete(node) : []}
-        />
-      )}
-    </div>
+    <>
+      <div
+        ref={anchor}
+        className="table-menu-anchor"
+        hidden={!shown}
+        // Keep the cursor in the cell: the menu acts where it is.
+        onMouseDownCapture={(event) => {
+          if (event.target instanceof Element && event.target.closest("[data-object-menu]")) {
+            event.preventDefault();
+          }
+        }}
+      >
+        {block !== null && spot !== null && (
+          <ObjectMenu
+            target={{ kind: "block", id: block }}
+            note={editor}
+            label={label}
+            hint={withKeys(t, label, shortcutLabel("table.menu"))}
+            testId="table"
+            className="table-menu-button"
+            onOpenChange={setOpen}
+            only={TABLE_MENU}
+          />
+        )}
+      </div>
+      <TableHandles editor={editor} spot={spot} block={block} focused={focused} menuOpen={open} />
+    </>
   );
 }

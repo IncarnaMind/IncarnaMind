@@ -8,7 +8,7 @@ import { clockTime } from "../../meetingTime";
 import { useAppStore } from "../../store";
 import { openTranscriptOfNote } from "../../transcripts";
 import { type Undoable, useUndo } from "../../undo";
-import { ChevronRightLineIcon } from "../lineIcons";
+import { ChevronRightLineIcon } from "../icons";
 import { LineAction, ProblemLine, ProblemMark } from "../ProblemLine";
 
 function useCanReview(
@@ -243,7 +243,7 @@ export function MeetingSummaryCandidates({
         aria-expanded={open}
         aria-controls={id}
         aria-describedby={reviewed ? undefined : `${id}-disclosure`}
-        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-1 text-start text-[13px] leading-5 font-medium text-ink-secondary hover:text-ink"
+        className="inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm py-1 text-start text-ui leading-5 text-ink-secondary hover:text-ink"
         onClick={() => {
           setOpen(!open);
           if (!open && !reviewed && !checkError) void check();
@@ -251,20 +251,20 @@ export function MeetingSummaryCandidates({
       >
         <ChevronRightLineIcon
           aria-hidden="true"
-          className={`size-3 shrink-0 ${open ? "rotate-90" : ""}`}
+          className={`shrink-0 ${open ? "rotate-90" : ""}`}
         />
         {reviewed
           ? t("meetings.summary.candidates", { count })
           : t("meetings.summary.candidates.find")}
       </button>
       {!reviewed && (
-        <span id={`${id}-disclosure`} className="ms-2 text-[12px] text-ink-meta">
+        <span id={`${id}-disclosure`} className="ms-2 text-small text-ink-meta">
           {t("meetings.summary.candidates.disclosure")}
         </span>
       )}
       <div id={id} hidden={!open}>
         {open && (
-          <div className="mt-2 space-y-2 ps-4 text-[13px] leading-5">
+          <div className="mt-2 space-y-2 ps-4 text-ui leading-5">
             {!reviewed && checking && (
               <span role="status">
                 {t(
@@ -329,7 +329,7 @@ export function MeetingSummaryCandidates({
                       aria-describedby={id + candidate.id}
                       disabled={saving !== null}
                       data-testid="meeting-summary-add-candidate"
-                      className="rounded-sm font-semibold text-accent underline-offset-2 hover:underline disabled:opacity-50"
+                      className="rounded-sm text-accent underline-offset-2 hover:underline disabled:opacity-50"
                       onClick={() => void add(candidate.id)}
                     >
                       {t("meetings.summary.candidate.add")}

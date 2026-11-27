@@ -57,7 +57,7 @@ function CheckCommentsLine({ mindId }: { mindId: string }) {
       <p
         id={`${id}-question`}
         data-testid="export-comments-question"
-        className="min-w-0 text-[14px] leading-5 text-ink-secondary"
+        className="min-w-0 text-ui leading-5 text-ink-secondary"
       >
         {t("export.checkComments.ask")}
       </p>

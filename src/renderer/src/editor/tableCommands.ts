@@ -1,5 +1,5 @@
 import { type Editor, Extension, type JSONContent } from "@tiptap/core";
-import type { EditorState } from "@tiptap/pm/state";
+import type { EditorState, Selection } from "@tiptap/pm/state";
 import {
   CellSelection,
   cellAround,
@@ -210,6 +210,17 @@ export function tableSpot(state: EditorState): TableSpot | null {
     canDeleteColumns: rect.right - rect.left < rect.map.width,
     analysis: inAnalysisTable(state),
   };
+}
+
+/**
+ * What a cell selection holds whole, which the cell bar's Delete takes: its rows (it spans every
+ * column), its columns (it spans every row, as any selection in a one-row table does), or neither,
+ * as cells dragged across, which Backspace only empties.
+ */
+export function wholeLines(selection: Selection): "rows" | "columns" | null {
+  if (!(selection instanceof CellSelection)) return null;
+  if (selection.isColSelection() && !selection.isRowSelection()) return "columns";
+  return selection.isRowSelection() ? "rows" : null;
 }
 
 export const sameSpot = (a: TableSpot | null, b: TableSpot | null) =>

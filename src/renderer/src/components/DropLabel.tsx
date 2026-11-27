@@ -35,7 +35,7 @@ export function DropLabel({ instead }: { instead?: Words | null }) {
       ref={label}
       data-testid={refused ? "drop-refusal" : "drop-label"}
       aria-hidden="true"
-      className={`pointer-events-none fixed z-[70] max-w-72 rounded-md px-2 py-1 text-[12px] leading-4 font-semibold shadow-[0_4px_12px_var(--color-shadow)] ${
+      className={`pointer-events-none fixed z-[70] max-w-72 rounded-md px-2 py-1 text-small leading-4 shadow-[0_4px_12px_var(--color-shadow)] ${
         refused ? "bg-ink-secondary text-on-primary" : "bg-ink text-on-primary"
       } ${refused ? "whitespace-normal" : "truncate"}`}
     >

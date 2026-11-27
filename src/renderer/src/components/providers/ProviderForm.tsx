@@ -156,8 +156,8 @@ function ChoiceChip({
 }) {
   return (
     <label
-      className={`inline-flex h-7 cursor-pointer items-center rounded-md border px-2.5 text-[13px] has-[:checked]:border-ink has-[:checked]:bg-wash has-[:focus-visible]:outline-2 ${
-        checked ? "border-ink font-semibold text-ink" : "border-rule text-ink-secondary"
+      className={`inline-flex h-7 cursor-pointer items-center rounded-md border px-2.5 text-ui has-[:checked]:border-ink has-[:checked]:bg-wash has-[:focus-visible]:outline-2 ${
+        checked ? "border-ink text-ink" : "border-rule text-ink-secondary"
       }`}
     >
       <input
@@ -568,7 +568,7 @@ export function ProviderForm({
       target="_blank"
       rel="noreferrer"
       data-testid="provider-docs-link"
-      className="text-[12px] leading-5 text-ink-meta underline"
+      className="text-small leading-5 text-ink-meta underline"
     >
       {t("providers.form.modelsAndPrices")} ↗
     </a>
@@ -915,7 +915,7 @@ export function ProviderForm({
             {missing && (
               <span
                 data-testid="provider-use-key-why"
-                className="text-[12px] leading-[18px] text-ink-meta"
+                className="text-small leading-[18px] text-ink-meta"
               >
                 {missing === "providers.form.needsField" && field
                   ? t(missing, { field: field.label[words] })
@@ -935,10 +935,7 @@ export function ProviderForm({
   return (
     <form data-testid="provider-form" onSubmit={submit} className="flex flex-col gap-3">
       {standalone && kind && (
-        <h3
-          data-testid="provider-form-title"
-          className="text-[15px] leading-6 font-semibold text-ink"
-        >
+        <h3 data-testid="provider-form-title" className="text-ui leading-6 text-ink">
           {kind === "openai-compatible"
             ? t("providers.form.title.server")
             : t("providers.form.title", { provider: shortName(kind) })}
@@ -974,7 +971,7 @@ export function ProviderForm({
               data-testid="provider-region"
               className="flex flex-wrap items-center gap-1"
             >
-              <span id={`${id}-region`} className="mr-1 text-[13px] leading-5 text-ink-secondary">
+              <span id={`${id}-region`} className="mr-1 text-ui leading-5 text-ink-secondary">
                 {t("providers.form.region")}
               </span>
               {regionsListed(catalog.endpoints).map((option) => (
@@ -1122,7 +1119,7 @@ export function ProviderForm({
               <div className="flex items-baseline justify-between gap-3">
                 <MetaLine
                   data-testid="provider-model-line"
-                  className="text-[13px] leading-5 text-ink-secondary"
+                  className="text-ui leading-5 text-ink-secondary"
                   parts={modelLineParts}
                 />
                 {docsLink}
@@ -1296,7 +1293,7 @@ export function TestResult({
       </div>
       {/* The provider's own words help with its errors. */}
       {!badKey && result.error.message && (
-        <p className="mt-1 text-[12px] leading-[18px] break-words text-ink-meta">
+        <p className="mt-1 text-small leading-[18px] break-words text-ink-meta">
           {readableMessage(result.error.message)}
         </p>
       )}
@@ -1322,7 +1319,7 @@ export function SecretStorageNotice({
   }
   return (
     <div role="alert" data-testid="plain-text-secrets" className={noticeClass}>
-      <p className="font-semibold text-ink">{t("providers.secrets.plainText.title")}</p>
+      <p className="text-ink">{t("providers.secrets.plainText.title")}</p>
       <p className="mt-1">{t("providers.secrets.plainText.body")}</p>
       <label className="mt-2 flex items-start gap-2">
         <input

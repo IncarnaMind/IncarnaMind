@@ -14,7 +14,7 @@ import { sourceEntry, sourcesOf } from "../../../shared/sources";
 import { retryFormatting, useMindFormatting } from "../citationFormatting";
 import { useCitationStylePicker, useStyleLabel } from "../citationStylePicker";
 import { CiteAsPanel } from "../components/CiteAsPanel";
-import { ChevronDownLineIcon } from "../components/lineIcons";
+import { ChevronDownLineIcon } from "../components/icons";
 import { ProblemLine } from "../components/ProblemLine";
 import { errorMessage } from "../errors";
 import { useExportDialog } from "../exportDialog";
@@ -140,7 +140,7 @@ export function ReferencesBlock({
           className="references-button references-style"
         >
           <span className="min-w-0 truncate">{label}</span>
-          <ChevronDownLineIcon className="size-3.5 shrink-0" />
+          <ChevronDownLineIcon className="shrink-0" />
         </button>
         <button
           type="button"

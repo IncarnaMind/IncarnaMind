@@ -17,7 +17,7 @@ import { useAppStore } from "../../store";
 import { useRename } from "../../useRename";
 import { BoundMark } from "../BoundMark";
 import { InlineName } from "../InlineName";
-import { DocumentLineIcon, FolderLineIcon, MindLineIcon, PlusLineIcon } from "../lineIcons";
+import { DocumentLineIcon, FolderLineIcon, MindLineIcon, PlusLineIcon } from "../icons";
 import { ObjectMenu, useObjectMenu } from "../ObjectMenu";
 import { dropIntoClass } from "../sidebarRows";
 
@@ -38,7 +38,7 @@ export function FolderCards({ now }: { now: Date }) {
   if (orderedGroups.length === 0) return null;
   return (
     <section data-testid="home-folders" className="mb-7">
-      <h2 className="mb-1.5 text-label font-semibold text-ink-meta">{t("library.groups")}</h2>
+      <h2 className="mb-1.5 text-small text-ink-meta">{t("library.groups")}</h2>
       {/* biome-ignore lint/a11y/useSemanticElements: cards that select as the sidebar's rows do, not a table. */}
       <div
         role="grid"
@@ -61,7 +61,7 @@ export function FolderCards({ now }: { now: Date }) {
           onClick={() => void commands.run("folder.new").catch(useAppStore.getState().reportError)}
           className="flex min-h-[132px] items-center justify-center gap-2 rounded-[10px] border border-dashed border-rule-strong text-ui text-ink-meta hover:bg-frame hover:text-ink"
         >
-          <PlusLineIcon className="size-4" />
+          <PlusLineIcon />
           {t("menu.newFolder")}
         </button>
       </div>
@@ -136,8 +136,8 @@ function FolderCard({
       title={folder.description || undefined}
       className={`${cardClass(select.selected)} ${drop.over ? dropIntoClass : ""}`}
     >
-      <div className="flex min-w-0 items-center gap-2 font-semibold text-ink">
-        <FolderLineIcon className="size-4 shrink-0 text-ink-meta" />
+      <div className="flex min-w-0 items-center gap-2 text-ink">
+        <FolderLineIcon className="shrink-0 text-ink-meta" />
         {rename.renaming ? (
           <InlineName
             value={folder.name}
@@ -171,7 +171,7 @@ function FolderCard({
           </div>
         )}
       </div>
-      <p data-testid="home-folder-counts" className="mb-1 text-label text-ink-meta">
+      <p data-testid="home-folder-counts" className="mb-1 text-small text-ink-meta">
         {minds.length === 1 ? t("home.minds.one") : t("home.minds", { count: minds.length })}
         {" · "}
         {documents.length === 1
@@ -182,23 +182,23 @@ function FolderCard({
         <p
           key={item.id}
           data-testid="home-folder-item"
-          className="flex min-w-0 items-center gap-1.5 text-[13px] text-ink-secondary"
+          className="flex min-w-0 items-center gap-1.5 text-ui text-ink-secondary"
         >
           {item.kind ? (
-            <DocumentLineIcon kind={item.kind} className="size-3.5 shrink-0 text-ink-meta" />
+            <DocumentLineIcon kind={item.kind} className="shrink-0 text-ink-meta" />
           ) : (
-            <MindLineIcon className="size-3.5 shrink-0 text-ink-meta" />
+            <MindLineIcon className="shrink-0 text-ink-meta" />
           )}
           <span className="truncate">{item.name}</span>
         </p>
       ))}
-      <p className="mt-auto flex items-center gap-1 pt-1.5 text-label text-ink-meta">
+      <p className="mt-auto flex items-center gap-1 pt-1.5 text-small text-ink-meta">
         <span data-testid="home-folder-active" className="min-w-0 flex-1 truncate">
           {latest ? t("home.active", { time: timeAgo(new Date(latest), now, language, t) }) : ""}
         </span>
         {kinds.map((kind) => (
           <span key={kind} title={t(FORMAT_LABELS[kind])}>
-            <DocumentLineIcon kind={kind} className="size-3.5" />
+            <DocumentLineIcon kind={kind} />
           </span>
         ))}
       </p>

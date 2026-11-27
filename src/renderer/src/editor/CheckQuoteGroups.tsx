@@ -1,7 +1,7 @@
 import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { create } from "zustand";
+import { ClaimMarkIcon, type ClaimMarkState } from "../components/icons";
 import { useLanguage, useT } from "../i18n";
-import { ClaimMarkIcon, type ClaimMarkState } from "./icons";
 import { QuoteLink } from "./QuoteLink";
 import type { QuoteRole } from "./quoteGroups";
 
