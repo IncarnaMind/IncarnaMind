@@ -83,7 +83,7 @@ const LANGUAGES = ["en", "zh-CN"] as const;
 const EDITED = {
   en: ["See the schedule on page", "Read the schedule on page"],
   "zh-CN": ["见附表第", "读附表第"],
-};
+} as const;
 
 beforeAll(async () => {
   await buildAgentShim();
