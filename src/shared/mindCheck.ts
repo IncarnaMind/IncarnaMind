@@ -32,6 +32,7 @@ export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
   const value = settings.get(KEY);
   if (!isRecord(value) || typeof value.at !== "string") return null;
   const unchecked = keysOf(value.unchecked);
+  const uncheckedBlocks = keysOf(value.uncheckedBlocks);
   return {
     at: value.at,
     sentences:
@@ -45,6 +46,7 @@ export function readMindCheck(settings: Y.Map<unknown>): MindCheckRun | null {
       ? { skipped: keysOf(value.skipped), unexamined: keysOf(value.unexamined) }
       : { skipped: [], unexamined: keysOf(value.skipped) }),
     ...(unchecked.length > 0 && { unchecked }),
+    ...(uncheckedBlocks.length > 0 && { uncheckedBlocks }),
   };
 }
 
@@ -55,29 +57,34 @@ export const mindCheckOf = (doc: Y.Doc): MindCheckRun | null =>
   readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
 
 export function writeMindCheck(settings: Y.Map<unknown>, run: MindCheckRun): void {
-  const { unchecked, ...base } = run;
+  const { unchecked, uncheckedBlocks, ...base } = run;
   settings.set(KEY, {
     ...base,
     stop: run.stop && { ...run.stop },
     skipped: [...run.skipped],
     unexamined: [...run.unexamined],
     ...(unchecked && unchecked.length > 0 && { unchecked: [...unchecked] }),
+    ...(uncheckedBlocks && uncheckedBlocks.length > 0 && { uncheckedBlocks: [...uncheckedBlocks] }),
   });
 }
 
 /**
- * Adds `keys` to an existing complete `MindCheckRun`'s `unchecked` list without touching
- * brand-new Notes (`readMindCheck === null`) or stopped runs (#3862).
+ * Adds `blockIds` to an existing complete `MindCheckRun`'s `uncheckedBlocks` list without
+ * touching brand-new Notes (`readMindCheck === null`) or stopped runs (#3862).
  */
-export function markMindCheckUnchecked(settings: Y.Map<unknown>, keys: readonly string[]): boolean {
-  if (keys.length === 0) return false;
+export function markMindCheckUncheckedBlocks(
+  settings: Y.Map<unknown>,
+  blockIds: Iterable<string>,
+): boolean {
   const run = readMindCheck(settings);
   if (!run || run.stop !== null) return false;
-  const next = new Set(run.unchecked ?? []);
+  const next = new Set(run.uncheckedBlocks ?? []);
   const before = next.size;
-  for (const key of keys) next.add(key);
+  for (const id of blockIds) {
+    if (id !== "") next.add(id);
+  }
   if (next.size === before) return false;
-  writeMindCheck(settings, { ...run, unchecked: [...next] });
+  writeMindCheck(settings, { ...run, uncheckedBlocks: [...next] });
   return true;
 }
 

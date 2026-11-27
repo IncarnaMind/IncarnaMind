@@ -6,7 +6,7 @@
  * out stands only on a calculation or a run IncarnaMind made for that agent in this check (#3363).
  */
 import { randomUUID } from "node:crypto";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 import { type ChangeProblem, changeProblem, givenChange } from "../../../shared/claimChange";
 import { boundedQuote, partWithResult, resultFromParts } from "../../../shared/claimParts";
 import { emptyFigureFinding } from "../../../shared/figureChecks";
@@ -16,6 +16,7 @@ import { targetHash } from "../../../shared/proposals";
 import { isClaim } from "../../../shared/sentences";
 import { type Verification, verificationOf } from "../../../shared/verification";
 import {
+  BLOCK_ID_ATTRIBUTE,
   CHART_NODE,
   type CheckedVersion,
   type CheckWorking,
@@ -199,6 +200,16 @@ const needsCheck = (sentence: SelectedSentence, always: boolean): boolean =>
   isClaim(sentence.text) ||
   (sentence.figures?.length ?? 0) > 0 ||
   sentence.cited.length > 0;
+
+/** The Block ids of `element` and its enclosing Blocks, so nested cells/items clear their parent Block too. */
+const blockIdsOf = (element: Y.XmlElement): string[] => {
+  const ids: string[] = [];
+  for (let at: unknown = element; at instanceof Y.XmlElement; at = at.parent) {
+    const id = at.getAttribute(BLOCK_ID_ATTRIBUTE);
+    if (typeof id === "string" && id !== "") ids.push(id);
+  }
+  return ids;
+};
 
 /** The tasks given most lately, each with its sentences as given: enough for any check under way. */
 const TASKS_KEPT = 200;
@@ -397,13 +408,28 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
       const skipped = skippedOf(mindId);
       const at = options.now().toISOString();
       const request = randomUUID();
+      let fileCheck = false;
+      let unreportedKeys: string[] = [];
+      const taskBlockIds = new Set<string>();
+      const unreportedBlockIds = new Set<string>();
       const landed = content.edit(mindId, (blocks): Judged<LandedCheck> => {
         const { verification, lines } = linesOf(blocks);
+        const marksBefore = markedSentences(blocks);
         const open = pending(blocks, lines, skipped, scope.reader);
         const sentences = sentencesOf(task, mindId, lines, open);
         if (!sentences) return { ok: false, reason: "changed" };
         const stillOpen = (sentence: Line) =>
           open.some((each) => each.element === sentence.element && each.from === sentence.from);
+        const alreadyNotChecked = (sentence: Line) =>
+          marksBefore.some(
+            ({ element, from, to, check }) =>
+              element === sentence.element &&
+              from < sentence.to &&
+              to > sentence.from &&
+              check.text === sentence.text &&
+              check.outside === true &&
+              check.state === "not-checked",
+          );
         const unconfirmed: number[] = [];
         const changesNotKept: LandedCheck["changesNotKept"] = [];
         const reported = new Set<number>();
@@ -489,57 +515,71 @@ export function createJudgedOutside(options: JudgedOutsideOptions) {
           });
           marked++;
         }
+        const unreported = sentences.flatMap((sentence, index) =>
+          reported.has(index + 1) || !stillOpen(sentence) ? [] : [index + 1],
+        );
+        fileCheck = verification !== null;
+        if (!fileCheck) {
+          for (const sentence of sentences) {
+            for (const id of blockIdsOf(sentence.element)) taskBlockIds.add(id);
+          }
+          const unreportedSet = new Set<string>();
+          for (const n of unreported) {
+            const sentence = sentences[n - 1];
+            if (!sentence || alreadyNotChecked(sentence) || !needsCheck(sentence, sentence.always))
+              continue;
+            unreportedSet.add(sentence.key);
+            for (const id of blockIdsOf(sentence.element)) unreportedBlockIds.add(id);
+          }
+          unreportedKeys = [...unreportedSet];
+        }
         return {
           ok: true,
           value: {
             marked,
             unconfirmed,
-            unreported: sentences.flatMap((sentence, index) =>
-              reported.has(index + 1) || !stillOpen(sentence) ? [] : [index + 1],
-            ),
+            unreported,
             changesNotKept,
           },
         };
       });
       if (!landed.ok) return landed;
       options.retainEvidence(mindId);
-      const { keys, sentences, unchecked, settled } = content.read(mindId, (blocks) => {
+      const { keys, sentences, remainingBlockIds } = content.read(mindId, (blocks) => {
         const { verification, lines } = linesOf(blocks);
-        const remaining = pending(blocks, lines, skipped, scope.reader);
-        const remainingKeys = new Set(remaining.map((each) => each.key));
-        const settledKeys = new Set(skipped);
-        for (const line of lines) {
-          if (!remainingKeys.has(line.key)) settledKeys.add(line.key);
+        const remainingIds = new Set<string>();
+        if (verification === null) {
+          for (const sentence of pending(blocks, lines, skipped, scope.reader)) {
+            if (!needsCheck(sentence, sentence.always)) continue;
+            for (const id of blockIdsOf(sentence.element)) remainingIds.add(id);
+          }
         }
-        const stillUnchecked = [
-          ...new Set(
-            remaining
-              .filter((sentence) => verification !== null || needsCheck(sentence, sentence.always))
-              .map((sentence) => sentence.key),
-          ),
-        ];
         return {
           keys: new Set([
             ...everySentence(blocks).map((each) => sentenceKey(each.text)),
             ...lines.map((each) => each.key),
           ]),
           sentences: markedSentences(blocks).length,
-          unchecked: stillUnchecked,
-          settled: settledKeys,
+          remainingBlockIds: remainingIds,
         };
       });
-      content.editSettings(mindId, (settings) =>
+      content.editSettings(mindId, (settings) => {
+        const previous = readMindCheck(settings);
+        const uncheckedBlocks = fileCheck
+          ? []
+          : (previous?.uncheckedBlocks ?? []).filter((id) =>
+              taskBlockIds.has(id) ? unreportedBlockIds.has(id) : remainingBlockIds.has(id),
+            );
         writeMindCheck(settings, {
           at,
           sentences,
           stop: null,
           skipped: [...skipped].filter((key) => keys.has(key)),
-          unexamined: (readMindCheck(settings)?.unexamined ?? []).filter(
-            (key) => keys.has(key) && !settled.has(key),
-          ),
-          ...(unchecked.length > 0 && { unchecked }),
-        }),
-      );
+          unexamined: (previous?.unexamined ?? []).filter((key) => keys.has(key)),
+          ...(unreportedKeys.length > 0 && { unchecked: unreportedKeys }),
+          ...(uncheckedBlocks.length > 0 && { uncheckedBlocks }),
+        });
+      });
       return landed;
     },
   };

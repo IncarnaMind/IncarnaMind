@@ -101,8 +101,10 @@ export interface SentenceInput {
   skipped?: ReadonlySet<string>;
   /** The last whole-Mind check couldn't tell whether these make a claim, by `sentenceKey`. */
   unexamined?: ReadonlySet<string>;
-  /** Sentences an outside AI wrote or left unreported (#3862), by `sentenceKey`. */
+  /** Sentences an outside check task left unreported (#3862), by `sentenceKey`. */
   unchecked?: ReadonlySet<string>;
+  /** Blocks an outside AI wrote or changed since the last whole check (#3862), by Block id. */
+  uncheckedBlocks?: ReadonlySet<string>;
   /** The marks the User keeps as their own view, at their places. */
   kept?: readonly KeptMark[];
   omitted?: readonly KeptMark[];
@@ -134,7 +136,26 @@ export interface SentencePlace {
   /** It is in a table cell. */
   inTable: boolean;
   state: CheckedSentence;
+  /** The sentence sits in a Block an outside AI wrote or changed since the last whole check (#3862). */
+  inUncheckedBlock?: boolean;
 }
+
+const inBlocks = (
+  doc: ProseMirrorNode,
+  pos: number,
+  node: ProseMirrorNode,
+  ids: ReadonlySet<string>,
+): boolean => {
+  if (ids.size === 0) return false;
+  const own = node.attrs[BLOCK_ID_ATTRIBUTE];
+  if (typeof own === "string" && ids.has(own)) return true;
+  const $pos = doc.resolve(pos);
+  for (let depth = $pos.depth; depth >= 1; depth--) {
+    const id = $pos.node(depth).attrs[BLOCK_ID_ATTRIBUTE];
+    if (typeof id === "string" && ids.has(id)) return true;
+  }
+  return false;
+};
 
 const inTable = (doc: ProseMirrorNode, pos: number): boolean => {
   const $pos = doc.resolve(pos);
@@ -181,6 +202,7 @@ function eachSentence(
   visitTable?: (table: ProseMirrorNode, pos: number) => void,
 ): void {
   const skipped = input.skipped ?? new Set<string>();
+  const uncheckedBlocks = input.uncheckedBlocks ?? new Set<string>();
   const kept = input.kept ?? [];
   doc.descendants((node, pos) => {
     if (UNCOUNTED.has(node.type.name) || proposed(node)) return false;
@@ -207,6 +229,7 @@ function eachSentence(
       const to = pos + node.nodeSize;
       const claim =
         input.claims.find((claim) => claim.kind === "chart" && claim.from === from) ?? null;
+      const inUncheckedBlock = inBlocks(doc, pos, node, uncheckedBlocks);
       visit({
         kind: "chart",
         from,
@@ -224,12 +247,14 @@ function eachSentence(
           skipped: skipped.has(sentenceKey(text)),
           kept: keptOn(kept, { from, to, text }),
         }),
+        ...(inUncheckedBlock && { inUncheckedBlock: true }),
       });
       return false;
     }
     if (!node.isTextblock) return true;
     if (node.type.name !== "paragraph") return false;
     const blockId = doc.resolve(pos + 1).node(1).attrs[BLOCK_ID_ATTRIBUTE];
+    const inUncheckedBlock = inBlocks(doc, pos, node, uncheckedBlocks);
     const { sentences, inline } = claimPlaces(node, pos, proposed);
     const citations = inline.flatMap(({ node: child, at, pos: place }) =>
       child.type.name === CITATION_NODE
@@ -273,6 +298,7 @@ function eachSentence(
         blockId,
         inTable: table,
         state,
+        ...(inUncheckedBlock && { inUncheckedBlock: true }),
       });
     }
     return false;

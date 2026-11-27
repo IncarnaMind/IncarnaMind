@@ -17,12 +17,14 @@ import * as Y from "yjs";
 import {
   BLOCK_ID_ATTRIBUTE,
   MIND_CONTENT_FIELD,
+  MIND_SETTINGS_FIELD,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
   type ProposalRef,
 } from "../../../core/api";
 import { copyOrigins } from "../../../shared/blockOrigins";
+import { markMindCheckUncheckedBlocks } from "../../../shared/mindCheck";
 import {
   outsideProposalBlockIds,
   pendingProposals,
@@ -31,7 +33,6 @@ import {
   resolveProposals,
 } from "../../../shared/proposals";
 import { nameOlderCitations } from "../../../shared/signOffs";
-import { markOutsideWriteUnchecked } from "../../../shared/uncheckedClaims";
 import type { ChangePlace } from "./appliedEditLine";
 import {
   type BlockPlace,
@@ -356,9 +357,9 @@ export function writeAccepted(
       writeAs(doc, blocks, accepted, schema);
       copyOrigins(scratch, doc);
     }, tracked);
-    if (touched.size > 0) {
+    if (touched.size > 0 && resolved.length > 0) {
       doc.transact(() => {
-        markOutsideWriteUnchecked(doc, blocks, touched);
+        markMindCheckUncheckedBlocks(doc.getMap(MIND_SETTINGS_FIELD), touched);
       }, aside);
     }
     return resolved;

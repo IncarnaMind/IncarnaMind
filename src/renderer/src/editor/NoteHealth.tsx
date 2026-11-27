@@ -97,6 +97,7 @@ export function useHealth(
   skipped: ReadonlySet<string>,
   unexamined: ReadonlySet<string>,
   unchecked: ReadonlySet<string>,
+  uncheckedBlocks: ReadonlySet<string>,
   doc: Y.Doc,
   running: boolean,
 ): CountedHealth {
@@ -127,6 +128,7 @@ export function useHealth(
           skipped,
           unexamined,
           unchecked,
+          uncheckedBlocks,
           omitted: opinionSentenceRanges(editor.state.doc, doc),
           kept: keptSpans(editor.state),
           tableShown: (table) =>
@@ -148,7 +150,18 @@ export function useHealth(
       editor.off("transaction", later);
       doc.off("afterTransaction", later);
     };
-  }, [editor, doc, documents, kept, skipped, unexamined, unchecked, keptInside, running]);
+  }, [
+    editor,
+    doc,
+    documents,
+    kept,
+    skipped,
+    unexamined,
+    unchecked,
+    uncheckedBlocks,
+    keptInside,
+    running,
+  ]);
   const counted = useCallback(() => drawnThrough.current === seen.current, []);
   return { health: drawn.health, counted };
 }

@@ -8907,11 +8907,17 @@ export interface MindCheckRun {
    */
   unexamined: string[];
   /**
-   * Sentences an outside AI wrote or left unreported (#3862), by `sentenceKey`: they keep the
+   * Sentences an outside check task left unreported (#3862), by `sentenceKey`: they keep the
    * Check button on the Note until checked, undone, or removed, without marking them as
    * classifier-undecided (`unexamined`, #1682).
    */
   unchecked?: string[];
+  /**
+   * Blocks an outside AI wrote or changed since the last whole check (#3862), by Block id: any
+   * `to-check` sentence inside them keeps the Check button on the Note until checked, undone, or
+   * removed, while User edits in other Blocks stay under `#3840`.
+   */
+  uncheckedBlocks?: string[];
 }
 
 /**

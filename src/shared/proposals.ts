@@ -13,13 +13,16 @@
  */
 import * as Y from "yjs";
 import {
+  ANSWER_BLOCK,
   BLOCK_ID_ATTRIBUTE,
   CITATION_NODE,
+  COMPARISON_TABLE_NODE,
   editActions,
   FOOTNOTE_NODE,
   MIND_PROPOSAL_REQUESTS_FIELD,
   MIND_REVISIONS_FIELD,
   MIND_SETTINGS_FIELD,
+  NOTE_BLOCK_TYPES,
   PROPOSAL_ATTRIBUTE,
   PROPOSAL_DELETE_MARK,
   PROPOSAL_INSERT_MARK,
@@ -31,9 +34,8 @@ import {
 } from "../core/api";
 import { originOf, restoreOrigins } from "./blockOrigins";
 import { keyedMarkOf, markValueOf } from "./markKeys";
-import { readMindCheck } from "./mindCheck";
+import { markMindCheckUncheckedBlocks, readMindCheck } from "./mindCheck";
 import { setTextOrigin } from "./textOrigins";
-import { markOutsideWriteUnchecked } from "./uncheckedClaims";
 
 const isText = (value: unknown): value is string => typeof value === "string" && value !== "";
 
@@ -655,21 +657,30 @@ const requestsOf = (doc: Y.Doc) => doc.getMap<unknown>(MIND_PROPOSAL_REQUESTS_FI
 
 const DECISION_KEYS = { accept: "accepted", reject: "rejected" } as const;
 
+const BLOCK_NODE_NAMES: ReadonlySet<string> = new Set([
+  ...NOTE_BLOCK_TYPES,
+  ANSWER_BLOCK,
+  COMPARISON_TABLE_NODE,
+]);
+
 /**
- * The ids of Blocks carrying pending `outside-agent` Proposals (inserts or deletes) matching
+ * The ids of Blocks carrying live `outside-agent` Proposals (inserts or deletes) matching
  * `picked` when the Note already holds a complete `MindCheckRun`, so accepting them can record
- * any newly unchecked claim sentences (#3862). Returns an empty set when no complete check exists.
+ * those Blocks as unchecked (#3862). Returns an empty set when no complete check exists.
  */
 export function outsideProposalBlockIds(
   doc: Y.Doc,
   blocks: Y.XmlFragment,
   picked: (proposal: ProposalRef) => boolean,
 ): Set<string> {
-  const run = readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
-  if (!run || run.stop !== null) return new Set();
+  const existing = readMindCheck(doc.getMap(MIND_SETTINGS_FIELD));
+  if (!existing || existing.stop !== null) return new Set();
+  const stale = outOfDateProposals(blocks);
   const touched = new Set<string>();
   const isOutside = (ref: ProposalRef) =>
-    picked(ref) && proposalRequestOf(doc, ref.request)?.source === "outside-agent";
+    picked(ref) &&
+    !stale.has(ref.id) &&
+    proposalRequestOf(doc, ref.request)?.source === "outside-agent";
   const record = (owner: string | null, top: string | null) => {
     const target = owner ?? top;
     if (target) touched.add(target);
@@ -693,7 +704,8 @@ export function outsideProposalBlockIds(
       }
       if (!(child instanceof Y.XmlElement)) continue;
       const top = parent === blocks ? idOf(child) : above;
-      const own = (child.nodeName === FOOTNOTE_NODE ? null : idOf(child)) ?? owner;
+      // Inline nodes like Citations and calculated figures carry their own ids, not a Block's.
+      const own = (BLOCK_NODE_NAMES.has(child.nodeName) ? idOf(child) : null) ?? owner;
       const attribute = readProposalAttribute(child.getAttribute(PROPOSAL_ATTRIBUTE));
       if (attribute && isOutside(attribute)) record(own, top);
       visit(child, own, top);
@@ -726,7 +738,9 @@ export function decideProposals(
       .filter((each) => proposalRequestOf(doc, each.request)?.source === "outside-agent")
       .flatMap((each) => each.blockIds);
     if (agents.length > 0) setTextOrigin(doc, agents, "outside-agent");
-    if (touched && touched.size > 0) markOutsideWriteUnchecked(doc, blocks, touched);
+    if (touched && touched.size > 0 && resolved.length > 0) {
+      markMindCheckUncheckedBlocks(doc.getMap(MIND_SETTINGS_FIELD), touched);
+    }
   }
   const key = DECISION_KEYS[outcome];
   const counts = new Map<string, number>();

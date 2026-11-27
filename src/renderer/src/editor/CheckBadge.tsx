@@ -132,7 +132,15 @@ function useMindHealth(editor: Editor, doc: Y.Doc, running: boolean) {
     () => new Set(uncheckedKeys.split(" ").filter(Boolean)),
     [uncheckedKeys],
   );
-  return { checkedAll, ...useHealth(editor, skipped, unexamined, unchecked, doc, running) };
+  const uncheckedBlockIds = checkedAll?.uncheckedBlocks?.join("\0") ?? "";
+  const uncheckedBlocks = useMemo(
+    () => new Set(uncheckedBlockIds.split("\0").filter(Boolean)),
+    [uncheckedBlockIds],
+  );
+  return {
+    checkedAll,
+    ...useHealth(editor, skipped, unexamined, unchecked, uncheckedBlocks, doc, running),
+  };
 }
 
 function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId: string }) {

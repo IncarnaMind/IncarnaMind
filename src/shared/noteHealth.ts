@@ -117,6 +117,8 @@ export interface CountedSentence {
   /** It is in a table cell. */
   inTable: boolean;
   state: CheckedSentence;
+  /** The sentence sits in a Block an outside AI wrote or changed since the last whole check (#3862). */
+  inUncheckedBlock?: boolean;
 }
 
 export const emptyHealth = (): NoteHealth => ({
@@ -152,7 +154,7 @@ export const emptyHealth = (): NoteHealth => ({
 /** Adds a sentence to the health: what its check found and where it counts. */
 export function countSentence(
   health: NoteHealth,
-  { from, text, claim, citations, inTable: table, state, kind }: CountedSentence,
+  { from, text, claim, citations, inTable: table, state, kind, inUncheckedBlock }: CountedSentence,
   unexamined: ReadonlySet<string> = new Set(),
   unchecked: ReadonlySet<string> = new Set(),
 ): void {
@@ -200,6 +202,9 @@ export function countSentence(
     health.checkable++;
     lookFor(true);
     health.toCheck.push(from);
+    const cantSettle =
+      (claim !== null && cantBeChecked(claim.shown)) ||
+      (claim?.shown.state === "not-checked" && ANALYSIS_REASONS.has(claim.shown.reason));
     if (state.why === "failed") {
       health.failed.push(from);
       if (claim && cantBeChecked(claim.shown)) health.uncheckable.push(from);
@@ -218,7 +223,8 @@ export function countSentence(
         health.edited.push(from);
     }
     if (state.fresh && unexamined.has(sentenceKey(text))) health.unexamined.push(from);
-    if (unchecked.has(sentenceKey(text))) health.unchecked.push(from);
+    if (!cantSettle && (inUncheckedBlock || unchecked.has(sentenceKey(text))))
+      health.unchecked.push(from);
     if (table) health.tableCells.push(from);
     return;
   }

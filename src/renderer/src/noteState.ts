@@ -399,6 +399,7 @@ interface ParsedNote {
   scope: ReturnType<typeof mindScopeOf>;
   skipped: ReadonlySet<string>;
   unchecked: ReadonlySet<string>;
+  uncheckedBlocks: ReadonlySet<string>;
   omitted: ReturnType<typeof opinionSentenceRanges>;
   filedAnswers: ReadonlySet<string>;
   footing: ReadonlyMap<string, Omit<FigureFootingNow, "id">>;
@@ -427,6 +428,7 @@ function parseNote(
     scope: mindScopeOf(doc),
     skipped: new Set(checked?.skipped ?? []),
     unchecked: new Set(checked?.unchecked ?? []),
+    uncheckedBlocks: new Set(checked?.uncheckedBlocks ?? []),
     omitted: opinionSentenceRanges(root, doc),
     filedAnswers,
     footing: new Map(footing.map(({ id, ...live }) => [id, live])),
@@ -464,6 +466,7 @@ function evaluateParsedNote(
     kept,
     skipped: parsed.skipped,
     unchecked: parsed.unchecked,
+    uncheckedBlocks: parsed.uncheckedBlocks,
     omitted: parsed.omitted,
     citationCheck: (attributes) => citationState(attributes, documents, keptCitationTexts).check,
     tableShown: (table) =>
@@ -600,6 +603,7 @@ export async function decodeHomeSnapshot(
         kept,
         skipped: parsed.skipped,
         unchecked: parsed.unchecked,
+        uncheckedBlocks: parsed.uncheckedBlocks,
         omitted: parsed.omitted,
         citationCheck: (attributes) =>
           citationState(attributes, documents, keptCitationTexts).check,
