@@ -1764,7 +1764,7 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
     expect(partsOf(await savedFile(saved)).footnotes).toEqual(["Quay notes, § Quay notes"]);
   });
 
-  // protects=a Note imported from someone's Word file is written into that file, as Export › Word writes it, so the agent's file keeps the file's styles, numbering, header, footer, contents list and cross-reference; and it holds nothing the agent was never given: no comment or the parts naming its people, no tracked change's author but a neutral one in the User's language, no name or words of the file's properties, variables or custom XML, no template path or first-page picture, while a property a field in the text shows stays; Export › Word by hand still writes the file's comments and people as it did (#3751); fails_when=the agent's file is a new file without the original's styles or numbering, or any of those names or words is in any of its parts, or Export › Word by hand loses a comment
+  // protects=a Note imported from someone's Word file is written into that file, as Export › Word writes it, so the agent's file keeps the file's styles, numbering, header, footer, contents list and cross-reference; and it holds nothing the agent was never given: no comment or the parts naming its people, no tracked change's author but a neutral one in the User's language, no name or words of the file's properties, variables or custom XML, no template or first-page picture, while a property a field in the text shows stays, holding what the field shows; Export › Word by hand still writes the file's comments and people as it did (#3751); fails_when=the agent's file is a new file without the original's styles or numbering, or any of those names or words is in any of its parts, or Export › Word by hand loses a comment
   it.each(["en", "zh-CN"] as const)(
     "writes a Note imported from Word into its own file, without what the agent was never given (%s)",
     async (language) => {
@@ -1809,7 +1809,11 @@ describe("a Word file IncarnaMind writes for an outside agent", () => {
         expect(all).not.toContain(escapeXml(words));
       }
       expect(all).not.toMatch(/commentRangeStart|commentReference|<w:comment |attachedTemplate/);
-      expect(part(files, "docProps/custom.xml")).toContain('name="Client"');
+      // The property the footer shows holds what it shows, not what was stored since.
+      expect(part(files, "docProps/custom.xml")).toContain(
+        `name="Client"><vt:lpwstr>${escapeXml(contract.words.client)}</vt:lpwstr>`,
+      );
+      expect(part(files, "docProps/app.xml")).not.toContain("<Template>");
       expect(part(files, "[Content_Types].xml")).not.toMatch(/people|commentsExtended|customXml/);
 
       // Export › Word by hand writes the file's comments and their people as before.

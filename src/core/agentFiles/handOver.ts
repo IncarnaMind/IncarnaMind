@@ -1011,8 +1011,8 @@ export function createHandOver(deps: HandOverDeps) {
       store.holding(documentId).length === 0 &&
       agentMadeIt(deps.document(documentId), input.connectedAt)
     ) {
+      if (!deps.document(documentId).notCited) takes.notCited = documentId;
       deps.setNotCited(documentId, true);
-      takes.notCited = documentId;
     }
     store.setDocument(file.id, documentId);
     return documentId;

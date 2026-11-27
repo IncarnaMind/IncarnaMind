@@ -5,8 +5,8 @@
  * named by: comments and the parts that name their people, tracked changes' authors, the people
  * and words its properties hold, editing permissions given to a person. And the file's own data
  * that no text shows: its custom properties and document variables, custom XML, building blocks,
- * picture of its first page, mail merge source, template path and signatures. A property or
- * variable that a field in the text shows stays: the agent read it there.
+ * picture of its first page, mail merge source, template and signatures. A property or variable
+ * that a field in the text shows stays, holding what the field shows: the agent read that there.
  */
 import { deflateRawSync } from "node:zlib";
 import { relationshipsPartOf } from "../../documents/formats/officePackage";
@@ -50,8 +50,8 @@ const CORE_WORDS = [
   "category",
   "contentStatus",
 ];
-/** The extended properties that name a person or an organisation. */
-const EXTENDED_NAMES = ["Manager", "Company"];
+/** The extended properties that name a person, an organisation or a template. */
+const EXTENDED_NAMES = ["Manager", "Company", "Template"];
 /** What repeats the title in the extended properties. */
 const EXTENDED_TITLE = ["HeadingPairs", "TitlesOfParts"];
 
@@ -63,6 +63,7 @@ const FIELD_PROPERTY: Readonly<Record<string, string>> = {
   SUBJECT: "subject",
   COMMENTS: "description",
   KEYWORDS: "keywords",
+  TEMPLATE: "Template",
 };
 /** The built-in property a DOCPROPERTY field names, by its name in lower case without spaces. */
 const DOCPROPERTY_BUILT_IN: Readonly<Record<string, string>> = {
@@ -75,16 +76,17 @@ const DOCPROPERTY_BUILT_IN: Readonly<Record<string, string>> = {
   category: "category",
   manager: "Manager",
   company: "Company",
+  template: "Template",
 };
 
 /**
- * What the file's fields show: built-in properties by element name, custom properties and
- * variables by their names in lower case.
+ * What the file's fields show, the first such field's result for each: built-in properties by
+ * element name, custom properties and variables by their names in lower case.
  */
 interface Shown {
-  builtIn: Set<string>;
-  custom: Set<string>;
-  variables: Set<string>;
+  builtIn: Map<string, string>;
+  custom: Map<string, string>;
+  variables: Map<string, string>;
 }
 
 interface ListedRelationship {
@@ -96,36 +98,65 @@ interface ListedRelationship {
 
 const FIELD = /^\s*([A-Za-z]+)(?:\s+(?:"([^"]*)"|([^\s\\]+)))?/;
 
-function readField(instruction: string, shown: Shown): void {
+const showing = (shown: Map<string, string>, name: string, result: string) => {
+  if (name && !shown.has(name)) shown.set(name, result);
+};
+
+function readField(instruction: string, result: string, shown: Shown): void {
   const match = FIELD.exec(instruction);
   if (!match) return;
   const kind = (match[1] ?? "").toUpperCase();
   const name = (match[2] ?? match[3] ?? "").trim().toLowerCase();
   if (kind === "DOCPROPERTY") {
     const builtIn = DOCPROPERTY_BUILT_IN[name.replaceAll(" ", "")];
-    if (builtIn) shown.builtIn.add(builtIn);
-    else if (name) shown.custom.add(name);
+    if (builtIn) showing(shown.builtIn, builtIn, result);
+    else showing(shown.custom, name, result);
   } else if (kind === "DOCVARIABLE") {
-    if (name) shown.variables.add(name);
+    showing(shown.variables, name, result);
   } else {
-    const builtIn = FIELD_PROPERTY[kind];
-    if (builtIn) shown.builtIn.add(builtIn);
+    showing(shown.builtIn, FIELD_PROPERTY[kind] ?? "", result);
   }
 }
 
-/** Every field's instruction in a part, a field inside another read on its own. */
+const textIn = (element: XmlElement) =>
+  [...walk(element)]
+    .filter((each) => each.name === "w:t")
+    .map(textOf)
+    .join("");
+
+/** Every field's instruction and result in a part, a field inside another read on its own. */
 function readFields(root: XmlElement, shown: Shown): void {
-  const open: string[] = [];
+  const open: { instruction: string; result: string; separated: boolean }[] = [];
   for (const element of walk(root)) {
-    if (element.name === "w:fldSimple") readField(element.attrs["w:instr"] ?? "", shown);
-    else if (element.name === "w:fldChar") {
+    if (element.name === "w:fldSimple") {
+      readField(element.attrs["w:instr"] ?? "", textIn(element), shown);
+    } else if (element.name === "w:fldChar") {
       const type = element.attrs["w:fldCharType"];
-      if (type === "begin") open.push("");
-      else if (type === "end" && open.length > 0) readField(open.pop() ?? "", shown);
-    } else if (element.name === "w:instrText" && open.length > 0) {
-      open[open.length - 1] += textOf(element);
+      const top = open.at(-1);
+      if (type === "begin") open.push({ instruction: "", result: "", separated: false });
+      else if (type === "separate" && top) top.separated = true;
+      else if (type === "end" && top) {
+        open.pop();
+        readField(top.instruction, top.result, shown);
+      }
+    } else if (element.name === "w:instrText") {
+      const top = open.at(-1);
+      if (top && !top.separated) top.instruction += textOf(element);
+    } else if (element.name === "w:t") {
+      for (const each of open) if (each.separated) each.result += textOf(element);
     }
   }
+}
+
+/** The element written again holding `value` as its text, in place of what it held. */
+function holding(element: XmlElement, text: string, value: string): Splice {
+  const from = startOf(element);
+  const opening = text.slice(from, element.openEnd ?? from).replace(/\s*\/>$/, ">");
+  return {
+    from,
+    to: endOf(element),
+    text: `${opening}${escapeXml(value)}</${element.name}>`,
+  };
 }
 
 const removal = (element: XmlElement): Splice => ({
@@ -221,9 +252,9 @@ export async function forAgent(data: Uint8Array, author: string): Promise<Uint8A
   const ofType = (owner: string, type: string) =>
     listed.get(owner)?.find((each) => !each.external && each.type.endsWith(type));
 
-  const reachable = () => {
-    const reached = new Set<string>([""]);
-    const queue = [""];
+  const reachable = (from: string) => {
+    const reached = new Set<string>([from]);
+    const queue = [from];
     for (let owner = queue.pop(); owner !== undefined; owner = queue.pop()) {
       for (const each of listed.get(owner) ?? []) {
         if (each.external || dropped.has(each.element) || reached.has(each.target)) continue;
@@ -233,11 +264,15 @@ export async function forAgent(data: Uint8Array, author: string): Promise<Uint8A
     }
     return reached;
   };
-  let reached = reachable();
+  let reached = reachable("");
+  // The document's text and every part it reaches, wherever the package keeps them.
+  const main = ofType("", MAIN)?.target;
+  const textParts = [...(main === undefined ? [] : reachable(main))].filter((name) =>
+    name.endsWith(".xml"),
+  );
 
-  const shown: Shown = { builtIn: new Set(), custom: new Set(), variables: new Set() };
-  for (const name of names) {
-    if (!reached.has(name) || !name.startsWith("word/") || !name.endsWith(".xml")) continue;
+  const shown: Shown = { builtIn: new Map(), custom: new Map(), variables: new Map() };
+  for (const name of textParts) {
     const part = await writer.part(name);
     if (part) readFields(part.root, shown);
   }
@@ -251,7 +286,7 @@ export async function forAgent(data: Uint8Array, author: string): Promise<Uint8A
     : [];
   if (custom && customPart && customKept.length === 0) {
     dropped.add(custom.element);
-    reached = reachable();
+    reached = reachable("");
   }
 
   const isRelationships = (name: string) => /(^|\/)_rels\/[^/]*\.rels$/.test(name);
@@ -290,9 +325,19 @@ export async function forAgent(data: Uint8Array, author: string): Promise<Uint8A
       .map(removal),
   );
 
-  const settings = ofType(ofType("", MAIN)?.target ?? "", SETTINGS)?.target;
-  for (const name of names) {
-    if (!reached.has(name) || !name.startsWith("word/") || !name.endsWith(".xml")) continue;
+  /** Each property the text shows written as it shows it, the rest gone. */
+  const asShown = (
+    children: readonly XmlElement[],
+    shownAs: (element: XmlElement) => string | undefined,
+    text: string,
+  ): Splice[] =>
+    children.map((each) => {
+      const value = shownAs(each);
+      return value === undefined ? removal(each) : holding(each, text, value);
+    });
+
+  const settings = main === undefined ? undefined : ofType(main, SETTINGS)?.target;
+  for (const name of textParts) {
     await splice(name, ({ root, text }) => {
       const made = textSplices(root, text, author);
       if (name !== settings) return made;
@@ -300,11 +345,29 @@ export async function forAgent(data: Uint8Array, author: string): Promise<Uint8A
         made.push(removal(each));
       }
       for (const variables of childrenNamed(root, ["docVars"])) {
-        const out = elements(variables).filter(
-          (each) => !shown.variables.has((each.attrs["w:name"] ?? "").toLowerCase()),
-        );
-        if (out.length === elements(variables).length) made.push(removal(variables));
-        else made.push(...out.map(removal));
+        const all = elements(variables);
+        const value = (each: XmlElement) =>
+          shown.variables.get((each.attrs["w:name"] ?? "").toLowerCase());
+        if (all.every((each) => value(each) === undefined)) {
+          made.push(removal(variables));
+          continue;
+        }
+        for (const each of all) {
+          const shownAs = value(each);
+          if (shownAs === undefined) {
+            made.push(removal(each));
+            continue;
+          }
+          const from = startOf(each);
+          const to = each.openEnd ?? from;
+          const tag = text.slice(from, to);
+          const val = `"${escapeXml(shownAs)}"`;
+          made.push({
+            from,
+            to,
+            text: tag.replace(/(\sw:val\s*=\s*)(?:"[^"]*"|'[^']*')/, `$1${val}`),
+          });
+        }
       }
       return made;
     });
@@ -312,28 +375,37 @@ export async function forAgent(data: Uint8Array, author: string): Promise<Uint8A
 
   const core = ofType("", CORE_PROPERTIES)?.target;
   if (core) {
-    await splice(core, ({ root }) =>
-      childrenNamed(root, CORE_WORDS)
-        .filter((each) => !shown.builtIn.has(local(each.name)))
-        .map(removal),
+    await splice(core, ({ root, text }) =>
+      asShown(childrenNamed(root, CORE_WORDS), (each) => shown.builtIn.get(local(each.name)), text),
     );
   }
   const extended = ofType("", EXTENDED_PROPERTIES)?.target;
   if (extended) {
-    await splice(extended, ({ root }) =>
-      [
-        ...childrenNamed(root, EXTENDED_NAMES).filter(
-          (each) => !shown.builtIn.has(local(each.name)),
-        ),
-        ...(shown.builtIn.has("title") ? [] : childrenNamed(root, EXTENDED_TITLE)),
-      ].map(removal),
-    );
+    // Its list of titles holds the title as stored, and Word writes it again on the next save.
+    await splice(extended, ({ root, text }) => [
+      ...asShown(
+        childrenNamed(root, EXTENDED_NAMES),
+        (each) => shown.builtIn.get(local(each.name)),
+        text,
+      ),
+      ...childrenNamed(root, EXTENDED_TITLE).map(removal),
+    ]);
   }
   if (custom && customPart && customKept.length > 0) {
-    await splice(custom.target, ({ root }) =>
-      elements(root)
-        .filter((each) => !customKept.includes(each))
-        .map(removal),
+    await splice(custom.target, ({ root, text }) =>
+      elements(root).map((each) => {
+        const value = shown.custom.get((each.attrs.name ?? "").toLowerCase());
+        if (value === undefined) return removal(each);
+        const from = startOf(each);
+        const opening = text.slice(from, each.openEnd ?? from);
+        const typed = elements(each)[0]?.name ?? "vt:lpwstr";
+        const string = typed.includes(":") ? `${typed.split(":")[0]}:lpwstr` : "lpwstr";
+        return {
+          from,
+          to: endOf(each),
+          text: `${opening}<${string}>${escapeXml(value)}</${string}></${each.name}>`,
+        };
+      }),
     );
   }
 

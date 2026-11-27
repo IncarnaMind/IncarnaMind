@@ -24,8 +24,9 @@ interface Words {
   people: [string, string];
   manager: string;
   company: string;
-  /** The custom property the footer's field shows. */
+  /** What the footer's field shows of a custom property, and what the property holds since. */
   client: string;
+  stored: string;
   /** A custom property no text shows, and a document variable no field shows. */
   hidden: [name: string, value: string];
   variable: string;
@@ -48,6 +49,7 @@ const WORDS: Record<"en" | "zh-CN", Words> = {
     manager: "Priya Nair",
     company: "Kim Ortega LLP",
     client: "Alder & Finch Ltd",
+    stored: "Alder Holdings, under offer",
     hidden: ["Reviewer notes", "Push back on the interest cap"],
     variable: "Settle above two percent",
     comments: ["Check the scope with Alder first.", "Is this rate too high?"],
@@ -66,6 +68,7 @@ const WORDS: Record<"en" | "zh-CN", Words> = {
     manager: "周敏",
     company: "王陈律师事务所",
     client: "远帆贸易有限公司",
+    stored: "远帆控股，收购洽谈中",
     hidden: ["审阅备注", "利率上限需要再谈"],
     variable: "利息高于百分之二再议",
     comments: ["先与远帆确认服务范围。", "这个利率是否过高？"],
@@ -198,7 +201,7 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
         },
         {
           name: "docProps/custom.xml",
-          data: `${DECLARATION}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="Client"><vt:lpwstr>${escapeXml(words.client)}</vt:lpwstr></property><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="${escapeXml(words.hidden[0])}"><vt:lpwstr>${escapeXml(words.hidden[1])}</vt:lpwstr></property></Properties>`,
+          data: `${DECLARATION}<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="Client"><vt:lpwstr>${escapeXml(words.stored)}</vt:lpwstr></property><property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="${escapeXml(words.hidden[0])}"><vt:lpwstr>${escapeXml(words.hidden[1])}</vt:lpwstr></property></Properties>`,
         },
         { name: "docProps/thumbnail.jpeg", data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) },
       ],
@@ -235,6 +238,7 @@ export function reviewedContract(language: "en" | "zh-CN"): ReviewedContract {
       words.description,
       words.template,
       words.email,
+      words.stored,
     ],
   };
 }
