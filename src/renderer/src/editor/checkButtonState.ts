@@ -1,6 +1,12 @@
 import type { Language } from "../../../core/language";
 import type { MessageKey, MessageParams } from "../../../shared/i18n";
-import { type NoteState, type NoteStateMark, noteStateParts } from "../noteState";
+import {
+  type NoteState,
+  type NoteStateMark,
+  noteStateParts,
+  noteStateShowsUnread,
+  noteStateUnreadWords,
+} from "../noteState";
 
 type Translate = (key: MessageKey, params?: MessageParams) => string;
 
@@ -19,7 +25,7 @@ export interface CheckButtonView {
   count: string | null;
   /** What is left of the words when the row is tight: the number the words hold, if any. */
   short: string | null;
-  /** Everything the state says, for the tooltip. */
+  /** The words and what else is left, for the tooltip: never the time or what can be cited. */
   title: string;
   tone: NoteState["tone"];
   mark: NoteStateMark | "check" | "running";
@@ -38,12 +44,15 @@ export interface CheckButtonInput {
   waiting: boolean;
   /** A run ended since the User last typed. */
   justChecked: boolean;
+  /** The Note's last whole check still speaks for it (`wholeCheckStands`). */
+  wholeCheck: boolean;
 }
 
 /**
  * The button's state, by what matters most: a run going, then what the User's own AI was asked,
- * then sentences waiting for Check, then what a check found. Sentences waiting keep it the dark
- * Check, so the next check is always one press: what needs a look shows in the margin meanwhile.
+ * then sentences waiting for the Note's first whole check, then what a check found. Until a whole
+ * check has run, sentences waiting keep it the dark Check, one press; after one, sentences added
+ * or edited never take its verdict away: the card offers to check them (#3840).
  */
 export function checkButtonOf(
   input: CheckButtonInput,
@@ -53,7 +62,8 @@ export function checkButtonOf(
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
   const { state } = input;
   const parts = state ? noteStateParts(state, t, language) : [];
-  const title = parts.join(" · ");
+  const titled = (words: string) =>
+    [...new Set([words, ...(state ? leftParts(state, t, language) : [])])].join(" · ");
   const base = {
     count: null,
     short: null,
@@ -85,52 +95,91 @@ export function checkButtonOf(
     };
   }
   if (state === null) return null;
-  if (state.notChecked > 0) {
+  const look =
+    state.look > 0
+      ? t(state.look === 1 ? "health.state.look.one" : "health.state.look", {
+          count: format(state.look),
+        })
+      : null;
+  if (state.notChecked > 0 && !input.wholeCheck) {
     return {
       ...base,
       kind: "check",
       words: t("mindCheck.command"),
       count: format(state.notChecked),
-      title,
+      title: [
+        t(state.notChecked === 1 ? "health.toCheck.one" : "health.toCheck", {
+          count: format(state.notChecked),
+        }),
+        ...(look === null ? [] : [look]),
+        ...leftParts({ ...state, notChecked: 0 }, t, language),
+      ].join(" · "),
       mark: "check",
     };
   }
-  if (state.kind === "needs-look" && state.look > 0) {
+  if (state.kind === "needs-look" && look !== null) {
     return {
       ...base,
       kind: "look",
-      words: t(state.look === 1 ? "health.state.look.one" : "health.state.look", {
-        count: format(state.look),
-      }),
+      words: look,
       short: format(state.look),
-      title,
+      title: titled(look),
       tone: "warning",
       mark: state.mark,
     };
   }
-  if (state.kind === "checked") {
-    // What a check couldn't settle keeps the ✓ off, as its sentences' own marks are (#2313).
-    const unsettled = state.cantCheck + state.notRecalculated > 0;
+  if (
+    state.kind === "checked" ||
+    state.kind === "not-yet-cited" ||
+    (input.wholeCheck && state.kind === "not-checked")
+  ) {
+    // What a check couldn't settle, or hasn't reached since, keeps the ✓ off, as its sentences'
+    // own marks are (#2313); a sentence that can be cited shows the margin's ring and "+".
+    const unsettled =
+      state.kind !== "checked" || state.cantCheck + state.notRecalculated + state.notChecked > 0;
+    const words = t("health.state.checked.noTime");
     return {
       ...base,
       kind: "checked",
-      words: t("health.state.checked.noTime"),
-      title,
+      words,
+      title: titled(words),
       tone: unsettled ? "neutral" : "success",
-      mark: unsettled ? "notChecked" : "checked",
+      mark: state.kind === "not-yet-cited" ? "notYetCited" : unsettled ? "notChecked" : "checked",
     };
   }
+  const words = parts[0] ?? t("health.label");
   return {
     ...base,
     kind: "said",
-    words: parts[0] ?? t("health.label"),
-    title,
+    words,
+    title: titled(words),
     tone: state.tone,
     mark: state.mark,
   };
 }
 
-export interface VerifyButtonInput extends Omit<CheckButtonInput, "state"> {
+/**
+ * What else the Note's state leaves, for the button's tooltip: never its time or what can be cited,
+ * which the card says once (#3840).
+ */
+function leftParts(state: NoteState, t: Translate, language: Language): string[] {
+  const format = (value: number) => new Intl.NumberFormat(language).format(value);
+  const counted = (count: number, one: MessageKey, many: MessageKey) =>
+    count > 0 ? [t(count === 1 ? one : many, { count: format(count) })] : [];
+  const unread = noteStateShowsUnread(state) ? noteStateUnreadWords(state, t, language) : null;
+  return [
+    ...counted(state.notChecked, "checks.row.notChecked.one", "checks.row.notChecked"),
+    ...counted(state.cantCheck, "health.state.cantCheck.one", "health.state.cantCheck"),
+    ...counted(
+      state.notRecalculated,
+      "health.state.notRecalculated.one",
+      "health.state.notRecalculated",
+    ),
+    ...(unread === null ? [] : [unread]),
+  ];
+}
+
+export interface VerifyButtonInput extends Omit<CheckButtonInput, "state" | "wholeCheck"> {
   /** The claims waiting for Check: those found and not yet checked, or else the sentences to check. */
   toCheck: number;
   /** The claims a check has marked, and those of them that need a look or weren't checked. */
@@ -146,7 +195,8 @@ export function verifyButtonOf(
   language: Language,
 ): CheckButtonView | null {
   const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  if (input.running || input.asked) return checkButtonOf({ ...input, state: null }, t, language);
+  if (input.running || input.asked)
+    return checkButtonOf({ ...input, state: null, wholeCheck: false }, t, language);
   const base = { short: null, fresh: input.justChecked };
   if (input.toCheck > 0) {
     return {

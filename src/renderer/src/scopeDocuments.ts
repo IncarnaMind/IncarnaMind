@@ -33,8 +33,21 @@ export const folderHoldsDocumentsNow = (folderId: string | null): boolean =>
  * again when Documents come or change.
  */
 export function useScopeEmpty(scope: SearchScope | null): boolean {
-  const [empty, setEmpty] = useState(false);
-  const wanted = scope ? JSON.stringify(scope) : null;
+  return useScopeDocumentCount(scope, { everyDocument: false }) === 0;
+}
+
+/**
+ * How many Documents a Search scope holds that can be searched now; null scope: every Document,
+ * unless `everyDocument` is false. Null until the core has answered, or for a scope not asked
+ * about. Asked again when Documents come or change.
+ */
+export function useScopeDocumentCount(
+  scope: SearchScope | null,
+  { everyDocument = true }: { everyDocument?: boolean } = {},
+): number | null {
+  // Kept with the scope it counts: another scope's count is never this one's while it is asked.
+  const [counted, setCounted] = useState<{ wanted: string; count: number | null } | null>(null);
+  const wanted = scope ? JSON.stringify(scope) : everyDocument ? "null" : null;
   const state = useAppStore((store) =>
     [
       ...store.documents.map((each) => `${each.id}:${each.status}:${each.fileStatus}`),
@@ -48,23 +61,24 @@ export function useScopeEmpty(scope: SearchScope | null): boolean {
   // biome-ignore lint/correctness/useExhaustiveDependencies: `state` is when to ask again.
   useEffect(() => {
     if (wanted === null) {
-      setEmpty(false);
+      setCounted(null);
       return;
     }
     let current = true;
     core
-      .countScopeDocuments(JSON.parse(wanted) as SearchScope)
+      .countScopeDocuments(JSON.parse(wanted) as SearchScope | null)
       .then((count) => {
-        if (current) setEmpty(count === 0);
+        if (current) setCounted({ wanted, count });
       })
-      .catch(() => {
-        if (current) setEmpty(false);
+      .catch((error: unknown) => {
+        console.warn("Couldn't count the Documents of a Search scope.", error);
+        if (current) setCounted({ wanted, count: null });
       });
     return () => {
       current = false;
     };
   }, [wanted, state]);
-  return empty;
+  return counted !== null && counted.wanted === wanted ? counted.count : null;
 }
 
 /**

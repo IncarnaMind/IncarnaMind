@@ -2335,11 +2335,6 @@
       outline-offset: -2px;
     }
   }
-  /* What a check found and what is left, under the rows (#1941). */
-  .mind-health-summary {
-    margin: 0;
-    padding: 6px 8px 4px;
-  }
   .check-card-note {
     padding: 4px 8px 6px;
     font-size: 12px;
@@ -2347,20 +2342,110 @@
     color: var(--color-ink-meta);
     font-variant-numeric: tabular-nums;
   }
-  /* The card's first line: what the last check found the Note to be, said once (#3756). */
+  /*
+   * The card's first line, where the Note's check stands, said once (#3840): its mark in the rows'
+   * mark column, its words over theirs, and how far a run has got or when it ended at the right end,
+   * over the switch's end.
+   */
   .check-card-head {
-    padding: 6px 8px 4px;
-    font-size: 13px;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+    min-height: 32px;
+    padding: 2px 8px;
+    font-size: 14px;
     line-height: 20px;
-    color: var(--color-ink-secondary);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .check-card-head-mark {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 20px;
+    color: var(--color-ink-meta);
 
-    & .meta-line {
-      margin: 0;
-      padding-left: 0;
+    & svg {
+      width: 12px;
+      height: 12px;
     }
   }
-  .check-card-checked {
-    color: var(--color-ink);
+  .check-card-head[data-stage="clean"] {
+    color: var(--color-success);
+
+    & .check-card-head-mark {
+      width: 20px;
+      margin-inline: -2px;
+      border-radius: 5px;
+      background: var(--color-success-wash);
+      color: var(--color-success);
+    }
+  }
+  .check-card-head-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--color-accent);
+  }
+  .check-card-head-aside {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--color-ink-meta);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  /* How far a run has got: it moves only when the count does, with no motion of its own. */
+  .check-card-bar {
+    height: 2px;
+    margin: 2px 8px 6px;
+    border-radius: 1px;
+    background: var(--color-rule);
+    overflow: hidden;
+
+    & > span {
+      display: block;
+      height: 100%;
+      background: var(--color-accent);
+    }
+  }
+  .check-card-line {
+    padding-bottom: 4px;
+  }
+  /* The line is the row it counts, with no mark of its own: the head's mark is over it. Its Next
+     lies over the line's end, so its words keep the card's whole width. */
+  .check-row.check-row--line {
+    position: relative;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 28px;
+  }
+  .check-row.check-row--line > .check-row-next {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 2px;
+    margin-block: auto;
+  }
+  /* Check again: quiet words at the foot's end, never a second dark button (#3840). */
+  .check-card-again {
+    height: 28px;
+    margin-inline-start: auto;
+    padding: 0 8px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 20px;
+    white-space: nowrap;
+    color: var(--color-ink-meta);
+    outline: none;
+
+    &:hover {
+      background: var(--color-hover);
+      color: var(--color-ink);
+    }
+    &:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: -2px;
+    }
   }
   .check-card-actions {
     display: flex;

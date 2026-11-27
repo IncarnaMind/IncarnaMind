@@ -101,7 +101,13 @@ test("first open, a Question, its Citation, and the Mind checked", async () => {
     // The one Check runs from its one press; its card opens from the Check button when it is done.
     await expect(noteCheck(window)).not.toHaveAttribute("data-state", "check", { timeout: 30_000 });
     const card = await checkCard(window, window, { stopTimeout: 30_000 });
-    await expect(card.getByTestId("health-checked-all")).toBeVisible({ timeout: 30_000 });
+    await expect(card.getByTestId("check-card-head")).toHaveAttribute(
+      "data-stage",
+      /^(done|clean)$/,
+      {
+        timeout: 30_000,
+      },
+    );
   });
 
   await endFeel(run);

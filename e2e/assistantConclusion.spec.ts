@@ -197,7 +197,7 @@ for (const language of ["en", "zh-CN"] as const) {
 
     // The card has no row for it, and names the opinion left out where it can be read.
     await expect(health).toBeVisible();
-    await expect(health.getByTestId("health-all-checked")).toBeVisible();
+    await expect(health.getByTestId("check-card-head")).toHaveAttribute("data-stage", "clean");
     const line = health.getByTestId("opinions-line");
     await expect(line).toContainText(words.opinions);
     await motionSettled(window);

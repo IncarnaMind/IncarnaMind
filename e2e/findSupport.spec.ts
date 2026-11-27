@@ -121,8 +121,9 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await useLocalChatModel(window);
   const { editor, line } = await mindWithSentences(window, [SUPPORTED, UNSUPPORTED]);
   await setWindowSize(app, window, 1440, 900);
-  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
-    "2 not checked yet",
+  // Before any check the card's line under its head counts them (#3840).
+  await expect((await checkCard(window)).getByTestId("check-card-line")).toContainText(
+    "2 sentences",
   );
 
   await checkAll(window, line, "Spring tides", "harbour cliffs.", "check-against-documents");
@@ -205,8 +206,8 @@ test("Check against Documents on two sentences with no Citation: one is supporte
   await window.keyboard.type("Gulls");
   await expect(marks(window)).toHaveAttribute("data-check", "needs-recheck");
   // Its Citation's check stands for the supported sentence, which has no mark now; the edited one is to check too.
-  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText(
-    "2 not checked yet",
+  await expect((await checkCard(window)).getByTestId("check-card-line")).toContainText(
+    "2 sentences",
   );
   await screenshot(window, "check-recheck-en");
   // The check card opens down from the badge at the Note's top right, over the Note's first lines (#3677): it closes first.
@@ -315,7 +316,7 @@ test("In Chinese and a narrow window: Check against Documents marks a contradict
   const { line } = await mindWithSentences(window, [CONTRADICTED, BLANK]);
   await setLanguage(window, "zh-CN");
   await setWindowSize(app, window, 900, 720);
-  await expect((await checkCard(window)).getByTestId("health-toCheck")).toContainText("2 句未核对");
+  await expect((await checkCard(window)).getByTestId("check-card-line")).toContainText("共 2 句");
 
   await slideSelect(window, line, "Harbours publish", { line, words: "blank reply." });
   const menu = window.getByTestId("selection-menu");

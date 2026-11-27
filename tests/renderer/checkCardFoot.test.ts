@@ -9,17 +9,20 @@ import type { Planned } from "../../src/renderer/src/mindCheck";
 
 /*
  * The Checks card's foot (#3794): the Note's Check is its button in the Note's row, so the card
- * has none of its own. Its foot says when nothing changed since the last check, holds the press
- * that fixes what a check found, and Stop while a run goes; with none of those it is not drawn.
+ * has none of its own, and while a run goes that button's square is its Stop (#3840). Its foot
+ * says when nothing changed since the last check, holds the press that fixes what a check found
+ * and, once the check is done, a quiet Check again; with none of those it is not drawn.
  */
 
 const pressed = vi.hoisted(() => ({
   running: { value: false },
   unchanged: { value: undefined as true | undefined },
+  check: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../../src/renderer/src/mindCheck", () => ({
   useMindCheck: () => pressed.unchanged.value,
   useMindCheckRun: () => null,
+  startCheckAsking: pressed.check,
 }));
 vi.mock("@tiptap/react", () => ({
   useEditorState: ({
@@ -146,13 +149,14 @@ interface FootProps {
   mindId: string;
   askingMind: boolean;
   planned: Planned | null;
+  again: number | null;
 }
 
 let root: Root | null = null;
 let container: HTMLElement;
 let Foot: ComponentType<FootProps>;
 
-async function render(at: Planned | null) {
+async function render(at: Planned | null, again: number | null = null) {
   await act(() =>
     root?.render(
       createElement(Foot, {
@@ -161,6 +165,7 @@ async function render(at: Planned | null) {
         mindId: "mind",
         askingMind: false,
         planned: at,
+        again,
       }),
     ),
   );
@@ -198,6 +203,7 @@ afterEach(async () => {
   container.remove();
   vi.unstubAllGlobals();
   pressed.unchanged.value = undefined;
+  pressed.check.mockClear();
 });
 
 // protects=#3756: a Check that finds nothing changed says so, with its way to check every sentence again, even when no time of the last check is known; fails_when=the line goes when the plan names no time, so the press runs nothing and nothing says why
@@ -213,15 +219,38 @@ test("at rest, with nothing to fix, the card has no foot and no Check", async ()
   expect(container.innerHTML).toBe("");
 });
 
-// protects=#3794: while a run goes the card's foot has its Stop, and no Check beside it; fails_when=the run can't be stopped from the open card, or a Check is drawn there
-test("while a run goes, the foot has its Stop", async () => {
+// protects=#3840: while a run goes the Note's button and its square are its count and its Stop, so the card has no foot: no second Stop, no Check again; fails_when=a Stop or any other press is drawn in the card's foot during a run
+test("while a run goes, the card has no foot and no second Stop", async () => {
   pressed.running.value = true;
-  await render(null);
-  expect(container.querySelector('[data-testid="card-foot-progress"]')).not.toBeNull();
-  expect(container.querySelector('[data-testid="card-foot-stop"]')?.textContent).toBe(
-    "checks.stop",
+  await render(null, 0);
+  expect(container.innerHTML).toBe("");
+});
+
+// protects=#3840: once the Note's check is done its foot offers to check again in quiet words, or the sentences new or edited since by their number, and the press runs the Note's one Check; fails_when=a done card has no way to check again, or offers it as a dark button
+test("once done, a quiet Check again, or Check N new", async () => {
+  await render(planned, 0);
+  const again = container.querySelector<HTMLButtonElement>('[data-testid="check-card-again"]');
+  expect(again?.textContent).toBe("claim.checkAgain");
+  expect(again?.className).toBe("check-card-again");
+  await act(() => again?.click());
+  expect(pressed.check).toHaveBeenCalledWith("mind");
+
+  await render(planned, 2);
+  expect(container.querySelector('[data-testid="check-card-again"]')?.textContent).toBe(
+    "checks.checkNew",
   );
-  expect(container.querySelectorAll("button")).toHaveLength(1);
+  await render(planned, 1);
+  expect(container.querySelector('[data-testid="check-card-again"]')?.textContent).toBe(
+    "checks.checkNew.one",
+  );
+});
+
+// protects=#3840: Check again on a Note unchanged since its check says so in the foot, and the quiet Check again gives way to it; fails_when=both show, or the unchanged line goes
+test("nothing changed takes the place of Check again", async () => {
+  pressed.unchanged.value = true;
+  await render({ ...planned, plan: { kind: "unchanged", since: "2026-11-02T21:00:00.000Z" } }, 0);
+  expect(container.querySelector('[data-testid="mind-unchanged"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="check-card-again"]')).toBeNull();
 });
 
 // protects=a check asked of the User's own AI is forgotten once a model is set up, while an Organize asked of that AI stays (#3587); fails_when=the asked check outlives the model being set up, or the Organize's ask goes with it
@@ -249,8 +278,8 @@ test("a check asked of the User's own AI goes once a model is set up; an Organiz
   expect(asked()).toEqual(["organize"]);
 });
 
-// protects=#3756: a check run on the User's own AI in the background is stopped from the card's foot, as a run on a model is, and a card whose line offers the next step has no foot at all; fails_when=the run's Stop is missing from the foot, or an empty foot is drawn under the line
-test("a background run's Stop is the foot's, and a card with nothing in its foot has none", async () => {
+// protects=#3840: a check run on the User's own AI in the background is stopped by the Note's button's square, as a run on a model is, so the card has no Stop of its own; a card whose line offers the next step has no foot at all (#3756); fails_when=a second Stop is drawn in the card, or an empty foot under the line
+test("a background run has no Stop in the card, and a card with nothing in its foot has none", async () => {
   const { useAgentAsked } = await import("../../src/renderer/src/askedAgent");
   const claude = {
     id: "pairing-claude",
@@ -279,9 +308,8 @@ test("a background run's Stop is the foot's, and a card with nothing in its foot
   });
   await run("working");
   await render(planned);
-  expect(container.querySelector('[data-testid="checks-asked-stop"]')?.textContent).toBe(
-    "checks.stop",
-  );
+  expect(container.querySelector('[data-testid="checks-asked-stop"]')).toBeNull();
+  expect(container.innerHTML).toBe("");
 
   await run("failed");
   expect(container.querySelector('[data-testid="checks-asked-stop"]')).toBeNull();

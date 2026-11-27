@@ -53,7 +53,7 @@ const WORDS = {
     checkFirst: "1 sentence not checked yet · Check first",
     see: "Show",
     running: "A check is running",
-    checking: /\d+ being checked/,
+    checkingHead: "Checking…",
   },
   "zh-CN": {
     notChecked: "1 句未核对",
@@ -62,7 +62,7 @@ const WORDS = {
     checkFirst: "1 句未核对 · 先核对",
     see: "查看",
     running: "正在核对",
-    checking: /\d+ 句正在核对/,
+    checkingHead: "正在核对…",
   },
 } as const;
 
@@ -186,6 +186,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await slideSelect(window, line, "14");
     await window.keyboard.type("12");
     await expect(editor).toContainText(SUPPORTED);
+    // Its one sentence edited, no result of the whole check holds, so the Note's button is its
+    // Check again, not a verdict it no longer has (#3840).
     await checkWholeMind(window, "needs-recheck");
     await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported", {
       timeout: 60_000,
@@ -194,10 +196,13 @@ for (const language of ["en", "zh-CN"] as const) {
       timeout: 60_000,
     });
     await expect(stateWords(window)).toHaveText(words.checked.trim());
-    await expect(button(window)).toHaveAttribute("title", new RegExp(`^${words.checked}`));
-    const said = (await button(window).getAttribute("title"))?.split(" · ")[0] ?? "";
-    const time = said.slice(words.checked.length);
+    // The time is the card's to say, once: the button and its tooltip leave it out (#3840).
+    await expect(button(window)).toHaveAttribute("title", words.checked.trim());
+    const checkedCard = await checkCard(window);
+    const time = (await checkedCard.getByTestId("check-card-head-aside").textContent()) ?? "";
     expect(time).not.toBe("");
+    await window.keyboard.press("Escape");
+    await expect(checkedCard).toHaveCount(0);
     // The green is the success token, on the button's mark.
     expect(
       await button(window)
@@ -219,7 +224,8 @@ for (const language of ["en", "zh-CN"] as const) {
     await screenshot(window, `note-state-export-${language}-checked`);
     await window.keyboard.press("Escape");
 
-    // Editing the checked sentence leaves nothing checked since: back to Not checked, in all three places.
+    // Editing the checked sentence leaves nothing checked since: back to Not checked, in all three
+    // places, for no result of the whole check holds (#3840).
     const edited = editor.locator("p").filter({ hasText: "Spring tides happened" }).first();
     await slideSelect(window, edited, "2026");
     await window.keyboard.type("2025");
@@ -230,6 +236,7 @@ for (const language of ["en", "zh-CN"] as const) {
     await recentRow(window, "Tides").getByTestId("home-recent-open").click();
     // The edited sentence counts in the Checks card, and the Export menu counts the same.
     const card = await checkCard(window);
+    await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "not-checked");
     await expect(card.getByTestId("health-toCheck")).toContainText("1");
     await window.keyboard.press("Escape");
     await pointAndClick(window, window.getByTestId("export-mind"));
@@ -281,13 +288,12 @@ for (const language of ["en", "zh-CN"] as const) {
     await screenshot(window, `note-state-export-${language}-running`);
     await pointAndClick(window, runningLine);
     const cardAgain = window.getByTestId("check-card");
-    await expect(cardAgain.getByTestId("card-foot-progress")).toBeVisible();
-    await expect(cardAgain.getByTestId("card-foot-stop")).toBeVisible();
-    await expect(
-      cardAgain.getByRole("button", { name: language === "en" ? "Check" : "核对", exact: true }),
-    ).toHaveCount(0);
-    // The sentence being checked has its row, in the card's one noun, the sentence (#2831).
-    await expect(cardAgain.getByTestId("health-checking")).toContainText(words.checking);
+    // Its head says it is checking, once: no row and no second Stop repeat the Note's button (#3840).
+    await expect(cardAgain.getByTestId("check-card-head")).toContainText(words.checkingHead);
+    await expect(cardAgain.getByTestId("health-checking")).toHaveCount(0);
+    for (const name of language === "en" ? ["Check", "Stop"] : ["核对", "停止"]) {
+      await expect(cardAgain.getByRole("button", { name, exact: true })).toHaveCount(0);
+    }
 
     // Every sentence holds when the run ends, so the line is gone.
     await expect(window.getByTestId("note-check-stop")).toHaveCount(0, { timeout: 60_000 });
@@ -394,13 +400,13 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "en" ? /3 files couldn’t be read/ : /3 个文件未能读取/,
       );
       // Its card counts the sentence once (#2831), as one that can be cited (#3358): with no
-      // Citation yet it is done, so the card says everything is checked, the files still named.
+      // Citation yet the check is done, the files still named.
       const done = await checkCard(window);
       await expect(done.getByTestId("health-notYetCited")).toContainText(
         language === "en" ? "1 can be cited" : "1 句可添加引用",
       );
       await expect(done.getByTestId("health-noCitation")).toHaveCount(0);
-      await expect(done.getByTestId("health-all-checked")).toBeVisible();
+      await expect(done.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
       await expect(done.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );
@@ -410,14 +416,12 @@ for (const language of ["en", "zh-CN"] as const) {
       await citeTides(window, READABLE);
       await expect(window.getByTestId("claim-mark")).toHaveAttribute("data-check", "supported");
       const allDone = await checkCard(window);
-      // The card's head says Checked, never "Everything checked", which isn't true of this Note
-      // (#3212); the files are named once, by the card's own line below (#3756).
-      await expect(allDone.getByTestId("health-all-checked")).toHaveText(
-        language === "en" ? /^Checked .+$/ : /^已核对.+$/,
-      );
-      await expect(allDone.getByTestId("health-all-checked")).not.toContainText(
-        language === "en" ? "couldn’t be read" : "未能读取",
-      );
+      // The card's head says Check done and when, never All supported, which isn't true of this
+      // Note (#3212, #3840); the files are named once, by the card's own line below (#3756).
+      const allHead = allDone.getByTestId("check-card-head");
+      await expect(allHead).toHaveAttribute("data-stage", "done");
+      await expect(allHead).toHaveText(language === "en" ? /^Check done.+$/ : /^核对完成.+$/);
+      await expect(allHead).not.toContainText(language === "en" ? "couldn’t be read" : "未能读取");
       await expect(allDone.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",
       );
@@ -502,7 +506,7 @@ for (const language of ["en", "zh-CN"] as const) {
         language === "en" ? "1 can be cited" : "1 句可添加引用",
       );
       await expect(narrow.getByTestId("health-noCitation")).toHaveCount(0);
-      await expect(narrow.getByTestId("health-all-checked")).toHaveCount(0);
+      await expect(narrow.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
 
       // With the Citation added nothing is left; the narrower check still keeps the Note amber,
       // so the card says nothing there rather than that everything is checked (#1941).
@@ -512,7 +516,7 @@ for (const language of ["en", "zh-CN"] as const) {
       await expect(still.getByTestId("health-supported")).toContainText(
         language === "en" ? "1 supported" : "1 句有依据",
       );
-      await expect(still.getByTestId("health-all-checked")).toHaveCount(0);
+      await expect(still.getByTestId("check-card-head")).toHaveAttribute("data-stage", "done");
       await expect(still.getByTestId("checks-unread")).toContainText(
         language === "en" ? "3 files couldn’t be read" : "3 个文件未能读取",
       );

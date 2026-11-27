@@ -53,13 +53,14 @@ import { ContradictionAsk, ContradictionLine } from "./ContradictionLine";
 import { useCheckThisMindPlan } from "./changedSentences";
 import { type CheckButtonView, checkButtonOf, verifyButtonOf } from "./checkButtonState";
 import {
-  bodyIsEmpty,
   CARD_MARGIN,
   firstHeightOf,
   isBelowOf,
+  nothingLanded,
   SETTLE_AT_MOST_MS,
   SETTLE_MS,
 } from "./checkCardHold";
+import { cardStageOf, wholeCheckStands } from "./checkCardStage";
 import { useCardPlace } from "./checkPlace";
 import { EveryResultSwitch } from "./EveryResultSwitch";
 import { MindCheckAsk, MindUnchanged, useRunningCheck } from "./MindCheckLine";
@@ -98,9 +99,10 @@ function useJustChecked(editor: Editor, busy: boolean): boolean {
 
 /**
  * The Note's check (#3794): its Check button in the Note's row of controls, which checks in one
- * press while sentences wait, says how far a run has got, with Stop, and then what the check
- * found, opening the Checks card of results. The card also opens from ⌘K, and by itself for a
- * question before a paid run or a problem with a check the User started.
+ * press while sentences wait for the Note's first whole check, says how far a run has got, with
+ * Stop, and then what the check found, opening the Checks card of results (#3840). The card also
+ * opens from ⌘K, and by itself for a question before a paid run or a problem with a check the
+ * User started.
  */
 export function CheckBadge(props: {
   editor: Editor;
@@ -137,7 +139,11 @@ function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId
   const asked = useAskedAgent({ kind: "check", mindId });
   const backgroundRun = asked?.asked.background === true && asked.asked.state === "working";
   // Counted again as the AI's marks land, as at a run's end, so the button says what it marked.
-  const { health, counted } = useMindHealth(editor, doc, running !== undefined || asked !== null);
+  const { checkedAll, health, counted } = useMindHealth(
+    editor,
+    doc,
+    running !== undefined || asked !== null,
+  );
   const everyResult = useEveryCheckResult(doc);
   const unread = useCheckUnread(editor, doc);
   const narrowUnread = useCheckUnread(editor, doc, { narrowerThanAll: true });
@@ -156,24 +162,33 @@ function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId
   // A run on the User's own AI that ends in a failure says why in the card, as a problem does.
   const askedFailed = asked?.asked.state === "failed";
   const waiting = askingMind || askingContradictions || problem || askedFailed;
+  const progress = run
+    ? { words: run.words, done: run.done, total: run.total }
+    : backgroundRun && asked
+      ? { words: asked.words, done: 0, total: 0 }
+      : null;
+  const wholeCheck = wholeCheckStands(checkedAll, health);
+  const stage = cardStageOf({ progress, state, wholeCheck, health, problem });
+  const shownAsked = asked !== null && !backgroundRun;
   const view = checkButtonOf(
     {
       state,
-      running: run
-        ? { words: run.words, done: run.done, total: run.total }
-        : backgroundRun && asked
-          ? { words: asked.words, done: 0, total: 0 }
-          : null,
-      asked:
-        asked && !backgroundRun
-          ? { short: asked.short, words: asked.words, failed: askedFailed }
-          : null,
+      running: progress,
+      asked: shownAsked ? { short: asked.short, words: asked.words, failed: askedFailed } : null,
       waiting,
       justChecked,
+      wholeCheck,
     },
     t,
     language,
   );
+  // Once the Note's check is done its card offers to check again, quietly: the new and edited
+  // sentences when there are any. A question, a problem's line or the User's own AI's line holds
+  // the next step instead.
+  const again =
+    (stage?.kind === "done" || stage?.kind === "clean") && !shownAsked && !problem && state !== null
+      ? state.notChecked
+      : null;
   return (
     <BadgeFrame
       mindId={mindId}
@@ -198,13 +213,23 @@ function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId
           mindId={mindId}
           askingMind={askingMind}
           planned={planned}
+          again={again}
         />
       }
     >
-      <HealthCard editor={editor} doc={doc} mindId={mindId} health={health} state={state} />
+      <HealthCard
+        editor={editor}
+        doc={doc}
+        mindId={mindId}
+        health={health}
+        state={state}
+        stage={stage}
+      />
       <ContradictionLine doc={doc} mindId={mindId} />
       <CheckFasterLine status={checkDecision} />
+      {/* Off while a run goes: the card says how far it has got and what it found (#3840). */}
       {editor.isEditable &&
+        progress === null &&
         (everyResult ||
           health.supported > 0 ||
           health.ownViews.length > 0 ||
@@ -218,7 +243,9 @@ function MindBadge({ editor, doc, mindId }: { editor: Editor; doc: Y.Doc; mindId
 /**
  * The card's foot, which the held, scrolling body never hides: the question before a paid run,
  * the line that says nothing changed since the last check, the one press that fixes what the
- * check found, and Stop while a run goes. The Check itself is the Note's button (#3794).
+ * check found, and the quiet Check again. The first Check is the Note's button (#3794), and so is
+ * the Stop of a run: while one goes the fixes wait where they are and nothing else is offered
+ * (#3840).
  */
 export function CheckActions({
   editor,
@@ -226,12 +253,18 @@ export function CheckActions({
   mindId,
   askingMind,
   planned,
+  again,
 }: {
   editor: Editor;
   doc: Y.Doc;
   mindId: string;
   askingMind: boolean;
   planned: Planned | null;
+  /**
+   * What the quiet press checks once the Note's check is done: null, nothing offered; 0, whatever
+   * changed; else the sentences new or edited since.
+   */
+  again: number | null;
 }) {
   const t = useT();
   const running = useChecks((state) => state.running[mindId] !== undefined);
@@ -240,7 +273,7 @@ export function CheckActions({
   const unchanged = useMindCheck((state) => state.unchanged[mindId]);
   const place = useCardPlace(mindId);
   const language = useLanguage();
-  // A run in the background on the User's own AI is stopped here as a run on a model is (#3756).
+  // A run in the background on the User's own AI leaves the foot empty, as a run on a model does.
   const askedNow = useAskedAgent({ kind: "check", mindId });
   const backgroundRun = askedNow?.asked.background === true && askedNow.asked.state === "working";
   const correctable = useEditorState({
@@ -270,19 +303,21 @@ export function CheckActions({
         <ContradictionAsk doc={doc} mindId={mindId} />
       </CardFoot>
     );
-  const unchangedPlan = unchanged && planned?.plan.kind === "unchanged" ? planned.plan : null;
+  const busy = running || backgroundRun;
+  const unchangedShown = !busy && unchanged === true && planned?.plan.kind === "unchanged";
+  const offer = busy || unchangedShown ? null : again;
   // A foot with nothing in it would be an empty band under the card's line (#3756).
-  if (!running && !backgroundRun && fixes === 0 && !askAll && unchangedPlan === null) return null;
+  if (fixes === 0 && !askAll && !unchangedShown && offer === null) return null;
   return (
     <CardFoot>
-      {unchangedPlan && <MindUnchanged mindId={mindId} since={unchangedPlan.since} />}
-      {(fixes > 0 || askAll || running || backgroundRun) && (
+      {unchangedShown && <MindUnchanged mindId={mindId} />}
+      {(fixes > 0 || askAll || offer !== null) && (
         <div className="check-card-actions">
           {noModel && fixes > 0 && (
             <button
               type="button"
               data-testid="badge-correct-contradictions"
-              disabled={running || editing}
+              disabled={busy || editing}
               className={buttonStyle(connectLeads ? "secondary" : "primary", "sm")}
               onClick={() => {
                 if (correctContradictions(editor, mindId, doc) === 0) return;
@@ -301,7 +336,7 @@ export function CheckActions({
             <button
               type="button"
               data-testid="badge-fix-sentences"
-              disabled={running || editing}
+              disabled={busy || editing}
               className={buttonStyle("primary", "sm")}
               onClick={() => {
                 setCheckCardOpen(place, false);
@@ -317,21 +352,23 @@ export function CheckActions({
               mindId={mindId}
               ask={askAll}
               primary={askLeads}
-              disabled={running || editing}
+              disabled={busy || editing}
               onAsked={() => setCheckCardOpen(place, false)}
             />
           )}
-          {(running || backgroundRun) && (
-            <div data-testid="card-foot-progress" className="check-card-progress">
-              <button
-                type="button"
-                data-testid={running ? "card-foot-stop" : "checks-asked-stop"}
-                className="check-card-stop"
-                onClick={() => void (running ? stopCheck(mindId) : stopBackgroundCheck(mindId))}
-              >
-                {t("checks.stop")}
-              </button>
-            </div>
+          {offer !== null && (
+            <button
+              type="button"
+              data-testid="check-card-again"
+              className="check-card-again"
+              onClick={() => void startCheckAsking(mindId)}
+            >
+              {offer === 0
+                ? t("claim.checkAgain")
+                : t(offer === 1 ? "checks.checkNew.one" : "checks.checkNew", {
+                    count: new Intl.NumberFormat(language).format(offer),
+                  })}
+            </button>
           )}
         </div>
       )}
@@ -603,7 +640,7 @@ function BadgeFrame({
     if (heldHeight !== null) return;
     const element = body.current;
     if (!element) return;
-    if (!bodyIsEmpty(element)) {
+    if (!nothingLanded(element)) {
       setHeldHeight(element.offsetHeight);
       return;
     }
@@ -619,6 +656,7 @@ function BadgeFrame({
     let first: number | undefined;
     const holdNow = () => {
       watching.disconnect();
+      counting.disconnect();
       window.clearTimeout(settle);
       setHeldHeight(firstHeightOf(element, anchor, rest, fromTop));
     };
@@ -631,12 +669,13 @@ function BadgeFrame({
     };
     // The User's pointer or focus in the card ends the wait: nothing is to move under their hand.
     const touched = () => {
-      if (!bodyIsEmpty(element)) holdNow();
+      if (!nothingLanded(element)) holdNow();
     };
-    const watching = new ResizeObserver(() => {
-      if (bodyIsEmpty(element)) return;
+    const landed = () => {
+      if (nothingLanded(element)) return;
       if (!fromTop && isBelowOf(element, anchor)) {
         watching.disconnect();
+        counting.disconnect();
         flushSync(() => setHeldHeight(rest));
         return;
       }
@@ -644,12 +683,17 @@ function BadgeFrame({
       first ??= now;
       window.clearTimeout(settle);
       settle = window.setTimeout(hold, Math.min(SETTLE_MS, SETTLE_AT_MOST_MS - (now - first)));
-    });
+    };
+    const watching = new ResizeObserver(landed);
+    // A line's count may land without changing its height: it has landed all the same.
+    const counting = new MutationObserver(landed);
     card?.addEventListener("pointerenter", touched);
     card?.addEventListener("focusin", touched);
     watching.observe(content);
+    counting.observe(content, { subtree: true, attributeFilter: ["aria-busy"] });
     return () => {
       watching.disconnect();
+      counting.disconnect();
       window.clearTimeout(settle);
       card?.removeEventListener("pointerenter", touched);
       card?.removeEventListener("focusin", touched);

@@ -436,7 +436,7 @@ for (const [language, width] of [
     await app.close();
   });
 
-  test(`the foot keeps its height with a fix in its row (${language}, ${width}px)`, async () => {
+  test(`the card keeps its place and its body as a run checks its fix's sentence again, with no Stop of its own (${language}, ${width}px)`, async () => {
     test.setTimeout(240_000);
     const { app, window, check, evidence } = await launched(language, width);
     // A whole check of the Note runs on a model, and with one the card's fix is the rewrite (#3383).
@@ -455,11 +455,13 @@ for (const [language, width] of [
     ]);
     const card = await checkCard(window);
     await expect(card.getByTestId("badge-fix-sentences")).toBeVisible();
-    const foot = card.getByTestId("check-card-foot");
-    const before = { card: await card.boundingBox(), foot: await foot.boundingBox() };
-    if (!before.card || !before.foot) throw new Error("The card isn't drawn.");
+    const body = card.locator(".check-card-body");
+    const before = { card: await card.boundingBox(), body: await body.boundingBox() };
+    if (!before.card || !before.body) throw new Error("The card isn't drawn.");
 
-    // The run's Stop joins the fix's row while the fix stays where it was, disabled.
+    // While the run checks the sentence again its fix waits for the result, and the card's foot
+    // goes with it: the run's Stop is the Note's button's, never the card's (#3840). The card
+    // hangs where it was and its body keeps its box.
     await app.evaluate(() => {
       (
         globalThis as unknown as { incarnamindSlowCheck: { hold: boolean } }
@@ -475,18 +477,28 @@ for (const [language, width] of [
     await expect
       .poll(
         async () =>
-          (await card.getByTestId("card-foot-progress").count()) +
+          (await card.locator('[data-testid="check-card-head"][data-stage="checking"]').count()) +
           (await ask.count()) +
           (await every.count()),
       )
       .toBeGreaterThan(0);
     if ((await ask.count()) > 0) await pointAndClick(window, ask);
     if ((await every.count()) > 0) await pointAndClick(window, every);
-    await expect(card.getByTestId("card-foot-progress")).toBeVisible();
-    const after = { card: await card.boundingBox(), foot: await foot.boundingBox() };
-    if (!after.card || !after.foot) throw new Error("The card went at the press.");
-    expect(after.card.height).toBeCloseTo(before.card.height, 0);
-    expect(after.foot.height).toBeCloseTo(before.foot.height, 0);
+    await expect(card.getByTestId("check-card-head")).toHaveAttribute("data-stage", "checking");
+    await expect(card.getByTestId("badge-fix-sentences")).toHaveCount(0);
+    await expect(card.getByTestId("check-card-foot")).toHaveCount(0);
+    await expect(
+      card.getByRole("button", { name: translate(language, "checks.stop"), exact: true }),
+    ).toHaveCount(0);
+    await expect(window.getByTestId("note-check-stop")).toBeVisible();
+    const after = { card: await card.boundingBox(), body: await body.boundingBox() };
+    if (!after.card || !after.body) throw new Error("The card went at the press.");
+    for (const side of ["x", "y", "width"] as const) {
+      expect(after.card[side], `the card's ${side}`).toBeCloseTo(before.card[side], 0);
+    }
+    for (const side of ["x", "y", "width", "height"] as const) {
+      expect(after.body[side], `the body's ${side}`).toBeCloseTo(before.body[side], 0);
+    }
     await app.evaluate(() => {
       const slow = (
         globalThis as unknown as { incarnamindSlowCheck: { hold: boolean; release(): void } }

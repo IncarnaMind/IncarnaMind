@@ -344,21 +344,6 @@ export function noteStateParts(
 }
 
 /**
- * The check card's first line when no whole-Note check gave one of its own: Checked, its time and
- * what is left that the card's rows and unread line don't say (#3756); "Everything checked" only
- * when nothing is left (#3212), where the card doesn't say "All supported" instead.
- */
-export function cardHead(state: NoteState | null, t: Translate, language: Language): string {
-  const format = (value: number) => new Intl.NumberFormat(language).format(value);
-  const caveat = state === null ? null : checkedCaveat(state, t, format);
-  if (state === null || (caveat === null && state.unread === 0)) return t("health.allChecked");
-  const time = state.checkedAt === null ? "" : formatDateTime(state.checkedAt, language);
-  const checked =
-    time === "" ? t("health.state.checked.noTime") : t("health.state.checked", { time });
-  return caveat === null ? checked : `${checked} · ${caveat}`;
-}
-
-/**
  * The Export menu's line for a Note (D266), never a block on the export: nothing for a Note that
  * reads Checked, caveats or not; the state's words with Show where the card has rows to open;
  * the sentences still to check, or "Not checked since your last edit", with Check first
@@ -527,50 +512,6 @@ export function readNoteState({
     folderId,
     keptInside,
   });
-}
-
-/**
- * What the green state leaves, in the badge's short form under 400 px: "1 file couldn't be read ·
- * 1 figure not recalculated · …"; null when it leaves nothing.
- */
-export function checkedCaveat(
-  state: NoteState,
-  t: Translate,
-  format: (value: number) => string,
-): string | null {
-  const parts = [
-    ...(state.cantCheck > 0
-      ? [
-          t(
-            state.cantCheck === 1
-              ? "health.state.cantCheck.short.one"
-              : "health.state.cantCheck.short",
-            { count: format(state.cantCheck) },
-          ),
-        ]
-      : []),
-    ...(state.notRecalculated > 0
-      ? [
-          t(
-            state.notRecalculated === 1
-              ? "health.state.notRecalculated.one"
-              : "health.state.notRecalculated",
-            { count: format(state.notRecalculated) },
-          ),
-        ]
-      : []),
-    ...(state.needsCheck > 0
-      ? [
-          t(
-            state.needsCheck === 1
-              ? "health.state.needsCheck.short.one"
-              : "health.state.needsCheck.short",
-            { count: format(state.needsCheck) },
-          ),
-        ]
-      : []),
-  ];
-  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /** Whether a line that reports the Note's state, as the export's does, has nothing to add: ✓ with nothing left. */

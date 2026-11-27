@@ -1,19 +1,18 @@
 import { DOMParser } from "linkedom";
-import { act, type ComponentType, createElement, Fragment } from "react";
+import { act, type ComponentType, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /*
  * Under the rows, a whole-Note check counts the sentences it couldn't tell are claims (#2447): a
- * count only, in English and Chinese, with no action of its own; the card's Check runs it again.
- * The check's own line, at the card's top, says only when and how many it checked (#3756).
+ * count only, in English and Chinese, with no action of its own; the card's Check again runs it
+ * again. When the check ended is said once, in the card's head (#3840), never on this line.
  */
 
 vi.mock("../../src/renderer/src/editor/opinionChecks", () => ({ useOpinionChecks: () => [] }));
 
 let root: Root | null = null;
 let container: HTMLElement;
-let CheckedWhen: ComponentType<Record<string, unknown>>;
 let CheckedMore: ComponentType<Record<string, unknown>>;
 
 beforeEach(async () => {
@@ -50,7 +49,7 @@ beforeEach(async () => {
   root = createRoot(container);
   // Loaded by path, as the other component tests are: the node typecheck reads no JSX.
   const linePath = "../../src/renderer/src/editor/MindCheckLine.tsx";
-  ({ CheckedWhen, CheckedMore } = await import(linePath));
+  ({ CheckedMore } = await import(linePath));
 });
 
 afterEach(async () => {
@@ -74,16 +73,9 @@ async function lineOf(language: "en" | "zh-CN", unexamined: number) {
   };
   await act(() =>
     root?.render(
-      createElement(
-        Fragment,
-        null,
-        createElement(CheckedWhen, { run }),
-        createElement(CheckedMore, { run, editor: {}, doc: {}, mindId: "mind-1", unexamined }),
-      ),
+      createElement(CheckedMore, { run, editor: {}, doc: {}, mindId: "mind-1", unexamined }),
     ),
   );
-  if (!container.querySelector('[data-testid="health-checked-all"]'))
-    throw new Error("The check's line isn't drawn.");
   return container;
 }
 
@@ -105,9 +97,10 @@ describe.each([
     expect(several.querySelectorAll("button")).toHaveLength(0);
   });
 
-  test("says nothing of sentences it couldn't tell when there are none", async () => {
+  // protects=#3840: with nothing it couldn't tell and nothing else left, no line is drawn under the rows, and none says when the check ran: the card's head does, once; fails_when=a line under the rows repeats the check's time or count
+  test("draws no line when it left nothing, and never says when it ran", async () => {
     const line = await lineOf(language, 0);
-    expect(line.textContent).toContain(language === "en" ? "Checked 2 sentences" : "已核对 2 句");
-    expect(line.textContent).not.toContain(one);
+    expect(line.querySelector('[data-testid="health-checked-more"]')).toBeNull();
+    expect(line.textContent).toBe("");
   });
 });
