@@ -66,6 +66,18 @@ async function countCommandText(window: Page): Promise<string> {
   return name;
 }
 
+/** A menu's rows top to bottom, by test ID, a rule as "—". */
+const menuShape = (menu: Locator) =>
+  menu.evaluate((element) =>
+    [
+      ...element.querySelectorAll(
+        '[role^="menuitem"], [data-testid="page-counts"], div.border-t.border-rule',
+      ),
+    ].map((each) =>
+      each.matches("div.border-t") ? "—" : (each.getAttribute("data-testid") ?? ""),
+    ),
+  );
+
 const menuItemIds = (menu: Locator) =>
   menu
     .locator('[role="menuitem"]')
@@ -98,6 +110,24 @@ test("the page starts with its text; the ⋯ in its tab strip opens by click and
   // Its menu is the sidebar row's, in the same order, with Style as a submenu before Delete, the counts first.
   const menu = await openPageMenu(window);
   const pageItems = await menuItemIds(menu);
+  // Three groups under the counts: what to do with the Note, where it is and how it reads, and
+  // Delete (#3766).
+  expect(await menuShape(menu)).toEqual([
+    "page-counts",
+    "—",
+    "mind.duplicate",
+    "mind.check",
+    "mind.tieOut",
+    "mind.exportMenu",
+    "mind.history",
+    "page-more",
+    "—",
+    "mind.moveTo",
+    "mind.rename",
+    "page-style",
+    "—",
+    "mind.delete",
+  ]);
   await window.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   const row = window.getByTestId("mind-row");

@@ -316,7 +316,7 @@ function menuOf(shown: readonly string[], registry: Registry, kind: ObjectKind):
         : {
             id,
             section: registered.find((each) => each.id === id)?.section ?? -1,
-            group: groupOf(id),
+            group: registered.find((each) => each.id === id)?.group ?? groupOf(id),
             at: registered.findIndex((each) => each.id === id),
           },
     )

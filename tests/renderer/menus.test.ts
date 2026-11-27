@@ -58,7 +58,7 @@ beforeAll(async () => {
 });
 
 describe("the menus", () => {
-  test("a Mind's is Open, Open in new tab, Duplicate, Check this note, Tie out figures, Export…, History, More, Move to, Rename, then Delete after a rule", () => {
+  test("a Mind's is Open, Open in new tab, Duplicate, Check this note, Tie out figures, Export…, History, More, then Move to and Rename together, then Delete after a rule", () => {
     const here = {
       "mind.moveTo": () => undefined,
       "mind.rename": () => undefined,
@@ -76,7 +76,6 @@ describe("the menus", () => {
       "more",
       "—",
       "mind.moveTo",
-      "—",
       "mind.rename",
       "—",
       "mind.delete",

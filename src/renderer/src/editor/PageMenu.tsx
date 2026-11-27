@@ -121,6 +121,9 @@ export function PageMenu({
         without={["mind.open", "mind.openTab"]}
         // Its counts first, a grey line (#3765).
         first={() => <MindCountsLine editor={editor} />}
+        // Style and what else is the Note's own go with Move to and Rename; a source's rows and the
+        // examples after them each start a group.
+        moreInGroup
         more={
           readOnly && !origin && !otherExamples
             ? undefined
@@ -162,7 +165,7 @@ export function PageMenu({
                   )}
                   {origin && (
                     <>
-                      {!readOnly && <div className={menuRuleClass} />}
+                      <div className={menuRuleClass} />
                       {!readOnly && origin.word && useReviewables.getState()[mindId]?.has() && (
                         <button
                           type="button"
@@ -231,7 +234,7 @@ export function PageMenu({
                   )}
                   {otherExamples && (
                     <>
-                      {(!readOnly || origin) && <div className={menuRuleClass} />}
+                      <div className={menuRuleClass} />
                       <p className={menuTitleClass}>{t("examples.banner.more")}</p>
                       <ExampleChoices more={otherExamples} close={close} />
                     </>
