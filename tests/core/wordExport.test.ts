@@ -1153,7 +1153,7 @@ describe("Blocks added, deleted and moved", () => {
     expect(document).toContain("Body.");
   });
 
-  test("a table of contents links each heading to its own new bookmark, clear of the file's, and asks Word to update the field (#1935)", async () => {
+  test("a table of contents links each heading to its own new bookmark, clear of the file's, with no w:dirty or w:updateFields (#1935)", async () => {
     const heading = (text: string, bookmark?: string) =>
       `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${
         bookmark
@@ -1166,7 +1166,7 @@ describe("Blocks added, deleted and moved", () => {
     editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
     await client.settled();
 
-    const { document, part } = await exported(core, mindId);
+    const { document, files } = await exported(core, mindId);
     const anchors = [...document.matchAll(/<w:hyperlink w:anchor="([^"]+)"/g)].map(
       (match) => match[1] ?? "",
     );
@@ -1187,12 +1187,11 @@ describe("Blocks added, deleted and moved", () => {
     expect(anchors).toContain(bookmarkIn(terms));
     expect(bookmarkIn(terms)).not.toBe("_Toc90000001");
     expect(terms).toContain('w:name="_Toc90000001"');
-    expect(part("word/settings.xml")).toContain('<w:updateFields w:val="true"/>');
-    expect(part("word/_rels/document.xml.rels")).toContain("settings.xml");
-    expect(part("[Content_Types].xml")).toContain("/word/settings.xml");
+    expect(document).not.toContain("w:dirty");
+    expect(files.get("word/settings.xml")).toBeUndefined();
   });
 
-  test("w:updateFields is written in its schema position in an existing settings part, not at the end (#1935)", async () => {
+  test("adding a table of contents to a Word file leaves an existing settings part without w:updateFields (#1935)", async () => {
     const settings = `<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:alwaysMergeEmptyNamespace/><w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr><w:compat/></w:settings>`;
     const { core, mindId, client } = await setUp({
       body: paragraph("Scope", { style: "Heading1" }) + paragraph("Body."),
@@ -1207,12 +1206,9 @@ describe("Blocks added, deleted and moved", () => {
     editMind(client, (blocks) => [{ type: "tableOfContents" }, ...blocks]);
     await client.settled();
 
-    const { part } = await exported(core, mindId);
-    const written = part("word/settings.xml");
-    const at = written.indexOf('<w:updateFields w:val="true"/>');
-    expect(at).toBeGreaterThan(written.indexOf("w:alwaysMergeEmptyNamespace"));
-    expect(at).toBeLessThan(written.indexOf("w:footnotePr"));
-    expect(at).toBeLessThan(written.indexOf("w:compat"));
+    const { document, part } = await exported(core, mindId);
+    expect(document).not.toContain("w:dirty");
+    expect(part("word/settings.xml")).not.toContain("w:updateFields");
   });
 
   test("a new paragraph with a Citation goes after the one before it, in its look; the Citation is a footnote", async () => {
