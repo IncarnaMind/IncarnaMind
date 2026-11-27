@@ -2327,6 +2327,7 @@ export function createCore(adapters: CoreAdapters): Core {
     now,
     requireMind: (mindId) => writableMind(mindId).id,
     recordAiUse: (inputs) => void aiUse.record(inputs),
+    checkpoint: (mindId) => checkpoints.save(mindId, "accept"),
     reportError: (mindId, error) =>
       console.error(`AI use recording failed for Mind ${mindId}:`, error),
   });

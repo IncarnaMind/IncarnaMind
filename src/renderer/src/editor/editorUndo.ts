@@ -185,12 +185,37 @@ export function offerEditorUndo(
   shownAt?: string,
   onUndone?: () => void,
   onRedone?: () => void,
-  also: { name?: Words; hidden?: () => boolean } = {},
+  also: { name?: Words; hidden?: () => boolean; silent?: boolean } = {},
 ): EditorUndoOffer {
   const manager = undoStackOf(editor);
-  const last = manager?.undoStack.at(-1);
-  if (!manager || last === undefined) return Object.assign(() => undefined, { recheck() {} });
-  const reach = reachOf(editor, manager);
+  if (!manager) return Object.assign(() => undefined, { recheck() {} });
+  return offerWith(manager, reachOf(editor, manager), said, shownAt, onUndone, onRedone, also);
+}
+
+/** Puts a kept tab history's last step on the app's undo stack, even while its tab is hidden (#3839). */
+export function offerHistoryUndo(
+  manager: UndoStack,
+  said: WordsInLine,
+  shownAt?: string,
+  onUndone?: () => void,
+  onRedone?: () => void,
+  also: { name?: Words; hidden?: () => boolean; silent?: boolean } = {},
+): EditorUndoOffer {
+  if (!keptHistory(manager)) return Object.assign(() => undefined, { recheck() {} });
+  return offerWith(manager, keptReach(manager), said, shownAt, onUndone, onRedone, also);
+}
+
+function offerWith(
+  manager: UndoStack,
+  reach: Reach,
+  said: WordsInLine,
+  shownAt?: string,
+  onUndone?: () => void,
+  onRedone?: () => void,
+  also: { name?: Words; hidden?: () => boolean; silent?: boolean } = {},
+): EditorUndoOffer {
+  const last = manager.undoStack.at(-1);
+  if (last === undefined) return Object.assign(() => undefined, { recheck() {} });
   let step = last;
   /** What brings the step back, on the note's redo stack, while it is taken back. */
   let reversal: UndoStep | undefined;
@@ -256,7 +281,8 @@ export function offerEditorUndo(
   manager.on("stack-cleared", onCleared);
   const stopTaken = onTakenOut(manager, onCleared);
   const stopEnd = reach.onEnd(forget);
-  useUndo.getState().push(change);
+  if (also.silent) useUndo.getState().offer(change);
+  else useUndo.getState().push(change);
   sight.recheck();
   return Object.assign(forget, { change, recheck: sight.recheck });
 }
@@ -359,7 +385,19 @@ function listenTo(manager: UndoStack, reach: Reach): Following {
 export function followSteps(editor: Editor, first: readonly UndoStep[]): NoteSteps | null {
   const manager = undoStackOf(editor);
   if (!manager) return null;
-  const reach = reachOf(editor, manager);
+  return followWith(manager, reachOf(editor, manager), first);
+}
+
+/** Follows steps in a kept tab history, even while no editor shows the tab (#3839). */
+export function followStepsInHistory(
+  manager: UndoStack,
+  first: readonly UndoStep[],
+): NoteSteps | null {
+  if (!keptHistory(manager)) return null;
+  return followWith(manager, keptReach(manager), first);
+}
+
+function followWith(manager: UndoStack, reach: Reach, first: readonly UndoStep[]): NoteSteps {
   let gone = false;
   const ended = () => gone || !reach.lasts();
   const done = new Set(first);

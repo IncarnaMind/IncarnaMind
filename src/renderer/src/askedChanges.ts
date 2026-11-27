@@ -26,6 +26,7 @@ import { askedFor } from "../../shared/askedChanges";
 import {
   type AppliedAsked,
   applyArrived,
+  applyArrivedInHistory,
   canReviewApplied,
   coreApplicationStatus,
   onAskedApplied,
@@ -40,10 +41,12 @@ import { type ChangedMind, changedMinds } from "./changedMinds";
 import { changeFact } from "./changeFacts";
 import { core } from "./core";
 import type { FollowedSteps } from "./editor/editorUndo";
+import { historyEditor } from "./editor/keptHistories";
 import { mindEditor, onMindEditorOpen, whenMindEditor } from "./editor/openEditors";
 import { applyingIn, editorDoc, setApplying } from "./editor/proposalReview";
 import { currentTabOf, sameTabItem } from "./layoutSlice";
 import { useAppStore } from "./store";
+import { keptTabCopy, tabCopyNow } from "./tabCopies";
 import { answerUndoPlace, type Undoable, UndoRefused, undoSettled, useUndo } from "./undo";
 
 export type AskedOutcome = "applied" | "held" | "undone";
@@ -572,10 +575,59 @@ export async function applyTurn(
   turnId: string,
   row: ChangedMind,
   factsOf: (requests: ReadonlySet<string>) => ChangedMind,
-  { made, created, askedFrom }: { made: boolean; created: boolean; askedFrom: TabItem | null },
+  {
+    made,
+    created,
+    askedFrom,
+    askedTabId,
+  }: { made: boolean; created: boolean; askedFrom: TabItem | null; askedTabId?: string },
 ): Promise<void> {
-  const editor = mindEditor(row.mindId);
+  const preferredHistory = askedTabId
+    ? (tabCopyNow(askedTabId, row.mindId)?.history ?? null)
+    : null;
+  const editor =
+    (preferredHistory ? historyEditor(preferredHistory) : null) ?? mindEditor(row.mindId);
   if (!editor) {
+    const kept = keptTabCopy(row.mindId, askedTabId);
+    if (kept) {
+      const requests = askedOf(kept.doc, row);
+      if (requests.size === 0) {
+        useAskedChanges.setState((state) => {
+          const { [row.mindId]: _gone, ...rest } = state.outcomes[turnId] ?? {};
+          return { outcomes: { ...state.outcomes, [turnId]: rest } };
+        });
+        return;
+      }
+      const facts = factsOf(requests);
+      const each: Asked = {
+        answerId: turnId,
+        mindId: row.mindId,
+        requests,
+        requested: row.requests,
+        facts,
+        applied: null,
+        application: null,
+      };
+      asked.set(keyOf(turnId, row.mindId), each);
+      if (
+        applyArrivedInHistory(kept.doc, kept.history, row.mindId, requests, facts, {
+          turn: turnId,
+        }) === "held"
+      ) {
+        setOutcome(each, "held");
+      }
+      // An assistant Answer opens the changed Note beside the one in view; a Note-input turn never
+      // pulls focus back from the tab the User moved to (#3839).
+      if (!askedTabId) {
+        const stillThere = sameTabItem(
+          currentTabOf(useAppStore.getState().layout)?.item ?? null,
+          askedFrom,
+        );
+        const behind = made && (!created || !stillThere);
+        await openBeside(row.mindId, behind);
+      }
+      return;
+    }
     const application = await core.applyAskedChanges({
       answerId: turnId,
       mindId: row.mindId,

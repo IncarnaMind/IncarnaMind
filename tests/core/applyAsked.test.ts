@@ -119,6 +119,8 @@ describe("Applying an assistant's changes in the core", () => {
     if (!application) throw new Error("Nothing was applied.");
     expect(application.held).toBe(false);
     expect(await core.listAiUse(mind.id)).toHaveLength(1);
+    const { checkpoints } = await core.listCheckpoints(mind.id);
+    expect(checkpoints.some((each) => each.reason === "accept")).toBe(true);
     const review = new Y.Doc();
     Y.applyUpdate(review, application.reviewBefore);
     expect(pendingProposals(review.getXmlFragment(MIND_CONTENT_FIELD)).length).toBeGreaterThan(0);
@@ -214,6 +216,11 @@ describe("Applying an assistant's changes in the core", () => {
     expect(application.held).toBe(true);
     expect(await held.core.undoAskedChanges(application.undoId)).toBeNull();
     expect(await held.core.listAiUse(held.mind.id)).toHaveLength(0);
+    expect(
+      (await held.core.listCheckpoints(held.mind.id)).checkpoints.filter(
+        (each) => each.reason === "accept",
+      ),
+    ).toHaveLength(0);
     const heldState = await readState(held.core, held.mind.id);
     expect(textOf(heldState)).toBe("The quarter was good. Sales rose and the margin held.");
     expect(pendingProposals(heldState.getXmlFragment(MIND_CONTENT_FIELD)).length).toBeGreaterThan(

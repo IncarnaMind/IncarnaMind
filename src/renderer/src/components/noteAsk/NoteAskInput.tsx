@@ -131,9 +131,11 @@ export function NoteAskInput({
           onChange={(event) => onWords(event.target.value)}
           onCompositionStart={(event) => {
             const element = event.currentTarget;
+            element.setAttribute("data-composing", "");
             composing.current = { words: element.value, at: element.selectionStart };
           }}
-          onCompositionEnd={() => {
+          onCompositionEnd={(event) => {
+            event.currentTarget.removeAttribute("data-composing");
             composing.current = null;
           }}
           onKeyDown={onKeyDown}

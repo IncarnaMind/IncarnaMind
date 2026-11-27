@@ -3610,9 +3610,11 @@ export function createAgentAccess(
         );
         // A copy of a Note the agent wrote is the User's: its changes wait there (#3371).
         const own = wrote(pairing, mind.id);
-        // The Note the User asked from at its foot takes the change at once, as an edit asked of
-        // the assistant does; with words selected, only a change inside them (ADR-0034).
-        const front = own ? null : madeFor;
+        // A Note asked from at its foot applies through the turn's Undo in that window, whether
+        // the User or the agent wrote the Note (#3839); outside that, an agent's own Note applies
+        // immediately in core (#3371).
+        const front = madeFor;
+        const immediateOwn = own && madeFor === null;
         let askedHere = false;
         const naming = namingOf(own);
         const key = versionKey(pairing, mind.id);
@@ -3667,11 +3669,11 @@ export function createAgentAccess(
             notFound: t("agents.answer.notFound"),
             visuals,
             newId: deps.newId,
-            ...(own && { checkpoint: () => deps.checkpoint(mind.id) }),
+            ...(immediateOwn && { checkpoint: () => deps.checkpoint(mind.id) }),
             ...(askedHere && { own: requestOwn }),
           });
           const kinds = changeKinds(blocks, mine);
-          if (own) decideProposals(blocks, mine, "accept");
+          if (immediateOwn) decideProposals(blocks, mine, "accept");
           if (askedHere) {
             ownPending.add(request);
             requestOwn.add(request);
@@ -3694,7 +3696,7 @@ export function createAgentAccess(
         let written: ReturnType<typeof write>;
         let step: string | null = null;
         try {
-          if (own) ({ value: written, step } = deps.editOwnMind(mind.id, write));
+          if (immediateOwn) ({ value: written, step } = deps.editOwnMind(mind.id, write));
           else written = deps.editMind(mind.id, write);
         } catch (error) {
           if (error instanceof ChangeRefused) {
@@ -3710,17 +3712,14 @@ export function createAgentAccess(
           );
         }
         deps.versions.set(key, written.now.version);
-        // A Note the agent wrote, asked from at its foot, took the change already: the line counts it.
-        const ownFront = own && madeFor !== null && step !== null;
-        if ((askedHere || ownFront) && hears) {
+        if (askedHere && hears) {
           hears.asked({
             mindId: mind.id,
             request,
             ...(written.moved ?? countsOf(written.kinds)),
-            ...(ownFront && { own: true as const }),
           });
         }
-        if (own && step !== null) {
+        if (immediateOwn && step !== null) {
           deps.noteChanged({
             mindId: mind.id,
             agent: pairing.name,
@@ -3731,13 +3730,13 @@ export function createAgentAccess(
         }
         const citations = [...tokens.values()].map((each) => each.report);
         const { markdown, nextOffset } = page(mind, written.now.text, 0);
-        const left = own ? deps.checkTask(mind.id, inScope) : null;
+        const left = immediateOwn ? deps.checkTask(mind.id, inScope) : null;
         const unchecked = left?.ok ? left.value.sentences.length : 0;
         return {
           result: {
             mindId: mind.id,
-            status: own || askedHere ? "applied" : "waiting",
-            waiting: own || askedHere ? 0 : written.waiting,
+            status: immediateOwn || askedHere ? "applied" : "waiting",
+            waiting: immediateOwn || askedHere ? 0 : written.waiting,
             ...(front !== null && !askedHere && { why: t("agents.propose.outsideSelection") }),
             waitingInNote: written.waitingInNote,
             markdown,
@@ -3750,7 +3749,7 @@ export function createAgentAccess(
             next: leftToCheck(unchecked, false),
           },
           // An activity row of changes that applied at once counts none waiting: null says so.
-          count: own || askedHere ? null : written.waiting,
+          count: immediateOwn || askedHere ? null : written.waiting,
           documentIds: [...tokens.values()].flatMap((each) =>
             each.cited ? [each.cited.minted.documentId] : [],
           ),

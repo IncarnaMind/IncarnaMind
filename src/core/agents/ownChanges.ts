@@ -8,6 +8,7 @@
  * it can still be restored.
  */
 import * as Y from "yjs";
+import { agentOwnChangeRequestId } from "../../shared/agentOwnChanges";
 import { originMaps } from "../../shared/blockOrigins";
 import {
   type AgentChangeStep,
@@ -123,9 +124,14 @@ export function createOwnChanges(
         ],
         { captureTimeout: 0, trackedOrigins: new Set([origin]) },
       );
+      const id = newId();
       let value: T;
       try {
-        value = content.edit(mindId, change, origin);
+        value = content.edit(mindId, change, origin, {
+          requestId: agentOwnChangeRequestId(mindId),
+          request: id,
+          apply: true,
+        });
       } catch (error) {
         manager.destroy();
         throw error;
@@ -134,7 +140,6 @@ export function createOwnChanges(
         manager.destroy();
         return { value, step: null };
       }
-      const id = newId();
       forget(note.undone.splice(0));
       note.done.push({ id, manager });
       forget(note.done.splice(0, Math.max(0, note.done.length - MAX_STEPS)));

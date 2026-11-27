@@ -241,6 +241,9 @@ function apply(editor: Editor, mindId: string, doc: Y.Doc, plans: CorrectionPlan
   );
   const tr = editor.state.tr;
   if (!writeCorrections(tr, plans)) return 0;
+  core
+    .saveCheckpoint(mindId, "accept")
+    .catch((error: unknown) => useNotices.getState().showError(error));
   asOneStep(editor, () => editor.view.dispatch(tr));
   const corrected = plans.filter((plan) =>
     claimSpans(editor.state.doc).some((span) => span.check.id === plan.claim.check.id),

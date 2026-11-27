@@ -3,6 +3,7 @@ import type { EditMenuState } from "../../../shared/bridge";
 import { files } from "../core";
 import { noteAround } from "../editor/noteKeymap";
 import { redoInNote, undoInNote } from "../editor/noteUndoKeys";
+import { mindEditor } from "../editor/openEditors";
 import { useT } from "../i18n";
 import type { Translate } from "../objects";
 import { nextToRedo, nextToUndo, typesText, type Undoable, undoReady, useUndo } from "../undo";
@@ -14,7 +15,17 @@ import { type Command, type CommandContext, fromMenu } from "./registry";
  * own to take back; a field's own in a field; and the app's changes everywhere
  * else. ⌘K runs them on what ⌘Z would there.
  */
+/** An empty Note input with no IME composition open delegates Undo and Redo to its Note (#3839). */
+function emptyNoteAskMind(focus: Element | null): string | null {
+  if (!focus || focus.tagName !== "TEXTAREA") return null;
+  const textarea = focus as HTMLTextAreaElement;
+  const mindId = textarea.getAttribute("data-note-ask-input");
+  if (!mindId || textarea.value !== "" || textarea.hasAttribute("data-composing")) return null;
+  return mindId;
+}
+
 export function placeAt(focus: Element | null): EditMenuState["text"] {
+  if (emptyNoteAskMind(focus) !== null && noteHere(focus)) return "note";
   const typing = typesText(focus);
   if (typing && !(focus instanceof HTMLElement && focus.isContentEditable)) return "field";
   // A chart's buttons and values (#436) are in the note, though not text: ⌘Z there takes back the note's change.
@@ -31,6 +42,13 @@ function placeOf(ctx: CommandContext): EditMenuState["text"] {
 
 // A reviewing pane's note is the one in its own Mind tab (#697): the tab beside may show the same Mind.
 function noteHere(focus: Element | null) {
+  const askMind = emptyNoteAskMind(focus);
+  if (askMind !== null) {
+    const page = focus?.closest(".mind-tab-page");
+    return (
+      noteAround(page?.querySelector('[data-testid="mind-editor"]') ?? null) ?? mindEditor(askMind)
+    );
+  }
   const tab = focus?.closest("[data-review-of]")?.closest(".mind-tab-row");
   return noteAround(tab?.querySelector('[data-testid="mind-editor"]') ?? focus);
 }

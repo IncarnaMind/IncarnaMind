@@ -36,9 +36,12 @@ import { INLINE_NODE } from "../../src/shared/sentences";
  * are refused, and the card leads with asking the AI instead.
  */
 
-const { recordAiUse } = vi.hoisted(() => ({ recordAiUse: vi.fn(() => Promise.resolve([])) }));
+const { recordAiUse, saveCheckpoint } = vi.hoisted(() => ({
+  recordAiUse: vi.fn(() => Promise.resolve([])),
+  saveCheckpoint: vi.fn(() => Promise.resolve(undefined)),
+}));
 vi.mock("../../src/renderer/src/core", () => ({
-  core: { recordAiUse, checkSentences: () => Promise.resolve({ kind: "checked" }) },
+  core: { recordAiUse, saveCheckpoint, checkSentences: () => Promise.resolve({ kind: "checked" }) },
 }));
 const edits = vi.hoisted(() => ({ pending: {} as Record<string, unknown> }));
 vi.mock("../../src/renderer/src/editWithAi", () => ({
@@ -205,6 +208,7 @@ const errors = () => useNotices.getState().errors.map((each) => each.message);
 
 beforeEach(() => {
   recordAiUse.mockClear();
+  saveCheckpoint.mockClear();
   edits.pending = {};
   useChecks.setState({ running: {} });
   useNotices.setState({ errors: [], confirmation: null });
@@ -221,6 +225,7 @@ describe("Accept writes the change and keeps every Citation and figure where it 
 
     expect(acceptChange(editor, MIND, doc, claim(editor), false)).toBe(true);
 
+    expect(saveCheckpoint).toHaveBeenCalledWith(MIND, "accept");
     expect(claim(editor).sentence.text).toBe(text.replace(replace, written));
     expect(claim(editor).shown.state).toBe("needs-recheck");
   });
@@ -357,6 +362,7 @@ describe("a change that can't be written is never offered", () => {
 
       expect(editor.state.doc.toJSON()).toEqual(before);
       expect(errors()).toEqual(["claim.change.inside"]);
+      expect(saveCheckpoint).not.toHaveBeenCalled();
     },
   );
 

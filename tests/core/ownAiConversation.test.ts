@@ -2414,6 +2414,39 @@ describe("a request at a Note's foot, on the User's own Claude Code (#3627)", ()
       db.close();
     }
   });
+
+  // protects=a Note-input request on a Note the agent wrote routes propose_changes through the turn's asked-changes path (never own: true / immediate core write), so the window's Undo stack runs newest-first across User typing and AI edits (#3839); fails_when=the change applies immediately in core with own: true and bypasses the tab's Undo order
+  it("routes Note-input edits on an AI-created Note through asked-changes instead of immediate ownChanges", async () => {
+    const run = runner(async (agent, request) => {
+      const done = await rewrite(agent, mindIdOf(request), [
+        [FERRY, "The ferry carried 212,000 riders in 2025."],
+      ]);
+      expect(done).toMatchObject({ status: "applied" });
+      return { kind: "finished", reply: "Updated passengers to riders." };
+    });
+    const { core, claude, turns, ended } = await written(run.adapter);
+    const outside = await connectLegacyAgent(claude.launch);
+    const created = structured<{ mindId: string }>(
+      await outside.callTool({
+        name: "create_mind",
+        arguments: { title: "Agent draft", markdown: FERRY },
+      }),
+    );
+    const changedEvents: unknown[] = [];
+    core.on("agents.noteChanged", (change) => {
+      if (change.mindId === created.mindId && change.kind === "changed") changedEvents.push(change);
+    });
+
+    await core.askInNote({ mindId: created.mindId, words: "say riders instead of passengers" });
+    const end = await ended();
+    expect(end).toMatchObject({ state: "landed", mindId: created.mindId });
+    expect(end?.applied).toHaveLength(1);
+    expect(end?.applied[0]?.own).toBeUndefined();
+    expect(changedEvents).toEqual([]);
+    expect(turns.some((turn) => turn.mindId === created.mindId && turn.state === "landed")).toBe(
+      true,
+    );
+  });
 });
 
 describe("what the User's own AI asks in a Note's conversation, and does with its own tools (#3653)", () => {

@@ -501,7 +501,11 @@ async function run(message) {
       });
       return;
     }
-    if (mode === "summary") {
+    if (mode === "summary" || mode === "summary-gated") {
+      if (mode === "summary-gated") {
+        sayText(chinese ? "正在查看你的笔记。" : "Looking at your note.");
+        await gate(1);
+      }
       // As the instructions say: in a note with no named paragraph, the whole note from its top;
       // otherwise at its end.
       const read = await use("read_mind", { mindId, named: true });

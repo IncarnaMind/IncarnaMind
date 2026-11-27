@@ -47,6 +47,7 @@ interface AskedChangesOptions {
   now(): string;
   requireMind(mindId: unknown): string;
   recordAiUse(inputs: RecordAiUseInput[]): void;
+  checkpoint?(mindId: string): void;
   reportError(mindId: string, error: unknown): void;
 }
 
@@ -138,6 +139,7 @@ export function createAskedChanges(content: MindContent, options: AskedChangesOp
               held: true,
             };
           }
+          options.checkpoint?.(mindId);
           const reviewBefore = Y.encodeStateAsUpdate(doc);
           const scope = [blocks, ...originMaps(doc), doc.getMap(MIND_REVISIONS_FIELD)];
           const manager = new Y.UndoManager(scope, {

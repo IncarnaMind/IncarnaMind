@@ -193,6 +193,8 @@ function keepTrail(event: NoteTurnEvent): void {
 
 /** The turns this window asked for, whose changes it applies. */
 const askedHere = new Set<string>();
+/** The tab a turn asked here came from, so its changes land on that tab's kept history (#3839). */
+const askedTab = new Map<string, string>();
 /** What this window sent into a running request, by its turn, for when its AI takes it (#3765). */
 const sentHere = new Map<string, NoteAsked>();
 
@@ -262,6 +264,7 @@ function heard(event: NoteTurnEvent): void {
     // Not the line's, an ended request asked here still has its changes applied.
     if (event.state === "stopped") {
       askedHere.delete(event.turnId);
+      askedTab.delete(event.turnId);
       sentHere.delete(event.turnId);
     } else if (event.state !== "working") applyEnded(event);
     return;
@@ -271,6 +274,7 @@ function heard(event: NoteTurnEvent): void {
   // Stopped, the request leaves nothing behind: no line, no reply (#3677).
   if (event.state === "stopped") {
     askedHere.delete(event.turnId);
+    askedTab.delete(event.turnId);
     sentHere.delete(event.turnId);
     put(event.mindId, null);
     return;
@@ -307,6 +311,8 @@ function heard(event: NoteTurnEvent): void {
 /** An ended request asked in this window: its changes in the Notes, applied here once. */
 function applyEnded(event: NoteTurnEvent): void {
   if (!askedHere.delete(event.turnId)) return;
+  const askedTabId = askedTab.get(event.turnId);
+  askedTab.delete(event.turnId);
   sentHere.delete(event.turnId);
   // Claude Code no longer had the Note's conversation, so this request began a new one.
   if (event.fresh) useNotices.getState().confirm("noteAsk.fresh");
@@ -328,6 +334,7 @@ function applyEnded(event: NoteTurnEvent): void {
             made: false,
             created: false,
             askedFrom,
+            ...(askedTabId && { askedTabId }),
           });
         }),
       );
@@ -356,6 +363,7 @@ export function listen(): void {
 export async function askInNote(
   mindId: string,
   asked: NoteAsked,
+  tabId?: string,
 ): Promise<"started" | "sent" | "busy" | "problem" | "link"> {
   listen();
   const model = useNoteColumns.getState().model[mindId];
@@ -379,6 +387,7 @@ export async function askInNote(
   }
   if (start.kind === "sent") {
     askedHere.add(start.turnId);
+    if (tabId) askedTab.set(start.turnId, tabId);
     sentHere.set(start.turnId, asked);
     // Shown at once, whether or not the core's word of it came first.
     const running = useNoteAsks.getState().byMind[mindId];
@@ -407,7 +416,10 @@ export async function askInNote(
     queued: [],
     asked,
   };
-  if (start.kind === "started") askedHere.add(start.turnId);
+  if (start.kind === "started") {
+    askedHere.add(start.turnId);
+    if (tabId) askedTab.set(start.turnId, tabId);
+  }
   const current = useNoteAsks.getState().byMind[mindId];
   // An event can arrive before the reply to the request: it wins.
   if (current?.turnId !== base.turnId || base.turnId === null) put(mindId, base);
@@ -421,6 +433,7 @@ export const stopInNote = (mindId: string): Promise<void> => core.stopInNote(min
 export async function discardInNote(mindId: string, turnId: string): Promise<void> {
   await core.discardInNote(mindId, turnId);
   sentHere.delete(turnId);
+  askedTab.delete(turnId);
   askedHere.delete(turnId);
   useNoteColumns.setState((state) => ({
     changed: { ...state.changed, [mindId]: (state.changed[mindId] ?? 0) + 1 },

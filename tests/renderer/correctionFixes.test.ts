@@ -47,11 +47,15 @@ import { INLINE_NODE } from "../../src/shared/sentences";
  * and Undo brings back the old words and their check.
  */
 
-const { recordAiUse } = vi.hoisted(() => ({ recordAiUse: vi.fn(() => Promise.resolve([])) }));
+const { recordAiUse, saveCheckpoint } = vi.hoisted(() => ({
+  recordAiUse: vi.fn(() => Promise.resolve([])),
+  saveCheckpoint: vi.fn(() => Promise.resolve(undefined)),
+}));
 const asked = vi.hoisted(() => ({ checks: [] as unknown[] }));
 vi.mock("../../src/renderer/src/core", () => ({
   core: {
     recordAiUse,
+    saveCheckpoint,
     checkSentences: (input: unknown) => {
       asked.checks.push(input);
       return Promise.resolve({ kind: "checked", sentences: 1, checked: 1, smallModel: false });
@@ -242,6 +246,7 @@ const generatedText = (editor: Editor) => {
 
 beforeEach(() => {
   recordAiUse.mockClear();
+  saveCheckpoint.mockClear();
   asked.checks.length = 0;
   useNotices.setState({ errors: [], confirmation: null });
 });
@@ -262,6 +267,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
+    expect(saveCheckpoint).toHaveBeenCalledWith("mind", "accept");
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
     expect(generatedText(editor)).toEqual(["38.6%"]);
     expect(citationsOf(editor)).toEqual([expect.objectContaining({ documentId: "report" })]);
@@ -407,6 +413,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
+    expect(saveCheckpoint).toHaveBeenCalledWith("mind", "accept");
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
     expect(citationsOf(editor).map((each) => each.documentId)).toEqual(["newer"]);
   });
@@ -443,6 +450,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
 
     expect(applyCorrection(editor, "mind", doc, claim(editor, "one"))).toBe(true);
 
+    expect(saveCheckpoint).toHaveBeenCalledWith("mind", "accept");
     expect(textOf(editor)).toBe(`The rate is 38.6%${INLINE_NODE}.`);
     await vi.waitFor(() =>
       expect(asked.checks).toEqual([
@@ -469,6 +477,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     expect(textOf(editor)).toBe("The rate was 36.8%.");
     expect(useNotices.getState().errors.at(-1)?.message).toBe("error.check.partChanged");
     expect(recordAiUse).not.toHaveBeenCalled();
+    expect(saveCheckpoint).not.toHaveBeenCalled();
     expect(asked.checks).toEqual([]);
   });
 
@@ -505,6 +514,7 @@ describe("Change to… replaces the words and checks the sentence again", () => 
     editor.on("update", () => updates++);
 
     expect(correctContradictions(editor, "mind", doc)).toBe(2);
+    expect(saveCheckpoint).toHaveBeenCalledWith("mind", "accept");
     expect(updates).toBe(1);
     expect(textOf(editor)).toBe(
       `The first rate is 38.6%${INLINE_NODE}.\nThe second rate is 38.6%${INLINE_NODE}.`,
